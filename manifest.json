@@ -1,0 +1,66 @@
+{
+    "name": "Sistema de Control de Asistencia",
+    "short_name": "Asistencia",
+    "description": "Sistema completo de control de asistencia para construcción con funcionalidad offline",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#0f172a",
+    "theme_color": "#06b6d4",
+    "orientation": "any",
+    "scope": "./",
+    "lang": "es-ES",
+    "dir": "ltr",
+    "icons": [
+        {
+            "src": "icon-144.png",
+            "sizes": "144x144",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": [
+        "business",
+        "productivity",
+        "utilities"
+    ],
+    "shortcuts": [
+        {
+            "name": "Registrar Asistencia",
+            "short_name": "Asistencia",
+            "description": "Marcar asistencia del día",
+            "url": "./index.html?tab=attendance",
+            "icons": [
+                {
+                    "src": "icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "Ver Dashboard",
+            "short_name": "Dashboard",
+            "description": "Ver estadísticas",
+            "url": "./index.html?tab=dashboard",
+            "icons": [
+                {
+                    "src": "icon-192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        }
+    ],
+    "related_applications": [],
+    "prefer_related_applications": false
+}

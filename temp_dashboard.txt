@@ -1,0 +1,75 @@
+function DashboardControls() {
+            const startDate = state.dashboardStartDate;
+            const endDate = state.dashboardEndDate;
+            
+            return `
+                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
+                    <!-- Selector de Gráfico -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
+                            📊 TIPO DE VISUALIZACIÓN
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
+                            <button onclick="setDashboardChart('attendance')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'attendance' ? 'active' : ''}">
+                                📈 Asistencia
+                            </button>
+                            <button onclick="setDashboardChart('hours')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'hours' ? 'active' : ''}">
+                                📊 Horas
+                            </button>
+                            <button onclick="setDashboardChart('positions')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'positions' ? 'active' : ''}">
+                                🍩 Posiciones
+                            </button>
+                            <button onclick="setDashboardChart('top10')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'top10' ? 'active' : ''}">
+                                🏆 Top 10
+                            </button>
+                            <button onclick="setDashboardChart('heatmap')" 
+                                    class="dashboard-chart-btn ${state.dashboardC\n\n====\n\nfunction DashboardControls() {
+            const startDate = state.dashboardStartDate;
+            const endDate = state.dashboardEndDate;
+            
+            return `
+                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
+                    <!-- Selector de Gráfico -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
+                            📊 TIPO DE VISUALIZACIÓN
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
+                            <button onclick="setDashboardChart('attendance')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'attendance' ? 'active' : ''}">
+                                📈 Asistencia
+                            </button>
+                            <button onclick="setDashboardChart('hours')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'hours' ? 'active' : ''}">
+                                📊 Horas
+                            </button>
+                            <button onclick="setDashboardChart('positions')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'positions' ? 'active' : ''}">
+                                🍩 Posiciones
+                            </button>
+                            <button onclick="setDashboardChart('top10')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'top10' ? 'active' : ''}">
+                                🏆 Top 10
+                            </button>
+                            <button onclick="setDashboardChart('heatmap')" 
+                                    class="dashboard-chart-btn ${state.dashboardChart === 'heatmap' ? 'active' : ''}">
+                                🔥 Mapa Calor
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Selector de Rango de Fechas -->
+                    <div style="margin-bottom: 20px;">
+                        <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
+                            📅 PERÍODO DE ANÁLISIS
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px;">
+                            <!-- Fecha Desde -->
+                            <div style="position: relative;">
+                                <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Desde:</label>
+                                <div class="date-display" onclick="toggleStartDatePicker()" 
+       

@@ -1,0 +1,450 @@
+-- ═══════════════════════════════════════════════════════════════════════
+-- PHOENIX - SCHEMA SQL v3 (CAMPOS OPCIONALES)
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- FILOSOFÍA: "Solo es obligatorio lo que SIEMPRE necesitas"
+--
+-- CAMBIOS vs v2:
+-- ✅ Campos opcionales claramente marcados
+-- ✅ Defaults inteligentes
+-- ✅ Comentarios explicando cada decisión
+-- ✅ Índices optimizados
+-- ✅ Constraints de validación
+--
+-- COMPATIBILIDAD: 100% con backup JSON de Phoenix
+--
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PASO 1: ELIMINAR TODO LO EXISTENTE
+-- ═══════════════════════════════════════════════════════════════════════
+
+DROP TABLE IF EXISTS day_hours_config CASCADE;
+DROP TABLE IF EXISTS temp_assignments CASCADE;
+DROP TABLE IF EXISTS attendance_positions CASCADE;
+DROP TABLE IF EXISTS attendance CASCADE;
+DROP TABLE IF EXISTS deductions CASCADE;
+DROP TABLE IF EXISTS leaders CASCADE;
+DROP TABLE IF EXISTS employees CASCADE;
+DROP TABLE IF EXISTS positions CASCADE;
+DROP TABLE IF EXISTS settings CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PASO 2: CREAR TABLAS
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 1. TABLA DE PERFILES DE USUARIO
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE,
+  email TEXT,                          -- ✅ Opcional: viene de auth.users
+  full_name TEXT,                      -- ✅ Opcional
+  role TEXT DEFAULT 'user',
+  company_id UUID,                     -- ✅ Opcional: para multi-empresa
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  PRIMARY KEY (id)
+);
+
+COMMENT ON TABLE profiles IS 'Perfiles de usuario vinculados a Supabase Auth';
+COMMENT ON COLUMN profiles.company_id IS 'Opcional: para multi-empresa futura';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 2. TABLA DE POSICIONES (Oficios/Cargos)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE positions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  
+  -- Campos OBLIGATORIOS (sin estos no tiene sentido la posición)
+  name TEXT NOT NULL,                  -- ✅ OBLIGATORIO: Nombre del oficio
+  
+  -- Campos OPCIONALES (tienen defaults o pueden ser NULL)
+  color TEXT DEFAULT '#06b6d4',        -- Default: cyan
+  hourly_rate DECIMAL,                 -- ✅ Opcional: puede usar salary_config
+  working_days INTEGER[] DEFAULT '{1,2,3,4,5}',  -- Default: Lun-Vie
+  salary_config JSONB,                 -- ✅ Opcional: {amount, period, workDays}
+  base_salary DECIMAL DEFAULT 0,       
+  leader_id UUID,                      -- ✅ Opcional: referencia a leaders
+  active BOOLEAN DEFAULT true,
+  last_status_change DATE,             -- ✅ Opcional: solo si hubo cambio
+  status_history JSONB DEFAULT '[]',   -- Default: array vacío
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  
+  -- Constraints
+  CONSTRAINT check_hourly_rate_positive CHECK (hourly_rate IS NULL OR hourly_rate >= 0)
+);
+
+COMMENT ON TABLE positions IS 'Oficios o cargos (Maestro, Ayudante, etc)';
+COMMENT ON COLUMN positions.salary_config IS 'Opcional: {amount: 24000, period: "month", workDays: [1,2,3,4,5]}';
+COMMENT ON COLUMN positions.leader_id IS 'Opcional: UUID del líder asignado';
+COMMENT ON COLUMN positions.status_history IS 'Array de {date, active, timestamp}';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 3. TABLA DE LÍDERES (OPCIONAL - puede estar vacía)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE leaders (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  
+  -- Campos OBLIGATORIOS
+  number TEXT NOT NULL,                -- ✅ OBLIGATORIO: Número de líder
+  name TEXT NOT NULL,                  -- ✅ OBLIGATORIO: Nombre
+  
+  -- Campos OPCIONALES
+  active BOOLEAN DEFAULT true,
+  phone TEXT,                          -- ✅ Opcional
+  email TEXT,                          -- ✅ Opcional
+  notes TEXT,                          -- ✅ Opcional
+  last_status_change DATE,             -- ✅ Opcional
+  status_history JSONB DEFAULT '[]',
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  
+  UNIQUE(user_id, number)
+);
+
+COMMENT ON TABLE leaders IS 'Tabla OPCIONAL: Líderes de cuadrilla o supervisores';
+COMMENT ON COLUMN leaders.number IS 'Ejemplo: L-001, L-002';
+
+-- Ahora podemos agregar la foreign key en positions
+ALTER TABLE positions 
+  ADD CONSTRAINT fk_positions_leader 
+  FOREIGN KEY (leader_id) 
+  REFERENCES leaders(id) 
+  ON DELETE SET NULL;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 4. TABLA DE EMPLEADOS
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE employees (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  
+  -- Campos OBLIGATORIOS
+  number TEXT NOT NULL,                -- ✅ OBLIGATORIO: Número único
+  name TEXT NOT NULL,                  -- ✅ OBLIGATORIO: Nombre completo
+  positions UUID[] NOT NULL DEFAULT '{}',  -- ✅ Al menos debe tener 1 posición
+  
+  -- Campos OPCIONALES (salarios y configuración)
+  position_salaries JSONB DEFAULT '{}',    -- ✅ Opcional: {positionId: amount}
+  custom_salary DECIMAL,                   -- ✅ Opcional: sueldo especial general
+  custom_working_days JSONB DEFAULT '{}',  -- ✅ Opcional: {positionId: [1,2,3]}
+  
+  -- Campos OPCIONALES (información personal)
+  hire_date DATE,                      -- ✅ Opcional: fecha de contratación
+  phone TEXT,                          -- ✅ Opcional
+  email TEXT,                          -- ✅ Opcional
+  notes TEXT,                          -- ✅ Opcional
+  
+  -- Campos de estado
+  active BOOLEAN DEFAULT true,
+  last_payment_date DATE,              -- ✅ Opcional
+  last_status_change DATE,             -- ✅ Opcional
+  status_history JSONB DEFAULT '[]',
+  
+  created_date TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  
+  UNIQUE(user_id, number),
+  
+  -- Constraints
+  CONSTRAINT check_custom_salary_positive CHECK (custom_salary IS NULL OR custom_salary >= 0),
+  CONSTRAINT check_has_positions CHECK (array_length(positions, 1) > 0)
+);
+
+COMMENT ON TABLE employees IS 'Empleados del sistema';
+COMMENT ON COLUMN employees.position_salaries IS 'Opcional: salarios personalizados por posición';
+COMMENT ON COLUMN employees.custom_salary IS 'Opcional: sueldo especial que anula position_salaries';
+COMMENT ON COLUMN employees.positions IS 'Array de UUIDs de posiciones (mínimo 1)';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 5. TABLA DE ASISTENCIA
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE attendance (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  
+  -- Campos OBLIGATORIOS
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  date DATE NOT NULL,                  -- ✅ OBLIGATORIO
+  present BOOLEAN NOT NULL,            -- ✅ OBLIGATORIO: true/false
+  
+  -- Campos OPCIONALES (horas y detalles)
+  hours_worked DECIMAL,                -- ✅ Opcional: NULL si ausente
+  overtime_hours DECIMAL DEFAULT 0,
+  is_holiday BOOLEAN DEFAULT false,
+  position_id UUID REFERENCES positions(id),  -- ✅ Opcional: posición principal
+  use_temp_position BOOLEAN DEFAULT false,
+  multi_position BOOLEAN DEFAULT false,   -- ✅ NUEVO: Indica si trabajó múltiples posiciones
+  selected_position UUID REFERENCES positions(id),  -- ✅ NUEVO: Posición principal seleccionada
+  notes TEXT,                          -- ✅ Opcional
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  
+  UNIQUE(employee_id, date),
+  
+  -- Constraints
+  CONSTRAINT check_hours_positive CHECK (hours_worked IS NULL OR hours_worked >= 0),
+  CONSTRAINT check_overtime_positive CHECK (overtime_hours >= 0)
+);
+
+COMMENT ON TABLE attendance IS 'Asistencia diaria de empleados';
+COMMENT ON COLUMN attendance.present IS 'OBLIGATORIO: true si vino, false si no vino';
+COMMENT ON COLUMN attendance.hours_worked IS 'Opcional: NULL si no trabajó';
+COMMENT ON COLUMN attendance.is_holiday IS 'Indica si fue día festivo';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 6. TABLA DE HORAS POR POSICIÓN (Detalle cuando trabaja múltiples oficios)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE attendance_positions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  
+  -- Campos OBLIGATORIOS
+  attendance_id UUID NOT NULL REFERENCES attendance(id) ON DELETE CASCADE,
+  position_id UUID NOT NULL REFERENCES positions(id),
+  hours DECIMAL NOT NULL,              -- ✅ OBLIGATORIO
+  
+  -- Campos OPCIONALES
+  overtime_hours DECIMAL DEFAULT 0,
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  
+  -- Constraints
+  CONSTRAINT check_position_hours_positive CHECK (hours >= 0),
+  CONSTRAINT check_position_overtime_positive CHECK (overtime_hours >= 0)
+);
+
+COMMENT ON TABLE attendance_positions IS 'Detalle de horas cuando trabaja múltiples oficios el mismo día';
+COMMENT ON COLUMN attendance_positions.hours IS 'Horas trabajadas en esta posición específica';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 7. TABLA DE ASIGNACIONES TEMPORALES (OPCIONAL - puede estar vacía)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE temp_assignments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  position_id UUID NOT NULL REFERENCES positions(id),
+  start_date DATE,                     -- ✅ Opcional
+  end_date DATE,                       -- ✅ Opcional
+  notes TEXT,                          -- ✅ Opcional
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+COMMENT ON TABLE temp_assignments IS 'OPCIONAL: Asignaciones temporales de posición';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 8. TABLA DE CONFIGURACIÓN DE HORAS POR DÍA (OPCIONAL - puede estar vacía)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE day_hours_config (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  hours DECIMAL,                       -- ✅ Opcional
+  notes TEXT,                          -- ✅ Opcional
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, date)
+);
+
+COMMENT ON TABLE day_hours_config IS 'OPCIONAL: Configuración de horas especiales por día';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 9. TABLA DE DEDUCCIONES (OPCIONAL - puede estar vacía)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE deductions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  percentage DECIMAL,                  -- ✅ Opcional
+  applies_to_next BOOLEAN DEFAULT false,
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+COMMENT ON TABLE deductions IS 'OPCIONAL: Deducciones de nómina';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- 10. TABLA DE CONFIGURACIÓN GLOBAL
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CREATE TABLE settings (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE UNIQUE,
+  
+  -- Campos OPCIONALES (todos tienen defaults)
+  company_name TEXT,
+  regular_hours_per_day INTEGER DEFAULT 8,
+  overtime_factor DECIMAL DEFAULT 1.5,
+  holiday_factor DECIMAL DEFAULT 2,
+  default_deduction_percentage DECIMAL DEFAULT 2,
+  global_payment_day INTEGER,          -- ✅ Opcional: día del mes (1-31)
+  holidays DATE[] DEFAULT '{}',
+  last_payment_date DATE,              -- ✅ Opcional
+  next_payment_date DATE,              -- ✅ Opcional
+  calendar_marker_mode TEXT DEFAULT 'holiday',
+  
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  
+  -- Constraints
+  CONSTRAINT check_hours_valid CHECK (regular_hours_per_day BETWEEN 1 AND 24),
+  CONSTRAINT check_payment_day_valid CHECK (global_payment_day IS NULL OR global_payment_day BETWEEN 1 AND 31)
+);
+
+COMMENT ON TABLE settings IS 'Configuración global del sistema (1 por usuario)';
+COMMENT ON COLUMN settings.global_payment_day IS 'Opcional: Día del mes para pago (1-31)';
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PASO 3: CREAR ÍNDICES OPTIMIZADOS
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- Índices para búsquedas frecuentes
+CREATE INDEX idx_attendance_employee_date ON attendance(employee_id, date DESC);
+CREATE INDEX idx_attendance_date ON attendance(date DESC);
+CREATE INDEX idx_attendance_user ON attendance(user_id);
+CREATE INDEX idx_attendance_holiday ON attendance(is_holiday) WHERE is_holiday = true;
+
+CREATE INDEX idx_attendance_positions_attendance ON attendance_positions(attendance_id);
+CREATE INDEX idx_attendance_positions_position ON attendance_positions(position_id);
+
+CREATE INDEX idx_employees_user ON employees(user_id);
+CREATE INDEX idx_employees_active ON employees(active) WHERE active = true;
+CREATE INDEX idx_employees_number ON employees(user_id, number);
+
+CREATE INDEX idx_positions_user ON positions(user_id);
+CREATE INDEX idx_positions_leader ON positions(leader_id);
+CREATE INDEX idx_positions_active ON positions(active) WHERE active = true;
+
+CREATE INDEX idx_leaders_user ON leaders(user_id);
+CREATE INDEX idx_leaders_active ON leaders(active) WHERE active = true;
+
+CREATE INDEX idx_temp_assignments_employee ON temp_assignments(employee_id);
+CREATE INDEX idx_temp_assignments_dates ON temp_assignments(start_date, end_date);
+
+CREATE INDEX idx_day_hours_config_date ON day_hours_config(user_id, date);
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PASO 4: HABILITAR ROW LEVEL SECURITY (RLS)
+-- ═══════════════════════════════════════════════════════════════════════
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE positions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leaders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_positions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE temp_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE day_hours_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deductions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PASO 5: CREAR POLICIES (SEGURIDAD)
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- PROFILES
+CREATE POLICY "Users can view own profile" 
+  ON profiles FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile" 
+  ON profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+-- POSITIONS
+CREATE POLICY "Users see own positions" 
+  ON positions FOR ALL
+  USING (user_id = auth.uid());
+
+-- LEADERS
+CREATE POLICY "Users see own leaders" 
+  ON leaders FOR ALL
+  USING (user_id = auth.uid());
+
+-- EMPLOYEES
+CREATE POLICY "Users see own employees" 
+  ON employees FOR ALL
+  USING (user_id = auth.uid());
+
+-- ATTENDANCE
+CREATE POLICY "Users see own attendance" 
+  ON attendance FOR ALL
+  USING (user_id = auth.uid());
+
+-- ATTENDANCE_POSITIONS
+CREATE POLICY "Users see own attendance positions" 
+  ON attendance_positions FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM attendance a 
+      WHERE a.id = attendance_positions.attendance_id 
+      AND a.user_id = auth.uid()
+    )
+  );
+
+-- TEMP_ASSIGNMENTS
+CREATE POLICY "Users see own temp assignments" 
+  ON temp_assignments FOR ALL
+  USING (user_id = auth.uid());
+
+-- DAY_HOURS_CONFIG
+CREATE POLICY "Users see own day hours config" 
+  ON day_hours_config FOR ALL
+  USING (user_id = auth.uid());
+
+-- DEDUCTIONS
+CREATE POLICY "Users see own deductions" 
+  ON deductions FOR ALL
+  USING (user_id = auth.uid());
+
+-- SETTINGS
+CREATE POLICY "Users see own settings" 
+  ON settings FOR ALL
+  USING (user_id = auth.uid());
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- PASO 6: CREAR TRIGGERS Y FUNCIONES
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- Función para crear perfil automáticamente
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (new.id, new.email, new.raw_user_meta_data->>'full_name');
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger cuando se registra un usuario
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- ✅ SCHEMA v3 COMPLETO - CAMPOS OPCIONALES
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- RESUMEN DE MEJORAS:
+-- ✅ Campos opcionales con NULL o defaults inteligentes
+-- ✅ Tablas opcionales (leaders, temp_assignments, day_hours_config)
+-- ✅ Constraints de validación (horas positivas, fechas válidas)
+-- ✅ Índices optimizados para búsquedas frecuentes
+-- ✅ Comentarios explicando cada decisión
+-- ✅ Compatibilidad 100% con Phoenix
+--
+-- FILOSOFÍA:
+-- - Solo OBLIGATORIO lo esencial para que el sistema funcione
+-- - Todo lo demás es OPCIONAL (puede ser NULL o tener default)
+-- - Tablas completas pueden estar vacías (leaders, temp_assignments)
+--
+-- ═══════════════════════════════════════════════════════════════════════

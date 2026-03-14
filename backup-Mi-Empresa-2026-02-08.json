@@ -1,0 +1,365 @@
+{
+  "version": "1.0.0",
+  "exportDate": "2026-02-08T04:26:17.793Z",
+  "companyName": "Mi Empresa",
+  "data": {
+    "settings": {
+      "companyName": "Mi Empresa",
+      "regularHoursPerDay": 8,
+      "overtimeFactor": 1.5,
+      "holidayFactor": 2,
+      "defaultDeductionPercentage": 2,
+      "globalPaymentDay": null,
+      "lastPaymentDate": null,
+      "nextPaymentDate": null,
+      "holidays": [
+        "2026-02-06",
+        "2026-02-16",
+        "2026-02-19",
+        "2026-02-24"
+      ]
+    },
+    "positions": [
+      {
+        "id": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+        "name": "Carpintero",
+        "color": "#10b981",
+        "active": false,
+        "salaryConfig": {
+          "amount": 30000,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 30000,
+        "lastStatusChange": "2026-02-08",
+        "statusHistory": [
+          {
+            "date": "2026-02-08",
+            "active": false,
+            "employeeCount": 1,
+            "timestamp": 1770524660191
+          }
+        ]
+      },
+      {
+        "id": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+        "name": "Albañil",
+        "color": "#f59e0b",
+        "active": true,
+        "salaryConfig": {
+          "amount": 30000,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 30000,
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "0764d19c-884a-42ab-a7aa-4c3368bef835",
+        "name": "Plomero",
+        "color": "#3b82f6",
+        "active": true,
+        "salaryConfig": {
+          "amount": 30000,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 30000,
+        "lastStatusChange": null,
+        "statusHistory": []
+      }
+    ],
+    "employees": [
+      {
+        "id": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "key": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "number": "003",
+        "name": "JUAN",
+        "positions": [
+          "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+          "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+          "0764d19c-884a-42ab-a7aa-4c3368bef835"
+        ],
+        "customSalary": null,
+        "active": true,
+        "hireDate": "2026-02-07",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-02-08T04:20:58.274Z",
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "de2b07b8-627c-4830-90ce-966ce279d3b0",
+        "key": "de2b07b8-627c-4830-90ce-966ce279d3b0",
+        "number": "002",
+        "name": "1235",
+        "positions": [
+          "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0"
+        ],
+        "customSalary": null,
+        "active": true,
+        "hireDate": "2026-02-08",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-02-08T04:20:58.274Z",
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "EMP1770524710141",
+        "key": "EMP1770524710141",
+        "number": "004",
+        "name": "aaa",
+        "positions": [
+          "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0"
+        ],
+        "positionSalaries": {
+          "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0": 222
+        },
+        "active": true,
+        "createdDate": "2026-02-08",
+        "hireDate": "2026-02-01",
+        "lastStatusChange": null,
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "statusHistory": [
+          {
+            "date": "2026-02-08",
+            "active": true,
+            "timestamp": 1770508800000
+          }
+        ]
+      }
+    ],
+    "leaders": [
+      {
+        "id": "LDR1770524617564",
+        "number": "L-001",
+        "name": "jk lider",
+        "active": true,
+        "phone": "555555555",
+        "email": "aaa@emaillider.com",
+        "notes": "notas lider"
+      },
+      {
+        "id": "LDR1770524627054",
+        "number": "L-002",
+        "name": "pepe",
+        "active": false,
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "lastStatusChange": "2026-02-08",
+        "statusHistory": [
+          {
+            "date": "2026-02-08",
+            "active": false,
+            "timestamp": 1770524643944
+          }
+        ]
+      }
+    ],
+    "attendance": {
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-07": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-07",
+        "present": true,
+        "hoursWorked": 12.5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+            "hours": 8,
+            "overtimeHours": 0
+          },
+          {
+            "positionId": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+            "hours": 3.5,
+            "overtimeHours": 0
+          },
+          {
+            "positionId": "0764d19c-884a-42ab-a7aa-4c3368bef835",
+            "hours": 1,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+        "notes": ""
+      },
+      "de2b07b8-627c-4830-90ce-966ce279d3b0-2026-02-07": {
+        "employeeId": "de2b07b8-627c-4830-90ce-966ce279d3b0",
+        "date": "2026-02-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-06": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "de2b07b8-627c-4830-90ce-966ce279d3b0-2026-02-06": {
+        "employeeId": "de2b07b8-627c-4830-90ce-966ce279d3b0",
+        "date": "2026-02-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-05": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-05",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "0764d19c-884a-42ab-a7aa-4c3368bef835",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-04": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7"
+      },
+      "de2b07b8-627c-4830-90ce-966ce279d3b0-2026-02-03": {
+        "employeeId": "de2b07b8-627c-4830-90ce-966ce279d3b0",
+        "date": "2026-02-03",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0"
+      },
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-02": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-02",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7"
+      },
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-01": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-01",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7"
+      },
+      "2efd00e5-6ea9-4574-bed1-cf1f4339e952-2026-02-08": {
+        "employeeId": "2efd00e5-6ea9-4574-bed1-cf1f4339e952",
+        "date": "2026-02-08",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "32d9dbad-9ec8-4b00-b14d-255f5fd1dca7",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "de2b07b8-627c-4830-90ce-966ce279d3b0-2026-02-08": {
+        "employeeId": "de2b07b8-627c-4830-90ce-966ce279d3b0",
+        "date": "2026-02-08",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "13fc14fc-3d98-4fa4-8c9f-2b795af7b5c0",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      }
+    },
+    "tempAssignments": [],
+    "dayHoursConfig": {}
+  }
+}
