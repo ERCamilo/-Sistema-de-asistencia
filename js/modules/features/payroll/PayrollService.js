@@ -89,8 +89,8 @@ export class PayrollService {
         const emp = this.state.employees.find(e => e.id === empId);
         if (!emp) return { bruto: 0, neto: 0, deductions: 0, breakdown: [] };
 
-        const start = new Date(startDateKey + 'T00:00:00');
-        const end = new Date(endDateKey + 'T00:00:00');
+        const start = new Date(startDateKey + 'T12:00:00');
+        const end = new Date(endDateKey + 'T12:00:00');
 
         // Agrupar por posición
         const positionData = {};
@@ -108,7 +108,7 @@ export class PayrollService {
             if (att.positionHours && att.positionHours.length > 0) {
                 // Multi-posición
                 positionsWorked = att.positionHours.map(ph => ({
-                    positionId: ph.positionId,
+                    positionId: ph.positionId || att.selectedPosition || emp.positions[0],
                     hours: ph.hours || 0,
                     overtimeHours: ph.overtimeHours || 0
                 }));

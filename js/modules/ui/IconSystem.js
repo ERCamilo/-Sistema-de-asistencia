@@ -1,149 +1,318 @@
 /**
  * Sistema centralizado de iconos.
- * Permite cambiar entre diferentes librerías de iconos (ej. Unicode Emojis vs Lucide Icons)
- * manteniendo la misma semántica en el código.
+ * Soporta múltiples librerías: Unicode Emojis, Lucide, Phosphor, Heroicons, Tabler, Bootstrap Icons
+ *
+ * CDNs requeridos (agregar al HTML según la librería que uses):
+ *
+ * Lucide:
+ *   <script src="https://unpkg.com/lucide@latest"></script>
+ *
+ * Phosphor:
+ *   <script src="https://unpkg.com/@phosphor-icons/web"></script>
+ *
+ * Heroicons (vía SVG sprite — se usa fetch inline):
+ *   No requiere CDN, los SVGs se insertan directamente.
+ *
+ * Tabler:
+ *   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont/dist/tabler-icons.min.css">
+ *
+ * Bootstrap Icons:
+ *   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
  */
 
 class IconSystem {
     constructor() {
-        // Set de iconos por defecto
-        this.currentSet = 'lucide'; 
-        
-        // Registro central de todos los iconos usados en la app
+        // Sets disponibles
+        this.availableSets = ['unicode', 'lucide', 'phosphor', 'tabler', 'bootstrap'];
+        this.currentSet = this.availableSets[0];
+
+        /**
+         * Registro central de iconos.
+         * Cada entrada tiene el nombre lógico como clave, y los nombres
+         * específicos de cada librería como valores.
+         *
+         * Estructura:
+         * {
+         *   unicode  : string  → Emoji o símbolo directo
+         *   lucide   : string  → Nombre del icono en Lucide (data-lucide="...")
+         *   phosphor : string  → Nombre del icono en Phosphor (ph ph-[name])
+         *   tabler   : string  → Nombre del icono en Tabler (ti ti-[name])
+         *   bootstrap: string  → Nombre del icono en Bootstrap Icons (bi bi-[name])
+         * }
+         */
         this.registry = {
-            // UI Core
-            'menu': { unicode: '☰', lucide: 'menu' },
-            'close': { unicode: '✕', lucide: 'x' },
-            'search': { unicode: '🔍', lucide: 'search' },
-            'settings': { unicode: '⚙️', lucide: 'settings' },
-            'bell': { unicode: '🔔', lucide: 'bell' },
-            'home': { unicode: '🏠', lucide: 'home' },
-            
-            // Navegación principal / Tabs
-            'attendance': { unicode: '📋', lucide: 'clipboard-list' },
-            'personnel': { unicode: '👥', lucide: 'users' },
-            'reports': { unicode: '📊', lucide: 'bar-chart-2' },
-            'payroll': { unicode: '💰', lucide: 'dollar-sign' },
-            
-            // Estados y validaciones
-            'check': { unicode: '✅', lucide: 'check-circle' },
-            'x-circle': { unicode: '❌', lucide: 'x-circle' },
-            'alert': { unicode: '⚠️', lucide: 'alert-triangle' },
-            'info': { unicode: '💡', lucide: 'info' },
-            
-            // Acciones CRUD
-            'add': { unicode: '➕', lucide: 'plus' },
-            'edit': { unicode: '✏️', lucide: 'edit-2' },
-            'delete': { unicode: '🗑️', lucide: 'trash-2' },
-            'save': { unicode: '💾', lucide: 'save' },
-            
-            // Sync y Nube
-            'cloud': { unicode: '☁️', lucide: 'cloud' },
-            'upload': { unicode: '📤', lucide: 'upload-cloud' },
-            'download': { unicode: '📥', lucide: 'download-cloud' },
-            'sync': { unicode: '🔄', lucide: 'refresh-cw' },
-            
-            // Componentes de datos
-            'calendar': { unicode: '📅', lucide: 'calendar' },
-            'clock': { unicode: '⏰', lucide: 'clock' },
-            'timer': { unicode: '⏱️', lucide: 'timer' },
-            'map-pin': { unicode: '📍', lucide: 'map-pin' },
-            
-            // Misceláneos
-            'palette': { unicode: '🎨', lucide: 'palette' },
-            'zap': { unicode: '⚡', lucide: 'zap' },
-            'moon': { unicode: '🌙', lucide: 'moon' },
-            'sun': { unicode: '☀️', lucide: 'sun' },
-            'chevron-down': { unicode: '▼', lucide: 'chevron-down' },
-            'chevron-right': { unicode: '▶', lucide: 'chevron-right' },
-            'chevron-left': { unicode: '◀', lucide: 'chevron-left' },
-            'chevron-up': { unicode: '▲', lucide: 'chevron-up' },
-            'target': { unicode: '🎯', lucide: 'target' },
-            'rocket': { unicode: '🚀', lucide: 'rocket' },
-            'gamepad': { unicode: '🎮', lucide: 'gamepad-2' },
-            'user': { unicode: '👤', lucide: 'user' },
-            'key': { unicode: '🔑', lucide: 'key' },
-            'lock': { unicode: '🔒', lucide: 'lock' },
-            'smartphone': { unicode: '📱', lucide: 'smartphone' }
+            // ── UI Core ────────────────────────────────────────────────
+            'menu': { unicode: '☰', lucide: 'menu', phosphor: 'list', tabler: 'menu-2', bootstrap: 'list' },
+            'close': { unicode: '✕', lucide: 'x', phosphor: 'x', tabler: 'x', bootstrap: 'x-lg' },
+            'search': { unicode: '🔍', lucide: 'search', phosphor: 'magnifying-glass', tabler: 'search', bootstrap: 'search' },
+            'settings': { unicode: '⚙️', lucide: 'settings', phosphor: 'gear', tabler: 'settings', bootstrap: 'gear' },
+            'bell': { unicode: '🔔', lucide: 'bell', phosphor: 'bell', tabler: 'bell', bootstrap: 'bell' },
+            'home': { unicode: '🏠', lucide: 'home', phosphor: 'house', tabler: 'home', bootstrap: 'house' },
+            'sidebar': { unicode: '▤', lucide: 'panel-left', phosphor: 'sidebar', tabler: 'layout-sidebar', bootstrap: 'layout-sidebar' },
+            'grid': { unicode: '⊞', lucide: 'grid', phosphor: 'grid-four', tabler: 'layout-grid', bootstrap: 'grid' },
+
+            // ── Navegación / Tabs ──────────────────────────────────────
+            'attendance': { unicode: '📋', lucide: 'clipboard-list', phosphor: 'clipboard-text', tabler: 'clipboard-list', bootstrap: 'clipboard-check' },
+            'personnel': { unicode: '👥', lucide: 'users', phosphor: 'users', tabler: 'users', bootstrap: 'people' },
+            'reports': { unicode: '📊', lucide: 'bar-chart-2', phosphor: 'chart-bar', tabler: 'chart-bar', bootstrap: 'bar-chart' },
+            'payroll': { unicode: '💰', lucide: 'dollar-sign', phosphor: 'currency-dollar', tabler: 'currency-dollar', bootstrap: 'currency-dollar' },
+
+            // ── Estados y validaciones ────────────────────────────────
+            'check': { unicode: '✅', lucide: 'check-circle', phosphor: 'check-circle', tabler: 'circle-check', bootstrap: 'check-circle' },
+            'x-circle': { unicode: '❌', lucide: 'x-circle', phosphor: 'x-circle', tabler: 'circle-x', bootstrap: 'x-circle' },
+            'alert': { unicode: '⚠️', lucide: 'alert-triangle', phosphor: 'warning', tabler: 'alert-triangle', bootstrap: 'exclamation-triangle' },
+            'info': { unicode: '💡', lucide: 'info', phosphor: 'info', tabler: 'info-circle', bootstrap: 'info-circle' },
+            'help': { unicode: '❓', lucide: 'help-circle', phosphor: 'question', tabler: 'help-circle', bootstrap: 'question-circle' },
+
+            // ── Acciones CRUD ─────────────────────────────────────────
+            'add': { unicode: '➕', lucide: 'plus', phosphor: 'plus', tabler: 'plus', bootstrap: 'plus-lg' },
+            'edit': { unicode: '✏️', lucide: 'edit-2', phosphor: 'pencil-simple', tabler: 'edit', bootstrap: 'pencil' },
+            'delete': { unicode: '🗑️', lucide: 'trash-2', phosphor: 'trash', tabler: 'trash', bootstrap: 'trash' },
+            'save': { unicode: '💾', lucide: 'save', phosphor: 'floppy-disk', tabler: 'device-floppy', bootstrap: 'floppy' },
+            'copy': { unicode: '📋', lucide: 'copy', phosphor: 'copy', tabler: 'copy', bootstrap: 'copy' },
+            'cut': { unicode: '✂️', lucide: 'scissors', phosphor: 'scissors', tabler: 'cut', bootstrap: 'scissors' },
+            'paste': { unicode: '📌', lucide: 'clipboard', phosphor: 'clipboard', tabler: 'clipboard', bootstrap: 'clipboard' },
+            'share': { unicode: '🔗', lucide: 'share-2', phosphor: 'share-network', tabler: 'share', bootstrap: 'share' },
+            'export': { unicode: '📤', lucide: 'log-out', phosphor: 'export', tabler: 'file-export', bootstrap: 'box-arrow-up-right' },
+            'import': { unicode: '📥', lucide: 'log-in', phosphor: 'import', tabler: 'file-import', bootstrap: 'box-arrow-in-down' },
+            'filter': { unicode: '🔽', lucide: 'filter', phosphor: 'funnel', tabler: 'filter', bootstrap: 'funnel' },
+            'sort': { unicode: '↕️', lucide: 'arrow-up-down', phosphor: 'arrows-down-up', tabler: 'arrows-sort', bootstrap: 'arrow-down-up' },
+
+            // ── Sync y Nube ───────────────────────────────────────────
+            'cloud': { unicode: '☁️', lucide: 'cloud', phosphor: 'cloud', tabler: 'cloud', bootstrap: 'cloud' },
+            'upload': { unicode: '📤', lucide: 'upload-cloud', phosphor: 'cloud-arrow-up', tabler: 'cloud-upload', bootstrap: 'cloud-upload' },
+            'download': { unicode: '📥', lucide: 'download-cloud', phosphor: 'cloud-arrow-down', tabler: 'cloud-download', bootstrap: 'cloud-download' },
+            'sync': { unicode: '🔄', lucide: 'refresh-cw', phosphor: 'arrows-clockwise', tabler: 'refresh', bootstrap: 'arrow-repeat' },
+
+            // ── Datos y Tiempo ────────────────────────────────────────
+            'calendar': { unicode: '📅', lucide: 'calendar', phosphor: 'calendar', tabler: 'calendar', bootstrap: 'calendar' },
+            'clock': { unicode: '⏰', lucide: 'clock', phosphor: 'clock', tabler: 'clock', bootstrap: 'clock' },
+            'timer': { unicode: '⏱️', lucide: 'timer', phosphor: 'timer', tabler: 'clock-play', bootstrap: 'stopwatch' },
+            'map-pin': { unicode: '📍', lucide: 'map-pin', phosphor: 'map-pin', tabler: 'map-pin', bootstrap: 'geo-alt' },
+            'chart-line': { unicode: '📈', lucide: 'line-chart', phosphor: 'chart-line', tabler: 'chart-line', bootstrap: 'graph-up' },
+            'chart-pie': { unicode: '🥧', lucide: 'pie-chart', phosphor: 'chart-pie', tabler: 'chart-pie', bootstrap: 'pie-chart' },
+            'table': { unicode: '📋', lucide: 'table', phosphor: 'table', tabler: 'table', bootstrap: 'table' },
+            'database': { unicode: '🗄️', lucide: 'database', phosphor: 'database', tabler: 'database', bootstrap: 'database' },
+
+            // ── Archivos y Documentos ─────────────────────────────────
+            'file': { unicode: '📄', lucide: 'file', phosphor: 'file', tabler: 'file', bootstrap: 'file-earmark' },
+            'file-text': { unicode: '📝', lucide: 'file-text', phosphor: 'file-text', tabler: 'file-text', bootstrap: 'file-earmark-text' },
+            'file-pdf': { unicode: '📑', lucide: 'file-type', phosphor: 'file-pdf', tabler: 'file-type-pdf', bootstrap: 'file-earmark-pdf' },
+            'folder': { unicode: '📁', lucide: 'folder', phosphor: 'folder', tabler: 'folder', bootstrap: 'folder' },
+            'folder-open': { unicode: '📂', lucide: 'folder-open', phosphor: 'folder-open', tabler: 'folder-open', bootstrap: 'folder2-open' },
+            'image': { unicode: '🖼️', lucide: 'image', phosphor: 'image', tabler: 'photo', bootstrap: 'image' },
+            'link': { unicode: '🔗', lucide: 'link', phosphor: 'link', tabler: 'link', bootstrap: 'link' },
+            'attachment': { unicode: '📎', lucide: 'paperclip', phosphor: 'paperclip', tabler: 'paperclip', bootstrap: 'paperclip' },
+            'print': { unicode: '🖨️', lucide: 'printer', phosphor: 'printer', tabler: 'printer', bootstrap: 'printer' },
+
+            // ── Comunicación ──────────────────────────────────────────
+            'mail': { unicode: '📧', lucide: 'mail', phosphor: 'envelope', tabler: 'mail', bootstrap: 'envelope' },
+            'mail-open': { unicode: '📨', lucide: 'mail-open', phosphor: 'envelope-open', tabler: 'mail-opened', bootstrap: 'envelope-open' },
+            'message': { unicode: '💬', lucide: 'message-circle', phosphor: 'chat-circle', tabler: 'message-circle', bootstrap: 'chat' },
+            'phone': { unicode: '📞', lucide: 'phone', phosphor: 'phone', tabler: 'phone', bootstrap: 'telephone' },
+            'video': { unicode: '📹', lucide: 'video', phosphor: 'video-camera', tabler: 'video', bootstrap: 'camera-video' },
+
+            // ── Usuario y Seguridad ───────────────────────────────────
+            'user': { unicode: '👤', lucide: 'user', phosphor: 'user', tabler: 'user', bootstrap: 'person' },
+            'user-plus': { unicode: '👤➕', lucide: 'user-plus', phosphor: 'user-plus', tabler: 'user-plus', bootstrap: 'person-plus' },
+            'user-check': { unicode: '👤✅', lucide: 'user-check', phosphor: 'user-check', tabler: 'user-check', bootstrap: 'person-check' },
+            'key': { unicode: '🔑', lucide: 'key', phosphor: 'key', tabler: 'key', bootstrap: 'key' },
+            'lock': { unicode: '🔒', lucide: 'lock', phosphor: 'lock', tabler: 'lock', bootstrap: 'lock' },
+            'unlock': { unicode: '🔓', lucide: 'unlock', phosphor: 'lock-open', tabler: 'lock-open', bootstrap: 'unlock' },
+            'shield': { unicode: '🛡️', lucide: 'shield', phosphor: 'shield', tabler: 'shield', bootstrap: 'shield' },
+            'eye': { unicode: '👁️', lucide: 'eye', phosphor: 'eye', tabler: 'eye', bootstrap: 'eye' },
+            'eye-off': { unicode: '🙈', lucide: 'eye-off', phosphor: 'eye-slash', tabler: 'eye-off', bootstrap: 'eye-slash' },
+            'fingerprint': { unicode: '🔏', lucide: 'fingerprint', phosphor: 'fingerprint', tabler: 'fingerprint', bootstrap: 'fingerprint' },
+
+            // ── Dispositivos ──────────────────────────────────────────
+            'smartphone': { unicode: '📱', lucide: 'smartphone', phosphor: 'device-mobile', tabler: 'device-mobile', bootstrap: 'phone' },
+            'tablet': { unicode: '📲', lucide: 'tablet', phosphor: 'device-tablet', tabler: 'device-tablet', bootstrap: 'tablet' },
+            'laptop': { unicode: '💻', lucide: 'laptop', phosphor: 'laptop', tabler: 'device-laptop', bootstrap: 'laptop' },
+            'monitor': { unicode: '🖥️', lucide: 'monitor', phosphor: 'monitor', tabler: 'device-desktop', bootstrap: 'display' },
+            'printer-dev': { unicode: '🖨️', lucide: 'printer', phosphor: 'printer', tabler: 'printer', bootstrap: 'printer' },
+            'wifi': { unicode: '📶', lucide: 'wifi', phosphor: 'wifi-high', tabler: 'wifi', bootstrap: 'wifi' },
+            'bluetooth': { unicode: '🔵', lucide: 'bluetooth', phosphor: 'bluetooth', tabler: 'bluetooth', bootstrap: 'bluetooth' },
+
+            // ── Misceláneos ───────────────────────────────────────────
+            'palette': { unicode: '🎨', lucide: 'palette', phosphor: 'palette', tabler: 'palette', bootstrap: 'palette' },
+            'zap': { unicode: '⚡', lucide: 'zap', phosphor: 'lightning', tabler: 'bolt', bootstrap: 'lightning' },
+            'moon': { unicode: '🌙', lucide: 'moon', phosphor: 'moon', tabler: 'moon', bootstrap: 'moon' },
+            'sun': { unicode: '☀️', lucide: 'sun', phosphor: 'sun', tabler: 'sun', bootstrap: 'sun' },
+            'chevron-down': { unicode: '▼', lucide: 'chevron-down', phosphor: 'caret-down', tabler: 'chevron-down', bootstrap: 'chevron-down' },
+            'chevron-right': { unicode: '▶', lucide: 'chevron-right', phosphor: 'caret-right', tabler: 'chevron-right', bootstrap: 'chevron-right' },
+            'chevron-left': { unicode: '◀', lucide: 'chevron-left', phosphor: 'caret-left', tabler: 'chevron-left', bootstrap: 'chevron-left' },
+            'chevron-up': { unicode: '▲', lucide: 'chevron-up', phosphor: 'caret-up', tabler: 'chevron-up', bootstrap: 'chevron-up' },
+            'target': { unicode: '🎯', lucide: 'target', phosphor: 'target', tabler: 'target', bootstrap: 'bullseye' },
+            'rocket': { unicode: '🚀', lucide: 'rocket', phosphor: 'rocket', tabler: 'rocket', bootstrap: 'rocket' },
+            'gamepad': { unicode: '🎮', lucide: 'gamepad-2', phosphor: 'game-controller', tabler: 'device-gamepad', bootstrap: 'controller' },
+            'star': { unicode: '⭐', lucide: 'star', phosphor: 'star', tabler: 'star', bootstrap: 'star' },
+            'heart': { unicode: '❤️', lucide: 'heart', phosphor: 'heart', tabler: 'heart', bootstrap: 'heart' },
+            'bookmark': { unicode: '🔖', lucide: 'bookmark', phosphor: 'bookmark', tabler: 'bookmark', bootstrap: 'bookmark' },
+            'tag': { unicode: '🏷️', lucide: 'tag', phosphor: 'tag', tabler: 'tag', bootstrap: 'tag' },
+            'flag': { unicode: '🚩', lucide: 'flag', phosphor: 'flag', tabler: 'flag', bootstrap: 'flag' },
+            'pin': { unicode: '📌', lucide: 'pin', phosphor: 'push-pin', tabler: 'pin', bootstrap: 'pin-angle' },
+            'trending-up': { unicode: '📈', lucide: 'trending-up', phosphor: 'trend-up', tabler: 'trending-up', bootstrap: 'graph-up-arrow' },
+            'trending-down': { unicode: '📉', lucide: 'trending-down', phosphor: 'trend-down', tabler: 'trending-down', bootstrap: 'graph-down-arrow' },
+            'refresh': { unicode: '🔁', lucide: 'rotate-ccw', phosphor: 'arrow-counter-clockwise', tabler: 'refresh', bootstrap: 'arrow-counterclockwise' },
+            'logout': { unicode: '🚪', lucide: 'log-out', phosphor: 'sign-out', tabler: 'logout', bootstrap: 'box-arrow-right' },
+            'login': { unicode: '🔐', lucide: 'log-in', phosphor: 'sign-in', tabler: 'login', bootstrap: 'box-arrow-in-right' },
+            'external-link': { unicode: '↗️', lucide: 'external-link', phosphor: 'arrow-square-out', tabler: 'external-link', bootstrap: 'box-arrow-up-right' },
+            'layers': { unicode: '🗂️', lucide: 'layers', phosphor: 'stack', tabler: 'layers-subtract', bootstrap: 'layers' },
+            'package': { unicode: '📦', lucide: 'package', phosphor: 'package', tabler: 'package', bootstrap: 'box' },
+            'code': { unicode: '👨‍💻', lucide: 'code', phosphor: 'code', tabler: 'code', bootstrap: 'code-slash' },
+            'terminal': { unicode: '🖥️', lucide: 'terminal', phosphor: 'terminal-window', tabler: 'terminal', bootstrap: 'terminal' },
+            'bug': { unicode: '🐛', lucide: 'bug', phosphor: 'bug', tabler: 'bug', bootstrap: 'bug' },
+            'activity': { unicode: '📡', lucide: 'activity', phosphor: 'activity', tabler: 'activity', bootstrap: 'activity' },
         };
     }
 
     /**
      * Inicializar el sistema leyendo la preferencia guardada
+     * @param {string} savedSet - Set guardado en preferencias del usuario
      */
     init(savedSet) {
-        if (savedSet && ['unicode', 'lucide'].includes(savedSet)) {
+        if (savedSet && this.availableSets.includes(savedSet)) {
             this.currentSet = savedSet;
         }
-        
-        // Si usamos lucide, asegurar que la librería redibuje los iconos después del primer render
+        this._postRenderInit();
+    }
+
+    /**
+     * Acciones necesarias post-render según la librería activa
+     */
+    _postRenderInit() {
         if (this.currentSet === 'lucide' && window.lucide) {
             setTimeout(() => window.lucide.createIcons(), 100);
+        }
+        if (this.currentSet === 'phosphor' && window.PhosphorIcons) {
+            setTimeout(() => window.PhosphorIcons.createIcons?.(), 100);
         }
     }
 
     /**
-     * Cambiar el set de iconos en toda la app
+     * Cambiar el set de iconos activo
+     * @param {string} setName - Nombre del set ('unicode' | 'lucide' | 'phosphor' | 'tabler' | 'bootstrap')
+     * @returns {boolean} true si el cambio fue exitoso
      */
     setSet(setName) {
-        if (['unicode', 'lucide'].includes(setName)) {
+        if (this.availableSets.includes(setName)) {
             this.currentSet = setName;
-            
-            // Actualizar la interfaz (requiere que la app se vuelva a renderizar)
-            // Esto típicamente sería manejado guardando en state.settings.iconSet y llamando render()
             return true;
         }
+        console.warn(`Icon set "${setName}" not available. Options: ${this.availableSets.join(', ')}`);
         return false;
     }
 
     /**
-     * Renderizar un icono basado en su nombre y el set actual
-     * @param {string} name - Nombre lógico del icono (ej. 'calendar')
-     * @param {object} options - Opciones adicionales (ej. size, class)
+     * Renderizar un icono según el set activo
+     * @param {string} name     - Nombre lógico del icono (ej. 'calendar')
+     * @param {object} options  - Opciones adicionales
+     * @param {string} options.class       - Clases CSS adicionales
+     * @param {string} options.style       - Estilos inline
+     * @param {number} options.size        - Tamaño en px (solo Lucide)
+     * @param {number} options.strokeWidth - Grosor del trazo (solo Lucide)
      * @returns {string} HTML string del icono
      */
     get(name, options = {}) {
         const iconDef = this.registry[name];
-        
+
         if (!iconDef) {
             console.warn(`Icon "${name}" not found in registry.`);
             return '';
         }
 
-        const className = options.class ? `class="${options.class}"` : '';
-        const style = options.style ? `style="${options.style}"` : '';
-        
-        if (this.currentSet === 'unicode') {
-            return `<span ${className} ${style}>${iconDef.unicode}</span>`;
-        } 
-        else if (this.currentSet === 'lucide') {
-            // Lucide usa un atributo de data para inicializar
-            const size = options.size ? `width="${options.size}" height="${options.size}"` : 'width="18" height="18"';
-            const stroke = options.strokeWidth ? `stroke-width="${options.strokeWidth}"` : 'stroke-width="2"';
-            
-            // Devolvemos el markup base que la librería de Lucide convertirá en SVG
-            return `<i data-lucide="${iconDef.lucide}" ${className} ${style} ${size} ${stroke}></i>`;
-        }
+        const cls = options.class ? ` ${options.class}` : '';
+        const style = options.style ? ` style="${options.style}"` : '';
 
-        return '';
+        switch (this.currentSet) {
+
+            case 'unicode':
+                return `<span class="icon-unicode${cls}"${style}>${iconDef.unicode}</span>`;
+
+            case 'lucide': {
+                const size = options.size ? `width="${options.size}" height="${options.size}"` : 'width="18" height="18"';
+                const stroke = options.strokeWidth ? `stroke-width="${options.strokeWidth}"` : 'stroke-width="2"';
+                return `<i data-lucide="${iconDef.lucide}" class="icon-lucide${cls}"${style} ${size} ${stroke}></i>`;
+            }
+
+            case 'phosphor':
+                // Phosphor usa clases: "ph ph-[name]"  (peso regular por defecto)
+                // Pesos disponibles: ph-thin, ph-light, ph-regular (default), ph-bold, ph-fill, ph-duotone
+                // Ejemplo peso bold: options.weight = 'bold' → clase adicional ph-bold
+                return `<i class="ph ph-${iconDef.phosphor}${cls}"${style}></i>`;
+
+            case 'tabler':
+                // Tabler usa webfont con clases: "ti ti-[name]"
+                return `<i class="ti ti-${iconDef.tabler}${cls}"${style}></i>`;
+
+            case 'bootstrap':
+                // Bootstrap Icons usa webfont con clases: "bi bi-[name]"
+                return `<i class="bi bi-${iconDef.bootstrap}${cls}"${style}></i>`;
+
+            default:
+                return '';
+        }
     }
-    
+
     /**
-     * Llamar después de actualizar el DOM manual o parcialmente si se usa Lucide
+     * Versión de get() con peso/variante para Phosphor
+     * @param {string} name   - Nombre lógico del icono
+     * @param {string} weight - 'thin' | 'light' | 'regular' | 'bold' | 'fill' | 'duotone'
+     * @param {object} options
+     */
+    getPhosphor(name, weight = 'regular', options = {}) {
+        const iconDef = this.registry[name];
+        if (!iconDef) return '';
+
+        const cls = options.class ? ` ${options.class}` : '';
+        const style = options.style ? ` style="${options.style}"` : '';
+        const weightClass = weight !== 'regular' ? ` ph-${weight}` : '';
+
+        return `<i class="ph ph-${iconDef.phosphor}${weightClass}${cls}"${style}></i>`;
+    }
+
+    /**
+     * Llama a la función de inicialización de la librería activa
+     * (necesario después de cambios dinámicos en el DOM)
      */
     refresh() {
         if (this.currentSet === 'lucide' && window.lucide) {
             window.lucide.createIcons();
         }
+        // Phosphor y Tabler/Bootstrap son CSS puro — no necesitan refresh
     }
-    
+
     /**
-     * Obtener una lista de todos los iconos disponibles
+     * Obtener la lista de todos los iconos registrados
      */
     getAvailableIcons() {
         return Object.keys(this.registry);
     }
+
+    /**
+     * Obtener los sets de iconos disponibles
+     */
+    getAvailableSets() {
+        return [...this.availableSets];
+    }
+
+    /**
+     * Verificar si un icono existe en el registro
+     * @param {string} name
+     */
+    has(name) {
+        return name in this.registry;
+    }
+
+    /**
+     * Agregar o sobreescribir un icono en el registro
+     * @param {string} name  - Nombre lógico
+     * @param {object} defs  - Definiciones por librería
+     */
+    register(name, defs) {
+        this.registry[name] = { ...this.registry[name], ...defs };
+    }
 }
 
-// Exportar una instancia única
+// Exportar una instancia única (singleton)
 export const icons = new IconSystem();

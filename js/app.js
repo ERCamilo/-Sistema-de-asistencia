@@ -36,11 +36,17 @@ function isValidUUID(id) {
 }
 
 // Asegura que el ID sea UUID válido, genera uno nuevo si no lo es
+// ✅ Cache para que el mismo ID siempre genere el mismo UUID dentro de una sesión
+const uuidCache = {};
 function ensureUUID(id) {
     if (isValidUUID(id)) {
         return id;
     }
+    if (uuidCache[id]) {
+        return uuidCache[id];
+    }
     const newUUID = generateUUID();
+    uuidCache[id] = newUUID;
     console.log(`🔄 ID migrado: "${id}" → "${newUUID}"`);
     return newUUID;
 }
@@ -5121,11 +5127,12 @@ window.migrateToSupabase = async function () {
         // Mapear leaders: reutilizar si ya existe para este usuario, sino generar nuevo
         if (state.leaders && state.leaders.length > 0) {
             state.leaders.forEach(leader => {
-                const oldId = ensureUUID(leader.id);
-                if (existingLeaderIds.has(oldId)) {
-                    idMap.leaders[oldId] = oldId; // Ya existe para este usuario
+                const oldId = leader.id;
+                const uuidReady = ensureUUID(oldId);
+                if (existingLeaderIds.has(uuidReady)) {
+                    idMap.leaders[oldId] = uuidReady;
                 } else {
-                    idMap.leaders[oldId] = generateUUID(); // Nuevo ID
+                    idMap.leaders[oldId] = generateUUID();
                 }
             });
         }
@@ -5145,9 +5152,10 @@ window.migrateToSupabase = async function () {
         // Mapear employees
         if (state.employees && state.employees.length > 0) {
             state.employees.forEach(emp => {
-                const oldId = ensureUUID(emp.id || emp.key);
-                if (existingEmpIds.has(oldId)) {
-                    idMap.employees[oldId] = oldId;
+                const oldId = emp.id || emp.key;
+                const uuidReady = ensureUUID(oldId);
+                if (existingEmpIds.has(uuidReady)) {
+                    idMap.employees[oldId] = uuidReady;
                 } else {
                     idMap.employees[oldId] = generateUUID();
                 }
@@ -5359,7 +5367,7 @@ window.migrateToSupabase = async function () {
                 const recordDate = record.date || compositeKey.split('-').slice(-3).join('-');
 
                 // Remapear IDs de empleado y posición
-                const newEmpId = remapId(ensureUUID(empId), 'employees');
+                const newEmpId = remapId(empId, 'employees');
                 const mainPositionId = (() => {
                     const employee = state.employees.find(e => (e.id === empId || e.key === empId));
                     return employee && employee.positions && employee.positions.length > 0

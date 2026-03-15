@@ -641,7 +641,7 @@ function calculateEmployeeReportData() {
             let total = 0;
             days.forEach(day => {
                 const dateKey = getDateKey(day.date);
-                const att = state.attendance[`${ emp.id } -${ dateKey } `];
+                const att = state.attendance[`${emp.id}-${dateKey}`];
                 if (att && att.present) {
                     let dayValue = 0;
                     if (att.multiPosition && att.positionHours) {
