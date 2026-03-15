@@ -27,7 +27,7 @@ export class Modal {
                         <div class="modal-container ${sizeClasses[this.size]} modal-enter" data-modal-container>
                             <div class="modal-header">
                                 <h2 class="modal-title">${this.title}</h2>
-                                ${this.closable ? `<button class="modal-close" data-modal-close aria-label="Cerrar">${icons.get('edit')}</button>' : '`}
+                                ${this.closable ? `<button class="modal-close" data-modal-close aria-label="Cerrar">${icons.get('close')}</button>` : ''}
                             </div>
                             <div class="modal-body">
                                 ${this.content}

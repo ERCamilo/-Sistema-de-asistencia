@@ -66,9 +66,15 @@ export class DataService {
         }
 
         if (data.positions) {
-            this.state.positions = data.positions.map(p =>
-                p instanceof Position ? p : new Position(p)
-            );
+            const seenPositions = new Set();
+            this.state.positions = data.positions
+                .map(p => (p instanceof Position ? p : new Position(p)))
+                .filter(p => {
+                    const key = p.id || p.name;
+                    if (seenPositions.has(key)) return false;
+                    seenPositions.add(key);
+                    return true;
+                });
         }
 
         if (data.leaders) {

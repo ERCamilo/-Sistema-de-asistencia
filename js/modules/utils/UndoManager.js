@@ -75,7 +75,7 @@ export const UndoManager = {
                         <span class="undo-toast-icon">↩️</span>
                         <span class="undo-toast-text">Deshacer: ${label}</span>
                         <button class="undo-toast-btn" onclick="UndoManager.undo()">DESHACER</button>
-                        <button class="undo-toast-close" onclick="UndoManager._dismiss()">${icons.get('edit')}</button>
+                        <button class="undo-toast-close" onclick="UndoManager._dismiss()">${icons.get('close')}</button>
                     </div>
                 `;
 

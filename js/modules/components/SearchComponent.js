@@ -12,7 +12,7 @@ export class SearchComponent extends ComponentBase {
 
         return `
                     <div class="search-component">
-                        <span class="search-icon">${icons.get('edit')}</span>
+                        <span class="search-icon">${icons.get('search')}</span>
                         <input 
                             type="text" 
                             class="search-input" 

@@ -7,7 +7,7 @@
 class IconSystem {
     constructor() {
         // Set de iconos por defecto
-        this.currentSet = 'unicode'; 
+        this.currentSet = 'lucide'; 
         
         // Registro central de todos los iconos usados en la app
         this.registry = {

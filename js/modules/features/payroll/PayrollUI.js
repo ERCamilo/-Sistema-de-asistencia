@@ -90,7 +90,7 @@ export function PayrollTab() {
             <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        ${icons.get('money-fly')} Paso 2: Deducciones Globales
+                        ${icons.get('payroll')} Paso 2: Deducciones Globales
                     </h3>
                     <button onclick="PayrollUI.addExportDeduction()" 
                             style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
@@ -176,6 +176,12 @@ function generateExportData() {
 
     return activeEmployees.map(emp => {
         const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, deductions);
+        const positionIds = (emp.positions && emp.positions.length > 0)
+            ? emp.positions
+            : (emp.position ? [emp.position] : []);
+        const positionNames = positionIds
+            .map(posId => state.positions.find(p => p.id === posId)?.name)
+            .filter(Boolean);
         return {
             id: parseInt(emp.number) || 0,
             nombre: `${emp.name} (Ref #${emp.number})`,
@@ -183,7 +189,7 @@ function generateExportData() {
             _bruto: payroll.bruto,
             _deductions: payroll.deductions,
             _employeeName: emp.name,
-            _employeePosition: state.positions.find(p => p.id === emp.position)?.name || ''
+            _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion'
         };
     }).filter(emp => emp.monto > 0);
 }

@@ -69,16 +69,16 @@ export function formatDateRangeWithMonth(startDateStr, endDateStr) {
 
     // Si es el mismo mes y año
     if (startMonth === endMonth && startYear === endYear) {
-        return `${icons.get('sparkles')} ${months[startMonth]} ${startYear} (${startDate.getDate()}-${endDate.getDate()})`;
+        return `${icons.get('zap')} ${months[startMonth]} ${startYear} (${startDate.getDate()}-${endDate.getDate()})`;
     }
 
     // Si es el mismo año pero diferentes meses
     if (startYear === endYear) {
-        return `${icons.get('sparkles')} ${monthsShort[startMonth]}-${monthsShort[endMonth]} ${startYear} (${startDate.getDate()} ${monthsShort[startMonth]} - ${endDate.getDate()} ${monthsShort[endMonth]})`;
+        return `${icons.get('zap')} ${monthsShort[startMonth]}-${monthsShort[endMonth]} ${startYear} (${startDate.getDate()} ${monthsShort[startMonth]} - ${endDate.getDate()} ${monthsShort[endMonth]})`;
     }
 
     // Años diferentes
-    return `${icons.get('sparkles')} ${startDate.getDate()} ${monthsShort[startMonth]} ${startYear} - ${endDate.getDate()} ${monthsShort[endMonth]} ${endYear}`;
+    return `${icons.get('zap')} ${startDate.getDate()} ${monthsShort[startMonth]} ${startYear} - ${endDate.getDate()} ${monthsShort[endMonth]} ${endYear}`;
 }
 
 export const DateUtils = {

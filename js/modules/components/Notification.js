@@ -1,4 +1,5 @@
 import { icons } from '../ui/IconSystem.js';
+
 export class Notification {
     constructor(options = {}) {
         this.message = options.message || '';
@@ -25,27 +26,27 @@ export class Notification {
         return container;
     }
 
-    // Mostrar notificación
+    // Mostrar notificacion
     show() {
         this.container = Notification.getContainer(this.position);
 
-        const icons = {
-            success: '\',
-            error: '\',
-            warning: '\',
-            info: 'ℹ️'
+        const typeIcons = {
+            success: icons.get('check'),
+            error: icons.get('x-circle'),
+            warning: icons.get('alert'),
+            info: icons.get('info')
         };
 
         this.element = document.createElement('div');
         this.element.className = `notification notification-${this.type} notification-enter`;
 
         this.element.innerHTML = `
-                    <div class="notification-content">
-                        <span class="notification-icon">${icons[this.type]}</span>
-                        <span class="notification-message">${this.message}</span>
-                    </div>
-                    ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('edit')}</button>' : '`}
-                `;
+            <div class="notification-content">
+                <span class="notification-icon">${typeIcons[this.type]}</span>
+                <span class="notification-message">${this.message}</span>
+            </div>
+            ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : ''}
+        `;
 
         // Event listener para cerrar
         if (this.closable) {
@@ -70,7 +71,7 @@ export class Notification {
         return this;
     }
 
-    // Cerrar notificación
+    // Cerrar notificacion
     dismiss() {
         if (!this.element) return;
 
@@ -84,7 +85,7 @@ export class Notification {
         }, 300);
     }
 
-    // Métodos estáticos de conveniencia
+    // Metodos estaticos de conveniencia
     static success(message, duration) {
         return new Notification({ message, type: 'success', duration }).show();
     }

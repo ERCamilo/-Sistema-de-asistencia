@@ -98,6 +98,7 @@ import { SearchComponent } from './modules/components/SearchComponent.js';
 import { BadgeComponent } from './modules/components/BadgeComponent.js';
 import { TooltipComponent } from './modules/components/TooltipComponent.js';
 import { COLOR_PALETTE } from './modules/utils/Constants.js';
+import { icons } from './modules/ui/IconSystem.js';
 import {
     DateRangeManager,
     DashboardDateManager,
@@ -109,6 +110,9 @@ import {
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
+
+// Inicializar el sistema de iconos (usa Lucide por defecto)
+icons.init('lucide');
 
 // ============================================
 // 📢 CLASE NOTIFICATION (POO - Profesional)
@@ -10874,6 +10878,8 @@ function render() {
         const template = document.createElement('template');
         template.innerHTML = newHTML;
         root.replaceChildren(...template.content.childNodes);
+        // Renderizar iconos Lucide despues de actualizar el DOM
+        icons.refresh();
 
         // Restaurar posición del scroll después de renderizar
         restoreScrollPosition();

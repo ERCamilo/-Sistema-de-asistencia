@@ -37,17 +37,17 @@ export function EmployeesTab() {
                         <button class="view-btn ${isEmployees ? 'active' : ''}" 
                                 onclick="changeEmployeeViewMode('employees')"
                                 title="Ver empleados">
-                            ${icons.get('worker')} Empleados
+                            ${icons.get('personnel')} Empleados
                         </button>
                         <button class="view-btn ${isLeaders ? 'active' : ''}" 
                                 onclick="changeEmployeeViewMode('leaders')"
                                 title="Ver líderes">
-                            ${icons.get('crown')} Líderes
+                            ${icons.get('key')} Líderes
                         </button>
                         <button class="view-btn ${isPositions ? 'active' : ''}" 
                                 onclick="changeEmployeeViewMode('positions')"
                                 title="Ver posiciones">
-                            \ Puestos
+                            ${icons.get('settings')} Puestos
                         </button>
                     </div>
                 </div>
@@ -58,7 +58,15 @@ export function EmployeesTab() {
         const statusFilter = state.positionStatusFilter;
         const sortBy = state.positionSortBy;
 
-        let filteredPositions = state.positions.filter(pos => {
+        const seenPositions = new Set();
+        const uniquePositions = state.positions.filter(pos => {
+            const key = pos.id || pos.name;
+            if (seenPositions.has(key)) return false;
+            seenPositions.add(key);
+            return true;
+        });
+
+        let filteredPositions = uniquePositions.filter(pos => {
             if (statusFilter === 'active') return pos.active;
             if (statusFilter === 'inactive') return !pos.active;
             return true;
@@ -88,15 +96,15 @@ export function EmployeesTab() {
                         
                         <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                             <button class="view-btn ${sortBy === 'name' ? 'active' : ''}" onclick="setPositionSortBy('name')" style="flex: 1;">
-                                ${icons.get('file-text')} Por Nombre
+                                ${icons.get('search')} Por Nombre
                             </button>
                             <button class="view-btn ${sortBy === 'salary' ? 'active' : ''}" onclick="setPositionSortBy('salary')" style="flex: 1;">
-                                \ Por Sueldo
+                                ${icons.get('payroll')} Por Sueldo
                             </button>
                         </div>
                         
                         <button class="view-btn" onclick="openPositionForm()" style="width: 100%; background: #06b6d4; color: #000; border-color: #06b6d4;">
-                            \ Nueva Posición
+                            ${icons.get('add')} Nueva Posicion
                         </button>
                     </div>
                     
@@ -141,13 +149,13 @@ export function EmployeesTab() {
                         </button>
                     </div>
                     <button class="view-btn" onclick="${isEmployees ? 'openEmployeeForm()' : 'openLeaderForm()'}" style="width: 100%; margin-top: 12px; background: #06b6d4; color: #000; border-color: #06b6d4;">
-                        \ Nuevo ${isEmployees ? 'Empleado' : 'Líder'}
+                        ${icons.get('add')} Nuevo ${isEmployees ? 'Empleado' : 'Lider'}
                     </button>
                 </div>
                 
                 ${filteredItems.length === 0 ? `
                     <div style="text-align:center;padding:60px 20px;color:#64748b;">
-                        <div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">${isEmployees ? `${icons.get('worker')}` : `${icons.get('crown')}`}</div>
+                        <div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">${isEmployees ? `${icons.get('personnel')}` : `${icons.get('key')}`}</div>
                         <div style="font-size:1.125rem;">No hay ${isEmployees ? 'empleados' : 'líderes'} ${statusFilter === 'active' ? 'activos' : statusFilter === 'inactive' ? 'inactivos' : ''}</div>
                     </div>
                 ` : filteredItems.map(item => isEmployees ? EmployeeCard(item) : LeaderCard(item)).join('')}
@@ -193,22 +201,22 @@ export function EmployeeCard(emp) {
     }).join('')}
                         </div>
                         <div class="employee-meta">
-                            <div class="employee-meta-item">${icons.get('sparkles')} ${salaryDisplay.full} <span style="color: #64748b;">(${salaryType})</span></div>
-                            ${leaders.length > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('crown')} ${leaders.join(', ')}</div>` : ''}
+                            <div class="employee-meta-item">${icons.get('zap')} ${salaryDisplay.full} <span style="color: #64748b;">(${salaryType})</span></div>
+                            ${leaders.length > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${leaders.join(', ')}</div>` : ''}
                         </div>
                         <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
                             <div class="employee-meta-item" style="color: #64748b;">${icons.get('clock')} Trabaja: ${salaryDisplay.workDays}</div>
                         </div>
                         <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b;">
                             <div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${icons.get('calendar')} Creado: ${createdDate}</div>
-                            ${lastChange ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${emp.active ? '${icons.get('info')} Activado' : '${icons.get('pause')} Desactivado'}: ${lastChange}</div>` : ''}
+                            ${lastChange ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${emp.active ? `${icons.get('info')} Activado` : `${icons.get('x-circle')} Desactivado`}: ${lastChange}</div>` : ''}
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <button class="view-btn" onclick="openEmployeeProfile(`${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" title="Ver perfil completo">${icons.get('edit`)}</button>
-                        <button class="view-btn" onclick="openEmployeeForm(`${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar empleado">${icons.get('edit`)}</button>
+                        <button class="view-btn" onclick="openEmployeeProfile('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" title="Ver perfil completo">${icons.get('edit')}</button>
+                        <button class="view-btn" onclick="openEmployeeForm('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar empleado">${icons.get('edit')}</button>
                         <button class="view-btn ${emp.active ? '' : 'active'}" onclick="toggleEmployeeStatus('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
-                            ${emp.active ? '${icons.get('pause')}' : '\'}
+                            ${emp.active ? `${icons.get('x-circle')}` : `${icons.get('check')}`}
                         </button>
                     </div>
                 </div>
@@ -230,17 +238,17 @@ export function LeaderCard(ldr) {
                         <div class="employee-header">
                             <div class="employee-number" style="background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000;">${ldr.number}</div>
                             <div class="employee-name">${ldr.name}</div>
-                            <span style="font-size: 1.25rem; margin-left: 8px;">${icons.get('crown')}</span>
+                            <span style="font-size: 1.25rem; margin-left: 8px;">${icons.get('key')}</span>
                             ${statusBadge}
                         </div>
                         <div class="employee-meta" style="margin-top: 8px;">
-                             <div class="employee-meta-item">${icons.get('users')} Supervisa: ${positionsLed} posiciones</div>
+                              <div class="employee-meta-item">${icons.get('personnel')} Supervisa: ${positionsLed} posiciones</div>
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
-                         <button class="view-btn" onclick="openLeaderForm(`${ldr.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar líder">${icons.get('edit`)}</button>
+                         <button class="view-btn" onclick="openLeaderForm('${ldr.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar lider">${icons.get('edit')}</button>
                          <button class="view-btn ${ldr.active ? '' : 'active'}" onclick="toggleLeaderStatus('${ldr.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="${ldr.active ? 'Desactivar líder' : 'Activar líder'}">
-                            ${ldr.active ? '${icons.get('pause')}' : '\'}
+                            ${ldr.active ? `${icons.get('x-circle')}` : `${icons.get('check')}`}
                         </button>
                     </div>
                 </div>
@@ -260,19 +268,19 @@ export function PositionCard(pos) {
                             ${!pos.active ? '<span style="background: #475569; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">INACTIVA</span>' : ''}
                         </div>
                         <div class="employee-meta">
-                            <div class="employee-meta-item">${icons.get('dollar-sign')} Tarifa: $${pos.hourlyRate}/hr</div>
+                            <div class="employee-meta-item">${icons.get('payroll')} Tarifa: $${pos.hourlyRate}/hr</div>
                             <div class="employee-meta-divider"></div>
-                             <div class="employee-meta-item">${icons.get('sparkles')} ${empCount} empleados</div>
-                            ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('crown')} ${ldr.name}</div>` : ''}
+                             <div class="employee-meta-item">${icons.get('personnel')} ${empCount} empleados</div>
+                            ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${ldr.name}</div>` : ''}
                         </div>
                          <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
                             <div class="employee-meta-item" style="color: #64748b;">
-                                \ Días: ${pos.workingDays && pos.workingDays.length > 0 ? pos.workingDays.map(d => ['D', 'L', 'M', 'X', 'J', 'V', 'S'][d]).join(', ') : 'Todos'}
+                                ${icons.get('calendar')} Dias: ${pos.workingDays && pos.workingDays.length > 0 ? pos.workingDays.map(d => ['D', 'L', 'M', 'X', 'J', 'V', 'S'][d]).join(', ') : 'Todos'}
                             </div>
                         </div>
                     </div>
                     <div style="display: flex; gap: 8px;">
-                        <button class="view-btn" onclick="openPositionForm(`${pos.id}')" style="padding: 8px;" title="Editar posición">${icons.get('edit`)}</button>
+                        <button class="view-btn" onclick="openPositionForm('${pos.id}')" style="padding: 8px;" title="Editar posicion">${icons.get('edit')}</button>
                     </div>
                 </div>
             `;
@@ -371,7 +379,7 @@ export function saveEmployee() {
 
     if (existingEmployee) {
         Modal.confirm({
-            title: `${icons.get('sparkles')} Número Duplicado`,
+            title: `${icons.get('zap')} Número Duplicado`,
             message: `Ya existe un empleado con el número "${number}":\n${existingEmployee.name}\n\n¿Deseas usar el mismo número de todos modos?`,
             confirmText: 'Sí, continuar',
             cancelText: 'No, cambiar número',
@@ -510,7 +518,7 @@ export function toggleEmployeeStatus(employeeId) {
         const actionPast = emp.active ? 'desactivado' : 'activado';
 
         Modal.confirm({
-            title: emp.active ? `${icons.get('pause')} Desactivar Empleado' : '${icons.get('info')} Activar Empleado`,
+            title: emp.active ? `${icons.get('x-circle')} Desactivar Empleado` : `${icons.get('info')} Activar Empleado`,
             message: `¿Estás seguro de ${action} a ${emp.name}?`,
             confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
             cancelText: 'Cancelar',
@@ -546,7 +554,7 @@ export function toggleLeaderStatus(leaderId) {
         const actionPast = ldr.active ? 'desactivado' : 'activado';
 
         Modal.confirm({
-            title: ldr.active ? `${icons.get('pause')} Desactivar Líder' : '${icons.get('info')} Activar Líder`,
+            title: ldr.active ? `${icons.get('x-circle')} Desactivar Lider` : `${icons.get('info')} Activar Lider`,
             message: `¿Estás seguro de ${action} al líder ${ldr.name}?`,
             confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
             cancelText: 'Cancelar',
@@ -567,7 +575,7 @@ export function toggleLeaderStatus(leaderId) {
                 });
 
                 context.saveToLocalStorage();
-                window.showAlert(`${icons.get('sparkles')} Líder ${ldr.name} ${actionPast} correctamente`, 'success');
+                window.showAlert(`${icons.get('zap')} Líder ${ldr.name} ${actionPast} correctamente`, 'success');
                 context.render();
             }
         });

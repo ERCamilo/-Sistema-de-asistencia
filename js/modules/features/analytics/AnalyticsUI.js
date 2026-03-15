@@ -46,11 +46,11 @@ function DashboardControls() {
                     TIPO DE VISUALIZACIÓN
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
-                    <button onclick="AnalyticsUI.setDashboardChart('attendance')" class="dashboard-chart-btn ${state.dashboardChart === 'attendance' ? 'active' : ''}">${icons.get('chart-up')} Asistencia</button>
+                    <button onclick="AnalyticsUI.setDashboardChart('attendance')" class="dashboard-chart-btn ${state.dashboardChart === 'attendance' ? 'active' : ''}">${icons.get('reports')} Asistencia</button>
                     <button onclick="AnalyticsUI.setDashboardChart('hours')" class="dashboard-chart-btn ${state.dashboardChart === 'hours' ? 'active' : ''}">${icons.get('info')} Horas</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('positions')" class="dashboard-chart-btn ${state.dashboardChart === 'positions' ? 'active' : ''}">${icons.get('donut')} Posiciones</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('top10')" class="dashboard-chart-btn ${state.dashboardChart === 'top10' ? 'active' : ''}">${icons.get('trophy')} Top 10</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('heatmap')" class="dashboard-chart-btn ${state.dashboardChart === 'heatmap' ? 'active' : ''}">${icons.get('fire')} Mapa Calor</button>
+                    <button onclick="AnalyticsUI.setDashboardChart('positions')" class="dashboard-chart-btn ${state.dashboardChart === 'positions' ? 'active' : ''}">${icons.get('palette')} Posiciones</button>
+                    <button onclick="AnalyticsUI.setDashboardChart('top10')" class="dashboard-chart-btn ${state.dashboardChart === 'top10' ? 'active' : ''}">${icons.get('rocket')} Top 10</button>
+                    <button onclick="AnalyticsUI.setDashboardChart('heatmap')" class="dashboard-chart-btn ${state.dashboardChart === 'heatmap' ? 'active' : ''}">${icons.get('zap')} Mapa Calor</button>
                 </div>
             </div>
             
@@ -136,7 +136,7 @@ function AttendanceChart() {
 
     return `
         <div style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155;">
-            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('chart-up')} Tendencia de Asistencia</h3>
+            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('reports')} Tendencia de Asistencia</h3>
             <div style="height: 400px;"><canvas id="${chartId}"></canvas></div>
             ${ GeneratedReport() }
         </div>`;
@@ -261,7 +261,7 @@ function PositionsChart() {
     }, 100);
     return `
     <div style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155;">
-            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('donut')} Distribución por Posición</h3>
+            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('palette')} Distribución por Posición</h3>
             <div style="height: 400px;"><canvas id="${chartId}"></canvas></div>
             ${ GeneratedReport() }
         </div>`;
@@ -312,7 +312,7 @@ function Top10Chart() {
     }, 100);
     return `
         <div style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155;">
-            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('trophy')} Top 10 Empleados</h3>
+            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('rocket')} Top 10 Empleados</h3>
             <div style="height: 500px;"><canvas id="${chartId}"></canvas></div>
             ${ GeneratedReport() }
         </div>`;
@@ -352,7 +352,7 @@ function HeatmapChart() {
     const data = getHeatmapData();
     return `
         <div style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155;">
-            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('fire')} Mapa de Calor</h3>
+            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.25rem;">${icons.get('zap')} Mapa de Calor</h3>
             <div style="overflow-x: auto;">
                 <table style="width: 100%; border-collapse: separate; border-spacing: 4px;">
                     <thead><tr><th style="color:#94a3b8">Semana</th>${['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => `<th style="color:#94a3b8">${d}</th>`).join('')}</tr></thead>
@@ -412,7 +412,7 @@ function GeneratedReport() {
     const reportData = calculateReportData(startDate, endDate);
     return `
         <div style="background: #0f172a; border-radius: 12px; padding: 24px; margin-top: 20px; border: 1px solid #1e293b;">
-            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.125rem;">${icons.get('file')} Resumen General (${formatDateShort(startDate)} - ${formatDateShort(endDate)})</h3>
+            <h3 style="margin: 0 0 20px 0; color: #f1f5f9; font-size: 1.125rem;">${icons.get('reports')} Resumen General (${formatDateShort(startDate)} - ${formatDateShort(endDate)})</h3>
             <div style="color: #f1f5f9; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div><div style="color:#64748b;font-size:0.75rem">Total Empleados</div><div style="font-size:1.5rem;font-weight:700">${reportData.totalEmployees}</div></div>
                 <div><div style="color:#64748b;font-size:0.75rem">Días Laborables</div><div style="font-size:1.5rem;font-weight:700">${reportData.workDays}</div></div>
@@ -556,7 +556,7 @@ function EmployeeReportGeneralTable(employees, days) {
         if (val > 0) {
             text = val.toFixed(1);
             color = Math.abs(val - 1) < 0.01 ? (d.isHoliday ? '#f59e0b' : '#10b981') : (val < 1 ? '#ef4444' : '#3b82f6');
-            if (Math.abs(val - 1) < 0.01) text = `${icons.get('check-mark')}`;
+            if (Math.abs(val - 1) < 0.01) text = `${icons.get('check')}`;
         }
         return `<td style="padding: 10px 4px; text-align: center; color: ${color}; border-bottom: 1px solid #1e293b; font-weight: 700;">${text}</td>`;
     }).join('')}
