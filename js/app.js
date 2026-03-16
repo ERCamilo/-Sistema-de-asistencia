@@ -1,55 +1,6 @@
-﻿const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
+const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
 
-// ═══════════════════════════════════════════════════════════
-// CONFIGURACIÓN DE SUPABASE
-// ═══════════════════════════════════════════════════════════
-const SUPABASE_URL = 'https://whmkrkxphqmczsklvxpk.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndobWtya3hwaHFtY3pza2x2eHBrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNTE1MzksImV4cCI6MjA4NTgyNzUzOX0.a9Y1xImann_2wzW0c41FsGPUDaN97RRTReRL8aE7sV8';
-
-// Crear cliente de Supabase
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// Variables de estado para Supabase
-let useSupabase = false; // false = localStorage (default), true = Supabase
-let currentUser = null; // Usuario autenticado
-let isSyncing = false; // Para evitar sincronizaciones simultáneas
-let autoSyncEnabled = false; // ✅ NUEVO: Auto-sync desactivado por defecto
-let syncTimeout = null; // ✅ NUEVO: Para debounce de sincronización
-
-// ═══════════════════════════════════════════════════════════
-// FUNCIÓN PARA GENERAR UUIDs COMPATIBLES CON SUPABASE
-// ═══════════════════════════════════════════════════════════
-function generateUUID() {
-    // Genera UUID v4 válido (compatible con Supabase)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-}
-
-// Verifica si un ID es UUID v4 válido
-function isValidUUID(id) {
-    if (!id || typeof id !== 'string') return false;
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(id);
-}
-
-// Asegura que el ID sea UUID válido, genera uno nuevo si no lo es
-// ✅ Cache para que el mismo ID siempre genere el mismo UUID dentro de una sesión
-const uuidCache = {};
-function ensureUUID(id) {
-    if (isValidUUID(id)) {
-        return id;
-    }
-    if (uuidCache[id]) {
-        return uuidCache[id];
-    }
-    const newUUID = generateUUID();
-    uuidCache[id] = newUUID;
-    console.log(`🔄 ID migrado: "${id}" → "${newUUID}"`);
-    return newUUID;
-}
+import { SupabaseService } from './modules/services/SupabaseService.js';
 // ═══════════════════════════════════════════════════════════
 
 window.debug = {
@@ -423,6 +374,55 @@ const state = {
         deductions: []
     }
 };
+
+// Inicializar servicio de Supabase
+const supabaseService = new SupabaseService({
+    state: state,
+    render: () => render(),
+    showNotification: (msg, type) => showNotification(msg, type),
+    saveToLocalStorage: () => saveToLocalStorage(),
+    applyIconSet: (preferred, options) => applyIconSet(preferred, options),
+    resolveIconSet: (preferred) => resolveIconSet(preferred)
+});
+
+// Exponer funciones críticas al scope global (window)
+window.render = render;
+window.saveToLocalStorage = saveToLocalStorage;
+window.showNotification = showNotification;
+window.applyIconSet = applyIconSet;
+window.resolveIconSet = resolveIconSet;
+window.updateSyncStatus = updateSyncStatus;
+
+// Proxies para compatibilidad con código existente (HTML onclick, etc)
+window.supabaseClient = supabaseService.client;
+window.syncNow = () => supabaseService.syncNow();
+window.migrateToSupabase = () => supabaseService.migrateToSupabase();
+window.loadFromSupabase = () => supabaseService.loadFromSupabase();
+window.disconnectSupabase = () => supabaseService.disconnect();
+
+// Getters/Setters para mantener las variables globales sincronizadas con el servicio
+Object.defineProperties(window, {
+    useSupabase: {
+        get: () => supabaseService.useSupabase,
+        set: (v) => supabaseService.useSupabase = v
+    },
+    currentUser: {
+        get: () => supabaseService.currentUser,
+        set: (v) => supabaseService.currentUser = v
+    },
+    isSyncing: {
+        get: () => supabaseService.isSyncing,
+        set: (v) => supabaseService.isSyncing = v
+    },
+    autoSyncEnabled: {
+        get: () => supabaseService.autoSyncEnabled,
+        set: (v) => supabaseService.autoSyncEnabled = v
+    }
+});
+
+function generateUUID() { return supabaseService.generateUUID(); }
+function isValidUUID(id) { return supabaseService.isValidUUID(id); }
+function ensureUUID(id) { return supabaseService.ensureUUID(id); }
 
 // Helper Functions
 // Movido a js/modules/utils/DateUtils.js y js/modules/utils/Formatters.js
@@ -2918,48 +2918,9 @@ async function saveToIndexedDB() {
 
 function saveToLocalStorage() {
     console.log('🔵 saveToLocalStorage() llamado');
-
-    // ═══ SUPABASE: Sincronizar con la nube SI auto-sync está activado ═══
-    if (useSupabase && currentUser && !isSyncing && autoSyncEnabled) {
-        // ✅ Usar debounce: esperar 3 segundos de inactividad antes de sincronizar
-        if (syncTimeout) {
-            clearTimeout(syncTimeout);
-        }
-
-        syncTimeout = setTimeout(() => {
-            console.log('⏱️ Auto-sync activado, sincronizando...');
-
-            // ⚡ Mostrar indicador de sincronización
-            state.syncStatus = 'syncing';
-            render();
-
-            migrateToSupabase()
-                .then(() => {
-                    state.lastSupabaseSync = new Date().toISOString();
-                    state.syncStatus = 'synced';
-                    updateSyncStatus();
-                    console.log('✅ Auto-sync completado silenciosamente');
-
-                    setTimeout(() => {
-                        state.syncStatus = 'idle';
-                        render();
-                    }, 3000);
-                })
-                .catch(err => {
-                    state.syncStatus = 'error';
-                    console.error('Error sincronizando con Supabase:', err);
-                    showNotification('⚠️ Error en auto-sync', 'warning');
-
-                    setTimeout(() => {
-                        state.syncStatus = 'idle';
-                        render();
-                    }, 5000);
-                })
-                .finally(() => {
-                    render();
-                });
-        }, 3000); // 3 segundos de espera
-    }
+    
+    // Auto-sync de Supabase si aplica
+    supabaseService.handleAutoSync();
     // ═══════════════════════════════════════════════════════════
 
     // ✅ Verificación defensiva: Asegurar que dataService existe
@@ -4737,15 +4698,7 @@ window.loginSupabase = async function () {
     errorDiv.style.display = 'none';
 
     try {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
-            email,
-            password
-        });
-
-        if (error) throw error;
-
-        currentUser = data.user;
-        useSupabase = true;
+        await supabaseService.signIn(email, password);
         closeModal();
 
         showNotification('✅ Conectado exitosamente', 'success');
@@ -4781,21 +4734,7 @@ window.registerSupabase = async function () {
     errorDiv.style.display = 'none';
 
     try {
-        const { data, error } = await supabaseClient.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    full_name: 'Usuario Phoenix'
-                }
-            }
-        });
-
-        if (error) throw error;
-
-        currentUser = data.user;
-        useSupabase = true;
-        closeModal();
+        await supabaseService.signUp(email, password);
 
         showNotification('✅ Cuenta creada exitosamente', 'success');
 
@@ -4809,16 +4748,13 @@ window.registerSupabase = async function () {
     }
 };
 
+
 // Modal de opciones de sincronización
 window.showSyncOptionsModal = async function () {
     // Detectar si hay datos locales y en la nube
     const hasLocalData = state.employees.length > 0 || state.positions.length > 0;
 
-    let hasCloudData = false;
-    if (currentUser) {
-        const { data } = await supabaseClient.from('employees').select('id').eq('user_id', currentUser.id).limit(1);
-        hasCloudData = data && data.length > 0;
-    }
+    const hasCloudData = await supabaseService.hasCloudData();
 
     // Decidir qué mostrar
     if (!hasLocalData && !hasCloudData) {
@@ -4960,825 +4896,11 @@ function showFullSyncModal() {
     document.body.insertAdjacentHTML('beforeend', html);
 }
 
-// Subir a la nube
-window.uploadToCloud = async function () {
-    closeModal();
-    state.syncStatus = 'syncing';
-    render();
-
-    try {
-        await migrateToSupabase();
-
-        state.lastSupabaseSync = new Date().toISOString();
-        state.syncStatus = 'synced';
-        await updateSyncStatus();
-        showNotification('✅ Datos subidos', 'success');
-
-        setTimeout(() => {
-            state.syncStatus = 'idle';
-            render();
-        }, 3000);
-    } catch (error) {
-        state.syncStatus = 'error';
-        showNotification('❌ Error al subir', 'error');
-    }
-
-    render();
-};
-
-// Descargar de la nube
-window.downloadFromCloud = async function () {
-    closeModal();
-    state.syncStatus = 'syncing';
-    render();
-
-    try {
-        await loadFromSupabase();
-        saveToLocalStorage();
-
-        state.lastSupabaseSync = new Date().toISOString();
-        state.syncStatus = 'synced';
-        await updateSyncStatus();
-        showNotification('✅ Datos descargados', 'success');
-
-        setTimeout(() => {
-            state.syncStatus = 'idle';
-            render();
-        }, 3000);
-    } catch (error) {
-        state.syncStatus = 'error';
-        showNotification('❌ Error al descargar', 'error');
-    }
-
-    render();
-};
-
-// ✅ NUEVO: Sincronizar manualmente (cuando ya está conectado)
-window.manualSync = async function () {
-    if (!currentUser || isSyncing) {
-        showNotification('⚠️ Ya hay una sincronización en proceso', 'warning');
-        return;
-    }
-
-    state.syncStatus = 'syncing';
-    render();
-
-    try {
-        await migrateToSupabase();
-
-        state.lastSupabaseSync = new Date().toISOString();
-        state.syncStatus = 'synced';
-        await updateSyncStatus();
-        showNotification('✅ Sincronizado', 'success');
-
-        setTimeout(() => {
-            state.syncStatus = 'idle';
-            render();
-        }, 3000);
-    } catch (error) {
-        state.syncStatus = 'error';
-        showNotification('❌ Error al sincronizar', 'error');
-    }
-
-    render();
-};
-
-// ✅ NUEVO: Toggle auto-sync
-window.toggleAutoSync = function () {
-    autoSyncEnabled = !autoSyncEnabled;
-
-    // Guardar preferencia en localStorage
-    localStorage.setItem('phoenix-auto-sync', autoSyncEnabled ? 'true' : 'false');
-
-    const status = autoSyncEnabled ? 'activada' : 'desactivada';
-    const icon = autoSyncEnabled ? '✅' : '❌';
-    showNotification(`${icon} Sincronización automática ${status}`, 'success');
-
-    render();
-};
-
-// Desconectar - VERSIÓN ROBUSTA CON TIMEOUT
-window.disconnectSupabase = async function () {
-    if (!confirm('¿Deseas desconectar de Supabase? Tus datos seguirán en la nube, pero trabajarás en modo local.')) {
-        return;
-    }
-
-    console.log('🔌 Iniciando desconexión de Supabase...');
-    showNotification('🔄 Desconectando...', 'info');
-
-    // 1. PRIMERO limpiar localStorage inmediatamente (no esperar a signOut)
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (
-            key.startsWith('sb-') ||
-            key.includes('supabase') ||
-            key === 'phoenix-auto-sync'
-        )) {
-            keysToRemove.push(key);
-        }
-    }
-
-    console.log(`🗑️ Claves a eliminar: ${keysToRemove.length}`);
-    keysToRemove.forEach(key => {
-        console.log(`🗑️ Eliminando: ${key}`);
-        localStorage.removeItem(key);
-    });
-
-    // Limpiar sessionStorage
-    sessionStorage.clear();
-
-    // 2. Limpiar variables globales
-    useSupabase = false;
-    currentUser = null;
-    autoSyncEnabled = false;
-
-    console.log('✅ Variables y localStorage limpiados');
-
-    // 3. Intentar signOut con timeout (no critical, ya limpiamos localStorage)
-    try {
-        const signOutPromise = supabaseClient.auth.signOut({ scope: 'global' });
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout')), 3000)
-        );
-
-        await Promise.race([signOutPromise, timeoutPromise]);
-        console.log('✅ signOut completado');
-    } catch (error) {
-        console.warn('⚠️ signOut falló o timeout, pero localStorage ya fue limpiado:', error.message);
-    }
-
-    // 4. Mostrar éxito y recargar
-    showNotification('✅ Desconectado correctamente. Recargando...', 'success');
-    console.log('🔄 Recargando página en 1 segundo...');
-
-    setTimeout(() => {
-        window.location.reload();
-    }, 1000);
-};
-
-// Migrar datos de localStorage a Supabase
-window.migrateToSupabase = async function () {
-    if (!currentUser || isSyncing) return;
-
-    isSyncing = true;
-
-    try {
-        console.log('📤 Iniciando migración COMPLETA a Supabase...');
-        console.log('👤 Usuario:', currentUser.email);
-        console.log('🔑 User ID:', currentUser.id);
-
-        // ═══════════════════════════════════════════════════════════
-        // PASO 0: Generar ID MAP para evitar conflictos entre usuarios
-        // Cada usuario obtiene IDs frescos para sus datos
-        // ═══════════════════════════════════════════════════════════
-        const idMap = {
-            leaders: {},    // oldId → newId
-            positions: {},  // oldId → newId  
-            employees: {}   // oldId → newId
-        };
-
-        // Verificar si los IDs locales ya pertenecen a ESTE usuario en Supabase
-        // Si ya existen para este usuario, reutilizarlos; si no, generar nuevos
-        const { data: existingPositions } = await supabaseClient
-            .from('positions').select('id').eq('user_id', currentUser.id);
-        const { data: existingEmployees } = await supabaseClient
-            .from('employees').select('id').eq('user_id', currentUser.id);
-        const { data: existingLeaders } = await supabaseClient
-            .from('leaders').select('id').eq('user_id', currentUser.id);
-
-        const existingPosIds = new Set((existingPositions || []).map(p => p.id));
-        const existingEmpIds = new Set((existingEmployees || []).map(e => e.id));
-        const existingLeaderIds = new Set((existingLeaders || []).map(l => l.id));
-
-        // Mapear leaders: reutilizar si ya existe para este usuario, sino generar nuevo
-        if (state.leaders && state.leaders.length > 0) {
-            state.leaders.forEach(leader => {
-                const oldId = leader.id;
-                const uuidReady = ensureUUID(oldId);
-                if (existingLeaderIds.has(uuidReady)) {
-                    idMap.leaders[oldId] = uuidReady;
-                } else {
-                    idMap.leaders[oldId] = generateUUID();
-                }
-            });
-        }
-
-        // Mapear positions
-        if (state.positions && state.positions.length > 0) {
-            state.positions.forEach(pos => {
-                const oldId = pos.id;
-                if (existingPosIds.has(oldId)) {
-                    idMap.positions[oldId] = oldId;
-                } else {
-                    idMap.positions[oldId] = generateUUID();
-                }
-            });
-        }
-
-        // Mapear employees
-        if (state.employees && state.employees.length > 0) {
-            state.employees.forEach(emp => {
-                const oldId = emp.id || emp.key;
-                const uuidReady = ensureUUID(oldId);
-                if (existingEmpIds.has(uuidReady)) {
-                    idMap.employees[oldId] = uuidReady;
-                } else {
-                    idMap.employees[oldId] = generateUUID();
-                }
-            });
-        }
-
-        console.log('🗺️ ID Map generado:', {
-            leaders: Object.keys(idMap.leaders).length,
-            positions: Object.keys(idMap.positions).length,
-            employees: Object.keys(idMap.employees).length,
-            remapped: {
-                leaders: Object.entries(idMap.leaders).filter(([k, v]) => k !== v).length,
-                positions: Object.entries(idMap.positions).filter(([k, v]) => k !== v).length,
-                employees: Object.entries(idMap.employees).filter(([k, v]) => k !== v).length
-            }
-        });
-
-        // Helper para remapear un ID (devuelve el mapeado o el original)
-        const remapId = (oldId, type) => {
-            if (!oldId) return null;
-            return idMap[type]?.[oldId] || oldId;
-        };
-
-        // ═══════════════════════════════════════════════════════════
-        // 1. Migrar SETTINGS
-        // ═══════════════════════════════════════════════════════════
-        const holidaysArray = Array.isArray(state.settings.holidays)
-            ? state.settings.holidays.map(h => typeof h === 'string' ? h : h.toISOString().split('T')[0])
-            : [];
-
-        const { error: settingsError } = await supabaseClient.from('settings').upsert({
-            user_id: currentUser.id,
-            company_name: state.settings.companyName || 'Mi Empresa',
-            regular_hours_per_day: state.settings.regularHoursPerDay || 8,
-            overtime_factor: state.settings.overtimeFactor || 1.5,
-            holiday_factor: state.settings.holidayFactor || 2,
-            default_deduction_percentage: state.settings.defaultDeductionPercentage || 2,
-            global_payment_day: state.settings.globalPaymentDay || null,
-            holidays: holidaysArray,
-            last_payment_date: state.settings.lastPaymentDate,
-            next_payment_date: state.settings.nextPaymentDate,
-            calendar_marker_mode: state.calendarMarkerMode || 'holiday',
-            updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
-
-        if (settingsError) {
-            console.error('❌ Error guardando settings:', settingsError);
-        } else {
-            console.log('✅ Settings guardados');
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // 2. Migrar LEADERS (con IDs remapeados)
-        // ═══════════════════════════════════════════════════════════
-        if (!state.leaders) {
-            state.leaders = [];
-        }
-
-        if (state.leaders.length > 0) {
-            const leadersData = state.leaders.map(leader => ({
-                id: remapId(ensureUUID(leader.id), 'leaders'),
-                user_id: currentUser.id,
-                number: leader.number,
-                name: leader.name,
-                active: leader.active !== undefined ? leader.active : true,
-                phone: leader.phone || null,
-                email: leader.email || null,
-                notes: leader.notes || null,
-                last_status_change: leader.lastStatusChange || null,
-                status_history: leader.statusHistory || []
-            }));
-
-            console.log('📋 Guardando leaders:', leadersData.length);
-
-            const { error } = await supabaseClient.from('leaders').upsert(leadersData, {
-                onConflict: 'id'
-            });
-
-            if (error) {
-                console.error('❌ Error insertando leaders:', error);
-            } else {
-                console.log('✅ Leaders guardados:', leadersData.length);
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // 3. Migrar POSITIONS (upsert por user_id + name)
-        // ═══════════════════════════════════════════════════════════
-        if (state.positions && state.positions.length > 0) {
-            const positionsData = state.positions.map(pos => ({
-                user_id: currentUser.id,
-                name: pos.name,
-                color: pos.color,
-                hourly_rate: pos.hourlyRate || pos.baseSalary || null,
-                working_days: pos.workingDays || [1, 2, 3, 4, 5],
-                salary_config: pos.salaryConfig || null,
-                base_salary: pos.baseSalary || 0,
-                leader_id: remapId(pos.leaderId, 'leaders'),
-                active: pos.active !== undefined ? pos.active : true,
-                last_status_change: pos.lastStatusChange || null,
-                status_history: pos.statusHistory || [],
-                updated_at: new Date().toISOString()
-            }));
-
-            console.log('📍 Guardando positions:', positionsData.length);
-
-            const { error } = await supabaseClient.from('positions').upsert(positionsData, {
-                onConflict: 'user_id,name'
-            });
-
-            if (error) {
-                console.error('❌ Error insertando positions:', error);
-            } else {
-                console.log('✅ Positions guardadas:', positionsData.length);
-            }
-
-            // Re-fetch position IDs from DB to update idMap for employees/attendance
-            const { data: dbPositions } = await supabaseClient
-                .from('positions').select('id, name').eq('user_id', currentUser.id);
-            if (dbPositions) {
-                const dbPosMap = {};
-                dbPositions.forEach(p => { dbPosMap[p.name] = p.id; });
-                // Update idMap: local position id -> DB position id
-                state.positions.forEach(pos => {
-                    const dbId = dbPosMap[pos.name];
-                    if (dbId) {
-                        idMap.positions[pos.id] = dbId;
-                    }
-                });
-                console.log('🗺️ Position ID map actualizado desde DB');
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // 4. Migrar EMPLOYEES (con IDs y referencias remapeados)
-        // ═══════════════════════════════════════════════════════════
-        if (state.employees && state.employees.length > 0) {
-            const employeesData = state.employees.map(emp => {
-                // Remapear positionSalaries keys
-                const positionSalaries = {};
-                if (emp.positionSalaries && typeof emp.positionSalaries === 'object') {
-                    Object.keys(emp.positionSalaries).forEach(posId => {
-                        if (emp.positionSalaries[posId]) {
-                            const newPosId = remapId(posId, 'positions');
-                            positionSalaries[newPosId] = emp.positionSalaries[posId];
-                        }
-                    });
-                }
-
-                // Remapear customWorkingDays keys
-                const customWorkingDays = {};
-                if (emp.customWorkingDays && typeof emp.customWorkingDays === 'object') {
-                    Object.keys(emp.customWorkingDays).forEach(posId => {
-                        if (emp.customWorkingDays[posId]) {
-                            const newPosId = remapId(posId, 'positions');
-                            customWorkingDays[newPosId] = emp.customWorkingDays[posId];
-                        }
-                    });
-                }
-
-                // Remapear el array de positions (multi-posición)
-                const remappedPositions = (emp.positions || []).map(posId => remapId(posId, 'positions'));
-
-                return {
-                    id: remapId(ensureUUID(emp.id || emp.key), 'employees'),
-                    user_id: currentUser.id,
-                    number: emp.number,
-                    name: emp.name,
-                    positions: remappedPositions,
-                    position_salaries: positionSalaries,
-                    custom_salary: emp.customSalary || null,
-                    custom_working_days: customWorkingDays,
-                    hire_date: emp.hireDate,
-                    phone: emp.phone,
-                    email: emp.email,
-                    notes: emp.notes,
-                    active: emp.active !== undefined ? emp.active : true,
-                    last_payment_date: emp.lastPaymentDate,
-                    last_status_change: emp.lastStatusChange,
-                    status_history: emp.statusHistory || [],
-                    created_date: emp.createdDate || new Date().toISOString()
-                };
-            });
-
-            console.log('👥 Guardando employees:', employeesData.length);
-            console.log('👥 Multi-posición:', employeesData.filter(e => e.positions.length > 1).map(e => `${e.name}: ${e.positions.length} posiciones`));
-
-            const { error } = await supabaseClient.from('employees').upsert(employeesData, {
-                onConflict: 'id',
-                ignoreDuplicates: false
-            });
-
-            if (error) {
-                console.error('❌ Error insertando employees:', error);
-                console.error('👥 Código:', error.code, 'Hint:', error.hint);
-            } else {
-                console.log('✅ Employees guardados:', employeesData.length);
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // 5. Migrar ATTENDANCE (con referencias remapeadas)
-        // ═══════════════════════════════════════════════════════════
-        console.log('📊 Verificando state.attendance:', {
-            existe: !!state.attendance,
-            tipo: typeof state.attendance,
-            esMap: state.attendance instanceof Map,
-            constructor: state.attendance ? state.attendance.constructor.name : 'N/A'
-        });
-
-        let attendanceMap = state.attendance;
-        if (state.attendance && !(state.attendance instanceof Map)) {
-            attendanceMap = new Map(Object.entries(state.attendance));
-        }
-
-        if (attendanceMap && attendanceMap.size > 0) {
-            console.log('📅 Guardando TODO el historial de asistencia');
-            console.log(`📊 Total días a guardar: ${attendanceMap.size}`);
-
-            const attendanceData = [];
-            const attendancePositionsData = [];
-
-            attendanceMap.forEach((record, compositeKey) => {
-                const empId = record.employeeId || compositeKey.split('-').slice(0, -3).join('-');
-                const recordDate = record.date || compositeKey.split('-').slice(-3).join('-');
-
-                // Remapear IDs de empleado y posición
-                const newEmpId = remapId(empId, 'employees');
-                const mainPositionId = (() => {
-                    const employee = state.employees.find(e => (e.id === empId || e.key === empId));
-                    return employee && employee.positions && employee.positions.length > 0
-                        ? employee.positions[0] : null;
-                })();
-
-                const attendanceId = generateUUID();
-
-                attendanceData.push({
-                    id: attendanceId,
-                    user_id: currentUser.id,
-                    employee_id: newEmpId,
-                    date: recordDate,
-                    present: record.present,
-                    hours_worked: record.hoursWorked || record.hours || null,
-                    overtime_hours: record.overtimeHours || 0,
-                    is_holiday: record.isHoliday || false,
-                    position_id: remapId(record.selectedPosition || mainPositionId, 'positions'),
-                    use_temp_position: record.useTempPosition || false,
-                    multi_position: record.multiPosition || false,
-                    selected_position: remapId(record.selectedPosition, 'positions'),
-                    notes: record.notes || null
-                });
-
-                // Manejar multi-posición: remapear position_id en cada positionHours
-                if (record.positionHours && record.positionHours.length > 0) {
-                    record.positionHours.forEach(ph => {
-                        attendancePositionsData.push({
-                            attendance_id: attendanceId,
-                            position_id: remapId(ph.positionId, 'positions'),
-                            hours: ph.hours || 0,
-                            overtime_hours: ph.overtimeHours || 0
-                        });
-                    });
-                } else if (record.selectedPosition || mainPositionId) {
-                    attendancePositionsData.push({
-                        attendance_id: attendanceId,
-                        position_id: remapId(record.selectedPosition || mainPositionId, 'positions'),
-                        hours: record.hoursWorked || record.hours || 0,
-                        overtime_hours: record.overtimeHours || 0
-                    });
-                }
-            });
-
-            // Eliminar datos existentes primero (para este usuario)
-            const { data: existingAttendance } = await supabaseClient
-                .from('attendance').select('id').eq('user_id', currentUser.id);
-
-            if (existingAttendance && existingAttendance.length > 0) {
-                const existingIds = existingAttendance.map(a => a.id);
-                console.log(`🗑️ Eliminando ${existingIds.length} registros existentes`);
-
-                await supabaseClient.from('attendance_positions')
-                    .delete().in('attendance_id', existingIds);
-                await supabaseClient.from('attendance')
-                    .delete().eq('user_id', currentUser.id);
-            }
-
-            // Insertar en lotes
-            for (let i = 0; i < attendanceData.length; i += 100) {
-                const batch = attendanceData.slice(i, i + 100);
-                const { error } = await supabaseClient.from('attendance').insert(batch);
-
-                if (error) {
-                    console.error('❌ Error insertando attendance batch:', error);
-                } else {
-                    console.log(`✅ Attendance batch ${Math.floor(i / 100) + 1}: ${batch.length} registros`);
-                }
-            }
-
-            if (attendancePositionsData.length > 0) {
-                for (let i = 0; i < attendancePositionsData.length; i += 100) {
-                    const batch = attendancePositionsData.slice(i, i + 100);
-                    const { error } = await supabaseClient.from('attendance_positions').insert(batch);
-
-                    if (error) {
-                        console.error('❌ Error insertando attendance_positions:', error);
-                    } else {
-                        console.log(`✅ Position details batch ${Math.floor(i / 100) + 1}: ${batch.length} registros`);
-                    }
-                }
-            }
-
-            console.log(`📊 Multi-posición: ${attendancePositionsData.length} registros de attendance_positions`);
-        } else {
-            console.log('⚠️ No hay attendance para migrar');
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // 6. Migrar TEMP_ASSIGNMENTS (con referencias remapeadas)
-        // ═══════════════════════════════════════════════════════════
-        if (state.tempAssignments && state.tempAssignments.length > 0) {
-            const tempData = state.tempAssignments.map(ta => ({
-                id: ta.id || generateUUID(),
-                user_id: currentUser.id,
-                employee_id: remapId(ta.employeeId, 'employees'),
-                position_id: remapId(ta.positionId, 'positions'),
-                start_date: ta.startDate,
-                end_date: ta.endDate,
-                notes: ta.notes || null
-            }));
-
-            const { error } = await supabaseClient.from('temp_assignments').upsert(tempData);
-            if (!error) {
-                console.log('✅ Temp assignments guardados:', tempData.length);
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════════
-        // 7. Migrar DAY_HOURS_CONFIG
-        // ═══════════════════════════════════════════════════════════
-        if (state.dayHoursConfig && Object.keys(state.dayHoursConfig).length > 0) {
-            const dayHoursData = [];
-            Object.keys(state.dayHoursConfig).forEach(date => {
-                dayHoursData.push({
-                    user_id: currentUser.id,
-                    date: date,
-                    hours: state.dayHoursConfig[date].hours,
-                    notes: state.dayHoursConfig[date].notes || null
-                });
-            });
-
-            const { error } = await supabaseClient.from('day_hours_config').upsert(dayHoursData, {
-                onConflict: 'user_id,date'
-            });
-            if (!error) {
-                console.log('✅ Day hours config guardados:', dayHoursData.length);
-            }
-        }
-
-        console.log('🎉 Migración COMPLETA exitosa');
-
-    } catch (error) {
-        console.error('❌ Error en migración:', error);
-        showNotification('❌ Error en sincronización: ' + error.message, 'error');
-    } finally {
-        isSyncing = false;
-    }
-};
-async function loadFromSupabase() {
-    if (!currentUser) return;
-
-    try {
-        console.log('☁️ Cargando TODOS los datos desde Supabase...');
-
-        // 1. Cargar SETTINGS
-        const { data: settings } = await supabaseClient
-            .from('settings')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .maybeSingle();
-
-        if (settings) {
-            const previousIconSet = state.settings?.iconSet;
-            state.settings = {
-                companyName: settings.company_name,
-                regularHoursPerDay: settings.regular_hours_per_day || 8,
-                overtimeFactor: settings.overtime_factor || 1.5,
-                holidayFactor: settings.holiday_factor || 2,
-                defaultDeductionPercentage: settings.default_deduction_percentage || 2,
-                globalPaymentDay: settings.global_payment_day || null,
-                holidays: settings.holidays || [],
-                lastPaymentDate: settings.last_payment_date,
-                nextPaymentDate: settings.next_payment_date,
-                iconSet: resolveIconSet(settings.icon_set || previousIconSet)
-            };
-            state.calendarMarkerMode = settings.calendar_marker_mode || 'holiday';
-            state.settings.iconSet = applyIconSet(state.settings.iconSet);
-            console.log('✅ Settings cargados');
-        }
-
-        // 2. Cargar LEADERS
-        const { data: leaders } = await supabaseClient
-            .from('leaders')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .order('number');
-
-        if (leaders && leaders.length > 0) {
-            state.leaders = leaders.map(l => ({
-                id: l.id,
-                number: l.number,
-                name: l.name,
-                active: l.active,
-                phone: l.phone,
-                email: l.email,
-                notes: l.notes,
-                lastStatusChange: l.last_status_change,
-                statusHistory: l.status_history || []
-            }));
-            console.log('✅ Leaders cargados:', state.leaders.length);
-        } else {
-            state.leaders = state.leaders || [];
-        }
-
-        // 3. Cargar POSITIONS (COMPLETO)
-        const { data: positions } = await supabaseClient
-            .from('positions')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .order('name');
-
-        if (positions && positions.length > 0) {
-            state.positions = positions.map(p => ({
-                id: p.id,
-                name: p.name,
-                color: p.color,
-                hourlyRate: p.hourly_rate,
-                baseSalary: p.base_salary || p.hourly_rate,
-                workingDays: p.working_days || [1, 2, 3, 4, 5],
-                salaryConfig: p.salary_config,
-                leaderId: p.leader_id,
-                active: p.active,
-                lastStatusChange: p.last_status_change,
-                statusHistory: p.status_history || []
-            }));
-            console.log('✅ Positions cargadas:', state.positions.length);
-        }
-
-        // 4. Cargar EMPLOYEES (COMPLETO)
-        const { data: employees } = await supabaseClient
-            .from('employees')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .order('number');
-
-        if (employees && employees.length > 0) {
-            state.employees = employees.map(e => ({
-                id: e.id,
-                key: e.id,
-                number: e.number,
-                name: e.name,
-                positions: e.positions || [],
-                positionSalaries: e.position_salaries || {},
-                customSalary: e.custom_salary,
-                customWorkingDays: e.custom_working_days || {},
-                hireDate: e.hire_date,
-                phone: e.phone,
-                email: e.email,
-                notes: e.notes,
-                active: e.active,
-                lastPaymentDate: e.last_payment_date,
-                lastStatusChange: e.last_status_change,
-                statusHistory: e.status_history || [],
-                createdDate: e.created_date
-            }));
-            console.log('✅ Employees cargados:', state.employees.length);
-        }
-
-        // 5. Cargar ATTENDANCE (COMPLETO - TODOS LOS DÍAS)
-        console.log('📅 Cargando TODO el historial de asistencia (sin límite de fechas)');
-        console.log('🔍 Buscando attendance para user_id:', currentUser.id);
-
-        const { data: attendance, error: attendanceError } = await supabaseClient
-            .from('attendance')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .order('date', { ascending: false });
-
-        console.log('📊 Resultado de query attendance:', {
-            error: attendanceError?.message || 'ninguno',
-            count: attendance?.length || 0,
-            sample: attendance?.[0] || 'sin datos'
-        });
-
-        if (attendance && attendance.length > 0) {
-            // ✅ CORREGIDO: Usar objeto plano con claves employeeId-date
-            state.attendance = {};
-
-            const attendanceIds = attendance.map(a => a.id);
-            const { data: attendancePositions } = await supabaseClient
-                .from('attendance_positions')
-                .select('*')
-                .in('attendance_id', attendanceIds);
-
-            const positionsByAttendance = {};
-            if (attendancePositions && attendancePositions.length > 0) {
-                attendancePositions.forEach(ap => {
-                    if (!positionsByAttendance[ap.attendance_id]) {
-                        positionsByAttendance[ap.attendance_id] = [];
-                    }
-                    positionsByAttendance[ap.attendance_id].push({
-                        positionId: ap.position_id,
-                        hours: parseFloat(ap.hours) || 0,
-                        overtimeHours: parseFloat(ap.overtime_hours) || 0
-                    });
-                });
-            }
-
-            attendance.forEach(record => {
-                // ✅ CORREGIDO: Usar clave employeeId-date como el resto de la app
-                const key = `${record.employee_id}-${record.date}`;
-                const positionHours = positionsByAttendance[record.id] || [];
-
-                state.attendance[key] = {
-                    employeeId: record.employee_id,
-                    date: record.date,
-                    present: record.present,
-                    hoursWorked: parseFloat(record.hours_worked) || 0,
-                    overtimeHours: parseFloat(record.overtime_hours) || 0,
-                    isHoliday: record.is_holiday || false,
-                    notes: record.notes || '',
-                    selectedPosition: record.position_id,
-                    multiPosition: record.multi_position || positionHours.length > 1,
-                    useTempPosition: record.use_temp_position || false,
-                    positionHours: positionHours
-                };
-            });
-
-            console.log('✅ Attendance cargados:', attendance.length, 'registros');
-        } else {
-            state.attendance = {};
-            console.log('📭 No hay registros de asistencia en la nube');
-        }
-
-        // 6. Cargar TEMP_ASSIGNMENTS
-        const { data: tempAssignments } = await supabaseClient
-            .from('temp_assignments')
-            .select('*')
-            .eq('user_id', currentUser.id);
-
-        if (tempAssignments && tempAssignments.length > 0) {
-            state.tempAssignments = tempAssignments.map(ta => ({
-                id: ta.id,
-                employeeId: ta.employee_id,
-                positionId: ta.position_id,
-                startDate: ta.start_date,
-                endDate: ta.end_date,
-                notes: ta.notes
-            }));
-            console.log('✅ Temp assignments cargados:', state.tempAssignments.length);
-        } else {
-            state.tempAssignments = state.tempAssignments || [];
-        }
-
-        // 7. Cargar DAY_HOURS_CONFIG
-        const { data: dayHours } = await supabaseClient
-            .from('day_hours_config')
-            .select('*')
-            .eq('user_id', currentUser.id);
-
-        if (dayHours && dayHours.length > 0) {
-            state.dayHoursConfig = {};
-            dayHours.forEach(dh => {
-                state.dayHoursConfig[dh.date] = {
-                    hours: dh.hours,
-                    notes: dh.notes
-                };
-            });
-            console.log('✅ Day hours config cargados:', dayHours.length);
-        } else {
-            state.dayHoursConfig = state.dayHoursConfig || {};
-        }
-
-        console.log('🎉 Datos COMPLETOS cargados desde Supabase');
-        render();
-
-    } catch (error) {
-        console.error('❌ Error cargando datos:', error);
-        showNotification('⚠️ Error al cargar datos desde la nube', 'error');
-    }
-}
-
-// Sincronización manual
-window.syncNow = async function () {
-    await migrateToSupabase();
-    await loadFromSupabase();
-};
+// Operaciones de Supabase UI
+window.uploadToCloud = () => supabaseService.manualSync();
+window.downloadFromCloud = () => supabaseService.downloadFromCloud();
+window.manualSync = () => supabaseService.manualSync();
+window.toggleAutoSync = () => supabaseService.toggleAutoSync();
 
 // ═══════════════════════════════════════════════════════════
 
@@ -9787,59 +8909,7 @@ function calculateStorageStats() {
  * Obtiene el estado de sincronización con Supabase
  */
 async function getSupabaseSyncStatus() {
-    if (!useSupabase || !currentUser) {
-        return {
-            connected: false,
-            cloudEmployees: 0,
-            cloudAttendance: 0,
-            cloudDays: 0,
-            localEmployees: state.employees.length,
-            localAttendance: Object.keys(state.attendance).length,
-            localDays: new Set(Object.values(state.attendance).map(a => a.date)).size,
-            lastSync: null,
-            timeAgo: 'No conectado'
-        };
-    }
-
-    try {
-        // Contar empleados en la nube
-        const { count: cloudEmployeesCount } = await supabaseClient
-            .from('employees')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', currentUser.id);
-
-        // Contar registros de asistencia y días únicos en la nube
-        // Nota: Para contar días únicos eficientemente necesitaríamos una función RPC o consultar todos los campos fecha
-        // Por ahora traeremos solo las fechas para contarlas en cliente (si son muchas podría optimizarse después)
-        const { data: cloudDates, error: datesError } = await supabaseClient
-            .from('attendance')
-            .select('date')
-            .eq('user_id', currentUser.id);
-
-        const cloudAttendanceCount = cloudDates ? cloudDates.length : 0;
-        const cloudDaysCount = cloudDates ? new Set(cloudDates.map(d => d.date)).size : 0;
-
-        const lastSync = state.lastSupabaseSync;
-        const timeAgo = lastSync ? getTimeAgo(new Date(lastSync)) : 'Nunca';
-
-        return {
-            connected: true,
-            cloudEmployees: cloudEmployeesCount || 0,
-            cloudAttendance: cloudAttendanceCount || 0,
-            cloudDays: cloudDaysCount || 0,
-            localEmployees: state.employees.length,
-            localAttendance: Object.keys(state.attendance).length,
-            localDays: new Set(Object.values(state.attendance).map(a => a.date)).size,
-            lastSync,
-            timeAgo
-        };
-    } catch (error) {
-        console.error('Error obteniendo estado de sync:', error);
-        return {
-            connected: false,
-            error: error.message
-        };
-    }
+    return await supabaseService.getSyncStatus();
 }
 
 /**
@@ -11878,69 +10948,7 @@ console.log('📂 Cargando datos desde localStorage...');
 loadFromLocalStorage();
 state.settings.iconSet = applyIconSet(state.settings.iconSet);
 
-// ═══════════════════════════════════════════════════════════
-// SUPABASE: Verificar sesión activa al iniciar
-// ═══════════════════════════════════════════════════════════
-// ✅ Restaurar preferencia de auto-sync
-const savedAutoSync = localStorage.getItem('phoenix-auto-sync');
-if (savedAutoSync === 'true') {
-    autoSyncEnabled = true;
-    console.log('⚡ Auto-sync restaurado: activado');
-} else {
-    console.log('⚡ Auto-sync: desactivado (default)');
-}
-
-supabaseClient.auth.getSession().then(async ({ data: { session } }) => {
-    if (session) {
-        console.log('☁️ Sesión activa detectada:', session.user.email);
-        currentUser = session.user;
-        useSupabase = true;
-
-        // ✅ CORREGIDO: Smart sync al restaurar sesión
-        // - Si hay datos en la nube → descargar automáticamente
-        // - Si la nube está vacía pero hay datos locales → mantener local (no sobrescribir)
-        // - Si ambos vacíos → nada que hacer
-        const { data: cloudEmployees } = await supabaseClient
-            .from('employees')
-            .select('id')
-            .eq('user_id', session.user.id)
-            .limit(1);
-
-        const hasCloudData = cloudEmployees && cloudEmployees.length > 0;
-        const hasLocalData = state.employees.length > 0;
-
-        if (hasCloudData) {
-            console.log('☁️ Restaurando datos desde la nube...');
-            await loadFromSupabase();
-        } else if (hasLocalData) {
-            console.log('💾 Datos locales detectados, nube vacía. Manteniendo datos locales.');
-            // NO hacer nada - mantener datos locales
-        } else {
-            console.log('📭 Sin datos locales ni en nube');
-        }
-
-        showNotification('✅ Conectado como: ' + session.user.email, 'success');
-        render();
-    } else {
-        console.log('💾 Trabajando en modo local (sin sesión)');
-    }
-});
-
-// Escuchar cambios en autenticación
-supabaseClient.auth.onAuthStateChange(async (_event, session) => {
-    if (session) {
-        currentUser = session.user;
-        useSupabase = true;
-        // ✅ CORREGIDO: NO auto-cargar datos aquí
-        // El login/register ya muestra el modal de sync opciones
-        console.log('🔄 Auth state changed: sesión activa');
-    } else {
-        currentUser = null;
-        useSupabase = false;
-        console.log('🔄 Auth state changed: sin sesión');
-    }
-    render();
-});
+supabaseService.initAuth();
 // ═══════════════════════════════════════════════════════════
 
 // Intentar restaurar auto-backup de sesión anterior (para Canvas)
