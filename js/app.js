@@ -302,6 +302,15 @@ const state = {
 
     // Menú de exportar
     showExportMenu: false,
+    showShareOptions: false,
+    showImportFullModal: false,
+    importFullText: '',
+    showNotesCenter: false,
+    notesCenterEmployeeId: null,
+    showNoteModal: false,
+    noteModalEmployeeId: null,
+    noteModalDate: '',
+    noteModalText: '',
     exportMenuData: {
         x: 0,
         y: 0,
@@ -336,6 +345,17 @@ const state = {
     reportViewMode: 'employee-report', // 'employee-report' | 'dashboard'
     employeeSearchQuery: '',
     employeeStatusFilter: 'active', // 'active' | 'inactive' | 'all'
+    employeeFilters: {
+        search: '',
+        positionId: 'all',
+        leaderId: 'all',
+        status: 'active'
+    },
+    positionFilters: {
+        search: '',
+        leaderId: 'all',
+        status: 'active'
+    },
     editingEmployee: null,
     editingLeader: null,
     positionStatusFilter: 'active', // 'active' | 'inactive' | 'all'
@@ -740,6 +760,10 @@ window.PayrollUI = PayrollUI;
 // Map Global Functions for Legacy Compatibility (Employees)
 window.changeEmployeeViewMode = EmployeesUI.changeEmployeeViewMode;
 window.setEmployeeStatusFilter = EmployeesUI.setEmployeeStatusFilter;
+window.setEmployeeSearchFilter = EmployeesUI.setEmployeeSearchFilter;
+window.setEmployeePositionFilter = EmployeesUI.setEmployeePositionFilter;
+window.setEmployeeLeaderFilter = EmployeesUI.setEmployeeLeaderFilter;
+window.resetEmployeeFilters = EmployeesUI.resetEmployeeFilters;
 window.openEmployeeForm = EmployeesUI.openEmployeeForm;
 window.openLeaderForm = EmployeesUI.openLeaderForm;
 window.saveEmployee = EmployeesUI.saveEmployee;
@@ -747,9 +771,13 @@ window.saveLeader = EmployeesUI.saveLeader;
 window.toggleEmployeeStatus = EmployeesUI.toggleEmployeeStatus;
 window.toggleLeaderStatus = EmployeesUI.toggleLeaderStatus;
 window.setPositionStatusFilter = EmployeesUI.setPositionStatusFilter;
+window.setPositionSearchFilter = EmployeesUI.setPositionSearchFilter;
+window.setPositionLeaderFilter = EmployeesUI.setPositionLeaderFilter;
 window.setPositionSortBy = EmployeesUI.setPositionSortBy;
 window.openPositionForm = EmployeesUI.openPositionForm;
 window.savePosition = EmployeesUI.savePosition;
+window.togglePositionStatus = EmployeesUI.togglePositionStatus;
+window.deletePosition = EmployeesUI.deletePosition;
 window.openEmployeeFloating = EmployeesUI.openEmployeeFloating;
 window.closeFloatingCard = EmployeesUI.closeFloatingCard;
 window.changeFloatingMonth = EmployeesUI.changeFloatingMonth;
@@ -4921,6 +4949,31 @@ window.changeReportViewMode = (mode) => {
 };
 window.setEmployeeStatusFilter = (filter) => {
     state.employeeStatusFilter = filter;
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.status = filter;
+    render();
+};
+window.setEmployeeSearchFilter = (value) => {
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.search = value;
+    render();
+};
+window.setEmployeePositionFilter = (positionId) => {
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.positionId = positionId;
+    render();
+};
+window.setEmployeeLeaderFilter = (leaderId) => {
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.leaderId = leaderId;
     render();
 };
 // Mapeos de formularios movidos a EmployeesUI.js
@@ -4935,6 +4988,7 @@ window.setEmployeeStatusFilter = (filter) => {
 // Sistema de menú de exportar
 window.showExportMenu = (options) => {
     state.showExportMenu = true;
+    state.showShareOptions = false;
     state.exportMenuData = {
         x: options.x || 0,
         y: options.y || 0,
@@ -4948,6 +5002,12 @@ window.showExportMenu = (options) => {
 
 window.closeExportMenu = () => {
     state.showExportMenu = false;
+    state.showShareOptions = false;
+    state.showImportFullModal = false;
+    state.importFullText = '';
+    state.showNotesCenter = false;
+    state.notesCenterEmployeeId = null;
+    state.showNoteModal = false;
     state.exportMenuData = {
         x: 0,
         y: 0,
@@ -4991,6 +5051,318 @@ window.performShare = async () => {
         state.isExporting = false;
         render();
     }
+};
+
+async function copyTextToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    const success = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return success;
+}
+
+window.toggleShareOptions = () => {
+    state.showShareOptions = !state.showShareOptions;
+    render();
+};
+
+window.shareExportFull = async () => {
+    const data = state.exportMenuData;
+    if (!data.blob) {
+        showNotification('❌ No hay datos para compartir', 'error');
+        return;
+    }
+
+    try {
+        state.isExporting = true;
+        render();
+
+        let jsonText = '';
+        if (data.blob.text) {
+            jsonText = await data.blob.text();
+        } else {
+            jsonText = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result || '');
+                reader.onerror = reject;
+                reader.readAsText(data.blob);
+            });
+        }
+
+        const copied = await copyTextToClipboard(jsonText);
+        if (!copied) {
+            throw new Error('copy failed');
+        }
+
+        showNotification('✅ Datos FULL copiados al portapapeles', 'success');
+        closeExportMenu();
+    } catch (error) {
+        console.error('Error copiando FULL:', error);
+        showNotification('❌ Error al copiar datos FULL', 'error');
+    } finally {
+        state.isExporting = false;
+        render();
+    }
+};
+
+window.shareExportMini = async () => {
+    try {
+        state.isExporting = true;
+        render();
+
+        const mini = state.employees.map((emp) => {
+            const posId = emp.positions && emp.positions.length ? emp.positions[0] : null;
+            const pos = posId ? state.positions.find(p => p.id === posId) : null;
+            return {
+                number: `${emp.number ?? ''}`,
+                name: emp.name || '',
+                position: pos ? pos.name : ''
+            };
+        });
+
+        const json = JSON.stringify(mini, null, 2);
+        const copied = await copyTextToClipboard(json);
+        if (!copied) {
+            throw new Error('copy failed');
+        }
+
+        showNotification('✅ Datos MINI copiados al portapapeles', 'success');
+        closeExportMenu();
+    } catch (error) {
+        console.error('Error copiando MINI:', error);
+        showNotification('❌ Error al copiar datos MINI', 'error');
+    } finally {
+        state.isExporting = false;
+        render();
+    }
+};
+
+window.openImportFullModal = () => {
+    state.showImportFullModal = true;
+    state.importFullText = '';
+    render();
+};
+
+window.closeImportFullModal = () => {
+    state.showImportFullModal = false;
+    state.importFullText = '';
+    render();
+};
+
+window.setImportFullText = (value) => {
+    state.importFullText = value;
+};
+
+function applyFullImport(importedData) {
+    state.settings = importedData.data.settings || state.settings;
+    state.positions = importedData.data.positions || [];
+    state.employees = importedData.data.employees || [];
+    state.leaders = importedData.data.leaders || [];
+    state.attendance = importedData.data.attendance || {};
+    state.tempAssignments = importedData.data.tempAssignments || [];
+    state.dayHoursConfig = importedData.data.dayHoursConfig || {};
+
+    saveToLocalStorage();
+    showNotification('✅ Datos importados correctamente', 'success');
+    closeImportFullModal();
+    closeExportMenu();
+    render();
+}
+
+window.confirmImportFull = () => {
+    try {
+        const text = (state.importFullText || '').trim();
+        if (!text) {
+            showNotification('❌ Pega los datos FULL primero', 'error');
+            return;
+        }
+
+        const importedData = JSON.parse(text);
+        if (!importedData.data) {
+            throw new Error('Formato de datos inválido');
+        }
+
+        const employeesCount = (importedData.data.employees || []).length;
+
+        // Cerrar el modal de importaciÃ³n antes de mostrar confirmaciÃ³n
+        state.showImportFullModal = false;
+        render();
+
+        showConfirm({
+            title: 'Importar datos FULL',
+            message:
+                `Se encontraron ${employeesCount} empleados.\n\n` +
+                'Esto reemplazará TODOS tus datos actuales por estos nuevos.\n\n' +
+                '¿Deseas continuar?',
+            confirmText: 'Importar',
+            cancelText: 'Cancelar',
+            type: 'warning',
+            onConfirm: () => applyFullImport(importedData),
+            onCancel: () => { }
+        });
+    } catch (error) {
+        console.error('Error importando FULL:', error);
+        showNotification('❌ Error al importar: ' + error.message, 'error');
+    }
+};
+
+window.selectNotesEmployee = (employeeId) => {
+    state.notesCenterEmployeeId = employeeId;
+    render();
+};
+
+window.openNoteEditor = (employeeId, dateKey) => {
+    const key = `${employeeId}-${dateKey}`;
+    const att = state.attendance[key];
+    if (!att || !att.notes) return;
+
+    state.showNotesCenter = true;
+    state.showNoteModal = true;
+    state.noteModalEmployeeId = employeeId;
+    state.noteModalDate = dateKey;
+    state.noteModalText = att.notes || '';
+    render();
+};
+
+window.openNewNote = (employeeId) => {
+    if (!employeeId) {
+        showNotification('❌ Selecciona un empleado primero', 'error');
+        return;
+    }
+    state.showNotesCenter = true;
+    state.showNoteModal = true;
+    state.noteModalEmployeeId = employeeId;
+    state.noteModalDate = getDateKey(new Date());
+    state.noteModalText = '';
+    state.notesCenterEmployeeId = employeeId;
+    render();
+};
+
+window.closeNoteModal = () => {
+    state.showNoteModal = false;
+    state.noteModalEmployeeId = null;
+    state.noteModalDate = '';
+    state.noteModalText = '';
+    state.showNotesCenter = true;
+    render();
+};
+
+window.setNoteModalText = (value) => {
+    state.noteModalText = value;
+};
+
+window.setNoteModalDate = (value) => {
+    state.noteModalDate = value;
+};
+
+window.saveNoteModal = () => {
+    const employeeId = state.noteModalEmployeeId;
+    const text = (state.noteModalText || '').trim();
+    const dateKey = getDateKey(state.noteModalDate || new Date());
+
+    if (!employeeId) return;
+    if (!text) {
+        showNotification('âŒ La nota estÃ¡ vacÃ­a', 'error');
+        return;
+    }
+
+    const emp = state.employees.find(e => e.id === employeeId);
+    if (!emp) {
+        showNotification('âŒ Empleado no encontrado', 'error');
+        return;
+    }
+
+    const key = `${employeeId}-${dateKey}`;
+    const existing = state.attendance[key] || {
+        employeeId: employeeId,
+        date: dateKey,
+        present: false,
+        hoursWorked: 0,
+        overtimeHours: 0,
+        isHoliday: isDayHoliday(dateKey),
+        selectedPosition: emp.positions?.[0] || null,
+        multiPosition: false,
+        positionHours: [],
+        notes: ''
+    };
+
+    if (!existing.selectedPosition && emp.positions?.[0]) {
+        existing.selectedPosition = emp.positions[0];
+    }
+
+    existing.notes = text;
+    state.attendance[key] = existing;
+
+    saveToLocalStorage();
+    showNotification('âœ… Nota guardada', 'success');
+    closeNoteModal();
+    render();
+};
+
+window.deleteNoteModal = () => {
+    const employeeId = state.noteModalEmployeeId;
+    const dateKey = state.noteModalDate;
+    if (!employeeId || !dateKey) return;
+
+    showConfirm({
+        title: 'Eliminar nota',
+        message: 'Esta acciÃ³n eliminarÃ¡ la nota de este dÃ­a.\nÂ¿Deseas continuar?',
+        confirmText: 'Eliminar',
+        cancelText: 'Cancelar',
+        type: 'warning',
+        onConfirm: () => {
+            const key = `${employeeId}-${dateKey}`;
+            const att = state.attendance[key];
+            if (att) {
+                att.notes = '';
+                const isEmpty = !att.present &&
+                    !att.hoursWorked &&
+                    !att.overtimeHours &&
+                    !att.multiPosition &&
+                    (!att.positionHours || att.positionHours.length === 0);
+                if (isEmpty) {
+                    delete state.attendance[key];
+                } else {
+                    state.attendance[key] = att;
+                }
+            }
+            saveToLocalStorage();
+            showNotification('âœ… Nota eliminada', 'success');
+            closeNoteModal();
+            render();
+        }
+    });
+};
+
+window.openNotesCenter = () => {
+    state.showNotesCenter = true;
+    if (!state.notesCenterEmployeeId) {
+        state.notesCenterEmployeeId = null;
+    }
+    state.showNoteModal = false;
+    render();
+};
+
+window.closeNotesCenter = () => {
+    state.showNotesCenter = false;
+    state.notesCenterEmployeeId = null;
+    state.showNoteModal = false;
+    render();
+};
+
+window.backToNotesList = () => {
+    state.notesCenterEmployeeId = null;
+    render();
 };
 
 window.performDownload = () => {
@@ -5147,6 +5519,13 @@ window.togglePositionEmployees = (positionId) => {
     }
 };
 
+window.toggleLeaderEmployees = (leaderId) => {
+    const elem = document.getElementById(`leader-employees-${leaderId}`);
+    if (elem) {
+        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
+    }
+};
+
 document.addEventListener('click', (e) => {
     if (state.contextMenu && !e.target.closest('.context-menu')) {
         state.contextMenu = null;
@@ -5227,6 +5606,7 @@ function Header() {
                             <div class="company-name">🏗️ ${state.settings.companyName}</div>
                             <div style="display: flex; gap: 8px;">
                                 ${SyncIndicator()}
+                                <button class="settings-btn" onclick="openNotesCenter()" title="Notas de empleados">${icons.get('mail')}</button>
                                 <button class="settings-btn" onclick="exportData()" title="Exportar datos">${icons.get('download')}</button>
                             </div>
                         </div>
@@ -9434,8 +9814,9 @@ function ExportMenu() {
     if (!state.showExportMenu) return '';
 
     const data = state.exportMenuData;
-    const canShare = navigator.share && navigator.canShare && data.blob;
+    const canShare = true;
     const isLoading = state.isExporting;
+    const showShareOptions = !!state.showShareOptions;
 
     return `
                 <div class="modal-overlay animate-fade-in" onclick="${isLoading ? '' : 'closeExportMenu()'}" style="background: rgba(0,0,0,0.3);">
@@ -9474,14 +9855,14 @@ function ExportMenu() {
                             <!-- Opciones -->
                             <div style="padding: 4px;">
                                 ${canShare ? `
-                                    <button onclick="performShare()" 
+                                    <button onclick="toggleShareOptions()" 
                                             class="export-menu-option"
                                             style="width: 100%; 
                                                    display: flex; 
                                                    align-items: center; 
                                                    gap: 12px; 
                                                    padding: 14px 16px; 
-                                                   background: transparent; 
+                                                   background: ${showShareOptions ? '#334155' : 'transparent'}; 
                                                    border: none; 
                                                    border-radius: 12px; 
                                                    color: #f1f5f9; 
@@ -9490,7 +9871,7 @@ function ExportMenu() {
                                                    text-align: left;
                                                    font-size: 0.9375rem;"
                                             onmouseover="this.style.background='#334155'"
-                                            onmouseout="this.style.background='transparent'">
+                                            onmouseout="this.style.background='${showShareOptions ? '#334155' : 'transparent'}'">
                                         <div style="width: 40px; 
                                                    height: 40px; 
                                                    background: linear-gradient(135deg, #06b6d4, #3b82f6); 
@@ -9503,10 +9884,88 @@ function ExportMenu() {
                                         </div>
                                         <div style="flex: 1;">
                                             <div style="font-weight: 600; color: #f1f5f9;">Compartir</div>
-                                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Enviar a otras apps</div>
+                                            <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Copiar datos al portapapeles</div>
                                         </div>
+                                        <div style="color:#94a3b8;font-size:1rem;">${showShareOptions ? '▾' : '▸'}</div>
                                     </button>
+
+                                    ${showShareOptions ? `
+                                        <div style="padding: 6px 8px 10px 60px; display: grid; gap: 6px;">
+                                            <button onclick="shareExportFull()" 
+                                                    style="width: 100%; 
+                                                           display: flex; 
+                                                           align-items: center; 
+                                                           gap: 10px; 
+                                                           padding: 10px 12px; 
+                                                           background: #0f172a; 
+                                                           border: 1px solid #334155; 
+                                                           border-radius: 10px; 
+                                                           color: #f1f5f9; 
+                                                           cursor: pointer; 
+                                                           transition: all 0.2s;
+                                                           text-align: left;
+                                                           font-size: 0.875rem;"
+                                                    onmouseover="this.style.borderColor='#06b6d4'"
+                                                    onmouseout="this.style.borderColor='#334155'">
+                                                <span style="color:#06b6d4; font-weight:700;">FULL</span>
+                                                <span style="font-size:0.75rem;color:#94a3b8;">Respaldo completo</span>
+                                            </button>
+                                            <button onclick="shareExportMini()" 
+                                                    style="width: 100%; 
+                                                           display: flex; 
+                                                           align-items: center; 
+                                                           gap: 10px; 
+                                                           padding: 10px 12px; 
+                                                           background: #0f172a; 
+                                                           border: 1px solid #334155; 
+                                                           border-radius: 10px; 
+                                                           color: #f1f5f9; 
+                                                           cursor: pointer; 
+                                                           transition: all 0.2s;
+                                                           text-align: left;
+                                                           font-size: 0.875rem;"
+                                                    onmouseover="this.style.borderColor='#06b6d4'"
+                                                    onmouseout="this.style.borderColor='#334155'">
+                                                <span style="color:#10b981; font-weight:700;">MINI</span>
+                                                <span style="font-size:0.75rem;color:#94a3b8;">Solo #, nombre y posiciÃ³n</span>
+                                            </button>
+                                        </div>
+                                    ` : ''}
                                 ` : ''}
+
+                                <button onclick="openImportFullModal()" 
+                                        class="export-menu-option"
+                                        style="width: 100%; 
+                                               display: flex; 
+                                               align-items: center; 
+                                               gap: 12px; 
+                                               padding: 14px 16px; 
+                                               background: transparent; 
+                                               border: none; 
+                                               border-radius: 12px; 
+                                               color: #f1f5f9; 
+                                               cursor: pointer; 
+                                               transition: all 0.2s;
+                                               text-align: left;
+                                               font-size: 0.9375rem;
+                                               margin-top: ${canShare ? '4px' : '0'};"
+                                        onmouseover="this.style.background='#334155'"
+                                        onmouseout="this.style.background='transparent'">
+                                    <div style="width: 40px; 
+                                               height: 40px; 
+                                               background: linear-gradient(135deg, #f59e0b, #fbbf24); 
+                                               border-radius: 10px; 
+                                               display: flex; 
+                                               align-items: center; 
+                                               justify-content: center; 
+                                               font-size: 1.25rem;">
+                                        📥
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 600; color: #f1f5f9;">Importar FULL</div>
+                                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Pegar respaldo completo</div>
+                                    </div>
+                                </button>
                                 
                                 <button onclick="performDownload()" 
                                         class="export-menu-option"
@@ -9523,7 +9982,7 @@ function ExportMenu() {
                                                transition: all 0.2s;
                                                text-align: left;
                                                font-size: 0.9375rem;
-                                               margin-top: ${canShare ? '4px' : '0'};"
+                                               margin-top: 4px;"
                                         onmouseover="this.style.background='#334155'"
                                         onmouseout="this.style.background='transparent'">
                                     <div style="width: 40px; 
@@ -9561,6 +10020,324 @@ function ExportMenu() {
                                 </button>
                             </div>
                         `}
+                    </div>
+                </div>
+            `;
+}
+
+function ImportFullModal() {
+    if (!state.showImportFullModal) return '';
+
+    return `
+                <div class="modal-overlay animate-fade-in" onclick="closeImportFullModal()" style="background: rgba(0,0,0,0.45); z-index: 10002;">
+                    <div class="export-menu animate-slide-up"
+                         onclick="event.stopPropagation()"
+                         style="position: fixed;
+                                left: 50%;
+                                top: 50%;
+                                transform: translate(-50%, -50%);
+                                background: #1e293b;
+                                border-radius: 16px;
+                                padding: 16px;
+                                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                                border: 1px solid #334155;
+                                max-width: 92%;
+                                width: 520px;">
+                        <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px;">
+                            Importar datos FULL
+                        </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px;">
+                            Pega aquÃ­ el JSON generado en Compartir FULL.
+                        </div>
+                        <textarea
+                            oninput="setImportFullText(this.value)"
+                            placeholder="{ ... }"
+                            style="width: 100%;
+                                   min-height: 220px;
+                                   resize: vertical;
+                                   background: #0f172a;
+                                   color: #e2e8f0;
+                                   border: 1px solid #334155;
+                                   border-radius: 10px;
+                                   padding: 12px;
+                                   font-size: 0.8rem;
+                                   line-height: 1.4;
+                                   outline: none;"
+                        >${state.importFullText || ''}</textarea>
+
+                        <div style="display: flex; gap: 8px; margin-top: 12px;">
+                            <button onclick="confirmImportFull()"
+                                    style="flex: 1;
+                                           padding: 10px 12px;
+                                           background: linear-gradient(135deg, #06b6d4, #3b82f6);
+                                           border: none;
+                                           border-radius: 10px;
+                                           color: #fff;
+                                           font-weight: 700;
+                                           cursor: pointer;">
+                                Aceptar
+                            </button>
+                            <button onclick="closeImportFullModal()"
+                                    style="flex: 1;
+                                           padding: 10px 12px;
+                                           background: transparent;
+                                           border: 1px solid #334155;
+                                           border-radius: 10px;
+                                           color: #94a3b8;
+                                           font-weight: 700;
+                                           cursor: pointer;">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+}
+
+function NoteModal() {
+    if (!state.showNoteModal) return '';
+
+    const emp = state.employees.find(e => e.id === state.noteModalEmployeeId);
+    const empName = emp ? `${emp.number || ''} - ${emp.name}` : 'Empleado';
+
+    return `
+                <div class="modal-overlay animate-fade-in" onclick="closeNoteModal()" style="background: rgba(0,0,0,0.45); z-index: 10002;">
+                    <div class="export-menu animate-slide-up"
+                         onclick="event.stopPropagation()"
+                         style="position: fixed;
+                                left: 50%;
+                                top: 50%;
+                                transform: translate(-50%, -50%);
+                                background: #1e293b;
+                                border-radius: 16px;
+                                padding: 16px;
+                                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+                                border: 1px solid #334155;
+                                max-width: 92%;
+                                width: 520px;">
+                        <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700; margin-bottom: 6px;">
+                            Nota de asistencia
+                        </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px;">
+                            ${empName}
+                        </div>
+
+                        <div style="display: grid; gap: 10px; margin-bottom: 12px;">
+                            <div>
+                                <label style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Fecha</label>
+                                <input type="date"
+                                       value="${state.noteModalDate || getDateKey(new Date())}"
+                                       onchange="setNoteModalDate(this.value)"
+                                       style="width: 100%;
+                                              background: #0f172a;
+                                              color: #e2e8f0;
+                                              border: 1px solid #334155;
+                                              border-radius: 8px;
+                                              padding: 8px 10px;
+                                              font-size: 0.85rem;">
+                            </div>
+                            <div>
+                                <label style="font-size: 0.75rem; color: #94a3b8; display:block; margin-bottom: 6px;">Nota</label>
+                                <textarea
+                                    oninput="setNoteModalText(this.value)"
+                                    placeholder="Escribe la nota..."
+                                    style="width: 100%;
+                                           min-height: 160px;
+                                           resize: vertical;
+                                           background: #0f172a;
+                                           color: #e2e8f0;
+                                           border: 1px solid #334155;
+                                           border-radius: 10px;
+                                           padding: 12px;
+                                           font-size: 0.8rem;
+                                           line-height: 1.4;
+                                           outline: none;"
+                                >${state.noteModalText || ''}</textarea>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="saveNoteModal()"
+                                    style="flex: 1;
+                                           padding: 10px 12px;
+                                           background: linear-gradient(135deg, #06b6d4, #3b82f6);
+                                           border: none;
+                                           border-radius: 10px;
+                                           color: #fff;
+                                           font-weight: 700;
+                                           cursor: pointer;">
+                                Guardar
+                            </button>
+                            <button onclick="deleteNoteModal()"
+                                    style="padding: 10px 12px;
+                                           background: #1e293b;
+                                           border: 1px solid #ef4444;
+                                           border-radius: 10px;
+                                           color: #ef4444;
+                                           font-weight: 700;
+                                           cursor: pointer;">
+                                Eliminar
+                            </button>
+                            <button onclick="closeNoteModal()"
+                                    style="flex: 1;
+                                           padding: 10px 12px;
+                                           background: transparent;
+                                           border: 1px solid #334155;
+                                           border-radius: 10px;
+                                           color: #94a3b8;
+                                           font-weight: 700;
+                                           cursor: pointer;">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+}
+
+function NotesCenterModal() {
+    if (!state.showNotesCenter) return '';
+
+    const attendanceItems = Object.values(state.attendance || {});
+    const notesByEmployee = new Map();
+
+    attendanceItems.forEach(att => {
+        const note = (att.notes || '').trim();
+        if (!note) return;
+        if (!notesByEmployee.has(att.employeeId)) {
+            notesByEmployee.set(att.employeeId, []);
+        }
+        notesByEmployee.get(att.employeeId).push({
+            date: att.date,
+            note: note
+        });
+    });
+
+    notesByEmployee.forEach((list) => {
+        list.sort((a, b) => b.date.localeCompare(a.date));
+    });
+
+    const employeesWithNotes = state.employees
+        .filter(emp => notesByEmployee.has(emp.id))
+        .sort((a, b) => {
+            const aNotes = notesByEmployee.get(a.id) || [];
+            const bNotes = notesByEmployee.get(b.id) || [];
+            const aDate = aNotes[0] ? aNotes[0].date : '';
+            const bDate = bNotes[0] ? bNotes[0].date : '';
+            if (aDate !== bDate) return bDate.localeCompare(aDate);
+            const aNum = parseInt(a.number, 10);
+            const bNum = parseInt(b.number, 10);
+            if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+            return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
+        });
+
+    const selectedId = state.notesCenterEmployeeId;
+    const selectedEmp = selectedId ? state.employees.find(e => e.id === selectedId) : null;
+    const selectedNotes = selectedId ? (notesByEmployee.get(selectedId) || []) : [];
+
+    return `
+                <div class="modal-overlay" style="background: #0b1220; z-index: 10001;">
+                    <div style="position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b1220;">
+                        <div style="display:flex; align-items:center; gap:12px; padding: 14px 16px; border-bottom: 1px solid #1f2a44; background: #0f172a;">
+                            ${selectedEmp ? `
+                                <button onclick="backToNotesList()" title="Volver"
+                                        style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid #334155; background: transparent; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">
+                                    ←
+                                </button>
+                            ` : `
+                                <div style="width: 36px;"></div>
+                            `}
+                            <div style="flex:1;">
+                                <div style="font-weight:700; color:#f1f5f9;">
+                                    ${selectedEmp ? `${selectedEmp.name}` : 'Notas de empleados'}
+                                </div>
+                                <div style="font-size:0.75rem; color:#94a3b8;">
+                                    ${selectedEmp ? `#${selectedEmp.number || ''}` : 'Solo empleados con notas'}
+                                </div>
+                            </div>
+                            <button onclick="closeNotesCenter()" title="Cerrar"
+                                    style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid #334155; background: transparent; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">
+                                ✕
+                            </button>
+                        </div>
+
+                        <div style="flex: 1; overflow-y: auto; padding: 16px; background: #0b1220;">
+                            ${!selectedEmp ? `
+                                ${employeesWithNotes.length === 0 ? `
+                                    <div style="text-align:center; padding: 60px 20px; color:#94a3b8;">
+                                        <div style="font-size:3rem; margin-bottom:16px; opacity:0.4;">${icons.get('message')}</div>
+                                        <div style="font-size:1rem;">AÃºn no hay notas guardadas</div>
+                                    </div>
+                                ` : employeesWithNotes.map(emp => {
+                                    const lastNote = (notesByEmployee.get(emp.id) || [])[0];
+                                    const preview = lastNote ? (lastNote.note.length > 60 ? `${lastNote.note.slice(0, 60)}...` : lastNote.note) : '';
+                                    return `
+                                        <button onclick="selectNotesEmployee('${emp.id}')"
+                                                style="width: 100%;
+                                                       text-align: left;
+                                                       padding: 12px 14px;
+                                                       border-radius: 14px;
+                                                       border: 1px solid #1f2a44;
+                                                       background: #0f172a;
+                                                       color: #f1f5f9;
+                                                       cursor: pointer;
+                                                       margin-bottom: 10px;">
+                                            <div style="display:flex; align-items:center; gap:10px;">
+                                                <div style="width:36px; height:36px; border-radius:12px; background:#111827; display:flex; align-items:center; justify-content:center; font-weight:700; color:#06b6d4;">
+                                                    ${emp.number || ''}
+                                                </div>
+                                                <div style="flex:1;">
+                                                    <div style="font-weight:700;">${emp.name}</div>
+                                                    <div style="font-size:0.75rem; color:#94a3b8;">${lastNote ? formatDateShort(lastNote.date) : ''}</div>
+                                                </div>
+                                            </div>
+                                            <div style="font-size:0.8rem; color:#cbd5e1; margin-top:8px;">
+                                                ${preview}
+                                            </div>
+                                        </button>
+                                    `;
+                                }).join('')}
+                            ` : `
+                                ${selectedNotes.length === 0 ? `
+                                    <div style="text-align:center; padding: 60px 20px; color:#94a3b8;">
+                                        <div style="font-size:2.5rem; margin-bottom:12px; opacity:0.4;">${icons.get('message')}</div>
+                                        <div style="font-size:0.95rem;">No hay notas para este empleado</div>
+                                    </div>
+                                ` : selectedNotes.map(note => `
+                                    <div style="text-align:center; color:#64748b; font-size:0.75rem; margin: 10px 0;">
+                                        ${formatDateShort(note.date)}
+                                    </div>
+                                    <div onclick="openNoteEditor('${selectedEmp.id}', '${note.date}')"
+                                         style="max-width: 90%;
+                                                background: #111827;
+                                                border: 1px solid #1f2a44;
+                                                color: #e2e8f0;
+                                                border-radius: 18px;
+                                                padding: 12px 14px;
+                                                margin-bottom: 10px;">
+                                        <div style="white-space: pre-wrap; font-size: 0.9rem; line-height: 1.4;">
+                                            ${note.note}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            `}
+                        </div>
+
+                        ${selectedEmp ? `
+                            <div style="padding: 14px 16px; border-top: 1px solid #1f2a44; background: #0f172a;">
+                                <button onclick="openNewNote('${selectedEmp.id}')"
+                                        style="width: 100%;
+                                               padding: 12px 14px;
+                                               background: linear-gradient(135deg, #06b6d4, #10b981);
+                                               border: none;
+                                               border-radius: 12px;
+                                               color: #000;
+                                               font-weight: 800;
+                                               cursor: pointer;">
+                                    + Nueva nota
+                                </button>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
             `;
@@ -9627,13 +10404,19 @@ function App() {
         ? modalMap[state.modalType]()
         : '';
 
-    return `${demoBanner}${Header()}<main class="main-content"><div class="container">${content}</div></main>${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}`;
+    return `${demoBanner}${Header()}<main class="main-content"><div class="container">${content}</div></main>${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
 function render() {
     // ⚡ Optimizado con RenderOptimizer
     renderOptimizer.scheduleRender(() => {
         perfMonitor.start('render');
+
+        // Preservar foco en el buscador de empleados si está activo
+        const activeEl = document.activeElement;
+        const keepSearchFocus = activeEl && activeEl.classList && activeEl.classList.contains('employee-search-input');
+        const searchCursorPos = keepSearchFocus ? activeEl.selectionStart : null;
+        const searchValue = keepSearchFocus ? activeEl.value : null;
 
         // Guardar posición del scroll antes de renderizar
         saveScrollPosition();
@@ -9646,6 +10429,23 @@ function render() {
         root.replaceChildren(...template.content.childNodes);
         // Renderizar iconos Lucide despues de actualizar el DOM
         icons.refresh();
+
+        // Restaurar foco del buscador si estaba activo
+        if (keepSearchFocus) {
+            requestAnimationFrame(() => {
+                const input = document.querySelector('.employee-search-input');
+                if (input) {
+                    input.focus();
+                    if (searchValue !== null && input.value !== searchValue) {
+                        input.value = searchValue;
+                    }
+                    const pos = searchCursorPos !== null ? searchCursorPos : input.value.length;
+                    if (input.setSelectionRange) {
+                        input.setSelectionRange(pos, pos);
+                    }
+                }
+            });
+        }
 
         // Restaurar posición del scroll después de renderizar
         restoreScrollPosition();
