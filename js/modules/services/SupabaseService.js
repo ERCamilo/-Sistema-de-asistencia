@@ -310,7 +310,7 @@ export class SupabaseService {
                 ? this.state.settings.holidays.map(h => typeof h === 'string' ? h : h.toISOString().split('T')[0])
                 : [];
 
-            await this.client.from('settings').upsert({
+            const { error: settingsError } = await this.client.from('settings').upsert({
                 user_id: this.currentUser.id,
                 company_name: this.state.settings.companyName,
                 regular_hours_per_day: this.state.settings.regularHoursPerDay,
@@ -324,6 +324,8 @@ export class SupabaseService {
                 calendar_marker_mode: this.state.calendarMarkerMode,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'user_id' });
+
+            if (settingsError) throw new Error(`Error en Settings: ${settingsError.message}`);
 
             // 2. Leaders
             if (this.state.leaders?.length > 0) {
@@ -339,7 +341,13 @@ export class SupabaseService {
                     last_status_change: l.lastStatusChange,
                     status_history: l.statusHistory || []
                 }));
-                await this.client.from('leaders').upsert(leadersData);
+                const { error: ldrError } = await this.client.from('leaders').upsert(leadersData);
+                if (ldrError) throw new Error(`Error en Líderes: ${ldrError.message}`);
+
+                // Persistir IDs en el estado local
+                this.state.leaders.forEach(l => {
+                    l.id = remapId(l.id, 'leaders');
+                });
             }
 
             // 3. Positions
@@ -359,6 +367,7 @@ export class SupabaseService {
                     updated_at: new Date().toISOString()
                 }));
                 const { error: posError } = await this.client.from('positions').upsert(positionsData, { onConflict: 'user_id,name' });
+                if (posError) throw new Error(`Error en Posiciones: ${posError.message}`);
                 
                 // Actualizar idMap con IDs de DB (ya que onConflict usa name)
                 const { data: dbPos } = await this.client.from('positions').select('id, name').eq('user_id', this.currentUser.id);
@@ -366,7 +375,11 @@ export class SupabaseService {
                     const dbPosMap = {};
                     dbPos.forEach(p => { dbPosMap[p.name] = p.id; });
                     this.state.positions.forEach(p => {
-                        if (dbPosMap[p.name]) idMap.positions[p.id] = dbPosMap[p.name];
+                        if (dbPosMap[p.name]) {
+                            const newId = dbPosMap[p.name];
+                            idMap.positions[p.id] = newId;
+                            p.id = newId; // Persistir en estado local
+                        }
                     });
                 }
             }
@@ -406,7 +419,22 @@ export class SupabaseService {
                         created_date: e.createdDate || new Date().toISOString()
                     };
                 });
-                await this.client.from('employees').upsert(employeesData);
+                const { error: empError } = await this.client.from('employees').upsert(employeesData);
+                if (empError) {
+                    console.error('❌ Error en empleados:', empError);
+                    if (empError.code === '23505') {
+                        throw new Error(`Hay un empleado con un número duplicado que la nube rechaza.`);
+                    }
+                    throw new Error(`Error en Empleados: ${empError.message}`);
+                }
+
+                // Persistir IDs en el estado local
+                this.state.employees.forEach(e => {
+                    const oldId = e.id || e.key;
+                    const newId = remapId(oldId, 'employees');
+                    e.id = newId;
+                    e.key = newId;
+                });
             }
 
             // 5. Attendance
@@ -624,7 +652,7 @@ export class SupabaseService {
             }, 3000);
         } catch (error) {
             this.state.syncStatus = 'error';
-            this.showNotification('❌ Error al sincronizar', 'error');
+            this.showNotification(`❌ Error al sincronizar: ${error.message}`, 'error');
         }
         this.render();
     }

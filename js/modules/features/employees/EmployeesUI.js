@@ -397,14 +397,67 @@ export function saveEmployee() {
     );
 
     if (existingEmployee) {
-        Modal.confirm({
+        new Modal({
             title: `${icons.get('zap')} Número Duplicado`,
-            message: `Ya existe un empleado con el número "${number}":\n${existingEmployee.name}\n\n¿Deseas usar el mismo número de todos modos?`,
-            confirmText: 'Sí, continuar',
-            cancelText: 'No, cambiar número',
-            type: 'warning',
-            onConfirm: () => saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries)
-        });
+            content: `
+                <p style="color: #94a3b8; line-height: 1.6; margin-bottom: 20px;">
+                    Ya existe un empleado con el número <strong>"${number}"</strong>: <br>
+                    <span style="color: #f1f5f9; font-weight: 600;">${existingEmployee.name}</span>
+                </p>
+                <p style="color: #64748b; font-size: 0.875rem;">
+                    ¿Qué deseas hacer? Si continúas, tendrás dos empleados con el mismo número hasta que lo corrijas.
+                </p>
+            `,
+            size: 'medium',
+            buttons: [
+                {
+                    text: 'Cancelar',
+                    class: 'btn-secondary',
+                    onClick: function() { this.close(); }
+                },
+                {
+                    text: 'Sí, continuar',
+                    class: 'btn-primary',
+                    onClick: function() {
+                        this.close();
+                        saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
+                    }
+                },
+                {
+                    text: `Guardar y editar a ${existingEmployee.name.split(' ')[0]}`,
+                    class: 'btn-primary',
+                    style: 'background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; border: none;',
+                    onClick: function() {
+                        this.close();
+                        // Guardar el actual
+                        saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
+                        // Abrir el otro
+                        setTimeout(() => {
+                            openEmployeeForm(existingEmployee.key || existingEmployee.id);
+                        }, 400);
+                    }
+                },
+                {
+                    text: `Intercambiar números`,
+                    class: 'btn-primary',
+                    style: 'background: linear-gradient(135deg, #a855f7, #ec4899); color: #fff; border: none;',
+                    onClick: function() {
+                        this.close();
+                        const oldNumber = state.editingEmployee ? state.editingEmployee.number : null;
+                        if (oldNumber) {
+                            // Pedro (existing) toma el número viejo de Juan
+                            existingEmployee.number = oldNumber;
+                            // Juan (actual) toma el número nuevo (2)
+                            saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
+                            window.showAlert(`${icons.get('zap')} Números intercambiados entre ${name} y ${existingEmployee.name}`, 'success');
+                        } else {
+                            // Si es nuevo, simplemente guardamos ambos (aunque el actual sea el único con número nuevo)
+                            saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
+                        }
+                    }
+                }
+            ]
+        }).open();
         return;
     }
 
@@ -487,6 +540,7 @@ function saveEmployeeData(name, number, positions, phone, email, notes, hireDate
     // Limpiar temporal
     state.tempPositionSalaries = {};
 
+    context.saveToLocalStorage();
     context.closeModal();
     context.render(); // Ensure render is called to update UI
 }
@@ -525,6 +579,7 @@ export function saveLeader() {
         });
     }
 
+    context.saveToLocalStorage();
     context.closeModal();
     context.render();
 }
@@ -636,6 +691,7 @@ export function togglePositionStatus(positionId) {
         type: pos.active ? 'warning' : 'info',
         onConfirm: () => {
             pos.active = !pos.active;
+            context.saveToLocalStorage();
             context.render();
         }
     });
@@ -667,6 +723,7 @@ export function deletePosition(positionId) {
         type: 'danger',
         onConfirm: () => {
             state.positions = state.positions.filter(p => p.id !== pos.id);
+            context.saveToLocalStorage();
             context.render();
         }
     });
@@ -755,6 +812,7 @@ export function savePosition() {
         });
     }
 
+    context.saveToLocalStorage();
     context.closeModal();
     context.render();
 }

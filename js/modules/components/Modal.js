@@ -51,7 +51,8 @@ export class Modal {
     renderButtons() {
         const buttonsHTML = this.buttons.map((btn, index) => {
             const btnClass = btn.class || 'btn-secondary';
-            return `<button class="modal-btn ${btnClass}" data-button-index="${index}">${btn.text}</button>`;
+            const btnStyle = btn.style ? `style="${btn.style}"` : '';
+            return `<button class="modal-btn ${btnClass}" data-button-index="${index}" ${btnStyle}>${btn.text}</button>`;
         }).join('');
 
         return `<div class="modal-footer">${buttonsHTML}</div>`;

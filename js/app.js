@@ -255,6 +255,7 @@ const state = {
     // Filtros
     filters: {
         position: 'all',  // 'all' | 'albanil' | 'carpintero'...
+        leaderId: 'all',   // 'all' | leaderId
         search: ''
     },
     showFilters: false,  // Filtros colapsados por defecto
@@ -557,6 +558,12 @@ window.toggleFilters = function () {
 // Establecer filtro de posición
 window.setPositionFilter = function (positionId) {
     state.filters.position = positionId;
+    render();
+};
+
+// Establecer filtro de líder
+window.setLeaderFilter = function (leaderId) {
+    state.filters.leaderId = leaderId;
     render();
 };
 
@@ -2918,7 +2925,7 @@ async function saveToIndexedDB() {
 
 function saveToLocalStorage() {
     console.log('🔵 saveToLocalStorage() llamado');
-    
+
     // Auto-sync de Supabase si aplica
     supabaseService.handleAutoSync();
     // ═══════════════════════════════════════════════════════════
@@ -4916,205 +4923,15 @@ window.setEmployeeStatusFilter = (filter) => {
     state.employeeStatusFilter = filter;
     render();
 };
-window.openEmployeeForm = (employeeId = null) => {
-    state.editingEmployee = employeeId ? state.employees.find(e => e.key === employeeId || e.id === employeeId) : null;
+// Mapeos de formularios movidos a EmployeesUI.js
 
-    // ⚡ NUEVO: Cargar sueldos personalizados si existen
-    if (state.editingEmployee && state.editingEmployee.positionSalaries) {
-        state.tempPositionSalaries = { ...state.editingEmployee.positionSalaries };
-    } else {
-        state.tempPositionSalaries = {};
-    }
+// Redundant saveEmployee removed (moved to EmployeesUI.js)
 
-    // ⚡ NUEVO: Inicializar date picker de fecha de contratación
-    const hireDateValue = state.editingEmployee?.hireDate || new Date().toISOString().split('T')[0];
-    state.hireDatePickerMonth = new Date(hireDateValue + 'T00:00:00');
-    state.showHireDatePicker = false;
+// saveEmployeeData movida a EmployeesUI.js
 
-    state.modalType = 'employee-form';
-    state.showModal = true;
-    render();
-};
-window.openLeaderForm = (leaderId = null) => {
-    state.editingLeader = leaderId ? state.leaders.find(l => l.id === leaderId) : null;
-    state.modalType = 'leader-form';
-    state.showModal = true;
-    render();
-};
-window.saveEmployee = () => {
-    // Limpiar errores previos
-    state.formErrors = {};
 
-    const name = document.getElementById('empName').value.trim();
-    const number = document.getElementById('empNumber').value.trim();
-    const positions = Array.from(document.querySelectorAll('input[name="empPosition"]:checked')).map(cb => cb.value);
-    const phone = document.getElementById('empPhone')?.value.trim() || '';
-    const email = document.getElementById('empEmail')?.value.trim() || '';
-    const notes = document.getElementById('empNotes')?.value.trim() || '';
-    const hireDate = document.getElementById('empHireDate')?.value;
+// window.saveLeader movida a EmployeesUI.js
 
-    // ⚡ NUEVO: Obtener sueldos personalizados por posición
-    const positionSalaries = state.tempPositionSalaries || {};
-
-    // Validar campos
-    let hasErrors = false;
-
-    if (!name) {
-        state.formErrors.empName = 'El nombre es obligatorio';
-        hasErrors = true;
-    }
-    if (!number) {
-        state.formErrors.empNumber = 'El número de empleado es obligatorio';
-        hasErrors = true;
-    } else if (!/^[0-9A-Za-z-]+$/.test(number)) {
-        state.formErrors.empNumber = 'Solo puede contener números, letras y guiones';
-        hasErrors = true;
-    }
-    if (positions.length === 0) {
-        state.formErrors.empPosition = 'Debe seleccionar al menos una posición';
-        hasErrors = true;
-    }
-
-    if (hasErrors) {
-        render();
-        return;
-    }
-
-    // Verificar si el número ya existe (excepto el empleado actual)
-    const existingEmployee = state.employees.find(e =>
-        e.number === number &&
-        (!state.editingEmployee || e.key !== state.editingEmployee.key)
-    );
-
-    if (existingEmployee) {
-        showConfirm({
-            title: '⚠️ Número Duplicado',
-            message: `Ya existe un empleado con el número "${number}":\n${existingEmployee.name}\n\n¿Deseas usar el mismo número de todos modos?`,
-            confirmText: 'Sí, continuar',
-            cancelText: 'No, cambiar número',
-            type: 'warning',
-            onConfirm: () => saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries)
-        });
-        return;
-    }
-
-    saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
-};
-
-function saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries) {
-    if (state.editingEmployee) {
-        // Editar existente
-        const emp = state.employees.find(e => e.key === state.editingEmployee.key);
-        emp.name = name;
-        emp.number = number;
-        emp.positions = positions;
-        emp.phone = phone;
-        emp.email = email;
-        emp.notes = notes;
-
-        // ⚡ Guardar fecha de contratación (siempre)
-        emp.hireDate = hireDate || getDateKey(new Date());
-
-        // ⚡ NUEVO: Guardar sueldos personalizados por posición
-        emp.positionSalaries = {};
-        positions.forEach(posId => {
-            if (positionSalaries[posId]) {
-                emp.positionSalaries[posId] = positionSalaries[posId];
-            }
-        });
-
-        // Limpiar customSalary antiguo si existe
-        if (emp.customSalary !== undefined) {
-            delete emp.customSalary;
-        }
-
-        showAlert(`✅ Empleado ${name} actualizado correctamente`, 'success');
-    } else {
-        // Crear nuevo
-        const newKey = `EMP${Date.now()}`;
-        const today = getDateKey(new Date());
-
-        // Usar fecha de contratación del input o hoy por defecto
-        const finalHireDate = hireDate || today;
-
-        // ⚡ NUEVO: Preparar sueldos por posición
-        const finalPositionSalaries = {};
-        positions.forEach(posId => {
-            if (positionSalaries[posId]) {
-                finalPositionSalaries[posId] = positionSalaries[posId];
-            }
-        });
-
-        const newEmployee = {
-            id: newKey,
-            key: newKey,
-            number: number,
-            name: name,
-            positions: positions,
-            positionSalaries: finalPositionSalaries, // ⚡ NUEVO
-            active: true,
-            createdDate: today,
-            hireDate: finalHireDate,
-            lastStatusChange: null,
-            phone: phone,
-            email: email,
-            notes: notes,
-            statusHistory: [
-                {
-                    date: finalHireDate,
-                    active: true,
-                    timestamp: new Date(finalHireDate).getTime()
-                }
-            ]
-        };
-
-        state.employees.push(newEmployee);
-        showAlert(`✅ Empleado ${name} creado correctamente`, 'success');
-        debug.log('✅ Empleado creado con fecha:', finalHireDate, 'y sueldos personalizados:', finalPositionSalaries);
-    }
-
-    // Limpiar temporal
-    state.tempPositionSalaries = {};
-
-    debug.log('✅ Empleado guardado:', state.employees[state.employees.length - 1]);
-    closeModal();
-}
-
-window.saveLeader = () => {
-    const name = document.getElementById('ldrName').value.trim();
-    const phone = document.getElementById('ldrPhone')?.value.trim() || '';
-    const email = document.getElementById('ldrEmail')?.value.trim() || '';
-    const notes = document.getElementById('ldrNotes')?.value.trim() || '';
-
-    if (!name) {
-        alert('❌ El nombre es obligatorio');
-        return;
-    }
-
-    if (state.editingLeader) {
-        // Editar existente
-        const ldr = state.leaders.find(l => l.id === state.editingLeader.id);
-        ldr.name = name;
-        ldr.phone = phone;
-        ldr.email = email;
-        ldr.notes = notes;
-    } else {
-        // Crear nuevo
-        const maxNum = Math.max(0, ...state.leaders.map(l => parseInt(l.number.replace('L-', ''))));
-        const newNum = `L-${String(maxNum + 1).padStart(3, '0')}`;
-        state.leaders.push({
-            id: `LDR${Date.now()}`,
-            number: newNum,
-            name: name,
-            active: true,
-            phone: phone,
-            email: email,
-            notes: notes
-        });
-    }
-
-    closeModal();
-};
 // Sistema de menú de exportar
 window.showExportMenu = (options) => {
     state.showExportMenu = true;
@@ -5321,254 +5138,8 @@ function wasEmployeeActiveInRange(employee, startDate, endDate) {
     return false;
 }
 
-window.toggleEmployeeStatus = (employeeId) => {
-    const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
-    if (emp) {
-        const action = emp.active ? 'desactivar' : 'activar';
-        const actionPast = emp.active ? 'desactivado' : 'activado';
+// Funciones de posiciones y estados movidas a EmployeesUI.js
 
-        showConfirm({
-            title: emp.active ? '⏸️ Desactivar Empleado' : '▶️ Activar Empleado',
-            message: `¿Estás seguro de ${action} a ${emp.name}?`,
-            confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
-            cancelText: 'Cancelar',
-            type: emp.active ? 'warning' : 'info',
-            onConfirm: () => {
-                emp.active = !emp.active;
-                const changeDate = getDateKey(new Date());
-                emp.lastStatusChange = changeDate;
-
-                // Mantener historial de cambios de estado
-                if (!emp.statusHistory) {
-                    emp.statusHistory = [];
-                }
-                emp.statusHistory.push({
-                    date: changeDate,
-                    active: emp.active,
-                    timestamp: new Date().getTime()
-                });
-
-                debug.log(`${action === 'desactivar' ? '⏸️' : '▶️'} Empleado ${actionPast}:`, emp.name, '- Fecha:', changeDate);
-                saveToLocalStorage();
-                showNotification(`✅ Empleado ${emp.name} ${actionPast} correctamente`, 'success');
-                render();
-            }
-        });
-    }
-};
-window.toggleLeaderStatus = (leaderId) => {
-    const ldr = state.leaders.find(l => l.id === leaderId);
-    if (ldr) {
-        const action = ldr.active ? 'desactivar' : 'activar';
-        const actionPast = ldr.active ? 'desactivado' : 'activado';
-
-        showConfirm({
-            title: ldr.active ? '⏸️ Desactivar Líder' : '▶️ Activar Líder',
-            message: `¿Estás seguro de ${action} al líder ${ldr.name}?`,
-            confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
-            cancelText: 'Cancelar',
-            type: ldr.active ? 'warning' : 'info',
-            onConfirm: () => {
-                ldr.active = !ldr.active;
-                const changeDate = getDateKey(new Date());
-                ldr.lastStatusChange = changeDate;
-
-                // Mantener historial de cambios de estado
-                if (!ldr.statusHistory) {
-                    ldr.statusHistory = [];
-                }
-                ldr.statusHistory.push({
-                    date: changeDate,
-                    active: ldr.active,
-                    timestamp: new Date().getTime()
-                });
-
-                debug.log(`${action === 'desactivar' ? '⏸️' : '▶️'} Líder ${actionPast}:`, ldr.name, '- Fecha:', changeDate);
-                saveToLocalStorage();
-                showNotification(`✅ Líder ${ldr.name} ${actionPast} correctamente`, 'success');
-                render();
-            }
-        });
-    }
-};
-window.setPositionStatusFilter = (filter) => {
-    state.positionStatusFilter = filter;
-    render();
-};
-window.setPositionSortBy = (sortBy) => {
-    state.positionSortBy = sortBy;
-    render();
-};
-window.openPositionForm = (positionId = null) => {
-    state.editingPosition = positionId ? state.positions.find(p => p.id === positionId) : null;
-    state.modalType = 'position-form';
-    state.showModal = true;
-    render();
-    window.initPositionModalListeners();
-};
-window.savePosition = () => {
-    const name = document.getElementById('posName').value.trim();
-    const hourlyRate = parseFloat(document.getElementById('posHourlyRate').value);  // ⚡ NUEVO
-    const leaderId = document.getElementById('posLeader').value || null;
-    const color = document.querySelector('input[name="posColor"]:checked')?.value || COLOR_PALETTE[0];
-
-    // ⚡ Capturar días laborales seleccionados
-    const workingDays = Array.from(document.querySelectorAll('input[name="workingDay"]:checked'))
-        .map(cb => parseInt(cb.value));
-
-    if (!name) {
-        alert('❌ El nombre de la posición es obligatorio');
-        return;
-    }
-    if (isNaN(hourlyRate) || hourlyRate < 0) {
-        alert('❌ La tarifa por hora debe ser mayor o igual 0');
-        return;
-    }
-
-    // Verificar nombre único (o agregar número diferenciador)
-    let finalName = name;
-    if (state.editingPosition) {
-        const originalName = (state.editingPosition.name || '').trim().toLowerCase();
-        const currentName = name.toLowerCase();
-        // Editar: verificar que no exista otro con ese nombre
-        if (currentName !== originalName) {
-            const existing = state.positions.find(p =>
-                p.name.toLowerCase() === name.toLowerCase() &&
-                p.id !== state.editingPosition.id
-            );
-            if (existing) {
-                alert('❌ Ya existe una posición con ese nombre');
-                return;
-            }
-        }
-    } else {
-        // Crear: si existe, agregar número
-        let counter = 1;
-        const baseName = name;
-        while (state.positions.some(p => p.name.toLowerCase() === finalName.toLowerCase())) {
-            finalName = `${baseName} ${counter}`;
-            counter++;
-        }
-        if (finalName !== name) {
-            const confirmed = confirm(`Ya existe una posición llamada "${name}".\n¿Crear como "${finalName}"?`);
-            if (!confirmed) return;
-        }
-    }
-
-    // ⚡ NUEVO: Sistema simple con hourlyRate
-    if (state.editingPosition) {
-        // Editar existente
-        const pos = state.positions.find(p => p.id === state.editingPosition.id);
-        pos.name = finalName;
-        pos.hourlyRate = hourlyRate;  // ⚡ Principal
-        pos.leaderId = leaderId;
-        pos.color = color;
-        pos.workingDays = workingDays;  // ⚡ Días laborales
-
-        // Mantener salaryConfig para compatibilidad (calcular equivalente mensual)
-        const monthlyEquivalent = hourlyRate * state.settings.regularHoursPerDay * 30;
-        pos.salaryConfig = {
-            amount: Math.round(monthlyEquivalent),
-            period: 'month',
-            workDays: [1, 2, 3, 4, 5, 6]
-        };
-    } else {
-        // Crear nueva
-        const newId = finalName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-        const monthlyEquivalent = hourlyRate * state.settings.regularHoursPerDay * 30;
-
-        state.positions.push({
-            id: newId,
-            name: finalName,
-            hourlyRate: hourlyRate,  // ⚡ Principal
-            workingDays: workingDays,  // ⚡ Días laborales
-            salaryConfig: {          // Para compatibilidad
-                amount: Math.round(monthlyEquivalent),
-                period: 'month',
-                workDays: [1, 2, 3, 4, 5, 6]
-            },
-            leaderId: leaderId,
-            color: color,
-            active: true
-        });
-    }
-
-    saveToLocalStorage();
-    console.log('✅ Posición guardada');
-    closeModal();
-    render();
-};
-window.togglePositionStatus = (positionId) => {
-    const pos = state.positions.find(p => p.id === positionId);
-    if (!pos) return;
-
-    const employeeCount = state.employees.filter(e => e.positions.includes(positionId) && e.active).length;
-    const action = pos.active ? 'desactivar' : 'activar';
-    const actionPast = pos.active ? 'desactivada' : 'activada';
-
-    if (pos.active && employeeCount > 0) {
-        // Desactivar posición con empleados asignados
-        const message = `Esta posición tiene ${employeeCount} empleado${employeeCount !== 1 ? 's' : ''} asignado${employeeCount !== 1 ? 's' : ''}.\n\nAl desactivarla:\n• No podrás agregar más empleados\n• No podrás modificarla\n• Los empleados actuales la conservan\n• Aparecerá en la sección de inactivas\n\n¿Deseas continuar?`;
-
-        showConfirm({
-            title: '⚠️ Desactivar Posición con Empleados',
-            message: message,
-            confirmText: 'Sí, desactivar',
-            cancelText: 'Cancelar',
-            type: 'warning',
-            onConfirm: () => {
-                pos.active = false;
-                const changeDate = getDateKey(new Date());
-                pos.lastStatusChange = changeDate;
-
-                // Mantener historial
-                if (!pos.statusHistory) {
-                    pos.statusHistory = [];
-                }
-                pos.statusHistory.push({
-                    date: changeDate,
-                    active: false,
-                    employeeCount: employeeCount,
-                    timestamp: new Date().getTime()
-                });
-
-                debug.log('⏸️ Posición desactivada:', pos.name, '- Empleados afectados:', employeeCount);
-                saveToLocalStorage();
-                showNotification(`✅ Posición "${pos.name}" desactivada correctamente`, 'success');
-                render();
-            }
-        });
-    } else {
-        // Activar o desactivar posición sin empleados
-        showConfirm({
-            title: pos.active ? '⏸️ Desactivar Posición' : '▶️ Activar Posición',
-            message: `¿Estás seguro de ${action} la posición "${pos.name}"?`,
-            confirmText: pos.active ? 'Sí, desactivar' : 'Sí, activar',
-            cancelText: 'Cancelar',
-            type: pos.active ? 'warning' : 'info',
-            onConfirm: () => {
-                pos.active = !pos.active;
-                const changeDate = getDateKey(new Date());
-                pos.lastStatusChange = changeDate;
-
-                // Mantener historial
-                if (!pos.statusHistory) {
-                    pos.statusHistory = [];
-                }
-                pos.statusHistory.push({
-                    date: changeDate,
-                    active: pos.active,
-                    timestamp: new Date().getTime()
-                });
-
-                debug.log(`${pos.active ? '▶️' : '⏸️'} Posición ${actionPast}:`, pos.name);
-                saveToLocalStorage();
-                showNotification(`✅ Posición "${pos.name}" ${actionPast} correctamente`, 'success');
-                render();
-            }
-        });
-    }
-};
 window.togglePositionEmployees = (positionId) => {
     const elem = document.getElementById(`pos-employees-${positionId}`);
     if (elem) {
@@ -5996,13 +5567,31 @@ function DayViewList() {
     // Filtrar empleados que estaban activos en esta fecha
     let employees = state.employees.filter(emp => wasEmployeeActiveOnDate(emp, state.selectedDate));
 
+    // 🔍 APLICAR FILTRO DE LÍDER
+    if (state.filters.leaderId && state.filters.leaderId !== 'all') {
+        employees = employees.filter(emp => {
+            return emp.positions?.some(pid => {
+                const pos = state.positions.find(p => p.id === pid);
+                return pos && pos.leaderId === state.filters.leaderId;
+            });
+        });
+    }
+
     // 🔍 APLICAR FILTRO DE BÚSQUEDA
     if (state.filters.search) {
         const term = state.filters.search;
-        employees = employees.filter(emp =>
-            emp.name.toLowerCase().includes(term) ||
-            emp.number.toLowerCase().includes(term)
-        );
+        employees = employees.filter(emp => {
+            const matchesName = emp.name.toLowerCase().includes(term);
+            const matchesNumber = emp.number.toLowerCase().includes(term);
+
+            // Buscar también en los nombres de las posiciones
+            const matchesPosition = emp.positions?.some(pid => {
+                const pos = state.positions.find(p => p.id === pid);
+                return pos && pos.name.toLowerCase().includes(term);
+            });
+
+            return matchesName || matchesNumber || matchesPosition;
+        });
     }
 
     // Aplicar filtro de asistencia si está activo
@@ -6055,13 +5644,32 @@ function WeekViewTable() {
         wasEmployeeActiveInRange(emp, startDate, endDate)
     );
 
+    // 🔍 APLICAR FILTRO DE LÍDER
+    if (state.filters.leaderId && state.filters.leaderId !== 'all') {
+        activeEmployees = activeEmployees.filter(emp => {
+            // Un empleado aparece si cualquiera de sus posiciones es liderada por el líder seleccionado
+            return emp.positions?.some(pid => {
+                const pos = state.positions.find(p => p.id === pid);
+                return pos && pos.leaderId === state.filters.leaderId;
+            });
+        });
+    }
+
     // 🔍 APLICAR FILTRO DE BÚSQUEDA
     if (state.filters.search) {
         const term = state.filters.search;
-        activeEmployees = activeEmployees.filter(emp =>
-            emp.name.toLowerCase().includes(term) ||
-            emp.number.toLowerCase().includes(term)
-        );
+        activeEmployees = activeEmployees.filter(emp => {
+            const matchesName = emp.name.toLowerCase().includes(term);
+            const matchesNumber = emp.number.toLowerCase().includes(term);
+
+            // Buscar también en los nombres de las posiciones
+            const matchesPosition = emp.positions?.some(pid => {
+                const pos = state.positions.find(p => p.id === pid);
+                return pos && pos.name.toLowerCase().includes(term);
+            });
+
+            return matchesName || matchesNumber || matchesPosition;
+        });
     }
 
     if (activeEmployees.length === 0) {
@@ -6104,7 +5712,12 @@ function WeekViewTable() {
                                         <td>
                                             <div class="week-employee-cell">
                                                 <div class="employee-number">${emp.number}</div>
-                                                <div class="week-employee-name">${emp.name}</div>
+                                                <div class="week-employee-name-container">
+                                                    <div class="week-employee-name">${emp.name}</div>
+                                                    <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
+                                                        ${emp.positions?.map(pid => state.positions.find(p => p.id === pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                         ${week.map(date => {
@@ -6209,22 +5822,42 @@ window.setSearchFilter = debounce((value) => {
 
 function SearchBar() {
     const searchValue = state.filters.search || '';
+    const leaderFilter = state.filters.leaderId || 'all';
+
     return `
-                <div class="search-container" style="margin-bottom: 16px;">
-                    <div style="position: relative;">
+                <div class="search-container" style="margin-bottom: 16px; display: flex; gap: 12px; width: 100%;">
+                    <!-- Búsqueda (3/5 del espacio) -->
+                    <div style="position: relative; flex: 3;">
                         <input type="text" 
                                id="search-input"
                                value="${searchValue}"
                                oninput="setSearchFilter(this.value)"
-                               placeholder="🔍 Buscar empleado por nombre o número..."
+                               placeholder="🔍 Buscar por nombre, número o posición..."
                                style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; padding-left: 36px; border-radius: 8px; font-size: 0.875rem;">
                         <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 1rem; opacity: 0.5;">🔍</span>
                         ${searchValue ? `
                             <button onclick="setSearchFilter('');" 
                                     style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">
-                                ✕
+                                 ✕
                             </button>
                         ` : ''}
+                    </div>
+
+                    <!-- Filtro de Líder (2/5 del espacio) -->
+                    <div style="flex: 2; position: relative;">
+                        <div style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 1rem; opacity: 0.5;">
+                            ${icons.get('key')}
+                        </div>
+                        <select onchange="setLeaderFilter(this.value)" 
+                                style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; padding-left: 36px; border-radius: 8px; font-size: 0.875rem; cursor: pointer; outline: none; appearance: none; -webkit-appearance: none;">
+                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
+                            ${state.leaders.filter(l => l.active).map(l => `
+                                <option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>
+                                    ${l.name}
+                                </option>
+                            `).join('')}
+                        </select>
+                        <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5;">▼</span>
                     </div>
                 </div>
             `;
@@ -7313,8 +6946,8 @@ window.updateHourlyRatePreview = function () {
     const dailyRate = hourlyRate * regularHours;
     const monthlyRate = dailyRate * weekDates.length * 4.33;
     const WeeksRate = dailyRate * weekDates.length;
-    const twoWeeksRate =  WeeksRate * 2;
-    const treeWeeksRate =  WeeksRate * 3;
+    const twoWeeksRate = WeeksRate * 2;
+    const treeWeeksRate = WeeksRate * 3;
     const overtimeRate = hourlyRate * overtimeFactor;
     const holidayRate = hourlyRate * holidayFactor;
 
@@ -7326,23 +6959,23 @@ window.updateHourlyRatePreview = function () {
                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem;">
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">🕐 Por hora (regular):</span>
-                            <span style="color: #10b981; font-weight: 600;">$${Math.round(hourlyRate,2).toLocaleString()}/h</span>
+                            <span style="color: #10b981; font-weight: 600;">$${Math.round(hourlyRate, 2).toLocaleString()}/h</span>
                         </div>
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 Por día (${regularHours}h):</span>
-                            <span style="color: #06b6d4; font-weight: 600;">$${Math.round(dailyRate,2).toLocaleString()}</span>
+                            <span style="color: #06b6d4; font-weight: 600;">$${Math.round(dailyRate, 2).toLocaleString()}</span>
                         </div>
                                                 <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 1 semana:</span>
-                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(WeeksRate,2).toLocaleString()}</span
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(WeeksRate, 2).toLocaleString()}</span
 
                                                     <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 Por 2 semanas:</span>
-                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(twoWeeksRate,2).toLocaleString()}</span
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(twoWeeksRate, 2).toLocaleString()}</span
 
                                                     <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 Por 3 semanas:</span>
-                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(treeWeeksRate,2).toLocaleString()}</span
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(treeWeeksRate, 2).toLocaleString()}</span
 
 
                         <div style="display: flex; justify-content: space-between;">
