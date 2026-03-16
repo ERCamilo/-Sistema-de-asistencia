@@ -58,15 +58,7 @@ export function EmployeesTab() {
         const statusFilter = state.positionStatusFilter;
         const sortBy = state.positionSortBy;
 
-        const seenPositions = new Set();
-        const uniquePositions = state.positions.filter(pos => {
-            const key = pos.id || pos.name;
-            if (seenPositions.has(key)) return false;
-            seenPositions.add(key);
-            return true;
-        });
-
-        let filteredPositions = uniquePositions.filter(pos => {
+        let filteredPositions = state.positions.filter(pos => {
             if (statusFilter === 'active') return pos.active;
             if (statusFilter === 'inactive') return !pos.active;
             return true;
@@ -213,7 +205,7 @@ export function EmployeeCard(emp) {
                         </div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <button class="view-btn" onclick="openEmployeeProfile('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" title="Ver perfil completo">${icons.get('edit')}</button>
+                        <button class="view-btn" onclick="openEmployeeProfile('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" title="Ver perfil completo">${icons.get('user')}</button>
                         <button class="view-btn" onclick="openEmployeeForm('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar empleado">${icons.get('edit')}</button>
                         <button class="view-btn ${emp.active ? '' : 'active'}" onclick="toggleEmployeeStatus('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
                             ${emp.active ? `${icons.get('x-circle')}` : `${icons.get('check')}`}
@@ -259,6 +251,9 @@ export function PositionCard(pos) {
     const state = getState();
     const ldr = pos.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
     const empCount = state.employees.filter(e => e.positions.includes(pos.id) && e.active).length;
+    const totalAssigned = state.employees.filter(e => e.positions.includes(pos.id)).length;
+    const canDelete = totalAssigned === 0;
+    const employeesInPosition = state.employees.filter(e => e.positions.includes(pos.id) && e.active);
 
     return `
                 <div class="employee-row" style="border-left: 4px solid ${pos.color}; ${!pos.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
@@ -273,14 +268,38 @@ export function PositionCard(pos) {
                              <div class="employee-meta-item">${icons.get('personnel')} ${empCount} empleados</div>
                             ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${ldr.name}</div>` : ''}
                         </div>
-                         <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
+                        <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
                             <div class="employee-meta-item" style="color: #64748b;">
                                 ${icons.get('calendar')} Dias: ${pos.workingDays && pos.workingDays.length > 0 ? pos.workingDays.map(d => ['D', 'L', 'M', 'X', 'J', 'V', 'S'][d]).join(', ') : 'Todos'}
                             </div>
                         </div>
+                        ${employeesInPosition.length > 0 ? `
+                            <div style="margin-top: 8px;">
+                                <button class="view-btn" onclick="togglePositionEmployees('${pos.id}')" style="padding: 6px 12px; font-size: 0.75rem; width: 100%;">
+                                    ${icons.get('eye')} Ver Empleados (${employeesInPosition.length})
+                                </button>
+                                <div id="pos-employees-${pos.id}" style="display: none; margin-top: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px;">
+                                    ${employeesInPosition.map((emp, idx) => `
+                                        <div style="padding: 4px 0; color: #f1f5f9; ${idx < employeesInPosition.length - 1 ? 'border-bottom: 1px solid #334155;' : ''}">
+                                            ${emp.name}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
                     </div>
-                    <div style="display: flex; gap: 8px;">
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
                         <button class="view-btn" onclick="openPositionForm('${pos.id}')" style="padding: 8px;" title="Editar posicion">${icons.get('edit')}</button>
+                        <button class="view-btn ${pos.active ? '' : 'active'}" onclick="togglePositionStatus('${pos.id}')" style="padding: 8px;" title="${pos.active ? 'Desactivar posición' : 'Activar posición'}">
+                            ${pos.active ? `${icons.get('x-circle')}` : `${icons.get('check')}`}
+                        </button>
+                        
+                        ${pos.active ? "":
+                            `<button class="view-btn" onclick="${canDelete ? `deletePosition('${pos.id}')` : ''}" style="padding: 8px; ${canDelete ? '' : 'opacity: 0.4; cursor: allowed;'}" title="${canDelete ? 'Eliminar posición' : 'No se puede eliminar: hay empleados asignados'}">
+                            ${icons.get('delete')} 
+                            </button>`}
+
+
                     </div>
                 </div>
             `;
@@ -603,23 +622,73 @@ export function openPositionForm(positionId = null) {
     if (window.initPositionModalListeners) window.initPositionModalListeners();
 }
 
+export function togglePositionStatus(positionId) {
+    const state = getState();
+    const pos = state.positions.find(p => p.id === positionId);
+    if (!pos) return;
+
+    const action = pos.active ? 'desactivar' : 'activar';
+    Modal.confirm({
+        title: pos.active ? `${icons.get('x-circle')} Desactivar Posición` : `${icons.get('info')} Activar Posición`,
+        message: `¿Estás seguro de ${action} la posición "${pos.name}"?`,
+        confirmText: pos.active ? 'Sí, desactivar' : 'Sí, activar',
+        cancelText: 'Cancelar',
+        type: pos.active ? 'warning' : 'info',
+        onConfirm: () => {
+            pos.active = !pos.active;
+            context.render();
+        }
+    });
+}
+
+export function deletePosition(positionId) {
+    const state = getState();
+    const pos = state.positions.find(p => p.id === positionId);
+    if (!pos) return;
+
+    const hasAssigned = state.employees.some(e => e.positions.includes(pos.id));
+    if (hasAssigned) {
+        Modal.confirm({
+            title: `${icons.get('alert')} No se puede eliminar`,
+            message: `La posición "${pos.name}" tiene empleados asignados.`,
+            confirmText: 'Aceptar',
+            cancelText: 'Cerrar',
+            type: 'warning',
+            onConfirm: () => { }
+        });
+        return;
+    }
+
+    Modal.confirm({
+        title: `${icons.get('delete')} Eliminar Posición`,
+        message: `¿Seguro que deseas eliminar la posición "${pos.name}"? Esta acción no se puede deshacer.`,
+        confirmText: 'Sí, eliminar',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            state.positions = state.positions.filter(p => p.id !== pos.id);
+            context.render();
+        }
+    });
+}
+
 export function savePosition() {
     const state = getState();
     const name = document.getElementById('posName').value.trim();
-    const hourlyRate = parseFloat(document.getElementById('posHourlyRate').value);
+    const hourlyRate = Number.parseFloat(document.getElementById('posHourlyRate').value);
     const leaderId = document.getElementById('posLeader').value || null;
     const color = document.querySelector('input[name="posColor"]:checked')?.value || '#94a3b8';
 
     // 💡 Capturar días laborales seleccionados
     const workingDays = Array.from(document.querySelectorAll('input[name="workingDay"]:checked'))
-        .map(cb => parseInt(cb.value));
+        .map(cb => Number.parseInt(cb.value));
 
     if (!name) {
         alert(`${icons.get('alert')} El nombre de la posición es obligatorio`);
         return;
     }
-    if (isNaN(hourlyRate) || hourlyRate <= 0) {
-        alert(`${icons.get('alert')} La tarifa por hora debe ser mayor a 0`);
+    if (Number.isNaN(hourlyRate) || hourlyRate < 0) {
+        alert(`${icons.get('alert')} La tarifa por hora debe ser mayor o igual a 0`);
         return;
     }
 
@@ -655,7 +724,12 @@ export function savePosition() {
         pos.color = color;
         pos.workingDays = workingDays;
 
-        const monthlyEquivalent = hourlyRate * state.settings.regularHoursPerDay * 30;
+        const dayEquivalent = state.settings.regularHoursPerDay * hourlyRate;
+        const monthlyEquivalent = dayEquivalent * 4.345;
+        const oneWeekWork = ( workingDays.length * dayEquivalent );// Cálculo para 1 semana labora
+        const twoweeksWork = (2.0 * oneWeekWork);// Cálculo para 2 semanas laborales
+        const treeWeeksWork = (3.0 * oneWeekWork);// Cálculo para 3 semanas laborales
+
         pos.salaryConfig = {
             amount: Math.round(monthlyEquivalent),
             period: 'month',
@@ -674,7 +748,7 @@ export function savePosition() {
             color: color,
             active: true,
             salaryConfig: {
-                amount: Math.round(monthlyEquivalent),
+                amount: Math.round(monthlyEquivalent, 2),
                 period: 'month',
                 workDays: [1, 2, 3, 4, 5, 6]
             }

@@ -1,4 +1,4 @@
-const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
+﻿const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
 
 // ═══════════════════════════════════════════════════════════
 // CONFIGURACIÓN DE SUPABASE
@@ -117,8 +117,27 @@ import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
 
-// Inicializar el sistema de iconos (usa Lucide por defecto)
-icons.init('lucide');
+const ICON_SET_STORAGE_KEY = 'icon-set';
+
+function resolveIconSet(preferred) {
+    const available = icons.getAvailableSets();
+    const saved = localStorage.getItem(ICON_SET_STORAGE_KEY);
+    if (preferred && available.includes(preferred)) return preferred;
+    if (saved && available.includes(saved)) return saved;
+    return 'unicode';
+}
+
+function applyIconSet(preferred, { persist = true } = {}) {
+    const setName = resolveIconSet(preferred);
+    icons.setSet(setName);
+    if (persist) localStorage.setItem(ICON_SET_STORAGE_KEY, setName);
+    icons.refresh();
+    return setName;
+}
+
+// Inicializar el sistema de iconos desde preferencia guardada (si existe)
+const initialIconSet = resolveIconSet();
+icons.init(initialIconSet);
 
 // ============================================
 // 📢 CLASE NOTIFICATION (POO - Profesional)
@@ -272,6 +291,7 @@ const state = {
         globalPaymentDay: null,  // 📅 Día del mes para pagos (1-31), null si no está configurado
         lastPaymentDate: null,  // 💵 Fecha del último pago realizado (YYYY-MM-DD)
         nextPaymentDate: null,  // 📅 Fecha del próximo pago programado (YYYY-MM-DD)
+        iconSet: initialIconSet, // 🎨 Set de iconos preferido
         holidays: [] // Inicialmente sin festivos
     },
 
@@ -3756,6 +3776,9 @@ window.openEmployeeProfile = (employeeId) => {
 
     // ⚡ NUEVO: Inicializar deducciones con valor por defecto
     const defaultPercentage = state.settings.defaultDeductionPercentage || 2;
+    const existingDeductions = Array.isArray(emp.deductions) && emp.deductions.length > 0
+        ? emp.deductions.map(d => ({ ...d }))
+        : [{ id: 'DED-1', type: 'percentage', value: defaultPercentage, name: 'Deducción' }];
 
     state.employeeProfile = {
         employeeId: emp.id,
@@ -3768,9 +3791,7 @@ window.openEmployeeProfile = (employeeId) => {
         endPickerMonth: end,
         deductionType: 'percentage',  // ⚠️ DEPRECATED
         deductionValue: 0,            // ⚠️ DEPRECATED
-        deductions: [                 // ⚡ NUEVO: Array de deducciones
-            { id: 'DED-1', type: 'percentage', value: defaultPercentage }
-        ],
+        deductions: existingDeductions, // ⚡ NUEVO: Array de deducciones
         expandedPositions: {}
     };
 
@@ -3954,6 +3975,12 @@ function updateDeductionsSection() {
         state.employeeProfile.periodEnd,
         state.employeeProfile.deductions
     );
+    emp.deductions = (state.employeeProfile.deductions || []).map(d => ({
+        id: d.id || `DED-${Date.now()}`,
+        type: d.type,
+        value: d.value,
+        name: d.name || 'Deducción'
+    }));
 
     // Encontrar contenedor de deducciones
     const deductionsContainer = document.querySelector('#deductions-section');
@@ -5242,11 +5269,10 @@ window.migrateToSupabase = async function () {
         }
 
         // ═══════════════════════════════════════════════════════════
-        // 3. Migrar POSITIONS (con IDs remapeados)
+        // 3. Migrar POSITIONS (upsert por user_id + name)
         // ═══════════════════════════════════════════════════════════
         if (state.positions && state.positions.length > 0) {
             const positionsData = state.positions.map(pos => ({
-                id: remapId(pos.id, 'positions'),
                 user_id: currentUser.id,
                 name: pos.name,
                 color: pos.color,
@@ -5257,19 +5283,36 @@ window.migrateToSupabase = async function () {
                 leader_id: remapId(pos.leaderId, 'leaders'),
                 active: pos.active !== undefined ? pos.active : true,
                 last_status_change: pos.lastStatusChange || null,
-                status_history: pos.statusHistory || []
+                status_history: pos.statusHistory || [],
+                updated_at: new Date().toISOString()
             }));
 
             console.log('📍 Guardando positions:', positionsData.length);
 
             const { error } = await supabaseClient.from('positions').upsert(positionsData, {
-                onConflict: 'id'
+                onConflict: 'user_id,name'
             });
 
             if (error) {
                 console.error('❌ Error insertando positions:', error);
             } else {
                 console.log('✅ Positions guardadas:', positionsData.length);
+            }
+
+            // Re-fetch position IDs from DB to update idMap for employees/attendance
+            const { data: dbPositions } = await supabaseClient
+                .from('positions').select('id, name').eq('user_id', currentUser.id);
+            if (dbPositions) {
+                const dbPosMap = {};
+                dbPositions.forEach(p => { dbPosMap[p.name] = p.id; });
+                // Update idMap: local position id -> DB position id
+                state.positions.forEach(pos => {
+                    const dbId = dbPosMap[pos.name];
+                    if (dbId) {
+                        idMap.positions[pos.id] = dbId;
+                    }
+                });
+                console.log('🗺️ Position ID map actualizado desde DB');
             }
         }
 
@@ -5521,6 +5564,7 @@ async function loadFromSupabase() {
             .maybeSingle();
 
         if (settings) {
+            const previousIconSet = state.settings?.iconSet;
             state.settings = {
                 companyName: settings.company_name,
                 regularHoursPerDay: settings.regular_hours_per_day || 8,
@@ -5530,9 +5574,11 @@ async function loadFromSupabase() {
                 globalPaymentDay: settings.global_payment_day || null,
                 holidays: settings.holidays || [],
                 lastPaymentDate: settings.last_payment_date,
-                nextPaymentDate: settings.next_payment_date
+                nextPaymentDate: settings.next_payment_date,
+                iconSet: resolveIconSet(settings.icon_set || previousIconSet)
             };
             state.calendarMarkerMode = settings.calendar_marker_mode || 'holiday';
+            state.settings.iconSet = applyIconSet(state.settings.iconSet);
             console.log('✅ Settings cargados');
         }
 
@@ -6252,22 +6298,26 @@ window.savePosition = () => {
         alert('❌ El nombre de la posición es obligatorio');
         return;
     }
-    if (isNaN(hourlyRate) || hourlyRate <= 0) {
-        alert('❌ La tarifa por hora debe ser mayor a 0');
+    if (isNaN(hourlyRate) || hourlyRate < 0) {
+        alert('❌ La tarifa por hora debe ser mayor o igual 0');
         return;
     }
 
     // Verificar nombre único (o agregar número diferenciador)
     let finalName = name;
     if (state.editingPosition) {
+        const originalName = (state.editingPosition.name || '').trim().toLowerCase();
+        const currentName = name.toLowerCase();
         // Editar: verificar que no exista otro con ese nombre
-        const existing = state.positions.find(p =>
-            p.name.toLowerCase() === name.toLowerCase() &&
-            p.id !== state.editingPosition.id
-        );
-        if (existing) {
-            alert('❌ Ya existe una posición con ese nombre');
-            return;
+        if (currentName !== originalName) {
+            const existing = state.positions.find(p =>
+                p.name.toLowerCase() === name.toLowerCase() &&
+                p.id !== state.editingPosition.id
+            );
+            if (existing) {
+                alert('❌ Ya existe una posición con ese nombre');
+                return;
+            }
         }
     } else {
         // Crear: si existe, agregar número
@@ -6430,26 +6480,26 @@ function SyncIndicator() {
     // Definir configuración por estado
     const statusConfig = {
         idle: {
-            icon: '☁️',
+            icon: icons.get('cloud'),
             color: '#64748b',
             text: 'Sin actividad',
             title: 'Nube: Sin actividad'
         },
         syncing: {
-            icon: '🔄',
+            icon: icons.get('sync'),
             color: '#06b6d4',
             text: 'Sincronizando...',
             title: 'Sincronizando con la nube...',
             animate: true
         },
         synced: {
-            icon: '✅',
+            icon: icons.get('check'),
             color: '#10b981',
             text: 'Sincronizado',
             title: `Última sync: ${state.lastSupabaseSync ? getTimeAgo(new Date(state.lastSupabaseSync)) : 'Nunca'}`
         },
         error: {
-            icon: '❌',
+            icon: icons.get('x-circle'),
             color: '#ef4444',
             text: 'Error',
             title: 'Error en la sincronización'
@@ -6460,7 +6510,7 @@ function SyncIndicator() {
 
     return `
                 <button 
-                    class="settings-btn" 
+                    class="settings-btn sync-indicator-btn" 
                     style="
                         color: ${config.color}; 
                         font-size: 1.25rem;
@@ -6484,34 +6534,34 @@ function Header() {
                             <div class="company-name">🏗️ ${state.settings.companyName}</div>
                             <div style="display: flex; gap: 8px;">
                                 ${SyncIndicator()}
-                                <button class="settings-btn" onclick="exportData()" title="Exportar datos">📥</button>
+                                <button class="settings-btn" onclick="exportData()" title="Exportar datos">${icons.get('download')}</button>
                             </div>
                         </div>
                         <nav class="nav-tabs">
                             <button class="nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
                                     onclick="changeTab('attendance')"
                                     title="Registrar asistencia diaria">
-                                <span>📅</span><span class="tab-text"> Asistencia</span>
+                                <span>${icons.get('attendance')}</span><span class="tab-text"> Asistencia</span>
                             </button>
                             <button class="nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
                                     onclick="changeTab('employees')"
                                     title="Gestionar empleados y posiciones">
-                                <span>👥</span><span class="tab-text"> Personal</span>
+                                <span>${icons.get('personnel')}</span><span class="tab-text"> Personal</span>
                             </button>
                             <button class="nav-tab ${state.activeTab === 'employee-report' || state.activeTab === 'dashboard' ? 'active' : ''}" 
                                     onclick="changeTab('employee-report')"
                                     title="Ver reportes y estadísticas">
-                                <span>📊</span><span class="tab-text"> Reportes</span>
+                                <span>${icons.get('reports')}</span><span class="tab-text"> Reportes</span>
                             </button>
                             <button class="nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
                                     onclick="changeTab('export')"
                                     title="Nómina">
-                                <span>💰</span><span class="tab-text"> Nómina</span>
+                                <span>${icons.get('payroll')}</span><span class="tab-text"> Nómina</span>
                             </button>
                             <button class="nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
                                     onclick="changeTab('settings')"
                                     title="Configuración del sistema">
-                                <span>⚙️</span><span class="tab-text"> Ajustes</span>
+                                <span>${icons.get('settings')}</span><span class="tab-text"> Ajustes</span>
                             </button>
                         </nav>
                     </div>
@@ -7191,52 +7241,9 @@ function EmployeeFormModal() {
                         
                         <div class="form-group">
                             <label class="form-label" style="font-size: 0.875rem;">📅 Fecha de Contratación</label>
-                            <div style="position: relative;">
-                                <input type="hidden" id="empHireDate" value="${hireDateValue}">
-                                <div class="form-input" 
-                                     onclick="state.showHireDatePicker = !state.showHireDatePicker; render();" 
-                                     style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; background: #0f172a;">
-                                    <span style="color: #f1f5f9;">${hireDateDisplay}</span>
-                                    <span style="color: #06b6d4;">📅</span>
-                                </div>
-                                
-                                ${state.showHireDatePicker ? `
-                                    <div class="date-picker-popup" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; margin-top: 4px;">
-                                        <div class="date-picker-header">
-                                            <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" 
-                                                    onclick="event.stopPropagation(); changeHireDatePickerMonth(-1)">◀</button>
-                                            <div class="date-picker-month">${formatMonthYear(state.hireDatePickerMonth)}</div>
-                                            <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" 
-                                                    onclick="event.stopPropagation(); changeHireDatePickerMonth(1)">▶</button>
-                                        </div>
-                                        <div class="date-picker-grid">
-                                            ${['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
-                                            ${getDaysInMonth(state.hireDatePickerMonth).map(({ date, currentMonth }) => {
-        const dKey = getDateKey(date);
-        const today = getDateKey(new Date());
-        const selectedKey = hireDateValue;
-        const isFuture = date > new Date();
-
-        let cls = ['date-picker-day'];
-        if (!currentMonth) cls.push('other-month');
-        if (dKey === today) cls.push('today');
-        if (dKey === selectedKey) cls.push('selected');
-        if (isFuture) cls.push('disabled');
-
-        return `<div class="${cls.join(' ')}" 
-                                                             onclick="${isFuture ? '' : `event.stopPropagation(); selectHireDate('${dKey}')`}"
-                                                             style="${isFuture ? 'opacity: 0.3; cursor: not-allowed;' : ''}">${date.getDate()}</div>`;
-    }).join('')}
-                                        </div>
-                                        <div style="padding: 8px; border-top: 1px solid #334155;">
-                                            <button onclick="event.stopPropagation(); state.showHireDatePicker = false; render();" 
-                                                    style="width: 100%; padding: 6px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #94a3b8; font-size: 0.75rem; cursor: pointer;">
-                                                Cerrar
-                                            </button>
-                                        </div>
-                                    </div>
-                                ` : ''}
-                            </div>
+                            <input type="date" id="empHireDate" class="form-input"
+                                   value="${hireDateValue}"
+                                   max="${getDateKey(new Date())}">
                             <div style="font-size: 0.7rem; color: #64748b; margin-top: 4px;">
                                 ${isEdit ? 'Puedes modificar si es necesario' : 'Ajusta si el empleado ya trabajaba antes'}
                             </div>
@@ -7245,7 +7252,7 @@ function EmployeeFormModal() {
                         <div class="form-group">
                             <label class="form-label" style="font-size: 0.875rem;">🎯 Posiciones * (Al menos 1)</label>
                             <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-height: 300px; overflow-y: auto; padding-right: 8px;">
-                                ${state.positions.filter(p => p.active).map(pos => {
+                                ${state.positions.filter(p => p.active || emp?.positions?.includes(p.id)).map(pos => {
         const isChecked = emp?.positions?.includes(pos.id);
         const posSalary = pos.salaryConfig?.amount ?? pos.baseSalary ?? 0;
         const customSalary = state.tempPositionSalaries[pos.id] || '';
@@ -8175,13 +8182,17 @@ window.updateHourlyRatePreview = function () {
     const hourlyRateInput = document.getElementById('posHourlyRate');
     if (!hourlyRateInput) return;
 
-    const hourlyRate = parseFloat(hourlyRateInput.value) || 0;
+    const hourlyRate = Number.parseFloat(hourlyRateInput.value) || 0;
     const regularHours = state.settings.regularHoursPerDay || 8;
     const overtimeFactor = state.settings.overtimeFactor || 1.5;
     const holidayFactor = state.settings.holidayFactor || 2;
+    const weekDates = weekDatesForPosition(state.editingPosition?.workingDays || [1, 2, 3, 4, 5]);
 
     const dailyRate = hourlyRate * regularHours;
-    const monthlyRate = hourlyRate * regularHours * 30;
+    const monthlyRate = dailyRate * weekDates.length * 4.33;
+    const WeeksRate = dailyRate * weekDates.length;
+    const twoWeeksRate =  WeeksRate * 2;
+    const treeWeeksRate =  WeeksRate * 3;
     const overtimeRate = hourlyRate * overtimeFactor;
     const holidayRate = hourlyRate * holidayFactor;
 
@@ -8193,12 +8204,25 @@ window.updateHourlyRatePreview = function () {
                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem;">
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">🕐 Por hora (regular):</span>
-                            <span style="color: #10b981; font-weight: 600;">$${Math.round(hourlyRate).toLocaleString()}/h</span>
+                            <span style="color: #10b981; font-weight: 600;">$${Math.round(hourlyRate,2).toLocaleString()}/h</span>
                         </div>
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 Por día (${regularHours}h):</span>
-                            <span style="color: #06b6d4; font-weight: 600;">$${Math.round(dailyRate).toLocaleString()}</span>
+                            <span style="color: #06b6d4; font-weight: 600;">$${Math.round(dailyRate,2).toLocaleString()}</span>
                         </div>
+                                                <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">📅 1 semana:</span>
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(WeeksRate,2).toLocaleString()}</span
+
+                                                    <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">📅 Por 2 semanas:</span>
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(twoWeeksRate,2).toLocaleString()}</span
+
+                                                    <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">📅 Por 3 semanas:</span>
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(treeWeeksRate,2).toLocaleString()}</span
+
+
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 Por mes (~30 días):</span>
                             <span style="color: #64748b; font-weight: 600;">~$${Math.round(monthlyRate).toLocaleString()}</span>
@@ -8492,17 +8516,20 @@ function SettingsTab() {
                     
                     <!-- Navegación de Pestañas -->
                     <div class="nav-tabs" style="margin-bottom: 32px;">
-                        <button class="nav-tab ${state.settingsActiveTab === 'general' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('general')">
-                            <span>⚙️</span><span class="tab-text"> General</span>
-                        </button>
+
                         <button class="nav-tab ${state.settingsActiveTab === 'data' ? 'active' : ''}" 
                                 onclick="changeSettingsTab('data')">
-                            <span>💾</span><span class="tab-text"> Datos</span>
+                            <span>${icons.get('save')}</span><span class="tab-text"> Datos</span>
                         </button>
+
+                        <button class="nav-tab ${state.settingsActiveTab === 'general' ? 'active' : ''}" 
+                                onclick="changeSettingsTab('general')">
+                            <span>${icons.get('settings')}</span><span class="tab-text"> General</span>
+                        </button>
+
                         <button class="nav-tab ${state.settingsActiveTab === 'calendar' ? 'active' : ''}" 
                                 onclick="changeSettingsTab('calendar')">
-                            <span>📅</span><span class="tab-text"> Calendario</span>
+                            <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
                         </button>
                     </div>
                     
@@ -8951,6 +8978,10 @@ function SettingsTabCalendar() {
 }
 
 function SettingsForm() {
+    const iconSetOptions = icons.getAvailableSets()
+        .map(set => `<option value="${set}" ${state.settings.iconSet === set ? 'selected' : ''}>${set}</option>`)
+        .join('');
+
     return `
                 <!-- Información de la Empresa -->
                 <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
@@ -8964,6 +8995,22 @@ function SettingsForm() {
                                value="${state.settings.companyName}" 
                                class="form-input"
                                placeholder="Ej: Constructora El Progreso">
+                    </div>
+                </div>
+
+                <!-- Iconos -->
+                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
+                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
+                        ${icons.get('palette')} Iconos
+                    </h3>
+                    <div class="form-group">
+                        <label class="form-label">Estilo de iconos</label>
+                        <select id="iconSet" class="form-input" onchange="previewIconSet(this.value)">
+                            ${iconSetOptions}
+                        </select>
+                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px; line-height: 1.6;">
+                            Se aplica a toda la aplicación y queda guardado como preferencia.
+                        </div>
                     </div>
                 </div>
 
@@ -9821,6 +9868,11 @@ async function updateSyncStatus() {
     }
 }
 
+window.previewIconSet = function (value) {
+    state.settings.iconSet = applyIconSet(value);
+    render();
+};
+
 window.saveSettings = function () {
     // Leer valores del formulario
     const companyName = document.getElementById('companyName').value.trim();
@@ -9831,6 +9883,7 @@ window.saveSettings = function () {
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentage = parseFloat(document.getElementById('defaultDeductionPercentage').value) || 2;
     const globalLastPaymentDate = document.getElementById('globalLastPaymentDate').value || null;
+    const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
 
     // Validaciones
     if (!companyName) {
@@ -9867,6 +9920,7 @@ window.saveSettings = function () {
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.globalLastPaymentDate = globalLastPaymentDate;
+    state.settings.iconSet = applyIconSet(iconSet);
 
     saveToLocalStorage(); // Guardar en localStorage
     showNotification('✅ Configuración guardada correctamente', 'success');
@@ -10017,6 +10071,7 @@ window.deleteAllData = function () {
             companyName: 'Mi Empresa',
             regularHoursPerDay: 8,
             holidayFactor: 2,
+            iconSet: resolveIconSet(),
             holidays: []
         };
         state.positions = [];
@@ -11215,6 +11270,7 @@ class OnboardingWizard {
             companyName: 'Mi Empresa',
             regularHoursPerDay: 8,
             holidayFactor: 2,
+            iconSet: resolveIconSet(),
             holidays: []
         };
 
@@ -11227,6 +11283,8 @@ class OnboardingWizard {
     loadDemoData() {
         state.usingDemoData = true;
         state.settings = { ...demoData.settings };
+        state.settings.iconSet = resolveIconSet(state.settings.iconSet);
+        applyIconSet(state.settings.iconSet);
         state.positions = JSON.parse(JSON.stringify(demoData.positions));
         state.employees = JSON.parse(JSON.stringify(demoData.employees));
         state.attendance = generateDemoAttendance();
@@ -11818,6 +11876,7 @@ console.log('🚀 ========================================');
 // Cargar datos al iniciar
 console.log('📂 Cargando datos desde localStorage...');
 loadFromLocalStorage();
+state.settings.iconSet = applyIconSet(state.settings.iconSet);
 
 // ═══════════════════════════════════════════════════════════
 // SUPABASE: Verificar sesión activa al iniciar

@@ -25,6 +25,37 @@ class IconSystem {
         // Sets disponibles
         this.availableSets = ['unicode', 'lucide', 'phosphor', 'tabler', 'bootstrap'];
         this.currentSet = this.availableSets[0];
+        this._loadedSets = { unicode: true };
+        this._loadingSets = {};
+
+        this.assetRegistry = {
+            lucide: [
+                {
+                    type: 'script',
+                    url: 'https://unpkg.com/lucide@latest',
+                    isLoaded: () => typeof window !== 'undefined' && !!window.lucide
+                }
+            ],
+            phosphor: [
+                {
+                    type: 'script',
+                    url: 'https://unpkg.com/@phosphor-icons/web',
+                    isLoaded: () => typeof window !== 'undefined' && !!window.PhosphorIcons
+                }
+            ],
+            tabler: [
+                {
+                    type: 'style',
+                    url: 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont/dist/tabler-icons.min.css'
+                }
+            ],
+            bootstrap: [
+                {
+                    type: 'style',
+                    url: 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css'
+                }
+            ]
+        };
 
         /**
          * Registro central de iconos.
@@ -174,7 +205,7 @@ class IconSystem {
         if (savedSet && this.availableSets.includes(savedSet)) {
             this.currentSet = savedSet;
         }
-        this._postRenderInit();
+        this._ensureSetAssets(this.currentSet).then(() => this._postRenderInit());
     }
 
     /**
@@ -197,6 +228,7 @@ class IconSystem {
     setSet(setName) {
         if (this.availableSets.includes(setName)) {
             this.currentSet = setName;
+            this._ensureSetAssets(setName).then(() => this._postRenderInit());
             return true;
         }
         console.warn(`Icon set "${setName}" not available. Options: ${this.availableSets.join(', ')}`);
@@ -311,6 +343,66 @@ class IconSystem {
      */
     register(name, defs) {
         this.registry[name] = { ...this.registry[name], ...defs };
+    }
+
+    _ensureSetAssets(setName) {
+        if (this._loadedSets[setName]) {
+            return Promise.resolve(true);
+        }
+        if (this._loadingSets[setName]) {
+            return this._loadingSets[setName];
+        }
+
+        const assets = this.assetRegistry[setName] || [];
+        if (assets.length === 0) {
+            this._loadedSets[setName] = true;
+            return Promise.resolve(true);
+        }
+
+        this._loadingSets[setName] = Promise.all(
+            assets.map(asset => this._loadAsset(asset))
+        ).then(() => {
+            this._loadedSets[setName] = true;
+            delete this._loadingSets[setName];
+            return true;
+        }).catch(err => {
+            console.warn(`Failed to load assets for set "${setName}"`, err);
+            delete this._loadingSets[setName];
+            return false;
+        });
+
+        return this._loadingSets[setName];
+    }
+
+    _loadAsset(asset) {
+        if (asset.isLoaded && asset.isLoaded()) {
+            return Promise.resolve(true);
+        }
+        if (asset.type === 'style') {
+            const existing = document.querySelector(`link[href="${asset.url}"]`);
+            if (existing) return Promise.resolve(true);
+            return new Promise((resolve, reject) => {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = asset.url;
+                link.onload = () => resolve(true);
+                link.onerror = () => reject(new Error(`Failed to load ${asset.url}`));
+                document.head.appendChild(link);
+            });
+        }
+        if (asset.type === 'script') {
+            const existing = document.querySelector(`script[src="${asset.url}"]`);
+            if (existing) return Promise.resolve(true);
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = asset.url;
+                script.async = true;
+                script.onload = () => resolve(true);
+                script.onerror = () => reject(new Error(`Failed to load ${asset.url}`));
+                document.head.appendChild(script);
+            });
+        }
+        return Promise.resolve(false);
     }
 }
 

@@ -647,7 +647,11 @@ function calculateEmployeeReportData() {
                     if (att.multiPosition && att.positionHours) {
                         const posHours = att.positionHours.find(ph => ph.positionId === position.id);
                         if (posHours) dayValue = (posHours.hours || 0) / regularHours;
-                    } else dayValue = (att.hoursWorked || 0) / regularHours;
+                    } else {
+                        const selectedPos = att.selectedPosition || emp.positions[0];
+                        if (selectedPos !== position.id) return;
+                        dayValue = (att.hoursWorked || 0) / regularHours;
+                    }
 
                     if (day.isHoliday || att.isHoliday) dayValue *= (holidayFactor || 1);
                     if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }
@@ -778,18 +782,202 @@ export async function exportEmployeeReportExcel() {
     if (window.showNotification) window.showNotification(`${ icons.get('info') } Generando Excel...`, 'info');
 
     if (window.ExcelJS) {
-        const workbook = new new window.ExcelJS.Workbook();
+        const workbook = new window.ExcelJS.Workbook();
         workbook.creator = state.settings.companyName;
         workbook.created = new Date();
-        // ... (Excel generation logic omitted for brevity, but should be here. I'll include a placeholder)
-        // I should probably copy the logic if it's critical. It is critical for the feature.
-        // I will copy it fully in next iteration or if I have space.
-        // Since I'm running low on context window size potentially, I'll put a comment.
-        // Actually, I should just assume it works or copy it.
-        // I'll copy the sheet creation logic briefly.
+        const startLabel = formatDateShort(state.employeeReportStartDate);
+        const endLabel = formatDateShort(state.employeeReportEndDate);
+
+        // -------- Resumen general --------
         const summarySheet = workbook.addWorksheet('Resumen');
         summarySheet.getCell('A1').value = 'REPORTE DE EMPLEADOS';
-        // ...
+        summarySheet.getCell('A2').value = `Período: ${startLabel} - ${endLabel}`;
+
+        const dayColumns = reportData.days.map(d => ({
+            header: `${d.date.getDate()}/${d.date.getMonth() + 1}`,
+            key: getDateKey(d.date),
+            width: 6
+        }));
+
+        summarySheet.columns = [
+            { header: '#', key: 'number', width: 8 },
+            { header: 'Empleado', key: 'name', width: 28 },
+            ...dayColumns,
+            { header: 'Días', key: 'totalDays', width: 8 },
+            { header: 'Horas', key: 'totalHours', width: 10 }
+        ];
+
+        const allEmployeesMap = new Map();
+        reportData.positions.forEach(posData => {
+            posData.employees.forEach(empData => {
+                if (!allEmployeesMap.has(empData.id)) {
+                    allEmployeesMap.set(empData.id, { ...empData, dayValues: {}, totalDays: 0, totalHours: 0 });
+                }
+                const entry = allEmployeesMap.get(empData.id);
+                Object.keys(empData.dayValues).forEach(dateKey => {
+                    entry.dayValues[dateKey] = (entry.dayValues[dateKey] || 0) + empData.dayValues[dateKey];
+                });
+            });
+        });
+
+        const allEmployees = Array.from(allEmployeesMap.values());
+        allEmployees.forEach(emp => {
+            emp.totalDays = Object.values(emp.dayValues).reduce((sum, v) => sum + v, 0);
+            reportData.days.forEach(day => {
+                const att = state.attendance[`${ emp.id }-${ getDateKey(day.date)}`];
+                if (att && att.present) emp.totalHours += (att.hoursWorked || 0);
+            });
+        });
+        allEmployees.sort((a, b) => a.number.localeCompare(b.number));
+
+        allEmployees.forEach(emp => {
+            const row = {
+                number: emp.number,
+                name: emp.name,
+                totalDays: Number(emp.totalDays.toFixed(2)),
+                totalHours: Number(emp.totalHours.toFixed(2))
+            };
+            reportData.days.forEach(day => {
+                const key = getDateKey(day.date);
+                row[key] = Number((emp.dayValues[key] || 0).toFixed(2));
+            });
+            summarySheet.addRow(row);
+        });
+
+        // -------- Hojas por posición --------
+        reportData.positions.forEach(posData => {
+            const sheetName = (posData.position?.name || 'Posición').slice(0, 31);
+            const sheet = workbook.addWorksheet(sheetName);
+            sheet.columns = [
+                { header: '#', key: 'number', width: 8 },
+                { header: 'Empleado', key: 'name', width: 28 },
+                ...dayColumns,
+                { header: 'Total', key: 'total', width: 8 }
+            ];
+
+            posData.employees
+                .sort((a, b) => a.number.localeCompare(b.number))
+                .forEach(emp => {
+                    const row = {
+                        number: emp.number,
+                        name: emp.name,
+                        total: Number(emp.total.toFixed(2))
+                    };
+                    reportData.days.forEach(day => {
+                        const key = getDateKey(day.date);
+                        row[key] = Number((emp.dayValues[key] || 0).toFixed(2));
+                    });
+                    sheet.addRow(row);
+                });
+        });
+
+        // -------- Hojas por líder --------
+        const leadersWithTeams = state.leaders.filter(l => {
+            return state.positions.some(p => p.leaderId === l.id);
+        });
+
+        const regularHours = state.settings.regularHoursPerDay;
+        const holidayFactor = state.settings.holidayFactor;
+
+        const buildPositionEmployees = (position) => {
+            const employees = [];
+            const empsByPosition = state.employees.filter(e => {
+                if (!wasEmployeeActiveInRange(e, state.employeeReportStartDate, state.employeeReportEndDate)) return false;
+                return (e.positions && Array.isArray(e.positions) && e.positions.includes(position.id)) || e.position === position.id;
+            });
+
+            empsByPosition.forEach(emp => {
+                const dayValues = {};
+                let total = 0;
+                reportData.days.forEach(day => {
+                    const dateKey = getDateKey(day.date);
+                    const att = state.attendance[`${emp.id}-${dateKey}`];
+                    if (att && att.present) {
+                        let dayValue = 0;
+                        if (att.multiPosition && att.positionHours) {
+                            const posHours = att.positionHours.find(ph => ph.positionId === position.id);
+                            if (posHours) dayValue = (posHours.hours || 0) / regularHours;
+                        } else {
+                            const selectedPos = att.selectedPosition || emp.positions[0];
+                            if (selectedPos !== position.id) return;
+                            dayValue = (att.hoursWorked || 0) / regularHours;
+                        }
+                        if (day.isHoliday || att.isHoliday) dayValue *= (holidayFactor || 1);
+                        if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }
+                    }
+                });
+                if (!isNaN(total)) employees.push({ id: emp.id, number: emp.number, name: emp.name, dayValues, total });
+            });
+            return employees;
+        };
+
+        leadersWithTeams.forEach(leader => {
+            const leaderPositions = state.positions.filter(p => p.leaderId === leader.id);
+            const employeeMap = new Map();
+            leaderPositions.forEach(position => {
+                const posEmployees = buildPositionEmployees(position);
+                posEmployees.forEach(emp => {
+                    if (!employeeMap.has(emp.id)) {
+                        employeeMap.set(emp.id, {
+                            id: emp.id,
+                            number: emp.number,
+                            name: emp.name,
+                            positions: []
+                        });
+                    }
+                    employeeMap.get(emp.id).positions.push({
+                        positionName: position.name || 'Posición',
+                        totalDays: Number(emp.total.toFixed(2)),
+                        dayValues: { ...emp.dayValues }
+                    });
+                });
+            });
+
+            const employees = Array.from(employeeMap.values())
+                .sort((a, b) => a.number.localeCompare(b.number));
+            if (employees.length === 0) {
+                const sheetName = (`Líder - ${leader.name}`).slice(0, 31);
+                const sheet = workbook.addWorksheet(sheetName);
+                sheet.columns = [
+                    { header: 'No.', key: 'idx', width: 8 },
+                    { header: 'Description', key: 'name', width: 28 },
+                    { header: 'OCUPACION', key: 'position', width: 22 },
+                    ...dayColumns,
+                    { header: 'Días', key: 'days', width: 10 }
+                ];
+                sheet.addRow({ idx: '-', name: 'Sin datos en el período', position: '', days: '' });
+                return;
+            }
+
+            const sheetName = (`Líder - ${leader.name}`).slice(0, 31);
+            const sheet = workbook.addWorksheet(sheetName);
+            sheet.columns = [
+                { header: 'No.', key: 'idx', width: 8 },
+                { header: 'Description', key: 'name', width: 28 },
+                { header: 'OCUPACION', key: 'position', width: 22 },
+                ...dayColumns,
+                { header: 'Días', key: 'days', width: 10 }
+            ];
+
+            employees.forEach((emp, i) => {
+                const baseIndex = String(i + 1);
+                emp.positions.forEach((pos, j) => {
+                    const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1)); // b, c, d...
+                    const idx = `${baseIndex}${suffix}`;
+                    const row = {
+                        idx,
+                        name: emp.name,
+                        position: pos.positionName,
+                        days: pos.totalDays
+                    };
+                    reportData.days.forEach(day => {
+                        const key = getDateKey(day.date);
+                        row[key] = Number((pos.dayValues[key] || 0).toFixed(2));
+                    });
+                    sheet.addRow(row);
+                });
+            });
+        });
 
         // SAVE
         const buffer = await workbook.xlsx.writeBuffer();

@@ -16,6 +16,22 @@ function getState() {
     return context.state;
 }
 
+function getEmployeesWithDeductions() {
+    const state = getState();
+    return state.employees.filter(e => Array.isArray(e.deductions) && e.deductions.length > 0);
+}
+
+function getLeaderFilteredEmployees(state) {
+    const leaderFilter = state.exportConfig.leaderFilter || 'all';
+    const activeEmployees = state.employees.filter(emp => emp.active !== false);
+    if (leaderFilter === 'all') return activeEmployees;
+
+    const leaderPositions = new Set(
+        state.positions.filter(p => p.leaderId === leaderFilter).map(p => p.id)
+    );
+    return activeEmployees.filter(emp => (emp.positions || []).some(pid => leaderPositions.has(pid)));
+}
+
 export function PayrollTab() {
     const state = getState();
     // Initialize if empty (logic from ExportTab)
@@ -27,8 +43,19 @@ export function PayrollTab() {
         state.exportConfig.activePreset = 'thisMonth';
     }
 
+    if (!state.exportConfig.leaderFilter) state.exportConfig.leaderFilter = 'all';
+
     const exportData = generateExportData();
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
+    const employeesWithDeductions = getEmployeesWithDeductions();
+    const hasEmployeeDeductions = employeesWithDeductions.length > 0;
+    const employeeDeductionsAdded = !!state.exportConfig.employeeDeductionsAdded;
+    const employeeOptions = state.employees
+        .filter(e => e.active !== false)
+        .map(e => `<option value="${e.id}">${e.name}</option>`)
+        .join('');
+    const leaderFilter = state.exportConfig.leaderFilter || 'all';
+    const leaders = state.leaders.filter(l => l.active);
 
     return `
         <div style="max-width: 1000px; margin: 0 auto; padding: 20px;">
@@ -103,6 +130,43 @@ export function PayrollTab() {
                 <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 16px;">
                     \ Estas deducciones se aplicarán a todos los empleados de forma encadenada
                 </div>
+
+                ${hasEmployeeDeductions ? `
+                    <div style="margin-bottom: 16px; padding: 10px 12px; border: 1px solid ${employeeDeductionsAdded ? '#10b981' : '#ef4444'}; border-radius: 8px; background: ${employeeDeductionsAdded ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)'};">
+                        <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 8px; color: ${employeeDeductionsAdded ? '#86efac' : '#fecaca'}; font-size: 0.875rem;">
+                                <span style="width: 8px; height: 8px; border-radius: 999px; background: ${employeeDeductionsAdded ? '#10b981' : '#ef4444'}; display: inline-block; ${employeeDeductionsAdded ? '' : 'animation: pulse 1.5s infinite;'}"></span>
+                                <span>${employeeDeductionsAdded ? `${icons.get('check')} Descuentos individuales agregados` : `${icons.get('alert')} Hay ${employeesWithDeductions.length} empleados con descuentos programados`}</span>
+                            </div>
+                            <button onclick="PayrollUI.addEmployeeDeductionsToExport()"
+                                    style="padding: 6px 12px; background: ${employeeDeductionsAdded ? '#10b981' : '#ef4444'}; border: none; border-radius: 6px; color: #fff; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
+                                ${employeeDeductionsAdded ? 'Actualizar lista' : 'Agregar a nómina'}
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">
+                        \ Cargo individual por empleado
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
+                        <select id="payroll-emp-deduction-employee" class="form-input">
+                            <option value="">Seleccionar empleado</option>
+                            ${employeeOptions}
+                        </select>
+                        <select id="payroll-emp-deduction-type" class="form-input">
+                            <option value="fixed">Monto</option>
+                            <option value="percentage">Porcentaje</option>
+                        </select>
+                        <input id="payroll-emp-deduction-value" type="number" class="form-input" placeholder="0.00" min="0" step="0.01">
+                        <input id="payroll-emp-deduction-name" type="text" class="form-input" placeholder="Nombre del cargo">
+                        <button onclick="PayrollUI.addEmployeeDeductionFromForm()"
+                                style="padding: 8px 12px; background: #06b6d4; border: none; border-radius: 6px; color: #000; font-weight: 700; cursor: pointer;">
+                            Agregar cargo
+                        </button>
+                    </div>
+                </div>
                 
                 ${generateExportDeductionsHTML()}
             </div>
@@ -112,7 +176,25 @@ export function PayrollTab() {
                 <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
                     \ Paso 3: Vista Previa (${exportData.length} empleados)
                 </h3>
-                
+                            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155;">
+                <h3 style="margin: 0 0 12px 0; font-size: 1rem; color: #06b6d4; font-weight: 700;">
+                    ${icons.get('personnel')} Filtro por Líder
+                </h3>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button onclick="PayrollUI.setLeaderFilter('all')"
+                            style="padding: 6px 12px; background: ${leaderFilter === 'all' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === 'all' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === 'all' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                        Todos
+                    </button>
+                    ${leaders.map(ldr => `
+                        <button onclick="PayrollUI.setLeaderFilter('${ldr.id}')"
+                                style="padding: 6px 12px; background: ${leaderFilter === ldr.id ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === ldr.id ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === ldr.id ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                            ${ldr.name}
+                        </button>
+                    `).join('')}
+                </div>
+            </div>
+
+
                 <div style="overflow-x: auto;">
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
@@ -171,11 +253,11 @@ function generateExportData() {
     const { periodStart, periodEnd, deductions } = state.exportConfig;
     if (!periodStart || !periodEnd) return [];
 
-    // We need state.employees and state.positions, assumed in context.state
-    const activeEmployees = state.employees.filter(emp => emp.active !== false);
+    const filteredEmployees = getLeaderFilteredEmployees(state);
 
-    return activeEmployees.map(emp => {
-        const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, deductions);
+    return filteredEmployees.map(emp => {
+        const applicableDeductions = (deductions || []).filter(d => !d.employeeId || d.employeeId === emp.id);
+        const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, applicableDeductions);
         const positionIds = (emp.positions && emp.positions.length > 0)
             ? emp.positions
             : (emp.position ? [emp.position] : []);
@@ -199,7 +281,17 @@ function generateExportDeductionsHTML() {
     const deductions = state.exportConfig.deductions || [];
     if (deductions.length === 0) return '<div style="text-align: center; color: #64748b; padding: 20px;">No hay deducciones configuradas</div>';
 
-    return deductions.map((ded, index) => `
+    const globalDeductions = deductions.filter(d => !d.employeeId);
+    const employeeDeductions = deductions.filter(d => d.employeeId);
+
+    const groupedByEmployee = employeeDeductions.reduce((acc, d) => {
+        const key = d.employeeId || 'unknown';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(d);
+        return acc;
+    }, {});
+
+    const renderDeductionRow = (ded, index, all) => `
         <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 12px;">
             <div style="display: flex; gap: 12px; align-items: start;">
                 <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;">
@@ -215,11 +307,33 @@ function generateExportDeductionsHTML() {
                 <div style="flex: 1;">
                     <input type="number" class="form-input" value="${ded.value.toFixed(2)}" onchange="PayrollUI.updateExportDeductionValue(${index}, this.value)" placeholder="0.00" min="0" step="${ded.type === 'fixed' ? '0.01' : '0.1'}" style="width: 100%; font-size: 0.875rem; padding: 8px; margin-bottom: 8px;">
                     <input type="text" class="form-input" value="${ded.name || ''}" onchange="PayrollUI.updateExportDeductionName(${index}, this.value)" placeholder="Nombre (ej: AFP, SFS...)" style="width: 100%; font-size: 0.75rem; padding: 6px;">
+                    ${ded.employeeId ? `<div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px;">Empleado: ${ded.employeeName || (state.employees.find(e => e.id === ded.employeeId)?.name || 'N/A')}</div>` : ''}
                 </div>
-                ${deductions.length > 1 ? `<button onclick="PayrollUI.removeExportDeduction(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('edit')}</button>` : ''}
+                ${all.length > 1 ? `<button onclick="PayrollUI.removeExportDeduction(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
             </div>
         </div>
-    `).join('');
+    `;
+
+    const globalHTML = globalDeductions.length > 0
+        ? `<div style="margin-bottom: 12px; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">${icons.get('info')} Deducciones generales</div>
+           ${globalDeductions.map(ded => renderDeductionRow(ded, deductions.indexOf(ded), deductions)).join('')}`
+        : '';
+
+    const employeeHTML = Object.keys(groupedByEmployee).length > 0
+        ? `<div style="margin-top: 16px; margin-bottom: 12px; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">${icons.get('personnel')} Deducciones por empleado</div>
+           ${Object.keys(groupedByEmployee).map(empId => {
+               const empName = state.employees.find(e => e.id === empId)?.name || 'Empleado';
+               const items = groupedByEmployee[empId];
+               return `
+                   <div style="margin-bottom: 12px; padding: 10px; border: 1px solid #334155; border-radius: 8px; background: #0b1220;">
+                       <div style="font-size: 0.8rem; color: #f1f5f9; font-weight: 700; margin-bottom: 8px;">${icons.get('user')} ${empName}</div>
+                       ${items.map(ded => renderDeductionRow(ded, deductions.indexOf(ded), deductions)).join('')}
+                   </div>
+               `;
+           }).join('')}`
+        : '';
+
+    return `${globalHTML}${employeeHTML}`;
 }
 
 // ============================================
@@ -257,11 +371,91 @@ export function updateExportDeductionName(index, value) {
     // context.render(); 
 }
 
+export function addEmployeeDeductionsToExport() {
+    const state = getState();
+    if (!state.exportConfig.deductions) state.exportConfig.deductions = [];
+
+    const employeesWithDeductions = getEmployeesWithDeductions();
+    const existingKeys = new Set(
+        state.exportConfig.deductions
+            .filter(d => d.employeeId)
+            .map(d => `${d.employeeId}:${d.type}:${d.value}:${d.name || ''}`)
+    );
+
+    employeesWithDeductions.forEach(emp => {
+        (emp.deductions || []).forEach(ded => {
+            const newDed = {
+                id: ded.id || `DED-${Date.now()}`,
+                type: ded.type,
+                value: ded.value,
+                name: ded.name || `Deducción ${emp.name}`,
+                employeeId: emp.id,
+                employeeName: emp.name,
+                source: 'employee'
+            };
+            const key = `${newDed.employeeId}:${newDed.type}:${newDed.value}:${newDed.name || ''}`;
+            if (!existingKeys.has(key)) {
+                state.exportConfig.deductions.push(newDed);
+                existingKeys.add(key);
+            }
+        });
+    });
+
+    state.exportConfig.employeeDeductionsAdded = true;
+
+    if (window.showNotification) {
+        window.showNotification('✅ Deducciones individuales agregadas a la nómina', 'success');
+    }
+    context.render();
+}
+
+export function addEmployeeDeductionFromForm() {
+    const state = getState();
+    const employeeId = document.getElementById('payroll-emp-deduction-employee')?.value;
+    const type = document.getElementById('payroll-emp-deduction-type')?.value || 'fixed';
+    const value = parseFloat(document.getElementById('payroll-emp-deduction-value')?.value) || 0;
+    const name = document.getElementById('payroll-emp-deduction-name')?.value?.trim() || 'Cargo individual';
+
+    if (!employeeId) {
+        if (window.showNotification) window.showNotification('❌ Selecciona un empleado', 'error');
+        return;
+    }
+    if (value <= 0) {
+        if (window.showNotification) window.showNotification('❌ El valor debe ser mayor a 0', 'error');
+        return;
+    }
+
+    const emp = state.employees.find(e => e.id === employeeId);
+    if (!emp) return;
+
+    if (!state.exportConfig.deductions) state.exportConfig.deductions = [];
+    state.exportConfig.deductions.push({
+        id: `DED-${Date.now()}`,
+        type,
+        value,
+        name,
+        employeeId: emp.id,
+        employeeName: emp.name,
+        source: 'manual'
+    });
+
+    if (window.showNotification) {
+        window.showNotification('✅ Cargo individual agregado', 'success');
+    }
+    context.render();
+}
+
 export function updateExportPeriod(type, value) {
     const state = getState();
     if (type === 'start') state.exportConfig.periodStart = value;
     if (type === 'end') state.exportConfig.periodEnd = value;
     state.exportConfig.activePreset = null; // Clear preset
+    context.render();
+}
+
+export function setLeaderFilter(leaderId) {
+    const state = getState();
+    state.exportConfig.leaderFilter = leaderId;
     context.render();
 }
 

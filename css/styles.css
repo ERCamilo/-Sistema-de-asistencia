@@ -71,6 +71,14 @@
             font-size: 1.25rem;
         }
 
+        .settings-btn.sync-indicator-btn {
+            background: transparent;
+            border: none;
+            width: auto;
+            height: auto;
+            padding: 0;
+        }
+
         /* Navigation */
         .nav-tabs {
             display: flex;
