@@ -10,6 +10,7 @@ export class Leader {
         this.createdDate = data.createdDate || new Date().toISOString();
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
+        this.updatedAt = data.updatedAt || Date.now();
     }
 
     activate() {
@@ -20,6 +21,7 @@ export class Leader {
             active: true,
             timestamp: Date.now()
         });
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -31,6 +33,7 @@ export class Leader {
             active: false,
             timestamp: Date.now()
         });
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -45,7 +48,8 @@ export class Leader {
             notes: this.notes,
             createdDate: this.createdDate,
             lastStatusChange: this.lastStatusChange,
-            statusHistory: this.statusHistory
+            statusHistory: this.statusHistory,
+            updatedAt: this.updatedAt
         };
     }
 

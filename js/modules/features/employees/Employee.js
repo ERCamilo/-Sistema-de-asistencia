@@ -15,6 +15,7 @@ export class Employee {
         this.createdDate = data.createdDate || new Date().toISOString();
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
+        this.updatedAt = data.updatedAt || Date.now();
     }
 
     // Métodos de negocio
@@ -26,6 +27,7 @@ export class Employee {
             active: true,
             timestamp: Date.now()
         });
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -37,6 +39,7 @@ export class Employee {
             active: false,
             timestamp: Date.now()
         });
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -47,12 +50,14 @@ export class Employee {
     addPosition(positionId) {
         if (!this.hasPosition(positionId)) {
             this.positions.push(positionId);
+            this.updatedAt = Date.now();
         }
         return this;
     }
 
     removePosition(positionId) {
         this.positions = this.positions.filter(p => p !== positionId);
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -71,7 +76,8 @@ export class Employee {
             notes: this.notes,
             createdDate: this.createdDate,
             lastStatusChange: this.lastStatusChange,
-            statusHistory: this.statusHistory
+            statusHistory: this.statusHistory,
+            updatedAt: this.updatedAt
         };
     }
 

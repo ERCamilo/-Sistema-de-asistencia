@@ -135,7 +135,9 @@ export class PayrollService {
 
                 positionData[pw.positionId].days++;
 
-                if (att.isHoliday) {
+                const isHoliday = att.isHoliday || (this.state.settings.holidays || []).includes(dateKey);
+
+                if (isHoliday) {
                     positionData[pw.positionId].holidayHours += pw.hours;
                 } else {
                     positionData[pw.positionId].regularHours += pw.hours;

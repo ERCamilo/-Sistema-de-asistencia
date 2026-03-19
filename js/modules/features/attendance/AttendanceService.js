@@ -29,7 +29,7 @@ export class AttendanceService {
             positionHours: options.positionHours || [],
             notes: options.notes || '',
             createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
+            updatedAt: Date.now()
         };
 
         this.state.attendance[key] = record;
@@ -48,7 +48,7 @@ export class AttendanceService {
         }
 
         Object.assign(record, updates, {
-            updatedAt: new Date().toISOString()
+            updatedAt: Date.now()
         });
 
         return record;

@@ -6,8 +6,8 @@ export class Modal {
         this.size = options.size || 'medium'; // 'small', 'medium', 'large', 'fullscreen'
         this.closable = options.closable !== undefined ? options.closable : true;
         this.buttons = options.buttons || null;
-        this.onClose = options.onClose || null;
-        this.onOpen = options.onOpen || null;
+        if (options.onClose) this.onClose = options.onClose;
+        if (options.onOpen) this.onOpen = options.onOpen;
         this.backdrop = options.backdrop !== undefined ? options.backdrop : true;
         this.element = null;
         this.isOpen = false;
@@ -109,8 +109,10 @@ export class Modal {
         // Trigger animation
         setTimeout(() => {
             const container = this.element.querySelector('[data-modal-container]');
-            container.classList.remove('modal-enter');
-            container.classList.add('modal-visible');
+            if (container) {
+                container.classList.remove('modal-enter');
+                container.classList.add('modal-visible');
+            }
         }, 10);
 
         this.isOpen = true;
@@ -127,8 +129,10 @@ export class Modal {
         if (!this.isOpen) return this;
 
         const container = this.element.querySelector('[data-modal-container]');
-        container.classList.remove('modal-visible');
-        container.classList.add('modal-exit');
+        if (container) {
+            container.classList.remove('modal-visible');
+            container.classList.add('modal-exit');
+        }
 
         setTimeout(() => {
             if (this.element && this.element.parentNode) {

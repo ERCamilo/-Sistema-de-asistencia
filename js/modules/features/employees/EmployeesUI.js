@@ -460,7 +460,7 @@ export function EmployeeCard(emp) {
                     <div class="employee-info" style="flex: 1;">
                         <div class="employee-header">
                             <div class="employee-number">${emp.number}</div>
-                            <div class="employee-name" onclick="openEmployeeFloating('${emp.key || emp.id}')">${emp.name}</div>
+                            <div class="employee-name" onclick="openEmployeeFloating('${emp.key || emp.id}')" title="${emp.name}">${emp.name}</div>
                             ${statusBadge}
                         </div>
                         <div class="position-toggles">
@@ -480,6 +480,16 @@ export function EmployeeCard(emp) {
                             <div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${icons.get('calendar')} Creado: ${createdDate}</div>
                             ${lastChange ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${emp.active ? `${icons.get('info')} Activado` : `${icons.get('x-circle')} Desactivado`}: ${lastChange}</div>` : ''}
                         </div>
+
+                        <!-- 📝 VISTA PREVIA DE NOTAS GENERALES -->
+                        ${emp.notes && emp.notes.trim() ? `
+                            <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                                 title="${emp.notes.replace(/"/g, '&quot;')}">
+                                <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem;">
+                                    📝 ${emp.notes}
+                                </div>
+                            </div>
+                        ` : ''}
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
                         <button class="view-btn" onclick="openEmployeeProfile('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" title="Ver perfil completo">${icons.get('user')}</button>
@@ -900,6 +910,9 @@ function saveEmployeeData(name, number, positions, phone, email, notes, hireDate
             delete emp.customSalary;
         }
 
+        emp.updatedAt = Date.now();
+        emp._isDirty = true;
+
         window.showAlert(`${icons.get('info')} Empleado ${name} actualizado correctamente`, 'success');
     } else {
         // Crear nuevo
@@ -937,7 +950,9 @@ function saveEmployeeData(name, number, positions, phone, email, notes, hireDate
                     active: true,
                     timestamp: new Date(finalHireDate).getTime()
                 }
-            ]
+            ],
+            updatedAt: Date.now(),
+            _isDirty: true
         };
 
         state.employees.push(newEmployee);
@@ -971,6 +986,8 @@ export function saveLeader() {
         ldr.phone = phone;
         ldr.email = email;
         ldr.notes = notes;
+        ldr.updatedAt = Date.now();
+        ldr._isDirty = true;
     } else {
         // Crear nuevo
         const maxNum = Math.max(0, ...state.leaders.map(l => parseInt(l.number.replace('L-', ''))));
@@ -982,7 +999,9 @@ export function saveLeader() {
             active: true,
             phone: phone,
             email: email,
-            notes: notes
+            notes: notes,
+            updatedAt: Date.now(),
+            _isDirty: true
         });
     }
 
@@ -1008,6 +1027,8 @@ export function toggleEmployeeStatus(employeeId) {
                 emp.active = !emp.active;
                 const changeDate = getDateKey(new Date());
                 emp.lastStatusChange = changeDate;
+                emp.updatedAt = Date.now();
+                emp._isDirty = true;
 
                 // Mantener historial de cambios de estado
                 if (!emp.statusHistory) {
@@ -1042,8 +1063,11 @@ export function toggleLeaderStatus(leaderId) {
             type: ldr.active ? 'warning' : 'info',
             onConfirm: () => {
                 ldr.active = !ldr.active;
+                ldr.updatedAt = Date.now();
+                ldr._isDirty = true;
                 const changeDate = getDateKey(new Date());
                 ldr.lastStatusChange = changeDate;
+                ldr.updatedAt = Date.now();
 
                 // Mantener historial de cambios de estado
                 if (!ldr.statusHistory) {
@@ -1119,7 +1143,9 @@ export function togglePositionStatus(positionId) {
         cancelText: 'Cancelar',
         type: pos.active ? 'warning' : 'info',
         onConfirm: () => {
-            pos.active = !pos.active;
+            pos.active = !pos.active; 
+            pos.updatedAt = Date.now();
+            pos._isDirty = true;
             context.saveToLocalStorage();
             context.render();
         }
@@ -1233,6 +1259,8 @@ export function savePosition() {
             period: 'month',
             workDays: [1, 2, 3, 4, 5, 6]
         };
+        pos.updatedAt = Date.now();
+        pos._isDirty = true;
     } else {
         const newId = finalName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
         const monthlyEquivalent = hourlyRate * state.settings.regularHoursPerDay * 30;
@@ -1249,7 +1277,8 @@ export function savePosition() {
                 amount: Math.round(monthlyEquivalent, 2),
                 period: 'month',
                 workDays: [1, 2, 3, 4, 5, 6]
-            }
+            },
+            updatedAt: Date.now()
         });
     }
 

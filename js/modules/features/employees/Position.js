@@ -13,6 +13,7 @@ export class Position {
         this.workingDays = data.workingDays || [1, 2, 3, 4, 5]; // Lun-Vie por defecto (0=Dom, 1=Lun, ...)
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
+        this.updatedAt = data.updatedAt || Date.now();
     }
 
     activate() {
@@ -23,6 +24,7 @@ export class Position {
             active: true,
             timestamp: Date.now()
         });
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -34,6 +36,7 @@ export class Position {
             active: false,
             timestamp: Date.now()
         });
+        this.updatedAt = Date.now();
         return this;
     }
 
@@ -46,7 +49,8 @@ export class Position {
             salaryConfig: this.salaryConfig,
             baseSalary: this.baseSalary,
             lastStatusChange: this.lastStatusChange,
-            statusHistory: this.statusHistory
+            statusHistory: this.statusHistory,
+            updatedAt: this.updatedAt
         };
     }
 

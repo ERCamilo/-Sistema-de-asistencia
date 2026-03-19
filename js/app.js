@@ -37,6 +37,7 @@ import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth } from './modules/utils/DateUtils.js';
+import { SyncConflictModal } from './modules/ui/SyncConflictModal.js';
 import { formatCurrency } from './modules/utils/Formatters.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
@@ -122,7 +123,7 @@ function showNotification(message, type = 'info') {
 // Inicialización diferida para asegurar dependencias
 document.addEventListener('DOMContentLoaded', () => {
     UndoManager.init({
-        saveFn: saveToLocalStorage,
+        saveFn: saveApplicationData,
         renderFn: render,
         showNotificationFn: showNotification
     });
@@ -218,7 +219,7 @@ const state = {
     viewMode: 'day',
 
     // Fase 5: IndexedDB
-    useIndexedDB: false, // Se activará después de migración exitosa
+    useIndexedDB: true, // Se activará después de migración exitosa
 
     // Auto-backup para Canvas de Claude (sessionStorage)
     autoBackupEnabled: true, // Activo por defecto para Canvas
@@ -243,7 +244,8 @@ const state = {
         lastPaymentDate: null,  // 💵 Fecha del último pago realizado (YYYY-MM-DD)
         nextPaymentDate: null,  // 📅 Fecha del próximo pago programado (YYYY-MM-DD)
         iconSet: initialIconSet, // 🎨 Set de iconos preferido
-        holidays: [] // Inicialmente sin festivos
+        holidays: [], // Inicialmente sin festivos
+        updatedAt: Date.now()
     },
 
     // Configuración de horas específicas por día
@@ -259,6 +261,7 @@ const state = {
         search: ''
     },
     showFilters: false,  // Filtros colapsados por defecto
+    isDataLoaded: false, // 🚩 Bandera de carga para evitar sobrescrituras
 
     // Dashboard
     dashboardChart: 'attendance',  // 'attendance' | 'hours' | 'positions' | 'top10' | 'heatmap'
@@ -283,7 +286,7 @@ const state = {
     collapsedPositions: {},            // {positionId: boolean} - posiciones colapsadas
 
     // ⚡ NUEVO: Sub-pestañas de configuración
-    settingsActiveTab: 'general',      // 'general' | 'data' | 'calendar'
+    settingsActiveTab: 'data',      // 'general' | 'data' | 'calendar'
 
     // ⚡ NUEVO: Dashboard de configuración
     lastSupabaseSync: null,            // Timestamp ISO de última sincronización
@@ -339,7 +342,9 @@ const state = {
     isProcessingClick: false, // Flag para prevenir clicks múltiples
     showLegend: false,
     showDatePicker: false,
+    datePickerTarget: 'full', // 'full' | 'compact'
     datePickerMonth: new Date(),
+    isScrolled: false, // âš¡ NUEVO: Detectar scroll para controles flotantes
     employeeFilter: null, // null = todos, 'present' = presentes, 'absent' = ausentes, 'overtime' = con extras
     employeeViewMode: 'employees', // 'employees' | 'leaders' | 'positions'
     reportViewMode: 'employee-report', // 'employee-report' | 'dashboard'
@@ -396,19 +401,357 @@ const state = {
     }
 };
 
-// Inicializar servicio de Supabase
+// ============================================
+// 💾 CLASE INDEXEDDBSERVICE (POO - Base de datos local)
+// ============================================
+class IndexedDBService {
+    constructor(dbName = 'attendance-app-db', version = 6) {
+        this.dbName = dbName;
+        this.version = version;
+        this.db = null;
+        this.isInitialized = false;
+    }
+
+    // Inicializar base de datos
+    async init() {
+        if (this.isInitialized) return this.db;
+
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, this.version);
+
+            request.onerror = () => {
+                debug.error('❌ Error al abrir IndexedDB:', request.error);
+                reject(request.error);
+            };
+
+            request.onsuccess = () => {
+                this.db = request.result;
+                this.isInitialized = true;
+                debug.log('✅ IndexedDB inicializado');
+                resolve(this.db);
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+
+                // Store: Empleados
+                if (!db.objectStoreNames.contains('employees')) {
+                    const empStore = db.createObjectStore('employees', { keyPath: 'id' });
+                    empStore.createIndex('number', 'number', { unique: true });
+                    empStore.createIndex('active', 'active', { unique: false });
+                    empStore.createIndex('name', 'name', { unique: false });
+                }
+
+                // Store: Posiciones
+                if (!db.objectStoreNames.contains('positions')) {
+                    const posStore = db.createObjectStore('positions', { keyPath: 'id' });
+                    posStore.createIndex('name', 'name', { unique: false });
+                }
+
+                // Store: Líderes
+                if (!db.objectStoreNames.contains('leaders')) {
+                    const leadStore = db.createObjectStore('leaders', { keyPath: 'id' });
+                    leadStore.createIndex('number', 'number', { unique: true });
+                } else {
+                    const leadStore = event.target.transaction.objectStore('leaders');
+                    if (leadStore.indexNames.contains('code')) {
+                        leadStore.deleteIndex('code');
+                    }
+                    if (!leadStore.indexNames.contains('number')) {
+                        leadStore.createIndex('number', 'number', { unique: true });
+                    }
+                }
+
+                // Store: Asistencia
+                if (!db.objectStoreNames.contains('attendance')) {
+                    const attStore = db.createObjectStore('attendance', { keyPath: 'key' });
+                    attStore.createIndex('employeeId', 'employeeId', { unique: false });
+                    attStore.createIndex('date', 'date', { unique: false });
+                    attStore.createIndex('employeeDate', ['employeeId', 'date'], { unique: true });
+                }
+
+                // Store: Settings
+                if (!db.objectStoreNames.contains('settings')) {
+                    db.createObjectStore('settings', { keyPath: 'key' });
+                }
+
+                // Store: Cola de sincronización
+                if (!db.objectStoreNames.contains('sync_queue')) {
+                    const syncStore = db.createObjectStore('sync_queue', { keyPath: 'id', autoIncrement: true });
+                    syncStore.createIndex('status', 'status', { unique: false });
+                    syncStore.createIndex('timestamp', 'timestamp', { unique: false });
+                }
+
+                debug.log('📦 Stores de IndexedDB creados');
+            };
+        });
+    }
+
+    // Agregar registro
+    async add(storeName, data) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.add(data);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Obtener registro
+    async get(storeName, key) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.get(key);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Obtener todos los registros
+    async getAll(storeName) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.getAll();
+
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Actualizar registro
+    async update(storeName, data) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.put(data);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Eliminar registro
+    async delete(storeName, key) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.delete(key);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Limpiar store
+    async clear(storeName) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.clear();
+
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Buscar por índice
+    async query(storeName, indexName, value) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const index = store.index(indexName);
+            const request = index.getAll(value);
+
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Contar registros
+    async count(storeName) {
+        await this.init();
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.count();
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Migrar desde localStorage
+    async migrateFromLocalStorage() {
+        try {
+            const oldData = localStorage.getItem('attendance-app-data');
+            if (!oldData) {
+                debug.log('ℹ️ No hay datos en localStorage para migrar');
+                return false;
+            }
+
+            const parsed = JSON.parse(oldData);
+            const data = parsed.data || parsed;
+
+            debug.log('🔄 Migrando datos desde localStorage...');
+
+            // Migrar empleados
+            if (data.employees) {
+                for (const emp of data.employees) {
+                    await this.update('employees', emp);
+                }
+                debug.log(`✅ ${data.employees.length} empleados migrados`);
+            }
+
+            // Migrar posiciones
+            if (data.positions) {
+                for (const pos of data.positions) {
+                    await this.update('positions', pos);
+                }
+                debug.log(`✅ ${data.positions.length} posiciones migradas`);
+            }
+
+            // Migrar líderes
+            if (data.leaders) {
+                for (const leader of data.leaders) {
+                    await this.update('leaders', leader);
+                }
+                debug.log(`✅ ${data.leaders.length} líderes migrados`);
+            }
+
+            // Migrar asistencia
+            if (data.attendance) {
+                const attRecords = Object.entries(data.attendance).map(([key, value]) => ({
+                    key,
+                    ...value
+                }));
+
+                for (const att of attRecords) {
+                    await this.update('attendance', att);
+                }
+                debug.log(`✅ ${attRecords.length} registros de asistencia migrados`);
+            }
+
+            // Migrar settings
+            if (data.settings) {
+                await this.update('settings', { key: 'app', ...data.settings });
+                debug.log('✅ Settings migrados');
+            }
+
+            // Backup de localStorage antes de borrar
+            localStorage.setItem('attendance-app-data-backup', oldData);
+
+            debug.log('✅ Migración completada exitosamente');
+            Notification.success('✅ Datos migrados a IndexedDB');
+
+            return true;
+        } catch (error) {
+            debug.error('❌ Error en migración:', error);
+            Notification.error('❌ Error al migrar datos');
+            return false;
+        }
+    }
+
+    // Exportar toda la DB
+    async exportDB() {
+        const data = {
+            employees: await this.getAll('employees'),
+            positions: await this.getAll('positions'),
+            leaders: await this.getAll('leaders'),
+            attendance: await this.getAll('attendance'),
+            settings: await this.getAll('settings'),
+            exportedAt: new Date().toISOString(),
+            version: this.version
+        };
+
+        return data;
+    }
+
+    // Importar DB completa
+    async importDB(data) {
+        try {
+            // Limpiar stores
+            await this.clear('employees');
+            await this.clear('positions');
+            await this.clear('leaders');
+            await this.clear('attendance');
+            await this.clear('settings');
+
+            // Importar datos
+            if (data.employees) {
+                for (const emp of data.employees) {
+                    await this.update('employees', emp);
+                }
+            }
+
+            if (data.positions) {
+                for (const pos of data.positions) {
+                    await this.update('positions', pos);
+                }
+            }
+
+            if (data.leaders) {
+                for (const leader of data.leaders) {
+                    await this.update('leaders', leader);
+                }
+            }
+
+            if (data.attendance) {
+                for (const att of data.attendance) {
+                    await this.update('attendance', att);
+                }
+            }
+
+            if (data.settings) {
+                for (const setting of data.settings) {
+                    await this.update('settings', setting);
+                }
+            }
+
+            debug.log('✅ Datos importados correctamente');
+            return true;
+        } catch (error) {
+            debug.error('❌ Error al importar datos:', error);
+            return false;
+        }
+    }
+}
+
+// Instancia global de IndexedDB
+const indexedDBService = new IndexedDBService();
+
 const supabaseService = new SupabaseService({
     state: state,
     render: () => render(),
     showNotification: (msg, type) => showNotification(msg, type),
-    saveToLocalStorage: () => saveToLocalStorage(),
+    saveToLocalStorage: () => saveApplicationData(),
     applyIconSet: (preferred, options) => applyIconSet(preferred, options),
     resolveIconSet: (preferred) => resolveIconSet(preferred)
 });
+supabaseService.setIndexedDBService(indexedDBService); // Asegurar que tenga acceso a DB
 
 // Exponer funciones críticas al scope global (window)
 window.render = render;
-window.saveToLocalStorage = saveToLocalStorage;
+window.saveToLocalStorage = saveApplicationData;
 window.showNotification = showNotification;
 window.applyIconSet = applyIconSet;
 window.resolveIconSet = resolveIconSet;
@@ -510,7 +853,7 @@ window.setQuickWeekHours = function (hours) {
 
     state.quickWeekHours = h;
     console.log('⚡ Horas rápidas semanales configuradas a:', h);
-    saveToLocalStorage();
+    saveApplicationData();
     render();
 };
 
@@ -724,7 +1067,7 @@ const dataService = new DataService(state, storageService);
 // Movido a js/modules/utils/DateManagers.js
 
 // Instancia global del manejador de fechas del dashboard (Legacy)
-const dashboardDateManager = new DashboardDateManager(state, saveToLocalStorage);
+const dashboardDateManager = new DashboardDateManager(state, saveApplicationData);
 
 // ============================================
 // 🧩 FEATURE MODULES INITIALIZATION
@@ -740,7 +1083,7 @@ const moduleContext = {
         chart: chartService
     },
     render,
-    saveToLocalStorage,
+    saveToLocalStorage: saveApplicationData,
     closeModal: () => {
         state.showModal = false;
         render();
@@ -794,8 +1137,8 @@ window.openEmployeeProfile = EmployeesUI.openEmployeeProfile;
 // Movido a js/modules/utils/DateManagers.js
 
 // ✅ Reemplazar instancias con versiones optimizadas
-const dashboardDateManagerV2 = new DashboardDateManagerV2(state, saveToLocalStorage);
-const employeeReportDateManagerV2 = new EmployeeReportDateManagerV2(state, saveToLocalStorage);
+const dashboardDateManagerV2 = new DashboardDateManagerV2(state, saveApplicationData);
+const employeeReportDateManagerV2 = new EmployeeReportDateManagerV2(state, saveApplicationData);
 
 // ============================================
 // 📅 CLASE EMPLOYEEREPORTDATEMANAGER (POO - Manejo de fechas del reporte de empleados)
@@ -803,7 +1146,7 @@ const employeeReportDateManagerV2 = new EmployeeReportDateManagerV2(state, saveT
 // Movido a js/modules/utils/DateManagers.js
 
 // Instancia global del manejador de fechas del reporte de empleados (Legacy)
-const employeeReportDateManager = new EmployeeReportDateManager(state, saveToLocalStorage);
+const employeeReportDateManager = new EmployeeReportDateManager(state, saveApplicationData);
 
 // ============================================
 // 🎨 FASE 3: COMPONENTES UI POO
@@ -1667,335 +2010,6 @@ const perfMonitor = new PerformanceMonitor();
 // 🚀 FASE 5: COMPONENTES AVANZADOS
 // ============================================
 
-// ============================================
-// 💾 CLASE INDEXEDDBSERVICE (POO - Base de datos local)
-// ============================================
-class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 1) {
-        this.dbName = dbName;
-        this.version = version;
-        this.db = null;
-        this.isInitialized = false;
-    }
-
-    // Inicializar base de datos
-    async init() {
-        if (this.isInitialized) return this.db;
-
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.version);
-
-            request.onerror = () => {
-                debug.error('❌ Error al abrir IndexedDB:', request.error);
-                reject(request.error);
-            };
-
-            request.onsuccess = () => {
-                this.db = request.result;
-                this.isInitialized = true;
-                debug.log('✅ IndexedDB inicializado');
-                resolve(this.db);
-            };
-
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-
-                // Store: Empleados
-                if (!db.objectStoreNames.contains('employees')) {
-                    const empStore = db.createObjectStore('employees', { keyPath: 'id' });
-                    empStore.createIndex('number', 'number', { unique: true });
-                    empStore.createIndex('active', 'active', { unique: false });
-                    empStore.createIndex('name', 'name', { unique: false });
-                }
-
-                // Store: Posiciones
-                if (!db.objectStoreNames.contains('positions')) {
-                    const posStore = db.createObjectStore('positions', { keyPath: 'id' });
-                    posStore.createIndex('name', 'name', { unique: false });
-                }
-
-                // Store: Líderes
-                if (!db.objectStoreNames.contains('leaders')) {
-                    const leadStore = db.createObjectStore('leaders', { keyPath: 'id' });
-                    leadStore.createIndex('code', 'code', { unique: true });
-                }
-
-                // Store: Asistencia
-                if (!db.objectStoreNames.contains('attendance')) {
-                    const attStore = db.createObjectStore('attendance', { keyPath: 'key' });
-                    attStore.createIndex('employeeId', 'employeeId', { unique: false });
-                    attStore.createIndex('date', 'date', { unique: false });
-                    attStore.createIndex('employeeDate', ['employeeId', 'date'], { unique: true });
-                }
-
-                // Store: Settings
-                if (!db.objectStoreNames.contains('settings')) {
-                    db.createObjectStore('settings', { keyPath: 'key' });
-                }
-
-                // Store: Cola de sincronización
-                if (!db.objectStoreNames.contains('sync_queue')) {
-                    const syncStore = db.createObjectStore('sync_queue', { keyPath: 'id', autoIncrement: true });
-                    syncStore.createIndex('status', 'status', { unique: false });
-                    syncStore.createIndex('timestamp', 'timestamp', { unique: false });
-                }
-
-                debug.log('📦 Stores de IndexedDB creados');
-            };
-        });
-    }
-
-    // Agregar registro
-    async add(storeName, data) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.add(data);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Obtener registro
-    async get(storeName, key) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const request = store.get(key);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Obtener todos los registros
-    async getAll(storeName) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const request = store.getAll();
-
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Actualizar registro
-    async update(storeName, data) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.put(data);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Eliminar registro
-    async delete(storeName, key) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.delete(key);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Limpiar store
-    async clear(storeName) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.clear();
-
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Buscar por índice
-    async query(storeName, indexName, value) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const index = store.index(indexName);
-            const request = index.getAll(value);
-
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Contar registros
-    async count(storeName) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const request = store.count();
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Migrar desde localStorage
-    async migrateFromLocalStorage() {
-        try {
-            const oldData = localStorage.getItem('attendance-app-data');
-            if (!oldData) {
-                debug.log('ℹ️ No hay datos en localStorage para migrar');
-                return false;
-            }
-
-            const parsed = JSON.parse(oldData);
-            const data = parsed.data || parsed;
-
-            debug.log('🔄 Migrando datos desde localStorage...');
-
-            // Migrar empleados
-            if (data.employees) {
-                for (const emp of data.employees) {
-                    await this.update('employees', emp);
-                }
-                debug.log(`✅ ${data.employees.length} empleados migrados`);
-            }
-
-            // Migrar posiciones
-            if (data.positions) {
-                for (const pos of data.positions) {
-                    await this.update('positions', pos);
-                }
-                debug.log(`✅ ${data.positions.length} posiciones migradas`);
-            }
-
-            // Migrar líderes
-            if (data.leaders) {
-                for (const leader of data.leaders) {
-                    await this.update('leaders', leader);
-                }
-                debug.log(`✅ ${data.leaders.length} líderes migrados`);
-            }
-
-            // Migrar asistencia
-            if (data.attendance) {
-                const attRecords = Object.entries(data.attendance).map(([key, value]) => ({
-                    key,
-                    ...value
-                }));
-
-                for (const att of attRecords) {
-                    await this.update('attendance', att);
-                }
-                debug.log(`✅ ${attRecords.length} registros de asistencia migrados`);
-            }
-
-            // Migrar settings
-            if (data.settings) {
-                await this.update('settings', { key: 'app', ...data.settings });
-                debug.log('✅ Settings migrados');
-            }
-
-            // Backup de localStorage antes de borrar
-            localStorage.setItem('attendance-app-data-backup', oldData);
-
-            debug.log('✅ Migración completada exitosamente');
-            Notification.success('✅ Datos migrados a IndexedDB');
-
-            return true;
-        } catch (error) {
-            debug.error('❌ Error en migración:', error);
-            Notification.error('❌ Error al migrar datos');
-            return false;
-        }
-    }
-
-    // Exportar toda la DB
-    async exportDB() {
-        const data = {
-            employees: await this.getAll('employees'),
-            positions: await this.getAll('positions'),
-            leaders: await this.getAll('leaders'),
-            attendance: await this.getAll('attendance'),
-            settings: await this.getAll('settings'),
-            exportedAt: new Date().toISOString(),
-            version: this.version
-        };
-
-        return data;
-    }
-
-    // Importar DB completa
-    async importDB(data) {
-        try {
-            // Limpiar stores
-            await this.clear('employees');
-            await this.clear('positions');
-            await this.clear('leaders');
-            await this.clear('attendance');
-            await this.clear('settings');
-
-            // Importar datos
-            if (data.employees) {
-                for (const emp of data.employees) {
-                    await this.update('employees', emp);
-                }
-            }
-
-            if (data.positions) {
-                for (const pos of data.positions) {
-                    await this.update('positions', pos);
-                }
-            }
-
-            if (data.leaders) {
-                for (const leader of data.leaders) {
-                    await this.update('leaders', leader);
-                }
-            }
-
-            if (data.attendance) {
-                for (const att of data.attendance) {
-                    await this.update('attendance', att);
-                }
-            }
-
-            if (data.settings) {
-                for (const setting of data.settings) {
-                    await this.update('settings', setting);
-                }
-            }
-
-            debug.log('✅ Datos importados correctamente');
-            return true;
-        } catch (error) {
-            debug.error('❌ Error al importar datos:', error);
-            return false;
-        }
-    }
-}
-
-// Instancia global de IndexedDB
-const indexedDBService = new IndexedDBService();
 
 // ============================================
 // 📡 CLASE SYNCMANAGER (POO - Sincronización local)
@@ -2718,6 +2732,8 @@ window.addPositionHours = function () {
         });
 
         state.attendance[key] = att;
+        att.updatedAt = Date.now();
+        att._isDirty = true;
         render();
 
         // Actualizar totales después de render
@@ -2736,6 +2752,8 @@ window.updatePositionHours = function (index, field, value) {
 
     if (att && att.positionHours && att.positionHours[index]) {
         att.positionHours[index][field] = parseFloat(value) || 0;
+        att._isDirty = true;
+        att.updatedAt = Date.now();
 
         // Actualizar totales visuales
         updateTotalsDisplay();
@@ -2833,6 +2851,7 @@ window.saveMultiPosition = function () {
 
     // Guardar en state
     state.attendance[key] = att;
+    att.updatedAt = Date.now();
 
     // ─── Registrar Undo: restaurar estado previo de multi-posición ───
     UndoManager.push(
@@ -2872,7 +2891,7 @@ window.deleteCurrentAttendance = function () {
         () => { if (previousAtt) state.attendance[key] = previousAtt; }
     );
 
-    saveToLocalStorage();
+    saveApplicationData();
     closeModal();
     render();
 };
@@ -2947,70 +2966,59 @@ async function saveToIndexedDB() {
         return true;
     } catch (error) {
         debug.error('❌ Error guardando en IndexedDB:', error);
-        return false;
+        throw error; // Re-lanzar para que saveApplicationData lo vea
     }
 }
 
-function saveToLocalStorage() {
-    console.log('🔵 saveToLocalStorage() llamado');
+async function saveApplicationData() {
+    if (window._isSavingData) return;
+    window._isSavingData = true;
+    if (!state.isDataLoaded) {
+        console.warn('⚠️ Intento de guardado ignorado: los datos aún no se han cargado completamente.');
+        return;
+    }
+    console.log('🔵 saveApplicationData() iniciado');
 
     // Auto-sync de Supabase si aplica
     supabaseService.handleAutoSync();
     // ═══════════════════════════════════════════════════════════
 
-    // ✅ Verificación defensiva: Asegurar que dataService existe
-    if (typeof dataService === 'undefined') {
-        console.error('❌ CRÍTICO: dataService no está definido');
-        // Fallback manual
-        try {
-            const data = {
-                employees: state.employees,
-                positions: state.positions,
-                leaders: state.leaders,
-                attendance: state.attendance,
-                settings: state.settings,
-                today: state.today,
-                selectedDate: state.selectedDate,
-                version: '2.0',
-                savedAt: new Date().toISOString()
-            };
-            localStorage.setItem('asistencia-data', JSON.stringify(data));
-            console.log('💾 ✅ Datos guardados en localStorage (fallback manual)');
-            console.log('📊 Empleados:', data.employees.length);
-            console.log('📊 Asistencias:', Object.keys(data.attendance).length);
-            console.log('📊 Fecha actual:', data.selectedDate);
-        } catch (e) {
-            console.error('❌ Error en fallback manual:', e);
-        }
-        return;
-    }
-
-    console.log('🔵 dataService existe, procediendo a guardar...');
-    console.log('🔵 useIndexedDB:', state.useIndexedDB);
-
-    // ✅ Intentar guardar en IndexedDB primero
     if (state.useIndexedDB) {
         console.log('💾 Guardando en IndexedDB...');
-        saveToIndexedDB().catch(() => {
-            // Fallback a localStorage
-            console.warn('⚠️ Fallback a localStorage desde IndexedDB');
-            dataService.saveAll();
-        });
+        try {
+            await saveToIndexedDB();
+        } catch (error) {
+            console.error('❌ Error guardando en IndexedDB:', error);
+            
+            // 🛰️ Manejo de conflictos de sincronización (ConstraintError)
+            if (error.name === 'ConstraintError' || error.message.includes('ConstraintError')) {
+                console.warn('⚡ Conflicto de integridad detectado. Abriendo gestor de conflictos...');
+                new SyncConflictModal({
+                    error: error.message,
+                    supabaseService: supabaseService,
+                    onResolved: (type) => {
+                        console.log(`✅ Conflicto resuelto via: ${type}`);
+                        showNotification('✅ Sincronización re-establecida', 'success');
+                        render();
+                    }
+                }).open();
+            } else {
+                // Fallback a localStorage si dataService existe
+                if (typeof dataService !== 'undefined') {
+                    dataService.saveAll();
+                }
+                showNotification('❌ Error al guardar datos localmente', 'error');
+            }
+        }
     } else {
         // ✅ Usar DataService POO (localStorage)
-        console.log('💾 Guardando en localStorage vía dataService...');
-        const result = dataService.saveAll();
-        console.log('💾 ✅ dataService.saveAll() retornó:', result);
-        console.log('📊 Empleados:', state.employees.length);
-        console.log('📊 Posiciones:', state.positions.length);
-        console.log('📊 Asistencias:', Object.keys(state.attendance).length);
-        console.log('📊 Today:', state.today);
-        console.log('📊 SelectedDate:', state.selectedDate);
+        if (typeof dataService !== 'undefined') {
+            dataService.saveAll();
+        }
     }
 
     // 🔄 Auto-backup para Canvas de Claude (localStorage no persiste)
     if (state.autoBackupEnabled) {
-        console.log('🔄 Auto-backup activado, creando backup en sessionStorage...');
         createAutoBackup();
     }
 
@@ -3022,8 +3030,94 @@ function saveToLocalStorage() {
         timestamp: Date.now()
     });
 
-    console.log('✅ saveToLocalStorage() completado');
+    window._isSavingData = false;
 }
+
+/**
+ * 🔄 REGENERACIÓN DE IDs PARA CLONADO
+ * Genera nuevos UUIDs para todos los datos locales para poder 
+ * subirlos a una cuenta nueva de Supabase sin conflictos de Primary Key.
+ */
+async function prepareDataForNewAccount() {
+    console.log('🔄 Iniciando regeneración de IDs para nueva cuenta...');
+    
+    // 0. Limpiar IndexedDB para evitar conflictos de índices únicos (ConstraintError)
+    try {
+        await indexedDBService.clear('leaders');
+        await indexedDBService.clear('positions');
+        await indexedDBService.clear('employees');
+        await indexedDBService.clear('attendance');
+        await indexedDBService.clear('settings');
+        await indexedDBService.clear('sync_queue');
+        console.log('🧹 Almacenes de IndexedDB limpiados');
+    } catch (clearError) {
+        console.warn('⚠️ Error limpiando stores (posiblemente vacíos):', clearError);
+    }
+
+    const idMap = new Map();
+    const now = Date.now();
+
+    // 1. Líderes
+    state.leaders.forEach(l => {
+        const oldId = l.id;
+        l.id = generateUUID();
+        l.updatedAt = now;
+        idMap.set(oldId, l.id);
+    });
+
+    // 2. Posiciones
+    state.positions.forEach(p => {
+        const oldId = p.id;
+        p.id = generateUUID();
+        p.updatedAt = now;
+        if (p.leaderId && idMap.has(p.leaderId)) {
+            p.leaderId = idMap.get(p.leaderId);
+        }
+        idMap.set(oldId, p.id);
+    });
+
+    // 3. Empleados
+    state.employees.forEach(e => {
+        const oldId = e.id;
+        e.id = generateUUID();
+        e.updatedAt = now;
+        if (e.positions) {
+            e.positions = e.positions.map(pid => idMap.has(pid) ? idMap.get(pid) : pid);
+        }
+        idMap.set(oldId, e.id);
+    });
+
+    // 4. Asistencia
+    const newAttendance = {};
+    Object.entries(state.attendance).forEach(([oldKey, att]) => {
+        const oldEmpId = att.employeeId || oldKey.split('-')[0];
+        const newEmpId = idMap.get(oldEmpId) || oldEmpId;
+        const newKey = `${newEmpId}-${att.date}`;
+        
+        att.id = generateUUID();
+        att.employeeId = newEmpId;
+        att.updatedAt = now;
+        if (att.selectedPosition && idMap.has(att.selectedPosition)) {
+            att.selectedPosition = idMap.get(att.selectedPosition);
+        }
+        if (att.positionHours) {
+            att.positionHours.forEach(ph => {
+                if (idMap.has(ph.positionId)) ph.positionId = idMap.get(ph.positionId);
+            });
+        }
+        newAttendance[newKey] = att;
+    });
+    state.attendance = newAttendance;
+
+    // 5. Guardar localmente
+    await saveApplicationData();
+    console.log('✅ IDs regenerados exitosamente');
+    return true;
+}
+
+// Alias para compatibilidad
+window.saveToLocalStorage = saveApplicationData;
+window.prepareDataForNewAccount = prepareDataForNewAccount;
 
 // Sistema de auto-backup para Canvas de Claude
 function createAutoBackup() {
@@ -3126,66 +3220,67 @@ async function loadFromIndexedDB() {
     }
 }
 
-function loadFromLocalStorage() {
-    console.log('🔵 loadFromLocalStorage() iniciado');
+async function loadApplicationData() {
+    console.log('🔵 loadApplicationData() iniciado');
 
     try {
-        // ✅ Usar la misma key que DataService: 'asistencia-data'
-        console.log('🔑 Buscando datos en key: asistencia-data');
-        const savedData = localStorage.getItem('asistencia-data');
-
-        if (savedData) {
-            console.log('📦 Datos encontrados, parseando...');
-            console.log('📊 Tamaño:', savedData.length, 'bytes');
-
-            const parsed = JSON.parse(savedData);
-            console.log('✅ Datos parseados correctamente');
-
-            // ✅ Usar dataService si existe
-            if (typeof dataService !== 'undefined') {
-                console.log('🟢 Usando dataService.loadAll()');
-                const result = dataService.loadAll();
-                console.log('🟢 dataService.loadAll() retornó:', result);
-
-                console.log('📊 Datos cargados:');
-                console.log('   - Empleados:', state.employees.length);
-                console.log('   - Posiciones:', state.positions.length);
-                console.log('   - Líderes:', state.leaders.length);
-                console.log('   - Asistencias:', Object.keys(state.attendance).length);
-                console.log('   - Today:', state.today);
-                console.log('   - SelectedDate:', state.selectedDate);
-
-                return result;
-            } else {
-                // Fallback manual
-                console.warn('⚠️ dataService no disponible, cargando manualmente');
-
-                if (parsed.employees) state.employees = parsed.employees;
-                if (parsed.positions) state.positions = parsed.positions;
-                if (parsed.leaders) state.leaders = parsed.leaders;
-                if (parsed.attendance) state.attendance = parsed.attendance;
-                if (parsed.settings) Object.assign(state.settings, parsed.settings);
-                if (parsed.today) state.today = parsed.today;
-                if (parsed.selectedDate) state.selectedDate = parsed.selectedDate;
-
-                console.log('✅ Datos cargados manualmente');
-                console.log('📊 Empleados:', state.employees?.length || 0);
-                console.log('📊 Asistencias:', Object.keys(state.attendance || {}).length);
-
+        // 1. Intentar cargar desde IndexedDB si está activo
+        if (state.useIndexedDB) {
+            console.log('📦 Intentando cargar desde IndexedDB...');
+            const idbSuccess = await loadFromIndexedDB();
+            
+            if (idbSuccess && state.employees.length > 0) {
+                console.log('✅ Datos cargados desde IndexedDB');
+                state.isDataLoaded = true;
                 return true;
             }
-        } else {
-            console.log('ℹ️ No hay datos guardados en localStorage');
-            console.log('🆕 Usando estado inicial vacío');
-            return false;
+            
+            console.log('ℹ️ IndexedDB está vacío, verificando migración desde localStorage...');
         }
+
+        // 2. Fallback o Migración desde localStorage
+        const savedData = localStorage.getItem('asistencia-data');
+        const hasBeenMigrated = localStorage.getItem('migrated-to-idb') === 'true';
+
+        if (savedData && !hasBeenMigrated) {
+            console.log('🚀 Iniciando migración de localStorage a IndexedDB...');
+            
+            // Cargar datos actuales de localStorage
+            const result = dataService.loadAll();
+            
+            if (result) {
+                console.log('✅ Datos cargados de localStorage para migración');
+                
+                // Si IndexedDB está activo, guardar inmediatamente
+                if (state.useIndexedDB) {
+                    await saveToIndexedDB();
+                    localStorage.setItem('migrated-to-idb', 'true');
+                    console.log('✅ Migración a IndexedDB completada con éxito');
+                }
+                state.isDataLoaded = true;
+                return true;
+            }
+        } else if (savedData && hasBeenMigrated) {
+            // Ya fue migrado pero por alguna razón IDB falló o está vacío
+            console.warn('⚠️ Datos ya migrados pero no encontrados en IDB. Usando localStorage como backup.');
+            const success = dataService.loadAll();
+            state.isDataLoaded = true;
+            return success;
+        }
+
+        console.log('ℹ️ No hay datos guardados para cargar');
+        state.isDataLoaded = true; // No hay datos, pero ya terminamos de "cargar"
+        return false;
+
     } catch (error) {
         console.error('❌ Error al cargar datos:', error);
-        console.error('❌ Tipo:', error.name);
-        console.error('❌ Mensaje:', error.message);
+        state.isDataLoaded = true; // Evitar bloquear para siempre en caso de error
         return false;
     }
 }
+
+// Alias para compatibilidad
+window.loadFromLocalStorage = loadApplicationData;
 
 function exportDataToJSON() {
     const dataStr = JSON.stringify(state, null, 2);
@@ -3406,7 +3501,7 @@ window.changeDate = (days) => {
     }
 
     // ✅ Guardar cambios
-    saveToLocalStorage();
+    saveApplicationData();
 
     render();
 };
@@ -3416,7 +3511,7 @@ window.goToToday = () => {
     state.today = DateUtils.today(); // Actualizar today también
 
     // ✅ Guardar cambios
-    saveToLocalStorage();
+    saveApplicationData();
 
     render();
 };
@@ -3425,14 +3520,19 @@ window.changeViewMode = (mode) => {
     state.viewMode = mode;
 
     // ✅ Guardar cambios
-    saveToLocalStorage();
+    saveApplicationData();
 
     render();
 };
 
-window.toggleDatePicker = () => {
-    state.showDatePicker = !state.showDatePicker;
-    if (state.showDatePicker) {
+window.toggleDatePicker = (target = 'full') => {
+    const currentTarget = state.datePickerTarget || 'full';
+    if (state.showDatePicker && currentTarget === target) {
+        state.showDatePicker = false;
+        state.datePickerTarget = null;
+    } else {
+        state.showDatePicker = true;
+        state.datePickerTarget = target;
         state.datePickerMonth = parseDate(state.selectedDate);
     }
     render();
@@ -3449,9 +3549,10 @@ window.selectDate = (isoDate) => {
     const dateStr = isoDate.split('T')[0];
     state.selectedDate = dateStr;
     state.showDatePicker = false;
+    state.datePickerTarget = null;
 
     // ✅ Guardar cambios
-    saveToLocalStorage();
+    saveApplicationData();
     // Si estamos en vista semanal, mantener en esa vista
     // La fecha seleccionada se usará para mostrar su semana
     render();
@@ -3543,7 +3644,8 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
-            notes: ''
+            notes: '',
+            updatedAt: Date.now()
         };
 
         // Mostrar notificación con la posición
@@ -3564,7 +3666,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
     }
 
     // ✅ Guardar cambios en localStorage
-    saveToLocalStorage();
+    saveApplicationData();
 
     // ⚡⚡⚡ ULTRA-SELECTIVO: Solo actualizar el checkbox, NO toda la fila
     if (state.viewMode === 'day') {
@@ -3719,7 +3821,7 @@ window.toggleWeekPosition = (empId, posId, dateStr) => {
     const att = state.attendance[key];
     if (att && att.present) {
         att.selectedPosition = posId;
-        saveToLocalStorage(); // ✅ Guardar cambios
+        saveApplicationData(); // ✅ Guardar cambios
         showNotification('✅ Posición actualizada', 'success');
         render();
     }
@@ -3822,7 +3924,7 @@ window.selectProfileHireDate = (empId, dateKey) => {
 
     emp.hireDate = dateKey;
     state.showProfileHireDatePicker = false;
-    saveToLocalStorage();
+    saveApplicationData();
     showNotification(`📅 Fecha de contratación actualizada a ${dateKey}`, 'success');
     render();
 };
@@ -4341,7 +4443,7 @@ window.markAsPaid = () => {
         deductionValue: state.employeeProfile.deductionValue
     });
 
-    saveToLocalStorage();
+    saveApplicationData();
     showAlert('✅ Marcado como pagado', 'success');
     render();
 };
@@ -4492,6 +4594,8 @@ window.saveAdvancedAttendance = () => {
     }
 
     // Guardar en el estado
+    attendanceRecord.updatedAt = Date.now();
+    attendanceRecord._isDirty = true;
     state.attendance[key] = attendanceRecord;
 
     // ─── Registrar Undo ───
@@ -4499,8 +4603,17 @@ window.saveAdvancedAttendance = () => {
         previousAdvAtt,
         `Asistencia de ${emp.name}`,
         () => {
-            if (previousAdvAtt) state.attendance[key] = previousAdvAtt;
-            else delete state.attendance[key];
+            if (previousAdvAtt) {
+                state.attendance[key] = previousAdvAtt;
+            } else {
+                state.attendance[key] = {
+                    employeeId: emp.id,
+                    date: dateKey,
+                    present: false,
+                    _isDirty: true,
+                    updatedAt: Date.now()
+                };
+            }
         }
     );
 
@@ -4611,12 +4724,21 @@ window.handleWeekCheck = (empId, dateStr) => {
             prevWeekAtt,
             `Asistencia de ${emp.name} (${dateStr})`,
             () => {
-                if (prevWeekAtt) state.attendance[key] = prevWeekAtt;
-                else delete state.attendance[key];
+                if (prevWeekAtt) {
+                    state.attendance[key] = prevWeekAtt;
+                } else {
+                    state.attendance[key] = {
+                        employeeId: empId,
+                        date: dateStr,
+                        present: false,
+                        _isDirty: true,
+                        updatedAt: Date.now()
+                    };
+                }
             }
         );
 
-        saveToLocalStorage();
+        saveApplicationData();
 
         state.isProcessingClick = false;
         render();
@@ -4637,7 +4759,15 @@ window.removeAttendance = (empId, dateStr) => {
         ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
         : null;
 
-    delete state.attendance[key];
+    const att = state.attendance[key];
+    if (att) {
+        att.present = false;
+        att.hoursWorked = 0;
+        att.overtimeHours = 0;
+        att.positionHours = [];
+        att.updatedAt = Date.now();
+        att._isDirty = true;
+    }
     state.contextMenu = null;
 
     // ─── Registrar Undo ───
@@ -4647,7 +4777,7 @@ window.removeAttendance = (empId, dateStr) => {
         () => { if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt; }
     );
 
-    saveToLocalStorage();
+    saveApplicationData();
     render();
 };
 window.markDayAsHoliday = () => {
@@ -5172,7 +5302,7 @@ function applyFullImport(importedData) {
     state.tempAssignments = importedData.data.tempAssignments || [];
     state.dayHoursConfig = importedData.data.dayHoursConfig || {};
 
-    saveToLocalStorage();
+    saveApplicationData();
     showNotification('✅ Datos importados correctamente', 'success');
     closeImportFullModal();
     closeExportMenu();
@@ -5301,9 +5431,11 @@ window.saveNoteModal = () => {
     }
 
     existing.notes = text;
+    existing._isDirty = true;
     state.attendance[key] = existing;
+    existing.updatedAt = Date.now();
 
-    saveToLocalStorage();
+    saveApplicationData();
     showNotification('âœ… Nota guardada', 'success');
     closeNoteModal();
     render();
@@ -5325,18 +5457,11 @@ window.deleteNoteModal = () => {
             const att = state.attendance[key];
             if (att) {
                 att.notes = '';
-                const isEmpty = !att.present &&
-                    !att.hoursWorked &&
-                    !att.overtimeHours &&
-                    !att.multiPosition &&
-                    (!att.positionHours || att.positionHours.length === 0);
-                if (isEmpty) {
-                    delete state.attendance[key];
-                } else {
-                    state.attendance[key] = att;
-                }
+                att.updatedAt = Date.now();
+                att._isDirty = true;
+                state.attendance[key] = att;
             }
-            saveToLocalStorage();
+            saveApplicationData();
             showNotification('âœ… Nota eliminada', 'success');
             closeNoteModal();
             render();
@@ -5533,6 +5658,7 @@ document.addEventListener('click', (e) => {
     }
     if (state.showDatePicker && !e.target.closest('.date-display') && !e.target.closest('.date-picker-popup')) {
         state.showDatePicker = false;
+        state.datePickerTarget = null;
         render();
     }
 });
@@ -5673,6 +5799,7 @@ function DateControls() {
     const isHoliday = isDayHoliday(state.selectedDate);
     const isToday = getDateKey(state.selectedDate) === getDateKey(new Date());
     const dayHours = getDayHours(state.selectedDate);
+    const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'full';
 
     // Determinar qué texto mostrar según la vista
     const dateText = state.viewMode === 'week'
@@ -5682,9 +5809,9 @@ function DateControls() {
     return `<div class="date-controls">
                 <div class="date-navigation">
                     <button class="date-btn" onclick="changeDate(-1)">◀</button>
-                    <div class="date-display" onclick="toggleDatePicker()">
+                    <div class="date-display" onclick="toggleDatePicker('full')">
                         ${dateText}
-                        ${state.showDatePicker ? DatePicker() : ''}
+                        ${showPicker ? DatePicker() : ''}
                     </div>
                     <button class="date-btn" onclick="changeDate(1)">▶</button>
                 </div>
@@ -5709,7 +5836,7 @@ function DateControls() {
                         </button>
                     </div>
                 ` : ''}
-                
+
                 ${state.viewMode === 'week' ? `
                     <div style="display: flex; align-items: center; gap: 8px; background: #1e293b; padding: 8px 12px; border-radius: 8px; border: 1px solid #334155; margin-top: 8px;">
                         <label style="font-size: 0.875rem; color: #94a3b8; white-space: nowrap;">⚡ Horas rápidas:</label>
@@ -5723,6 +5850,31 @@ function DateControls() {
                     </div>
                 ` : ''}
             </div>`;
+}
+
+function DateControlsCompact() {
+    const dateText = state.viewMode === 'week'
+        ? getWeekRangeText(state.selectedDate)
+        : formatDateShort(state.selectedDate);
+    const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'compact';
+    const isVisible = state.isScrolled && (state.activeTab === 'attendance');
+    const isWeek = state.viewMode === 'week';
+
+    return `
+            <div class="date-controls-compact ${isVisible ? 'visible' : ''} ${isWeek ? 'at-bottom' : ''}">
+                <div class="date-navigation">
+                    <button class="date-btn" onclick="changeDate(-1)">◀</button>
+                    <div class="date-display" onclick="toggleDatePicker('compact')">
+                        <span style="display:flex; align-items:center; gap:6px;">
+                            ${icons.get('calendar', { size: 14 })}
+                            ${dateText}
+                        </span>
+                        ${showPicker ? DatePicker() : ''}
+                    </div>
+                    <button class="date-btn" onclick="changeDate(1)">▶</button>
+                </div>
+            </div>
+        `;
 }
 
 function StatsGrid() {
@@ -5859,11 +6011,11 @@ function EmployeeRow(emp) {
                     ${hasMultiplePositions ? `
                         <div class="position-toggles" style="margin-top: 8px;">
                             ${emp.positions.map(pid => {
-        const pos = state.positions.find(p => p.id === pid);
+        const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
         const isActive = isChecked ? (selPos === pid) : (selectedPosId === pid);
         return `<button class="position-toggle ${isActive ? 'active' : ''}" 
                                                onclick="${isChecked ? `togglePosition('${emp.id}', '${pid}')` : `event.stopPropagation(); selectTempPosition('${emp.id}', '${pid}')`}">
-                                    <span class="pos-dot" style="background:${pos.color};"></span>${pos.name}
+                                    <span class="pos-dot" style="background:${pos.color || "#64748b"};"></span>${pos.name || "PosiciÃ³n"}
                                 </button>`;
     }).join('')}
                         </div>
@@ -5871,9 +6023,9 @@ function EmployeeRow(emp) {
                         <!-- Empleado con una sola posición -->
                         <div class="position-toggles" style="margin-top: 8px;">
                             ${emp.positions.map(pid => {
-        const pos = state.positions.find(p => p.id === pid);
+        const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
         return `<span class="position-toggle" style="opacity:0.7;cursor:default;">
-                                    <span class="pos-dot" style="background:${pos.color};"></span>${pos.name}
+                                    <span class="pos-dot" style="background:${pos.color || "#64748b"};"></span>${pos.name || "PosiciÃ³n"}
                                 </span>`;
     }).join('')}
                         </div>
@@ -5901,13 +6053,26 @@ function EmployeeRow(emp) {
                         ${monthOvertimeHours > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="color:#06b6d4;">⚡ +${monthOvertimeHours}h extras mes</div>` : ''}
                     </div>
                     
-                    <!-- ⚡ FIX: Siempre reservar espacio para extras del día, pero invisible si no hay -->
-                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; min-height: 24px;">
+                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; min-height: 24px; display: flex; align-items: center; overflow: hidden;">
                         ${isChecked && att.hoursWorked > state.settings.regularHoursPerDay ? `
-                            <div class="employee-meta-item" style="color: #3b82f6; font-weight: 600;">⚡ +${(att.hoursWorked - state.settings.regularHoursPerDay).toFixed(1)}h extras HOY</div>
-                        ` : `
+                            <div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${(att.hoursWorked - state.settings.regularHoursPerDay).toFixed(1)}h extras</div>
+                        ` : ''}
+                        
+                        ${isChecked && att.hoursWorked > state.settings.regularHoursPerDay && att.notes && att.notes.trim() ? `
+                            <div class="employee-meta-divider"></div>
+                        ` : ''}
+
+                        ${isChecked && att.notes && att.notes.trim() ? `
+                            <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1;" 
+                                 onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')" 
+                                 title="${att.notes.replace(/"/g, '&quot;')}">
+                                📝 ${att.notes}
+                            </div>
+                        ` : ''}
+                        
+                        ${(!isChecked || (att.hoursWorked <= state.settings.regularHoursPerDay && (!att.notes || !att.notes.trim()))) ? `
                             <div style="height: 20px;"></div>
-                        `}
+                        ` : ''}
                     </div>
                 </div>
                 
@@ -5947,11 +6112,14 @@ function DayViewList() {
     // Filtrar empleados que estaban activos en esta fecha
     let employees = state.employees.filter(emp => wasEmployeeActiveOnDate(emp, state.selectedDate));
 
+    // 🔢 ORDENAR POR NÚMERO (Orden natural)
+    employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
+
     // 🔍 APLICAR FILTRO DE LÍDER
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {
         employees = employees.filter(emp => {
             return emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid);
+                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
                 return pos && pos.leaderId === state.filters.leaderId;
             });
         });
@@ -5966,7 +6134,7 @@ function DayViewList() {
 
             // Buscar también en los nombres de las posiciones
             const matchesPosition = emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid);
+                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
                 return pos && pos.name.toLowerCase().includes(term);
             });
 
@@ -6010,7 +6178,7 @@ function DayViewList() {
 }
 
 function DayView() {
-    return `${StatsGrid()}${PositionFilters()}${Legend()}${SearchBar()}<div id="day-view-list">${DayViewList()}</div>`;
+    return `${StatsGrid()}${PositionFilters()}${Legend()}${SearchBar()}${DateControlsCompact()}<div id="day-view-list">${DayViewList()}</div>`;
 }
 
 function WeekViewTable() {
@@ -6024,12 +6192,15 @@ function WeekViewTable() {
         wasEmployeeActiveInRange(emp, startDate, endDate)
     );
 
+    // 🔢 ORDENAR POR NÚMERO (Orden natural)
+    activeEmployees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
+
     // 🔍 APLICAR FILTRO DE LÍDER
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {
         activeEmployees = activeEmployees.filter(emp => {
             // Un empleado aparece si cualquiera de sus posiciones es liderada por el líder seleccionado
             return emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid);
+                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
                 return pos && pos.leaderId === state.filters.leaderId;
             });
         });
@@ -6044,7 +6215,7 @@ function WeekViewTable() {
 
             // Buscar también en los nombres de las posiciones
             const matchesPosition = emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid);
+                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
                 return pos && pos.name.toLowerCase().includes(term);
             });
 
@@ -6126,7 +6297,7 @@ function WeekViewTable() {
                                                         ${isCh && emp.positions?.length > 1 ? `
                                                             <div class="week-position-toggles">
                                                                 ${emp.positions.map(pid => {
-                const pos = state.positions.find(p => p.id === pid);
+                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
                 if (!pos) return '';
                 const isSel = selP === pid;
                 return `
@@ -6176,7 +6347,7 @@ function WeekViewTable() {
 }
 
 function WeekView() {
-    return `${SearchBar()}<div id="week-view-list">${WeekViewTable()}</div>`;
+    return `${SearchBar()}${DateControlsCompact()}<div id="week-view-list">${WeekViewTable()}</div>`;
 }
 
 // ============================================
@@ -6316,7 +6487,20 @@ function FloatingCard() {
         const hH = d.holiday * scale;
         const aH = d.absent * scale;
         return `<div class="chart-bar-wrapper"><div class="chart-bar" style="height:${Math.max(tot, 10)}px;">${d.absent > 0 ? `<div class="chart-segment absent" style="height:${aH}px;"></div>` : ''}${d.regular > 0 ? `<div class="chart-segment regular" style="height:${rH}px;"></div>` : ''}${d.overtime > 0 ? `<div class="chart-segment overtime" style="height:${oH}px;"></div>` : ''}${d.holiday > 0 ? `<div class="chart-segment holiday" style="height:${hH}px;"></div>` : ''}</div><div class="chart-bar-label">${d.label || `${d.date.getDate()}/${d.date.getMonth() + 1}`}</div></div>`;
-    }).join('')}</div></div><div style="padding: 16px; border-top: 1px solid #334155;"><button onclick="openEmployeeProfile('${emp.id}')" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">👤 Ver Perfil Completo</button></div></div>`;
+    }).join('')}</div></div>
+
+                        <!-- 📝 VISTA PREVIA DE NOTAS GENERALES -->
+                        ${emp.notes && emp.notes.trim() ? `
+                            <div style="padding: 12px 16px; border-top: 1px solid #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(15, 23, 42, 0.5);" 
+                                 title="${emp.notes.replace(/"/g, '&quot;')}">
+                                <div style="color: #94a3b8; font-size: 0.8rem; display: flex; align-items: center; gap: 8px;">
+                                    <span>📝</span>
+                                    <span style="overflow: hidden; text-overflow: ellipsis;">${emp.notes}</span>
+                                </div>
+                            </div>
+                        ` : ''}
+
+    <div style="padding: 16px; border-top: 1px solid #334155;"><button onclick="openEmployeeProfile('${emp.id}')" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">👤 Ver Perfil Completo</button></div></div>`;
 }
 
 function EmployeeFormModal() {
@@ -8537,6 +8721,7 @@ window.handleCalendarDayClick = function (dateKey) {
             holidays.push(dateKey);
             holidays.sort();
         }
+        saveApplicationData();
     } else if (mode === 'lastPayment') {
         // Modo último pago: solo si no es futuro
         const today = getDateKey(new Date());
@@ -8547,7 +8732,7 @@ window.handleCalendarDayClick = function (dateKey) {
             } else {
                 state.settings.lastPaymentDate = dateKey;
             }
-            saveToLocalStorage();
+            saveApplicationData();
         }
     } else if (mode === 'nextPayment') {
         // Modo próximo pago: cualquier fecha
@@ -8557,7 +8742,7 @@ window.handleCalendarDayClick = function (dateKey) {
         } else {
             state.settings.nextPaymentDate = dateKey;
         }
-        saveToLocalStorage();
+        saveApplicationData();
     }
 
     render();
@@ -8582,7 +8767,7 @@ window.updateGlobalPaymentDay = function (day) {
     } else {
         state.settings.globalPaymentDay = dayNum;
     }
-    saveToLocalStorage();
+    saveApplicationData();
     showNotification(`💰 Fecha de pago actualizada: día ${dayNum || 'no configurado'}`, 'success');
 };
 
@@ -8637,7 +8822,7 @@ window.handleStorageTypeChange = async function (storageType) {
                 state.useIndexedDB = false;
 
                 // Guardar en localStorage inmediatamente
-                saveToLocalStorage();
+                saveApplicationData();
 
                 Notification.success('✅ Cambiado a localStorage');
             } else {
@@ -8648,7 +8833,7 @@ window.handleStorageTypeChange = async function (storageType) {
         }
 
         // Guardar preferencia
-        saveToLocalStorage();
+        saveApplicationData();
         render();
 
     } catch (error) {
@@ -8851,7 +9036,7 @@ window.loadBackupFile = function (event) {
             }
 
             // Guardar en storage
-            saveToLocalStorage();
+            saveApplicationData();
 
             // Re-renderizar
             render();
@@ -8874,7 +9059,7 @@ window.loadBackupFile = function (event) {
 
 window.toggleAutoBackup = function (enabled) {
     state.autoBackupEnabled = enabled;
-    saveToLocalStorage();
+    saveApplicationData();
 
     if (enabled) {
         Notification.success('✅ Auto-backup activado');
@@ -9004,8 +9189,10 @@ window.saveSettings = function () {
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.globalLastPaymentDate = globalLastPaymentDate;
     state.settings.iconSet = applyIconSet(iconSet);
+    state.settings.updatedAt = Date.now();
+    state.settings._isDirty = true;
 
-    saveToLocalStorage(); // Guardar en localStorage
+    saveApplicationData(); // Guardar en localStorage
     showNotification('✅ Configuración guardada correctamente', 'success');
     render();
 };
@@ -9053,58 +9240,79 @@ window.exportData = async function () {
     }
 };
 
+window.loadBackupFromFile = async function (file) {
+    if (!file) return false;
+
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            try {
+                const importedData = JSON.parse(e.target.result);
+
+                // Validar estructura
+                if (!importedData.data) {
+                    throw new Error('Formato de archivo inválido');
+                }
+
+                // Confirmar antes de importar
+                const confirmImport = confirm(
+                    '⚠️ ADVERTENCIA\n\n' +
+                    'Esto reemplazará TODOS tus datos actuales con los del archivo de respaldo.\n\n' +
+                    'Se recomienda exportar tus datos actuales primero.\n\n' +
+                    '¿Estás seguro de continuar?'
+                );
+
+                if (!confirmImport) {
+                    resolve(false);
+                    return;
+                }
+
+                // Importar datos
+                state.settings = importedData.data.settings || state.settings;
+                state.positions = importedData.data.positions || [];
+                state.employees = importedData.data.employees || [];
+                state.leaders = importedData.data.leaders || [];
+                state.attendance = importedData.data.attendance || {};
+                state.tempAssignments = importedData.data.tempAssignments || [];
+                state.dayHoursConfig = importedData.data.dayHoursConfig || {};
+
+                // Normalizar updatedAt para Smart Sync
+                const now = Date.now();
+                if (!state.settings.updatedAt) state.settings.updatedAt = now;
+                state.leaders.forEach(l => { if (!l.updatedAt) l.updatedAt = now; });
+                state.positions.forEach(p => { if (!p.updatedAt) p.updatedAt = now; });
+                state.employees.forEach(e => { if (!e.updatedAt) e.updatedAt = now; });
+                Object.values(state.attendance).forEach(a => { if (!a.updatedAt) a.updatedAt = now; });
+
+                // Guardar en localStorage
+                saveApplicationData();
+
+                showNotification('✅ Datos importados correctamente', 'success');
+                render();
+                resolve(true);
+
+            } catch (error) {
+                console.error('Error importando datos:', error);
+                showNotification('❌ Error al importar datos: ' + error.message, 'error');
+                resolve(false);
+            }
+        };
+
+        reader.onerror = function () {
+            showNotification('❌ Error al leer el archivo', 'error');
+            resolve(false);
+        };
+
+        reader.readAsText(file);
+    });
+};
+
 window.importData = function (event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Confirmar antes de importar
-    const confirmImport = confirm(
-        '⚠️ ADVERTENCIA\n\n' +
-        'Esto reemplazará TODOS tus datos actuales con los del archivo de respaldo.\n\n' +
-        'Se recomienda exportar tus datos actuales primero.\n\n' +
-        '¿Estás seguro de continuar?'
-    );
-
-    if (!confirmImport) {
-        event.target.value = ''; // Limpiar input
-        return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = function (e) {
-        try {
-            const importedData = JSON.parse(e.target.result);
-
-            // Validar estructura
-            if (!importedData.data) {
-                throw new Error('Formato de archivo inválido');
-            }
-
-            // Importar datos
-            state.settings = importedData.data.settings || state.settings;
-            state.positions = importedData.data.positions || [];
-            state.employees = importedData.data.employees || [];
-            state.attendance = importedData.data.attendance || {};
-            state.tempAssignments = importedData.data.tempAssignments || [];
-
-            // Guardar en localStorage
-            saveToLocalStorage();
-
-            showNotification('✅ Datos importados correctamente', 'success');
-            render();
-
-        } catch (error) {
-            console.error('Error importando datos:', error);
-            showNotification('❌ Error al importar datos: ' + error.message, 'error');
-        }
-    };
-
-    reader.onerror = function () {
-        showNotification('❌ Error al leer el archivo', 'error');
-    };
-
-    reader.readAsText(file);
+    window.loadBackupFromFile(file);
 
     // Limpiar input
     event.target.value = '';
@@ -10407,6 +10615,13 @@ function App() {
     return `${demoBanner}${Header()}<main class="main-content"><div class="container">${content}</div></main>${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
+function updateHeaderOffset() {
+    const header = document.querySelector('.header');
+    if (header) {
+        document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
+    }
+}
+
 function render() {
     // ⚡ Optimizado con RenderOptimizer
     renderOptimizer.scheduleRender(() => {
@@ -10429,6 +10644,7 @@ function render() {
         root.replaceChildren(...template.content.childNodes);
         // Renderizar iconos Lucide despues de actualizar el DOM
         icons.refresh();
+        updateHeaderOffset();
 
         // Restaurar foco del buscador si estaba activo
         if (keepSearchFocus) {
@@ -10451,7 +10667,7 @@ function render() {
         restoreScrollPosition();
 
         // Auto-guardar datos en LocalStorage
-        saveToLocalStorage();
+        saveApplicationData();
 
         // Emitir evento de render completado
         eventBus.emit('render:complete', {
@@ -10493,6 +10709,25 @@ document.addEventListener('click', function (e) {
         state.showEmployeeReportStartPicker = false;
         state.showEmployeeReportEndPicker = false;
         render();
+    }
+});
+
+window.addEventListener('resize', () => {
+    updateHeaderOffset();
+});
+
+// âš¡ NUEVO: Listener de scroll para controles flotantes
+let lastScrollTime = 0;
+window.addEventListener('scroll', () => {
+    const scrolled = window.scrollY > 200;
+    if (scrolled !== state.isScrolled) {
+        // Usar requestAnimationFrame para evitar lag
+        const now = Date.now();
+        if (now - lastScrollTime > 50) { // Throttle de 50ms
+            state.isScrolled = scrolled;
+            render();
+            lastScrollTime = now;
+        }
     }
 });
 
@@ -11199,7 +11434,7 @@ class OnboardingWizard {
         if (state.onboardingMode === 'scratch') {
             // Guardar datos permanentemente
             localStorage.setItem('onboardingCompleted', 'true');
-            saveToLocalStorage();
+            saveApplicationData();
             showNotification('✅ ¡Sistema configurado! Tus datos se han guardado', 'success');
         } else {
             // Modo demo: NO guardar en localStorage
@@ -11254,7 +11489,7 @@ class OnboardingWizard {
                         state.tempAssignments = importedData.data.tempAssignments || [];
 
                         // Guardar en localStorage
-                        saveToLocalStorage();
+                        saveApplicationData();
 
                         showNotification('✅ Backup restaurado correctamente', 'success');
                         render();
@@ -11298,7 +11533,8 @@ window.quickAddPosition = function (name) {
         },
         color: colors[state.positions.length % colors.length],
         leaderId: null,
-        active: true
+        active: true,
+        updatedAt: Date.now()
     };
 
     state.positions.push(newPosition);
@@ -11334,7 +11570,8 @@ window.addOnboardingEmployee = function (event) {
         name: name,
         position: positionId,
         positions: [positionId],
-        active: true
+        active: true,
+        updatedAt: Date.now()
     };
 
     state.employees.push(newEmployee);
@@ -11371,29 +11608,45 @@ const styleTag = document.createElement('style');
 styleTag.textContent = additionalStyles;
 document.head.appendChild(styleTag);
 
-console.log('🚀 ========================================');
-console.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
-console.log('🚀 Versión: 6.5 (Logging Completo)');
-console.log('🚀 ========================================');
+// ============================================
+// 🚀 INICIALIZACIÓN DE LA APLICACIÓN
+// ============================================
 
-// Cargar datos al iniciar
-console.log('📂 Cargando datos desde localStorage...');
-loadFromLocalStorage();
-state.settings.iconSet = applyIconSet(state.settings.iconSet);
+(async function initializeApp() {
+    console.log('🚀 ========================================');
+    console.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
+    console.log('🚀 Versión: 6.5 (Logging Completo)');
+    console.log('🚀 ========================================');
 
-supabaseService.initAuth();
-// ═══════════════════════════════════════════════════════════
+    try {
+        // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
+        console.log('📂 Cargando datos...');
+        await loadApplicationData();
 
-// Intentar restaurar auto-backup de sesión anterior (para Canvas)
-console.log('🔄 Intentando restaurar auto-backup...');
-restoreAutoBackup();
+        // 2. Aplicar configuraciones de interfaz
+        state.settings.iconSet = applyIconSet(state.settings.iconSet);
 
-// Mostrar onboarding si es necesario
-onboardingWizard.show();
+        // 3. Intentar restaurar auto-backup (solo si la carga falló completamente)
+        if (state.employees.length === 0) {
+            console.log('🔄 Intentando restaurar auto-backup...');
+            restoreAutoBackup();
+        }
 
-// Renderizar por primera vez
-console.log('🎨 Renderizando interfaz...');
-render();
+        // 4. Inicializar Auth y Sincronización
+        await supabaseService.initAuth();
 
-console.log('✅ Aplicación iniciada correctamente');
+        // 5. Preparar UI
+        onboardingWizard.show();
+
+        // 6. Renderizado Inicial
+        console.log('🎨 Renderizando interfaz...');
+        render();
+
+        console.log('✅ Aplicación iniciada correctamente');
+    } catch (error) {
+        console.error('❌ Error fatal durante la inicialización:', error);
+        // Intentar renderizar aunque sea un estado de error
+        render();
+    }
+})();
 
