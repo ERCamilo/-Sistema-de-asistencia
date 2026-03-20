@@ -1,0 +1,4258 @@
+{
+  "version": "1.0.0",
+  "exportDate": "2026-03-19T18:09:14.320Z",
+  "companyName": "Contrutek",
+  "data": {
+    "settings": {
+      "companyName": "Contrutek",
+      "regularHoursPerDay": 8,
+      "overtimeFactor": 1,
+      "holidayFactor": 2,
+      "defaultDeductionPercentage": 2,
+      "globalPaymentDay": null,
+      "lastPaymentDate": null,
+      "nextPaymentDate": "2026-03-16",
+      "holidays": [
+        "2026-01-26",
+        "2026-02-27"
+      ],
+      "defaultDeductionType": "percentage",
+      "defaultDeductionValue": 2,
+      "globalLastPaymentDate": "2026-03-16"
+    },
+    "positions": [
+      {
+        "id": "ayudante-1769317017539",
+        "name": "Ayudante",
+        "color": "#8b5cf6",
+        "active": true,
+        "salaryConfig": {
+          "amount": 3911,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 27000,
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "hourlyRate": 112.5,
+        "leaderId": "LDR1773942125606",
+        "workingDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "id": "albañil-1769317018450",
+        "name": "Albañil",
+        "color": "#f59e0b",
+        "active": true,
+        "salaryConfig": {
+          "amount": 240,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 240,
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "carpintero-1769317019091",
+        "name": "Carpintero",
+        "color": "#3b82f6",
+        "active": true,
+        "salaryConfig": {
+          "amount": 60000,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 60000,
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "electricista-1769317019634",
+        "name": "Electricista",
+        "color": "#06b6d4",
+        "active": true,
+        "salaryConfig": {
+          "amount": 30000,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 30000,
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "plomero-1769317020105",
+        "name": "Plomero",
+        "color": "#8b5cf6",
+        "active": true,
+        "salaryConfig": {
+          "amount": 30000,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 30000,
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "supervisor-1769317020946",
+        "name": "Capataz",
+        "color": "#ef4444",
+        "active": true,
+        "salaryConfig": {
+          "amount": 4780,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 33000,
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "hourlyRate": 137.5,
+        "leaderId": "LDR1773942125606",
+        "workingDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "id": "calmonita-1769317303481",
+        "name": "Martillo",
+        "color": "#ef4444",
+        "active": true,
+        "salaryConfig": {
+          "amount": 0,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 240,
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "hourlyRate": 0,
+        "leaderId": "LDR1773942125606",
+        "workingDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "id": "operador-ctk-1771854734597",
+        "name": "Operador Ctk",
+        "color": "#ec4899",
+        "active": true,
+        "salaryConfig": {
+          "amount": 33461,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 33461,
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "compresor-1772737649036",
+        "name": "Compresor",
+        "color": "#10b981",
+        "active": true,
+        "salaryConfig": {
+          "amount": 13035,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 90000,
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "hourlyRate": 375,
+        "leaderId": "LDR1773942125606",
+        "workingDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "id": "varillero-1773171320952",
+        "name": "Varillero",
+        "color": "#8b5cf6",
+        "active": true,
+        "salaryConfig": {
+          "amount": 0,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 24000,
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "hourlyRate": 0,
+        "leaderId": "LDR1773942148197",
+        "workingDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      {
+        "id": "cubo-l.-1773333566126",
+        "name": "Cubo",
+        "color": "#f59e0b",
+        "active": true,
+        "salaryConfig": {
+          "amount": 0,
+          "period": "month",
+          "workDays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        },
+        "baseSalary": 240,
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "hourlyRate": 0,
+        "leaderId": "LDR1773942125606",
+        "workingDays": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    ],
+    "employees": [
+      {
+        "id": "EMP1769317064404",
+        "key": "EMP1769317064404",
+        "number": "001",
+        "name": "Franklin Henrriquez",
+        "positions": [
+          "supervisor-1769317020946",
+          "operador-ctk-1771854734597"
+        ],
+        "customSalary": null,
+        "active": true,
+        "hireDate": "2026-01-25",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-01-25T06:04:31.155Z",
+        "lastStatusChange": "2026-03-19",
+        "statusHistory": [
+          {
+            "date": "2026-02-23",
+            "active": false,
+            "timestamp": 1771854560618
+          },
+          {
+            "date": "2026-03-19",
+            "active": true,
+            "timestamp": 1773942359018
+          }
+        ]
+      },
+      {
+        "id": "EMP1769317074330",
+        "key": "EMP1769317074330",
+        "number": "005",
+        "name": "Erlin Camilo",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "active": true,
+        "hireDate": "2026-01-25",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-01-25T06:04:31.155Z",
+        "lastStatusChange": null,
+        "statusHistory": [],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1769317082863",
+        "key": "EMP1769317082863",
+        "number": "004",
+        "name": "Wilmer Exilien",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "active": true,
+        "hireDate": "2026-01-25",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-01-25T06:04:31.155Z",
+        "lastStatusChange": "2026-03-04",
+        "statusHistory": [
+          {
+            "date": "2026-02-23",
+            "active": false,
+            "timestamp": 1771854567761
+          },
+          {
+            "date": "2026-03-04",
+            "active": true,
+            "timestamp": 1772641736941
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1769317092992",
+        "key": "EMP1769317092992",
+        "number": "003",
+        "name": "Varnet Gran Pierre",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "customSalary": null,
+        "active": true,
+        "hireDate": "2026-01-25",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-01-25T06:04:31.155Z",
+        "lastStatusChange": "2026-03-04",
+        "statusHistory": [
+          {
+            "date": "2026-02-23",
+            "active": false,
+            "timestamp": 1771854564555
+          },
+          {
+            "date": "2026-03-04",
+            "active": true,
+            "timestamp": 1772641733892
+          }
+        ]
+      },
+      {
+        "id": "EMP1769317108304",
+        "key": "EMP1769317108304",
+        "number": "002",
+        "name": "Pauliny Buchamps",
+        "positions": [
+          "supervisor-1769317020946"
+        ],
+        "customSalary": null,
+        "active": true,
+        "hireDate": "2026-01-25",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-01-25T06:04:31.155Z",
+        "lastStatusChange": null,
+        "statusHistory": []
+      },
+      {
+        "id": "EMP1772035801640",
+        "key": "EMP1772035801640",
+        "number": "500",
+        "name": "Héctor excavadora",
+        "positions": [
+          "calmonita-1769317303481",
+          "cubo-l.-1773333566126"
+        ],
+        "active": true,
+        "hireDate": "2026-02-23",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-02-25",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-02-25",
+            "active": true,
+            "timestamp": 1771977600000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1772642134930",
+        "key": "EMP1772642134930",
+        "number": "016",
+        "name": "Saint fort Pierre",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "active": true,
+        "hireDate": "2026-03-02",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-04",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-04",
+            "active": true,
+            "timestamp": 1772582400000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1772642218428",
+        "key": "EMP1772642218428",
+        "number": "017",
+        "name": "Jean elie austinvil",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "active": true,
+        "hireDate": "2026-03-04",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-04",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-04",
+            "active": true,
+            "timestamp": 1772582400000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1772642308817",
+        "key": "EMP1772642308817",
+        "number": "501",
+        "name": "Jean haiti",
+        "positions": [
+          "calmonita-1769317303481",
+          "cubo-l.-1773333566126"
+        ],
+        "active": true,
+        "hireDate": "2026-03-04",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-04",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-04",
+            "active": true,
+            "timestamp": 1772582400000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1772737834439",
+        "key": "EMP1772737834439",
+        "number": "018",
+        "name": "Jean Michel carate",
+        "positions": [
+          "compresor-1772737649036"
+        ],
+        "active": true,
+        "hireDate": "2026-03-05",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-05",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-05",
+            "active": true,
+            "timestamp": 1772668800000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1772737902866",
+        "key": "EMP1772737902866",
+        "number": "019",
+        "name": "Noel eliyomme",
+        "positions": [
+          "compresor-1772737649036"
+        ],
+        "active": true,
+        "hireDate": "2026-03-05",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-05",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-05",
+            "active": true,
+            "timestamp": 1772668800000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1773171360676",
+        "key": "EMP1773171360676",
+        "number": "100",
+        "name": "Gringo santos de paula",
+        "positions": [
+          "varillero-1773171320952"
+        ],
+        "active": true,
+        "hireDate": "2026-03-10",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-10",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-10",
+            "active": true,
+            "timestamp": 1773100800000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1773171431819",
+        "key": "EMP1773171431819",
+        "number": "102",
+        "name": "Leves official",
+        "positions": [
+          "varillero-1773171320952"
+        ],
+        "active": true,
+        "hireDate": "2026-03-10",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-10",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-10",
+            "active": true,
+            "timestamp": 1773100800000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1773171489510",
+        "key": "EMP1773171489510",
+        "number": "101",
+        "name": "Guerby Avrissaint",
+        "positions": [
+          "varillero-1773171320952"
+        ],
+        "active": true,
+        "hireDate": "2026-03-10",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-10",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-10",
+            "active": true,
+            "timestamp": 1773100800000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1773500889676",
+        "key": "EMP1773500889676",
+        "number": "006",
+        "name": "Oxenat Yves",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "active": true,
+        "hireDate": "2026-03-09",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-14",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-14",
+            "active": true,
+            "timestamp": 1773446400000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1773500924811",
+        "key": "EMP1773500924811",
+        "number": "015",
+        "name": "Manuel Cadet",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "active": true,
+        "hireDate": "2026-03-09",
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "createdDate": "2026-03-14",
+        "lastStatusChange": null,
+        "statusHistory": [
+          {
+            "date": "2026-03-14",
+            "active": true,
+            "timestamp": 1773446400000
+          }
+        ],
+        "positionSalaries": {}
+      },
+      {
+        "id": "EMP1773938729456",
+        "key": "EMP1773938729456",
+        "number": "020",
+        "name": "Melek descartes",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "positionSalaries": {},
+        "active": true,
+        "createdDate": "2026-03-19",
+        "hireDate": "2026-03-16",
+        "lastStatusChange": null,
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "statusHistory": [
+          {
+            "date": "2026-03-19",
+            "active": true,
+            "timestamp": 1773878400000
+          }
+        ]
+      },
+      {
+        "id": "EMP1773938835348",
+        "key": "EMP1773938835348",
+        "number": "021",
+        "name": "Jonel Caceus",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "positionSalaries": {},
+        "active": true,
+        "createdDate": "2026-03-19",
+        "hireDate": "2026-03-17",
+        "lastStatusChange": null,
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "statusHistory": [
+          {
+            "date": "2026-03-17",
+            "active": true,
+            "timestamp": 1773705600000
+          }
+        ]
+      },
+      {
+        "id": "EMP1773939111272",
+        "key": "EMP1773939111272",
+        "number": "014",
+        "name": "Wilson Riche",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "positionSalaries": {},
+        "active": true,
+        "createdDate": "2026-03-19",
+        "hireDate": "2026-03-16",
+        "lastStatusChange": null,
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "statusHistory": [
+          {
+            "date": "2026-03-16",
+            "active": true,
+            "timestamp": 1773619200000
+          }
+        ]
+      },
+      {
+        "id": "EMP1773939137974",
+        "key": "EMP1773939137974",
+        "number": "022",
+        "name": "Freud Charles",
+        "positions": [
+          "ayudante-1769317017539"
+        ],
+        "positionSalaries": {},
+        "active": true,
+        "createdDate": "2026-03-19",
+        "hireDate": "2026-03-16",
+        "lastStatusChange": null,
+        "phone": "",
+        "email": "",
+        "notes": "",
+        "statusHistory": [
+          {
+            "date": "2026-03-16",
+            "active": true,
+            "timestamp": 1773619200000
+          }
+        ]
+      }
+    ],
+    "leaders": [
+      {
+        "id": "LDR1773942125606",
+        "number": "L-001",
+        "name": "Johan M",
+        "active": true,
+        "phone": "",
+        "email": "",
+        "notes": ""
+      },
+      {
+        "id": "LDR1773942148197",
+        "number": "L-002",
+        "name": "Gringo",
+        "active": true,
+        "phone": "",
+        "email": "",
+        "notes": ""
+      }
+    ],
+    "attendance": {
+      "EMP1769317064404-2026-01-16": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317074330-2026-01-16": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317082863-2026-01-16": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-16": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-01-16": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317064404-2026-01-17": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-17",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317074330-2026-01-17": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-17",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317082863-2026-01-17": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-17",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-17": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-17",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-01-17": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-17",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317074330-2026-01-24": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-24",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317074330-2026-01-23": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-23",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317074330-2026-01-20": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-20",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317064404-2026-01-20": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-20",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317082863-2026-01-20": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-20",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-20": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-20",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317064404-2026-01-19": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317074330-2026-01-19": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317082863-2026-01-19": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-19": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-01-19": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317064404-2026-01-22": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-22",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317082863-2026-01-22": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-22",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-22": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-22",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-01-22": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-22",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317064404-2026-01-23": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-23",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317064404-2026-01-24": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-24",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317082863-2026-01-23": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-23",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317082863-2026-01-24": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-24",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-24": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-24",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-01-23": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-23",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-01-23": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-23",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317108304-2026-01-24": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-24",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317064404-2026-01-27": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-01-27",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-01-27": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-01-27",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-01-27": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-01-27",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-01-27": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-01-27",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-01-27": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-01-27",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317064404-2026-02-02": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-02-02",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317074330-2026-02-23": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-02-23",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-02-23": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-02-23",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-02-24": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-02-24",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-02-24": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-02-24",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-02-25": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-02-25",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-02-25": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-02-25",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-02-23": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-02-23",
+        "present": true,
+        "hoursWorked": 3.3,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "- Inicio 1:30pm con cubo\n- Fin 2:10pm con cubo + 20 minuto cambio, total 40 minutos, 0.8 horas\n\n- Inicio 2:30pm con martillo \n- fin 5pm martillo total 2.5 horas"
+      },
+      "EMP1772035801640-2026-02-24": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-02-24",
+        "present": true,
+        "hoursWorked": 7.5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Inicio 8:15am martillo\nCorrido hasta 4pm con 15 minutos de break, total 7.5 horas"
+      },
+      "EMP1772035801640-2026-02-25": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-02-25",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "- Inicio martillo 8am\n- Inivio Break 12:15 pm\n- Fin break 1pm \n- fin martillo 5pm\nTotal de horas 8 hora martillo"
+      },
+      "EMP1769317108304-2026-02-26": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-02-26",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-02-26": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-02-26",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "-Inicio martillo 8am\n-fin martillo 2pm\n-inicio cubo 2pm\n-fin cubo 5pm\n-Total 5h martillo y 3h cubo"
+      },
+      "EMP1769317108304-2026-02-28": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-02-28",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-02-28": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-02-28",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "-inicio cubo 8am\n-fin cubo 12pm\n-Total cubo 4h"
+      },
+      "EMP1769317108304-2026-03-02": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-02",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-02": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-02",
+        "present": true,
+        "hoursWorked": 1,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-04": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-04": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-04": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-04": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-04": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-04": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-04": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-04",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-03": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-03",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-03": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-03",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-02": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-02",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-02": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-02",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317082863-2026-03-03": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-03",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772035801640-2026-03-05": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Inicio cubo de 8am\nFin cubo 12pm\nInicio martillo 1pm\nFin martillo 2pm\nPor falta de nitrógeno"
+      },
+      "EMP1772642134930-2026-03-03": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-03",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772642308817-2026-03-02": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-02",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481"
+      },
+      "EMP1772642308817-2026-03-03": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-03",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481"
+      },
+      "EMP1772642308817-2026-03-05": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "De 8 a 12\n1 a 2"
+      },
+      "EMP1772737902866-2026-03-05": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Avance a descontar 2mil"
+      },
+      "EMP1769317082863-2026-03-05": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-05": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-05": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-05": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-05": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Avance a descontar 2mil"
+      },
+      "EMP1769317108304-2026-03-05": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-05",
+        "present": true,
+        "hoursWorked": 7.5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-07": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Inicio 8am cubo\nFin 12pm cubo"
+      },
+      "EMP1769317082863-2026-03-07": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-07": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-07": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-07": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-07": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-07": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-07": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-07",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-06": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 3,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Inicio 2pm martillo \nFin 5pm martillo"
+      },
+      "EMP1772035801640-2026-03-09": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Inicio cubo 8am\nFin cubo 5pm"
+      },
+      "EMP1772035801640-2026-03-10": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 5.5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 2.5,
+            "overtimeHours": 0
+          },
+          {
+            "positionId": "cubo-l.-1773333566126",
+            "hours": 3,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": "Inicio cubo 8am\nFin cubo 11am\nInicio martillo 11am \nFin martillo 2:30pm"
+      },
+      "EMP1769317108304-2026-03-09": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-09": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-09": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-09": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-09": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-09": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-09": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-09": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-10": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-10": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-10": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-10": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-10": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-10": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-10": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171360676-2026-03-10": {
+        "employeeId": "EMP1773171360676",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171431819-2026-03-10": {
+        "employeeId": "EMP1773171431819",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171489510-2026-03-10": {
+        "employeeId": "EMP1773171489510",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-11": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-11": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-11": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-11": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-11": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-11": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": "Inicio martillo 8am\nFin martillo 5pm"
+      },
+      "EMP1772737834439-2026-03-11": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-11": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171360676-2026-03-11": {
+        "employeeId": "EMP1773171360676",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171431819-2026-03-11": {
+        "employeeId": "EMP1773171431819",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171489510-2026-03-11": {
+        "employeeId": "EMP1773171489510",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-11": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": false,
+        "positionHours": [],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": "Inicio martillo 8am\nFin martillo 5pm"
+      },
+      "EMP1769317074330-2026-03-12": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-12": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-12": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-12": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-12": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-12": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-12": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-12": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171360676-2026-03-12": {
+        "employeeId": "EMP1773171360676",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171431819-2026-03-12": {
+        "employeeId": "EMP1773171431819",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171489510-2026-03-12": {
+        "employeeId": "EMP1773171489510",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-06": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-06": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-06": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-06": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-06": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-06": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-06",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-13": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-03-13": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-13": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-13": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-13": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-13": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-13": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-13": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773171360676-2026-03-13": {
+        "employeeId": "EMP1773171360676",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-13": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 4,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": "inicio martillo 8am\nfin martillo 12pm\nno trabajo mas por rparaciones mecanicas"
+      },
+      "EMP1773500889676-2026-03-09": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500889676-2026-03-10": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500889676-2026-03-11": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500889676-2026-03-12": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500889676-2026-03-13": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500889676-2026-03-14": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-09": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-09",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-10": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-10",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-11": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-11",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-12": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-13": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-14": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317074330-2026-03-14": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317082863-2026-03-14": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-03-14": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-03-14": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1772642134930-2026-03-14": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772642218428-2026-03-14": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772737834439-2026-03-14": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "compresor-1772737649036",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "compresor-1772737649036"
+      },
+      "EMP1772737902866-2026-03-14": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "compresor-1772737649036",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "compresor-1772737649036"
+      },
+      "EMP1772642308817-2026-03-14": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481"
+      },
+      "EMP1772035801640-2026-03-12": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-12",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481"
+      },
+      "EMP1772035801640-2026-03-14": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-14",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 6,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-13": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-13",
+        "present": true,
+        "hoursWorked": 5.5,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 5.5,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-16": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317092992-2026-03-16": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-03-16": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1772642134930-2026-03-16": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772642218428-2026-03-16": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772642308817-2026-03-16": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481"
+      },
+      "EMP1772737834439-2026-03-16": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "compresor-1772737649036",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "compresor-1772737649036"
+      },
+      "EMP1772737902866-2026-03-16": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "compresor-1772737649036",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "compresor-1772737649036"
+      },
+      "EMP1773171360676-2026-03-16": {
+        "employeeId": "EMP1773171360676",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "varillero-1773171320952",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "varillero-1773171320952"
+      },
+      "EMP1773171431819-2026-03-16": {
+        "employeeId": "EMP1773171431819",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "varillero-1773171320952",
+            "hours": 4
+          }
+        ],
+        "selectedPosition": "varillero-1773171320952"
+      },
+      "EMP1773171489510-2026-03-16": {
+        "employeeId": "EMP1773171489510",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "varillero-1773171320952",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773500889676-2026-03-16": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-16": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773938729456-2026-03-16": {
+        "employeeId": "EMP1773938729456",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773938835348-2026-03-17": {
+        "employeeId": "EMP1773938835348",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773939111272-2026-03-16": {
+        "employeeId": "EMP1773939111272",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773939137974-2026-03-16": {
+        "employeeId": "EMP1773939137974",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773939111272-2026-03-17": {
+        "employeeId": "EMP1773939111272",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 11,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773939137974-2026-03-17": {
+        "employeeId": "EMP1773939137974",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773938729456-2026-03-17": {
+        "employeeId": "EMP1773938729456",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500924811-2026-03-17": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1773500889676-2026-03-17": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772737902866-2026-03-17": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "compresor-1772737649036",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "compresor-1772737649036"
+      },
+      "EMP1772737834439-2026-03-17": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "compresor-1772737649036",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "compresor-1772737649036"
+      },
+      "EMP1772642308817-2026-03-17": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481"
+      },
+      "EMP1772642218428-2026-03-17": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772642134930-2026-03-17": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1769317108304-2026-03-17": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "supervisor-1769317020946",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "supervisor-1769317020946"
+      },
+      "EMP1769317092992-2026-03-17": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 11,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-17": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 11,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-03-17": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "useTempPosition": false,
+        "notes": "",
+        "multiPosition": false,
+        "positionHours": [
+          {
+            "positionId": "ayudante-1769317017539",
+            "hours": 8
+          }
+        ],
+        "selectedPosition": "ayudante-1769317017539"
+      },
+      "EMP1772035801640-2026-03-16": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-16",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 6,
+            "overtimeHours": 0
+          },
+          {
+            "positionId": "cubo-l.-1773333566126",
+            "hours": 2,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-17": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-17",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "cubo-l.-1773333566126",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-03-18": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-18": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-18": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-18": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-18": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 2,
+            "overtimeHours": 0
+          },
+          {
+            "positionId": "cubo-l.-1773333566126",
+            "hours": 6,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": ""
+      },
+      "EMP1772642134930-2026-03-18": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-18": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-18": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 6,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 6,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-18": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-18": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773500889676-2026-03-18": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773500924811-2026-03-18": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773938729456-2026-03-18": {
+        "employeeId": "EMP1773938729456",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773938835348-2026-03-18": {
+        "employeeId": "EMP1773938835348",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773939111272-2026-03-18": {
+        "employeeId": "EMP1773939111272",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773939137974-2026-03-18": {
+        "employeeId": "EMP1773939137974",
+        "date": "2026-03-18",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317074330-2026-03-19": {
+        "employeeId": "EMP1769317074330",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317082863-2026-03-19": {
+        "employeeId": "EMP1769317082863",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317092992-2026-03-19": {
+        "employeeId": "EMP1769317092992",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317108304-2026-03-19": {
+        "employeeId": "EMP1769317108304",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "supervisor-1769317020946",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772035801640-2026-03-19": {
+        "employeeId": "EMP1772035801640",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 7,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "calmonita-1769317303481",
+            "hours": 7,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "calmonita-1769317303481",
+        "notes": "inicio 9am"
+      },
+      "EMP1772642134930-2026-03-19": {
+        "employeeId": "EMP1772642134930",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642218428-2026-03-19": {
+        "employeeId": "EMP1772642218428",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772642308817-2026-03-19": {
+        "employeeId": "EMP1772642308817",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "calmonita-1769317303481",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737834439-2026-03-19": {
+        "employeeId": "EMP1772737834439",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1772737902866-2026-03-19": {
+        "employeeId": "EMP1772737902866",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "compresor-1772737649036",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773500889676-2026-03-19": {
+        "employeeId": "EMP1773500889676",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773500924811-2026-03-19": {
+        "employeeId": "EMP1773500924811",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773938729456-2026-03-19": {
+        "employeeId": "EMP1773938729456",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773938835348-2026-03-19": {
+        "employeeId": "EMP1773938835348",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773939111272-2026-03-19": {
+        "employeeId": "EMP1773939111272",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1773939137974-2026-03-19": {
+        "employeeId": "EMP1773939137974",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 8,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "selectedPosition": "ayudante-1769317017539",
+        "multiPosition": false,
+        "positionHours": [],
+        "notes": ""
+      },
+      "EMP1769317064404-2026-03-19": {
+        "employeeId": "EMP1769317064404",
+        "date": "2026-03-19",
+        "present": true,
+        "hoursWorked": 4,
+        "overtimeHours": 0,
+        "isHoliday": false,
+        "multiPosition": true,
+        "positionHours": [
+          {
+            "positionId": "operador-ctk-1771854734597",
+            "hours": 4,
+            "overtimeHours": 0
+          }
+        ],
+        "selectedPosition": "operador-ctk-1771854734597",
+        "notes": ""
+      }
+    },
+    "tempAssignments": [],
+    "dayHoursConfig": {}
+  }
+}

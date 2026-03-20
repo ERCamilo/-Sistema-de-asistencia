@@ -114,6 +114,7 @@ class IconSystem {
             'upload': { unicode: '📤', lucide: 'upload-cloud', phosphor: 'cloud-arrow-up', tabler: 'cloud-upload', bootstrap: 'cloud-upload' },
             'download': { unicode: '📥', lucide: 'download-cloud', phosphor: 'cloud-arrow-down', tabler: 'cloud-download', bootstrap: 'cloud-download' },
             'sync': { unicode: '🔄', lucide: 'refresh-cw', phosphor: 'arrows-clockwise', tabler: 'refresh', bootstrap: 'arrow-repeat' },
+            'cloud-off': { unicode: '☁️❌', lucide: 'cloud-off', phosphor: 'cloud-slash', tabler: 'cloud-off', bootstrap: 'cloud-slash' },
 
             // ── Datos y Tiempo ────────────────────────────────────────
             'calendar': { unicode: '📅', lucide: 'calendar', phosphor: 'calendar', tabler: 'calendar', bootstrap: 'calendar' },

@@ -16,18 +16,65 @@ export class SyncConflictModal extends Modal {
         this.error = options.error || '';
         this.supabaseService = options.supabaseService;
         this.onResolved = options.onResolved;
+        this.localSummary = options.localSummary;
+        this.remoteSummary = options.remoteSummary;
+    }
+
+    renderSummaryTable() {
+        if (!this.localSummary || !this.remoteSummary) return '';
+        
+        const formatDate = (ts) => {
+            if (!ts) return 'Nunca';
+            // Formatear a algo legible como "Hoy 14:30" o "19/03 14:30"
+            const d = new Date(ts);
+            return d.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + 
+                   d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+        
+        return `
+            <div class="sync-summary-table" style="margin-bottom: 25px; border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #0f172a; animation: fadeIn 0.3s ease-out;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85em;">
+                    <thead>
+                        <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                            <th style="padding: 12px 15px; border-bottom: 1px solid #334155;">Dato Comparativo</th>
+                            <th style="padding: 12px 15px; border-bottom: 1px solid #334155;">💻 Local</th>
+                            <th style="padding: 12px 15px; border-bottom: 1px solid #334155;">☁️ Nube</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #334155; color: #94a3b8;">Empleados / Líderes</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #334155; font-weight: 500;">${this.localSummary.employees} / ${this.localSummary.leaders}</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #334155; font-weight: 500; color: #6366f1;">${this.remoteSummary.employees} / ${this.remoteSummary.leaders}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #334155; color: #94a3b8;">Días de Asistencia</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #334155; font-weight: 500;">${this.localSummary.attendance}</td>
+                            <td style="padding: 12px 15px; border-bottom: 1px solid #334155; font-weight: 500; color: #6366f1;">${this.remoteSummary.attendance}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 12px 15px; color: #94a3b8;">Última Actualización</td>
+                            <td style="padding: 12px 15px; font-size: 0.9em;">${formatDate(this.localSummary.lastUpdate)}</td>
+                            <td style="padding: 12px 15px; font-size: 0.9em; color: #6366f1;">${formatDate(this.remoteSummary.lastUpdate)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
     }
 
     renderContent() {
         return `
             <div class="sync-conflict-container" style="padding: 10px;">
-                <p style="color: #f87171; font-weight: 500; margin-bottom: 15px;">
-                    Se ha detectado una inconsistencia crítica al intentar sincronizar los datos. 
-                    Esto suele ocurrir cuando la base de datos local tiene registros que colisionan con los de la nube.
+                <p style="color: #f1f5f9; font-weight: 400; margin-bottom: 20px; font-size: 0.95em; line-height: 1.5;">
+                    Se ha detectado una discrepancia entre tus datos actuales y los guardados en la nube. 
+                    <span style="color: #94a3b8;">Por favor, compara y elige qué versión deseas conservar.</span>
                 </p>
                 
-                ${this.error ? `<div style="background: #1e293b; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.85em; color: #94a3b8; margin-bottom: 20px; border-left: 4px solid #ef4444;">
-                    ${this.error}
+                ${this.renderSummaryTable()}
+
+                ${this.error ? `<div class="error-detail" style="background: rgba(239, 68, 68, 0.05); padding: 12px; border-radius: 8px; font-family: monospace; font-size: 0.8em; color: #f87171; margin-bottom: 20px; border: 1px solid rgba(239, 68, 68, 0.2);">
+                    <strong>Detalle técnico:</strong> ${this.error}
                 </div>` : ''}
 
                 <div class="sync-options-grid" style="display: grid; gap: 15px;">

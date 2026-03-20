@@ -57,6 +57,7 @@ import { BadgeComponent } from './modules/components/BadgeComponent.js';
 import { TooltipComponent } from './modules/components/TooltipComponent.js';
 import { COLOR_PALETTE } from './modules/utils/Constants.js';
 import { icons } from './modules/ui/IconSystem.js';
+import { IndexedDBService } from './modules/services/IndexedDBService.js';
 import {
     DateRangeManager,
     DashboardDateManager,
@@ -401,340 +402,7 @@ const state = {
     }
 };
 
-// ============================================
-// 💾 CLASE INDEXEDDBSERVICE (POO - Base de datos local)
-// ============================================
-class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 6) {
-        this.dbName = dbName;
-        this.version = version;
-        this.db = null;
-        this.isInitialized = false;
-    }
-
-    // Inicializar base de datos
-    async init() {
-        if (this.isInitialized) return this.db;
-
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.version);
-
-            request.onerror = () => {
-                debug.error('❌ Error al abrir IndexedDB:', request.error);
-                reject(request.error);
-            };
-
-            request.onsuccess = () => {
-                this.db = request.result;
-                this.isInitialized = true;
-                debug.log('✅ IndexedDB inicializado');
-                resolve(this.db);
-            };
-
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-
-                // Store: Empleados
-                if (!db.objectStoreNames.contains('employees')) {
-                    const empStore = db.createObjectStore('employees', { keyPath: 'id' });
-                    empStore.createIndex('number', 'number', { unique: true });
-                    empStore.createIndex('active', 'active', { unique: false });
-                    empStore.createIndex('name', 'name', { unique: false });
-                }
-
-                // Store: Posiciones
-                if (!db.objectStoreNames.contains('positions')) {
-                    const posStore = db.createObjectStore('positions', { keyPath: 'id' });
-                    posStore.createIndex('name', 'name', { unique: false });
-                }
-
-                // Store: Líderes
-                if (!db.objectStoreNames.contains('leaders')) {
-                    const leadStore = db.createObjectStore('leaders', { keyPath: 'id' });
-                    leadStore.createIndex('number', 'number', { unique: true });
-                } else {
-                    const leadStore = event.target.transaction.objectStore('leaders');
-                    if (leadStore.indexNames.contains('code')) {
-                        leadStore.deleteIndex('code');
-                    }
-                    if (!leadStore.indexNames.contains('number')) {
-                        leadStore.createIndex('number', 'number', { unique: true });
-                    }
-                }
-
-                // Store: Asistencia
-                if (!db.objectStoreNames.contains('attendance')) {
-                    const attStore = db.createObjectStore('attendance', { keyPath: 'key' });
-                    attStore.createIndex('employeeId', 'employeeId', { unique: false });
-                    attStore.createIndex('date', 'date', { unique: false });
-                    attStore.createIndex('employeeDate', ['employeeId', 'date'], { unique: true });
-                }
-
-                // Store: Settings
-                if (!db.objectStoreNames.contains('settings')) {
-                    db.createObjectStore('settings', { keyPath: 'key' });
-                }
-
-                // Store: Cola de sincronización
-                if (!db.objectStoreNames.contains('sync_queue')) {
-                    const syncStore = db.createObjectStore('sync_queue', { keyPath: 'id', autoIncrement: true });
-                    syncStore.createIndex('status', 'status', { unique: false });
-                    syncStore.createIndex('timestamp', 'timestamp', { unique: false });
-                }
-
-                debug.log('📦 Stores de IndexedDB creados');
-            };
-        });
-    }
-
-    // Agregar registro
-    async add(storeName, data) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.add(data);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Obtener registro
-    async get(storeName, key) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const request = store.get(key);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Obtener todos los registros
-    async getAll(storeName) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const request = store.getAll();
-
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Actualizar registro
-    async update(storeName, data) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.put(data);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Eliminar registro
-    async delete(storeName, key) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.delete(key);
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Limpiar store
-    async clear(storeName) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.clear();
-
-            request.onsuccess = () => resolve();
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Buscar por índice
-    async query(storeName, indexName, value) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const index = store.index(indexName);
-            const request = index.getAll(value);
-
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Contar registros
-    async count(storeName) {
-        await this.init();
-
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readonly');
-            const store = transaction.objectStore(storeName);
-            const request = store.count();
-
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-        });
-    }
-
-    // Migrar desde localStorage
-    async migrateFromLocalStorage() {
-        try {
-            const oldData = localStorage.getItem('attendance-app-data');
-            if (!oldData) {
-                debug.log('ℹ️ No hay datos en localStorage para migrar');
-                return false;
-            }
-
-            const parsed = JSON.parse(oldData);
-            const data = parsed.data || parsed;
-
-            debug.log('🔄 Migrando datos desde localStorage...');
-
-            // Migrar empleados
-            if (data.employees) {
-                for (const emp of data.employees) {
-                    await this.update('employees', emp);
-                }
-                debug.log(`✅ ${data.employees.length} empleados migrados`);
-            }
-
-            // Migrar posiciones
-            if (data.positions) {
-                for (const pos of data.positions) {
-                    await this.update('positions', pos);
-                }
-                debug.log(`✅ ${data.positions.length} posiciones migradas`);
-            }
-
-            // Migrar líderes
-            if (data.leaders) {
-                for (const leader of data.leaders) {
-                    await this.update('leaders', leader);
-                }
-                debug.log(`✅ ${data.leaders.length} líderes migrados`);
-            }
-
-            // Migrar asistencia
-            if (data.attendance) {
-                const attRecords = Object.entries(data.attendance).map(([key, value]) => ({
-                    key,
-                    ...value
-                }));
-
-                for (const att of attRecords) {
-                    await this.update('attendance', att);
-                }
-                debug.log(`✅ ${attRecords.length} registros de asistencia migrados`);
-            }
-
-            // Migrar settings
-            if (data.settings) {
-                await this.update('settings', { key: 'app', ...data.settings });
-                debug.log('✅ Settings migrados');
-            }
-
-            // Backup de localStorage antes de borrar
-            localStorage.setItem('attendance-app-data-backup', oldData);
-
-            debug.log('✅ Migración completada exitosamente');
-            Notification.success('✅ Datos migrados a IndexedDB');
-
-            return true;
-        } catch (error) {
-            debug.error('❌ Error en migración:', error);
-            Notification.error('❌ Error al migrar datos');
-            return false;
-        }
-    }
-
-    // Exportar toda la DB
-    async exportDB() {
-        const data = {
-            employees: await this.getAll('employees'),
-            positions: await this.getAll('positions'),
-            leaders: await this.getAll('leaders'),
-            attendance: await this.getAll('attendance'),
-            settings: await this.getAll('settings'),
-            exportedAt: new Date().toISOString(),
-            version: this.version
-        };
-
-        return data;
-    }
-
-    // Importar DB completa
-    async importDB(data) {
-        try {
-            // Limpiar stores
-            await this.clear('employees');
-            await this.clear('positions');
-            await this.clear('leaders');
-            await this.clear('attendance');
-            await this.clear('settings');
-
-            // Importar datos
-            if (data.employees) {
-                for (const emp of data.employees) {
-                    await this.update('employees', emp);
-                }
-            }
-
-            if (data.positions) {
-                for (const pos of data.positions) {
-                    await this.update('positions', pos);
-                }
-            }
-
-            if (data.leaders) {
-                for (const leader of data.leaders) {
-                    await this.update('leaders', leader);
-                }
-            }
-
-            if (data.attendance) {
-                for (const att of data.attendance) {
-                    await this.update('attendance', att);
-                }
-            }
-
-            if (data.settings) {
-                for (const setting of data.settings) {
-                    await this.update('settings', setting);
-                }
-            }
-
-            debug.log('✅ Datos importados correctamente');
-            return true;
-        } catch (error) {
-            debug.error('❌ Error al importar datos:', error);
-            return false;
-        }
-    }
-}
+// IndexedDBService class removed (moved to js/modules/services/IndexedDBService.js)
 
 // Instancia global de IndexedDB
 const indexedDBService = new IndexedDBService();
@@ -2929,48 +2597,18 @@ window.removePositionHours = function (index) {
 // LOCALSTORAGE - PERSISTENCIA DE DATOS
 // ========================================
 
-async function saveToIndexedDB() {
+async function saveToIndexedDB(options = {}) {
     try {
-        // Guardar empleados
-        for (const emp of state.employees) {
-            await indexedDBService.update('employees', emp);
-        }
-
-        // Guardar posiciones
-        for (const pos of state.positions) {
-            await indexedDBService.update('positions', pos);
-        }
-
-        // Guardar líderes
-        for (const leader of state.leaders) {
-            await indexedDBService.update('leaders', leader);
-        }
-
-        // Guardar asistencia
-        const attRecords = Object.entries(state.attendance).map(([key, value]) => ({
-            key,
-            ...value
-        }));
-
-        for (const att of attRecords) {
-            await indexedDBService.update('attendance', att);
-        }
-
-        // Guardar settings
-        await indexedDBService.update('settings', {
-            key: 'app',
-            ...state.settings
-        });
-
+        await indexedDBService.saveState(state, options);
         debug.log('💾 Datos guardados en IndexedDB');
         return true;
     } catch (error) {
         debug.error('❌ Error guardando en IndexedDB:', error);
-        throw error; // Re-lanzar para que saveApplicationData lo vea
+        throw error;
     }
 }
 
-async function saveApplicationData() {
+async function saveApplicationData(options = {}) {
     if (window._isSavingData) return;
     window._isSavingData = true;
     if (!state.isDataLoaded) {
@@ -2986,7 +2624,7 @@ async function saveApplicationData() {
     if (state.useIndexedDB) {
         console.log('💾 Guardando en IndexedDB...');
         try {
-            await saveToIndexedDB();
+            await saveToIndexedDB(options);
         } catch (error) {
             console.error('❌ Error guardando en IndexedDB:', error);
             
@@ -4916,10 +4554,19 @@ window.registerSupabase = async function () {
 
 // Modal de opciones de sincronización
 window.showSyncOptionsModal = async function () {
-    // Detectar si hay datos locales y en la nube
-    const hasLocalData = state.employees.length > 0 || state.positions.length > 0;
+    // 1. Calcular resumen local
+    const localSummary = {
+        employees: state.employees.length,
+        leaders: state.leaders.length,
+        attendance: Object.keys(state.attendance).length,
+        lastUpdate: state.settings.updatedAt || Date.now()
+    };
 
-    const hasCloudData = await supabaseService.hasCloudData();
+    // 2. Obtener resumen remoto
+    const remoteSummary = await supabaseService.getRemoteSummary();
+
+    const hasLocalData = localSummary.employees > 0 || state.positions.length > 0;
+    const hasCloudData = remoteSummary !== null && (remoteSummary.employees > 0 || remoteSummary.attendance > 0);
 
     // Decidir qué mostrar
     if (!hasLocalData && !hasCloudData) {
@@ -4930,22 +4577,63 @@ window.showSyncOptionsModal = async function () {
 
     if (hasLocalData && !hasCloudData) {
         // Solo datos locales - preguntar si subir
-        showUploadConfirmModal();
+        showUploadConfirmModal(localSummary);
         return;
     }
 
     if (!hasLocalData && hasCloudData) {
         // Solo datos en la nube - preguntar si descargar
-        showDownloadConfirmModal();
+        showDownloadConfirmModal(remoteSummary);
         return;
     }
 
     // Ambos tienen datos - mostrar opciones completas
-    showFullSyncModal();
+    showFullSyncModal(localSummary, remoteSummary);
 };
 
+// Generar HTML para tabla de resumen (Helper)
+function getSyncSummaryHTML(local, remote) {
+    const formatDate = (ts) => {
+        if (!ts) return 'Nunca';
+        const d = new Date(ts);
+        return d.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + 
+               d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    return `
+        <div style="margin: 15px 0 25px 0; border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #0f172a; font-size: 0.85rem;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
+                        <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Detalle</th>
+                        <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">💻 Local</th>
+                        <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">☁️ Nube</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155; color: #94a3b8;">Personal</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${local ? local.employees : '-'}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${remote ? remote.employees : '-'}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155; color: #94a3b8;">Asistencias</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${local ? local.attendance : '-'}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${remote ? remote.attendance : '-'}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 10px 12px; color: #94a3b8;">Última Act.</td>
+                        <td style="padding: 10px 12px;">${local ? formatDate(local.lastUpdate) : '-'}</td>
+                        <td style="padding: 10px 12px; color: #6366f1;">${remote ? formatDate(remote.lastUpdate) : '-'}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
 // Modal: Confirmar subir datos locales
-function showUploadConfirmModal() {
+function showUploadConfirmModal(local) {
     const html = `
                 <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
                     <div class="modal-content" style="max-width: 480px;">
@@ -4954,11 +4642,14 @@ function showUploadConfirmModal() {
                             <button class="modal-close" onclick="closeModal(); render();">✕</button>
                         </div>
                         <div class="modal-body">
-                            <p style="color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;">
-                                Tienes <strong>${state.employees.length} empleados</strong> y <strong>${state.positions.length} posiciones</strong> guardados localmente.
+                            <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
+                                Tienes datos guardados en este dispositivo, pero tu cuenta de la nube está vacía.
                             </p>
+                            
+                            ${getSyncSummaryHTML(local, null)}
+
                             <p style="color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;">
-                                ¿Deseas subirlos a Supabase para sincronizarlos entre dispositivos?
+                                ¿Deseas subirlos ahora para tener una copia de seguridad y sincronizarlos?
                             </p>
                             
                             <div style="display: flex; gap: 10px; margin-top: 20px;">
@@ -4978,20 +4669,23 @@ function showUploadConfirmModal() {
 }
 
 // Modal: Confirmar descargar datos de la nube
-function showDownloadConfirmModal() {
+function showDownloadConfirmModal(remote) {
     const html = `
                 <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
                     <div class="modal-content" style="max-width: 480px;">
                         <div class="modal-header">
-                            <h2 class="modal-title">☁️ Descargar datos de la nube</h2>
+                            <h2 class="modal-title">☁️ Descargar desde la nube</h2>
                             <button class="modal-close" onclick="closeModal(); render();">✕</button>
                         </div>
                         <div class="modal-body">
-                            <p style="color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;">
-                                Tienes datos guardados en Supabase de otro dispositivo.
+                            <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
+                                Se han detectado datos previos en tu cuenta en la nube.
                             </p>
+
+                            ${getSyncSummaryHTML(null, remote)}
+
                             <p style="color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;">
-                                ¿Deseas descargarlos para verlos en este dispositivo?
+                                ¿Deseas descargarlos para empezar a trabajar con ellos en este dispositivo?
                             </p>
                             
                             <div style="display: flex; gap: 10px; margin-top: 20px;">
@@ -5011,18 +4705,20 @@ function showDownloadConfirmModal() {
 }
 
 // Modal: Opciones completas cuando hay datos en ambos lados
-function showFullSyncModal() {
+function showFullSyncModal(local, remote) {
     const html = `
                 <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
-                    <div class="modal-content" style="max-width: 560px;">
+                    <div class="modal-content" style="max-width: 600px;">
                         <div class="modal-header">
-                            <h2 class="modal-title">🔄 ¿Cómo deseas sincronizar?</h2>
+                            <h2 class="modal-title">🔄 Sincronización Inicial</h2>
                             <button class="modal-close" onclick="closeModal(); render();">✕</button>
                         </div>
                         <div class="modal-body">
-                            <p style="color: #cbd5e1; margin-bottom: 24px; line-height: 1.6;">
-                                Tienes datos <strong>en este dispositivo</strong> y <strong>en la nube</strong>. Elige la acción que deseas realizar:
+                            <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
+                                Tienes datos <strong>locales</strong> y en la <strong>nube</strong>. Por favor, compara y elige la acción a realizar:
                             </p>
+
+                            ${getSyncSummaryHTML(local, remote)}
                             
                             <div style="display: flex; flex-direction: column; gap: 12px;">
                                 <button onclick="uploadToCloud()" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
@@ -9285,8 +8981,8 @@ window.loadBackupFromFile = async function (file) {
                 state.employees.forEach(e => { if (!e.updatedAt) e.updatedAt = now; });
                 Object.values(state.attendance).forEach(a => { if (!a.updatedAt) a.updatedAt = now; });
 
-                // Guardar en localStorage
-                saveApplicationData();
+                // Guardar en IndexedDB con limpieza previa (esto evita ConstraintErrors con datos viejos)
+                saveApplicationData({ clearFirst: true });
 
                 showNotification('✅ Datos importados correctamente', 'success');
                 render();
@@ -11647,6 +11343,27 @@ document.head.appendChild(styleTag);
         console.error('❌ Error fatal durante la inicialización:', error);
         // Intentar renderizar aunque sea un estado de error
         render();
+    }
+
+    // 📂 PWA FILE HANDLING (API launchQueue)
+    // Permite que la app sea sugerida para abrir archivos .json (backups)
+    if ('launchQueue' in window) {
+        console.log('📬 Launch Queue detectado. Esperando archivos...');
+        window.launchQueue.setConsumer(async (launchParams) => {
+            if (launchParams.files && launchParams.files.length > 0) {
+                console.log('📂 Archivo recibido vía PWA Launch Handler');
+                for (const fileHandle of launchParams.files) {
+                    const file = await fileHandle.getFile();
+                    if (file.name.toLowerCase().endsWith('.json')) {
+                        // Esperar un momento a que la UI esté lista
+                        setTimeout(() => {
+                            window.loadBackupFromFile(file);
+                        }, 500);
+                        break; // Solo procesar el primero
+                    }
+                }
+            }
+        });
     }
 })();
 

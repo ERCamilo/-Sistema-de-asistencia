@@ -650,6 +650,47 @@ export class SupabaseService {
         }
     }
 
+    // 📊 OBTENER RESUMEN DE DATOS EN LA NUBE
+    async getRemoteSummary() {
+        if (!this.currentUser) return null;
+
+        try {
+            // Conteos exactos usando head: true para eficiencia
+            const { count: empCount } = await this.client
+                .from('employees')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', this.currentUser.id);
+
+            const { count: attCount } = await this.client
+                .from('attendance')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', this.currentUser.id);
+
+            const { count: leadCount } = await this.client
+                .from('leaders')
+                .select('*', { count: 'exact', head: true })
+                .eq('user_id', this.currentUser.id);
+
+            // Última actualización (buscamos en empleados como referencia)
+            const { data: lastUpdate } = await this.client
+                .from('employees')
+                .select('updated_at')
+                .eq('user_id', this.currentUser.id)
+                .order('updated_at', { ascending: false })
+                .limit(1);
+
+            return {
+                employees: empCount || 0,
+                attendance: attCount || 0,
+                leaders: leadCount || 0,
+                lastUpdate: lastUpdate?.[0]?.updated_at ? new Date(lastUpdate[0].updated_at).getTime() : null
+            };
+        } catch (error) {
+            console.error('❌ Error obteniendo resumen remoto:', error);
+            return null;
+        }
+    }
+
     async disconnect() {
         if (!confirm('¿Deseas desconectar de Supabase? Tus datos seguirán en la nube, pero trabajarás en modo local.')) {
             return;
