@@ -44,9 +44,11 @@ import { DataService } from './modules/services/DataService.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
+import { HolidayService } from './modules/features/attendance/HolidayService.js';
 import { PayrollService } from './modules/features/payroll/PayrollService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 import { demoData, generateDemoAttendance } from './modules/data/DemoData.js'; // ⚡ NUEVO IMPORT
+import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
 import { TabComponent } from './modules/components/TabComponent.js';
 import { TableComponent } from './modules/components/TableComponent.js';
 import { FormComponent } from './modules/components/FormComponent.js';
@@ -69,6 +71,7 @@ import {
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
+import * as SyncUI from './modules/ui/SyncUI.js';
 
 const ICON_SET_STORAGE_KEY = 'icon-set';
 
@@ -453,8 +456,6 @@ Object.defineProperties(window, {
 });
 
 function generateUUID() { return supabaseService.generateUUID(); }
-function isValidUUID(id) { return supabaseService.isValidUUID(id); }
-function ensureUUID(id) { return supabaseService.ensureUUID(id); }
 
 // Helper Functions
 // Movido a js/modules/utils/DateUtils.js y js/modules/utils/Formatters.js
@@ -706,12 +707,24 @@ const storageService = new StorageService();
 // Instancia global
 // Instancia global
 const attendanceService = new AttendanceService(state);
+const holidayService = new HolidayService(state);
 
 // 💰 CLASE PAYROLLSERVICE
 const payrollService = new PayrollService(state);
 
 // 📈 CLASE CHARTSERVICE
 const chartService = new ChartService(state);
+
+// 🛠️ Inicializar SettingsUI
+initSettingsUI({
+    state,
+    icons,
+    holidayService,
+    get useSupabase() { return useSupabase; },
+    get currentUser() { return currentUser; },
+    get autoSyncEnabled() { return autoSyncEnabled; },
+    calculateStorageStats: () => calculateStorageStats()
+});
 
 // ============================================
 // ✅ CLASE VALIDATIONSERVICE (POO - Validaciones)
@@ -762,10 +775,12 @@ const moduleContext = {
 EmployeesUI.init(moduleContext);
 AnalyticsUI.init(moduleContext);
 PayrollUI.init(moduleContext);
+SyncUI.initSyncUI(moduleContext);
 
 // Expose Modules to Window (for HTML onclick handlers)
 window.EmployeesUI = EmployeesUI;
 window.AnalyticsUI = AnalyticsUI;
+window.SyncUI = SyncUI;
 window.PayrollUI = PayrollUI;
 
 // Map Global Functions for Legacy Compatibility (Employees)
@@ -2869,6 +2884,7 @@ async function loadApplicationData() {
             
             if (idbSuccess && state.employees.length > 0) {
                 console.log('✅ Datos cargados desde IndexedDB');
+                validateDataIntegrity();
                 state.isDataLoaded = true;
                 return true;
             }
@@ -2895,6 +2911,7 @@ async function loadApplicationData() {
                     localStorage.setItem('migrated-to-idb', 'true');
                     console.log('✅ Migración a IndexedDB completada con éxito');
                 }
+                validateDataIntegrity();
                 state.isDataLoaded = true;
                 return true;
             }
@@ -2902,6 +2919,7 @@ async function loadApplicationData() {
             // Ya fue migrado pero por alguna razón IDB falló o está vacío
             console.warn('⚠️ Datos ya migrados pero no encontrados en IDB. Usando localStorage como backup.');
             const success = dataService.loadAll();
+            validateDataIntegrity();
             state.isDataLoaded = true;
             return success;
         }
@@ -2915,6 +2933,54 @@ async function loadApplicationData() {
         state.isDataLoaded = true; // Evitar bloquear para siempre en caso de error
         return false;
     }
+}
+
+// 🛡️ VALIDACIÓN DE INTEGRIDAD DE DATOS
+// Limpia referencias huérfanas para evitar crashes
+function validateDataIntegrity() {
+    let fixes = 0;
+    const positionIds = new Set(state.positions.map(p => p.id));
+    const leaderIds = new Set(state.leaders.map(l => l.id));
+
+    // 1. Limpiar posiciones huérfanas de empleados
+    state.employees.forEach(emp => {
+        if (emp.positions && emp.positions.length > 0) {
+            const validPositions = emp.positions.filter(pid => positionIds.has(pid));
+            if (validPositions.length !== emp.positions.length) {
+                const removed = emp.positions.length - validPositions.length;
+                console.warn(`🛡️ ${emp.name}: ${removed} posición(es) huérfana(s) limpiada(s)`);
+                emp.positions = validPositions;
+                emp._isDirty = true;
+                fixes++;
+            }
+        }
+    });
+
+    // 2. Limpiar leaderId huérfano de posiciones
+    state.positions.forEach(pos => {
+        if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
+            console.warn(`🛡️ Posición "${pos.name}": líder huérfano limpiado`);
+            pos.leaderId = null;
+            fixes++;
+        }
+    });
+
+    // 3. Limpiar positionSalaries con IDs que ya no existen
+    state.employees.forEach(emp => {
+        if (emp.positionSalaries) {
+            Object.keys(emp.positionSalaries).forEach(posId => {
+                if (!positionIds.has(posId)) {
+                    delete emp.positionSalaries[posId];
+                    fixes++;
+                }
+            });
+        }
+    });
+
+    if (fixes > 0) {
+        console.log(`🛡️ Integridad de datos: ${fixes} referencia(s) huérfana(s) corregida(s)`);
+    }
+    return fixes;
 }
 
 // Alias para compatibilidad
@@ -3022,7 +3088,7 @@ function getCheckColor(att, date) {
 
     // PRIORIDAD 2: Día festivo (DORADO)
     // Solo verifica isDayHoliday(date) - configuración ACTUAL
-    if (isDayHoliday(date)) return 'check-holiday';
+    if (isDayHoliday(date, state.settings.holidays)) return 'check-holiday';
 
     // PRIORIDAD 3-5: Horas trabajadas
     // ✅ Agregar tolerancia de 6 minutos (0.1 horas)
@@ -3278,7 +3344,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             present: true,
             hoursWorked: dayHours,
             overtimeHours: 0,
-            isHoliday: isDayHoliday(date),
+            isHoliday: isDayHoliday(date, state.settings.holidays),
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
@@ -4135,9 +4201,8 @@ window.saveAdvancedAttendance = () => {
         ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
         : null;
 
-    // Verificar si es modo fraccionado
-    const multiPositionModeCheckbox = document.getElementById('multiPositionMode');
-    const isMultiPosition = multiPositionModeCheckbox ? multiPositionModeCheckbox.checked : false;
+    // Verificar si es modo fraccionado (ahora obligatorio si tiene > 1 posición)
+    const isMultiPosition = emp.positions && emp.positions.length > 1;
 
     let attendanceRecord;
 
@@ -4328,7 +4393,7 @@ window.handleWeekCheck = (empId, dateStr) => {
         debug.log('📝 Creando asistencia:', {
             dateStr,
             dateObject: date,
-            isHoliday: isDayHoliday(date)
+            isHoliday: isDayHoliday(date, state.settings.holidays)
         });
 
         // Crear registro de asistencia
@@ -4338,7 +4403,7 @@ window.handleWeekCheck = (empId, dateStr) => {
             present: true,
             hoursWorked: state.quickWeekHours, // ✅ Usar horas rápidas semanales
             overtimeHours: 0,
-            isHoliday: isDayHoliday(date),
+            isHoliday: isDayHoliday(date, state.settings.holidays),
             useTempPosition: false,
             notes: '',
             multiPosition: emp.positions?.length > 1,
@@ -4419,10 +4484,7 @@ window.removeAttendance = (empId, dateStr) => {
     render();
 };
 window.markDayAsHoliday = () => {
-    const key = getDateKey(state.selectedDate);
-    const idx = state.settings.holidays.indexOf(key);
-    if (idx > -1) state.settings.holidays.splice(idx, 1);
-    else state.settings.holidays.push(key);
+    holidayService.toggleSelectedDayHoliday(() => saveApplicationData());
     render();
 };
 
@@ -4591,170 +4653,21 @@ window.showSyncOptionsModal = async function () {
     showFullSyncModal(localSummary, remoteSummary);
 };
 
-// Generar HTML para tabla de resumen (Helper)
-function getSyncSummaryHTML(local, remote) {
-    const formatDate = (ts) => {
-        if (!ts) return 'Nunca';
-        const d = new Date(ts);
-        return d.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + 
-               d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
-
-    return `
-        <div style="margin: 15px 0 25px 0; border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #0f172a; font-size: 0.85rem;">
-            <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                    <tr style="background: #1e293b; color: #94a3b8; text-align: left;">
-                        <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Detalle</th>
-                        <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">💻 Local</th>
-                        <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">☁️ Nube</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155; color: #94a3b8;">Personal</td>
-                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${local ? local.employees : '-'}</td>
-                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${remote ? remote.employees : '-'}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155; color: #94a3b8;">Asistencias</td>
-                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${local ? local.attendance : '-'}</td>
-                        <td style="padding: 10px 12px; border-bottom: 1px solid #334155;">${remote ? remote.attendance : '-'}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 10px 12px; color: #94a3b8;">Última Act.</td>
-                        <td style="padding: 10px 12px;">${local ? formatDate(local.lastUpdate) : '-'}</td>
-                        <td style="padding: 10px 12px; color: #6366f1;">${remote ? formatDate(remote.lastUpdate) : '-'}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    `;
-}
+// Generar HTML para tabla de resumen movida a SyncUI.js
 
 // Modal: Confirmar subir datos locales
 function showUploadConfirmModal(local) {
-    const html = `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
-                    <div class="modal-content" style="max-width: 480px;">
-                        <div class="modal-header">
-                            <h2 class="modal-title">📤 Subir datos a la nube</h2>
-                            <button class="modal-close" onclick="closeModal(); render();">✕</button>
-                        </div>
-                        <div class="modal-body">
-                            <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
-                                Tienes datos guardados en este dispositivo, pero tu cuenta de la nube está vacía.
-                            </p>
-                            
-                            ${getSyncSummaryHTML(local, null)}
-
-                            <p style="color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;">
-                                ¿Deseas subirlos ahora para tener una copia de seguridad y sincronizarlos?
-                            </p>
-                            
-                            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                <button onclick="uploadToCloud()" class="btn-primary" style="flex: 1;">
-                                    📤 Sí, subir datos
-                                </button>
-                                <button onclick="closeModal(); render();" class="btn-secondary" style="flex: 1;">
-                                    Ahora no
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-    document.body.insertAdjacentHTML('beforeend', html);
+    document.body.insertAdjacentHTML('beforeend', SyncUI.buildUploadConfirmModalHTML(local));
 }
 
 // Modal: Confirmar descargar datos de la nube
 function showDownloadConfirmModal(remote) {
-    const html = `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
-                    <div class="modal-content" style="max-width: 480px;">
-                        <div class="modal-header">
-                            <h2 class="modal-title">☁️ Descargar desde la nube</h2>
-                            <button class="modal-close" onclick="closeModal(); render();">✕</button>
-                        </div>
-                        <div class="modal-body">
-                            <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
-                                Se han detectado datos previos en tu cuenta en la nube.
-                            </p>
-
-                            ${getSyncSummaryHTML(null, remote)}
-
-                            <p style="color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;">
-                                ¿Deseas descargarlos para empezar a trabajar con ellos en este dispositivo?
-                            </p>
-                            
-                            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                <button onclick="downloadFromCloud()" class="btn-primary" style="flex: 1;">
-                                    ☁️ Sí, descargar
-                                </button>
-                                <button onclick="closeModal(); render();" class="btn-secondary" style="flex: 1;">
-                                    Ahora no
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-    document.body.insertAdjacentHTML('beforeend', html);
+    document.body.insertAdjacentHTML('beforeend', SyncUI.buildDownloadConfirmModalHTML(remote));
 }
 
 // Modal: Opciones completas cuando hay datos en ambos lados
 function showFullSyncModal(local, remote) {
-    const html = `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
-                    <div class="modal-content" style="max-width: 600px;">
-                        <div class="modal-header">
-                            <h2 class="modal-title">🔄 Sincronización Inicial</h2>
-                            <button class="modal-close" onclick="closeModal(); render();">✕</button>
-                        </div>
-                        <div class="modal-body">
-                            <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
-                                Tienes datos <strong>locales</strong> y en la <strong>nube</strong>. Por favor, compara y elige la acción a realizar:
-                            </p>
-
-                            ${getSyncSummaryHTML(local, remote)}
-                            
-                            <div style="display: flex; flex-direction: column; gap: 12px;">
-                                <button onclick="uploadToCloud()" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
-                                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                                        <span style="font-size: 1.5rem;">📤</span>
-                                        <span style="font-weight: 700; font-size: 1.05rem;">Subir mis datos locales</span>
-                                    </div>
-                                    <div style="font-size: 0.85rem; opacity: 0.9; margin-left: 40px;">
-                                        Reemplaza los datos en la nube con los que tienes aquí
-                                    </div>
-                                </button>
-                                
-                                <button onclick="downloadFromCloud()" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #06b6d4, #0891b2);">
-                                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
-                                        <span style="font-size: 1.5rem;">☁️</span>
-                                        <span style="font-weight: 700; font-size: 1.05rem;">Descargar desde la nube</span>
-                                    </div>
-                                    <div style="font-size: 0.85rem; opacity: 0.9; margin-left: 40px;">
-                                        Reemplaza tus datos locales con los de la nube
-                                    </div>
-                                </button>
-                                
-                                <button onclick="closeModal(); render();" class="btn-secondary" style="margin-top: 8px;">
-                                    ❌ Cancelar (no hacer nada ahora)
-                                </button>
-                            </div>
-                            
-                            <div style="margin-top: 20px; padding: 14px; background: rgba(251,191,36,0.1); border-left: 3px solid #f59e0b; border-radius: 6px; font-size: 0.85rem; color: #fbbf24;">
-                                <strong>⚠️ Importante:</strong> Cualquiera de las opciones sobrescribirá completamente los datos del otro lado. Asegúrate de elegir la correcta.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-    document.body.insertAdjacentHTML('beforeend', html);
+    document.body.insertAdjacentHTML('beforeend', SyncUI.buildFullSyncModalHTML(local, remote));
 }
 
 // Operaciones de Supabase UI
@@ -5115,7 +5028,7 @@ window.saveNoteModal = () => {
         present: false,
         hoursWorked: 0,
         overtimeHours: 0,
-        isHoliday: isDayHoliday(dateKey),
+        isHoliday: isDayHoliday(dateKey, state.settings.holidays),
         selectedPosition: emp.positions?.[0] || null,
         multiPosition: false,
         positionHours: [],
@@ -5364,104 +5277,81 @@ document.addEventListener('click', (e) => {
 // ============================================
 
 function SyncIndicator() {
-    if (!useSupabase || !currentUser) {
-        // No mostrar indicador si no está usando Supabase
-        return '';
-    }
-
-    const status = state.syncStatus;
-
-    // Definir configuración por estado
-    const statusConfig = {
-        idle: {
-            icon: icons.get('cloud'),
-            color: '#64748b',
-            text: 'Sin actividad',
-            title: 'Nube: Sin actividad'
-        },
-        syncing: {
-            icon: icons.get('sync'),
-            color: '#06b6d4',
-            text: 'Sincronizando...',
-            title: 'Sincronizando con la nube...',
-            animate: true
-        },
-        synced: {
-            icon: icons.get('check'),
-            color: '#10b981',
-            text: 'Sincronizado',
-            title: `Última sync: ${state.lastSupabaseSync ? getTimeAgo(new Date(state.lastSupabaseSync)) : 'Nunca'}`
-        },
-        error: {
-            icon: icons.get('x-circle'),
-            color: '#ef4444',
-            text: 'Error',
-            title: 'Error en la sincronización'
-        }
-    };
-
-    const config = statusConfig[status] || statusConfig.idle;
-
-    return `
-                <button 
-                    class="settings-btn sync-indicator-btn" 
-                    style="
-                        color: ${config.color}; 
-                        font-size: 1.25rem;
-                        position: relative;
-                        ${config.animate ? 'animation: spin 2s linear infinite;' : ''}
-                    "
-                    title="${config.title}"
-                    onclick="changeTab('settings')"
-                >
-                    ${config.icon}
-                </button>
-            `;
+    return SyncUI.SyncIndicator();
 }
 
 // UI Components
 function Header() {
     return `<header class="header">
                 <div class="container">
-                    <div class="header-content">
+                    <div class="header-content" ${state.settings.legacyNavigation ? 'style="flex-direction: column; gap: 12px;"' : ''}>
                         <div class="header-top">
-                            <div class="company-name">🏗️ ${state.settings.companyName}</div>
-                            <div style="display: flex; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div class="company-name">🏗️ ${state.settings.companyName}</div>
+                            </div>
+                            <div style="display: flex; gap: 6px;">
                                 ${SyncIndicator()}
                                 <button class="settings-btn" onclick="openNotesCenter()" title="Notas de empleados">${icons.get('mail')}</button>
                                 <button class="settings-btn" onclick="exportData()" title="Exportar datos">${icons.get('download')}</button>
                             </div>
                         </div>
-                        <nav class="nav-tabs">
-                            <button class="nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
-                                    onclick="changeTab('attendance')"
-                                    title="Registrar asistencia diaria">
-                                <span>${icons.get('attendance')}</span><span class="tab-text"> Asistencia</span>
+                        ${state.settings.legacyNavigation ? `
+                        <div class="nav-tabs">
+                            <button class="nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" onclick="changeTab('attendance')">
+                                <span>📋</span><span class="tab-text"> Asistencia</span>
                             </button>
-                            <button class="nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
-                                    onclick="changeTab('employees')"
-                                    title="Gestionar empleados y posiciones">
-                                <span>${icons.get('personnel')}</span><span class="tab-text"> Personal</span>
+                            <button class="nav-tab ${state.activeTab === 'employees' ? 'active' : ''}" onclick="changeTab('employees')">
+                                <span>👥</span><span class="tab-text"> Personal</span>
                             </button>
-                            <button class="nav-tab ${state.activeTab === 'employee-report' || state.activeTab === 'dashboard' ? 'active' : ''}" 
-                                    onclick="changeTab('employee-report')"
-                                    title="Ver reportes y estadísticas">
-                                <span>${icons.get('reports')}</span><span class="tab-text"> Reportes</span>
+                            <button class="nav-tab ${state.activeTab === 'employee-report' ? 'active' : ''}" onclick="changeTab('employee-report')">
+                                <span>📊</span><span class="tab-text"> Reportes</span>
                             </button>
-                            <button class="nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
-                                    onclick="changeTab('export')"
-                                    title="Nómina">
-                                <span>${icons.get('payroll')}</span><span class="tab-text"> Nómina</span>
+                            <button class="nav-tab ${state.activeTab === 'export' ? 'active' : ''}" onclick="changeTab('export')">
+                                <span>💰</span><span class="tab-text"> Nómina</span>
                             </button>
-                            <button class="nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
-                                    onclick="changeTab('settings')"
-                                    title="Configuración del sistema">
-                                <span>${icons.get('settings')}</span><span class="tab-text"> Ajustes</span>
+                            <button class="nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" onclick="changeTab('settings')">
+                                <span>⚙️</span><span class="tab-text"> Ajustes</span>
                             </button>
-                        </nav>
+                        </div>
+                        ` : ''}
                     </div>
                 </div>
             </header>`;
+}
+
+function BottomNavigation() {
+    return `<nav class="bottom-nav">
+                <button class="bottom-nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
+                        onclick="changeTab('attendance')"
+                        title="Registrar asistencia diaria">
+                    <span class="bottom-nav-icon">${icons.get('attendance')}</span>
+                    <span class="bottom-nav-text">Asistencia</span>
+                </button>
+                <button class="bottom-nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
+                        onclick="changeTab('employees')"
+                        title="Gestionar empleados y posiciones">
+                    <span class="bottom-nav-icon">${icons.get('personnel')}</span>
+                    <span class="bottom-nav-text">Personal</span>
+                </button>
+                <button class="bottom-nav-tab ${state.activeTab === 'employee-report' || state.activeTab === 'dashboard' ? 'active' : ''}" 
+                        onclick="changeTab('employee-report')"
+                        title="Ver reportes y estadísticas">
+                    <span class="bottom-nav-icon">${icons.get('reports')}</span>
+                    <span class="bottom-nav-text">Reportes</span>
+                </button>
+                <button class="bottom-nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
+                        onclick="changeTab('export')"
+                        title="Nómina">
+                    <span class="bottom-nav-icon">${icons.get('payroll')}</span>
+                    <span class="bottom-nav-text">Nómina</span>
+                </button>
+                <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
+                        onclick="changeTab('settings')"
+                        title="Configuración del sistema">
+                    <span class="bottom-nav-icon">${icons.get('settings')}</span>
+                    <span class="bottom-nav-text">Ajustes</span>
+                </button>
+            </nav>`;
 }
 
 function DatePicker() {
@@ -5492,7 +5382,7 @@ function DatePicker() {
 }
 
 function DateControls() {
-    const isHoliday = isDayHoliday(state.selectedDate);
+    const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const isToday = getDateKey(state.selectedDate) === getDateKey(new Date());
     const dayHours = getDayHours(state.selectedDate);
     const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'full';
@@ -5939,7 +5829,7 @@ function WeekViewTable() {
                             <tr>
                                 <th style="text-align:left;">Empleado</th>
                                 ${week.map((d, i) => {
-        const isH = isDayHoliday(d);
+        const isH = isDayHoliday(d, state.settings.holidays);
         const showYear = d.getFullYear() !== new Date().getFullYear();
         return `
                                         <th>
@@ -7328,9 +7218,9 @@ function AdvancedAttendanceModal() {
     const selP = att.selectedPosition || emp.positions?.[0] || null;
     const pos = state.positions.find(p => p.id === selP);
 
-    // Determinar si es multi-posición
-    const isMultiPosition = att.multiPosition || state.isFractionated || false;
-    const hasMultiplePositions = emp.positions.length > 1;
+    // Determinar si es multi-posición (ahora obligatorio)
+    const hasMultiplePositions = emp.positions && emp.positions.length > 1;
+    const isMultiPosition = hasMultiplePositions;
 
     // Asegurar valores por defecto
     const hoursWorked = att.hoursWorked !== undefined ? att.hoursWorked : state.settings.regularHoursPerDay;
@@ -7397,21 +7287,9 @@ function AdvancedAttendanceModal() {
                             </div>
                         </div>
                         
-                        <!-- Toggle para modo fraccionado -->
-                        ${hasMultiplePositions ? `
-                            <div class="form-group" style="margin-top: 16px; padding: 12px; background: #1e293b; border-radius: 8px; border: 1px solid #334155;">
-                                <label class="form-checkbox" style="cursor: pointer;">
-                                    <input type="checkbox" id="multiPositionMode" ${isMultiPosition ? 'checked' : ''} 
-                                           onchange="state.isFractionated = this.checked; render();">
-                                    <span class="form-label" style="margin: 0; font-weight: 600; color: #06b6d4;">🔄 Fraccionar por múltiples posiciones</span>
-                                </label>
-                                <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px; margin-left: 24px;">
-                                    Permite distribuir las horas trabajadas entre diferentes posiciones
-                                </div>
-                            </div>
-                        ` : ''}
+                        <!-- Modo fraccionado automatizado (eliminado el toggle) -->
                         
-                        ${isMultiPosition && hasMultiplePositions ? `
+                        ${hasMultiplePositions ? `
                             <!-- MODO FRACCIONADO -->
                             <div style="margin-top: 16px;">
                                 <div style="font-size: 0.875rem; color: #94a3b8; font-weight: 600; margin-bottom: 12px;">
@@ -7421,6 +7299,8 @@ function AdvancedAttendanceModal() {
                                 ${emp.positions.map((pid, index) => {
         const position = state.positions.find(p => p.id === pid);
         const positionSalary = position?.salaryConfig?.amount ?? position?.baseSalary ?? 0;
+        const config = position?.salaryConfig || { amount: positionSalary, period: 'month', workDays: [] };
+        const display = payrollService.formatSalaryDisplay(config);
         const ph = positionHours.find(p => p.positionId === pid) || { hours: 0, overtimeHours: 0 };
 
         return `
@@ -7428,7 +7308,7 @@ function AdvancedAttendanceModal() {
                                             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
                                                 <span style="width: 12px; height: 12px; border-radius: 50%; background: ${position?.color};"></span>
                                                 <span style="font-weight: 600; color: #f1f5f9;">${position?.name}</span>
-                                                <span style="margin-left: auto; font-size: 0.75rem; color: #64748b;">$${positionSalary.toLocaleString()}/día</span>
+                                                <span style="margin-left: auto; font-size: 0.75rem; color: #64748b;">${display.full}</span>
                                             </div>
                                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                                 <div>
@@ -7510,943 +7390,39 @@ function AdvancedAttendanceModal() {
 // [LEGACY REMOVED] ReportsTab, EmployeeReportTab, EmployeeReportControls, etc -> AnalyticsUI.js
 // [LEGACY REMOVED] ExportTab, generateExportDeductionsHTML -> PayrollUI.js
 // ============================================
-// SETTINGS TAB
+// SETTINGS TAB — Delegado a SettingsUI.js
 // ============================================
 
 function SettingsTab() {
-    return `
-                <div style="max-width: 900px; margin: 0 auto;">
-                    <div style="margin-bottom: 24px;">
-                        <h2 style="margin: 0 0 8px 0; font-size: 1.75rem; display: flex; align-items: center; gap: 12px;">
-                            <span>⚙️</span>
-                            <span class="gradient-text">Configuración del Sistema</span>
-                        </h2>
-                        <p style="margin: 0; color: #94a3b8; font-size: 0.875rem;">
-                            Personaliza la configuración de tu sistema de asistencia
-                        </p>
-                    </div>
-                    
-                    <!-- ✨ Dashboard de Resumen -->
-                    ${SettingsDashboard()}
-                    
-                    <!-- Navegación de Pestañas -->
-                    <div class="nav-tabs" style="margin-bottom: 32px;">
-
-                        <button class="nav-tab ${state.settingsActiveTab === 'data' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('data')">
-                            <span>${icons.get('save')}</span><span class="tab-text"> Datos</span>
-                        </button>
-
-                        <button class="nav-tab ${state.settingsActiveTab === 'general' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('general')">
-                            <span>${icons.get('settings')}</span><span class="tab-text"> General</span>
-                        </button>
-
-                        <button class="nav-tab ${state.settingsActiveTab === 'calendar' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('calendar')">
-                            <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
-                        </button>
-                    </div>
-                    
-                    <!-- Contenido de las Pestañas -->
-                    ${state.settingsActiveTab === 'general' ? SettingsTabGeneral() : ''}
-                    ${state.settingsActiveTab === 'data' ? SettingsTabData() : ''}
-                    ${state.settingsActiveTab === 'calendar' ? SettingsTabCalendar() : ''}
-                    
-                    <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                        <button onclick="saveSettings()" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">
-                            💾 Guardar Configuración
-                        </button>
-                    </div>
-                </div>
-            `;
-}
-
-// ============================================
-// DASHBOARD DE CONFIGURACIÓN
-// ============================================
-
-function SettingsDashboard() {
-    const storage = calculateStorageStats();
-    const syncStatus = state.supabaseSyncStatus || {
-        connected: false,
-        localEmployees: state.employees.length,
-        localAttendance: Object.keys(state.attendance).length,
-        localDays: new Set(Object.values(state.attendance).map(a => a.date)).size
-    };
-
-    // Datos para el resumen colapsado
-    const freeSpace = Math.round(100 - storage.percentage);
-    const syncIcon = syncStatus.connected ? '✅' : '⚪';
-    const syncText = syncStatus.connected ? 'Online' : 'Offline';
-    const syncColor = syncStatus.connected ? '#10b981' : '#94a3b8';
-
-    return `
-                <details style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; margin-bottom: 24px; border: 1px solid #334155; overflow: hidden;">
-                    <summary style="padding: 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; list-style: none; user-select: none;">
-                        <h3 style="margin: 0; color: #06b6d4; font-size: 1rem; display: flex; align-items: center; gap: 6px;">
-                            <span>📊</span>
-                            <span>Resumen del Sistema</span>
-                        </h3>
-                        
-                        <div style="display: flex; align-items: center; gap: 12px; font-size: 0.8rem;">
-                            <!-- Resumen Storage -->
-                            <div style="display: flex; align-items: center; gap: 4px; color: ${freeSpace < 20 ? '#ef4444' : '#94a3b8'};">
-                                <span>💾</span>
-                                <span>${freeSpace}% libre</span>
-                            </div>
-                            
-                            <!-- Resumen Sync -->
-                            <div style="display: flex; align-items: center; gap: 4px; color: ${syncColor};">
-                                <span>${syncIcon}</span>
-                                <span style="display: none; @media (min-width: 400px) { display: inline; }">${syncText}</span>
-                            </div>
-                            
-                            <span style="color: #64748b; font-size: 0.8rem;">▼</span>
-                        </div>
-                    </summary>
-                    
-                    <div style="padding: 0 16px 16px 16px;">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; border-top: 1px solid #334155; padding-top: 16px;">
-                            ${StorageCard(storage)}
-                            ${SyncCard(syncStatus)}
-                            ${DataSummaryCard()}
-                        </div>
-                    </div>
-                </details>
-            `;
-}
-
-function StorageCard(stats) {
-    const color = stats.percentage > 80 ? '#ef4444' :
-        stats.percentage > 60 ? '#f59e0b' : '#10b981';
-
-    return `
-                <div style="background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                        <span style="font-size: 1rem;">💾</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.8rem;">Almacenamiento</span>
-                    </div>
-                    
-                    <div style="font-size: 1.25rem; font-weight: 700; color: ${color}; margin-bottom: 2px; line-height: 1;">
-                        ${stats.usedMB} <span style="font-size: 0.75rem; color: #64748b; font-weight: 400;">MB</span>
-                    </div>
-                    
-                    <!-- Barra de progreso mini -->
-                    <div style="background: #1e293b; height: 4px; border-radius: 2px; overflow: hidden; margin: 6px 0;">
-                        <div style="background: ${color}; height: 100%; width: ${stats.percentage}%; transition: width 0.3s;"></div>
-                    </div>
-                    
-                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #94a3b8;">
-                        <span>${stats.percentage}% uso</span>
-                        <span>${stats.available} libre</span>
-                    </div>
-                </div>
-            `;
+    return SettingsTabUI();
 }
 
 function SyncCard(status) {
-    const isConnected = status.connected;
-    const statusColor = isConnected ? '#10b981' : '#64748b';
-    const statusIcon = isConnected ? '✅' : '⚪';
-    const statusText = isConnected ? 'Conectado' : 'Sin conexión';
-
-    const delta = isConnected ? (status.cloudEmployees - status.localEmployees) : 0;
-    const deltaText = delta === 0 ? 'Sincronizado' :
-        delta > 0 ? `+${delta} en nube` :
-            `${delta} en nube`;
-    const deltaColor = delta === 0 ? '#10b981' : '#f59e0b';
-
-    return `
-                <div style="background: #0f172a; border-radius: 12px; padding: 16px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 1.5rem;">☁️</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.95rem;">Sincronización</span>
-                    </div>
-                    
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 1.5rem;">${statusIcon}</span>
-                        <span style="font-size: 1.25rem; font-weight: 700; color: ${statusColor};">
-                            ${statusText}
-                        </span>
-                    </div>
-                    
-                    ${isConnected ? `
-                        <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">
-                            Última sync: ${status.timeAgo}
-                        </div>
-                        
-                        <div style="background: #1e293b; padding: 8px; border-radius: 6px; margin-top: 8px;">
-                            <div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px;">Comparación:</div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
-                                <span style="color: #94a3b8;">
-                                    Local: <strong style="color: #06b6d4;">${status.localEmployees}</strong> emp
-                                </span>
-                                <span style="color: #94a3b8;">
-                                    Nube: <strong style="color: #06b6d4;">${status.cloudEmployees}</strong> emp
-                                </span>
-                            </div>
-                            <div style="font-size: 0.7rem; color: ${deltaColor}; margin-top: 4px; text-align: center;">
-                                ${deltaText}
-                            </div>
-                        </div>
-                    ` : `
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            Conecta a Supabase para sincronización en la nube
-                        </div>
-                    `}
-                </div>
-            `;
+    return SyncCardUI(status);
 }
 
-function DataSummaryCard() {
-    const activeEmployees = state.employees.filter(e => e.active).length;
-    const totalEmployees = state.employees.length;
-    const activePositions = state.positions.filter(p => p.active).length;
 
-    return `
-                <div style="background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                        <span style="font-size: 1rem;">👥</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.8rem;">Datos Generales</span>
-                    </div>
-                    
-                    <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;">
-                        <div style="font-size: 1.25rem; font-weight: 700; color: #06b6d4;">
-                            ${totalEmployees}
-                        </div>
-                        <div style="font-size: 0.7rem; color: #64748b;">
-                            empleados (${activeEmployees} activos)
-                        </div>
-                    </div>
-                    
-                    <div style="background: #1e293b; padding: 6px; border-radius: 4px; margin-top: auto;">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem;">
-                            <span style="color: #94a3b8;">Posiciones:</span>
-                            <span style="color: #10b981; font-weight: 600;">${activePositions}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-}
-
-// ============================================
-// PESTAÑA: GENERAL
-// ============================================
-function SettingsTabGeneral() {
-    return `
-                ${SettingsForm()}
-            `;
-}
-
-// ============================================
-// PESTAÑA: DATOS
-// ============================================
-function SettingsTabData() {
-    return `
-                    <!-- ═══════════════════════════════════════════════════════════ -->
-                    <!-- Sincronización con Supabase -->
-                    <!-- ═══════════════════════════════════════════════════════════ -->
-                    <div style="background: linear-gradient(135deg, rgba(6,182,212,0.1), rgba(16,185,129,0.1)); border-radius: 12px; padding: 24px; margin-top: 20px; border: 2px solid ${useSupabase ? '#10b981' : '#334155'};">
-                        <h3 style="margin: 0 0 12px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 10px;">
-                            ☁️ Sincronización en la Nube
-                        </h3>
-                        
-                        ${!useSupabase ? `
-                            <!-- Estado: NO conectado -->
-                            <div style="color: #94a3b8; margin-bottom: 16px; line-height: 1.7;">
-                                <strong>Estado actual:</strong> Trabajando en modo local<br>
-                                <span style="font-size: 0.875rem;">Los datos se guardan solo en este dispositivo (localStorage)</span>
-                            </div>
-                            
-                            <div style="background: rgba(6,182,212,0.1); padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #06b6d4;">
-                                <div style="font-size: 0.9rem; color: #e0f2fe; margin-bottom: 8px; font-weight: 600;">
-                                    ✨ Beneficios de conectar con Supabase:
-                                </div>
-                                <ul style="margin: 0; padding-left: 20px; color: #94a3b8; font-size: 0.875rem; line-height: 1.8;">
-                                    <li>📱 Accede desde celular, tablet y PC</li>
-                                    <li>🔄 Sincronización automática entre dispositivos</li>
-                                    <li>☁️ Tus datos seguros en la nube</li>
-                                    <li>👥 Trabajo en equipo (próximamente)</li>
-                                    <li>💾 Backup automático</li>
-                                </ul>
-                            </div>
-                            
-                            <button onclick="showSupabaseLogin()" class="btn-primary" style="width: 100%; padding: 14px; font-size: 1rem;">
-                                🚀 Conectar con Supabase (Gratis)
-                            </button>
-                            
-                            <div style="margin-top: 12px; padding: 10px; background: rgba(245,158,11,0.1); border-radius: 6px; font-size: 0.8rem; color: #fbbf24;">
-                                💡 <strong>Primera vez:</strong> Haz clic en "Registrarse" para crear tu cuenta. Tus datos locales se migrarán automáticamente.
-                            </div>
-                        ` : `
-                            <!-- Estado: Conectado -->
-                            <div style="background: rgba(16,185,129,0.15); padding: 16px; border-radius: 8px; margin-bottom: 16px; border: 2px solid #10b981;">
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                                    <div style="width: 10px; height: 10px; background: #10b981; border-radius: 50%; animation: pulse 2s infinite;"></div>
-                                    <span style="color: #10b981; font-weight: 700; font-size: 1rem;">✅ Conectado a la Nube</span>
-                                </div>
-                                <div style="color: #94a3b8; font-size: 0.875rem;">
-                                    <strong>Usuario:</strong> ${currentUser?.email || 'Desconocido'}<br>
-                                    <strong>Auto-sync:</strong> ${autoSyncEnabled ? '🟢 Activado' : '🔴 Desactivado'}
-                                </div>
-                            </div>
-                            
-                            <!-- Botones de Sincronización Manual -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
-                                <button onclick="uploadToCloud()" class="btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
-                                    <span>📤</span>
-                                    <span style="font-size: 0.9rem;">Subir Datos</span>
-                                </button>
-                                <button onclick="downloadFromCloud()" class="btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: linear-gradient(135deg, #06b6d4, #0891b2);">
-                                    <span>☁️</span>
-                                    <span style="font-size: 0.9rem;">Descargar</span>
-                                </button>
-                            </div>
-                            
-                            <!-- Toggle Auto-Sync -->
-                            <div style="background: rgba(6,182,212,0.1); padding: 14px; border-radius: 8px; margin-bottom: 12px;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                    <div>
-                                        <div style="font-weight: 600; color: #f1f5f9; font-size: 0.95rem; margin-bottom: 4px;">⚡ Sincronización Automática</div>
-                                        <div style="font-size: 0.8rem; color: #94a3b8; line-height: 1.5;">
-                                            ${autoSyncEnabled
-            ? 'Los cambios se suben automáticamente después de 3 segundos de inactividad'
-            : 'Usa los botones de arriba para sincronizar manualmente'}
-                                        </div>
-                                    </div>
-                                    <button onclick="toggleAutoSync()" style="min-width: 60px; padding: 8px 16px; border-radius: 20px; border: 2px solid ${autoSyncEnabled ? '#10b981' : '#64748b'}; background: ${autoSyncEnabled ? '#10b981' : '#1e293b'}; color: white; font-weight: 700; cursor: pointer; transition: all 0.2s;">
-                                        ${autoSyncEnabled ? 'ON' : 'OFF'}
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <!-- Botón Desconectar -->
-                            <button onclick="disconnectSupabase()" class="btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                <span>🔌</span>
-                                <span>Desconectar de la Nube</span>
-                            </button>
-                            
-                            <div style="margin-top: 12px; padding: 12px; background: rgba(245,158,11,0.1); border-radius: 6px; font-size: 0.8rem; color: #fbbf24; line-height: 1.6;">
-                                💡 <strong>Tip:</strong> Usa <strong>Subir Datos</strong> para enviar tus cambios locales a la nube, o <strong>Descargar</strong> para obtener los últimos datos de otro dispositivo.
-                            </div>
-                        `}
-                    </div>
-                    
-                    <!-- Gestión de Datos -->
-                    <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-top: 20px; border: 1px solid #334155;">
-                        <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                            💾 Gestión de Datos
-                        </h3>
-                        
-                        <!-- Sistema de Almacenamiento -->
-                        <div style="background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155;">
-                            <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 1.25rem;">💾</span>
-                                <span>Tipo de Almacenamiento</span>
-                            </div>
-                            
-                            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                                <label style="flex: 1; cursor: pointer;">
-                                    <input type="radio" 
-                                           name="storageTypeData" 
-                                           value="localStorage" 
-                                           ${!state.useIndexedDB ? 'checked' : ''}
-                                           onchange="handleStorageTypeChange(this.value)"
-                                           style="display: none;">
-                                    <div style="padding: 10px; background: ${!state.useIndexedDB ? '#0891b2' : '#1e293b'}; border-radius: 8px; text-align: center; border: 1px solid ${!state.useIndexedDB ? '#0891b2' : '#334155'}; transition: all 0.2s;">
-                                        <div style="font-weight: 600; font-size: 0.9rem; color: ${!state.useIndexedDB ? 'white' : '#94a3b8'};">📦 Local</div>
-                                        <div style="font-size: 0.7rem; color: ${!state.useIndexedDB ? '#e0f2fe' : '#64748b'};">Max 5MB</div>
-                                    </div>
-                                </label>
-                                
-                                <label style="flex: 1; cursor: pointer;">
-                                    <input type="radio" 
-                                           name="storageTypeData" 
-                                           value="indexedDB" 
-                                           ${state.useIndexedDB ? 'checked' : ''}
-                                           onchange="handleStorageTypeChange(this.value)"
-                                           style="display: none;">
-                                    <div style="padding: 10px; background: ${state.useIndexedDB ? '#0891b2' : '#1e293b'}; border-radius: 8px; text-align: center; border: 1px solid ${state.useIndexedDB ? '#0891b2' : '#334155'}; transition: all 0.2s;">
-                                        <div style="font-weight: 600; font-size: 0.9rem; color: ${state.useIndexedDB ? 'white' : '#94a3b8'};">🗄️ IndexedDB</div>
-                                        <div style="font-size: 0.7rem; color: ${state.useIndexedDB ? '#e0f2fe' : '#64748b'};">Ilimitado</div>
-                                    </div>
-                                </label>
-                            </div>
-                            
-                            ${state.useIndexedDB ? `
-                                <div style="background: #1e293b; padding: 8px; border-radius: 6px; border: 1px solid #334155;">
-                                    <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px;">
-                                        📊 Estadísticas:
-                                    </div>
-                                    <div id="indexeddb-stats" style="font-size: 0.7rem; color: #64748b;">
-                                        Cargando...
-                                    </div>
-                                </div>
-                            ` : ''}
-                        </div>
-
-                        <!-- Exportar Backup -->
-                        <div style="background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155;">
-                            <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-                                <div style="font-size: 1.5rem;">📥</div>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">Exportar Datos</div>
-                                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
-                                        Descarga todos tus datos en formato JSON para hacer un respaldo de seguridad.
-                                    </div>
-                                </div>
-                            </div>
-                            <button onclick="exportData()" class="btn btn-secondary" style="width: 100%;">
-                                📥 Exportar Backup
-                            </button>
-                        </div>
-                        
-                        <!-- Importar Backup -->
-                        <div style="background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155;">
-                            <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-                                <div style="font-size: 1.5rem;">📤</div>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">Importar Datos</div>
-                                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
-                                        Carga un archivo de respaldo previamente exportado.
-                                    </div>
-                                    <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 8px; display: flex; align-items: center; gap: 4px;">
-                                        <span>⚠️</span>
-                                        <span>Esto reemplazará todos tus datos actuales</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importData(event)">
-                            <button onclick="document.getElementById('import-file-input').click()" class="btn btn-secondary" style="width: 100%;">
-                                📤 Importar Backup
-                            </button>
-                        </div>
-                        
-                        <!-- Eliminar Todos los Datos -->
-                        <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.05)); border-radius: 12px; padding: 16px; border: 2px solid #dc2626;">
-                            <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-                                <div style="font-size: 1.5rem;">🗑️</div>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: 600; color: #ef4444; margin-bottom: 4px;">Eliminar Todos los Datos</div>
-                                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
-                                        Elimina permanentemente toda la información del sistema. Esta acción no se puede deshacer.
-                                    </div>
-                                    <div style="font-size: 0.75rem; color: #ef4444; margin-top: 8px; font-weight: 600;">
-                                        ⚠️ ADVERTENCIA: Se eliminarán empleados, posiciones, asistencia y configuración.
-                                    </div>
-                                </div>
-                            </div>
-                            <button onclick="deleteAllData()" style="width: 100%; padding: 12px 24px; border-radius: 10px; background: linear-gradient(135deg, #dc2626, #b91c1c); border: none; color: white; font-weight: 700; cursor: pointer; transition: all 0.2s; font-size: 0.875rem;" onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 8px 20px rgba(220, 38, 38, 0.4)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none'">
-                                🗑️ Eliminar Todo
-                            </button>
-                        </div>
-                        </div>
-                    </div>
-            `;
-}
-
-// ============================================
-// PESTAÑA: CALENDARIO  
-// ============================================
-
-// ============================================
-// PESTAÑA: CALENDARIO  
-// ============================================
-function SettingsTabCalendar() {
-    return `
-                <!-- Fecha de Pago Global -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        💰 Fecha de Pago Global
-                    </h3>
-                    <div class="form-group">
-                        <label class="form-label">Día del mes para pagos periódicos</label>
-                        <input type="number" 
-                               id="globalPaymentDay" 
-                               value="${state.settings.globalPaymentDay || ''}" 
-                               class="form-input"
-                               min="1" max="31"
-                               placeholder="Ej: 15 (día 15 de cada mes)"
-                               onchange="updateGlobalPaymentDay(this.value)">
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px; line-height: 1.6;">
-                            Este día aparecerá marcado con 💰 en el calendario flotante de cada empleado.
-                            Útil para identificar visualmente cuándo se realizan los pagos mensuales.
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Días Festivos -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        ☀️ Días Festivos del Año
-                    </h3>
-                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 16px;">
-                        Click en un día para marcarlo/desmarcarlo como festivo. Los días festivos tendrán pago especial según el factor configurado.
-                    </div>
-                    ${SettingsHolidayCalendar()}
-                    <div style="margin-top: 12px; font-size: 0.75rem; color: #64748b;">
-                        📅 Total de días festivos configurados: <strong style="color: #f59e0b;">${state.settings.holidays.length}</strong>
-                    </div>
-                </div>
-            `;
-}
-
-function SettingsForm() {
-    const iconSetOptions = icons.getAvailableSets()
-        .map(set => `<option value="${set}" ${state.settings.iconSet === set ? 'selected' : ''}>${set}</option>`)
-        .join('');
-
-    return `
-                <!-- Información de la Empresa -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        🏢 Información de la Empresa
-                    </h3>
-                    <div class="form-group">
-                        <label class="form-label">Nombre de la Empresa</label>
-                        <input type="text" 
-                               id="companyName" 
-                               value="${state.settings.companyName}" 
-                               class="form-input"
-                               placeholder="Ej: Constructora El Progreso">
-                    </div>
-                </div>
-
-                <!-- Iconos -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        ${icons.get('palette')} Iconos
-                    </h3>
-                    <div class="form-group">
-                        <label class="form-label">Estilo de iconos</label>
-                        <select id="iconSet" class="form-input" onchange="previewIconSet(this.value)">
-                            ${iconSetOptions}
-                        </select>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px; line-height: 1.6;">
-                            Se aplica a toda la aplicación y queda guardado como preferencia.
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sistema de Almacenamiento MOVIDO a Pestaña Datos -->
-                
-                <!-- Auto-Guardado Eliminado -->
-                
-                <!-- Instalación como App (PWA) -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        📱 Instalar como Aplicación
-                    </h3>
-                    
-                    <div style="background: #0f172a; padding: 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                            <div style="font-size: 2.5rem;">📲</div>
-                            <div>
-                                <div style="font-weight: 600; font-size: 1rem; margin-bottom: 4px;">
-                                    Instala esta app en tu dispositivo
-                                </div>
-                                <div style="font-size: 0.875rem; color: #94a3b8;">
-                                    Acceso rápido sin abrir el navegador
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="font-size: 0.75rem; color: #64748b; line-height: 1.6; margin-bottom: 16px;">
-                            <strong style="color: #10b981;">Ventajas de instalar:</strong><br>
-                            ✅ Icono en tu pantalla de inicio<br>
-                            ✅ Funciona como app nativa<br>
-                            ✅ Sin barra del navegador<br>
-                            ✅ Más rápido de abrir<br>
-                            ✅ Funciona offline (si activaste IndexedDB)
-                        </div>
-                        
-                        <div id="install-pwa-status"></div>
-                        
-                        <button id="install-pwa-button" 
-                                onclick="handleInstallPWA()" 
-                                class="btn btn-primary" 
-                                style="width: 100%; padding: 12px; font-size: 1rem; background: linear-gradient(135deg, #10b981, #059669); border: none;">
-                            📱 Instalar Aplicación
-                        </button>
-                    </div>
-                    
-                    <details style="margin-top: 12px;">
-                        <summary style="cursor: pointer; color: #94a3b8; font-size: 0.875rem; padding: 8px; background: #0f172a; border-radius: 6px;">
-                            ℹ️ ¿Cómo instalar manualmente?
-                        </summary>
-                        <div style="margin-top: 12px; padding: 12px; background: #0f172a; border-radius: 6px; font-size: 0.75rem; color: #64748b; line-height: 1.8;">
-                            <strong style="color: #06b6d4;">En Android (Chrome/Edge):</strong><br>
-                            1. Menú (⋮) → "Agregar a pantalla de inicio"<br>
-                            2. Confirmar instalación<br>
-                            <br>
-                            <strong style="color: #06b6d4;">En iPhone/iPad (Safari):</strong><br>
-                            1. Botón "Compartir" (▢↑)<br>
-                            2. "Agregar a pantalla de inicio"<br>
-                            3. Confirmar<br>
-                            <br>
-                            <strong style="color: #06b6d4;">En PC (Chrome/Edge):</strong><br>
-                            1. Icono de instalación en la barra de direcciones<br>
-                            2. Click en "Instalar"
-                        </div>
-                    </details>
-                </div>
-                
-                <!-- Jornada Laboral -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        ⏰ Jornada Laboral
-                    </h3>
-                    
-                    <!-- Horas Regulares -->
-                    <div class="form-group" style="margin-bottom: 20px;">
-                        <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
-                            <span>Horas Regulares por Día</span>
-                            <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
-                                  title="Define cuántas horas se consideran como jornada normal">ⓘ</span>
-                        </label>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
-                                   id="regularHoursPerDay" 
-                                   value="${state.settings.regularHoursPerDay}" 
-                                   min="1" 
-                                   max="24" 
-                                   step="0.5"
-                                   class="form-input"
-                                   style="flex: 1;">
-                            <span style="color: #94a3b8; font-size: 0.875rem;">horas</span>
-                        </div>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            💡 Las horas trabajadas por encima de este valor se considerarán extras
-                        </div>
-                    </div>
-                    
-                    <!-- ⚡ NUEVO: Factor Horas Extras -->
-                    <div class="form-group" style="margin-bottom: 20px;">
-                        <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
-                            <span>Factor de Horas Extras</span>
-                            <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
-                                  title="Multiplicador para calcular el pago de horas extras">ⓘ</span>
-                        </label>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
-                                   id="overtimeFactor" 
-                                   value="${state.settings.overtimeFactor || 1.5}" 
-                                   min="1" 
-                                   max="5" 
-                                   step="0.1"
-                                   class="form-input"
-                                   style="flex: 1;">
-                            <span style="color: #94a3b8; font-size: 0.875rem;">× (multiplicador)</span>
-                        </div>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            💡 Ejemplo: Factor 1.5 = tiempo y medio, Factor 2 = doble pago
-                        </div>
-                    </div>
-                    
-                    <!-- Factor Festivos -->
-                    <div class="form-group">
-                        <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
-                            <span>Factor de Días Festivos</span>
-                            <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
-                                  title="Multiplicador para calcular el pago en días festivos">ⓘ</span>
-                        </label>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
-                                   id="holidayFactor" 
-                                   value="${state.settings.holidayFactor}" 
-                                   min="1" 
-                                   max="5" 
-                                   step="0.5"
-                                   class="form-input"
-                                   style="flex: 1;">
-                            <span style="color: #94a3b8; font-size: 0.875rem;">× (multiplicador)</span>
-                        </div>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            💡 Ejemplo: Factor 2 = doble pago, Factor 1.5 = pago y medio
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Configuración de Nómina -->
-                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        💰 Configuración de Nómina
-                    </h3>
-                    
-                    <!-- ⚡ NUEVO: Porcentaje de deducción por defecto -->
-                    <div class="form-group" style="margin-bottom: 16px;">
-                        <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
-                            💸 Porcentaje de Deducción por Defecto
-                            <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
-                                  title="Este porcentaje se aplicará automáticamente al agregar deducciones">ⓘ</span>
-                        </label>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
-                                   id="defaultDeductionPercentage" 
-                                   value="${state.settings.defaultDeductionPercentage || 2}" 
-                                   min="0" 
-                                   max="100"
-                                   step="0.5"
-                                   class="form-input"
-                                   style="flex: 1;">
-                            <span style="color: #94a3b8; font-size: 0.875rem;">%</span>
-                        </div>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            💡 Todas las nuevas deducciones usarán este porcentaje por defecto. Se puede cambiar individualmente en cada nómina.
-                        </div>
-                    </div>
-                    
-                    <!-- ⚡ NUEVO: Último día de pago global -->
-                    <div class="form-group" style="margin-top: 16px;">
-                        <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
-                            📅 Último Día de Pago (Global)
-                            <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
-                                  title="Configura el último día en que se pagó nómina a todos los empleados">ⓘ</span>
-                        </label>
-                        <input type="date" 
-                               id="globalLastPaymentDate" 
-                               value="${state.settings.globalLastPaymentDate || ''}" 
-                               class="form-input">
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            💡 Esta fecha se usará en el preset "Desde Último Pago" para todos los empleados que no tengan una fecha individual configurada.
-                        </div>
-                    </div>
-                </div>
-            `;
-}
-
-function SettingsHolidayCalendar() {
-    const month = state.settingsCalendarMonth;
-    const year = month.getFullYear();
-    const monthIndex = month.getMonth();
-
-    const firstDay = new Date(year, monthIndex, 1);
-    const lastDay = new Date(year, monthIndex + 1, 0);
-    const startDayOfWeek = firstDay.getDay();
-
-    const days = [];
-
-    // Días del mes anterior
-    const prevMonthLastDay = new Date(year, monthIndex, 0).getDate();
-    for (let i = startDayOfWeek - 1; i >= 0; i--) {
-        days.push({ date: new Date(year, monthIndex - 1, prevMonthLastDay - i), currentMonth: false });
-    }
-
-    // Días del mes actual
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-        days.push({ date: new Date(year, monthIndex, i), currentMonth: true });
-    }
-
-    // Días del mes siguiente
-    const remainingDays = 42 - days.length;
-    for (let i = 1; i <= remainingDays; i++) {
-        days.push({ date: new Date(year, monthIndex + 1, i), currentMonth: false });
-    }
-
-    const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-    return `
-                <div style="background: #0f172a; border-radius: 8px; padding: 16px;">
-                    <!-- Header del calendario -->
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <button type="button" 
-                                onclick="changeSettingsCalendarMonth(-1)" 
-                                style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
-                                onmouseover="this.style.borderColor='#06b6d4'; this.style.background='#334155'"
-                                onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
-                            ◀
-                        </button>
-                        <div style="font-size: 1rem; font-weight: 700; color: #f1f5f9;">
-                            ${formatMonthYear(month)}
-                        </div>
-                        <button type="button" 
-                                onclick="changeSettingsCalendarMonth(1)" 
-                                style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
-                                onmouseover="this.style.borderColor='#06b6d4'; this.style.background='#334155'"
-                                onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
-                            ▶
-                        </button>
-                    </div>
-                    
-                    <!-- Grid del calendario -->
-                    <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;">
-                        <!-- Nombres de días -->
-                        ${dayNames.map(name => `
-                            <div style="text-align: center; padding: 8px; font-size: 0.75rem; font-weight: 600; color: #64748b;">
-                                ${name}
-                            </div>
-                        `).join('')}
-                        
-                        <!-- Días -->
-                        ${days.map(({ date, currentMonth }) => {
-        const dateKey = getDateKey(date);
-        const isHoliday = state.settings.holidays.includes(dateKey);
-        const isToday = dateKey === getDateKey(new Date());
-        const isFuture = dateKey > getDateKey(new Date());
-        const isLastPayment = state.settings.lastPaymentDate === dateKey;
-        const isNextPayment = state.settings.nextPaymentDate === dateKey;
-
-        let bgColor = '#1e293b';
-        let textColor = currentMonth ? '#f1f5f9' : '#475569';
-        let borderColor = '#334155';
-        let dayIcon = '';
-
-        // Determinar color e icono según los marcadores
-        if (isHoliday) {
-            bgColor = 'linear-gradient(135deg, #f59e0b, #fbbf24)';
-            textColor = '#fff';
-            borderColor = '#f59e0b';
-            dayIcon = '☀️';
-        }
-        if (isLastPayment) {
-            dayIcon = dayIcon ? dayIcon + ' 💵' : '💵';
-        }
-        if (isNextPayment) {
-            dayIcon = dayIcon ? dayIcon + ' 📅' : '📅';
-        }
-
-        if (isToday && !isHoliday) {
-            borderColor = '#06b6d4';
-        }
-
-        // Deshabilitar clic en "último pago" para fechas futuras
-        const isClickable = currentMonth && !(state.calendarMarkerMode === 'lastPayment' && isFuture);
-
-        return `
-                                <div onclick="${isClickable ? `handleCalendarDayClick('${dateKey}')` : ''}"
-                                     style="
-                                        background: ${bgColor};
-                                        border: 2px solid ${borderColor};
-                                        padding: 6px;
-                                        border-radius: 8px;
-                                        ${!currentMonth ? 'opacity: 0.3;' : ''}
-                                        ${isClickable ? 'cursor: pointer;' : 'cursor: not-allowed; opacity: 0.5;'}
-                                        min-height: 60px;
-                                        display: flex;
-                                        flex-direction: column;
-                                        align-items: center;
-                                        justify-content: center;
-                                        transition: all 0.2s;
-                                     "
-                                     ${isClickable ? `onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.3)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none'"` : ''}>
-                                    <div style="color: ${textColor}; font-size: 0.875rem; font-weight: ${isHoliday ? '700' : '500'}; margin-bottom: ${dayIcon ? '4px' : '0'};">
-                                        ${date.getDate()}
-                                    </div>
-                                    ${dayIcon ? `<div style="font-size: 0.7rem; line-height: 1;">${dayIcon}</div>` : ''}
-                                </div>
-                            `;
-    }).join('')}
-                    </div>
-                    
-                    <!-- Toggle Buttons -->
-                    <div style="display: flex; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #334155;">
-                        <button onclick="setCalendarMarkerMode('holiday')" 
-                                style="flex: 1; padding: 10px; background: ${state.calendarMarkerMode === 'holiday' ? '#f59e0b' : 'rgba(245,158,11,0.2)'}; border: 2px solid ${state.calendarMarkerMode === 'holiday' ? '#f59e0b' : 'rgba(245,158,11,0.3)'}; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; font-size: 0.8rem; font-weight: ${state.calendarMarkerMode === 'holiday' ? '700' : '600'}; color: ${state.calendarMarkerMode === 'holiday' ? '#000' : '#f59e0b'};">
-                            <span style="font-size: 1rem;">☀️</span>
-                            <span>Festivo</span>
-                        </button>
-                        <button onclick="setCalendarMarkerMode('lastPayment')" 
-                                style="flex: 1; padding: 10px; background: ${state.calendarMarkerMode === 'lastPayment' ? '#10b981' : 'rgba(16,185,129,0.2)'}; border: 2px solid ${state.calendarMarkerMode === 'lastPayment' ? '#10b981' : 'rgba(16,185,129,0.3)'}; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; font-size: 0.8rem; font-weight: ${state.calendarMarkerMode === 'lastPayment' ? '700' : '600'}; color: ${state.calendarMarkerMode === 'lastPayment' ? '#000' : '#10b981'};">
-                            <span style="font-size: 1rem;">💵</span>
-                            <span>Último pago</span>
-                        </button>
-                        <button onclick="setCalendarMarkerMode('nextPayment')" 
-                                style="flex: 1; padding: 10px; background: ${state.calendarMarkerMode === 'nextPayment' ? '#06b6d4' : 'rgba(6,182,212,0.2)'}; border: 2px solid ${state.calendarMarkerMode === 'nextPayment' ? '#06b6d4' : 'rgba(6,182,212,0.3)'}; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; font-size: 0.8rem; font-weight: ${state.calendarMarkerMode === 'nextPayment' ? '700' : '600'}; color: ${state.calendarMarkerMode === 'nextPayment' ? '#000' : '#06b6d4'};">
-                            <span style="font-size: 1rem;">📅</span>
-                            <span>Próximo pago</span>
-                        </button>
-                    </div>
-                    
-                    <!-- Info de fechas -->
-                    <div style="margin-top: 16px; padding: 12px; background: #1e293b; border-radius: 8px; border: 1px solid #334155;">
-                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #94a3b8;">📅 Total de días festivos:</span>
-                                <span style="color: #f59e0b; font-weight: 700;">${state.settings.holidays.length}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #94a3b8;">💵 Último pago:</span>
-                                <span style="color: #10b981; font-weight: 700;">${state.settings.lastPaymentDate ? new Date(state.settings.lastPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No configurado'}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #94a3b8;">📅 Próximo pago:</span>
-                                <span style="color: #06b6d4; font-weight: 700;">${state.settings.nextPaymentDate ? new Date(state.settings.nextPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No configurado'}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-}
 
 // Funciones para Settings
 window.changeSettingsCalendarMonth = function (delta) {
-    const month = state.settingsCalendarMonth;
-    month.setMonth(month.getMonth() + delta);
-    state.settingsCalendarMonth = new Date(month);
+    holidayService.changeCalendarMonth(delta);
     render();
 };
 
 window.toggleHoliday = function (dateKey) {
-    const holidays = state.settings.holidays;
-    const index = holidays.indexOf(dateKey);
-
-    if (index > -1) {
-        // Remover
-        holidays.splice(index, 1);
-    } else {
-        // Agregar
-        holidays.push(dateKey);
-        holidays.sort(); // Mantener ordenados
-    }
-
+    holidayService.toggleHoliday(dateKey, () => saveApplicationData());
     render();
 };
 
 // ═══ SISTEMA DE TOGGLE BUTTONS PARA CALENDARIO ═══
 window.handleCalendarDayClick = function (dateKey) {
-    const mode = state.calendarMarkerMode;
-
-    if (mode === 'holiday') {
-        // Modo festivo: toggle
-        const holidays = state.settings.holidays;
-        const index = holidays.indexOf(dateKey);
-        if (index > -1) {
-            holidays.splice(index, 1);
-        } else {
-            holidays.push(dateKey);
-            holidays.sort();
-        }
-        saveApplicationData();
-    } else if (mode === 'lastPayment') {
-        // Modo último pago: solo si no es futuro
-        const today = getDateKey(new Date());
-        if (dateKey <= today) {
-            // Toggle: si ya está marcado, lo quita
-            if (state.settings.lastPaymentDate === dateKey) {
-                state.settings.lastPaymentDate = null;
-            } else {
-                state.settings.lastPaymentDate = dateKey;
-            }
-            saveApplicationData();
-        }
-    } else if (mode === 'nextPayment') {
-        // Modo próximo pago: cualquier fecha
-        // Toggle: si ya está marcado, lo quita
-        if (state.settings.nextPaymentDate === dateKey) {
-            state.settings.nextPaymentDate = null;
-        } else {
-            state.settings.nextPaymentDate = dateKey;
-        }
-        saveApplicationData();
-    }
-
+    holidayService.handleCalendarDayClick(dateKey, () => saveApplicationData());
     render();
 };
 
 // Cambiar modo de marcador activo
 window.setCalendarMarkerMode = function (mode) {
-    state.calendarMarkerMode = mode;
+    holidayService.setCalendarMarkerMode(mode);
     render();
 };
 
@@ -8848,6 +7824,10 @@ window.saveSettings = function () {
     const defaultDeductionPercentage = parseFloat(document.getElementById('defaultDeductionPercentage').value) || 2;
     const globalLastPaymentDate = document.getElementById('globalLastPaymentDate').value || null;
     const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
+    
+    // Leer toggle legacy
+    const legacyNavigationElement = document.getElementById('legacyNavigation');
+    const legacyNavigation = legacyNavigationElement ? legacyNavigationElement.checked : !!state.settings.legacyNavigation;
 
     // Validaciones
     if (!companyName) {
@@ -8885,6 +7865,7 @@ window.saveSettings = function () {
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.globalLastPaymentDate = globalLastPaymentDate;
     state.settings.iconSet = applyIconSet(iconSet);
+    state.settings.legacyNavigation = legacyNavigation;
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
@@ -9092,7 +8073,7 @@ function MultiPositionModal() {
         present: true,
         hoursWorked: 0,
         overtimeHours: 0,
-        isHoliday: isDayHoliday(state.selectedDate),
+        isHoliday: isDayHoliday(state.selectedDate, state.settings.holidays),
         multiPosition: false,
         positionHours: [],
         notes: ''
@@ -9135,7 +8116,7 @@ function MultiPositionModal() {
                                     <div style="font-weight: 600; color: #f1f5f9;">${emp.name}</div>
                                     <div style="font-size: 0.75rem; color: #94a3b8;">${formatDate(state.selectedDate)}</div>
                                 </div>
-                                ${isDayHoliday(state.selectedDate) ? '<div style="font-size: 1.5rem;">☀️</div>' : ''}
+                                ${isDayHoliday(state.selectedDate, state.settings.holidays) ? '<div style="font-size: 1.5rem;">☀️</div>' : ''}
                             </div>
                         </div>
                         
@@ -10308,7 +9289,7 @@ function App() {
         ? modalMap[state.modalType]()
         : '';
 
-    return `${demoBanner}${Header()}<main class="main-content"><div class="container">${content}</div></main>${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
+    return `${demoBanner}${Header()}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
 function updateHeaderOffset() {
@@ -10317,6 +9298,17 @@ function updateHeaderOffset() {
         document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
     }
 }
+
+window.toggleSidebar = function() {
+    state.settings.sidebarCollapsed = !state.settings.sidebarCollapsed;
+    state.settings._isDirty = true;
+    saveApplicationData();
+    render();
+};
+
+window.toggleBottomNav = function() {
+    document.body.classList.toggle('bottom-nav-hidden');
+};
 
 function render() {
     // ⚡ Optimizado con RenderOptimizer
@@ -10331,6 +9323,20 @@ function render() {
 
         // Guardar posición del scroll antes de renderizar
         saveScrollPosition();
+
+        if (state.settings.sidebarCollapsed) {
+            document.body.classList.add('sidebar-collapsed');
+        } else {
+            document.body.classList.remove('sidebar-collapsed');
+        }
+
+        // Controlar si el body tiene sidebar (para el margin-left en desktop)
+        if (!state.settings.legacyNavigation) {
+            document.body.classList.add('has-sidebar');
+        } else {
+            document.body.classList.remove('has-sidebar');
+            document.body.classList.remove('sidebar-collapsed');
+        }
 
         // Renderizar con DocumentFragment para evitar layout thrashing
         const root = document.getElementById('root');
@@ -10421,7 +9427,14 @@ window.addEventListener('scroll', () => {
         const now = Date.now();
         if (now - lastScrollTime > 50) { // Throttle de 50ms
             state.isScrolled = scrolled;
-            render();
+            const compactControls = document.querySelector('.date-controls-compact');
+            if (compactControls) {
+                if (scrolled && state.activeTab === 'attendance') {
+                    compactControls.classList.add('visible');
+                } else {
+                    compactControls.classList.remove('visible');
+                }
+            }
             lastScrollTime = now;
         }
     }

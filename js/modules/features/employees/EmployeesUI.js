@@ -179,72 +179,9 @@ export function EmployeesTab() {
                 `;
     }
 
-    // Si es empleados o líderes
-    const items = isEmployees ? state.employees : state.leaders;
-    const employeeFilters = state.employeeFilters || {
-        search: '',
-        positionId: 'all',
-        leaderId: 'all',
-        status: state.employeeStatusFilter || 'active'
-    };
-    const statusFilter = employeeFilters.status || state.employeeStatusFilter || 'active';
-
-    // Filtrar por estado activo/inactivo
-    let filteredItems = items.filter(item => {
-        if (statusFilter === 'active') return item.active;
-        if (statusFilter === 'inactive') return !item.active;
-        return true; // all
-    });
-
-    let positionFilter = 'all';
-    let leaderFilter = 'all';
-    let selectedPosition = null;
-    let selectedLeader = null;
-    let statusLabel = 'Activos';
-
-    if (isEmployees) {
-        positionFilter = employeeFilters.positionId || 'all';
-        leaderFilter = employeeFilters.leaderId || 'all';
-        const searchValue = (employeeFilters.search || '').trim().toLowerCase();
-        selectedPosition = positionFilter !== 'all' ? state.positions.find(p => p.id === positionFilter) : null;
-        selectedLeader = leaderFilter !== 'all' ? state.leaders.find(l => l.id === leaderFilter) : null;
-        statusLabel = statusFilter === 'inactive' ? 'Desactivados' : (statusFilter === 'all' ? 'Todos' : 'Activos');
-
-        if (positionFilter !== 'all') {
-            filteredItems = filteredItems.filter(emp => (emp.positions || []).includes(positionFilter));
-        }
-
-        if (leaderFilter !== 'all') {
-            const leaderPositions = state.positions
-                .filter(p => p.leaderId === leaderFilter)
-                .map(p => p.id);
-            filteredItems = filteredItems.filter(emp => (emp.positions || []).some(pid => leaderPositions.includes(pid)));
-        }
-
-        if (searchValue) {
-            filteredItems = filteredItems.filter(emp => {
-                const nameMatch = (emp.name || '').toLowerCase().includes(searchValue);
-                const numberMatch = (emp.number || '').toLowerCase().includes(searchValue);
-                const positionMatch = (emp.positions || []).some(pid => {
-                    const pos = state.positions.find(p => p.id === pid);
-                    return pos && pos.name && pos.name.toLowerCase().includes(searchValue);
-                });
-                return nameMatch || numberMatch || positionMatch;
-            });
-        }
-    }
-
-    // Ordenar: activos primero, luego inactivos
-    filteredItems.sort((a, b) => {
-        if (a.active !== b.active) return a.active ? -1 : 1;
-        if (isEmployees) {
-            const aNum = parseInt(a.number, 10);
-            const bNum = parseInt(b.number, 10);
-            if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
-            return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
-        }
-        return (a.name || '').localeCompare(b.name || '');
-    });
+    // Si es empleados o líderes — usar lógica compartida
+    const { filteredItems, statusFilter, positionFilter, leaderFilter, selectedPosition, selectedLeader, statusLabel } = getFilteredEmployeesOrLeaders();
+    const employeeFilters = state.employeeFilters || { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
 
     return `
                 ${subTabsHTML}
@@ -305,9 +242,9 @@ export function EmployeesTab() {
                                         onchange="setEmployeeLeaderFilter(this.value)"
                                         onfocus="this.closest('.filter-pill').classList.add('open')"
                                         onblur="this.closest('.filter-pill').classList.remove('open')">
-                                    <option value="all" ${(employeeFilters.leaderId || 'all') === 'all' ? 'selected' : ''}>Todos los lideres</option>
-                                    ${state.leaders.map(l => `
-                                        <option value="${l.id}" ${employeeFilters.leaderId === l.id ? 'selected' : ''}>
+                                    <option value="all" ${(leaderFilter || 'all') === 'all' ? 'selected' : ''}>Todos los lideres</option>
+                                    ${state.leaders.filter(l => l.active).map(l => `
+                                        <option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>
                                             ${l.name}
                                         </option>
                                     `).join('')}
@@ -358,12 +295,14 @@ export function EmployeesTab() {
             `;
 }
 
-function buildEmployeesListHTML() {
+// ============================================
+// SHARED FILTER LOGIC (eliminates duplication between EmployeesTab and buildEmployeesListHTML)
+// ============================================
+
+function getFilteredEmployeesOrLeaders() {
     const state = getState();
     const subTab = state.employeeViewMode || 'employees';
     const isEmployees = subTab === 'employees';
-    const isLeaders = subTab === 'leaders';
-    if (!isEmployees && !isLeaders) return '';
 
     const items = isEmployees ? state.employees : state.leaders;
     const employeeFilters = state.employeeFilters || {
@@ -380,22 +319,29 @@ function buildEmployeesListHTML() {
         return true;
     });
 
+    let positionFilter = 'all';
+    let leaderFilter = 'all';
+    let selectedPosition = null;
+    let selectedLeader = null;
+    let statusLabel = 'Activos';
+
     if (isEmployees) {
-        const positionFilter = employeeFilters.positionId || 'all';
-        const leaderFilter = employeeFilters.leaderId || 'all';
+        positionFilter = employeeFilters.positionId || 'all';
+        leaderFilter = employeeFilters.leaderId || 'all';
         const searchValue = (employeeFilters.search || '').trim().toLowerCase();
+        selectedPosition = positionFilter !== 'all' ? state.positions.find(p => p.id === positionFilter) : null;
+        selectedLeader = leaderFilter !== 'all' ? state.leaders.find(l => l.id === leaderFilter) : null;
+        statusLabel = statusFilter === 'inactive' ? 'Desactivados' : (statusFilter === 'all' ? 'Todos' : 'Activos');
 
         if (positionFilter !== 'all') {
             filteredItems = filteredItems.filter(emp => (emp.positions || []).includes(positionFilter));
         }
-
         if (leaderFilter !== 'all') {
             const leaderPositions = state.positions
                 .filter(p => p.leaderId === leaderFilter)
                 .map(p => p.id);
             filteredItems = filteredItems.filter(emp => (emp.positions || []).some(pid => leaderPositions.includes(pid)));
         }
-
         if (searchValue) {
             filteredItems = filteredItems.filter(emp => {
                 const nameMatch = (emp.name || '').toLowerCase().includes(searchValue);
@@ -410,6 +356,7 @@ function buildEmployeesListHTML() {
     }
 
     filteredItems.sort((a, b) => {
+        if (a.active !== b.active) return a.active ? -1 : 1;
         if (isEmployees) {
             const aNum = parseInt(a.number, 10);
             const bNum = parseInt(b.number, 10);
@@ -418,6 +365,18 @@ function buildEmployeesListHTML() {
         }
         return (a.name || '').localeCompare(b.name || '');
     });
+
+    return { filteredItems, statusFilter, positionFilter, leaderFilter, selectedPosition, selectedLeader, statusLabel, isEmployees };
+}
+
+function buildEmployeesListHTML() {
+    const state = getState();
+    const subTab = state.employeeViewMode || 'employees';
+    const isEmployees = subTab === 'employees';
+    const isLeaders = subTab === 'leaders';
+    if (!isEmployees && !isLeaders) return '';
+
+    const { filteredItems, statusFilter } = getFilteredEmployeesOrLeaders();
 
     if (filteredItems.length === 0) {
         return `
@@ -435,7 +394,7 @@ export function EmployeeCard(emp) {
     const state = getState();
     const { payroll } = getServices();
 
-    const leaders = emp.positions.map(posId => {
+    const leaders = (emp.positions || []).map(posId => {
         const pos = state.positions.find(p => p.id === posId);
         if (!pos || !pos.leaderId) return null;
         const ldr = state.leaders.find(l => l.id === pos.leaderId);
@@ -464,8 +423,9 @@ export function EmployeeCard(emp) {
                             ${statusBadge}
                         </div>
                         <div class="position-toggles">
-                            ${emp.positions.map(posId => {
+                            ${(emp.positions || []).map(posId => {
         const pos = state.positions.find(p => p.id === posId);
+        if (!pos) return `<span class="position-toggle" style="opacity:0.4;cursor:default;border-color:#475569;"><span class="pos-dot" style="background:#475569;"></span>⚠️ Eliminada</span>`;
         return `<span class="position-toggle" style="opacity:0.8;cursor:default;border-color:${pos.color};"><span class="pos-dot" style="background:${pos.color};"></span>${pos.name}</span>`;
     }).join('')}
                         </div>
@@ -570,10 +530,10 @@ export function LeaderCard(ldr) {
 export function PositionCard(pos) {
     const state = getState();
     const ldr = pos.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
-    const empCount = state.employees.filter(e => e.positions.includes(pos.id) && e.active).length;
-    const totalAssigned = state.employees.filter(e => e.positions.includes(pos.id)).length;
+    const empCount = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active).length;
+    const totalAssigned = state.employees.filter(e => (e.positions || []).includes(pos.id)).length;
     const canDelete = totalAssigned === 0 && !pos.active;
-    const employeesInPosition = state.employees.filter(e => e.positions.includes(pos.id) && e.active);
+    const employeesInPosition = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active);
 
     return `
                 <div class="employee-row" style="border-left: 4px solid ${pos.color}; ${!pos.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
@@ -1169,7 +1129,7 @@ export function deletePosition(positionId) {
         return;
     }
 
-    const hasAssigned = state.employees.some(e => e.positions.includes(pos.id));
+    const hasAssigned = state.employees.some(e => (e.positions || []).includes(pos.id));
     if (hasAssigned) {
         Modal.confirm({
             title: `${icons.get('alert')} No se puede eliminar`,

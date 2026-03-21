@@ -23,6 +23,46 @@
             max-width: 100%;
         }
 
+        /* 📊 UTILIDADES PARA TABLAS RESPONSIVAS */
+        .sticky-table-container {
+            overflow-x: auto;
+            overflow-y: hidden;
+            position: relative;
+            border-radius: 8px;
+            box-shadow: inset -10px 0 10px -10px rgba(0,0,0,0.5); /* Sombra para indicar scroll */
+        }
+
+        .sticky-column {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background: #1e293b !important;
+        }
+
+        .sticky-column-2 {
+            position: sticky;
+            left: 32px; /* Offset exacto para el # de 32px */
+            z-index: 9;
+            background: #1e293b !important;
+            border-right: 2px solid #334155 !important;
+        }
+
+        /* Scrollbar moderno */
+        .modern-scroll::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        .modern-scroll::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        .modern-scroll::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+        .modern-scroll::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
         @media (min-width: 768px) {
             .container {
                 max-width: 80rem;
@@ -39,13 +79,13 @@
             top: 0;
             z-index: 100;
             border-bottom: 2px solid #06b6d4;
-            padding: 12px 0;
+            padding: 4px 0; /* Más compacto aún */
         }
 
         .header-content {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 2px; /* Reducido al mínimo */
         }
 
         .header-top {
@@ -63,16 +103,22 @@
         }
 
         .settings-btn {
-            width: 40px;
-            height: 40px;
+            width: 36px; /* Un poco más pequeño */
+            height: 36px;
             border-radius: 8px;
-            background: #1e293b;
-            border: 2px solid #334155;
+            background: transparent; /* Sin fondo */
+            border: none; /* Sin borde */
             color: #f1f5f9;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.25rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .settings-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
         }
 
         .settings-btn.sync-indicator-btn {

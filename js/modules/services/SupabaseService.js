@@ -17,7 +17,7 @@ export class SupabaseService {
         this.replacedIdsQueue = []; // ⚡ NUEVO: Track de IDs que deben borrarse de DB local
         this.autoSyncEnabled = false;
         this.syncTimeout = null;
-        this.uuidCache = {};
+
 
         // Dependencias externas
         this.state = dependencies.state;
@@ -41,22 +41,6 @@ export class SupabaseService {
             const v = c === 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);
         });
-    }
-
-    isValidUUID(id) {
-        if (!id || typeof id !== 'string') return false;
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-        return uuidRegex.test(id);
-    }
-
-    ensureUUID(id) {
-        if (this.isValidUUID(id)) return id;
-        if (this.uuidCache[id]) return this.uuidCache[id];
-        
-        const newUUID = this.generateUUID();
-        this.uuidCache[id] = newUUID;
-        console.log(`🔄 ID migrado: "${id}" → "${newUUID}"`);
-        return newUUID;
     }
 
     setIndexedDBService(idb) {

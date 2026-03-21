@@ -12,43 +12,26 @@ export class DataService {
 
     // Guardar todo el estado
     saveAll() {
-        console.log('🟢 DataService.saveAll() iniciado');
-
         const data = {
             employees: this.state.employees,
             positions: this.state.positions,
             leaders: this.state.leaders,
             attendance: this.state.attendance,
             settings: this.state.settings,
-            // 💡 Guardar fechas
             today: this.state.today,
             selectedDate: this.state.selectedDate,
-            // 💡 Guardar configuraciones de horas
             dayHoursConfig: this.state.dayHoursConfig,
             quickWeekHours: this.state.quickWeekHours,
-            // 💡 Guardar fechas del dashboard
             dashboardStartDate: this.state.dashboardStartDate,
             dashboardEndDate: this.state.dashboardEndDate,
-            // 💡 Guardar fechas del reporte de empleados
             employeeReportStartDate: this.state.employeeReportStartDate,
             employeeReportEndDate: this.state.employeeReportEndDate,
             version: '2.0',
             savedAt: new Date().toISOString()
         };
 
-        console.log('📦 Datos a guardar:', {
-            empleados: data.employees.length,
-            posiciones: data.positions.length,
-            lideres: data.leaders.length,
-            asistencias: Object.keys(data.attendance).length,
-            today: data.today,
-            selectedDate: data.selectedDate,
-            quickWeekHours: data.quickWeekHours,
-            tamaño: JSON.stringify(data).length + ' bytes'
-        });
-
         const result = this.storage.save(data);
-        console.log('🟢 DataService.saveAll() retornó:', result);
+        console.log(`💾 Datos guardados (${data.employees.length} emp, ${Object.keys(data.attendance).length} att)`);
 
         return result;
     }
