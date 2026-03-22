@@ -1,6 +1,7 @@
 const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
 
 import { SupabaseService } from './modules/services/SupabaseService.js';
+import { Header } from './modules/ui/Header.js';
 // ═══════════════════════════════════════════════════════════
 
 window.debug = {
@@ -5281,43 +5282,7 @@ function SyncIndicator() {
 }
 
 // UI Components
-function Header() {
-    return `<header class="header">
-                <div class="container">
-                    <div class="header-content" ${state.settings.legacyNavigation ? 'style="flex-direction: column; gap: 12px;"' : ''}>
-                        <div class="header-top">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <div class="company-name">🏗️ ${state.settings.companyName}</div>
-                            </div>
-                            <div style="display: flex; gap: 6px;">
-                                ${SyncIndicator()}
-                                <button class="settings-btn" onclick="openNotesCenter()" title="Notas de empleados">${icons.get('mail')}</button>
-                                <button class="settings-btn" onclick="exportData()" title="Exportar datos">${icons.get('download')}</button>
-                            </div>
-                        </div>
-                        ${state.settings.legacyNavigation ? `
-                        <div class="nav-tabs">
-                            <button class="nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" onclick="changeTab('attendance')">
-                                <span>📋</span><span class="tab-text"> Asistencia</span>
-                            </button>
-                            <button class="nav-tab ${state.activeTab === 'employees' ? 'active' : ''}" onclick="changeTab('employees')">
-                                <span>👥</span><span class="tab-text"> Personal</span>
-                            </button>
-                            <button class="nav-tab ${state.activeTab === 'employee-report' ? 'active' : ''}" onclick="changeTab('employee-report')">
-                                <span>📊</span><span class="tab-text"> Reportes</span>
-                            </button>
-                            <button class="nav-tab ${state.activeTab === 'export' ? 'active' : ''}" onclick="changeTab('export')">
-                                <span>💰</span><span class="tab-text"> Nómina</span>
-                            </button>
-                            <button class="nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" onclick="changeTab('settings')">
-                                <span>⚙️</span><span class="tab-text"> Ajustes</span>
-                            </button>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-            </header>`;
-}
+
 
 function BottomNavigation() {
     return `<nav class="bottom-nav">
@@ -9289,7 +9254,15 @@ function App() {
         ? modalMap[state.modalType]()
         : '';
 
-    return `${demoBanner}${Header()}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
+    return `${demoBanner}${Header({
+        companyName: state.settings.companyName,
+        SyncIndicator: SyncUI.SyncIndicator,
+        openNotesCenter: () => window.openNotesCenter(),
+        exportData: () => window.exportExcel(),
+        activeTab: state.activeTab,
+        changeTab: (tab) => window.changeTab(tab),
+        legacyNavigation: state.settings.legacyNavigation
+    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
 function updateHeaderOffset() {
