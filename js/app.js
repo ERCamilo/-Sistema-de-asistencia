@@ -1,6 +1,6 @@
 const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
 
-import { SupabaseService } from './modules/services/SupabaseService.js';
+import FirebaseService from './modules/services/FirebaseService.js';
 import { Header } from './modules/ui/Header.js';
 // ═══════════════════════════════════════════════════════════
 
@@ -403,23 +403,20 @@ const state = {
         periodEnd: null,
         activePreset: null, // 'thisMonth', 'lastMonth', 'last15'
         deductions: []
-    }
+    },
+
+    // ⚡ NUEVO: Sistema de Snapshots (Fase 4)
+    snapshots: [],
+    isLoadingSnapshots: false
 };
+
 
 // IndexedDBService class removed (moved to js/modules/services/IndexedDBService.js)
 
 // Instancia global de IndexedDB
 const indexedDBService = new IndexedDBService();
 
-const supabaseService = new SupabaseService({
-    state: state,
-    render: () => render(),
-    showNotification: (msg, type) => showNotification(msg, type),
-    saveToLocalStorage: () => saveApplicationData(),
-    applyIconSet: (preferred, options) => applyIconSet(preferred, options),
-    resolveIconSet: (preferred) => resolveIconSet(preferred)
-});
-supabaseService.setIndexedDBService(indexedDBService); // Asegurar que tenga acceso a DB
+// Servivios de sincronización migrados a FirebaseService
 
 // Exponer funciones críticas al scope global (window)
 window.render = render;
@@ -429,34 +426,145 @@ window.applyIconSet = applyIconSet;
 window.resolveIconSet = resolveIconSet;
 window.updateSyncStatus = updateSyncStatus;
 
-// Proxies para compatibilidad con código existente (HTML onclick, etc)
-window.supabaseClient = supabaseService.client;
-window.syncNow = () => supabaseService.syncNow();
-window.migrateToSupabase = () => supabaseService.migrateToSupabase();
-window.loadFromSupabase = () => supabaseService.loadFromSupabase();
-window.disconnectSupabase = () => supabaseService.disconnect();
+// Proxies para Firebase (Nuevo)
+window.loginWithGoogle = () => FirebaseService.loginWithGoogle();
+window.logoutFirebase = () => FirebaseService.logout();
 
-// Getters/Setters para mantener las variables globales sincronizadas con el servicio
+// Obtener estado de auth
+FirebaseService.onAuthStateChanged(async (user) => {
+    window.currentUser = user;
+    state.syncStatus = user ? 'synced' : 'idle';
+    
+    // Si acaba de loguearse y hay datos locales, ofrecer migración o sincronizar
+    if (user && state.isDataLoaded) {
+        try {
+            const cloudData = await FirebaseService.getFullState();
+            if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
+                console.log('🚀 Detectados datos locales sin respaldo en nube. Iniciando migración inicial...');
+                await FirebaseService.saveFullState(state);
+                
+                // Fase 3: También migrar el historial de forma granular
+                if (Object.keys(state.attendance).length > 0) {
+                    showNotification('📦 Migrando historial de asistencia...', 'info');
+                    await FirebaseService.syncHistory(state.attendance);
+                }
+                
+                showNotification('✅ Datos e historial migrados a la nube correctamente', 'success');
+            }
+        } catch (e) {
+            console.error('Error en verificación inicial de nube:', e);
+        }
+    }
+    
+    render();
+});
+
+// Handlers Globales para UI de Sincronización
+window.syncFirebaseNow = async () => {
+    try {
+        state.syncStatus = 'syncing';
+        render();
+        await FirebaseService.saveFullState(state);
+        
+        // Fase 4: Refrescar la lista si estamos en la pestaña de datos
+        if (state.settingsActiveTab === 'data') {
+            state.snapshots = await FirebaseService.listSnapshots();
+        }
+        
+        state.syncStatus = 'synced';
+
+        showNotification('✅ Estado general sincronizado', 'success');
+        render();
+    } catch (e) {
+        state.syncStatus = 'error';
+        showNotification('❌ Error al sincronizar con Firebase', 'error');
+        render();
+    }
+};
+
+window.syncHistoryNow = async () => {
+    if (!window.currentUser) {
+        showNotification('⚠️ Debes iniciar sesión con Google primero', 'warning');
+        return;
+    }
+    
+    try {
+        state.syncStatus = 'syncing';
+        render();
+        showNotification('🚀 Iniciando sincronización masiva...', 'info');
+        
+        await FirebaseService.syncHistory(state.attendance);
+        
+        // Fase 4: Refrescar la lista si estamos en la pestaña de datos
+        if (state.settingsActiveTab === 'data') {
+            state.snapshots = await FirebaseService.listSnapshots();
+        }
+        
+        state.syncStatus = 'synced';
+
+        showNotification('✅ Todo el historial ha sido sincronizado', 'success');
+        render();
+    } catch (e) {
+        state.syncStatus = 'error';
+        showNotification('❌ Error en sincronización de historial', 'error');
+        render();
+    }
+};
+
+window.createFirebaseSnapshot = async () => {
+    try {
+        showNotification('📸 Creando snapshot...', 'info');
+        await FirebaseService.createSnapshot(state, 'manual');
+        
+        // Fase 4: Refrescar la lista si estamos en la pestaña de datos
+        if (state.settingsActiveTab === 'data') {
+            state.isLoadingSnapshots = true;
+            render();
+            state.snapshots = await FirebaseService.listSnapshots();
+            state.isLoadingSnapshots = false;
+        }
+        
+        showNotification('✅ Snapshot guardado en la nube', 'success');
+        render();
+    } catch (e) {
+        console.error('Error creando snapshot:', e);
+        showNotification('❌ Error al crear snapshot', 'error');
+        state.isLoadingSnapshots = false;
+        render();
+    }
+};
+
+
+window.updateBackupFrequency = (value) => {
+    state.settings.backupFrequency = value;
+    saveApplicationData();
+    showNotification(`📅 Frecuencia de backup: ${value}`, 'info');
+};
+
+// Getters/Setters para mantener las variables globales sincronizadas (Migrado a Firebase)
+let _autoSyncEnabled = false;
+
 Object.defineProperties(window, {
     useSupabase: {
-        get: () => supabaseService.useSupabase,
-        set: (v) => supabaseService.useSupabase = v
-    },
-    currentUser: {
-        get: () => supabaseService.currentUser,
-        set: (v) => supabaseService.currentUser = v
+        get: () => false, // Supabase desactivado
+        set: (v) => {} 
     },
     isSyncing: {
-        get: () => supabaseService.isSyncing,
-        set: (v) => supabaseService.isSyncing = v
+        get: () => state.syncStatus === 'syncing',
+        set: (v) => state.syncStatus = v ? 'syncing' : 'synced'
     },
     autoSyncEnabled: {
-        get: () => supabaseService.autoSyncEnabled,
-        set: (v) => supabaseService.autoSyncEnabled = v
+        get: () => _autoSyncEnabled,
+        set: (v) => _autoSyncEnabled = v
     }
 });
 
-function generateUUID() { return supabaseService.generateUUID(); }
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
 
 // Helper Functions
 // Movido a js/modules/utils/DateUtils.js y js/modules/utils/Formatters.js
@@ -2575,7 +2683,7 @@ window.deleteCurrentAttendance = function () {
         () => { if (previousAtt) state.attendance[key] = previousAtt; }
     );
 
-    saveApplicationData();
+    saveApplicationData({ dateKey: getDateKey(state.selectedDate) });
     closeModal();
     render();
 };
@@ -2627,15 +2735,55 @@ async function saveToIndexedDB(options = {}) {
 async function saveApplicationData(options = {}) {
     if (window._isSavingData) return;
     window._isSavingData = true;
+
     if (!state.isDataLoaded) {
         console.warn('⚠️ Intento de guardado ignorado: los datos aún no se han cargado completamente.');
+        window._isSavingData = false;
         return;
     }
-    console.log('🔵 saveApplicationData() iniciado');
+    console.log('🔵 saveApplicationData() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
-    // Auto-sync de Supabase si aplica
-    supabaseService.handleAutoSync();
-    // ═══════════════════════════════════════════════════════════
+    // ☁️ Sincronización con Firebase (Fase 3 - Granular & Mirror Sync)
+    if (window.currentUser) {
+        // 1. Sincronización Granular (solo si se especifica una fecha)
+        if (options.dateKey) {
+            const dayRecords = {};
+            const suffix = `-${options.dateKey}`;
+            Object.entries(state.attendance).forEach(([key, record]) => {
+                if (key.endsWith(suffix)) {
+                    dayRecords[key] = record;
+                }
+            });
+            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => 
+                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e)
+            );
+        }
+
+        // 2. Sincronización Espejo (Full State) - se mantiene como respaldo secundario
+        FirebaseService.saveFullState(state).catch(e => 
+            console.error('⚠️ Error en sincronización espejo con Firebase:', e)
+        );
+
+        // Lógica de Backup Automático (Snapshots)
+        const freq = state.settings.backupFrequency || 'none';
+        if (freq !== 'none') {
+            const now = Date.now();
+            const lastBackup = state.settings.lastSnapshotTimestamp || 0;
+            const intervals = {
+                daily: 24 * 60 * 60 * 1000,
+                weekly: 7 * 24 * 60 * 60 * 1000,
+                monthly: 30 * 24 * 60 * 60 * 1000
+            };
+
+            if (now - lastBackup > (intervals[freq] || Infinity)) {
+                FirebaseService.createSnapshot(state, 'auto').then(() => {
+                    state.settings.lastSnapshotTimestamp = now;
+                    // No llamamos a saveApplicationData aquí para evitar bucles,
+                    // se guardará en el siguiente paso de IndexedDB.
+                }).catch(e => console.error('Error en backup automático:', e));
+            }
+        }
+    }
 
     if (state.useIndexedDB) {
         console.log('💾 Guardando en IndexedDB...');
@@ -2649,7 +2797,6 @@ async function saveApplicationData(options = {}) {
                 console.warn('⚡ Conflicto de integridad detectado. Abriendo gestor de conflictos...');
                 new SyncConflictModal({
                     error: error.message,
-                    supabaseService: supabaseService,
                     onResolved: (type) => {
                         console.log(`✅ Conflicto resuelto via: ${type}`);
                         showNotification('✅ Sincronización re-establecida', 'success');
@@ -3121,7 +3268,8 @@ function _calculateStatsOriginal() {
     const dateKey = getDateKey(state.selectedDate);
     const todayAtt = Object.values(state.attendance).filter(a => a.date === dateKey);
     const present = todayAtt.filter(a => a.present).length;
-    const activeEmps = state.employees.filter(e => e.active).length;
+    const activeEmps = state.employees.filter(e => wasEmployeeActiveOnDate(e, state.selectedDate)).length;
+
     const absent = activeEmps - present;
     const totalHours = todayAtt.reduce((sum, a) => sum + (a.present ? a.hoursWorked : 0), 0);
     const overtimeHours = todayAtt.reduce((sum, a) => {
@@ -3191,11 +3339,84 @@ window.changeTab = (tab) => {
     }
 };
 
-// ⚡ NUEVO: Cambiar pestaña de configuración
-window.changeSettingsTab = (tab) => {
+// ⚡ NUEVO: Cambiar pestaña de configuración (Asíncrono para Snapshots)
+window.changeSettingsTab = async (tab) => {
     state.settingsActiveTab = tab;
     render();
+
+    // Fase 4: Si entramos en la pestaña de datos, cargar snapshots de la nube
+    if (tab === 'data' && window.currentUser) {
+        try {
+            state.isLoadingSnapshots = true;
+            render();
+            
+            const snaps = await FirebaseService.listSnapshots();
+            state.snapshots = snaps;
+            
+            state.isLoadingSnapshots = false;
+            render();
+        } catch (e) {
+            console.error('Error cargando snapshots:', e);
+            state.isLoadingSnapshots = false;
+            render();
+        }
+    }
 };
+
+// ⚡ NUEVO: Restaurar Snapshot desde Firebase (Fase 4)
+window.restoreSnapshot = async (snapshotId) => {
+    if (!window.currentUser) return;
+
+    // Confirmación brutalmente honesta como pide el usuario
+    const confirmed = await Modal.confirm({
+        title: '⚠️ Advertencia de Restauración',
+        message: '¿Estás REALMENTE seguro? Esta acción borrará TODO tu estado actual (empleados, posiciones y asistencia) para reemplazarlo por los datos de esta captura. No hay vuelta atrás.',
+        confirmText: 'Sí, Sobreiscribir Todo',
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+        state.isLoadingSnapshots = true;
+        render();
+        Notification.info('⏳ Restaurando sistema...', 0);
+
+        const snapshot = await FirebaseService.getSnapshot(snapshotId);
+        
+        if (!snapshot || !snapshot.state) {
+            throw new Error('El snapshot está vacío o corrupto');
+        }
+
+        // Aplicar datos al estado global
+        state.employees = snapshot.state.employees || [];
+        state.positions = snapshot.state.positions || [];
+        state.attendance = snapshot.state.attendance || {};
+        
+        // Mezclar settings con precaución (mantener flags de sesión si existen)
+        if (snapshot.state.settings) {
+            state.settings = { ...state.settings, ...snapshot.state.settings };
+        }
+
+
+        // Persistencia crítica: IndexedDB y Mirror
+        await saveApplicationData();
+        
+        Notification.clearAll();
+        Notification.success('✅ Sistema restaurado con éxito', 5000);
+        
+        state.isLoadingSnapshots = false;
+        render();
+        
+    } catch (e) {
+        console.error('Error fatal en restauración:', e);
+        Notification.error('❌ Error al restaurar: ' + e.message);
+        state.isLoadingSnapshots = false;
+        render();
+    }
+};
+
 
 window.changeDate = (days) => {
     // Si estamos en vista semanal, cambiar por semanas completas (7 días)
@@ -3370,8 +3591,8 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         );
     }
 
-    // ✅ Guardar cambios en localStorage
-    saveApplicationData();
+    // ✅ Guardar cambios con dateKey para sync granular
+    saveApplicationData({ dateKey: getDateKey(date) });
 
     // ⚡⚡⚡ ULTRA-SELECTIVO: Solo actualizar el checkbox, NO toda la fila
     if (state.viewMode === 'day') {
@@ -4332,6 +4553,9 @@ window.saveAdvancedAttendance = () => {
     // Mostrar notificación
     showNotification('✅ Asistencia guardada correctamente', 'success');
 
+    // ✅ Guardar en localStorage y Firebase (Granular)
+    saveApplicationData({ dateKey: dateKey });
+
     // Re-renderizar
     render();
 };
@@ -4442,7 +4666,7 @@ window.handleWeekCheck = (empId, dateStr) => {
             }
         );
 
-        saveApplicationData();
+        saveApplicationData({ dateKey: dateStr });
 
         state.isProcessingClick = false;
         render();
@@ -4481,11 +4705,11 @@ window.removeAttendance = (empId, dateStr) => {
         () => { if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt; }
     );
 
-    saveApplicationData();
+    saveApplicationData({ dateKey: dateStr });
     render();
 };
 window.markDayAsHoliday = () => {
-    holidayService.toggleSelectedDayHoliday(() => saveApplicationData());
+    holidayService.toggleSelectedDayHoliday(() => saveApplicationData({ dateKey: getDateKey(state.selectedDate) }));
     render();
 };
 
@@ -5474,7 +5698,8 @@ function PositionFilters() {
         seenNames.add(pos.name);
         return true;
     });
-    const activeEmployees = state.employees.filter(e => e.active);
+    const activeEmployees = state.employees.filter(e => wasEmployeeActiveOnDate(e, state.selectedDate));
+
 
     // Contar empleados por posición (incluir duplicados del mismo nombre)
     const positionCounts = {};
@@ -10128,16 +10353,16 @@ class OnboardingWizard {
     }
 
     skipToCloudLogin() {
-        // Completar onboarding y abrir login de Supabase
+        // Completar onboarding y abrir login de Firebase
         localStorage.setItem('onboardingCompleted', 'true');
         state.showOnboarding = false;
 
         // Primero renderizar para quitar el overlay de onboarding
         render();
 
-        // Luego abrir modal de Supabase
+        // Luego abrir login con Google
         setTimeout(() => {
-            showSupabaseLogin();
+            FirebaseService.loginWithGoogle();
         }, 200);
     }
 
@@ -10314,8 +10539,8 @@ document.head.appendChild(styleTag);
             restoreAutoBackup();
         }
 
-        // 4. Inicializar Auth y Sincronización
-        await supabaseService.initAuth();
+        // 4. Inicializar Auth y Sincronización (Migrado a FirebaseService)
+        // Firebase ya inicializa Auth al cargar el módulo
 
         // 5. Preparar UI
         onboardingWizard.show();

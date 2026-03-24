@@ -1,9 +1,7 @@
-/**
- * SettingsUI.js - Renderizado de la pestaña de Configuración
- * Extraído de app.js para reducir el tamaño del archivo principal.
- */
+import { DateUtils } from '../utils/DateUtils.js';
 
 let context = {};
+
 
 export function initSettingsUI(dependencies) {
     context = dependencies;
@@ -151,22 +149,17 @@ function StorageCard(stats) {
 }
 
 export function SyncCard(status) {
-    const isConnected = status.connected;
+    const currentUser = window.currentUser;
+    const isConnected = !!currentUser;
     const statusColor = isConnected ? '#10b981' : '#64748b';
     const statusIcon = isConnected ? '✅' : '⚪';
     const statusText = isConnected ? 'Conectado' : 'Sin conexión';
-
-    const delta = isConnected ? (status.cloudEmployees - status.localEmployees) : 0;
-    const deltaText = delta === 0 ? 'Sincronizado' :
-        delta > 0 ? `+${delta} en nube` :
-            `${delta} en nube`;
-    const deltaColor = delta === 0 ? '#10b981' : '#f59e0b';
 
     return `
                 <div style="background: #0f172a; border-radius: 12px; padding: 16px; border: 1px solid #334155;">
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
                         <span style="font-size: 1.5rem;">☁️</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.95rem;">Sincronización</span>
+                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.95rem;">Sincronización (Firebase)</span>
                     </div>
                     
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
@@ -177,27 +170,12 @@ export function SyncCard(status) {
                     </div>
                     
                     ${isConnected ? `
-                        <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">
-                            Última sync: ${status.timeAgo}
-                        </div>
-                        
-                        <div style="background: #1e293b; padding: 8px; border-radius: 6px; margin-top: 8px;">
-                            <div style="font-size: 0.7rem; color: #64748b; margin-bottom: 4px;">Comparación:</div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
-                                <span style="color: #94a3b8;">
-                                    Local: <strong style="color: #06b6d4;">${status.localEmployees}</strong> emp
-                                </span>
-                                <span style="color: #94a3b8;">
-                                    Nube: <strong style="color: #06b6d4;">${status.cloudEmployees}</strong> emp
-                                </span>
-                            </div>
-                            <div style="font-size: 0.7rem; color: ${deltaColor}; margin-top: 4px; text-align: center;">
-                                ${deltaText}
-                            </div>
+                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${currentUser.email}
                         </div>
                     ` : `
                         <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            Conecta a Supabase para sincronización en la nube
+                            Usa tu cuenta de Google para respaldar tus datos.
                         </div>
                     `}
                 </div>
@@ -250,97 +228,65 @@ function SettingsTabGeneral() {
 // ============================================
 function SettingsTabData() {
     const state = getState();
-    const useSupabase = context.useSupabase;
     const currentUser = context.currentUser;
-    const autoSyncEnabled = context.autoSyncEnabled;
 
     return `
-                    <!-- Sincronización con Supabase -->
-                    <div style="background: linear-gradient(135deg, rgba(6,182,212,0.1), rgba(16,185,129,0.1)); border-radius: 12px; padding: 24px; margin-top: 20px; border: 2px solid ${useSupabase ? '#10b981' : '#334155'};">
-                        <h3 style="margin: 0 0 12px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 10px;">
-                            ☁️ Sincronización en la Nube
-                        </h3>
+                    <!-- Sincronización con Firebase (Google) -->
+                    <div style="background: linear-gradient(135deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1)); border-radius: 12px; padding: 24px; margin-top: 20px; border: 2px solid ${currentUser ? '#4285F4' : '#334155'};">
+                        <h2 style="margin: 0 0 12px 0; font-size: 1.25rem; color: #f1f5f9; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                            <span>☁️</span> Sincronización en la Nube
+                        </h2>
                         
-                        ${!useSupabase ? `
-                            <!-- Estado: NO conectado -->
-                            <div style="color: #94a3b8; margin-bottom: 16px; line-height: 1.7;">
-                                <strong>Estado actual:</strong> Trabajando en modo local<br>
-                                <span style="font-size: 0.875rem;">Los datos se guardan solo en este dispositivo (localStorage)</span>
+                        ${!currentUser ? `
+                            <div style="color: #94a3b8; margin-bottom: 20px; line-height: 1.6;">
+                                Conecta tu cuenta de Google para respaldar tus datos y acceder desde cualquier dispositivo.
                             </div>
                             
-                            <div style="background: rgba(6,182,212,0.1); padding: 14px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #06b6d4;">
-                                <div style="font-size: 0.9rem; color: #e0f2fe; margin-bottom: 8px; font-weight: 600;">
-                                    ✨ Beneficios de conectar con Supabase:
-                                </div>
-                                <ul style="margin: 0; padding-left: 20px; color: #94a3b8; font-size: 0.875rem; line-height: 1.8;">
-                                    <li>📱 Accede desde celular, tablet y PC</li>
-                                    <li>🔄 Sincronización automática entre dispositivos</li>
-                                    <li>☁️ Tus datos seguros en la nube</li>
-                                    <li>👥 Trabajo en equipo (próximamente)</li>
-                                    <li>💾 Backup automático</li>
-                                </ul>
-                            </div>
-                            
-                            <button onclick="showSupabaseLogin()" class="btn-primary" style="width: 100%; padding: 14px; font-size: 1rem;">
-                                🚀 Conectar con Supabase (Gratis)
+                            <button onclick="loginWithGoogle()" class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; background: white; color: #374151; font-weight: 600; border: 1px solid #d1d5db; transition: all 0.2s;">
+                                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" height="20">
+                                Continuar con Google
                             </button>
-                            
-                            <div style="margin-top: 12px; padding: 10px; background: rgba(245,158,11,0.1); border-radius: 6px; font-size: 0.8rem; color: #fbbf24;">
-                                💡 <strong>Primera vez:</strong> Haz clic en "Registrarse" para crear tu cuenta. Tus datos locales se migrarán automáticamente.
-                            </div>
                         ` : `
-                            <!-- Estado: Conectado -->
-                            <div style="background: rgba(16,185,129,0.15); padding: 16px; border-radius: 8px; margin-bottom: 16px; border: 2px solid #10b981;">
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                                    <div style="width: 10px; height: 10px; background: #10b981; border-radius: 50%; animation: pulse 2s infinite;"></div>
-                                    <span style="color: #10b981; font-weight: 700; font-size: 1rem;">✅ Conectado a la Nube</span>
+                            <div style="background: rgba(16, 185, 129, 0.1); padding: 16px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #10b981; display: flex; align-items: center; gap: 12px;">
+                                <img src="${currentUser.photoURL || ''}" style="width: 40px; height: 40px; border-radius: 50%; background: #334155;" onerror="this.src='https://ui-avatars.com/api/?name=${currentUser.displayName}'">
+                                <div style="flex: 1;">
+                                    <div style="color: #f1f5f9; font-weight: 600; font-size: 0.95rem;">${currentUser.displayName || 'Usuario'}</div>
+                                    <div style="color: #94a3b8; font-size: 0.8rem;">${currentUser.email}</div>
                                 </div>
-                                <div style="color: #94a3b8; font-size: 0.875rem;">
-                                    <strong>Usuario:</strong> ${currentUser?.email || 'Desconocido'}<br>
-                                    <strong>Auto-sync:</strong> ${autoSyncEnabled ? '🟢 Activado' : '🔴 Desactivado'}
-                                </div>
+                                <div style="color: #10b981; font-size: 0.75rem; font-weight: 700;">CONECTADO</div>
                             </div>
-                            
-                            <!-- Botones de Sincronización Manual -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
-                                <button onclick="uploadToCloud()" class="btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
-                                    <span>📤</span>
-                                    <span style="font-size: 0.9rem;">Subir Datos</span>
+
+                            <!-- Controles de Fase 2 y 3 -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                                <button onclick="syncFirebaseNow()" class="btn-secondary" style="background: rgba(66, 133, 244, 0.1); color: #4285F4; border: 1px solid rgba(66, 133, 244, 0.2); padding: 12px; font-size: 0.85rem;">
+                                   🔄 Sincronizar Todo
                                 </button>
-                                <button onclick="downloadFromCloud()" class="btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; background: linear-gradient(135deg, #06b6d4, #0891b2);">
-                                    <span>☁️</span>
-                                    <span style="font-size: 0.9rem;">Descargar</span>
+                                <button onclick="syncHistoryNow()" class="btn-secondary" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); padding: 12px; font-size: 0.85rem;">
+                                   📅 Sinc. Historial
+                                </button>
+                                <button onclick="createFirebaseSnapshot()" class="btn-secondary" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px; font-size: 0.85rem; grid-column: span 2;">
+                                   📸 Crear Snapshot (Backup Completo)
                                 </button>
                             </div>
-                            
-                            <!-- Toggle Auto-Sync -->
-                            <div style="background: rgba(6,182,212,0.1); padding: 14px; border-radius: 8px; margin-bottom: 12px;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                    <div>
-                                        <div style="font-weight: 600; color: #f1f5f9; font-size: 0.95rem; margin-bottom: 4px;">⚡ Sincronización Automática</div>
-                                        <div style="font-size: 0.8rem; color: #94a3b8; line-height: 1.5;">
-                                            ${autoSyncEnabled
-            ? 'Los cambios se suben automáticamente después de 3 segundos de inactividad'
-            : 'Usa los botones de arriba para sincronizar manualmente'}
-                                        </div>
-                                    </div>
-                                    <button onclick="toggleAutoSync()" style="min-width: 60px; padding: 8px 16px; border-radius: 20px; border: 2px solid ${autoSyncEnabled ? '#10b981' : '#64748b'}; background: ${autoSyncEnabled ? '#10b981' : '#1e293b'}; color: white; font-weight: 700; cursor: pointer; transition: all 0.2s;">
-                                        ${autoSyncEnabled ? 'ON' : 'OFF'}
-                                    </button>
-                                </div>
+
+                            <div class="form-group" style="margin-bottom: 20px;">
+                                <label class="form-label" style="font-size: 0.85rem; color: #94a3b8;">Frecuencia de Backup Automático</label>
+                                <select id="backupFrequency" onchange="updateBackupFrequency(this.value)" class="form-input" style="background: #0f172a; border-color: #334155;">
+                                    <option value="none" ${state.settings.backupFrequency === 'none' ? 'selected' : ''}>Desactivado</option>
+                                    <option value="daily" ${state.settings.backupFrequency === 'daily' ? 'selected' : ''}>Diario</option>
+                                    <option value="weekly" ${state.settings.backupFrequency === 'weekly' ? 'selected' : ''}>Semanal</option>
+                                    <option value="monthly" ${state.settings.backupFrequency === 'monthly' ? 'selected' : ''}>Mensual</option>
+                                </select>
                             </div>
                             
-                            <!-- Botón Desconectar -->
-                            <button onclick="disconnectSupabase()" class="btn-secondary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                <span>🔌</span>
-                                <span>Desconectar de la Nube</span>
+                            <button onclick="logoutFirebase()" style="width: 100%; padding: 10px; background: none; border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
+                                Cerrar Sesión
                             </button>
-                            
-                            <div style="margin-top: 12px; padding: 12px; background: rgba(245,158,11,0.1); border-radius: 6px; font-size: 0.8rem; color: #fbbf24; line-height: 1.6;">
-                                💡 <strong>Tip:</strong> Usa <strong>Subir Datos</strong> para enviar tus cambios locales a la nube, o <strong>Descargar</strong> para obtener los últimos datos de otro dispositivo.
-                            </div>
                         `}
                     </div>
+
+                    <!-- Fase 4: Historial de Snapshots -->
+                    ${currentUser ? SnapshotHistory() : ''}
                     
                     <!-- Gestión de Datos -->
                     <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-top: 20px; border: 1px solid #334155;">
@@ -738,4 +684,61 @@ function SettingsForm() {
 
 function SettingsHolidayCalendar() {
     return context.holidayService.renderSettingsCalendar();
+}
+
+// ============================================
+// COMPONENTE: HISTORIAL DE SNAPSHOTS (Fase 4)
+// ============================================
+function SnapshotHistory() {
+    const state = getState();
+    const snapshots = state.snapshots || [];
+    const isLoading = state.isLoadingSnapshots;
+
+    return `
+        <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-top: 20px; border: 1px solid #334155;">
+            <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                <span>🕒</span> Historial de Versiones (Snapshots)
+            </h3>
+            
+            ${isLoading ? `
+                <div style="padding: 20px; text-align: center; color: #94a3b8;">
+                    <div class="spinner" style="margin: 0 auto 10px;"></div>
+                    Cargando versiones desde la nube...
+                </div>
+            ` : snapshots.length === 0 ? `
+                <div style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
+                    No hay snapshots disponibles en esta cuenta.
+                </div>
+            ` : `
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    ${snapshots.map(snap => `
+                        <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                    <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: ${snap.type === 'auto' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(6, 182, 212, 0.1)'}; color: ${snap.type === 'auto' ? '#10b981' : '#06b6d4'}; border: 1px solid currentColor;">
+                                        ${snap.type === 'auto' ? 'AUTO' : 'MANUAL'}
+                                    </span>
+                                    <span style="color: #f1f5f9; font-weight: 600; font-size: 0.9rem;">
+                                        ${DateUtils.formatDateTime(snap.createdAt)}
+                                    </span>
+
+                                </div>
+                                <div style="color: #94a3b8; font-size: 0.75rem;">
+                                    👥 ${snap.employeeCount} empleados | 📝 ${snap.attendanceCount} registros
+                                </div>
+                            </div>
+                            <button onclick="restoreSnapshot('${snap.id}')" 
+                                    style="padding: 8px 16px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">
+                                ⏪ Restaurar
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            `}
+            
+            <p style="margin: 16px 0 0 0; font-size: 0.7rem; color: #64748b; line-height: 1.4;">
+                ⚠️ <strong>Nota:</strong> Al restaurar una versión, se sobrescribirán los datos actuales. Asegúrate de crear un snapshot nuevo antes si no estás seguro.
+            </p>
+        </div>
+    `;
 }

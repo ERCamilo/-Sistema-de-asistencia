@@ -15,11 +15,19 @@ function getIcons() { return icons; }
 // ============================================
 export function SyncIndicator() {
     const state = getState();
-    const useSupabase = window.useSupabase; // global or injected
     const currentUser = window.currentUser;
 
-    if (!useSupabase || !currentUser) {
-        return '';
+    if (!currentUser) {
+        return `
+            <button 
+                class="settings-btn" 
+                style="color: #94a3b8; font-size: 1.25rem;"
+                title="Iniciar sesión con Google"
+                onclick="loginWithGoogle()"
+            >
+                ${icons.get('user')}
+            </button>
+        `;
     }
 
     const status = state.syncStatus;
@@ -58,7 +66,7 @@ export function SyncIndicator() {
             icon: iconsMap.get('check'),
             color: '#10b981',
             text: 'Sincronizado',
-            title: `Última sync: ${state.lastSupabaseSync ? getTimeAgo(new Date(state.lastSupabaseSync)) : 'Nunca'}`
+            title: `Última sync: ${state.lastSync ? getTimeAgo(new Date(state.lastSync)) : 'Recién ahora'}`
         },
         error: {
             icon: iconsMap.get('x-circle'),
