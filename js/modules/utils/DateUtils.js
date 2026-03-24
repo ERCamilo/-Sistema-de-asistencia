@@ -40,6 +40,15 @@ export function formatDate(d) {
     return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]} de ${date.getFullYear()}`;
 }
 
+export function formatDateTime(d) {
+    const date = typeof d === 'string' ? parseDate(d) : d;
+    const base = formatDate(date);
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${base} - ${hours}:${minutes}`;
+}
+
+
 export function formatDateShort(d) {
     // 💡 Convertir string a Date si es necesario
     const date = typeof d === 'string' ? parseDate(d) : d;
@@ -147,5 +156,11 @@ export const DateUtils = {
     // Verificar si es festivo
     isHoliday(dateStr, holidays = []) {
         return holidays.includes(dateStr);
+    },
+
+    // Formatear fecha y hora (Fase 4)
+    formatDateTime(d) {
+        return formatDateTime(d);
     }
 };
+

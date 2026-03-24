@@ -61,8 +61,8 @@ export class ValidationService {
             errors.push('El nombre del líder es requerido');
         }
 
-        if (!data.code || data.code.trim().length === 0) {
-            errors.push('El código del líder es requerido');
+        if (!data.number || String(data.number).trim().length === 0) {
+            errors.push('El número del líder es requerido');
         }
 
         return {

@@ -23,7 +23,7 @@ export class AttendanceService {
             present: true,
             hoursWorked: options.hoursWorked || this.state.settings.regularHoursPerDay,
             overtimeHours: options.overtimeHours || 0,
-            isHoliday: options.isHoliday !== undefined ? options.isHoliday : isDayHoliday(date),
+            isHoliday: options.isHoliday !== undefined ? options.isHoliday : isDayHoliday(date, this.state.settings?.holidays || []),
             selectedPosition: options.selectedPosition || emp.positions[0] || null,
             multiPosition: options.multiPosition || false,
             positionHours: options.positionHours || [],

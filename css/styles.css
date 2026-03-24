@@ -23,6 +23,46 @@
             max-width: 100%;
         }
 
+        /* 📊 UTILIDADES PARA TABLAS RESPONSIVAS */
+        .sticky-table-container {
+            overflow-x: auto;
+            overflow-y: hidden;
+            position: relative;
+            border-radius: 8px;
+            box-shadow: inset -10px 0 10px -10px rgba(0,0,0,0.5); /* Sombra para indicar scroll */
+        }
+
+        .sticky-column {
+            position: sticky;
+            left: 0;
+            z-index: 10;
+            background: #1e293b !important;
+        }
+
+        .sticky-column-2 {
+            position: sticky;
+            left: 32px; /* Offset exacto para el # de 32px */
+            z-index: 9;
+            background: #1e293b !important;
+            border-right: 2px solid #334155 !important;
+        }
+
+        /* Scrollbar moderno */
+        .modern-scroll::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+        .modern-scroll::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        .modern-scroll::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 10px;
+        }
+        .modern-scroll::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
         @media (min-width: 768px) {
             .container {
                 max-width: 80rem;
@@ -31,64 +71,51 @@
             }
         }
 
-        /* Header */
-        .header {
-            background: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(10px);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            border-bottom: 2px solid #06b6d4;
-            padding: 12px 0;
-        }
-
-        .header-content {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .company-name {
-            font-size: 1.25rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #06b6d4, #10b981);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .settings-btn {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            background: #1e293b;
-            border: 2px solid #334155;
-            color: #f1f5f9;
-            display: flex;
+        /* --- GLOBAL BUTTONS --- */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: none;
+            font-family: inherit;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.25rem;
+            gap: 8px;
+            text-decoration: none;
         }
 
-        .settings-btn.sync-indicator-btn {
-            background: transparent;
-            border: none;
-            width: auto;
-            height: auto;
-            padding: 0;
+        .btn-primary {
+            background: linear-gradient(135deg, #06b6d4, #10b981);
+            color: #000;
         }
 
-        /* Navigation */
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+
+        .btn-secondary {
+            background: #1e293b;
+            color: #f1f5f9;
+            border: 2px solid #334155;
+        }
+
+        .btn-secondary:hover {
+            border-color: #475569;
+            background: #334155;
+        }
+
+        /* --- GLOBAL NAVIGATION TABS --- */
         .nav-tabs {
             display: flex;
             gap: 8px;
             overflow-x: auto;
             scrollbar-width: none;
+            padding: 4px 0;
+            margin-bottom: 20px;
         }
 
         .nav-tabs::-webkit-scrollbar {
@@ -97,65 +124,86 @@
 
         .nav-tab {
             padding: 8px 16px;
-            border-radius: 8px;
+            border-radius: 10px;
             background: #1e293b;
             border: 2px solid #334155;
             color: #94a3b8;
             font-size: 0.875rem;
-            font-weight: 600;
+            font-weight: 700;
             white-space: nowrap;
             flex-shrink: 0;
             cursor: pointer;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .nav-tab.active {
             background: #06b6d4;
-            color: #000;
+            color: #1a1a1a;
             border-color: #06b6d4;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
         }
 
-        /* ⚡ NUEVO: Responsive Mobile Navigation */
+        /* ⚡ Responsive Navigation Tabs Hotfix */
         @media (max-width: 768px) {
             .nav-tabs {
-                gap: 4px;
-                width: 100%;
+                gap: 6px;
             }
 
             .nav-tab {
                 flex: 0 0 auto;
                 padding: 10px;
                 min-width: 48px;
-                display: flex;
-                align-items: center;
                 justify-content: center;
-                font-size: 1.25rem;
             }
 
-            /* Ocultar texto en pestañas inactivas */
             .nav-tab:not(.active) .tab-text {
                 display: none;
             }
 
-            /* Pestañas inactivas: solo icono, tamaño fijo */
-            .nav-tab:not(.active) {
-                width: 50px;
-                padding: 10px 8px;
-            }
-
-            /* Pestaña activa: más grande, con icono + texto */
             .nav-tab.active {
                 flex: 1 1 auto;
-                padding: 10px 16px;
-                min-width: auto;
-                font-size: 0.95rem;
-                gap: 8px;
-            }
-
-            .nav-tab.active .tab-text {
-                display: inline;
+                min-width: 120px;
             }
         }
+
+        /* --- FORM STYLES --- */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 700;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: #0f172a;
+            border: 2px solid #334155;
+            color: #f1f5f9;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        .form-input:focus {
+            border-color: #06b6d4;
+            background: rgba(6, 182, 212, 0.05);
+            box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.1);
+        }
+
+
 
         /* Date Controls */
         .date-controls {

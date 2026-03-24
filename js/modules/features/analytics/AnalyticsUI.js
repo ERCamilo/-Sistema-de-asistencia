@@ -59,28 +59,27 @@ function DashboardControls() {
         <div style="font-size: 0.875rem; font-weight: 600; color: #94a3b8; margin-bottom: 12px;">
             PERÍODO DE ANÁLISIS
         </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px;">
-            <div style="position: relative;">
+        <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+            <div style="flex: 1; min-width: 140px; position: relative;">
                 <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Desde:</label>
                 <div class="date-display" onclick="AnalyticsUI.toggleStartDatePicker()"
-                    style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
+                    style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
                     ${formatDateShort(startDate)}
                 </div>
                 ${state.showStartDatePicker ? DashboardStartDatePicker() : ''}
             </div>
-            <div style="position: relative;">
+            <div style="flex: 1; min-width: 140px; position: relative;">
                 <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Hasta:</label>
                 <div class="date-display" onclick="AnalyticsUI.toggleEndDatePicker()"
-                    style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; cursor: pointer;">
+                    style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
                     ${formatDateShort(endDate)}
                 </div>
                 ${state.showEndDatePicker ? DashboardEndDatePicker() : ''}
             </div>
-            <div style="display: flex; flex-direction: column; gap: 4px;">
-                <label style="opacity: 0;">-</label>
-                <button onclick="AnalyticsUI.setDashboardThisWeek()" style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem;">Esta Semana</button>
-                <button onclick="AnalyticsUI.setDashboardThisMonth()" style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem;">Este Mes</button>
-                <button onclick="AnalyticsUI.setDashboardLast30Days()" style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem;">Últimos 30 días</button>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 4px;">
+                <button onclick="AnalyticsUI.setDashboardThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Esta Semana</button>
+                <button onclick="AnalyticsUI.setDashboardThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Este Mes</button>
+                <button onclick="AnalyticsUI.setDashboardLast30Days()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Últimos 30</button>
             </div>
         </div>
     </div>
@@ -462,19 +461,44 @@ function EmployeeReportControls() {
     const startDate = state.employeeReportStartDate;
     const endDate = state.employeeReportEndDate;
     return `
-        <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-                <h2 style="color: #f1f5f9; margin: 0;">${icons.get('info')} Reporte de Empleados</h2>
-                <button onclick="AnalyticsUI.exportEmployeeReportExcel()" style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 12px 24px; border-radius: 8px; cursor: pointer;">${icons.get('info')} Exportar Excel</button>
+        <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="background: rgba(6, 182, 212, 0.1); padding: 8px; border-radius: 8px; color: #06b6d4;">
+                        ${icons.get('reports', { size: 20 })}
+                    </div>
+                    <h2 style="color: #f1f5f9; margin: 0; font-size: 1.25rem; font-weight: 600;">Reporte de Empleados</h2>
+                </div>
+                <button onclick="AnalyticsUI.exportEmployeeReportExcel()" 
+                    style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 10px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.875rem; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
+                    ${icons.get('export', { size: 18 })} Exportar Excel
+                </button>
              </div>
-             <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px;">
-                 <div class="date-display" onclick="AnalyticsUI.toggleEmployeeReportStartPicker()" style="background: #0f172a; padding: 8px 12px; border-radius: 6px; color: #f1f5f9; cursor: pointer;">${formatDateShort(startDate)}</div>
-                 ${state.showEmployeeReportStartPicker ? EmployeeReportStartDatePicker() : ''}
-                 <div class="date-display" onclick="AnalyticsUI.toggleEmployeeReportEndPicker()" style="background: #0f172a; padding: 8px 12px; border-radius: 6px; color: #f1f5f9; cursor: pointer;">${formatDateShort(endDate)}</div>
-                 ${state.showEmployeeReportEndPicker ? EmployeeReportEndDatePicker() : ''}
-                 <div style="display: flex; flex-direction: column; gap: 4px;">
-                    <button onclick="AnalyticsUI.setEmployeeReportThisWeek()" style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem;">Esta Semana</button>
-                    <button onclick="AnalyticsUI.setEmployeeReportThisMonth()" style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem;">Este Mes</button>
+
+             <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+                 <div style="flex: 1; min-width: 140px; position: relative;">
+                    <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Desde:</label>
+                    <div class="date-display" onclick="AnalyticsUI.toggleEmployeeReportStartPicker()" 
+                        style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        ${icons.get('calendar', { size: 14, class: 'text-cyan-500' })}
+                        ${formatDateShort(startDate)}
+                    </div>
+                    ${state.showEmployeeReportStartPicker ? EmployeeReportStartDatePicker() : ''}
+                 </div>
+
+                 <div style="flex: 1; min-width: 140px; position: relative;">
+                    <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Hasta:</label>
+                    <div class="date-display" onclick="AnalyticsUI.toggleEmployeeReportEndPicker()" 
+                        style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                        ${icons.get('calendar', { size: 14, class: 'text-cyan-500' })}
+                        ${formatDateShort(endDate)}
+                    </div>
+                    ${state.showEmployeeReportEndPicker ? EmployeeReportEndDatePicker() : ''}
+                 </div>
+
+                 <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 200px;">
+                    <button onclick="AnalyticsUI.setEmployeeReportThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Esta Semana</button>
+                    <button onclick="AnalyticsUI.setEmployeeReportThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Este Mes</button>
                  </div>
              </div>
         </div>`;
@@ -496,7 +520,8 @@ function EmployeeReportContent() {
 
 function EmployeeReportGeneralSection(reportData) {
     const state = getState();
-    const isCollapsed = state.collapsedPositions['general'];
+    const collapses = state.collapsedPositions || {};
+    const isCollapsed = collapses['general'];
     const allEmployeesMap = new Map();
 
     reportData.positions.forEach(posData => {
@@ -527,7 +552,7 @@ return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; mar
                     <h3 style="margin: 0; color: #f1f5f9;">${icons.get('info')} Resumen General (${allEmployees.length})</h3>
                     <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
                 </div>
-    ${ isCollapsed ? '' : `<div style="overflow-x: auto;">${EmployeeReportGeneralTable(allEmployees, reportData.days)}</div>` }
+    ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll">${EmployeeReportGeneralTable(allEmployees, reportData.days)}</div>` }
             </div>`;
 }
 
@@ -535,20 +560,20 @@ function EmployeeReportGeneralTable(employees, days) {
     return `<table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>
-                        <th style="background: #1e293b; padding: 12px 8px; color: #94a3b8; text-align: left;">#</th>
-                        <th style="background: #1e293b; padding: 12px 8px; color: #94a3b8; text-align: left;">Empleado</th>
-                        ${days.map(d => `<th style="background: #1e293b; padding: 8px 4px; text-align: center; color: ${d.isHoliday ? '#f59e0b' : '#94a3b8'}; font-size: 0.7rem;">
+                        <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px;">#</th>
+                        <th class="sticky-column-2" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Empleado</th>
+                        ${days.map(d => `<th style="background: #1e293b; padding: 8px 4px; text-align: center; color: ${d.isHoliday ? '#f59e0b' : '#94a3b8'}; font-size: 0.7rem; min-width: 32px;">
                             <div>${['D', 'L', 'M', 'X', 'J', 'V', 'S'][d.date.getDay()]}</div><div>${d.date.getDate()}</div>
                         </th>`).join('')}
-                        <th style="background: #1e293b; padding: 12px 8px; color: #10b981;">Días</th>
-                        <th style="background: #1e293b; padding: 12px 8px; color: #3b82f6;">Horas</th>
+                        <th style="background: #1e293b; padding: 12px 8px; color: #10b981; min-width: 50px;">Días</th>
+                        <th style="background: #1e293b; padding: 12px 8px; color: #3b82f6; min-width: 50px;">Horas</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${employees.map((emp, idx) => `
-                        <tr style="background: ${idx % 2 === 0 ? '#0f172a' : 'transparent'};">
-                            <td style="padding: 10px 8px; color: #94a3b8; border-bottom: 1px solid #1e293b;">${emp.number}</td>
-                            <td style="padding: 10px 8px; color: #f1f5f9; border-bottom: 1px solid #1e293b;">${emp.name}</td>
+                        <tr style="background: ${idx % 2 === 0 ? '#0f172a' : '#1e293b'};">
+                            <td class="sticky-column" style="padding: 10px 8px; color: #94a3b8; border-bottom: 1px solid #334155; background: inherit; width: 32px; min-width: 32px;">${emp.number}</td>
+                            <td class="sticky-column-2" style="padding: 10px 8px; color: #f1f5f9; border-bottom: 1px solid #334155; background: inherit; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${emp.name}">${emp.name}</td>
                             ${days.map(d => {
         const val = emp.dayValues[getDateKey(d.date)];
         let color = '#334155';
@@ -570,7 +595,8 @@ function EmployeeReportGeneralTable(employees, days) {
 
 function EmployeeReportPositionSection(posData, days) {
     const state = getState();
-    const isCollapsed = state.collapsedPositions[posData.position.id];
+    const collapses = state.collapsedPositions || {};
+    const isCollapsed = collapses[posData.position.id];
     return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
     <div onclick="AnalyticsUI.togglePositionCollapse('${posData.position.id}')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
         <div style="display: flex; align-items: center; gap: 12px;">
@@ -579,7 +605,7 @@ function EmployeeReportPositionSection(posData, days) {
         </div>
         <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
     </div>
-                ${ isCollapsed ? '' : `<div style="overflow-x: auto;">${EmployeeReportTable(posData, days)}</div>` }
+                ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll">${EmployeeReportTable(posData, days)}</div>` }
             </div>`;
 }
 
@@ -587,17 +613,17 @@ function EmployeeReportTable(posData, days) {
     return `<table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>
-                        <th style="background: #1e293b; padding: 12px 8px; color: #94a3b8; text-align: left;">#</th>
-                        <th style="background: #1e293b; padding: 12px 8px; color: #94a3b8; text-align: left;">Nombre</th>
-                        ${days.map(d => `<th style="padding: 8px 4px; text-align: center; color: #fff; background: ${d.isHoliday ? '#f59e0b' : '#3b82f6'}; min-width: 30px; font-size: 0.75rem;">${d.date.getDate()}</th>`).join('')}
-                        <th style="padding: 12px 8px; color: #10b981; background: #1e293b;">TOTAL</th>
+                        <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px;">#</th>
+                        <th class="sticky-column-2" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Nombre</th>
+                        ${days.map(d => `<th style="padding: 8px 4px; text-align: center; color: #fff; background: ${d.isHoliday ? '#f59e0b' : '#3b82f6'}; min-width: 32px; font-size: 0.75rem;">${d.date.getDate()}</th>`).join('')}
+                        <th style="padding: 12px 8px; color: #10b981; background: #1e293b; min-width: 60px;">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${posData.employees.map(emp => `
                         <tr style="border-bottom: 1px solid #334155;">
-                            <td style="background: #1e293b; padding: 12px 8px; color: #f1f5f9;">${emp.number}</td>
-                            <td style="background: #1e293b; padding: 12px 8px; color: #f1f5f9;">${emp.name}</td>
+                            <td class="sticky-column" style="padding: 12px 8px; color: #f1f5f9; background: inherit; width: 32px; min-width: 32px;">${emp.number}</td>
+                            <td class="sticky-column-2" style="padding: 12px 8px; color: #f1f5f9; background: inherit; width: 130px; min-width: 130px; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${emp.name}">${emp.name}</td>
                             ${days.map(d => {
         const val = emp.dayValues[getDateKey(d.date)] || 0;
         let color = '#334155';
@@ -648,7 +674,7 @@ function calculateEmployeeReportData() {
                         const posHours = att.positionHours.find(ph => ph.positionId === position.id);
                         if (posHours) dayValue = (posHours.hours || 0) / regularHours;
                     } else {
-                        const selectedPos = att.selectedPosition || emp.positions[0];
+                        const selectedPos = att.selectedPosition || (emp.positions || [])[0];
                         if (selectedPos !== position.id) return;
                         dayValue = (att.hoursWorked || 0) / regularHours;
                     }
@@ -768,6 +794,7 @@ export function setEmployeeReportThisMonth() { employeeReportDateManagerV2.setTh
 export function setEmployeeReportLast30Days() { employeeReportDateManagerV2.setLast30Days(); memoCache.clear('report-'); context.render(); }
 export function togglePositionCollapse(id) {
     const state = getState();
+    if (!state.collapsedPositions) state.collapsedPositions = {};
     state.collapsedPositions[id] = !state.collapsedPositions[id];
     context.render();
 }
@@ -898,7 +925,7 @@ export async function exportEmployeeReportExcel() {
                             const posHours = att.positionHours.find(ph => ph.positionId === position.id);
                             if (posHours) dayValue = (posHours.hours || 0) / regularHours;
                         } else {
-                            const selectedPos = att.selectedPosition || emp.positions[0];
+                            const selectedPos = att.selectedPosition || (emp.positions || [])[0];
                             if (selectedPos !== position.id) return;
                             dayValue = (att.hoursWorked || 0) / regularHours;
                         }
