@@ -6,8 +6,33 @@ export class PayrollService {
     }
 
     getSalaryConfig(employee) {
+        // ⚡ NUEVO: Priorizar sueldos por posición (Nuevo Sistema)
+        const hasPositionSalaries = employee.positionSalaries && Object.keys(employee.positionSalaries).length > 0;
+        
+        if (hasPositionSalaries) {
+            const firstPosId = employee.positions[0];
+            const hourlyRate = employee.positionSalaries[firstPosId];
+            
+            if (hourlyRate) {
+                const regularHours = this.state.settings?.regularHoursPerDay || 8;
+                // ⚡ CORREGIDO: Usar factor weeks (4.333) * workDays en lugar de 30 fijo
+                const workDays = employee.positions[0] ? 
+                    (this.state.positions.find(p => p.id === employee.positions[0])?.workingDays || [1,2,3,4,5,6]) : 
+                    [1,2,3,4,5,6];
+                
+                const monthlyAmount = hourlyRate * regularHours * (workDays.length * 4.333);
+                
+                return {
+                    type: 'custom',
+                    amount: Math.round(monthlyAmount),
+                    period: 'month',
+                    workDays: workDays
+                };
+            }
+        }
+
         if (!employee.salaryConfig) {
-            // Migrar datos antiguos
+            // Migrar datos antiguos (Sistema Legacy)
             if (employee.customSalary) {
                 return {
                     type: 'custom',
@@ -20,12 +45,24 @@ export class PayrollService {
                 if (pos?.salaryConfig) {
                     return pos.salaryConfig;
                 }
+                // Fallback a hourlyRate de la posición si existe
+                if (pos?.hourlyRate) {
+                    const regularHours = this.state.settings?.regularHoursPerDay || 8;
+                    const workDays = pos.workingDays || [1, 2, 3, 4, 5, 6];
+                    return {
+                        type: 'standard',
+                        amount: Math.round(pos.hourlyRate * regularHours * (workDays.length * 4.333)),
+                        period: 'month',
+                        workDays: workDays
+                    };
+                }
                 return { amount: 0, period: 'month', workDays: [] };
             }
         }
 
         if (employee.salaryConfig.type === 'standard') {
-            const pos = this.state.positions.find(p => p.id === employee.salaryConfig.positionId);
+            const posId = employee.salaryConfig.positionId || employee.positions[0];
+            const pos = this.state.positions.find(p => p.id === posId);
             if (pos?.salaryConfig) {
                 return pos.salaryConfig;
             }
@@ -185,7 +222,8 @@ export class PayrollService {
             const subtotal = regularAmount + overtimeAmount + holidayAmount;
 
             // 6. Calcular sueldo mensual equivalente (para mostrar)
-            const monthlyEquivalent = hourlyRate * this.state.settings.regularHoursPerDay * 30;
+            const workDaysCount = (pos.workingDays && pos.workingDays.length > 0) ? pos.workingDays.length : 6;
+            const monthlyEquivalent = hourlyRate * this.state.settings.regularHoursPerDay * (workDaysCount * 4.333);
 
             breakdown.push({
                 positionId: posId,

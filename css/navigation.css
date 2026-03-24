@@ -87,6 +87,11 @@
         visibility: hidden;
     }
 
+    /* 🚀 OCULTAR HEADER EN MODO INMERSIVO */
+    body.bottom-nav-hidden .header {
+        display: none;
+    }
+
     body.bottom-nav-hidden .landscape-toggle-btn {
         bottom: 20px;
         background: rgba(30, 41, 59, 0.8);

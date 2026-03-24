@@ -7227,7 +7227,7 @@ function PositionFormModal() {
     }).join('')}
                             </div>
                             <div style="font-size: 0.7rem; color: #64748b; margin-top: 12px;">
-                                💡 Esto se usa para calcular el salario mensual estimado (días/sem × 4.33 × horas/día)
+                                💡 Esto se usa para calcular el salario mensual estimado (días/sem × 4.333 × horas/día)
                             </div>
                         </div>
                         
@@ -7271,6 +7271,12 @@ function PositionFormModal() {
                 </div>
             </div>`;
 }
+// ⚡ Helper para calcular días laborables en una semana genérica
+function weekDatesForPosition(workingDays = [1, 2, 3, 4, 5]) {
+    // Si no hay días definidos, asumimos lunes a viernes
+    const days = (workingDays && workingDays.length > 0) ? workingDays : [1, 2, 3, 4, 5];
+    return days;
+}
 
 // ⚡ NUEVO: Actualizar preview de tarifas
 window.updateHourlyRatePreview = function () {
@@ -7281,13 +7287,14 @@ window.updateHourlyRatePreview = function () {
     const regularHours = state.settings.regularHoursPerDay || 8;
     const overtimeFactor = state.settings.overtimeFactor || 1.5;
     const holidayFactor = state.settings.holidayFactor || 2;
-    const weekDates = weekDatesForPosition(state.editingPosition?.workingDays || [1, 2, 3, 4, 5]);
+    const weekDates = weekDatesForPosition(state.editingPosition?.workingDays);
+    const daysPerWeek = weekDates.length;
 
     const dailyRate = hourlyRate * regularHours;
-    const monthlyRate = dailyRate * weekDates.length * 4.33;
-    const WeeksRate = dailyRate * weekDates.length;
+    const WeeksRate = dailyRate * daysPerWeek;
+    const monthlyRate = WeeksRate * 4.333;
     const twoWeeksRate = WeeksRate * 2;
-    const treeWeeksRate = WeeksRate * 3;
+    const threeWeeksRate = WeeksRate * 3;
     const overtimeRate = hourlyRate * overtimeFactor;
     const holidayRate = hourlyRate * holidayFactor;
 
@@ -7299,27 +7306,26 @@ window.updateHourlyRatePreview = function () {
                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem;">
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">🕐 Por hora (regular):</span>
-                            <span style="color: #10b981; font-weight: 600;">$${Math.round(hourlyRate, 2).toLocaleString()}/h</span>
+                            <span style="color: #10b981; font-weight: 600;">$${Math.round(hourlyRate).toLocaleString()}/h</span>
                         </div>
                         <div style="display: flex; justify-content: space-between;">
                             <span style="color: #94a3b8;">📅 Por día (${regularHours}h):</span>
-                            <span style="color: #06b6d4; font-weight: 600;">$${Math.round(dailyRate, 2).toLocaleString()}</span>
+                            <span style="color: #06b6d4; font-weight: 600;">$${Math.round(dailyRate).toLocaleString()}</span>
                         </div>
-                                                <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #94a3b8;">📅 1 semana:</span>
-                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(WeeksRate, 2).toLocaleString()}</span
-
-                                                    <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #94a3b8;">📅 Por 2 semanas:</span>
-                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(twoWeeksRate, 2).toLocaleString()}</span
-
-                                                    <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #94a3b8;">📅 Por 3 semanas:</span>
-                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(treeWeeksRate, 2).toLocaleString()}</span
-
-
                         <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #94a3b8;">📅 Por mes (~30 días):</span>
+                            <span style="color: #94a3b8;">📅 1 semana:</span>
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(WeeksRate).toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">📅 Por 2 semanas:</span>
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(twoWeeksRate).toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">📅 Por 3 semanas:</span>
+                            <span style="color: #64748b; font-weight: 600;">~$${Math.round(threeWeeksRate).toLocaleString()}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #94a3b8;">📅 Por mes (est. mensual):</span>
                             <span style="color: #64748b; font-weight: 600;">~$${Math.round(monthlyRate).toLocaleString()}</span>
                         </div>
                         <div style="border-top: 1px solid #334155; margin: 4px 0; padding-top: 8px;"></div>
@@ -7366,7 +7372,7 @@ window.updateSalaryPreview = function () {
         case 'week': dailySalary = amount / workDaysCount; break;
         case 'biweekly': dailySalary = amount / (workDaysCount * 2); break;
         case '3weeks': dailySalary = amount / (workDaysCount * 3); break;
-        case 'month': dailySalary = amount / (workDaysCount * 4.33); break;
+        case 'month': dailySalary = amount / (workDaysCount * 4.333); break;
     }
 
     const previewDay = document.getElementById('preview-day');
@@ -7379,7 +7385,7 @@ window.updateSalaryPreview = function () {
     if (previewWeek) previewWeek.textContent = '$' + (dailySalary * workDaysCount).toFixed(2);
     if (previewBiweekly) previewBiweekly.textContent = '$' + (dailySalary * workDaysCount * 2).toFixed(2);
     if (preview3weeks) preview3weeks.textContent = '$' + (dailySalary * workDaysCount * 3).toFixed(2);
-    if (previewMonth) previewMonth.textContent = '$' + (dailySalary * workDaysCount * 4.33).toFixed(2);
+    if (previewMonth) previewMonth.textContent = '$' + (dailySalary * workDaysCount * 4.333).toFixed(2);
 };
 
 // Inicializar event listeners del modal de posición
@@ -9506,6 +9512,10 @@ window.toggleSidebar = function() {
 
 window.toggleBottomNav = function() {
     document.body.classList.toggle('bottom-nav-hidden');
+    // Forzar actualización de variables CSS de layout
+    if (typeof updateHeaderOffset === 'function') {
+        updateHeaderOffset();
+    }
 };
 
 function render() {

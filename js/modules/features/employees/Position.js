@@ -11,6 +11,8 @@ export class Position {
         };
         this.baseSalary = this.salaryConfig.amount; // Compatibilidad
         this.workingDays = data.workingDays || [1, 2, 3, 4, 5]; // Lun-Vie por defecto (0=Dom, 1=Lun, ...)
+        this.hourlyRate = data.hourlyRate || 0; // ⚡ NUEVO: Tarifa por hora
+        this.leaderId = data.leaderId || null; // ⚡ NUEVO: ID del líder responsable
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
@@ -46,8 +48,11 @@ export class Position {
             name: this.name,
             color: this.color,
             active: this.active,
-            salaryConfig: this.salaryConfig,
+            salaryConfig: this.salaryConfig, // ⚡ CRÍTICO: Re-habilitado para persistencia
             baseSalary: this.baseSalary,
+            hourlyRate: this.hourlyRate, 
+            leaderId: this.leaderId,
+            workingDays: this.workingDays,
             lastStatusChange: this.lastStatusChange,
             statusHistory: this.statusHistory,
             updatedAt: this.updatedAt

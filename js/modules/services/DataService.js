@@ -67,7 +67,10 @@ export class DataService {
         }
 
         if (data.attendance) {
-            this.state.attendance = data.attendance;
+            this.state.attendance = {};
+            Object.entries(data.attendance).forEach(([key, value]) => {
+                this.state.attendance[key] = value instanceof Attendance ? value : new Attendance(value);
+            });
         }
 
         if (data.settings) {

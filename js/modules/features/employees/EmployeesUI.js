@@ -403,7 +403,13 @@ export function EmployeeCard(emp) {
 
     const salaryConfig = payroll.getSalaryConfig(emp);
     const salaryDisplay = payroll.formatSalaryDisplay(salaryConfig);
-    const salaryType = emp.salaryConfig?.type === 'custom' ? 'Personalizado' : 'Estándar';
+    
+    // ⚡ MEJORADO: Detectar personalizado tanto en sistema viejo como nuevo
+    const hasPositionSalaries = emp.positionSalaries && Object.keys(emp.positionSalaries).length > 0;
+    const isCustom = emp.salaryConfig?.type === 'custom' || emp.customSalary || hasPositionSalaries;
+    const isMonthly = salaryConfig.period === 'month';
+    const salaryType = isCustom ? 'Personalizado' : 'Estándar';
+    const salaryLabel = isMonthly ? `Aprox. ${salaryType}` : salaryType;
 
     // Formatear fechas
     const createdDate = emp.createdDate ? new Date(emp.createdDate).toLocaleDateString('es-DO', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
@@ -430,7 +436,7 @@ export function EmployeeCard(emp) {
     }).join('')}
                         </div>
                         <div class="employee-meta">
-                            <div class="employee-meta-item">${icons.get('zap')} ${salaryDisplay.full} <span style="color: #64748b;">(${salaryType})</span></div>
+                            <div class="employee-meta-item">${icons.get('zap')} ${salaryDisplay.full} <span style="color: #64748b;">(${salaryLabel})</span></div>
                             ${leaders.length > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${leaders.join(', ')}</div>` : ''}
                         </div>
                         <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">

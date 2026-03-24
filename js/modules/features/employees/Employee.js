@@ -10,8 +10,9 @@ export class Employee {
         this.hireDate = data.hireDate || new Date().toISOString().split('T')[0];
         this.phone = data.phone || '';
         this.email = data.email || '';
-        this.notes = data.notes || '';
+        this.positionSalaries = data.positionSalaries || {}; // ⚡ NUEVO: { positionId: hourlyRate }
         this.customWorkingDays = data.customWorkingDays || {}; // { positionId: [1,2,3,4,5] }
+        this.notes = data.notes || '';
         this.createdDate = data.createdDate || new Date().toISOString();
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
@@ -69,6 +70,8 @@ export class Employee {
             name: this.name,
             positions: this.positions,
             customSalary: this.customSalary,
+            positionSalaries: this.positionSalaries, 
+            customWorkingDays: this.customWorkingDays, 
             active: this.active,
             hireDate: this.hireDate,
             phone: this.phone,
