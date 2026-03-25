@@ -1,4 +1,4 @@
-import { icons } from '../ui/IconSystem.js';
+import icons from '../ui/IconSystem.js';
 
 // ============================================
 // 💡 CLASE MEMOCACHE (POO - Caché de resultados para optimización)

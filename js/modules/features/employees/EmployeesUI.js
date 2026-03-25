@@ -1,4 +1,4 @@
-import { icons } from '../../ui/IconSystem.js';
+import icons from '../../ui/IconSystem.js';
 
 import { Modal } from '../../components/Modal.js';
 import { getDateKey } from '../../utils/DateUtils.js';

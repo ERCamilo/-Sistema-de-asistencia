@@ -1,13 +1,15 @@
 import { 
-    auth, googleProvider, db,
+    auth, googleProvider, db, storage,
     signInWithPopup, signOut, onAuthStateChanged,
-    doc, getDoc, setDoc, updateDoc, collection, serverTimestamp, 
-    query, orderBy, limit, getDocs, Timestamp 
+    doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, 
+    query, orderBy, limit, getDocs, Timestamp,
+    ref, uploadString, getDownloadURL, onSnapshot, where, documentId
 } from '../data/firebase.js';
 
 class FirebaseService {
     constructor() {
         this.user = null;
+        this._attendanceInitialized = false;
     }
 
     /**
@@ -97,17 +99,31 @@ class FirebaseService {
             const timestamp = Date.now();
             const docRef = doc(db, 'users', auth.currentUser.uid, 'snapshots', `snapshot_${timestamp}`);
             
+            const stateString = JSON.stringify(cleanState);
+            const isExternal = stateString.length > 800000; // ~800KB threshold
+            let storageUrl = null;
+
+            if (isExternal) {
+                console.log(`📦 Snapshot grande (${(stateString.length/1024).toFixed(1)} KB). Subiendo a Storage...`);
+                const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/snapshot_${timestamp}.json`);
+                await uploadString(storageRef, stateString);
+                storageUrl = await getDownloadURL(storageRef);
+            }
+
             await setDoc(docRef, {
-                state: cleanState,
+                state: isExternal ? null : cleanState,
+                isExternal: isExternal,
+                storageUrl: storageUrl,
                 metadata: {
                     timestamp,
                     type,
+                    size: stateString.length,
                     employeeCount: state.employees?.length || 0,
                     attendanceCount: Object.keys(state.attendance || {}).length,
                     createdAt: serverTimestamp()
                 }
             });
-            console.log(`📸 Snapshot (${type}) creado en Firebase`);
+            console.log(`📸 Snapshot (${type}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
             return docRef.id;
         } catch (error) {
             console.error('❌ Error creando snapshot:', error);
@@ -146,12 +162,98 @@ class FirebaseService {
         try {
             const docRef = doc(db, 'users', auth.currentUser.uid, 'snapshots', snapshotId);
             const docSnap = await getDoc(docRef);
-            return docSnap.exists() ? docSnap.data() : null;
-
+            
+            if (!docSnap.exists()) return null;
+            
+            const data = docSnap.data();
+            
+            if (data.isExternal && data.storageUrl) {
+                console.log('📦 Recuperando snapshot grande desde Storage...');
+                const response = await fetch(data.storageUrl);
+                return await response.json();
+            }
+            
+            return data.state;
         } catch (error) {
             console.error(`❌ Error recuperando snapshot ${snapshotId}:`, error);
             return null;
         }
+    }
+
+    /**
+     * Suscribe a los cambios del estado global
+     * @param {function} callback Función que recibe el nuevo estado
+     * @returns {function} Función para cancelar la suscripción
+     */
+    subscribeToChanges(callback) {
+        if (!auth.currentUser) return () => {};
+
+        const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+        return onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
+                callback(docSnap.data());
+            }
+        }, (error) => {
+            console.error('❌ Error en suscripción de estado:', error);
+        });
+    }
+
+    /**
+     * Suscribe a los cambios en la colección de asistencia (opcional, para tiempo real total)
+     * @param {function} callback
+     */
+    /**
+     * Suscribe a los cambios en la colección de asistencia de forma granular (Zonal)
+     * Soporta filtrado por rango de fechas (basado en el ID del documento: YYYY-MM-DD)
+     * @param {object} options { onAdded, onModified, onRemoved, onInitialLoad, startDate, endDate }
+     * @returns {function} Función para cancelar la suscripción
+     */
+    subscribeToAttendanceZonal(options = {}) {
+        if (!auth.currentUser) return () => {};
+
+        const { onAdded, onModified, onRemoved, onInitialLoad, startDate, endDate } = options;
+        let attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
+
+        // 🔥 OPTIMIZACIÓN FASE 3: Filtrado por Rango de Fechas
+        // Firestore permite filtrar por ID de documento usando documentId()
+        if (startDate || endDate) {
+            const constraints = [];
+            if (startDate) constraints.push(where(documentId(), '>=', startDate));
+            if (endDate) constraints.push(where(documentId(), '<=', endDate));
+            attendanceRef = query(attendanceRef, ...constraints);
+        }
+
+        console.log(`📡 Suscribiendo a asistencia ${startDate ? `desde ${startDate}` : ''} ${endDate ? `hasta ${endDate}` : ''}`);
+
+        return onSnapshot(attendanceRef, (querySnapshot) => {
+            if (querySnapshot.docs.length > 0 && onInitialLoad && !this._attendanceInitialized) {
+                const allAttendance = {};
+                querySnapshot.forEach(doc => {
+                    const records = doc.data().records || {};
+                    // Inyectar timestamp de acceso para LRU
+                    Object.values(records).forEach(r => r.lastAccessed = Date.now());
+                    Object.assign(allAttendance, records);
+                });
+                this._attendanceInitialized = true;
+                onInitialLoad(allAttendance);
+            }
+
+            querySnapshot.docChanges().forEach((change) => {
+                const dateKey = change.doc.id;
+                const records = change.doc.data().records || {};
+
+                if (change.type === "added" || change.type === "modified") {
+                    // Inyectar timestamp de acceso para LRU
+                    Object.values(records).forEach(r => r.lastAccessed = Date.now());
+                    if (onModified) onModified(dateKey, records);
+                }
+                if (change.type === "removed") {
+                    if (onRemoved) onRemoved(dateKey);
+                }
+            });
+        }, (error) => {
+            console.error('❌ Error en suscripción zonal de asistencia:', error);
+        });
     }
 
     /**
@@ -228,16 +330,62 @@ class FirebaseService {
     }
 
     /**
-     * Recupera registros de asistencia en un rango de fechas
+     * Recupera TODOS los registros de asistencia desde la nube
      */
-    async getAttendanceByRange(startDate, endDate) {
+    async getAllAttendance() {
         if (!auth.currentUser) return {};
         
-        // Nota: En una implementación ideal usaríamos una query. 
-        // Por ahora, para mantener simplicidad y 0 estrés, 
-        // el sistema Mirror Sync carga el bloque principal,
-        // y usaremos este método para refrescar días específicos si es necesario.
-        return {}; 
+        try {
+            const attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
+            const querySnapshot = await getDocs(attendanceRef);
+            
+            const allAttendance = {};
+            querySnapshot.forEach(doc => {
+                const dayData = doc.data().records || {};
+                // Inyectar timestamp de acceso para LRU
+                Object.values(dayData).forEach(r => r.lastAccessed = Date.now());
+                Object.assign(allAttendance, dayData);
+            });
+            
+            return allAttendance;
+        } catch (error) {
+            console.error('❌ Error recuperando historial completo:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Elimina permanentemente todos los datos del usuario en la nube
+     */
+    async deleteCloudData() {
+        if (!auth.currentUser) return;
+
+        try {
+            // 1. Eliminar documento 'current'
+            const currentDocRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+            await deleteDoc(currentDocRef);
+
+            // 2. Eliminar toda la colección de attendance
+            // Nota: En Firestore cliente no hay 'deleteCollection'. Hay que iterar.
+            const attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
+            const attDocs = await getDocs(attendanceRef);
+            for (const d of attDocs.docs) {
+                await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'attendance', d.id));
+            }
+
+            // 3. Opcional: Eliminar snapshots (backups)
+            const snapshotsRef = collection(db, 'users', auth.currentUser.uid, 'snapshots');
+            const snapDocs = await getDocs(snapshotsRef);
+            for (const d of snapDocs.docs) {
+                await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'snapshots', d.id));
+            }
+
+            console.log('🗑️ Datos en la nube eliminados correctamente');
+            return true;
+        } catch (error) {
+            console.error('❌ Error al eliminar datos en la nube:', error);
+            throw error;
+        }
     }
 }
 

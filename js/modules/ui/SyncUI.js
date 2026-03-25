@@ -1,4 +1,4 @@
-import { icons } from './IconSystem.js';
+import icons from './IconSystem.js';
 
 let context = null;
 
@@ -141,11 +141,11 @@ export function getSyncSummaryHTML(local, remote) {
 
 export function buildUploadConfirmModalHTML(local) {
     return `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
+                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); }">
                     <div class="modal-content" style="max-width: 480px;">
                         <div class="modal-header">
                             <h2 class="modal-title">📤 Subir datos a la nube</h2>
-                            <button class="modal-close" onclick="closeModal(); render();">✕</button>
+                            <button class="modal-close" onclick="closeModal()">✕</button>
                         </div>
                         <div class="modal-body">
                             <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
@@ -162,7 +162,7 @@ export function buildUploadConfirmModalHTML(local) {
                                 <button onclick="uploadToCloud()" class="btn-primary" style="flex: 1;">
                                     📤 Sí, subir datos
                                 </button>
-                                <button onclick="closeModal(); render();" class="btn-secondary" style="flex: 1;">
+                                <button onclick="closeModal()" class="btn-secondary" style="flex: 1;">
                                     Ahora no
                                 </button>
                             </div>
@@ -174,11 +174,11 @@ export function buildUploadConfirmModalHTML(local) {
 
 export function buildDownloadConfirmModalHTML(remote) {
     return `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
+                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); }">
                     <div class="modal-content" style="max-width: 480px;">
                         <div class="modal-header">
                             <h2 class="modal-title">☁️ Descargar desde la nube</h2>
-                            <button class="modal-close" onclick="closeModal(); render();">✕</button>
+                            <button class="modal-close" onclick="closeModal()">✕</button>
                         </div>
                         <div class="modal-body">
                             <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
@@ -195,7 +195,7 @@ export function buildDownloadConfirmModalHTML(remote) {
                                 <button onclick="downloadFromCloud()" class="btn-primary" style="flex: 1;">
                                     ☁️ Sí, descargar
                                 </button>
-                                <button onclick="closeModal(); render();" class="btn-secondary" style="flex: 1;">
+                                <button onclick="closeModal()" class="btn-secondary" style="flex: 1;">
                                     Ahora no
                                 </button>
                             </div>
@@ -207,11 +207,11 @@ export function buildDownloadConfirmModalHTML(remote) {
 
 export function buildFullSyncModalHTML(local, remote) {
     return `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); render(); }">
+                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); }">
                     <div class="modal-content" style="max-width: 600px;">
                         <div class="modal-header">
                             <h2 class="modal-title">🔄 Sincronización Inicial</h2>
-                            <button class="modal-close" onclick="closeModal(); render();">✕</button>
+                            <button class="modal-close" onclick="closeModal()">✕</button>
                         </div>
                         <div class="modal-body">
                             <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
@@ -241,7 +241,7 @@ export function buildFullSyncModalHTML(local, remote) {
                                     </div>
                                 </button>
                                 
-                                <button onclick="closeModal(); render();" class="btn-secondary" style="margin-top: 8px;">
+                                <button onclick="closeModal()" class="btn-secondary" style="margin-top: 8px;">
                                     ❌ Cancelar (no hacer nada ahora)
                                 </button>
                             </div>

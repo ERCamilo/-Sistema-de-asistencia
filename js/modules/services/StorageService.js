@@ -1,4 +1,4 @@
-import { icons } from '../ui/IconSystem.js';
+import icons from '../ui/IconSystem.js';
 import { Notification } from '../components/Notification.js';
 
 export class StorageService {

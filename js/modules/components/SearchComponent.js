@@ -1,4 +1,4 @@
-import { icons } from '../ui/IconSystem.js';
+import icons from '../ui/IconSystem.js';
 import { ComponentBase } from './ComponentBase.js';
 
 export class SearchComponent extends ComponentBase {

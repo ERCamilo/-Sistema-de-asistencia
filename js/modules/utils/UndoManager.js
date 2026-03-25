@@ -1,4 +1,4 @@
-import { icons } from '../ui/IconSystem.js';
+import icons from '../ui/IconSystem.js';
 export const UndoManager = {
     _pending: null,
     _timer: null,

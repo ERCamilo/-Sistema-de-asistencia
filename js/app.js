@@ -1,14 +1,27 @@
-const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
-
 import FirebaseService from './modules/services/FirebaseService.js';
 import { Header } from './modules/ui/Header.js';
-// ═══════════════════════════════════════════════════════════
 
-window.debug = {
+// 🔧 DEBUG UTILITY (controla console logs en producción)
+const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
+const debug = {
     log: (...args) => { if (DEBUG_MODE) console.log(...args); },
-    error: (...args) => console.error(...args), // Errores siempre se muestran
+    error: (...args) => console.error(...args),
     warn: (...args) => { if (DEBUG_MODE) console.warn(...args); }
 };
+window.debug = debug;
+
+// 📦 IMPORTACIÓN DEL ESTADO CENTRAL (Fase 4 - Modularización)
+import { 
+    state, stateManager, renderOptimizer, calculateStats 
+} from './modules/core/AppState.js';
+
+import { 
+    DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar, 
+    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton 
+} from './modules/ui/AttendanceUI.js';
+
+// ... (Resto de importaciones existentes)
+// ...
 
 // Sistema de Debounce (evita renders excesivos en búsquedas)
 window.debounce = (func, wait = 300) => {
@@ -21,6 +34,60 @@ window.debounce = (func, wait = 300) => {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
+};
+
+/**
+ * ⚡ UTILERÍA DE RENDIMIENTO: Renderizado por fragmentos (Lazy Loading / Non-blocking)
+ * Permite insertar grandes cantidades de elementos sin bloquear el hilo principal.
+ */
+window.renderInChunks = function(containerId, items, renderer, options = {}) {
+    const { chunkSize = 15, onComplete, initialHTML = '' } = options;
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    let index = 0;
+    
+    // Si hay initialHTML (como un skeleton), ponerlo de inmediato
+    if (initialHTML) {
+        container.innerHTML = initialHTML;
+    } else {
+        container.innerHTML = ''; 
+    }
+
+    function next() {
+        // Verificar si el contenedor sigue en el DOM
+        const currentContainer = document.getElementById(containerId);
+        if (!currentContainer || currentContainer !== container) return;
+
+        const chunk = items.slice(index, index + chunkSize);
+        
+        // Limpiar el skeleton/initialHTML solo antes del primer fragmento real
+        if (index === 0) {
+            container.innerHTML = '';
+        }
+
+        if (chunk.length === 0) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        const html = chunk.map(item => renderer(item)).join('');
+        container.insertAdjacentHTML('beforeend', html);
+        
+        index += chunkSize;
+        if (index < items.length) {
+            requestAnimationFrame(next);
+        } else if (onComplete) {
+            onComplete();
+        }
+    }
+
+    // Iniciar renderizado
+    if (items.length > 0) {
+        next();
+    } else {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:#64748b;opacity:0.5;">No hay resultados</div>';
+    }
 };
 
 // ============================================
@@ -37,8 +104,7 @@ import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
-import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth } from './modules/utils/DateUtils.js';
-import { SyncConflictModal } from './modules/ui/SyncConflictModal.js';
+import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange } from './modules/utils/DateUtils.js';
 import { formatCurrency } from './modules/utils/Formatters.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
@@ -59,8 +125,9 @@ import { SearchComponent } from './modules/components/SearchComponent.js';
 import { BadgeComponent } from './modules/components/BadgeComponent.js';
 import { TooltipComponent } from './modules/components/TooltipComponent.js';
 import { COLOR_PALETTE } from './modules/utils/Constants.js';
-import { icons } from './modules/ui/IconSystem.js';
+import icons from './modules/ui/IconSystem.js';
 import { IndexedDBService } from './modules/services/IndexedDBService.js';
+import { DOMDiff } from './modules/utils/DOMDiff.js';
 import {
     DateRangeManager,
     DashboardDateManager,
@@ -75,6 +142,10 @@ import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
 
 const ICON_SET_STORAGE_KEY = 'icon-set';
+
+// ⚡ CONFIGURACIÓN DE CACHÉ LRU
+const MAX_ATTENDANCE_RECORDS = 2000; // Límite de registros en memoria
+const RELEVANT_DAYS_LIMIT = 60;      // Días considerados "recientes"
 
 function resolveIconSet(preferred) {
     const available = icons.getAvailableSets();
@@ -117,8 +188,9 @@ const NotificationSystem = {
     clear: () => Notification.clearAll()
 };
 
-function showNotification(message, type = 'info') {
-    return Notification[type] ? Notification[type](message) : Notification.info(message);
+function showNotification(message, type = 'info', duration) {
+    if (type === 'loading') return Notification.loading(message);
+    return Notification[type] ? Notification[type](message, duration) : Notification.info(message, duration);
 }
 
 // ============================================
@@ -214,201 +286,10 @@ const Helpers = {
 // ============================================
 // ESTADO GLOBAL
 // ============================================
-const state = {
-    activeTab: 'attendance',
+// 📦 EL ESTADO YA SE IMPORTA DESDE './modules/core/AppState.js'
 
-    // ✅ NUEVO SISTEMA DE FECHAS (String format: YYYY-MM-DD)
-    today: getDateKey(new Date()),           // Fecha de hoy (no cambia)
-    selectedDate: getDateKey(new Date()),    // Fecha seleccionada por el usuario (cambia)
+// Core state initialized via AppState.js import
 
-    viewMode: 'day',
-
-    // Fase 5: IndexedDB
-    useIndexedDB: true, // Se activará después de migración exitosa
-
-    // Auto-backup para Canvas de Claude (sessionStorage)
-    autoBackupEnabled: true, // Activo por defecto para Canvas
-
-    // Onboarding
-    showOnboarding: false,
-    onboardingStep: 0,
-    onboardingMode: null, // 'demo' o 'scratch'
-    usingDemoData: false, // Flag para saber si está en modo demo
-
-    positions: [], // Inicialmente vacío
-    leaders: [], // Inicialmente vacío
-    employees: [], // Inicialmente vacío
-    attendance: {}, // Inicialmente vacío
-    settings: {
-        companyName: 'Control de Asistencia',
-        regularHoursPerDay: 8,
-        overtimeFactor: 1.5,  // ⚡ Factor multiplicador para horas extras (x1.5 = tiempo y medio)
-        holidayFactor: 2,  // Factor multiplicador para días festivos (x2 = doble pago)
-        defaultDeductionPercentage: 2,  // ⚡ NUEVO: Deducción por defecto 2%
-        globalPaymentDay: null,  // 📅 Día del mes para pagos (1-31), null si no está configurado
-        lastPaymentDate: null,  // 💵 Fecha del último pago realizado (YYYY-MM-DD)
-        nextPaymentDate: null,  // 📅 Fecha del próximo pago programado (YYYY-MM-DD)
-        iconSet: initialIconSet, // 🎨 Set de iconos preferido
-        holidays: [], // Inicialmente sin festivos
-        updatedAt: Date.now()
-    },
-
-    // Configuración de horas específicas por día
-    dayHoursConfig: {}, // { '2026-01-20': 4, '2026-01-21': 6 }
-
-    // ✅ Horas rápidas para vista semanal
-    quickWeekHours: 8, // Horas por defecto al marcar en vista semanal
-
-    // Filtros
-    filters: {
-        position: 'all',  // 'all' | 'albanil' | 'carpintero'...
-        leaderId: 'all',   // 'all' | leaderId
-        search: ''
-    },
-    showFilters: false,  // Filtros colapsados por defecto
-    isDataLoaded: false, // 🚩 Bandera de carga para evitar sobrescrituras
-
-    // Dashboard
-    dashboardChart: 'attendance',  // 'attendance' | 'hours' | 'positions' | 'top10' | 'heatmap'
-    dashboardStartDate: null,      // String YYYY-MM-DD (se inicializa al abrir dashboard)
-    dashboardEndDate: null,        // String YYYY-MM-DD (se inicializa al abrir dashboard)
-    showStartDatePicker: false,    // Mostrar calendario de inicio
-    showEndDatePicker: false,      // Mostrar calendario de fin
-    startDatePickerMonth: new Date(), // Mes del calendario inicio
-    endDatePickerMonth: new Date(),   // Mes del calendario fin
-
-    // Settings Modal
-    settingsCalendarMonth: new Date(), // Mes del calendario de festivos
-    calendarMarkerMode: 'holiday', // 'holiday', 'lastPayment', 'nextPayment'
-
-    // Employee Report
-    employeeReportStartDate: null,     // String YYYY-MM-DD (se inicializa al abrir reporte)
-    employeeReportEndDate: null,       // String YYYY-MM-DD (se inicializa al abrir reporte)
-    showEmployeeReportStartPicker: false,
-    showEmployeeReportEndPicker: false,
-    employeeReportStartPickerMonth: new Date(),
-    employeeReportEndPickerMonth: new Date(),
-    collapsedPositions: {},            // {positionId: boolean} - posiciones colapsadas
-
-    // ⚡ NUEVO: Sub-pestañas de configuración
-    settingsActiveTab: 'data',      // 'general' | 'data' | 'calendar'
-
-    // ⚡ NUEVO: Dashboard de configuración
-    lastSupabaseSync: null,            // Timestamp ISO de última sincronización
-    supabaseSyncStatus: null,          // Cache de estadísticas de sync
-
-    // ⚡ NUEVO: Indicador de estado de sincronización en header
-    syncStatus: 'idle',                // 'idle' | 'syncing' | 'synced' | 'error'
-
-    showModal: false,
-    modalType: null,
-    selectedEmployee: null,
-
-    // Sistema de confirmación modal
-    // showConfirmDialog: ELIMINADO - ahora usamos Modal.confirm()
-    // confirmDialogData: ELIMINADO - ahora usamos Modal.confirm()
-
-    // Menú de exportar
-    showExportMenu: false,
-    showShareOptions: false,
-    showImportFullModal: false,
-    importFullText: '',
-    showNotesCenter: false,
-    notesCenterEmployeeId: null,
-    showNoteModal: false,
-    noteModalEmployeeId: null,
-    noteModalDate: '',
-    noteModalText: '',
-    exportMenuData: {
-        x: 0,
-        y: 0,
-        filename: '',
-        blob: null,
-        title: '',
-        text: ''
-    },
-
-    // ⚡ NUEVO: Configuración de exportación de nómina
-    exportConfig: {
-        periodStart: null,   // Se inicializa al abrir tab
-        periodEnd: null,     // Se inicializa al abrir tab
-        deductions: [        // Deducciones globales
-            { id: 'DED-1', type: 'percentage', value: 2, name: 'Deducción' }
-        ],
-        excludedEmployees: [],  // IDs de empleados a excluir
-        generatedJSON: null     // JSON generado para copiar
-    },
-
-    showFloatingCard: false,
-    floatingCardEmployee: null,
-    floatingCardMonth: new Date(),
-    chartPeriod: 'week',
-    contextMenu: null,
-    isProcessingClick: false, // Flag para prevenir clicks múltiples
-    showLegend: false,
-    showDatePicker: false,
-    datePickerTarget: 'full', // 'full' | 'compact'
-    datePickerMonth: new Date(),
-    isScrolled: false, // âš¡ NUEVO: Detectar scroll para controles flotantes
-    employeeFilter: null, // null = todos, 'present' = presentes, 'absent' = ausentes, 'overtime' = con extras
-    employeeViewMode: 'employees', // 'employees' | 'leaders' | 'positions'
-    reportViewMode: 'employee-report', // 'employee-report' | 'dashboard'
-    employeeSearchQuery: '',
-    employeeStatusFilter: 'active', // 'active' | 'inactive' | 'all'
-    employeeFilters: {
-        search: '',
-        positionId: 'all',
-        leaderId: 'all',
-        status: 'active'
-    },
-    positionFilters: {
-        search: '',
-        leaderId: 'all',
-        status: 'active'
-    },
-    editingEmployee: null,
-    editingLeader: null,
-    positionStatusFilter: 'active', // 'active' | 'inactive' | 'all'
-    showOptionalFields: false, // Para colapsar campos opcionales en formularios
-    isExporting: false, // Para mostrar loading en exportar
-    formErrors: {}, // Para validación inline en formularios
-    isFractionated: false, // Para modo fraccionado en modal avanzado
-    tempPositionSelection: {}, // { 'empId-date': 'positionId' } - Selección temporal antes del check
-    positionSortBy: 'name', // 'name' | 'salary'
-    editingPosition: null,
-    scrollPosition: { x: 0, y: 0 }, // Guardar posición del scroll
-
-    // ⚡ NUEVO: Perfil de empleado
-    showEmployeeProfile: false,
-    employeeProfile: {
-        employeeId: null,
-        activeTab: 'nomina', // 'resumen' | 'nomina' | 'asistencia' | 'documentos'
-        periodStart: null,   // Se inicializa al abrir
-        periodEnd: null,     // Se inicializa al abrir
-        showStartPicker: false,
-        showEndPicker: false,
-        startPickerMonth: new Date(),
-        endPickerMonth: new Date(),
-        deductionType: 'percentage', // ⚠️ DEPRECATED - mantener para compatibilidad
-        deductionValue: 0,           // ⚠️ DEPRECATED - mantener para compatibilidad
-        deductions: [                // ⚡ NUEVO: Array de deducciones múltiples
-            { type: 'percentage', value: 2, id: 'DED-1' }  // Deducción por defecto 2%
-        ],
-        expandedPositions: {},  // ⚡ NUEVO: { positionId: true/false }
-        activePeriod: null   // ⚡ NUEVO: '7days' | '15days' | 'month' | 'lastPayment'
-    },
-    // ⚡ NUEVO: Configuración de exportación
-    exportConfig: {
-        periodStart: null,
-        periodEnd: null,
-        activePreset: null, // 'thisMonth', 'lastMonth', 'last15'
-        deductions: []
-    },
-
-    // ⚡ NUEVO: Sistema de Snapshots (Fase 4)
-    snapshots: [],
-    isLoadingSnapshots: false
-};
 
 
 // IndexedDBService class removed (moved to js/modules/services/IndexedDBService.js)
@@ -531,6 +412,102 @@ window.createFirebaseSnapshot = async () => {
         showNotification('❌ Error al crear snapshot', 'error');
         state.isLoadingSnapshots = false;
         render();
+    }
+};
+
+window.downloadFromCloudNow = async () => {
+    const confirmed = confirm(
+        '⚠️ ¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE?\n\n' +
+        'Esto borrará tus datos actuales en este teléfono y los reemplazará exactamente por lo que tienes guardado en Google Drive/Firebase.\n\n' +
+        '¿Deseas continuar?'
+    );
+
+    if (!confirmed) return;
+
+    const loader = showNotification('📥 Conectando a la nube...', 'loading');
+
+    try {
+        loader.update({ message: '📥 Descargando metadatos...' });
+        const cloudState = await FirebaseService.getFullState();
+        
+        loader.update({ message: '📥 Descargando historial...' });
+        const cloudAttendance = await FirebaseService.getAllAttendance();
+
+        if (!cloudState) {
+            loader.update({ message: '❌ No se encontraron datos en la nube', type: 'error', closable: true });
+            return;
+        }
+
+        loader.update({ message: '📥 Aplicando cambios locales...' });
+        // 1. Actualizar estado local (excepto UI)
+        Object.assign(state, cloudState);
+        state.attendance = cloudAttendance;
+
+        // 2. Guardar localmente
+        saveApplicationData();
+
+        loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
+        render();
+        
+        // Recargar para asegurar consistencia total
+        setTimeout(() => location.reload(), 1500);
+
+    } catch (e) {
+        console.error('Error al descargar de la nube:', e);
+        loader.update({ message: '❌ Error al descargar datos', type: 'error', closable: true });
+    }
+};
+
+window.uploadToCloudNow = async () => {
+    const confirmed = confirm(
+        '⚠️ ¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES?\n\n' +
+        'Esto reemplazará tus archivos en la nube con lo que tienes actualmente en este teléfono.\n\n' +
+        '¿Deseas continuar?'
+    );
+
+    if (!confirmed) return;
+
+    const loader = showNotification('📤 Iniciando subida...', 'loading');
+
+    try {
+        loader.update({ message: '📤 Guardando estado general...' });
+        await FirebaseService.saveFullState(state);
+        
+        loader.update({ message: '📤 Sincronizando historial...' });
+        await FirebaseService.syncHistory(state.attendance);
+
+        loader.update({ message: '✅ Datos subidos correctamente', type: 'success' });
+        render();
+    } catch (e) {
+        console.error('Error al subir a la nube:', e);
+        loader.update({ message: '❌ Error al subir datos', type: 'error', closable: true });
+    }
+};
+
+window.deleteCloudDataNow = async () => {
+    const confirm1 = confirm(
+        '🚨 ADVERTENCIA CRÍTICA: BORRAR NUBE\n\n' +
+        '¿Estás seguro de eliminar TODOS tus datos en la nube (Google Drive/Firebase)?\n\n' +
+        'Esto NO afectará a tus datos en este teléfono, pero no tendrás respaldo externo.'
+    );
+
+    if (!confirm1) return;
+
+    const confirm2 = prompt('Para confirmar el borrado de la NUBE, escribe: BORRAR NUBE');
+    if (confirm2 !== 'BORRAR NUBE') {
+        showNotification('❌ Cancelado: confirmación incorrecta', 'error');
+        return;
+    }
+
+    const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
+
+    try {
+        await FirebaseService.deleteCloudData();
+        loader.update({ message: '✅ Datos en la nube eliminados', type: 'success' });
+        render();
+    } catch (e) {
+        console.error('Error al borrar la nube:', e);
+        loader.update({ message: '❌ Error al borrar datos de la nube', type: 'error', closable: true });
     }
 };
 
@@ -849,7 +826,7 @@ initSettingsUI({
 // Movido a js/modules/services/DataService.js
 
 // Instancia global
-const dataService = new DataService(state, storageService);
+const dataService = new DataService(state, storageService, indexedDBService);
 
 // ============================================
 // 📅 CLASE DASHBOARDDATEMANAGER (POO - Manejo de fechas del dashboard)
@@ -940,372 +917,14 @@ const employeeReportDateManagerV2 = new EmployeeReportDateManagerV2(state, saveA
 // Instancia global del manejador de fechas del reporte de empleados (Legacy)
 const employeeReportDateManager = new EmployeeReportDateManager(state, saveApplicationData);
 
-// ============================================
-// 🎨 FASE 3: COMPONENTES UI POO
-// ============================================
-// Movidos a js/modules/components/
 
-// Instancia global del calendario (necesaria para los onclick del HTML generado)
-window.calendarPicker = null;
 
-// ============================================
-// ⚡ FASE 4: OPTIMIZACIONES DE PERFORMANCE
-// ============================================
-
-// ============================================
-// 🎯 CLASE STATEMANAGER (POO - Gestión centralizada de estado)
-// ============================================
-class StateManager {
-    constructor(initialState = {}) {
-        this._state = initialState;
-        this._listeners = new Map();
-        this._history = [];
-        this._maxHistory = 50;
-        this._batch = null;
-        this._batchTimeout = null;
-    }
-
-    // Obtener estado completo
-    getState() {
-        return this._state;
-    }
-
-    // Obtener parte del estado
-    get(path) {
-        const keys = path.split('.');
-        let value = this._state;
-
-        for (const key of keys) {
-            if (value === undefined || value === null) return undefined;
-            value = value[key];
-        }
-
-        return value;
-    }
-
-    // Actualizar estado
-    setState(updates, options = {}) {
-        const { silent = false, merge = true } = options;
-
-        // Guardar estado anterior
-        if (this._history.length >= this._maxHistory) {
-            this._history.shift();
-        }
-        this._history.push(JSON.stringify(this._state));
-
-        // Aplicar cambios
-        if (merge) {
-            this._state = { ...this._state, ...updates };
-        } else {
-            this._state = updates;
-        }
-
-        // Notificar listeners
-        if (!silent) {
-            this._notifyListeners(updates);
-        }
-
-        return this._state;
-    }
-
-    // Actualizar estado en batch (múltiples cambios = 1 render)
-    batchUpdate(updateFn) {
-        if (this._batch === null) {
-            this._batch = {};
-        }
-
-        // Ejecutar función de actualización
-        updateFn();
-
-        // Programar notificación después de todos los cambios
-        clearTimeout(this._batchTimeout);
-        this._batchTimeout = setTimeout(() => {
-            const updates = this._batch;
-            this._batch = null;
-            this._notifyListeners(updates);
-        }, 0);
-    }
-
-    // Suscribirse a cambios
-    subscribe(listener, keys = []) {
-        const id = Date.now() + Math.random();
-        this._listeners.set(id, { listener, keys });
-
-        // Retornar función para cancelar suscripción
-        return () => this._listeners.delete(id);
-    }
-
-    // Notificar a listeners
-    _notifyListeners(updates) {
-        const changedKeys = Object.keys(updates);
-
-        this._listeners.forEach(({ listener, keys }) => {
-            // Si no hay keys específicas, notificar siempre
-            if (keys.length === 0) {
-                listener(this._state, updates);
-                return;
-            }
-
-            // Si alguna key cambió, notificar
-            const shouldNotify = changedKeys.some(key => keys.includes(key));
-            if (shouldNotify) {
-                listener(this._state, updates);
-            }
-        });
-    }
-
-    // Deshacer último cambio
-    undo() {
-        if (this._history.length === 0) return false;
-
-        const previousState = this._history.pop();
-        this._state = JSON.parse(previousState);
-        this._notifyListeners(this._state);
-
-        return true;
-    }
-
-    // Resetear estado
-    reset(newState = {}) {
-        this._history = [];
-        this._state = newState;
-        this._notifyListeners(this._state);
-    }
-}
+// Core State and Services moved to modules (AppState.js, FileService.js)
 
 // ============================================
 // 💾 CLASE CACHESERVICE (POO - Caché inteligente)
 // ============================================
-class CacheService {
-    constructor(options = {}) {
-        this._cache = new Map();
-        this._ttl = options.ttl || 5 * 60 * 1000; // 5 minutos default
-        this._maxSize = options.maxSize || 100;
-        this._hits = 0;
-        this._misses = 0;
-    }
-
-    // Generar key de caché
-    _generateKey(fn, args) {
-        return `${fn.name}_${JSON.stringify(args)}`;
-    }
-
-    // Obtener valor de caché
-    get(key) {
-        const item = this._cache.get(key);
-
-        if (!item) {
-            this._misses++;
-            return null;
-        }
-
-        // Verificar expiración
-        if (Date.now() - item.timestamp > this._ttl) {
-            this._cache.delete(key);
-            this._misses++;
-            return null;
-        }
-
-        this._hits++;
-        item.lastAccessed = Date.now();
-        return item.value;
-    }
-
-    // Guardar en caché
-    set(key, value) {
-        // Si está lleno, eliminar el menos usado
-        if (this._cache.size >= this._maxSize) {
-            this._evictLRU();
-        }
-
-        this._cache.set(key, {
-            value,
-            timestamp: Date.now(),
-            lastAccessed: Date.now()
-        });
-    }
-
-    // Eliminar menos recientemente usado (LRU)
-    _evictLRU() {
-        let oldestKey = null;
-        let oldestTime = Infinity;
-
-        this._cache.forEach((item, key) => {
-            if (item.lastAccessed < oldestTime) {
-                oldestTime = item.lastAccessed;
-                oldestKey = key;
-            }
-        });
-
-        if (oldestKey) {
-            this._cache.delete(oldestKey);
-        }
-    }
-
-    // Memoizar función
-    memoize(fn) {
-        return (...args) => {
-            const key = this._generateKey(fn, args);
-            const cached = this.get(key);
-
-            if (cached !== null) {
-                debug.log('🎯 Cache HIT:', key);
-                return cached;
-            }
-
-            debug.log('❌ Cache MISS:', key);
-            const result = fn(...args);
-            this.set(key, result);
-            return result;
-        };
-    }
-
-    // Limpiar caché
-    clear() {
-        this._cache.clear();
-        this._hits = 0;
-        this._misses = 0;
-    }
-
-    // Invalidar por patrón
-    invalidate(pattern) {
-        const regex = new RegExp(pattern);
-        const toDelete = [];
-
-        this._cache.forEach((_, key) => {
-            if (regex.test(key)) {
-                toDelete.push(key);
-            }
-        });
-
-        toDelete.forEach(key => this._cache.delete(key));
-        debug.log(`🗑️ Invalidados ${toDelete.length} items de caché`);
-    }
-
-    // Estadísticas
-    getStats() {
-        const total = this._hits + this._misses;
-        const hitRate = total > 0 ? (this._hits / total * 100).toFixed(2) : 0;
-
-        return {
-            size: this._cache.size,
-            hits: this._hits,
-            misses: this._misses,
-            hitRate: `${hitRate}%`,
-            maxSize: this._maxSize
-        };
-    }
-}
-
-// Instancia global de caché
-const cacheService = new CacheService({
-    ttl: 5 * 60 * 1000,  // 5 minutos
-    maxSize: 100
-});
-
-// ============================================
-// 🎭 CLASE RENDEROPTIMIZER (POO - Optimización de renders)
-// ============================================
-class RenderOptimizer {
-    constructor() {
-        this._renderQueue = [];
-        this._rendering = false;
-        this._lastRender = 0;
-        this._minRenderInterval = 16; // ~60fps
-        this._renderCount = 0;
-    }
-
-    // Encolar render
-    scheduleRender(callback) {
-        if (!this._renderQueue.includes(callback)) {
-            this._renderQueue.push(callback);
-        }
-
-        this._processQueue();
-    }
-
-    // Procesar cola de renders
-    _processQueue() {
-        if (this._rendering) return;
-
-        const now = Date.now();
-        const timeSinceLastRender = now - this._lastRender;
-
-        // Throttle renders (máximo 60fps)
-        if (timeSinceLastRender < this._minRenderInterval) {
-            setTimeout(() => this._processQueue(), this._minRenderInterval - timeSinceLastRender);
-            return;
-        }
-
-        if (this._renderQueue.length === 0) return;
-
-        this._rendering = true;
-        this._lastRender = now;
-
-        // Usar requestAnimationFrame para mejor performance
-        requestAnimationFrame(() => {
-            const callbacks = [...this._renderQueue];
-            this._renderQueue = [];
-
-            callbacks.forEach(callback => {
-                try {
-                    callback();
-                    this._renderCount++;
-                } catch (error) {
-                    debug.error('❌ Error en render:', error);
-                }
-            });
-
-            this._rendering = false;
-
-            // Si hay más en cola, procesar
-            if (this._renderQueue.length > 0) {
-                this._processQueue();
-            }
-        });
-    }
-
-    // Debounce de render
-    debounceRender(callback, delay = 300) {
-        let timeout;
-        return (...args) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => {
-                this.scheduleRender(() => callback(...args));
-            }, delay);
-        };
-    }
-
-    // Throttle de render
-    throttleRender(callback, limit = 100) {
-        let inThrottle;
-        return (...args) => {
-            if (!inThrottle) {
-                this.scheduleRender(() => callback(...args));
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, limit);
-            }
-        };
-    }
-
-    // Estadísticas
-    getStats() {
-        return {
-            queueLength: this._renderQueue.length,
-            totalRenders: this._renderCount,
-            lastRender: this._lastRender,
-            rendering: this._rendering
-        };
-    }
-
-    // Resetear contador
-    resetStats() {
-        this._renderCount = 0;
-    }
-}
-
-// Instancia global
-const renderOptimizer = new RenderOptimizer();
+// Cache management moved to AppState.js / Services
 
 // ============================================
 // 💾 CLASE MEMOCACHE (POO - Caché de resultados para optimización)
@@ -2744,7 +2363,8 @@ async function saveApplicationData(options = {}) {
     console.log('🔵 saveApplicationData() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ☁️ Sincronización con Firebase (Fase 3 - Granular & Mirror Sync)
-    if (window.currentUser) {
+    // 🛡️ GUARD: Si estamos aplicando datos remotos, NO re-subir a Firebase (evita loop infinito)
+    if (window.currentUser && !window._isApplyingRemoteData) {
         // 1. Sincronización Granular (solo si se especifica una fecha)
         if (options.dateKey) {
             const dayRecords = {};
@@ -2824,7 +2444,9 @@ async function saveApplicationData(options = {}) {
     }
 
     // ⚡ Invalidar caché al guardar datos
-    cacheService.invalidate('.*'); // Invalidar todo el caché
+    if (typeof cacheService !== 'undefined') {
+        cacheService.invalidate('.*');
+    }
 
     // 📡 Emitir evento de guardado
     eventBus.emit('data:saved', {
@@ -3148,24 +2770,8 @@ function exportDataToJSON() {
 }
 
 function clearAllData() {
-    const confirmed = confirm(
-        '⚠️ ADVERTENCIA\n\n' +
-        'Esto borrará TODOS los datos de la aplicación:\n' +
-        '• Empleados\n' +
-        '• Asistencias\n' +
-        '• Posiciones\n' +
-        '• Configuración\n\n' +
-        '¿Estás seguro? Esta acción NO se puede deshacer.'
-    );
-
-    if (confirmed) {
-        const doubleConfirm = prompt('Escribe "BORRAR" para confirmar:');
-
-        if (doubleConfirm === 'BORRAR') {
-            localStorage.clear();
-            location.reload();
-        }
-    }
+    // Usar el nuevo sistema robusto de DataService
+    dataService.reset();
 }
 
 // Funciones globales de utilidad
@@ -3264,37 +2870,7 @@ function getWeekDates(date) {
     return week;
 }
 // ⚡ Versión original (sin caché)
-function _calculateStatsOriginal() {
-    const dateKey = getDateKey(state.selectedDate);
-    const todayAtt = Object.values(state.attendance).filter(a => a.date === dateKey);
-    const present = todayAtt.filter(a => a.present).length;
-    const activeEmps = state.employees.filter(e => wasEmployeeActiveOnDate(e, state.selectedDate)).length;
-
-    const absent = activeEmps - present;
-    const totalHours = todayAtt.reduce((sum, a) => sum + (a.present ? a.hoursWorked : 0), 0);
-    const overtimeHours = todayAtt.reduce((sum, a) => {
-        if (!a.present) return sum;
-        return sum + Math.max(0, a.hoursWorked - state.settings.regularHoursPerDay);
-    }, 0);
-    return { present, absent, totalHours, overtimeHours };
-}
-
-// ⚡ Versión optimizada con caché
-const calculateStats = cacheService.memoize(_calculateStatsOriginal);
-
-// ⚡ Versión original de getEmployeeTotalHours
-function _getEmployeeTotalHoursOriginal(empId, start, end) {
-    let total = 0;
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const key = `${empId}-${getDateKey(new Date(d))}`;
-        const att = state.attendance[key];
-        if (att && att.present) total += att.hoursWorked;
-    }
-    return total;
-}
-
-// ⚡ Versión optimizada con caché
-const getEmployeeTotalHours = cacheService.memoize(_getEmployeeTotalHoursOriginal);
+// Statistics calculation moved to AppState.js
 
 // ⚡ NUEVO: Calcular nómina completa de un empleado en un período
 
@@ -3429,6 +3005,9 @@ window.changeDate = (days) => {
     // ✅ Guardar cambios
     saveApplicationData();
 
+    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+    window.updateAttendanceSubscription?.();
+
     render();
 };
 
@@ -3439,6 +3018,9 @@ window.goToToday = () => {
     // ✅ Guardar cambios
     saveApplicationData();
 
+    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+    window.updateAttendanceSubscription?.();
+
     render();
 };
 
@@ -3447,6 +3029,9 @@ window.changeViewMode = (mode) => {
 
     // ✅ Guardar cambios
     saveApplicationData();
+
+    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+    window.updateAttendanceSubscription?.();
 
     render();
 };
@@ -3479,6 +3064,10 @@ window.selectDate = (isoDate) => {
 
     // ✅ Guardar cambios
     saveApplicationData();
+
+    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+    window.updateAttendanceSubscription?.();
+
     // Si estamos en vista semanal, mantener en esa vista
     // La fecha seleccionada se usará para mostrar su semana
     render();
@@ -5377,97 +4966,9 @@ window.showAlert = (message, type = 'info') => {
     showNotification(message, type);
 };
 
-// Verificar si empleado estaba activo en una fecha específica
-function wasEmployeeActiveOnDate(employee, date) {
-    console.log('');
-    console.log('🔍 wasEmployeeActiveOnDate() iniciado');
-    console.log('   Empleado:', employee.name);
-    console.log('   Fecha recibida:', date, '(tipo:', typeof date + ')');
+// ✅ wasEmployeeActiveOnDate migrado a js/modules/utils/DateUtils.js
 
-    const dateKey = typeof date === 'string' ? date : getDateKey(date);
-    console.log('   dateKey:', dateKey);
-
-    // Si tiene fecha de contratación y la fecha consultada es anterior, no estaba activo
-    if (employee.hireDate) {
-        console.log('   hireDate:', employee.hireDate);
-        console.log('   Comparación:', dateKey, '<', employee.hireDate, '=', dateKey < employee.hireDate);
-
-        if (dateKey < employee.hireDate) {
-            console.log('   ❌ RETORNA FALSE: No contratado aún');
-            return false;
-        }
-    } else {
-        console.log('   ℹ️ Sin hireDate definido');
-    }
-
-    // Si tiene asistencia registrada en esa fecha, definitivamente estaba activo
-    const attKey = `${employee.id}-${dateKey}`;
-    console.log('   Buscando asistencia con key:', attKey);
-
-    if (state.attendance[attKey]) {
-        console.log('   ✅ RETORNA TRUE: Tiene asistencia registrada');
-        return true;
-    } else {
-        console.log('   ℹ️ No tiene asistencia en esta fecha');
-    }
-
-    // Si no tiene historial de cambios de estado
-    if (!employee.statusHistory || employee.statusHistory.length === 0) {
-        console.log('   ℹ️ Sin historial de cambios');
-        console.log('   employee.active:', employee.active);
-        console.log('   ✅ RETORNA:', employee.active);
-        return employee.active;
-    }
-
-    // Buscar el estado en la fecha específica usando el historial
-    console.log('   📊 Tiene historial, procesando...');
-    const sortedHistory = [...employee.statusHistory].sort((a, b) => a.timestamp - b.timestamp);
-
-    // Encontrar el último cambio de estado ANTES o EN la fecha consultada
-    let wasActive = employee.active; // Por defecto, el estado actual
-
-    for (let i = sortedHistory.length - 1; i >= 0; i--) {
-        const change = sortedHistory[i];
-        console.log('   Revisando cambio:', change.date, 'active:', change.active);
-        if (change.date <= dateKey) {
-            wasActive = change.active;
-            console.log('   ✅ Encontrado estado en historial:', wasActive);
-            break;
-        }
-    }
-
-    console.log('   ✅ RETORNA:', wasActive);
-    return wasActive;
-}
-
-// Verificar si empleado estuvo activo en algún día del rango
-function wasEmployeeActiveInRange(employee, startDate, endDate) {
-    const start = typeof startDate === 'string' ? startDate : getDateKey(startDate);
-    const end = typeof endDate === 'string' ? endDate : getDateKey(endDate);
-
-    // Verificar si tiene asistencia en el rango
-    const hasAttendanceInRange = Object.keys(state.attendance).some(key => {
-        if (!key.startsWith(employee.id + '-')) return false;
-        const dateKey = key.split('-').slice(1).join('-');
-        return dateKey >= start && dateKey <= end;
-    });
-
-    if (hasAttendanceInRange) return true;
-
-    // Verificar historial de estado
-    if (!employee.statusHistory || employee.statusHistory.length === 0) {
-        return employee.active;
-    }
-
-    // Verificar si estuvo activo en algún punto del rango
-    for (let d = new Date(start); d <= new Date(end); d.setDate(d.getDate() + 1)) {
-        if (wasEmployeeActiveOnDate(employee, d)) {
-            return true;
-        }
-    }
-
-    return false;
-}
+// ✅ wasEmployeeActiveInRange migrado a js/modules/utils/DateUtils.js
 
 // Funciones de posiciones y estados movidas a EmployeesUI.js
 
@@ -5509,7 +5010,7 @@ function SyncIndicator() {
 
 
 function BottomNavigation() {
-    return `<nav class="bottom-nav">
+    return `<nav class="bottom-nav glass-effect">
                 <button class="bottom-nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
                         onclick="changeTab('attendance')"
                         title="Registrar asistencia diaria">
@@ -5598,7 +5099,7 @@ function DateControls() {
                 </div>
                 
                 ${state.viewMode === 'day' ? `
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                    <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; margin-top: 8px;">
                         <div style="display: flex; align-items: center; gap: 6px; background: #1e293b; padding: 8px 10px; border-radius: 8px; border: 1px solid #334155;">
                             <label style="font-size: 0.75rem; color: #94a3b8; white-space: nowrap;">⏱️ Horas:</label>
                             <input type="number" value="${dayHours}" min="0.5" max="24" step="0.5"
@@ -5606,6 +5107,11 @@ function DateControls() {
                                    style="flex: 1; background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 6px 8px; border-radius: 6px; font-size: 0.875rem; min-width: 50px;"
                                    title="Horas de trabajo configuradas para este día">
                         </div>
+                        <button class="view-btn" onclick="toggleListDisplayMode()" 
+                                title="Cambiar densidad (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})"
+                                style="font-size: 1rem; padding: 8px 12px; min-width: 40px;">
+                            ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
+                        </button>
                         <button class="view-btn ${isHoliday ? 'active' : ''}" onclick="markDayAsHoliday()" style="font-size: 0.75rem; padding: 8px 6px;">
                             ${isHoliday ? '☀️ Quitar' : '☀️ Festivo'}
                         </button>
@@ -5627,510 +5133,104 @@ function DateControls() {
             </div>`;
 }
 
-function DateControlsCompact() {
-    const dateText = state.viewMode === 'week'
-        ? getWeekRangeText(state.selectedDate)
-        : formatDateShort(state.selectedDate);
-    const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'compact';
-    const isVisible = state.isScrolled && (state.activeTab === 'attendance');
-    const isWeek = state.viewMode === 'week';
+// ⚡ componente DateControlsCompact movido a AttendanceUI.js
 
-    return `
-            <div class="date-controls-compact ${isVisible ? 'visible' : ''} ${isWeek ? 'at-bottom' : ''}">
-                <div class="date-navigation">
-                    <button class="date-btn" onclick="changeDate(-1)">◀</button>
-                    <div class="date-display" onclick="toggleDatePicker('compact')">
-                        <span style="display:flex; align-items:center; gap:6px;">
-                            ${icons.get('calendar', { size: 14 })}
-                            ${dateText}
-                        </span>
-                        ${showPicker ? DatePicker() : ''}
-                    </div>
-                    <button class="date-btn" onclick="changeDate(1)">▶</button>
-                </div>
-            </div>
-        `;
-}
-
-function StatsGrid() {
-    const stats = calculateStats();
-    const f = state.employeeFilter;
-    const filterNames = {
-        present: 'Mostrando solo PRESENTES',
-        absent: 'Mostrando solo AUSENTES',
-        overtime: 'Mostrando solo con EXTRAS'
-    };
-    // ⚡ ID único para render selectivo
-    return `<div id="day-stats" class="stats-combined"><div class="stats-row">
-                <div class="stat-item ${f === 'present' ? 'active' : ''}" onclick="setEmployeeFilter('present')">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-value">${stats.present}</div>
-                    <div class="stat-label">Presentes</div>
-                </div>
-                <div class="stat-item ${f === 'absent' ? 'active' : ''}" onclick="setEmployeeFilter('absent')">
-                    <div class="stat-icon">❌</div>
-                    <div class="stat-value">${stats.absent}</div>
-                    <div class="stat-label">Ausentes</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-icon">⏱️</div>
-                    <div class="stat-value">${stats.totalHours}h</div>
-                    <div class="stat-label">Horas</div>
-                </div>
-                <div class="stat-item ${f === 'overtime' ? 'active' : ''}" onclick="setEmployeeFilter('overtime')">
-                    <div class="stat-icon">⚡</div>
-                    <div class="stat-value">${stats.overtimeHours}h</div>
-                    <div class="stat-label">Extras</div>
-                </div>
-            </div>${f ? `<div style="margin-top:12px;padding:8px 12px;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);border-radius:8px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;"><span style="font-size:0.875rem;color:#06b6d4;font-weight:600;">🔍 ${filterNames[f]}</span><button onclick="setEmployeeFilter(null)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;font-weight:600;">✕ Limpiar</button></div>` : ''}</div>`;
-}
-
-function Legend() {
-    return `<div class="legend"><div class="legend-header" onclick="toggleLegend()"><div class="legend-title">🎨 Leyenda de Colores</div><div style="color:#64748b;font-size:1.25rem;">${state.showLegend ? '▼' : '▶'}</div></div>${state.showLegend ? '<div class="legend-items"><div class="legend-item"><div class="legend-color check-regular"></div><span class="legend-text">Regular</span></div><div class="legend-item"><div class="legend-color check-multiposition"></div><span class="legend-text">Multi-Pos</span></div><div class="legend-item"><div class="legend-color check-holiday"></div><span class="legend-text">Festivo</span></div><div class="legend-item"><div class="legend-color check-overtime"></div><span class="legend-text">Extras</span></div><div class="legend-item"><div class="legend-color check-undertime"></div><span class="legend-text">Menos</span></div></div>' : ''}</div>`;
-}
-
-function PositionFilters() {
-    // Deduplicar posiciones por nombre (mantener primera ocurrencia)
-    const allActivePositions = state.positions.filter(p => p.active);
-    const seenNames = new Set();
-    const activePositions = allActivePositions.filter(pos => {
-        if (seenNames.has(pos.name)) return false;
-        seenNames.add(pos.name);
-        return true;
-    });
-    const activeEmployees = state.employees.filter(e => wasEmployeeActiveOnDate(e, state.selectedDate));
+// ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DayView, WeekView, etc.)
+// han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
 
 
-    // Contar empleados por posición (incluir duplicados del mismo nombre)
-    const positionCounts = {};
-    activePositions.forEach(pos => {
-        // Obtener todos los IDs de posiciones con el mismo nombre
-        const sameNameIds = allActivePositions
-            .filter(p => p.name === pos.name)
-            .map(p => p.id);
-        positionCounts[pos.id] = activeEmployees.filter(emp =>
-            emp.positions.some(pId => sameNameIds.includes(pId))
-        ).length;
-    });
-
-    const totalCount = activeEmployees.length;
-    const currentFilter = state.filters.position;
-
-    return `
-                <div class="position-filters-container" style="margin-top: 16px;">
-                    <button class="filters-toggle" onclick="toggleFilters()" 
-                            style="width: 100%; background: #1e293b; border: 1px solid #334155; padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.2s;">
-                        <span style="color: #f1f5f9; font-weight: 600; font-size: 0.875rem;">🎯 Filtrar Posición</span>
-                        <span style="font-size: 1.25rem; color: #94a3b8;">${state.showFilters ? '▼' : '▶'}</span>
-                    </button>
-                    
-                    ${state.showFilters ? `
-                        <div class="filters-content" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px;">
-                            <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" 
-                                    onclick="setPositionFilter('all')"
-                                    style="background: ${currentFilter === 'all' ? 'linear-gradient(135deg, #06b6d4, #10b981)' : '#1e293b'}; border: 2px solid ${currentFilter === 'all' ? '#06b6d4' : '#334155'}; padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                                <span style="font-size: 0.875rem; font-weight: 600; color: #f1f5f9;">Todos</span>
-                                <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === 'all' ? '#fff' : '#06b6d4'};">${totalCount}</span>
-                            </button>
-                            
-                            ${activePositions.map(pos => `
-                                <button class="filter-btn ${currentFilter === pos.id ? 'active' : ''}" 
-                                        onclick="setPositionFilter('${pos.id}')"
-                                        style="background: ${currentFilter === pos.id ? pos.color : '#1e293b'}; border: 2px solid ${currentFilter === pos.id ? pos.color : '#334155'}; padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                                    <span style="font-size: 0.875rem; font-weight: 600; color: ${currentFilter === pos.id ? '#fff' : '#f1f5f9'};">${pos.name}</span>
-                                    <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === pos.id ? '#fff' : pos.color};">${positionCounts[pos.id] || 0}</span>
-                                </button>
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-}
-
-function EmployeeRow(emp) {
-    const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
-    const att = state.attendance[key];
-    const checkColor = getCheckColor(att, state.selectedDate);
-    const isChecked = att && att.present;
-    const selPos = att?.selectedPosition || emp.positions?.[0] || null;
-    const isMultiPosition = att?.multiPosition || false;
-    const hasMultiplePositions = emp.positions.length > 1;
-
-    // Calcular horas y días del mes
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthHours = getEmployeeTotalHours(emp.id, firstDay, today);
-    let monthDays = 0;
-    let monthOvertimeHours = 0;
-    for (let d = new Date(firstDay); d <= today; d.setDate(d.getDate() + 1)) {
-        const k = `${emp.id}-${getDateKey(new Date(d))}`;
-        const a = state.attendance[k];
-        if (a && a.present) {
-            monthDays++;
-            if (a.overtimeHours) monthOvertimeHours += a.overtimeHours;
-        }
-    }
-
-    // Obtener posición seleccionada temporalmente (antes de checkear)
-    const tempKey = `${emp.id}-${getDateKey(state.selectedDate)}`;
-    const selectedPosId = state.tempPositionSelection?.[tempKey] || emp.positions[0];
-
-    // ⚡ ID único para render selectivo
-    return `<div id="emp-row-${emp.id}" class="employee-row">
-                <div class="employee-info">
-                    <div class="employee-header">
-                        <div class="employee-number">${emp.number}</div>
-                        <div class="employee-name" onclick="openEmployeeFloating('${emp.id}')">${emp.name}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
-                    </div>
-                    
-                    <!-- Botones de posición - SIEMPRE VISIBLES si tiene múltiples posiciones -->
-                    ${hasMultiplePositions ? `
-                        <div class="position-toggles" style="margin-top: 8px;">
-                            ${emp.positions.map(pid => {
-        const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-        const isActive = isChecked ? (selPos === pid) : (selectedPosId === pid);
-        return `<button class="position-toggle ${isActive ? 'active' : ''}" 
-                                               onclick="${isChecked ? `togglePosition('${emp.id}', '${pid}')` : `event.stopPropagation(); selectTempPosition('${emp.id}', '${pid}')`}">
-                                    <span class="pos-dot" style="background:${pos.color || "#64748b"};"></span>${pos.name || "PosiciÃ³n"}
-                                </button>`;
-    }).join('')}
-                        </div>
-                    ` : `
-                        <!-- Empleado con una sola posición -->
-                        <div class="position-toggles" style="margin-top: 8px;">
-                            ${emp.positions.map(pid => {
-        const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-        return `<span class="position-toggle" style="opacity:0.7;cursor:default;">
-                                    <span class="pos-dot" style="background:${pos.color || "#64748b"};"></span>${pos.name || "PosiciÃ³n"}
-                                </span>`;
-    }).join('')}
-                        </div>
-                    `}
-                    
-                    <!-- Desglose si es multi-posición -->
-                    ${isMultiPosition ? `
-                        <div class="multi-position-breakdown" style="margin-top: 8px; padding: 8px; background: #1e293b; border-radius: 6px; border: 1px solid #334155;">
-                            <div style="font-size: 0.75rem; color: #06b6d4; margin-bottom: 4px; font-weight: 600;">🔄 Múltiples Posiciones:</div>
-                            ${att.positionHours.map(ph => {
-        const pos = state.positions.find(p => p.id === ph.positionId);
-        return `<div style="display: flex; align-items: center; gap: 8px; font-size: 0.875rem; margin-bottom: 4px;">
-                                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${pos?.color || '#64748b'};"></span>
-                                    <span style="flex: 1; color: #f1f5f9;">${pos?.name || '?'}</span>
-                                    <span style="color: #10b981; font-weight: 600;">${ph.hours}h${ph.overtimeHours > 0 ? ` +${ph.overtimeHours}h` : ''}</span>
-                                </div>`;
-    }).join('')}
-                        </div>
-                    ` : ''}
-                    
-                    <div class="employee-meta">
-                        <div class="employee-meta-item">📅 ${monthDays} días</div>
-                        <div class="employee-meta-divider"></div>
-                        <div class="employee-meta-item">⏱️ ${monthHours}h</div>
-                        ${monthOvertimeHours > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="color:#06b6d4;">⚡ +${monthOvertimeHours}h extras mes</div>` : ''}
-                    </div>
-                    
-                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; min-height: 24px; display: flex; align-items: center; overflow: hidden;">
-                        ${isChecked && att.hoursWorked > state.settings.regularHoursPerDay ? `
-                            <div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${(att.hoursWorked - state.settings.regularHoursPerDay).toFixed(1)}h extras</div>
-                        ` : ''}
-                        
-                        ${isChecked && att.hoursWorked > state.settings.regularHoursPerDay && att.notes && att.notes.trim() ? `
-                            <div class="employee-meta-divider"></div>
-                        ` : ''}
-
-                        ${isChecked && att.notes && att.notes.trim() ? `
-                            <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1;" 
-                                 onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')" 
-                                 title="${att.notes.replace(/"/g, '&quot;')}">
-                                📝 ${att.notes}
-                            </div>
-                        ` : ''}
-                        
-                        ${(!isChecked || (att.hoursWorked <= state.settings.regularHoursPerDay && (!att.notes || !att.notes.trim()))) ? `
-                            <div style="height: 20px;"></div>
-                        ` : ''}
-                    </div>
-                </div>
-                
-                <!-- CHECK Y BOTÓN [+] SIEMPRE VISIBLES -->
-                <div style="display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: flex-start; min-width: 80px; width: 80px; flex-shrink: 0;">
-                    <label class="check-container" style="position: relative;">
-                        <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} 
-                               onclick="handleCheckboxClick(event, '${emp.id}')">
-                        <div class="check-box ${checkColor}">${isChecked ? '✓' : ''}</div>
-                        ${isChecked ? `
-                            <div class="hours-badge">
-                                ${att.hoursWorked}h${isMultiPosition ? ' 🔄' : ''}
-                                ${att.notes && att.notes.trim() ? '<span style="margin-left: 4px;" title="' + att.notes.replace(/"/g, '&quot;') + '">📝</span>' : ''}
-                            </div>
-                        ` : ''}
-                    </label>
-                    
-                    <!-- ⚡ FIX: Siempre reservar espacio para botón [+], pero invisible si no se necesita -->
-                    ${isChecked && hasMultiplePositions ? `
-                        <button onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')" 
-                                style="width: 40px; height: 40px; border-radius: 8px; background: #1e293b; border: 2px solid #334155; color: #06b6d4; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;"
-                                onmouseover="this.style.borderColor='#06b6d4'; this.style.background='rgba(6, 182, 212, 0.1)'"
-                                onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'"
-                                title="Agregar otra posición o modificar horas">
-                            +
-                        </button>
-                    ` : `
-                        <div style="width: 40px; height: 40px;"></div>
-                    `}
-                </div>
-            </div>`;
-}
-
-
-function DayViewList() {
-    const dateKey = getDateKey(state.selectedDate);
-    // Filtrar empleados que estaban activos en esta fecha
-    let employees = state.employees.filter(emp => wasEmployeeActiveOnDate(emp, state.selectedDate));
-
-    // 🔢 ORDENAR POR NÚMERO (Orden natural)
-    employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
-
-    // 🔍 APLICAR FILTRO DE LÍDER
-    if (state.filters.leaderId && state.filters.leaderId !== 'all') {
-        employees = employees.filter(emp => {
-            return emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-                return pos && pos.leaderId === state.filters.leaderId;
-            });
-        });
-    }
-
-    // 🔍 APLICAR FILTRO DE BÚSQUEDA
-    if (state.filters.search) {
-        const term = state.filters.search;
-        employees = employees.filter(emp => {
-            const matchesName = emp.name.toLowerCase().includes(term);
-            const matchesNumber = emp.number.toLowerCase().includes(term);
-
-            // Buscar también en los nombres de las posiciones
-            const matchesPosition = emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-                return pos && pos.name.toLowerCase().includes(term);
-            });
-
-            return matchesName || matchesNumber || matchesPosition;
-        });
-    }
-
-    // Aplicar filtro de asistencia si está activo
-    if (state.employeeFilter === 'present') {
-        employees = employees.filter(emp => {
-            const key = `${emp.id}-${dateKey}`;
-            const att = state.attendance[key];
-            return att && att.present;
-        });
-    } else if (state.employeeFilter === 'absent') {
-        employees = employees.filter(emp => {
-            const key = `${emp.id}-${dateKey}`;
-            const att = state.attendance[key];
-            return !att || !att.present;
-        });
-    } else if (state.employeeFilter === 'overtime') {
-        employees = employees.filter(emp => {
-            const key = `${emp.id}-${dateKey}`;
-            const att = state.attendance[key];
-            return att && att.present && att.hoursWorked > state.settings.regularHoursPerDay;
-        });
-    }
-
-    // Aplicar filtro de posición
-    if (state.filters.position !== 'all') {
-        employees = employees.filter(emp =>
-            emp.positions.includes(state.filters.position)
-        );
-    }
-
-    if (employees.length === 0) {
-        return '<div style="text-align:center;padding:40px 20px;color:#64748b;"><div style="font-size:3rem;margin-bottom:12px;opacity:0.3;">🔍</div><div style="font-size:1rem;">No hay empleados que coincidan con los filtros</div></div>';
-    }
-
-    return employees.map(emp => EmployeeRow(emp)).join('');
-}
-
-function DayView() {
-    return `${StatsGrid()}${PositionFilters()}${Legend()}${SearchBar()}${DateControlsCompact()}<div id="day-view-list">${DayViewList()}</div>`;
-}
-
-function WeekViewTable() {
-    const week = getWeekDates(new Date(state.selectedDate));
-    const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-    // Filtrar empleados que estuvieron activos en algún día de la semana
-    const startDate = week[0];
-    const endDate = week[6];
-    let activeEmployees = state.employees.filter(emp =>
-        wasEmployeeActiveInRange(emp, startDate, endDate)
-    );
-
-    // 🔢 ORDENAR POR NÚMERO (Orden natural)
-    activeEmployees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
-
-    // 🔍 APLICAR FILTRO DE LÍDER
-    if (state.filters.leaderId && state.filters.leaderId !== 'all') {
-        activeEmployees = activeEmployees.filter(emp => {
-            // Un empleado aparece si cualquiera de sus posiciones es liderada por el líder seleccionado
-            return emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-                return pos && pos.leaderId === state.filters.leaderId;
-            });
-        });
-    }
-
-    // 🔍 APLICAR FILTRO DE BÚSQUEDA
-    if (state.filters.search) {
-        const term = state.filters.search;
-        activeEmployees = activeEmployees.filter(emp => {
-            const matchesName = emp.name.toLowerCase().includes(term);
-            const matchesNumber = emp.number.toLowerCase().includes(term);
-
-            // Buscar también en los nombres de las posiciones
-            const matchesPosition = emp.positions?.some(pid => {
-                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-                return pos && pos.name.toLowerCase().includes(term);
-            });
-
-            return matchesName || matchesNumber || matchesPosition;
-        });
-    }
-
-    if (activeEmployees.length === 0) {
-        return `
-                    <div style="text-align:center;padding:60px 20px;color:#64748b;">
-                        <div style="font-size:5rem;margin-bottom:24px;opacity:0.3;">👷</div>
-                        <h3 style="font-size:1.5rem;color:#f1f5f9;margin-bottom:12px;">No hay empleados activos</h3>
-                        <p style="font-size:0.875rem;color:#94a3b8;margin-bottom:32px;">Agrega empleados para comenzar a registrar asistencia</p>
-                        <button onclick="changeTab('employees')" class="btn btn-primary" style="padding: 12px 32px;">
-                            ➕ Agregar Empleados
-                        </button>
-                    </div>
-                `;
-    }
-
-    return `
-                <div class="week-table-container">
-                    <table class="week-table">
-                        <thead>
-                            <tr>
-                                <th style="text-align:left;">Empleado</th>
-                                ${week.map((d, i) => {
-        const isH = isDayHoliday(d, state.settings.holidays);
-        const showYear = d.getFullYear() !== new Date().getFullYear();
-        return `
-                                        <th>
-                                            <div>${days[i]}${isH ? ' ☀️' : ''}</div>
-                                            <div style="font-size:0.7rem;color:#64748b;">
-                                                ${d.getDate()}/${d.getMonth() + 1}${showYear ? `/${d.getFullYear()}` : ''}
-                                            </div>
-                                        </th>
-                                    `;
-    }).join('')}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${activeEmployees.map(emp => {
-        return `
-                                    <tr>
-                                        <td>
-                                            <div class="week-employee-cell">
-                                                <div class="employee-number">${emp.number}</div>
-                                                <div class="week-employee-name-container">
-                                                    <div class="week-employee-name">${emp.name}</div>
-                                                    <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
-                                                        ${emp.positions?.map(pid => state.positions.find(p => p.id === pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        ${week.map(date => {
-            const dKey = getDateKey(date);
-            const aKey = `${emp.id}-${dKey}`;
-            const att = state.attendance[aKey];
-            const isCh = att && att.present;
-            const cColor = getCheckColor(att, date);
-            const selP = att?.selectedPosition || emp.positions?.[0] || null;
-
-            // ID único para cada checkbox
-            const checkId = `check-${emp.id}-${dKey}`;
-
-            return `
-                                                <td>
-                                                    <div class="day-cell">
-                                                        <!-- Checkbox clickable -->
-                                                        <div class="week-check-wrapper" onclick="event.stopPropagation(); handleWeekCheck('${emp.id}', '${dKey}')">
-                                                            <div class="check-box week-check-box ${cColor}">
-                                                                ${isCh ? '✓' : ''}
-                                                            </div>
-                                                            ${isCh ? `<div class="hours-badge">${att.hoursWorked}h</div>` : ''}
-                                                        </div>
-                                                        
-                                                        <!-- Botones de posiciones multi (si aplica) -->
-                                                        ${isCh && emp.positions?.length > 1 ? `
-                                                            <div class="week-position-toggles">
-                                                                ${emp.positions.map(pid => {
-                const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
-                if (!pos) return '';
-                const isSel = selP === pid;
-                return `
-                                                                        <button 
-                                                                            class="week-position-toggle ${isSel ? 'active' : ''}" 
-                                                                            onclick="event.stopPropagation(); toggleWeekPosition('${emp.id}', '${pid}', '${dKey}')"
-                                                                        >
-                                                                            ${pos.name.substring(0, 3)}
-                                                                        </button>
-                                                                    `;
-            }).filter(Boolean).join('')}
-                                                            </div>
-                                                        ` : ''}
-                                                    </div>
-                                                </td>
-                                            `;
-        }).join('')}
-                                    </tr>
-                                `;
-    }).join('')}
-                            
-                            <!-- Fila de totales -->
-                            <tr style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
-                                <td style="padding: 12px 16px;">
-                                    <div style="font-weight: 700; color: #06b6d4; font-size: 0.875rem;">TOTALES</div>
-                                </td>
-                                ${week.map(date => {
-        const dKey = getDateKey(date);
-        const dayAttendance = Object.values(state.attendance).filter(a =>
-            a.date === dKey && a.present
-        );
-        const totalHours = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
-        const presentCount = dayAttendance.length;
-
-        return `
-                                        <td style="text-align: center; padding: 12px 8px;">
-                                            <div style="color: #06b6d4; font-weight: 700; font-size: 1rem; margin-bottom: 4px;">${presentCount}</div>
-                                            <div style="font-size: 0.7rem; color: #94a3b8;">${totalHours.toFixed(1)}h</div>
-                                        </td>
-                                    `;
-    }).join('')}
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            `;
-}
-
-function WeekView() {
-    return `${SearchBar()}${DateControlsCompact()}<div id="week-view-list">${WeekViewTable()}</div>`;
-}
+// ⚡ getFilteredEmployeesForDay, DayView, WeekView y WeekViewTotalsRow movidos a AttendanceUI.js
 
 // ============================================
 // LEGACY EMPLOYEES UI — Removed (now in EmployeesUI.js)
 // ============================================
 
 // [LEGACY REMOVED] EmployeesTab, EmployeeCard, LeaderCard, PositionsTab, PositionCard -> EmployeesUI.js
+
+/**
+ * 📏 Fila de Empleado para Vista Semanal
+ */
+// ⚡ WeekRow movido a AttendanceUI.js
+
+/**
+ * ⚡ OPTIMIZACIÓN ZONAL: Actualizar solo una fila de empleado en DayView
+ */
+window.updateEmployeeRow = function(employeeId) {
+    const rowEl = document.getElementById(`emp-row-${employeeId}`);
+    if (!rowEl) return;
+
+    const emp = state.employees.find(e => e.id === employeeId);
+    if (!emp) return;
+
+    // Generar el HTML de la fila (respetando el modo de visualización)
+    const newHTML = state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
+    
+    // Usar DOMDiff para actualizar solo lo necesario del DOM real
+    if (DOMDiff && typeof DOMDiff.apply === 'function') {
+        DOMDiff.apply(rowEl, newHTML);
+    } else {
+        rowEl.outerHTML = newHTML;
+    }
+};
+
+/**
+ * ⚡ OPTIMIZACIÓN ZONAL: Actualizar solo una fila de empleado en WeekView
+ */
+window.updateWeekRow = function(employeeId) {
+    const rowEl = document.getElementById(`week-row-${employeeId}`);
+    if (!rowEl) return;
+
+    const emp = state.employees.find(e => e.id === employeeId);
+    if (!emp) return;
+
+    const week = getWeekDates(new Date(state.selectedDate));
+    const newHTML = WeekRow(emp, week);
+    
+    if (DOMDiff && typeof DOMDiff.apply === 'function') {
+        DOMDiff.apply(rowEl, newHTML);
+    } else {
+        rowEl.outerHTML = newHTML;
+    }
+    
+    // También actualizar totales si es necesario
+    window.updateWeekTotals?.();
+};
+
+/**
+ * ⚡ OPTIMIZACIÓN ZONAL: Actualizar fila de totales en WeekView
+ */
+window.updateWeekTotals = function() {
+    const totalsEl = document.getElementById('week-totals-row');
+    if (!totalsEl) return;
+    
+    const week = getWeekDates(new Date(state.selectedDate));
+    const newHTML = `
+        <tr id="week-totals-row" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
+            <td style="padding: 12px 16px;">
+                <div style="font-weight: 700; color: #06b6d4; font-size: 0.875rem;">TOTALES</div>
+            </td>
+            ${week.map(date => {
+                const dKey = getDateKey(date);
+                const dayAttendance = Object.values(state.attendance).filter(a => a.date === dKey && a.present);
+                const totalH = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
+                const count = dayAttendance.length;
+                
+                return `
+                    <td style="text-align: center; padding: 12px 8px;">
+                        <div style="color: #06b6d4; font-weight: 700; font-size: 1rem; margin-bottom: 4px;">${count}</div>
+                        <div style="font-size: 0.7rem; color: #94a3b8;">${totalH.toFixed(1)}h</div>
+                    </td>
+                `;
+            }).join('')}
+        </tr>
+    `;
+    
+    if (DOMDiff && typeof DOMDiff.apply === 'function') {
+        DOMDiff.apply(totalsEl, newHTML);
+    } else {
+        totalsEl.outerHTML = newHTML;
+    }
+};
 window.setSearchFilter = debounce((value) => {
     state.filters.search = value.trim().toLowerCase();
 
@@ -6139,55 +5239,34 @@ window.setSearchFilter = debounce((value) => {
     const weekList = document.getElementById('week-view-list');
 
     if (state.viewMode === 'day' && dayList) {
-        dayList.innerHTML = DayViewList();
+        const filtered = getFilteredEmployeesForDay();
+        window.renderInChunks('day-view-list', filtered, (emp) => {
+            return state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
+        });
     } else if (state.viewMode === 'week' && weekList) {
-        weekList.innerHTML = WeekViewTable();
+        const week = getWeekDates(new Date(state.selectedDate));
+        const filtered = getFilteredEmployeesForWeek(week);
+        window.renderInChunks('week-view-tbody', filtered, (emp) => WeekRow(emp, week));
     } else {
         render();
     }
 }, 300);
 
-function SearchBar() {
-    const searchValue = state.filters.search || '';
-    const leaderFilter = state.filters.leaderId || 'all';
+window.toggleListDisplayMode = () => {
+    state.listDisplayMode = state.listDisplayMode === 'relaxed' ? 'compact' : 'relaxed';
+    render();
+};
 
+function DisplayModeFloatingToggle() {
+    if (state.activeTab !== 'attendance') return '';
+    
     return `
-                <div class="search-container" style="margin-bottom: 16px; display: flex; gap: 12px; width: 100%;">
-                    <!-- Búsqueda (3/5 del espacio) -->
-                    <div style="position: relative; flex: 3;">
-                        <input type="text" 
-                               id="search-input"
-                               value="${searchValue}"
-                               oninput="setSearchFilter(this.value)"
-                               placeholder="🔍 Buscar por nombre, número o posición..."
-                               style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; padding-left: 36px; border-radius: 8px; font-size: 0.875rem;">
-                        <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 1rem; opacity: 0.5;">🔍</span>
-                        ${searchValue ? `
-                            <button onclick="setSearchFilter('');" 
-                                    style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">
-                                 ✕
-                            </button>
-                        ` : ''}
-                    </div>
-
-                    <!-- Filtro de Líder (2/5 del espacio) -->
-                    <div style="flex: 2; position: relative;">
-                        <div style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 1rem; opacity: 0.5;">
-                            ${icons.get('key')}
-                        </div>
-                        <select onchange="setLeaderFilter(this.value)" 
-                                style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; padding-left: 36px; border-radius: 8px; font-size: 0.875rem; cursor: pointer; outline: none; appearance: none; -webkit-appearance: none;">
-                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
-                            ${state.leaders.filter(l => l.active).map(l => `
-                                <option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>
-                                    ${l.name}
-                                </option>
-                            `).join('')}
-                        </select>
-                        <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5;">▼</span>
-                    </div>
-                </div>
-            `;
+        <div class="floating-display-toggle glass-effect" 
+             onclick="toggleListDisplayMode()"
+             title="Cambiar densidad de lista (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})">
+            ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
+        </div>
+    `;
 }
 
 function AttendanceTab() {
@@ -6239,7 +5318,8 @@ function FloatingCard() {
     const fm = new Date(); fm.setDate(1);
     const hm = getEmployeeTotalHours(emp.id, fm, new Date());
     const chartData = chartService.getChartData(emp.id, state.chartPeriod);
-    const maxH = Math.max(...chartData.map(d => d.regular + d.overtime + d.holiday + d.absent), 1);
+    const maxVal = chartData && chartData.length > 0 ? Math.max(...chartData.map(d => (d.regular || 0) + (d.overtime || 0) + (d.holiday || 0) + (d.absent || 0))) : 1;
+    const maxH = Math.max(maxVal, 1);
     const scale = 140 / maxH;
 
     return `<div class="overlay" onclick="closeFloatingCard()"></div><div class="floating-card" onclick="event.stopPropagation()"><div class="floating-card-header"><div class="floating-card-title">👤 ${emp.name}</div><button class="floating-card-close" onclick="closeFloatingCard()">✕</button></div><div class="stats-compact"><div class="stat-compact"><div class="stat-compact-label">Últimos 7 días</div><div class="stat-compact-value">${h7}h</div></div><div class="stat-compact"><div class="stat-compact-label">Este mes</div><div class="stat-compact-value">${hm}h</div></div></div><div class="calendar-compact"><div class="calendar-nav"><button class="calendar-nav-btn" onclick="changeFloatingMonth(-1)">◀</button><div class="calendar-month">${formatMonthYear(state.floatingCardMonth)}</div><button class="calendar-nav-btn" onclick="changeFloatingMonth(1)">▶</button></div><div class="calendar-header">${dayN.map(d => `<div class="calendar-header-day">${d}</div>`).join('')}</div><div class="calendar-grid">${days.map(({ date, currentMonth }) => {
@@ -6462,7 +5542,7 @@ function EmployeeProfileModal() {
 
     const activeTab = state.employeeProfile.activeTab;
 
-    return `<div class="modal-overlay" onclick="if(event.target === this) closeEmployeeProfile()" style="z-index: 2000;">
+    return `<div class="modal-overlay" onclick="if(event.target === this) closeEmployeeProfile()" style="z-index: 2500;">
                 <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
                     <!-- Header -->
                     <div class="modal-header" style="flex-shrink: 0;">
@@ -6582,11 +5662,10 @@ function ProfileTabNomina(emp) {
                 </div>
                 
                 <!-- Resumen Rápido -->
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
                     <div style="background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; text-align: center;">
                         <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">📅 Días</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #06b6d4;">${workedDays}</div>
-                        <div style="font-size: 0.65rem; color: #64748b;">de ${totalDays}</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #06b6d4;">${workedDays || 0}</div>
+                        <div style="font-size: 0.65rem; color: #64748b;">de ${totalDays || 0}</div>
                     </div>
                     <div style="background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; text-align: center;">
                         <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">⏱️ Horas</div>
@@ -8192,69 +7271,8 @@ window.importData = function (event) {
 };
 
 window.deleteAllData = function () {
-    // Triple confirmación para acción destructiva
-    const confirm1 = confirm(
-        '⚠️ ADVERTENCIA: ELIMINAR TODOS LOS DATOS\n\n' +
-        'Esta acción es PERMANENTE y NO se puede deshacer.\n\n' +
-        'Se eliminarán:\n' +
-        '• Todos los empleados\n' +
-        '• Todas las posiciones\n' +
-        '• Todo el historial de asistencia\n' +
-        '• Toda la configuración\n\n' +
-        '¿Estás COMPLETAMENTE SEGURO?'
-    );
-
-    if (!confirm1) return;
-
-    const confirm2 = confirm(
-        '🚨 ÚLTIMA ADVERTENCIA\n\n' +
-        'Una vez eliminados, los datos NO se pueden recuperar.\n\n' +
-        'Se recomienda EXPORTAR un backup antes de continuar.\n\n' +
-        '¿Deseas continuar con la eliminación?'
-    );
-
-    if (!confirm2) return;
-
-    // Pedir confirmación escribiendo texto
-    const confirmText = prompt(
-        'Para confirmar, escribe exactamente:\nELIMINAR TODO\n\n' +
-        '(Escribe en mayúsculas)'
-    );
-
-    if (confirmText !== 'ELIMINAR TODO') {
-        showNotification('❌ Cancelado: texto de confirmación incorrecto', 'error');
-        return;
-    }
-
-    try {
-        // Limpiar localStorage
-        localStorage.clear();
-
-        // Reiniciar estado a valores por defecto
-        state.settings = {
-            companyName: 'Mi Empresa',
-            regularHoursPerDay: 8,
-            holidayFactor: 2,
-            iconSet: resolveIconSet(),
-            holidays: []
-        };
-        state.positions = [];
-        state.employees = [];
-        state.attendance = {};
-        state.tempAssignments = [];
-        state.leaders = [];
-
-        showNotification('✅ Todos los datos han sido eliminados', 'success');
-
-        // Recargar página después de 2 segundos para reiniciar onboarding
-        setTimeout(() => {
-            location.reload();
-        }, 2000);
-
-    } catch (error) {
-        console.error('Error eliminando datos:', error);
-        showNotification('❌ Error al eliminar datos', 'error');
-    }
+    // Usar el nuevo sistema robusto de DataService (Borrado Local)
+    dataService.reset();
 };
 
 
@@ -9426,6 +8444,12 @@ function NotesCenterModal() {
 
 // ConfirmDialog eliminado - ahora usamos Modal.confirm()
 
+/**
+ * 🦴 Renderiza esqueletos de carga para una mejor percepción de velocidad.
+ * @param {number} count - Número de elementos a mostrar.
+ */
+// ⚡ renderSkeleton movido a AttendanceUI.js
+
 function App() {
     // Si está el onboarding activo, mostrar solo eso
     if (state.showOnboarding) {
@@ -9546,12 +8570,13 @@ function render() {
             document.body.classList.remove('sidebar-collapsed');
         }
 
-        // Renderizar con DocumentFragment para evitar layout thrashing
+        // Renderizar con DOMDiff para evitar parpadeos y pérdida de estado
         const root = document.getElementById('root');
         const newHTML = App();
-        const template = document.createElement('template');
-        template.innerHTML = newHTML;
-        root.replaceChildren(...template.content.childNodes);
+        
+        // ⚡ Refactorización Alpha: Usamos el parcheo incremental en lugar de replaceChildren
+        DOMDiff.apply(root, newHTML);
+
         // Renderizar iconos Lucide despues de actualizar el DOM
         icons.refresh();
         updateHeaderOffset();
@@ -9576,8 +8601,10 @@ function render() {
         // Restaurar posición del scroll después de renderizar
         restoreScrollPosition();
 
-        // Auto-guardar datos en LocalStorage
-        saveApplicationData();
+        // Auto-guardar datos en LocalStorage (skip si son datos remotos, ya están persistidos)
+        if (!window._isApplyingRemoteData) {
+            saveApplicationData();
+        }
 
         // Emitir evento de render completado
         eventBus.emit('render:complete', {
@@ -9590,10 +8617,14 @@ function render() {
 }
 
 // Versión optimizada con debounce para búsquedas
-const debouncedRender = renderOptimizer.debounceRender(render, 300);
+const debouncedRender = window.debounce(render, 300);
 
 // Versión optimizada con throttle para scroll
-const throttledRender = renderOptimizer.throttleRender(render, 100);
+let _throttleTimer = null;
+const throttledRender = function() {
+    if (_throttleTimer) return;
+    _throttleTimer = setTimeout(() => { _throttleTimer = null; render(); }, 100);
+};
 
 // Event listener global para cerrar menú contextual y calendarios
 document.addEventListener('click', function (e) {
@@ -10532,8 +9563,27 @@ document.head.appendChild(styleTag);
 (async function initializeApp() {
     console.log('🚀 ========================================');
     console.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
-    console.log('🚀 Versión: 6.5 (Logging Completo)');
+    console.log('🚀 Versión: 6.6 (Sync Optimized)');
     console.log('🚀 ========================================');
+
+    const loader = document.getElementById('app-loader');
+    let isInitialLoad = true;
+
+    const hideLoader = () => {
+        if (loader) {
+            loader.classList.add('hidden');
+            setTimeout(() => loader.style.display = 'none', 500);
+        }
+    };
+
+    // Timeout de seguridad: Ocultar loader tras 6 segundos si Firebase falla
+    const loaderTimeout = setTimeout(() => {
+        if (isInitialLoad) {
+            console.warn('⚠️ Firebase tardó demasiado. Ocultando loader por seguridad.');
+            hideLoader();
+            isInitialLoad = false;
+        }
+    }, 6000);
 
     try {
         // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
@@ -10549,8 +9599,105 @@ document.head.appendChild(styleTag);
             restoreAutoBackup();
         }
 
-        // 4. Inicializar Auth y Sincronización (Migrado a FirebaseService)
-        // Firebase ya inicializa Auth al cargar el módulo
+        // 4. Inicializar Auth y Sincronización (Tiempo Real)
+        FirebaseService.onAuthStateChanged((user) => {
+            window.context = { currentUser: user };
+            render(); // Refrescar para mostrar perfil en settings
+
+            if (user) {
+                // Suscribirse a cambios en el estado (Mirror Sync)
+                FirebaseService.subscribeToChanges((remoteData) => {
+                    console.log('📡 Cambio detectado en la nube...');
+                    
+                    // 🛡️ GUARD: Evitar loop infinito de sincronización
+                    // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
+                    window._isApplyingRemoteData = true;
+                    
+                    // Fusionar datos (con deduplicación por ID)
+                    const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
+                    state.settings = { ...state.settings, ...remoteData.settings };
+                    state.employees = dedup(remoteData.employees || state.employees);
+                    state.positions = dedup(remoteData.positions || state.positions);
+                    state.leaders = dedup(remoteData.leaders || state.leaders);
+                    
+                    if (remoteData.attendance) {
+                        state.attendance = { ...state.attendance, ...remoteData.attendance };
+                    }
+                    
+                    // Desactivar flag después de un tick para que el render/save no suba de vuelta
+                    setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
+                    
+                    if (isInitialLoad) {
+                        clearTimeout(loaderTimeout);
+                        hideLoader();
+                        isInitialLoad = false;
+                        console.log('✅ Primera carga de nube completada');
+                        const metadataChanged = JSON.stringify(remoteData.employees) !== JSON.stringify(state.employees) ||
+                                              JSON.stringify(remoteData.positions) !== JSON.stringify(state.positions) ||
+                                              JSON.stringify(remoteData.leaders) !== JSON.stringify(state.leaders);
+
+                        if (metadataChanged) {
+                            render();
+                        }
+                    }
+                });
+
+                // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
+                window.updateAttendanceSubscription = function() {
+                    if (window._attendanceUnsubscribe) {
+                        window._attendanceUnsubscribe();
+                    }
+
+                    // Calcular rango: Mes actual +- 1 mes para suavidad
+                    const date = new Date(state.selectedDate);
+                    const startOfMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+                    const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 2, 0);
+                    
+                    const startDate = getDateKey(startOfMonth);
+                    const endDate = getDateKey(endOfMonth);
+
+                    // Evitar suscripciones redundantes si el rango no ha cambiado significativamente
+                    if (state._currentSubRange === `${startDate}_${endDate}`) return;
+                    state._currentSubRange = `${startDate}_${endDate}`;
+
+                    window._attendanceUnsubscribe = FirebaseService.subscribeToAttendanceZonal({
+                        startDate,
+                        endDate,
+                        onInitialLoad: (allAttendance) => {
+                            window._isApplyingRemoteData = true;
+                            state.attendance = { ...state.attendance, ...allAttendance };
+                            setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
+                            if (!isInitialLoad) render();
+                        },
+                        onModified: (dateKey, records) => {
+                            window._isApplyingRemoteData = true;
+                            state.attendance = { ...state.attendance, ...records };
+                            setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
+                            
+                            // Actualización Zonal
+                            const selectedDateKey = getDateKey(state.selectedDate);
+                            if (dateKey === selectedDateKey && state.activeTab === 'attendance' && state.viewMode === 'day') {
+                                Object.keys(records).forEach(empId => window.updateEmployeeRow?.(empId));
+                            } else if (state.activeTab === 'attendance' && state.viewMode === 'week') {
+                                const week = getWeekDates(new Date(state.selectedDate));
+                                if (week.some(d => getDateKey(d) === dateKey)) {
+                                    Object.keys(records).forEach(empId => window.updateWeekRow?.(empId));
+                                }
+                            } else {
+                                render();
+                            }
+                        }
+                    });
+                };
+
+                // Iniciar primera suscripción
+                window.updateAttendanceSubscription();
+            } else {
+                // Si no hay usuario, ocultamos el loader de inmediato (ya que no habrá sync)
+                hideLoader();
+                isInitialLoad = false;
+            }
+        });
 
         // 5. Preparar UI
         onboardingWizard.show();

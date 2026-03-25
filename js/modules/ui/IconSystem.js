@@ -413,4 +413,6 @@ class IconSystem {
 }
 
 // Exportar una instancia única (singleton)
-export const icons = new IconSystem();
+const icons = new IconSystem();
+export default icons;
+window.icons = icons;

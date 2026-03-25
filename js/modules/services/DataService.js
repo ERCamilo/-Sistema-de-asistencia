@@ -1,13 +1,15 @@
-import { icons } from '../ui/IconSystem.js';
+import icons from '../ui/IconSystem.js';
+import { Modal } from '../components/Modal.js';
 import { Employee } from '../features/employees/Employee.js';
 import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
 
 export class DataService {
-    constructor(state, storage) {
+    constructor(state, storage, indexedDBService = null) {
         this.state = state;
         this.storage = storage;
+        this.indexedDBService = indexedDBService;
     }
 
     // Guardar todo el estado
@@ -113,16 +115,29 @@ export class DataService {
         return true;
     }
 
-    // Resetear datos
-    reset() {
+    async reset() {
         Modal.confirm({
-            title: `${icons.get('info')} Resetear Sistema`,
-            message: '¿Estás seguro de eliminar TODOS los datos? Esta acción no se puede deshacer.',
-            confirmText: 'Sí, eliminar todo',
+            title: `${icons.get('info')} Borrar Información Local`,
+            message: '¿Estás seguro de eliminar TODOS los datos locales (empleados, asistencias, etc.)? Los datos en la nube no se verán afectados.',
+            confirmText: 'Sí, borrar local',
             cancelText: 'Cancelar',
             type: 'danger',
-            onConfirm: () => {
+            onConfirm: async () => {
+                // 1. Limpiar LocalStorage
                 this.storage.clear();
+                
+                // 2. Limpiar IndexedDB si está disponible
+                if (this.indexedDBService) {
+                    await this.indexedDBService.clearAll();
+                } else if (window.indexedDBService) {
+                    await window.indexedDBService.clearAll();
+                }
+                
+                // 3. Limpiar banderas de migración
+                localStorage.removeItem('migrated-to-idb');
+                localStorage.removeItem('onboardingCompleted');
+
+                console.log('✅ Borrado local completo');
                 location.reload();
             }
         });

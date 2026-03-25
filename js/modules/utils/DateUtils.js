@@ -1,3 +1,5 @@
+import icons from '../ui/IconSystem.js';
+
 // ============================================
 // 💡 DATE UTILS
 // ============================================
@@ -163,4 +165,60 @@ export const DateUtils = {
         return formatDateTime(d);
     }
 };
+
+/**
+ * 🔍 Verifica si un empleado estaba activo en una fecha específica
+ * Versión pura: recibe attendance como parámetro para evitar dependencias circulares.
+ */
+export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
+    const dateKey = typeof date === 'string' ? date : getDateKey(date);
+
+    // 1. Verificar fecha de contratación
+    if (employee.hireDate && dateKey < employee.hireDate) return false;
+
+    // 2. Verificar si hay asistencia explícita (siempre significa activo)
+    const attKey = `${employee.id}-${dateKey}`;
+    if (attendance[attKey]) return true;
+
+    // 3. Verificar fecha de terminación (si existe)
+    if (employee.terminationDate && dateKey > employee.terminationDate) return false;
+
+    // 4. Verificar historial de estados (más confiable)
+    if (!employee.statusHistory || employee.statusHistory.length === 0) {
+        return employee.active !== false;
+    }
+
+    const sortedHistory = [...employee.statusHistory].sort((a, b) => a.timestamp - b.timestamp);
+    let wasActive = employee.active !== false;
+
+    for (let i = sortedHistory.length - 1; i >= 0; i--) {
+        const change = sortedHistory[i];
+        if (change.date <= dateKey) {
+            wasActive = change.active;
+            break;
+        }
+    }
+
+    return wasActive;
+}
+
+/**
+ * 📅 Verifica si un empleado estuvo activo en un rango de fechas
+ */
+export function wasEmployeeActiveInRange(employee, startDate, endDate, attendance = {}) {
+    const start = typeof startDate === 'string' ? startDate : getDateKey(startDate);
+    const end = typeof endDate === 'string' ? endDate : getDateKey(endDate);
+
+    // 1. Verificar si tiene asistencia en el rango (prueba definitiva)
+    const hasAttendanceInRange = Object.keys(attendance).some(key => {
+        if (!key.startsWith(employee.id + '-')) return false;
+        const dateKey = key.split('-').slice(1).join('-');
+        return dateKey >= start && dateKey <= end;
+    });
+
+    if (hasAttendanceInRange) return true;
+
+    // 2. Si no tiene asistencia, verificar si estuvo activo al inicio o al final
+    return wasEmployeeActiveOnDate(employee, start, attendance) || wasEmployeeActiveOnDate(employee, end, attendance);
+}
 

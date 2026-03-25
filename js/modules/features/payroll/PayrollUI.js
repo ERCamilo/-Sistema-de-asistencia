@@ -1,5 +1,4 @@
-import { icons } from '../../ui/IconSystem.js';
-
+import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 
@@ -8,7 +7,6 @@ let payrollService = null;
 
 export function init(ctx) {
     context = ctx;
-    // Fix: Access payrollService from ctx.services.payroll
     payrollService = ctx.services.payroll;
 }
 
@@ -34,7 +32,6 @@ function getLeaderFilteredEmployees(state) {
 
 export function PayrollTab() {
     const state = getState();
-    // Initialize if empty (logic from ExportTab)
     if (!state.exportConfig.periodStart || !state.exportConfig.periodEnd) {
         const today = new Date();
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -50,10 +47,12 @@ export function PayrollTab() {
     const employeesWithDeductions = getEmployeesWithDeductions();
     const hasEmployeeDeductions = employeesWithDeductions.length > 0;
     const employeeDeductionsAdded = !!state.exportConfig.employeeDeductionsAdded;
+    
     const employeeOptions = state.employees
         .filter(e => e.active !== false)
         .map(e => `<option value="${e.id}">${e.name}</option>`)
         .join('');
+        
     const leaderFilter = state.exportConfig.leaderFilter || 'all';
     const leaders = state.leaders.filter(l => l.active);
 
@@ -73,7 +72,7 @@ export function PayrollTab() {
             <!-- Paso 1: Período -->
             <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
                 <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                    \ Paso 1: Período de Pago
+                    Paso 1: Período de Pago
                 </h3>
                 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
@@ -96,19 +95,19 @@ export function PayrollTab() {
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button onclick="PayrollUI.setExportPreset('thisMonth')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'thisMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                        \ Este mes
+                        Este mes
                     </button>
                     <button onclick="PayrollUI.setExportPreset('lastMonth')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'lastMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                        \ Mes anterior
+                        Mes anterior
                     </button>
                     <button onclick="PayrollUI.setExportPreset('last15')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'last15' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                        \ Últimos 15 días
+                        Últimos 15 días
                     </button>
                     <button onclick="PayrollUI.setExportPreset('sinceLastPay')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'sinceLastPay' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.exportConfig.activePreset === 'sinceLastPay' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'sinceLastPay' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
-                        \ Desde Último Pago + 1
+                        Desde Último Pago + 1
                     </button>
                 </div>
             </div>
@@ -127,9 +126,9 @@ export function PayrollTab() {
                     </button>
                 </div>
                 
-                <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 16px;">
-                    \ Estas deducciones se aplicarán a todos los empleados de forma encadenada
-                </div>
+                <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 16px;">
+                    Estas deducciones se aplicarán a todos los empleados de forma encadenada
+                </p>
 
                 ${hasEmployeeDeductions ? `
                     <div style="margin-bottom: 16px; padding: 10px 12px; border: 1px solid ${employeeDeductionsAdded ? '#10b981' : '#ef4444'}; border-radius: 8px; background: ${employeeDeductionsAdded ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)'};">
@@ -147,9 +146,7 @@ export function PayrollTab() {
                 ` : ''}
 
                 <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a;">
-                    <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">
-                        \ Cargo individual por empleado
-                    </div>
+                    <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">Cargo individual por empleado</p>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
                         <select id="payroll-emp-deduction-employee" class="form-input">
                             <option value="">Seleccionar empleado</option>
@@ -173,27 +170,24 @@ export function PayrollTab() {
             
             <!-- Paso 3: Vista Previa -->
             <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                    \ Paso 3: Vista Previa (${exportData.length} empleados)
-                </h3>
-                            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155;">
-                <h3 style="margin: 0 0 12px 0; font-size: 1rem; color: #06b6d4; font-weight: 700;">
-                    ${icons.get('personnel')} Filtro por Líder
-                </h3>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button onclick="PayrollUI.setLeaderFilter('all')"
-                            style="padding: 6px 12px; background: ${leaderFilter === 'all' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === 'all' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === 'all' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                        Todos
-                    </button>
-                    ${leaders.map(ldr => `
-                        <button onclick="PayrollUI.setLeaderFilter('${ldr.id}')"
-                                style="padding: 6px 12px; background: ${leaderFilter === ldr.id ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === ldr.id ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === ldr.id ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                            ${ldr.name}
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
+                        Paso 3: Vista Previa (${exportData.length} empleados)
+                    </h3>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; max-width: 60%;">
+                        <span style="font-size: 0.75rem; color: #94a3b8; align-self: center; margin-right: 4px;">Líder:</span>
+                        <button onclick="PayrollUI.setLeaderFilter('all')"
+                                style="padding: 4px 10px; background: ${leaderFilter === 'all' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === 'all' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === 'all' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.7rem; font-weight: 600;">
+                            Todos
                         </button>
-                    `).join('')}
+                        ${leaders.map(ldr => `
+                            <button onclick="PayrollUI.setLeaderFilter('${ldr.id}')"
+                                    style="padding: 4px 10px; background: ${leaderFilter === ldr.id ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === ldr.id ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === ldr.id ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.7rem; font-weight: 600;">
+                                ${ldr.name}
+                            </button>
+                        `).join('')}
+                    </div>
                 </div>
-            </div>
-
 
                 <div style="overflow-x: auto;">
                     <table style="width: 100%; border-collapse: collapse;">
@@ -235,13 +229,13 @@ export function PayrollTab() {
                         style="flex: 1; min-width: 200px; padding: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(6, 182, 212, 0.3)'"
                         onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                    \ Copiar JSON al Portapapeles
+                    Copiar JSON al Portapapeles
                 </button>
                 <button onclick="PayrollUI.downloadExportJSON()" 
                         style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
                         onmouseover="this.style.background='rgba(6, 182, 212, 0.1)'"
                         onmouseout="this.style.background='#1e293b'">
-                    \ Descargar Archivo .json
+                    Descargar Archivo .json
                 </button>
             </div>
         </div>
@@ -258,12 +252,15 @@ function generateExportData() {
     return filteredEmployees.map(emp => {
         const applicableDeductions = (deductions || []).filter(d => !d.employeeId || d.employeeId === emp.id);
         const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, applicableDeductions);
+        
         const positionIds = (emp.positions && emp.positions.length > 0)
             ? emp.positions
             : (emp.position ? [emp.position] : []);
+            
         const positionNames = positionIds
             .map(posId => state.positions.find(p => p.id === posId)?.name)
             .filter(Boolean);
+            
         return {
             id: parseInt(emp.number) || 0,
             nombre: `${emp.name} (Ref #${emp.number})`,
@@ -336,10 +333,6 @@ function generateExportDeductionsHTML() {
     return `${globalHTML}${employeeHTML}`;
 }
 
-// ============================================
-// EXPORTED GLOBAL HANDLERS
-// ============================================
-
 export function addExportDeduction() {
     const state = getState();
     if (!state.exportConfig.deductions) state.exportConfig.deductions = [];
@@ -360,15 +353,11 @@ export function updateExportDeductionType(index, type) {
 
 export function updateExportDeductionValue(index, value) {
     getState().exportConfig.deductions[index].value = parseFloat(value) || 0;
-    context.render(); // Re-render to update preview
+    context.render();
 }
 
 export function updateExportDeductionName(index, value) {
     getState().exportConfig.deductions[index].name = value;
-    // No explicit render needed if just updating name text input, but to be safe and consistent:
-    // Actually input loses focus on render, so maybe we shouldn't render?
-    // In app.js it was `onchange`, so it's fine.
-    // context.render(); 
 }
 
 export function addEmployeeDeductionsToExport() {
@@ -402,10 +391,7 @@ export function addEmployeeDeductionsToExport() {
     });
 
     state.exportConfig.employeeDeductionsAdded = true;
-
-    if (window.showNotification) {
-        window.showNotification('✅ Deducciones individuales agregadas a la nómina', 'success');
-    }
+    if (window.showNotification) window.showNotification('✅ Deducciones individuales agregadas', 'success');
     context.render();
 }
 
@@ -439,9 +425,7 @@ export function addEmployeeDeductionFromForm() {
         source: 'manual'
     });
 
-    if (window.showNotification) {
-        window.showNotification('✅ Cargo individual agregado', 'success');
-    }
+    if (window.showNotification) window.showNotification('✅ Cargo individual agregado', 'success');
     context.render();
 }
 
@@ -449,7 +433,7 @@ export function updateExportPeriod(type, value) {
     const state = getState();
     if (type === 'start') state.exportConfig.periodStart = value;
     if (type === 'end') state.exportConfig.periodEnd = value;
-    state.exportConfig.activePreset = null; // Clear preset
+    state.exportConfig.activePreset = null;
     context.render();
 }
 
@@ -473,13 +457,12 @@ export function setExportPreset(preset) {
         start = new Date();
         start.setDate(today.getDate() - 15);
     } else if (preset === 'sinceLastPay') {
-        // Logic for last payment date + 1
         const lastPay = state.settings.globalLastPaymentDate ? new Date(state.settings.globalLastPaymentDate) : null;
         if (lastPay) {
             start = new Date(lastPay);
             start.setDate(start.getDate() + 1);
         } else {
-            start = new Date(today.getFullYear(), today.getMonth(), 1); // Fallback
+            start = new Date(today.getFullYear(), today.getMonth(), 1);
         }
     }
 
@@ -493,7 +476,7 @@ export function copyExportJSON() {
     const data = generateExportData();
     const json = JSON.stringify(data, null, 2);
     navigator.clipboard.writeText(json).then(() => {
-        if (window.showNotification) window.showNotification(`${icons.get('info')} JSON copiado al portapapeles`, 'success');
+        if (window.showNotification) window.showNotification('✅ JSON copiado al portapapeles', 'success');
     });
 }
 
@@ -507,5 +490,5 @@ export function downloadExportJSON() {
     a.download = `nomina_${getDateKey(new Date())}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    if (window.showNotification) window.showNotification(`${icons.get('info')} Archivo JSON descargado`, 'success');
+    if (window.showNotification) window.showNotification('✅ Archivo JSON descargado', 'success');
 }

@@ -1,4 +1,4 @@
-import { icons } from './IconSystem.js';
+import icons from './IconSystem.js';
 
 /**
  * Componente Header - Rediseñado según referencia visual
@@ -14,7 +14,7 @@ export const Header = ({
     legacyNavigation 
 }) => {
     return `
-        <header class="header">
+        <header class="header glass-effect">
             <div class="container">
                 <div class="header-content">
                     <div class="header-left">

@@ -534,6 +534,7 @@
             font-weight: 700;
             background: linear-gradient(135deg, #06b6d4, #10b981);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -699,10 +700,6 @@
             /* ⚡ FIX: Remover transform que causaba desplazamiento */
         }
 
-        .check-input:checked+.check-box {
-            /* ✅ Sin scale para evitar desplazamiento */
-        }
-
         .check-box.check-regular {
             background: #10b981;
             border-color: #10b981;
@@ -789,7 +786,7 @@
             border: 2px solid #06b6d4;
             border-radius: 20px 20px 0 0;
             padding: 20px;
-            z-index: 200;
+            z-index: 2100;
             max-height: 70vh;
             overflow-y: auto;
             animation: slideUp 0.3s ease-out;
@@ -831,6 +828,7 @@
             font-weight: 700;
             background: linear-gradient(135deg, #06b6d4, #10b981);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -1302,7 +1300,7 @@
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.95);
-            z-index: 1000;
+            z-index: 2500;
             display: flex;
             align-items: flex-end;
             overflow-y: auto;
@@ -1347,6 +1345,7 @@
             font-weight: 700;
             background: linear-gradient(135deg, #06b6d4, #10b981);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -1668,7 +1667,7 @@
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.5);
-            z-index: 150;
+            z-index: 2050;
         }
 
         /* Animación para campos opcionales */
@@ -1724,137 +1723,183 @@
         }
 
         /* ============================================ */
-        /* NOTIFICATION SYSTEM - Estilos Profesionales */
+        /* NOTIFICATION SYSTEM - Estilos Premium Sileo */
         /* ============================================ */
 
         .notification-container {
             position: fixed;
-            z-index: 10000;
+            z-index: 100000;
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 0;
             pointer-events: none;
+            padding: 20px;
+            width: 100%;
+            max-width: 420px;
+            contain: layout; /* Aísla el layout del resto de la página */
         }
 
-        .notification-container.top-right {
-            top: 20px;
-            right: 20px;
-        }
-
-        .notification-container.top-center {
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        .notification-container.top-left {
-            top: 20px;
-            left: 20px;
-        }
-
-        .notification-container.bottom-right {
-            bottom: 20px;
-            right: 20px;
-        }
-
-        .notification-container.bottom-center {
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-
-        .notification-container.bottom-left {
-            bottom: 20px;
-            left: 20px;
-        }
+        .notification-container.top-right { top: 10px; right: 10px; align-items: flex-end; }
+        .notification-container.top-center { top: 10px; left: 50%; transform: translateX(-50%); align-items: center; }
+        .notification-container.top-left { top: 10px; left: 10px; align-items: flex-start; }
+        .notification-container.bottom-right { bottom: 10px; right: 10px; align-items: flex-end; }
+        .notification-container.bottom-center { bottom: 10px; left: 50%; transform: translateX(-50%); align-items: center; }
+        .notification-container.bottom-left { bottom: 10px; left: 10px; align-items: flex-start; }
 
         .notification {
-            background: #0f172a;
-            border-radius: 12px;
-            padding: 16px 20px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
+            background: rgba(15, 23, 42, 0.99); /* Casi sólido para evitar estrés de transparencia */
+            backdrop-filter: blur(8px) saturate(180%);
+            -webkit-backdrop-filter: blur(8px) saturate(180%);
+            border-radius: 20px;
+            padding: 14px;
+            box-shadow: 
+                0 10px 15px -3px rgba(0, 0, 0, 0.4),
+                0 0 0 1.5px rgba(255, 255, 255, 0.1);
             display: flex;
             align-items: center;
             gap: 12px;
-            min-width: 320px;
-            max-width: 420px;
+            width: 100%;
             pointer-events: all;
-            border-left: 4px solid;
+            margin-bottom: 0;
+            position: absolute;
+            transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+            will-change: transform, opacity; /* Simplificado will-change */
+            contain: content; /* Aísla el contenido */
         }
 
-        .notification-success {
-            border-left-color: #10b981;
+        /* Anclaje según posición */
+        .notification-container.top-right .notification,
+        .notification-container.top-left .notification,
+        .notification-container.top-center .notification {
+            top: 0;
         }
 
-        .notification-error {
-            border-left-color: #ef4444;
+        .notification-container.bottom-right .notification,
+        .notification-container.bottom-left .notification,
+        .notification-container.bottom-center .notification {
+            bottom: 0;
         }
 
-        .notification-warning {
-            border-left-color: #f59e0b;
+        /* Estilo por tipo (más sutil) */
+        .notification::after {
+            content: '';
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px;
+            height: 24px;
+            border-radius: 2px;
+            opacity: 0.9;
         }
 
-        .notification-info {
-            border-left-color: #06b6d4;
-        }
+        .notification-success::after { background: #10b981; }
+        .notification-error::after { background: #ef4444; }
+        .notification-warning::after { background: #f59e0b; }
+        .notification-info::after { background: #06b6d4; }
 
-        .notification-content {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex: 1;
-        }
-
-        .notification-icon {
-            font-size: 1.5rem;
-            flex-shrink: 0;
-            line-height: 1;
-        }
-
-        .notification-message {
-            color: #f1f5f9;
-            font-size: 0.875rem;
-            line-height: 1.5;
-            font-weight: 500;
-        }
-
-        .notification-close {
-            background: transparent;
-            border: none;
-            color: #64748b;
-            font-size: 1.25rem;
-            cursor: pointer;
-            padding: 4px 8px;
+        .notification-icon-wrapper {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 6px;
+            flex-shrink: 0;
+            background: rgba(255, 255, 255, 0.08);
+            margin-left: 10px;
+        }
+
+        .notification-success .notification-icon { color: #10b981; }
+        .notification-error .notification-icon { color: #ef4444; }
+        .notification-warning .notification-icon { color: #f59e0b; }
+        .notification-info .notification-icon { color: #06b6d4; }
+
+        .notification-content {
+            flex: 1;
+            padding-right: 8px;
+        }
+
+        .notification-message {
+            color: #ffffff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+
+        .notification-close {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #94a3b8;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            cursor: pointer;
             transition: all 0.2s;
             flex-shrink: 0;
-            line-height: 1;
         }
 
         .notification-close:hover {
-            background: #1e293b;
-            color: #f1f5f9;
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            transform: scale(1.1);
         }
 
-        /* Animaciones de Notificación */
+        /* Animaciones y Estados */
         .notification-enter {
             opacity: 0;
-            transform: translateX(100px);
+            transform: translateY(30px) scale(0.9) !important;
+        }
+
+        .notification-container[class*="top-"] .notification-enter {
+            transform: translateY(-30px) scale(0.9) !important;
+        }
+
+        /* State-specific colors and icons */
+        .notification-success .notification-icon-wrapper { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .notification-error .notification-icon-wrapper { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .notification-warning .notification-icon-wrapper { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+        .notification-info .notification-icon-wrapper { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .notification-loading .notification-icon-wrapper { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+
+        /* Loading Spinner */
+        .notification-spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid currentColor;
+            border-bottom-color: transparent;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+        }
+
+        @keyframes rotation {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Base styles for message updates */
+        .notification-message {
+            transition: opacity 0.2s ease-in-out;
+        }
+
+        .notification-updating .notification-message,
+        .notification-updating .notification-icon {
+            opacity: 0.5;
         }
 
         .notification-visible {
             opacity: 1;
-            transform: translateX(0);
-            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
         .notification-exit {
             opacity: 0;
-            transform: translateX(100px) scale(0.9);
-            transition: all 0.3s ease-out;
+            transform: scale(0.8) !important;
+            filter: blur(8px);
         }
 
         /* ============================================ */
@@ -1919,6 +1964,7 @@
             font-weight: 700;
             background: linear-gradient(135deg, #06b6d4, #10b981);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             margin: 0;
         }

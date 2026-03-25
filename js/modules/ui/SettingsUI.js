@@ -253,35 +253,36 @@ function SettingsTabData() {
                                     <div style="color: #f1f5f9; font-weight: 600; font-size: 0.95rem;">${currentUser.displayName || 'Usuario'}</div>
                                     <div style="color: #94a3b8; font-size: 0.8rem;">${currentUser.email}</div>
                                 </div>
-                                <div style="color: #10b981; font-size: 0.75rem; font-weight: 700;">CONECTADO</div>
-                            </div>
-
-                            <!-- Controles de Fase 2 y 3 -->
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                                <button onclick="syncFirebaseNow()" class="btn-secondary" style="background: rgba(66, 133, 244, 0.1); color: #4285F4; border: 1px solid rgba(66, 133, 244, 0.2); padding: 12px; font-size: 0.85rem;">
-                                   🔄 Sincronizar Todo
-                                </button>
-                                <button onclick="syncHistoryNow()" class="btn-secondary" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); padding: 12px; font-size: 0.85rem;">
-                                   📅 Sinc. Historial
-                                </button>
-                                <button onclick="createFirebaseSnapshot()" class="btn-secondary" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px; font-size: 0.85rem; grid-column: span 2;">
-                                   📸 Crear Snapshot (Backup Completo)
+                                <button onclick="logoutFirebase()" style="padding: 6px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
+                                    Salir
                                 </button>
                             </div>
 
-                            <div class="form-group" style="margin-bottom: 20px;">
-                                <label class="form-label" style="font-size: 0.85rem; color: #94a3b8;">Frecuencia de Backup Automático</label>
-                                <select id="backupFrequency" onchange="updateBackupFrequency(this.value)" class="form-input" style="background: #0f172a; border-color: #334155;">
-                                    <option value="none" ${state.settings.backupFrequency === 'none' ? 'selected' : ''}>Desactivado</option>
-                                    <option value="daily" ${state.settings.backupFrequency === 'daily' ? 'selected' : ''}>Diario</option>
-                                    <option value="weekly" ${state.settings.backupFrequency === 'weekly' ? 'selected' : ''}>Semanal</option>
-                                    <option value="monthly" ${state.settings.backupFrequency === 'monthly' ? 'selected' : ''}>Mensual</option>
-                                </select>
+                            <!-- Herramientas de Nube -->
+                            <div style="margin-bottom: 20px;">
+                                <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Backup y Snapshots</div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                                    <button onclick="syncFirebaseNow()" class="btn-secondary" style="background: rgba(66, 133, 244, 0.1); color: #4285F4; border: 1px solid rgba(66, 133, 244, 0.2); padding: 12px; font-size: 0.85rem;">
+                                       🔄 Sync Actual
+                                    </button>
+                                    <button onclick="syncHistoryNow()" class="btn-secondary" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); padding: 12px; font-size: 0.85rem;">
+                                       📅 Sync Historial
+                                    </button>
+                                    <button onclick="createFirebaseSnapshot()" class="btn-secondary" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px; font-size: 0.85rem; grid-column: span 2;">
+                                       📸 Crear Snapshot Manual
+                                    </button>
+                                </div>
+                                
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label class="form-label" style="font-size: 0.85rem; color: #64748b;">Auto-Backup</label>
+                                    <select id="backupFrequency" onchange="updateBackupFrequency(this.value)" class="form-input" style="background: #0f172a; border-color: #334155; font-size: 0.85rem; height: 38px;">
+                                        <option value="none" ${state.settings.backupFrequency === 'none' ? 'selected' : ''}>Desactivado</option>
+                                        <option value="daily" ${state.settings.backupFrequency === 'daily' ? 'selected' : ''}>Diario</option>
+                                        <option value="weekly" ${state.settings.backupFrequency === 'weekly' ? 'selected' : ''}>Semanal</option>
+                                        <option value="monthly" ${state.settings.backupFrequency === 'monthly' ? 'selected' : ''}>Mensual</option>
+                                    </select>
+                                </div>
                             </div>
-                            
-                            <button onclick="logoutFirebase()" style="width: 100%; padding: 10px; background: none; border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
-                                Cerrar Sesión
-                            </button>
                         `}
                     </div>
 
@@ -289,114 +290,91 @@ function SettingsTabData() {
                     ${currentUser ? SnapshotHistory() : ''}
                     
                     <!-- Gestión de Datos -->
-                    <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-top: 20px; border: 1px solid #334155;">
-                        <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                            💾 Gestión de Datos
-                        </h3>
+                    <div style="margin-top: 32px; display: flex; flex-direction: column; gap: 24px;">
                         
-                        <!-- Sistema de Almacenamiento -->
-                        <div style="background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155;">
-                            <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                                <span style="font-size: 1.25rem;">💾</span>
-                                <span>Tipo de Almacenamiento</span>
-                            </div>
-                            
-                            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                                <label style="flex: 1; cursor: pointer;">
-                                    <input type="radio" 
-                                           name="storageTypeData" 
-                                           value="localStorage" 
-                                           ${!state.useIndexedDB ? 'checked' : ''}
-                                           onchange="handleStorageTypeChange(this.value)"
-                                           style="display: none;">
-                                    <div style="padding: 10px; background: ${!state.useIndexedDB ? '#0891b2' : '#1e293b'}; border-radius: 8px; text-align: center; border: 1px solid ${!state.useIndexedDB ? '#0891b2' : '#334155'}; transition: all 0.2s;">
-                                        <div style="font-weight: 600; font-size: 0.9rem; color: ${!state.useIndexedDB ? 'white' : '#94a3b8'};">📦 Local</div>
-                                        <div style="font-size: 0.7rem; color: ${!state.useIndexedDB ? '#e0f2fe' : '#64748b'};">Max 5MB</div>
+                        <!-- Columna: Datos Locales -->
+                        <div style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155;">
+                            <h3 style="margin: 0 0 20px 0; font-size: 1.125rem; color: #f1f5f9; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                                <span>📱</span> Datos Locales (Este dispositivo)
+                            </h3>
+
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+                                <!-- Sistema de Almacenamiento -->
+                                <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155;">
+                                    <div style="font-weight: 600; color: #94a3b8; margin-bottom: 12px; font-size: 0.85rem; text-transform: uppercase;">Almacenamiento Interno</div>
+                                    <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                                        <label style="flex: 1; cursor: pointer;">
+                                            <input type="radio" name="storageTypeData" value="localStorage" ${!state.useIndexedDB ? 'checked' : ''} onchange="handleStorageTypeChange(this.value)" style="display: none;">
+                                            <div style="padding: 10px; background: ${!state.useIndexedDB ? '#0891b2' : '#1e293b'}; border-radius: 8px; text-align: center; border: 1px solid ${!state.useIndexedDB ? '#0891b2' : '#334155'};">
+                                                <div style="font-weight: 600; font-size: 0.9rem; color: ${!state.useIndexedDB ? 'white' : '#94a3b8'};">📦 Local</div>
+                                            </div>
+                                        </label>
+                                        <label style="flex: 1; cursor: pointer;">
+                                            <input type="radio" name="storageTypeData" value="indexedDB" ${state.useIndexedDB ? 'checked' : ''} onchange="handleStorageTypeChange(this.value)" style="display: none;">
+                                            <div style="padding: 10px; background: ${state.useIndexedDB ? '#0891b2' : '#1e293b'}; border-radius: 8px; text-align: center; border: 1px solid ${state.useIndexedDB ? '#0891b2' : '#334155'};">
+                                                <div style="font-weight: 600; font-size: 0.9rem; color: ${state.useIndexedDB ? 'white' : '#94a3b8'};">🗄️ IndexedDB</div>
+                                            </div>
+                                        </label>
                                     </div>
-                                </label>
-                                
-                                <label style="flex: 1; cursor: pointer;">
-                                    <input type="radio" 
-                                           name="storageTypeData" 
-                                           value="indexedDB" 
-                                           ${state.useIndexedDB ? 'checked' : ''}
-                                           onchange="handleStorageTypeChange(this.value)"
-                                           style="display: none;">
-                                    <div style="padding: 10px; background: ${state.useIndexedDB ? '#0891b2' : '#1e293b'}; border-radius: 8px; text-align: center; border: 1px solid ${state.useIndexedDB ? '#0891b2' : '#334155'}; transition: all 0.2s;">
-                                        <div style="font-weight: 600; font-size: 0.9rem; color: ${state.useIndexedDB ? 'white' : '#94a3b8'};">🗄️ IndexedDB</div>
-                                        <div style="font-size: 0.7rem; color: ${state.useIndexedDB ? '#e0f2fe' : '#64748b'};">Ilimitado</div>
-                                    </div>
-                                </label>
-                            </div>
-                            
-                            ${state.useIndexedDB ? `
-                                <div style="background: #1e293b; padding: 8px; border-radius: 6px; border: 1px solid #334155;">
-                                    <div style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 4px;">
-                                        📊 Estadísticas:
-                                    </div>
-                                    <div id="indexeddb-stats" style="font-size: 0.7rem; color: #64748b;">
-                                        Cargando...
-                                    </div>
+                                    <div id="indexeddb-stats" style="font-size: 0.7rem; color: #64748b; line-height: 1.5;">${state.useIndexedDB ? 'Cargando estadísticas...' : 'Usando LocalStorage (límite 5MB)'}</div>
                                 </div>
-                            ` : ''}
+
+                                <!-- Backups Manuales -->
+                                <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 10px;">
+                                    <div style="font-weight: 600; color: #94a3b8; margin-bottom: 2px; font-size: 0.85rem; text-transform: uppercase;">Archivo Backup (.json)</div>
+                                    <button onclick="exportData()" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px;">📥 Descargar Backup</button>
+                                    <button onclick="document.getElementById('import-file-input').click()" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px;">📤 Cargar Backup</button>
+                                    <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importData(event)">
+                                </div>
+                            </div>
+
+                            <!-- Borrado Local -->
+                            <div style="margin-top: 16px; padding: 16px; background: rgba(239, 68, 68, 0.05); border-radius: 10px; border: 1px dashed rgba(239, 68, 68, 0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="flex: 1; padding-right: 16px;">
+                                        <div style="color: #ef4444; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px;">BORRADO LOCAL TOTAL</div>
+                                        <div style="font-size: 0.75rem; color: #94a3b8;">Limpia este teléfono por completo. Los datos en la nube NO se borrarán.</div>
+                                    </div>
+                                    <button onclick="deleteAllData()" class="btn-danger" style="white-space: nowrap; padding: 10px 20px;">🗑️ Borrar Local</button>
+                                </div>
+                            </div>
                         </div>
 
-                        <!-- Exportar Backup -->
-                        <div style="background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155;">
-                            <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-                                <div style="font-size: 1.5rem;">📥</div>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">Exportar Datos</div>
-                                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
-                                        Descarga todos tus datos en formato JSON para hacer un respaldo de seguridad.
-                                    </div>
+                        <!-- Columna: Datos en la Nube -->
+                        ${currentUser ? `
+                        <div style="background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #4285F4;">
+                            <h3 style="margin: 0 0 20px 0; font-size: 1.125rem; color: #f1f5f9; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                                <span>☁️</span> Gestión de Nube (Google Account)
+                            </h3>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                                <!-- Override: Download -->
+                                <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155;">
+                                    <div style="color: #4285F4; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">DESCARGAR DE LA NUBE</div>
+                                    <p style="font-size: 0.75rem; color: #94a3b8; margin: 0 0 12px 0;">Reemplaza todos los datos de este teléfono con lo que hay en la nube.</p>
+                                    <button onclick="downloadFromCloudNow()" class="btn-secondary" style="width: 100%; border-color: rgba(66, 133, 244, 0.4); color: #4285F4;">📥 Sobrescribir Local</button>
+                                </div>
+
+                                <!-- Override: Upload -->
+                                <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155;">
+                                    <div style="color: #10b981; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">SUBIR A LA NUBE</div>
+                                    <p style="font-size: 0.75rem; color: #94a3b8; margin: 0 0 12px 0;">Fuerza que la nube guarde exactamente lo que tienes en este teléfono.</p>
+                                    <button onclick="uploadToCloudNow()" class="btn-secondary" style="width: 100%; border-color: rgba(16, 185, 129, 0.4); color: #10b981;">📤 Sobrescribir Nube</button>
                                 </div>
                             </div>
-                            <button onclick="exportData()" class="btn btn-secondary" style="width: 100%;">
-                                📥 Exportar Backup
-                            </button>
-                        </div>
-                        
-                        <!-- Importar Backup -->
-                        <div style="background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #334155;">
-                            <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-                                <div style="font-size: 1.5rem;">📤</div>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">Importar Datos</div>
-                                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
-                                        Carga un archivo de respaldo previamente exportado.
+
+                            <!-- Borrado Nube -->
+                            <div style="margin-top: 16px; padding: 16px; background: rgba(239, 68, 68, 0.05); border-radius: 10px; border: 1px dashed rgba(239, 68, 68, 0.3);">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="flex: 1; padding-right: 16px;">
+                                        <div style="color: #ef4444; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px;">ELIMINAR DATOS DE LA NUBE</div>
+                                        <div style="font-size: 0.75rem; color: #94a3b8;">Borra permanentemente tu respaldo en Google/Firebase. El teléfono no se verá afectado.</div>
                                     </div>
-                                    <div style="font-size: 0.75rem; color: #f59e0b; margin-top: 8px; display: flex; align-items: center; gap: 4px;">
-                                        <span>⚠️</span>
-                                        <span>Esto reemplazará todos tus datos actuales</span>
-                                    </div>
+                                    <button onclick="deleteCloudDataNow()" class="btn-danger" style="white-space: nowrap; padding: 10px 20px; background: none; border: 1px solid #ef4444; color: #ef4444;">🗑️ Borrar Nube</button>
                                 </div>
                             </div>
-                            <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importData(event)">
-                            <button onclick="document.getElementById('import-file-input').click()" class="btn btn-secondary" style="width: 100%;">
-                                📤 Importar Backup
-                            </button>
                         </div>
-                        
-                        <!-- Eliminar Todos los Datos -->
-                        <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(220, 38, 38, 0.05)); border-radius: 12px; padding: 16px; border: 2px solid #dc2626;">
-                            <div style="display: flex; align-items: start; gap: 12px; margin-bottom: 12px;">
-                                <div style="font-size: 1.5rem;">🗑️</div>
-                                <div style="flex: 1;">
-                                    <div style="font-weight: 600; color: #ef4444; margin-bottom: 4px;">Eliminar Todos los Datos</div>
-                                    <div style="font-size: 0.875rem; color: #94a3b8; line-height: 1.6;">
-                                        Elimina permanentemente toda la información del sistema. Esta acción no se puede deshacer.
-                                    </div>
-                                    <div style="font-size: 0.75rem; color: #ef4444; margin-top: 8px; font-weight: 600;">
-                                        ⚠️ ADVERTENCIA: Se eliminarán empleados, posiciones, asistencia y configuración.
-                                    </div>
-                                </div>
-                            </div>
-                            <button onclick="deleteAllData()" style="width: 100%; padding: 12px 24px; border-radius: 10px; background: linear-gradient(135deg, #dc2626, #b91c1c); border: none; color: white; font-weight: 700; cursor: pointer; transition: all 0.2s; font-size: 0.875rem;" onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 8px 20px rgba(220, 38, 38, 0.4)'" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none'">
-                                🗑️ Eliminar Todo
-                            </button>
-                        </div>
-                        </div>
+                        ` : ''}
                     </div>
             `;
 }

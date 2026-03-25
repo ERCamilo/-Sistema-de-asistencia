@@ -1,7 +1,7 @@
-import { icons } from '../../ui/IconSystem.js';
+import icons from '../../ui/IconSystem.js';
 
 import { memoCache } from '../../utils/MemoCache.js';
-import { getDateKey, parseDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth } from '../../utils/DateUtils.js';
+import { getDateKey, parseDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
 
 let context = null;
@@ -658,7 +658,7 @@ function calculateEmployeeReportData() {
     activePositions.forEach(position => {
         const employees = [];
         const empsByPosition = state.employees.filter(e => {
-            if (!wasEmployeeActiveInRange(e, startDate, endDate)) return false;
+            if (!wasEmployeeActiveInRange(e, startDate, endDate, state.attendance)) return false;
             return (e.positions && Array.isArray(e.positions) && e.positions.includes(position.id)) || e.position === position.id;
         });
 
@@ -691,35 +691,7 @@ function calculateEmployeeReportData() {
     return { days, positions };
 }
 
-function wasEmployeeActiveInRange(employee, startDate, endDate) {
-    const state = getState();
-    const start = typeof startDate === 'string' ? startDate : getDateKey(startDate);
-    const end = typeof endDate === 'string' ? endDate : getDateKey(endDate);
-
-    const hasAttendanceInRange = Object.keys(state.attendance).some(key => {
-        if (!key.startsWith(employee.id + '-')) return false;
-        const dateKey = key.split('-').slice(1).join('-');
-        return dateKey >= start && dateKey <= end;
-    });
-    if (hasAttendanceInRange) return true;
-
-    if (!employee.statusHistory || employee.statusHistory.length === 0) return employee.active;
-
-    let wasActive = false;
-    for (let d = new Date(start); d <= new Date(end); d.setDate(d.getDate() + 1)) {
-        const checkDate = getDateKey(d);
-        let status = 'active'; // Asumir activo si no hay historial previo (o basado en active inicial, pero aquí simplificamos)
-        // La lógica original era más compleja, simplificamos asumiendo que si tiene historial, checkeamos el último estado antes o en fecha.
-        // Pero para ser fieles a app.js, deberíamos copiar la lógica exacta o simplificar inteligentemente.
-        // Copiaremos la lógica simplificada:
-        const entry = employee.statusHistory.slice().reverse().find(h => h.date <= checkDate);
-        if (entry) status = entry.status;
-        else status = employee.active ? 'active' : 'inactive'; // Fallback
-
-        if (status === 'active') { wasActive = true; break; }
-    }
-    return wasActive;
-}
+// ✅ wasEmployeeActiveInRange migrado a js/modules/utils/DateUtils.js
 
 function EmployeeReportStartDatePicker() {
     const state = getState();

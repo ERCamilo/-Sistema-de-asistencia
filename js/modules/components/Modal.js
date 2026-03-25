@@ -1,4 +1,4 @@
-import { icons } from '../ui/IconSystem.js';
+import icons from '../ui/IconSystem.js';
 export class Modal {
     constructor(options = {}) {
         this.title = options.title || '';

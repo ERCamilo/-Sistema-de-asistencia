@@ -1,4 +1,4 @@
-import { icons } from '../../ui/IconSystem.js';
+import icons from '../../ui/IconSystem.js';
 import { getDateKey, isDayHoliday } from '../../utils/DateUtils.js';
 
 export class AttendanceService {
@@ -29,7 +29,8 @@ export class AttendanceService {
             positionHours: options.positionHours || [],
             notes: options.notes || '',
             createdAt: new Date().toISOString(),
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            lastAccessed: Date.now()
         };
 
         this.state.attendance[key] = record;
@@ -48,10 +49,21 @@ export class AttendanceService {
         }
 
         Object.assign(record, updates, {
-            updatedAt: Date.now()
+            updatedAt: Date.now(),
+            lastAccessed: Date.now()
         });
 
         return record;
+    }
+
+    /**
+     * 👆 Marcar un registro como "recientemente usado"
+     */
+    touchRecord(employeeId, dateKey) {
+        const key = `${employeeId}-${dateKey}`;
+        if (this.state.attendance[key]) {
+            this.state.attendance[key].lastAccessed = Date.now();
+        }
     }
 
     // Eliminar registro

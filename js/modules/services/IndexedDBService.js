@@ -160,6 +160,15 @@ export class IndexedDBService {
         });
     }
 
+    async clearAll() {
+        await this.init();
+        const stores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
+        const promises = stores.map(store => this.clear(store));
+        await Promise.all(promises);
+        console.log('🧹 IndexedDB: Todas las tablas limpiadas');
+        return true;
+    }
+
     async query(storeName, indexName, value) {
         await this.init();
         return new Promise((resolve, reject) => {
