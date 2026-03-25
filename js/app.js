@@ -135,6 +135,7 @@ import {
     EmployeeReportDateManager,
     EmployeeReportDateManagerV2
 } from './modules/utils/DateManagers.js';
+import { memoCache } from './modules/utils/MemoCache.js';
 
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
@@ -229,59 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================
 // 📊 OBJETO HELPERS (Utilidades compartidas)
 // ============================================
-const Helpers = {
-    // Formatear fecha
-    formatDate(date, format = 'long') {
-        const d = new Date(date);
-        const options = format === 'long'
-            ? { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }
-            : { year: 'numeric', month: '2-digit', day: '2-digit' };
-        return d.toLocaleDateString('es-ES', options);
-    },
-
-    // Obtener clave de fecha (YYYY-MM-DD)
-    getDateKey(date) {
-        const d = new Date(date);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    },
-
-    // Generar ID único
-    generateId(prefix = '') {
-        return `${prefix}${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    },
-
-    // Formatear moneda
-    formatCurrency(amount) {
-        return new Intl.NumberFormat('es-DO', {
-            style: 'currency',
-            currency: 'DOP',
-            minimumFractionDigits: 0
-        }).format(amount);
-    },
-
-    // Validar email
-    isValidEmail(email) {
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    },
-
-    // Validar teléfono
-    isValidPhone(phone) {
-        return /^\d{10}$/.test(phone.replace(/\D/g, ''));
-    },
-
-    // Debounce
-    debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    }
-};
+// Movido a js/modules/utils/DateUtils.js y js/modules/utils/Formatters.js
 
 // ============================================
 // ESTADO GLOBAL
@@ -924,89 +873,9 @@ const employeeReportDateManager = new EmployeeReportDateManager(state, saveAppli
 // ============================================
 // 💾 CLASE MEMOCACHE (POO - Caché de resultados para optimización)
 // ============================================
-class MemoCache {
-    constructor() {
-        this.cache = new Map();
-        this.stats = {
-            hits: 0,
-            misses: 0,
-            size: 0
-        };
-    }
+// Movido a js/modules/utils/MemoCache.js
 
-    // Obtener o generar valor
-    get(key, generator, deps = []) {
-        const depsKey = JSON.stringify(deps);
-        const fullKey = `${key}::${depsKey}`;
-
-        if (this.cache.has(fullKey)) {
-            this.stats.hits++;
-            console.log('💾 Cache HIT:', key);
-            return this.cache.get(fullKey);
-        }
-
-        this.stats.misses++;
-        console.log('🔄 Cache MISS, generando:', key);
-        const result = generator();
-        this.cache.set(fullKey, result);
-        this.stats.size = this.cache.size;
-        return result;
-    }
-
-    // Limpiar cache específico
-    clear(prefix) {
-        if (prefix) {
-            let cleared = 0;
-            for (let key of this.cache.keys()) {
-                if (key.startsWith(prefix)) {
-                    this.cache.delete(key);
-                    cleared++;
-                }
-            }
-            console.log(`🧹 Cache cleared: ${cleared} entries with prefix "${prefix}"`);
-        } else {
-            const size = this.cache.size;
-            this.cache.clear();
-            console.log(`🧹 Cache cleared: ${size} entries`);
-        }
-        this.stats.size = this.cache.size;
-    }
-
-    // Invalidar por patrón
-    invalidate(pattern) {
-        const regex = new RegExp(pattern);
-        let invalidated = 0;
-        for (let key of this.cache.keys()) {
-            if (regex.test(key)) {
-                this.cache.delete(key);
-                invalidated++;
-            }
-        }
-        console.log(`🗑️ Cache invalidated: ${invalidated} entries matching "${pattern}"`);
-        this.stats.size = this.cache.size;
-    }
-
-    // Obtener estadísticas
-    getStats() {
-        const hitRate = this.stats.hits + this.stats.misses > 0
-            ? (this.stats.hits / (this.stats.hits + this.stats.misses) * 100).toFixed(2)
-            : 0;
-
-        return {
-            ...this.stats,
-            hitRate: `${hitRate}%`
-        };
-    }
-
-    // Resetear estadísticas
-    resetStats() {
-        this.stats.hits = 0;
-        this.stats.misses = 0;
-    }
-}
-
-// Instancia global de cache
-const memoCache = new MemoCache();
+// Instancia global de cache (importada)
 
 // ============================================
 // 🎨 CLASE RENDERMANAGER (POO - Render selectivo por zona)
