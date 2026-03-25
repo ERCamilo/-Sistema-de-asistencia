@@ -4,15 +4,7 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, se
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-const firebaseConfig = {
-    apiKey: "AIzaSyDF8sJaHAMx4mRqMWo_J6Cpd6_ZjIc4jYA",
-    authDomain: "phoenix-asistencia-ab641.firebaseapp.com",
-    projectId: "phoenix-asistencia-ab641",
-    storageBucket: "phoenix-asistencia-ab641.firebasestorage.app",
-    messagingSenderId: "538815178313",
-    appId: "1:538815178313:web:f6403d517dc805a94e0198",
-    measurementId: "G-16NDJX46YN"
-};
+import { firebaseConfig } from '../config/Config.js';
 
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);

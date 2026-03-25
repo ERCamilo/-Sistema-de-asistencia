@@ -137,6 +137,8 @@ import {
 } from './modules/utils/DateManagers.js';
 import { memoCache } from './modules/utils/MemoCache.js';
 
+import { firebaseConfig, APP_CONFIG } from './modules/config/Config.js';
+
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
@@ -144,9 +146,9 @@ import * as SyncUI from './modules/ui/SyncUI.js';
 
 const ICON_SET_STORAGE_KEY = 'icon-set';
 
-// ⚡ CONFIGURACIÓN DE CACHÉ LRU
-const MAX_ATTENDANCE_RECORDS = 2000; // Límite de registros en memoria
-const RELEVANT_DAYS_LIMIT = 60;      // Días considerados "recientes"
+// ⚡ CONFIGURACIÓN DE RENDIMIENTO (Desde Config.js)
+const MAX_ATTENDANCE_RECORDS = APP_CONFIG.MAX_RECORDS_MEMORY; 
+const RELEVANT_DAYS_LIMIT = APP_CONFIG.RELEVANT_DAYS_LIMIT;
 
 function resolveIconSet(preferred) {
     const available = (icons && typeof icons.getAvailableSets === 'function') ? icons.getAvailableSets() : ['unicode'];
@@ -246,225 +248,165 @@ document.addEventListener('DOMContentLoaded', () => {
 // Instancia global de IndexedDB
 const indexedDBService = new IndexedDBService();
 
-// Servivios de sincronización migrados a FirebaseService
+// ============================================
+// 🌐 NAMESPACE APP (Encapsulación de Globales)
+// ============================================
+window.App = {
+    state,
+    render,
+    saveApplicationData,
+    showNotification,
+    applyIconSet,
+    resolveIconSet,
+    loginWithGoogle: () => FirebaseService.loginWithGoogle(),
+    logoutFirebase: () => FirebaseService.logout()
+};
 
-// Exponer funciones críticas al scope global (window)
+// Aliases para compatibilidad con HTML legacy (se irán eliminando en Fase 3/4)
 window.render = render;
 window.saveToLocalStorage = saveApplicationData;
 window.showNotification = showNotification;
 window.applyIconSet = applyIconSet;
 window.resolveIconSet = resolveIconSet;
+window.loginWithGoogle = window.App.loginWithGoogle;
+window.logoutFirebase = window.App.logoutFirebase;
 
-// Proxies para Firebase (Nuevo)
-window.loginWithGoogle = () => FirebaseService.loginWithGoogle();
-window.logoutFirebase = () => FirebaseService.logout();
+// NOTA: El listener de autenticación se ha consolidado en la función initializeApp() al final del archivo.
 
-// Obtener estado de auth
-FirebaseService.onAuthStateChanged(async (user) => {
-    window.currentUser = user;
-    state.syncStatus = user ? 'synced' : 'idle';
-    
-    // Si acaba de loguearse y hay datos locales, ofrecer migración o sincronizar
-    if (user && state.isDataLoaded) {
+// ============================================
+// ☁️ HANDLERS DE SINCRONIZACIÓN (Encapsulados en window.App.Sync)
+// ============================================
+window.App.Sync = {
+    syncNow: async () => {
         try {
-            const cloudData = await FirebaseService.getFullState();
-            if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
-                console.log('🚀 Detectados datos locales sin respaldo en nube. Iniciando migración inicial...');
-                await FirebaseService.saveFullState(state);
-                
-                // Fase 3: También migrar el historial de forma granular
-                if (Object.keys(state.attendance).length > 0) {
-                    showNotification('📦 Migrando historial de asistencia...', 'info');
-                    await FirebaseService.syncHistory(state.attendance);
-                }
-                
-                showNotification('✅ Datos e historial migrados a la nube correctamente', 'success');
-            }
-        } catch (e) {
-            console.error('Error en verificación inicial de nube:', e);
-        }
-    }
-    
-    render();
-});
-
-// Handlers Globales para UI de Sincronización
-window.syncFirebaseNow = async () => {
-    try {
-        state.syncStatus = 'syncing';
-        render();
-        await FirebaseService.saveFullState(state);
-        
-        // Fase 4: Refrescar la lista si estamos en la pestaña de datos
-        if (state.settingsActiveTab === 'data') {
-            state.snapshots = await FirebaseService.listSnapshots();
-        }
-        
-        state.syncStatus = 'synced';
-
-        showNotification('✅ Estado general sincronizado', 'success');
-        render();
-    } catch (e) {
-        state.syncStatus = 'error';
-        showNotification('❌ Error al sincronizar con Firebase', 'error');
-        render();
-    }
-};
-
-window.syncHistoryNow = async () => {
-    if (!window.currentUser) {
-        showNotification('⚠️ Debes iniciar sesión con Google primero', 'warning');
-        return;
-    }
-    
-    try {
-        state.syncStatus = 'syncing';
-        render();
-        showNotification('🚀 Iniciando sincronización masiva...', 'info');
-        
-        await FirebaseService.syncHistory(state.attendance);
-        
-        // Fase 4: Refrescar la lista si estamos en la pestaña de datos
-        if (state.settingsActiveTab === 'data') {
-            state.snapshots = await FirebaseService.listSnapshots();
-        }
-        
-        state.syncStatus = 'synced';
-
-        showNotification('✅ Todo el historial ha sido sincronizado', 'success');
-        render();
-    } catch (e) {
-        state.syncStatus = 'error';
-        showNotification('❌ Error en sincronización de historial', 'error');
-        render();
-    }
-};
-
-window.createFirebaseSnapshot = async () => {
-    try {
-        showNotification('📸 Creando snapshot...', 'info');
-        await FirebaseService.createSnapshot(state, 'manual');
-        
-        // Fase 4: Refrescar la lista si estamos en la pestaña de datos
-        if (state.settingsActiveTab === 'data') {
-            state.isLoadingSnapshots = true;
+            state.syncStatus = 'syncing';
             render();
-            state.snapshots = await FirebaseService.listSnapshots();
-            state.isLoadingSnapshots = false;
+            await FirebaseService.saveFullState(state);
+            if (state.settingsActiveTab === 'data') state.snapshots = await FirebaseService.listSnapshots();
+            state.syncStatus = 'synced';
+            showNotification('✅ Estado general sincronizado', 'success');
+            render();
+        } catch (e) {
+            state.syncStatus = 'error';
+            showNotification('❌ Error al sincronizar con Firebase', 'error');
+            render();
         }
-        
-        showNotification('✅ Snapshot guardado en la nube', 'success');
-        render();
-    } catch (e) {
-        console.error('Error creando snapshot:', e);
-        showNotification('❌ Error al crear snapshot', 'error');
-        state.isLoadingSnapshots = false;
-        render();
-    }
-};
+    },
 
-window.downloadFromCloudNow = async () => {
-    const confirmed = confirm(
-        '⚠️ ¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE?\n\n' +
-        'Esto borrará tus datos actuales en este teléfono y los reemplazará exactamente por lo que tienes guardado en Google Drive/Firebase.\n\n' +
-        '¿Deseas continuar?'
-    );
-
-    if (!confirmed) return;
-
-    const loader = showNotification('📥 Conectando a la nube...', 'loading');
-
-    try {
-        loader.update({ message: '📥 Descargando metadatos...' });
-        const cloudState = await FirebaseService.getFullState();
-        
-        loader.update({ message: '📥 Descargando historial...' });
-        const cloudAttendance = await FirebaseService.getAllAttendance();
-
-        if (!cloudState) {
-            loader.update({ message: '❌ No se encontraron datos en la nube', type: 'error', closable: true });
+    syncHistory: async () => {
+        if (!window.currentUser) {
+            showNotification('⚠️ Debes iniciar sesión con Google primero', 'warning');
             return;
         }
+        try {
+            state.syncStatus = 'syncing';
+            render();
+            showNotification('🚀 Iniciando sincronización masiva...', 'info');
+            await FirebaseService.syncHistory(state.attendance);
+            if (state.settingsActiveTab === 'data') state.snapshots = await FirebaseService.listSnapshots();
+            state.syncStatus = 'synced';
+            showNotification('✅ Todo el historial ha sido sincronizado', 'success');
+            render();
+        } catch (e) {
+            state.syncStatus = 'error';
+            showNotification('❌ Error en sincronización de historial', 'error');
+            render();
+        }
+    },
 
-        loader.update({ message: '📥 Aplicando cambios locales...' });
-        // 1. Actualizar estado local (excepto UI)
-        Object.assign(state, cloudState);
-        state.attendance = cloudAttendance;
+    createSnapshot: async () => {
+        try {
+            showNotification('📸 Creando snapshot...', 'info');
+            await FirebaseService.createSnapshot(state, 'manual');
+            if (state.settingsActiveTab === 'data') {
+                state.isLoadingSnapshots = true; render();
+                state.snapshots = await FirebaseService.listSnapshots();
+                state.isLoadingSnapshots = false;
+            }
+            showNotification('✅ Snapshot guardado en la nube', 'success');
+            render();
+        } catch (e) {
+            console.error('Error creando snapshot:', e);
+            showNotification('❌ Error al crear snapshot', 'error');
+            state.isLoadingSnapshots = false; render();
+        }
+    },
 
-        // 2. Guardar localmente
-        saveApplicationData();
+    downloadFromCloud: async () => {
+        const confirmed = confirm('⚠️ ¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE?\n\nEsto borrará tus datos actuales y cargará los de Google Drive/Firebase.');
+        if (!confirmed) return;
+        const loader = showNotification('📥 Conectando a la nube...', 'loading');
+        try {
+            loader.update({ message: '📥 Descargando metadatos...' });
+            const cloudState = await FirebaseService.getFullState();
+            loader.update({ message: '📥 Descargando historial...' });
+            const cloudAttendance = await FirebaseService.getAllAttendance();
+            if (!cloudState) {
+                loader.update({ message: '❌ No se encontraron datos en la nube', type: 'error', closable: true });
+                return;
+            }
+            Object.assign(state, cloudState);
+            state.attendance = cloudAttendance;
+            saveApplicationData();
+            loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
+            render();
+            setTimeout(() => location.reload(), 1500);
+        } catch (e) {
+            console.error('Error al descargar de la nube:', e);
+            loader.update({ message: '❌ Error al descargar datos', type: 'error', closable: true });
+        }
+    },
 
-        loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
-        render();
-        
-        // Recargar para asegurar consistencia total
-        setTimeout(() => location.reload(), 1500);
+    uploadToCloud: async () => {
+        const confirmed = confirm('⚠️ ¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES?\n\nEsto reemplazará tus archivos en la nube con lo que tienes actualmente.');
+        if (!confirmed) return;
+        const loader = showNotification('📤 Iniciando subida...', 'loading');
+        try {
+            loader.update({ message: '📤 Guardando estado general...' });
+            await FirebaseService.saveFullState(state);
+            loader.update({ message: '📤 Sincronizando historial...' });
+            await FirebaseService.syncHistory(state.attendance);
+            loader.update({ message: '✅ Datos subidos correctamente', type: 'success' });
+            render();
+        } catch (e) {
+            console.error('Error al subir a la nube:', e);
+            loader.update({ message: '❌ Error al subir datos', type: 'error', closable: true });
+        }
+    },
 
-    } catch (e) {
-        console.error('Error al descargar de la nube:', e);
-        loader.update({ message: '❌ Error al descargar datos', type: 'error', closable: true });
+    deleteCloudData: async () => {
+        const confirm1 = confirm('🚨 ADVERTENCIA CRÍTICA: BORRAR NUBE\n\n¿Estás seguro de eliminar TODOS tus datos en la nube?');
+        if (!confirm1) return;
+        const confirm2 = prompt('Para confirmar escriba: BORRAR NUBE');
+        if (confirm2 !== 'BORRAR NUBE') return showNotification('❌ Cancelado', 'error');
+        const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
+        try {
+            await FirebaseService.deleteCloudData();
+            loader.update({ message: '✅ Datos en la nube eliminados', type: 'success' });
+            render();
+        } catch (e) {
+            console.error('Error al borrar la nube:', e);
+            loader.update({ message: '❌ Error al borrar datos', type: 'error', closable: true });
+        }
     }
 };
 
-window.uploadToCloudNow = async () => {
-    const confirmed = confirm(
-        '⚠️ ¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES?\n\n' +
-        'Esto reemplazará tus archivos en la nube con lo que tienes actualmente en este teléfono.\n\n' +
-        '¿Deseas continuar?'
-    );
-
-    if (!confirmed) return;
-
-    const loader = showNotification('📤 Iniciando subida...', 'loading');
-
-    try {
-        loader.update({ message: '📤 Guardando estado general...' });
-        await FirebaseService.saveFullState(state);
-        
-        loader.update({ message: '📤 Sincronizando historial...' });
-        await FirebaseService.syncHistory(state.attendance);
-
-        loader.update({ message: '✅ Datos subidos correctamente', type: 'success' });
-        render();
-    } catch (e) {
-        console.error('Error al subir a la nube:', e);
-        loader.update({ message: '❌ Error al subir datos', type: 'error', closable: true });
-    }
-};
-
-window.deleteCloudDataNow = async () => {
-    const confirm1 = confirm(
-        '🚨 ADVERTENCIA CRÍTICA: BORRAR NUBE\n\n' +
-        '¿Estás seguro de eliminar TODOS tus datos en la nube (Google Drive/Firebase)?\n\n' +
-        'Esto NO afectará a tus datos en este teléfono, pero no tendrás respaldo externo.'
-    );
-
-    if (!confirm1) return;
-
-    const confirm2 = prompt('Para confirmar el borrado de la NUBE, escribe: BORRAR NUBE');
-    if (confirm2 !== 'BORRAR NUBE') {
-        showNotification('❌ Cancelado: confirmación incorrecta', 'error');
-        return;
-    }
-
-    const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
-
-    try {
-        await FirebaseService.deleteCloudData();
-        loader.update({ message: '✅ Datos en la nube eliminados', type: 'success' });
-        render();
-    } catch (e) {
-        console.error('Error al borrar la nube:', e);
-        loader.update({ message: '❌ Error al borrar datos de la nube', type: 'error', closable: true });
-    }
-};
+// Aliases para compatibilidad (Legacy HTML calls)
+window.syncFirebaseNow = window.App.Sync.syncNow;
+window.syncHistoryNow = window.App.Sync.syncHistory;
+window.createFirebaseSnapshot = window.App.Sync.createSnapshot;
+window.downloadFromCloudNow = window.App.Sync.downloadFromCloud;
+window.uploadToCloudNow = window.App.Sync.uploadToCloud;
+window.deleteCloudDataNow = window.App.Sync.deleteCloudData;
 
 
-window.updateBackupFrequency = (value) => {
+window.App.updateBackupFrequency = (value) => {
     state.settings.backupFrequency = value;
     saveApplicationData();
-    showNotification(`📅 Frecuencia de backup: ${value}`, 'info');
+    showNotification(`⏰ Frecuencia de backup: ${value}`, 'info');
 };
+
+window.updateBackupFrequency = window.App.updateBackupFrequency;
 
 // Getters/Setters para mantener las variables globales sincronizadas (Migrado a Firebase)
 let _autoSyncEnabled = false;
@@ -528,36 +470,27 @@ function getDayHours(date) {
 }
 
 // Establecer horas para el día actual
-window.setDayHours = function (hours) {
+window.App.setDayHours = function (hours) {
     const key = getDateKey(state.selectedDate);
     const h = parseFloat(hours);
-
-    if (isNaN(h) || h < 0.5 || h > 24) {
-        alert('❌ Las horas deben estar entre 0.5 y 24');
-        return;
-    }
-
+    if (isNaN(h) || h < 0.5 || h > 24) { alert('❌ Las horas deben estar entre 0.5 y 24'); return; }
     state.dayHoursConfig[key] = h;
     render();
 };
+window.setDayHours = window.App.setDayHours;
 
 // ✅ NUEVO: Configurar horas rápidas para vista semanal
-window.setQuickWeekHours = function (hours) {
+window.App.setQuickWeekHours = function (hours) {
     const h = parseFloat(hours);
-
-    if (isNaN(h) || h < 0.5 || h > 24) {
-        alert('❌ Las horas deben estar entre 0.5 y 24');
-        return;
-    }
-
+    if (isNaN(h) || h < 0.5 || h > 24) { alert('❌ Las horas deben estar entre 0.5 y 24'); return; }
     state.quickWeekHours = h;
-    console.log('⚡ Horas rápidas semanales configuradas a:', h);
     saveApplicationData();
     render();
 };
+window.setQuickWeekHours = window.App.setQuickWeekHours;
 
 // ✅ NUEVO: Configurar período de perfil
-window.setProfilePeriod = function (periodType) {
+window.App.setProfilePeriod = function (periodType) {
     const today = new Date();
     let startDate, endDate;
 
@@ -9359,11 +9292,35 @@ document.head.appendChild(styleTag);
         }
 
         // 4. Inicializar Auth y Sincronización (Tiempo Real)
-        FirebaseService.onAuthStateChanged((user) => {
-            window.context = { currentUser: user };
-            render(); // Refrescar para mostrar perfil en settings
-
+        FirebaseService.onAuthStateChanged(async (user) => {
+            // Estandarización de Scope Global
+            window.currentUser = user; 
+            if (window.App) window.App.currentUser = user;
+            
+            state.syncStatus = user ? 'synced' : 'idle';
+            render(); // Actualización inmediata de UI (Perfil/SyncStatus)
+            
             if (user) {
+                showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
+                
+                // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2) ---
+                if (state.isDataLoaded) {
+                    try {
+                        const cloudData = await FirebaseService.getFullState();
+                        // Si no hay datos en la nube pero sí locales, migramos de inmediato
+                        if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
+                            console.log('🚀 Migrando datos locales a la nube (Primera vez)...');
+                            await FirebaseService.saveFullState(state);
+                            if (Object.keys(state.attendance).length > 0) {
+                                await FirebaseService.syncHistory(state.attendance);
+                            }
+                            showNotification('✅ Datos migrados a la nube', 'success');
+                        }
+                    } catch (e) {
+                        console.error('Error en migración inicial:', e);
+                    }
+                }
+
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges((remoteData) => {
                     console.log('📡 Cambio detectado en la nube...');
@@ -9455,6 +9412,7 @@ document.head.appendChild(styleTag);
                 // Si no hay usuario, ocultamos el loader de inmediato (ya que no habrá sync)
                 hideLoader();
                 isInitialLoad = false;
+                render(); // Asegurar que la UI de settings/auth se limpie
             }
         });
 
