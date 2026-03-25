@@ -72,11 +72,11 @@ export function SettingsTab() {
 function SettingsDashboard() {
     const state = getState();
     const storage = context.calculateStorageStats();
-    const syncStatus = state.supabaseSyncStatus || {
-        connected: false,
+    const syncStatus = {
+        connected: !!window.currentUser,
         localEmployees: state.employees.length,
         localAttendance: Object.keys(state.attendance).length,
-        localDays: new Set(Object.values(state.attendance).map(a => a.date)).size
+        localDays: new Set(Object.values(state.attendance).map(a => a.date || '')).size
     };
 
     const freeSpace = Math.round(100 - storage.percentage);

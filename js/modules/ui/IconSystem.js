@@ -2,7 +2,7 @@
  * Sistema centralizado de iconos.
  * Soporta múltiples librerías: Unicode Emojis, Lucide, Phosphor, Heroicons, Tabler, Bootstrap Icons
  *
- * CDNs requeridos (agregar al HTML según la librería que uses):
+ * CDNs requeridos (agregar al HTML según la librería que puedes usar):
  *
  * Lucide:
  *   <script src="https://unpkg.com/lucide@latest"></script>
@@ -61,15 +61,6 @@ class IconSystem {
          * Registro central de iconos.
          * Cada entrada tiene el nombre lógico como clave, y los nombres
          * específicos de cada librería como valores.
-         *
-         * Estructura:
-         * {
-         *   unicode  : string  → Emoji o símbolo directo
-         *   lucide   : string  → Nombre del icono en Lucide (data-lucide="...")
-         *   phosphor : string  → Nombre del icono en Phosphor (ph ph-[name])
-         *   tabler   : string  → Nombre del icono en Tabler (ti ti-[name])
-         *   bootstrap: string  → Nombre del icono en Bootstrap Icons (bi bi-[name])
-         * }
          */
         this.registry = {
             // ── UI Core ────────────────────────────────────────────────
@@ -165,7 +156,6 @@ class IconSystem {
             'tablet': { unicode: '📲', lucide: 'tablet', phosphor: 'device-tablet', tabler: 'device-tablet', bootstrap: 'tablet' },
             'laptop': { unicode: '💻', lucide: 'laptop', phosphor: 'laptop', tabler: 'device-laptop', bootstrap: 'laptop' },
             'monitor': { unicode: '🖥️', lucide: 'monitor', phosphor: 'monitor', tabler: 'device-desktop', bootstrap: 'display' },
-            'printer-dev': { unicode: '🖨️', lucide: 'printer', phosphor: 'printer', tabler: 'printer', bootstrap: 'printer' },
             'wifi': { unicode: '📶', lucide: 'wifi', phosphor: 'wifi-high', tabler: 'wifi', bootstrap: 'wifi' },
             'bluetooth': { unicode: '🔵', lucide: 'bluetooth', phosphor: 'bluetooth', tabler: 'bluetooth', bootstrap: 'bluetooth' },
 
@@ -175,8 +165,6 @@ class IconSystem {
             'moon': { unicode: '🌙', lucide: 'moon', phosphor: 'moon', tabler: 'moon', bootstrap: 'moon' },
             'sun': { unicode: '☀️', lucide: 'sun', phosphor: 'sun', tabler: 'sun', bootstrap: 'sun' },
             'chevron-down': { unicode: '▼', lucide: 'chevron-down', phosphor: 'caret-down', tabler: 'chevron-down', bootstrap: 'chevron-down' },
-            'chevron-right': { unicode: '▶', lucide: 'chevron-right', phosphor: 'caret-right', tabler: 'chevron-right', bootstrap: 'chevron-right' },
-            'chevron-left': { unicode: '◀', lucide: 'chevron-left', phosphor: 'caret-left', tabler: 'chevron-left', bootstrap: 'chevron-left' },
             'chevron-up': { unicode: '▲', lucide: 'chevron-up', phosphor: 'caret-up', tabler: 'chevron-up', bootstrap: 'chevron-up' },
             'target': { unicode: '🎯', lucide: 'target', phosphor: 'target', tabler: 'target', bootstrap: 'bullseye' },
             'rocket': { unicode: '🚀', lucide: 'rocket', phosphor: 'rocket', tabler: 'rocket', bootstrap: 'rocket' },
@@ -203,10 +191,6 @@ class IconSystem {
         };
     }
 
-    /**
-     * Inicializar el sistema leyendo la preferencia guardada
-     * @param {string} savedSet - Set guardado en preferencias del usuario
-     */
     init(savedSet) {
         if (savedSet && this.availableSets.includes(savedSet)) {
             this.currentSet = savedSet;
@@ -214,9 +198,6 @@ class IconSystem {
         this._ensureSetAssets(this.currentSet).then(() => this._postRenderInit());
     }
 
-    /**
-     * Acciones necesarias post-render según la librería activa
-     */
     _postRenderInit() {
         if (this.currentSet === 'lucide' && window.lucide) {
             setTimeout(() => window.lucide.createIcons(), 100);
@@ -226,18 +207,12 @@ class IconSystem {
         }
     }
 
-    /**
-     * Cambiar el set de iconos activo
-     * @param {string} setName - Nombre del set ('unicode' | 'lucide' | 'phosphor' | 'tabler' | 'bootstrap')
-     * @returns {boolean} true si el cambio fue exitoso
-     */
     setSet(setName) {
         if (this.availableSets.includes(setName)) {
             this.currentSet = setName;
             this._ensureSetAssets(setName).then(() => this._postRenderInit());
             return true;
         }
-        console.warn(`Icon set "${setName}" not available. Options: ${this.availableSets.join(', ')}`);
         return false;
     }
 
@@ -245,11 +220,6 @@ class IconSystem {
      * Renderizar un icono según el set activo
      * @param {string} name     - Nombre lógico del icono (ej. 'calendar')
      * @param {object} options  - Opciones adicionales
-     * @param {string} options.class       - Clases CSS adicionales
-     * @param {string} options.style       - Estilos inline
-     * @param {number} options.size        - Tamaño en px (solo Lucide)
-     * @param {number} options.strokeWidth - Grosor del trazo (solo Lucide)
-     * @returns {string} HTML string del icono
      */
     get(name, options = {}) {
         const iconDef = this.registry[name];
@@ -263,28 +233,35 @@ class IconSystem {
         const style = options.style ? ` style="${options.style}"` : '';
 
         switch (this.currentSet) {
-
             case 'unicode':
                 return `<span class="icon-unicode${cls}"${style}>${iconDef.unicode}</span>`;
 
             case 'lucide': {
+                const iconName = iconDef.lucide;
+                // ⚡ Optimización Alpha: Generar SVG inline si está disponible para evitar parpadeos
+                if (window.lucide && window.lucide.icons && window.lucide.icons[iconName]) {
+                    const size = options.size || 18;
+                    const strokeWidth = options.strokeWidth || 2;
+                    return window.lucide.icons[iconName].toSvg({
+                        class: `icon-lucide${cls}`,
+                        style: options.style || '',
+                        width: size,
+                        height: size,
+                        'stroke-width': strokeWidth
+                    });
+                }
                 const size = options.size ? `width="${options.size}" height="${options.size}"` : 'width="18" height="18"';
                 const stroke = options.strokeWidth ? `stroke-width="${options.strokeWidth}"` : 'stroke-width="2"';
-                return `<i data-lucide="${iconDef.lucide}" class="icon-lucide${cls}"${style} ${size} ${stroke}></i>`;
+                return `<i data-lucide="${iconName}" class="icon-lucide${cls}"${style} ${size} ${stroke}></i>`;
             }
 
             case 'phosphor':
-                // Phosphor usa clases: "ph ph-[name]"  (peso regular por defecto)
-                // Pesos disponibles: ph-thin, ph-light, ph-regular (default), ph-bold, ph-fill, ph-duotone
-                // Ejemplo peso bold: options.weight = 'bold' → clase adicional ph-bold
                 return `<i class="ph ph-${iconDef.phosphor}${cls}"${style}></i>`;
 
             case 'tabler':
-                // Tabler usa webfont con clases: "ti ti-[name]"
                 return `<i class="ti ti-${iconDef.tabler}${cls}"${style}></i>`;
 
             case 'bootstrap':
-                // Bootstrap Icons usa webfont con clases: "bi bi-[name]"
                 return `<i class="bi bi-${iconDef.bootstrap}${cls}"${style}></i>`;
 
             default:
@@ -292,32 +269,19 @@ class IconSystem {
         }
     }
 
-    /**
-     * Versión de get() con peso/variante para Phosphor
-     * @param {string} name   - Nombre lógico del icono
-     * @param {string} weight - 'thin' | 'light' | 'regular' | 'bold' | 'fill' | 'duotone'
-     * @param {object} options
-     */
     getPhosphor(name, weight = 'regular', options = {}) {
         const iconDef = this.registry[name];
         if (!iconDef) return '';
-
         const cls = options.class ? ` ${options.class}` : '';
         const style = options.style ? ` style="${options.style}"` : '';
         const weightClass = weight !== 'regular' ? ` ph-${weight}` : '';
-
         return `<i class="ph ph-${iconDef.phosphor}${weightClass}${cls}"${style}></i>`;
     }
 
-    /**
-     * Llama a la función de inicialización de la librería activa
-     * (necesario después de cambios dinámicos en el DOM)
-     */
     refresh() {
         if (this.currentSet === 'lucide' && window.lucide) {
             window.lucide.createIcons();
         }
-        // Phosphor y Tabler/Bootstrap son CSS puro — no necesitan refresh
     }
 
     /**
@@ -352,67 +316,33 @@ class IconSystem {
     }
 
     _ensureSetAssets(setName) {
-        if (this._loadedSets[setName]) {
-            return Promise.resolve(true);
-        }
-        if (this._loadingSets[setName]) {
-            return this._loadingSets[setName];
-        }
-
+        if (this._loadedSets[setName]) return Promise.resolve(true);
+        if (this._loadingSets[setName]) return this._loadingSets[setName];
         const assets = this.assetRegistry[setName] || [];
-        if (assets.length === 0) {
-            this._loadedSets[setName] = true;
-            return Promise.resolve(true);
-        }
-
-        this._loadingSets[setName] = Promise.all(
-            assets.map(asset => this._loadAsset(asset))
-        ).then(() => {
+        if (assets.length === 0) return Promise.resolve(true);
+        this._loadingSets[setName] = Promise.all(assets.map(asset => this._loadAsset(asset))).then(() => {
             this._loadedSets[setName] = true;
             delete this._loadingSets[setName];
             return true;
-        }).catch(err => {
-            console.warn(`Failed to load assets for set "${setName}"`, err);
-            delete this._loadingSets[setName];
-            return false;
         });
-
         return this._loadingSets[setName];
     }
 
     _loadAsset(asset) {
-        if (asset.isLoaded && asset.isLoaded()) {
-            return Promise.resolve(true);
-        }
-        if (asset.type === 'style') {
-            const existing = document.querySelector(`link[href="${asset.url}"]`);
-            if (existing) return Promise.resolve(true);
-            return new Promise((resolve, reject) => {
-                const link = document.createElement('link');
-                link.rel = 'stylesheet';
-                link.href = asset.url;
-                link.onload = () => resolve(true);
-                link.onerror = () => reject(new Error(`Failed to load ${asset.url}`));
-                document.head.appendChild(link);
-            });
-        }
-        if (asset.type === 'script') {
-            const existing = document.querySelector(`script[src="${asset.url}"]`);
-            if (existing) return Promise.resolve(true);
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = asset.url;
-                script.async = true;
-                script.onload = () => resolve(true);
-                script.onerror = () => reject(new Error(`Failed to load ${asset.url}`));
-                document.head.appendChild(script);
-            });
-        }
-        return Promise.resolve(false);
+        if (asset.isLoaded && asset.isLoaded()) return Promise.resolve(true);
+        const type = asset.type === 'style' ? 'link' : 'script';
+        const attr = asset.type === 'style' ? 'href' : 'src';
+        return new Promise((resolve) => {
+            const el = document.createElement(type);
+            if (type === 'link') el.rel = 'stylesheet';
+            el[attr] = asset.url;
+            el.onload = () => resolve(true);
+            el.onerror = () => resolve(false);
+            document.head.appendChild(el);
+        });
     }
 }
 
-// Exportar una instancia única (singleton)
 const icons = new IconSystem();
 export default icons;
 window.icons = icons;

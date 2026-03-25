@@ -76,7 +76,8 @@ const initialState = {
         lastPaymentDate: null,
         nextPaymentDate: null,
         overtimeFactor: 1.5,
-        holidayFactor: 2.0
+        holidayFactor: 2.0,
+        holidays: []
     },
     employeeFilter: '', 
     searchQuery: '',
@@ -111,6 +112,17 @@ const initialState = {
         showEndPicker: false,
         deductions: [],
         expandedPositions: {}
+    },
+    settingsCalendarMonth: new Date(),
+    calendarMarkerMode: 'holiday',
+    supabaseSyncStatus: 'offline',
+    exportConfig: {
+        periodStart: null,
+        periodEnd: null,
+        activePreset: 'thisMonth',
+        leaderFilter: 'all',
+        deductions: [],
+        employeeDeductionsAdded: false
     }
 };
 

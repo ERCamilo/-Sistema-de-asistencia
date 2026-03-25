@@ -148,7 +148,7 @@ const MAX_ATTENDANCE_RECORDS = 2000; // Límite de registros en memoria
 const RELEVANT_DAYS_LIMIT = 60;      // Días considerados "recientes"
 
 function resolveIconSet(preferred) {
-    const available = icons.getAvailableSets();
+    const available = (icons && typeof icons.getAvailableSets === 'function') ? icons.getAvailableSets() : ['unicode'];
     const saved = localStorage.getItem(ICON_SET_STORAGE_KEY);
     if (preferred && available.includes(preferred)) return preferred;
     if (saved && available.includes(saved)) return saved;
@@ -305,7 +305,6 @@ window.saveToLocalStorage = saveApplicationData;
 window.showNotification = showNotification;
 window.applyIconSet = applyIconSet;
 window.resolveIconSet = resolveIconSet;
-window.updateSyncStatus = updateSyncStatus;
 
 // Proxies para Firebase (Nuevo)
 window.loginWithGoogle = () => FirebaseService.loginWithGoogle();
@@ -522,10 +521,6 @@ window.updateBackupFrequency = (value) => {
 let _autoSyncEnabled = false;
 
 Object.defineProperties(window, {
-    useSupabase: {
-        get: () => false, // Supabase desactivado
-        set: (v) => {} 
-    },
     isSyncing: {
         get: () => state.syncStatus === 'syncing',
         set: (v) => state.syncStatus = v ? 'syncing' : 'synced'
@@ -806,7 +801,7 @@ initSettingsUI({
     state,
     icons,
     holidayService,
-    get useSupabase() { return useSupabase; },
+    get currentUser() { return window.currentUser; },
     get currentUser() { return currentUser; },
     get autoSyncEnabled() { return autoSyncEnabled; },
     calculateStorageStats: () => calculateStorageStats()
@@ -2340,6 +2335,24 @@ window.removePositionHours = function (index) {
 // LOCALSTORAGE - PERSISTENCIA DE DATOS
 // ========================================
 
+// ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
+// Evita saturar la cuota de Firebase con guardados demasiado frecuentes
+const syncFirebaseMirrorDebounced = (function() {
+    let timeout;
+    return function(state) {
+        clearTimeout(timeout);
+        timeout = setTimeout(async () => {
+            if (window.currentUser && !window._isApplyingRemoteData) {
+                try {
+                    await FirebaseService.saveFullState(state);
+                } catch (e) {
+                    console.error('⚠️ Error en sincronización debounced:', e);
+                }
+            }
+        }, 2000); // 2 segundos de espera
+    };
+})();
+
 async function saveToIndexedDB(options = {}) {
     try {
         await indexedDBService.saveState(state, options);
@@ -2379,10 +2392,8 @@ async function saveApplicationData(options = {}) {
             );
         }
 
-        // 2. Sincronización Espejo (Full State) - se mantiene como respaldo secundario
-        FirebaseService.saveFullState(state).catch(e => 
-            console.error('⚠️ Error en sincronización espejo con Firebase:', e)
-        );
+        // 2. Sincronización Espejo (Full State) - DEBOUCED
+        syncFirebaseMirrorDebounced(state);
 
         // Lógica de Backup Automático (Snapshots)
         const freq = state.settings.backupFrequency || 'none';
@@ -2906,13 +2917,6 @@ window.changeTab = (tab) => {
         }, 100);
     }
 
-    // ⚡ NUEVO: Si se abre settings, actualizar dashboard de sincronización
-    if (tab === 'settings') {
-        setTimeout(async () => {
-            await updateSyncStatus();
-            render(); // Re-renderizar para mostrar stats actualizadas
-        }, 100);
-    }
 };
 
 // ⚡ NUEVO: Cambiar pestaña de configuración (Asíncrono para Snapshots)
@@ -4311,184 +4315,76 @@ window.setEmployeeFilter = (filter) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// FUNCIONES DE SUPABASE
+// FUNCIONES DE NUBE (Firebase)
 // ═══════════════════════════════════════════════════════════
 
-// Mostrar modal de login/registro
-window.showSupabaseLogin = function () {
-    const html = `
-                <div class="modal-overlay" onclick="if(event.target === this) closeModal()">
-                    <div class="modal-content" style="max-width: 420px;">
-                        <div class="modal-header">
-                            <h2 class="modal-title">☁️ Conectar con la Nube</h2>
-                            <button class="modal-close" onclick="closeModal()">✕</button>
-                        </div>
-                        <div class="modal-body">
-                            <p style="color: #94a3b8; margin-bottom: 20px; font-size: 0.9rem; line-height: 1.6;">
-                                Sincroniza tus datos entre todos tus dispositivos. Tus datos locales se migrarán automáticamente a la nube.
-                            </p>
-                            
-                            <div class="form-group">
-                                <label class="form-label">Email</label>
-                                <input type="email" id="supabase-email" class="form-input" placeholder="tu@email.com" autocomplete="email">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label class="form-label">Contraseña</label>
-                                <input type="password" id="supabase-password" class="form-input" placeholder="Mínimo 6 caracteres" autocomplete="current-password">
-                            </div>
-                            
-                            <div id="auth-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 0.85rem;"></div>
-                            
-                            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                <button onclick="loginSupabase()" class="btn-primary" style="flex: 1;">
-                                    Iniciar Sesión
-                                </button>
-                                <button onclick="registerSupabase()" class="btn-secondary" style="flex: 1;">
-                                    Registrarse
-                                </button>
-                            </div>
-                            
-                            <div style="margin-top: 16px; padding: 12px; background: rgba(6,182,212,0.1); border-radius: 8px; font-size: 0.8rem; color: #94a3b8;">
-                                <strong style="color: #06b6d4;">💡 Primera vez:</strong> Regístrate para crear tu cuenta. Luego podrás acceder desde cualquier dispositivo.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-    document.body.insertAdjacentHTML('beforeend', html);
-    // Focus en el email
-    setTimeout(() => document.getElementById('supabase-email')?.focus(), 100);
-};
-
-// Login
-window.loginSupabase = async function () {
-    const email = document.getElementById('supabase-email').value.trim();
-    const password = document.getElementById('supabase-password').value;
-    const errorDiv = document.getElementById('auth-error');
-
-    if (!email || !password) {
-        errorDiv.textContent = '❌ Por favor completa todos los campos';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    errorDiv.style.display = 'none';
-
+window.uploadToCloud = async function() {
+    const loading = showNotification('📤 Sincronizando historial...', 'loading');
     try {
-        await supabaseService.signIn(email, password);
-        closeModal();
-
-        showNotification('✅ Conectado exitosamente', 'success');
-
-        // Mostrar opciones de sincronización
-        await showSyncOptionsModal();
-
-    } catch (error) {
-        console.error('Error en login:', error);
-        errorDiv.textContent = '❌ ' + (error.message || 'Error al iniciar sesión');
-        errorDiv.style.display = 'block';
+        await FirebaseService.syncHistory(state.attendance);
+        await FirebaseService.saveFullState(state);
+        showNotification('✅ Historial y estado sincronizados', 'success');
+    } catch (e) {
+        console.error('Error al subir a la nube:', e);
+        showNotification('❌ Error al sincronizar historial', 'error');
+    } finally {
+        loading.close();
     }
 };
 
-// Registro
-window.registerSupabase = async function () {
-    const email = document.getElementById('supabase-email').value.trim();
-    const password = document.getElementById('supabase-password').value;
-    const errorDiv = document.getElementById('auth-error');
-
-    if (!email || !password) {
-        errorDiv.textContent = '❌ Por favor completa todos los campos';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    if (password.length < 6) {
-        errorDiv.textContent = '❌ La contraseña debe tener al menos 6 caracteres';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    errorDiv.style.display = 'none';
-
+window.downloadFromCloud = async function() {
+    const confirm = window.confirm('¿Descargar datos de la nube? Esto fusionará los datos remotos con los locales.');
+    if (!confirm) return;
+    
+    const loading = showNotification('📥 Descargando datos...', 'loading');
     try {
-        await supabaseService.signUp(email, password);
-
-        showNotification('✅ Cuenta creada exitosamente', 'success');
-
-        // Primera vez: auto-subir datos locales
-        await showSyncOptionsModal();
-
-    } catch (error) {
-        console.error('Error en registro:', error);
-        errorDiv.textContent = '❌ ' + (error.message || 'Error al crear cuenta');
-        errorDiv.style.display = 'block';
+        const remoteState = await FirebaseService.getFullState();
+        if (remoteState) {
+            // Fusión simple de metadatos (evitar duplicados por ID)
+            const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
+            state.employees = dedup([...state.employees, ...(remoteState.employees || [])]);
+            state.positions = dedup([...state.positions, ...(remoteState.positions || [])]);
+            state.leaders = dedup([...state.leaders, ...(remoteState.leaders || [])]);
+            
+            // Cargar historial completo
+            const remoteAttendance = await FirebaseService.getAllAttendance();
+            state.attendance = { ...state.attendance, ...remoteAttendance };
+            
+            render();
+            await saveApplicationData();
+            showNotification('✅ Datos descargados y fusionados', 'success');
+        } else {
+            showNotification('ℹ️ No hay datos en la nube para descargar', 'info');
+        }
+    } catch (e) {
+        console.error('Error al descargar de la nube:', e);
+        showNotification('❌ Error al descargar datos', 'error');
+    } finally {
+        loading.close();
     }
 };
 
-
-// Modal de opciones de sincronización
-window.showSyncOptionsModal = async function () {
-    // 1. Calcular resumen local
-    const localSummary = {
-        employees: state.employees.length,
-        leaders: state.leaders.length,
-        attendance: Object.keys(state.attendance).length,
-        lastUpdate: state.settings.updatedAt || Date.now()
-    };
-
-    // 2. Obtener resumen remoto
-    const remoteSummary = await supabaseService.getRemoteSummary();
-
-    const hasLocalData = localSummary.employees > 0 || state.positions.length > 0;
-    const hasCloudData = remoteSummary !== null && (remoteSummary.employees > 0 || remoteSummary.attendance > 0);
-
-    // Decidir qué mostrar
-    if (!hasLocalData && !hasCloudData) {
-        // Sin datos en ningún lado - no hacer nada
-        render();
-        return;
+window.deleteCloudDataNow = async function() {
+    const confirm = window.confirm('⚠️ ¿ELIMINAR TODOS los datos de la nube? Esta acción no se puede deshacer y NO afectará tus datos locales.');
+    if (!confirm) return;
+    
+    const loading = showNotification('🗑️ Eliminando datos remotos...', 'loading');
+    try {
+        await FirebaseService.deleteCloudData();
+        showNotification('✅ Datos remotos eliminados de Firebase', 'success');
+    } catch (e) {
+        console.error('Error al eliminar datos:', e);
+        showNotification('❌ Error al eliminar datos remotos', 'error');
+    } finally {
+        loading.close();
     }
-
-    if (hasLocalData && !hasCloudData) {
-        // Solo datos locales - preguntar si subir
-        showUploadConfirmModal(localSummary);
-        return;
-    }
-
-    if (!hasLocalData && hasCloudData) {
-        // Solo datos en la nube - preguntar si descargar
-        showDownloadConfirmModal(remoteSummary);
-        return;
-    }
-
-    // Ambos tienen datos - mostrar opciones completas
-    showFullSyncModal(localSummary, remoteSummary);
 };
 
-// Generar HTML para tabla de resumen movida a SyncUI.js
-
-// Modal: Confirmar subir datos locales
-function showUploadConfirmModal(local) {
-    document.body.insertAdjacentHTML('beforeend', SyncUI.buildUploadConfirmModalHTML(local));
-}
-
-// Modal: Confirmar descargar datos de la nube
-function showDownloadConfirmModal(remote) {
-    document.body.insertAdjacentHTML('beforeend', SyncUI.buildDownloadConfirmModalHTML(remote));
-}
-
-// Modal: Opciones completas cuando hay datos en ambos lados
-function showFullSyncModal(local, remote) {
-    document.body.insertAdjacentHTML('beforeend', SyncUI.buildFullSyncModalHTML(local, remote));
-}
-
-// Operaciones de Supabase UI
-window.uploadToCloud = () => supabaseService.manualSync();
-window.downloadFromCloud = () => supabaseService.downloadFromCloud();
-window.manualSync = () => supabaseService.manualSync();
-window.toggleAutoSync = () => supabaseService.toggleAutoSync();
+window.manualSync = window.uploadToCloud;
+window.toggleAutoSync = () => {
+    // Firebase usa tiempo real por defecto, no necesita toggle manual para on/off
+    showNotification('💡 Firebase sincroniza automáticamente en tiempo real', 'info');
+};
 
 // ═══════════════════════════════════════════════════════════
 
@@ -7074,14 +6970,6 @@ function getTimeAgo(date) {
     return `Hace ${days} día${days > 1 ? 's' : ''}`;
 }
 
-/**
- * Actualiza el estado de sincronización (llama a getSupabaseSyncStatus y guarda en state)
- */
-async function updateSyncStatus() {
-    if (useSupabase && currentUser) {
-        state.supabaseSyncStatus = await getSupabaseSyncStatus();
-    }
-}
 
 window.previewIconSet = function (value) {
     state.settings.iconSet = applyIconSet(value);
@@ -8578,7 +8466,8 @@ function render() {
         DOMDiff.apply(root, newHTML);
 
         // Renderizar iconos Lucide despues de actualizar el DOM
-        icons.refresh();
+        // La actualización de iconos ya es inline o se maneja internamente.
+        // No es necesario llamar a icons.refresh() en cada renderizado.
         updateHeaderOffset();
 
         // Restaurar foco del buscador si estaba activo
@@ -8668,7 +8557,8 @@ window.addEventListener('scroll', () => {
             state.isScrolled = scrolled;
             const compactControls = document.querySelector('.date-controls-compact');
             if (compactControls) {
-                if (scrolled && state.activeTab === 'attendance') {
+                const isWeekView = state.viewMode === 'week';
+                if ((scrolled || isWeekView) && state.activeTab === 'attendance') {
                     compactControls.classList.add('visible');
                 } else {
                     compactControls.classList.remove('visible');
@@ -8754,7 +8644,7 @@ class OnboardingWizard {
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 12px;">
                                     <div style="background: #8b5cf6; width: 8px; height: 8px; border-radius: 50%;"></div>
-                                    <span style="color: #f1f5f9; font-size: 0.875rem;">Sincronizar en la nube (Supabase)</span>
+                                    <span style="color: #f1f5f9; font-size: 0.875rem;">Sincronizar en la nube (Firebase)</span>
                                 </div>
                             </div>
                         </div>
@@ -9472,7 +9362,7 @@ window.quickAddPosition = function (name) {
     }
 
     const newPosition = {
-        id: generateUUID(), // ✅ UUID compatible con Supabase
+        id: generateUUID(), // ✅ UUID estándar
         name: name,
         salaryConfig: {
             amount: 30000,
@@ -9513,7 +9403,7 @@ window.addOnboardingEmployee = function (event) {
 
     const newNumber = String(state.employees.length + 1).padStart(3, '0');
     const newEmployee = {
-        id: generateUUID(), // ✅ UUID compatible con Supabase
+        id: generateUUID(), // ✅ UUID estándar
         number: newNumber,
         name: name,
         position: positionId,

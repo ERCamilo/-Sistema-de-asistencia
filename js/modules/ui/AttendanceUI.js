@@ -20,8 +20,9 @@ export function DateControlsCompact() {
 
     // El picker ahora depende del estado global y funciones de window (Legacy bridge)
     const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'compact';
-    const isVisible = state.isScrolled && (state.activeTab === 'attendance');
     const isWeek = state.viewMode === 'week';
+    // Forzado: En vista semanal siempre es visible porque el scroll es interno y no llegará a 200px en la página.
+    const isVisible = (state.isScrolled || isWeek) && (state.activeTab === 'attendance');
 
     return `
             <div class="date-controls-compact ${isVisible ? 'visible' : ''} ${isWeek ? 'at-bottom' : ''}">
@@ -314,7 +315,7 @@ export function EmployeeRowCompact(emp) {
     const isChecked = att && att.present;
 
     // 👆 Tocar registro para caché LRU
-    if (att) attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
+    if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode" style="padding: 8px 12px; height: 60px; display: flex; align-items: center; border-bottom: 1px solid #1e293b;">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
@@ -444,11 +445,11 @@ export function WeekView() {
     return `
         ${SearchBar()}
         ${DateControlsCompact()}
-        <div id="week-view-list" class="week-view-scroll-container">
+        <div id="week-view-list" class="sticky-table-container modern-scroll">
             <table class="week-view-table">
-                <thead>
+                <thead class="sticky-header">
                     <tr>
-                        <th style="min-width: 180px; position: sticky; left: 0; z-index: 10; background: #0f172a;">EMPLEADO</th>
+                        <th class="sticky-column" style="min-width: 180px;">EMPLEADO</th>
                         ${getWeekDates(new Date(state.selectedDate)).map(date => {
         const isH = isDayHoliday(date, state.settings?.holidays);
         const isS = date.getDay() === 0;
@@ -473,7 +474,7 @@ export function WeekView() {
 export function WeekRow(emp, week) {
     return `
         <tr id="week-row-${emp.id}">
-            <td>
+            <td class="sticky-column">
                 <div class="week-employee-cell">
                     <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
@@ -490,7 +491,9 @@ export function WeekRow(emp, week) {
         const att = state.attendance[aKey];
 
         // 👆 Tocar registro para caché LRU
-        if (att) attendanceService.touchRecord(emp.id, dKey);
+        if (att && typeof attendanceService !== 'undefined') {
+            attendanceService.touchRecord(emp.id, dKey);
+        }
         const isCh = att && att.present;
         const cColor = getCheckColor(att, date);
         const selP = att?.selectedPosition || emp.positions?.[0] || null;

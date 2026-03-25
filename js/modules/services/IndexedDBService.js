@@ -210,6 +210,10 @@ export class IndexedDBService {
      */
     async saveState(state, options = {}) {
         try {
+            // 🛡️ UNBOXING: Convertir el estado (que puede ser un Proxy) a un objeto plano
+            // para evitar errores de DataCloneError en IndexedDB (algoritmo Structured Clone).
+            const cleanState = JSON.parse(JSON.stringify(state));
+            
             if (options.clearFirst) {
                 await this.clear('employees');
                 await this.clear('positions');
@@ -222,7 +226,7 @@ export class IndexedDBService {
             const empMap = new Map();
             const empToDeletesInternal = [];
 
-            (state.employees || []).forEach(emp => {
+            (cleanState.employees || []).forEach(emp => {
                 const num = String(emp.number || '').trim();
                 if (!num) return;
 
@@ -239,7 +243,7 @@ export class IndexedDBService {
             const leadMap = new Map();
             const leadToDeletesInternal = [];
 
-            (state.leaders || []).forEach(l => {
+            (cleanState.leaders || []).forEach(l => {
                 const num = String(l.number || '').trim();
                 if (!num) return;
 
@@ -258,19 +262,19 @@ export class IndexedDBService {
 
             // 4. GUARDADO EFECTIVO
             for (const emp of empMap.values()) await this.update('employees', emp);
-            for (const pos of (state.positions || [])) await this.update('positions', pos);
+            for (const pos of (cleanState.positions || [])) await this.update('positions', pos);
             for (const leader of leadMap.values()) await this.update('leaders', leader);
 
-            const attRecords = Object.entries(state.attendance || {}).map(([key, value]) => ({
+            const attRecords = Object.entries(cleanState.attendance || {}).map(([key, value]) => ({
                 key,
                 ...value
             }));
             for (const att of attRecords) await this.update('attendance', att);
 
-            if (state.settings) {
+            if (cleanState.settings) {
                 await this.update('settings', {
                     key: 'app',
-                    ...state.settings
+                    ...cleanState.settings
                 });
             }
 

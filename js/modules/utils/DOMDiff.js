@@ -116,6 +116,9 @@ export class DOMDiff {
 
             // Case 3: Both exist -> Patch recursively
             if (oldChild && newChild) {
+                // ⚡ Optimización Alpha: Si el nodo es idéntico estructuralmente, saltar el parcheo.
+                // Esto previene mutaciones innecesarias y mejora drásticamente el rendimiento en listas grandes.
+                if (oldChild.isEqualNode(newChild)) continue;
                 // To optimize, if it's the same HTML, we could skip (optional)
                 // But full deep patch is more reliable for simple implementations
                 this.patch(oldChild, newChild);

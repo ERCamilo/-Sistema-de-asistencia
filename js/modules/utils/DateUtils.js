@@ -6,9 +6,19 @@ import icons from '../ui/IconSystem.js';
 
 // 💡 Helper: Crear Date desde string YYYY-MM-DD sin problemas de timezone
 export function parseDate(dateStr) {
-    if (!dateStr || typeof dateStr !== 'string') return new Date();
-    const [year, month, day] = dateStr.split('-').map(Number);
-    return new Date(year, month - 1, day);
+    if (!dateStr) return new Date();
+    if (dateStr instanceof Date) return dateStr;
+    if (typeof dateStr !== 'string') return new Date();
+
+    // 💡 Soporta formato estándar YYYY-MM-DD para evitar problemas de timezone
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+    
+    // 💡 Fallback para strings ISO u otros formatos detectables por el constructor
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? new Date() : d;
 }
 
 export function getDateKey(d) {

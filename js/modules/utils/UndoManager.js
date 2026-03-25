@@ -71,13 +71,12 @@ export const UndoManager = {
         const el = document.createElement('div');
         el.id = 'undo-toast';
         el.innerHTML = `
-                    <div class="undo-toast-inner">
-                        <span class="undo-toast-icon">↩️</span>
-                        <span class="undo-toast-text">Deshacer: ${label}</span>
-                        <button class="undo-toast-btn" onclick="UndoManager.undo()">DESHACER</button>
-                        <button class="undo-toast-close" onclick="UndoManager._dismiss()">${icons.get('close')}</button>
-                    </div>
-                `;
+            <div class="undo-toast-inner">
+                <span class="undo-toast-icon">↩️</span>
+                <button class="undo-toast-btn" onclick="UndoManager.undo()">DESHACER</button>
+                <button class="undo-toast-close" onclick="UndoManager._dismiss()">${icons.get('close')}</button>
+            </div>
+        `;
 
         document.body.appendChild(el);
         this._element = el;

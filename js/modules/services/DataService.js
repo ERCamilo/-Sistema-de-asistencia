@@ -79,12 +79,18 @@ export class DataService {
             Object.assign(this.state.settings, data.settings);
         }
 
-        // 💡 Restaurar fechas
+        // 💡 Restaurar fechas (Reviviendo strings ISO a objetos Date)
+        const reviveDate = (val) => {
+            if (!val) return null;
+            const d = new Date(val);
+            return isNaN(d.getTime()) ? new Date() : d;
+        };
+
         if (data.today) {
-            this.state.today = data.today;
+            this.state.today = reviveDate(data.today);
         }
         if (data.selectedDate) {
-            this.state.selectedDate = data.selectedDate;
+            this.state.selectedDate = reviveDate(data.selectedDate);
         }
 
         // 💡 Restaurar configuraciones de horas
@@ -97,18 +103,18 @@ export class DataService {
 
         // 💡 Restaurar fechas del dashboard
         if (data.dashboardStartDate) {
-            this.state.dashboardStartDate = data.dashboardStartDate;
+            this.state.dashboardStartDate = reviveDate(data.dashboardStartDate);
         }
         if (data.dashboardEndDate) {
-            this.state.dashboardEndDate = data.dashboardEndDate;
+            this.state.dashboardEndDate = reviveDate(data.dashboardEndDate);
         }
 
         // 💡 Restaurar fechas del reporte de empleados
         if (data.employeeReportStartDate) {
-            this.state.employeeReportStartDate = data.employeeReportStartDate;
+            this.state.employeeReportStartDate = reviveDate(data.employeeReportStartDate);
         }
         if (data.employeeReportEndDate) {
-            this.state.employeeReportEndDate = data.employeeReportEndDate;
+            this.state.employeeReportEndDate = reviveDate(data.employeeReportEndDate);
         }
 
         if (window.debug) window.debug.log(`${icons.get('info')} Datos cargados correctamente`);

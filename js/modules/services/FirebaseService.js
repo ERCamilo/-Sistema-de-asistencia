@@ -3,7 +3,7 @@ import {
     signInWithPopup, signOut, onAuthStateChanged,
     doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, 
     query, orderBy, limit, getDocs, Timestamp,
-    ref, uploadString, getDownloadURL, onSnapshot, where, documentId
+    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch
 } from '../data/firebase.js';
 
 class FirebaseService {
@@ -226,6 +226,9 @@ class FirebaseService {
         console.log(`📡 Suscribiendo a asistencia ${startDate ? `desde ${startDate}` : ''} ${endDate ? `hasta ${endDate}` : ''}`);
 
         return onSnapshot(attendanceRef, (querySnapshot) => {
+            // No procesar si hay escrituras locales pendientes (evitar bucles infinitos)
+            if (querySnapshot.metadata.hasPendingWrites) return;
+
             if (querySnapshot.docs.length > 0 && onInitialLoad && !this._attendanceInitialized) {
                 const allAttendance = {};
                 querySnapshot.forEach(doc => {
@@ -304,11 +307,11 @@ class FirebaseService {
     async syncHistory(allAttendance) {
         if (!auth.currentUser || !allAttendance) return;
 
-        console.log('🚀 Iniciando sincronización masiva de historial...');
+        console.log('🚀 Iniciando sincronización masiva de historial con Batches...');
         const entries = Object.entries(allAttendance);
         const daysToSync = {};
 
-        // 1. Agrupar por fecha para reducir escrituras
+        // 1. Agrupar por fecha
         entries.forEach(([key, record]) => {
             const dateKey = record.date || key.split('-').slice(-3).join('-');
             if (!daysToSync[dateKey]) daysToSync[dateKey] = {};
@@ -316,16 +319,30 @@ class FirebaseService {
         });
 
         const totalDays = Object.keys(daysToSync).length;
-        let count = 0;
+        const batch = writeBatch(db);
+        let operationsCount = 0;
 
-        // 2. Subir cada día
+        // 2. Preparar el Batch (Límax 500 operaciones por batch en Firestore)
         for (const [dateKey, dayRecords] of Object.entries(daysToSync)) {
-            await this.saveDailyAttendance(dateKey, dayRecords);
-            count++;
-            if (count % 5 === 0) console.log(`⏳ Progresando sincronización: ${count}/${totalDays} días`);
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'attendance', dateKey);
+            const cleanAttendance = JSON.parse(JSON.stringify(dayRecords));
+            
+            batch.set(docRef, {
+                records: cleanAttendance,
+                updatedAt: serverTimestamp(),
+                date: dateKey
+            }, { merge: true });
+
+            operationsCount++;
         }
 
-        console.log('✅ Sincronización masiva completada');
+        // 3. Comprometer el Batch
+        if (operationsCount > 0) {
+            console.log(`⏳ Enviando lote de ${operationsCount} días a Firestore...`);
+            await batch.commit();
+        }
+
+        console.log('✅ Sincronización masiva (Batch) completada');
         return true;
     }
 
@@ -365,20 +382,21 @@ class FirebaseService {
             const currentDocRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
             await deleteDoc(currentDocRef);
 
-            // 2. Eliminar toda la colección de attendance
-            // Nota: En Firestore cliente no hay 'deleteCollection'. Hay que iterar.
+            // 2. Eliminar toda la colección de attendance mediante Batch
             const attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
             const attDocs = await getDocs(attendanceRef);
-            for (const d of attDocs.docs) {
-                await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'attendance', d.id));
-            }
+            const attBatch = writeBatch(db);
+            
+            attDocs.forEach(d => attBatch.delete(d.ref));
+            await attBatch.commit();
 
-            // 3. Opcional: Eliminar snapshots (backups)
+            // 3. Eliminar snapshots con Batch
             const snapshotsRef = collection(db, 'users', auth.currentUser.uid, 'snapshots');
             const snapDocs = await getDocs(snapshotsRef);
-            for (const d of snapDocs.docs) {
-                await deleteDoc(doc(db, 'users', auth.currentUser.uid, 'snapshots', d.id));
-            }
+            const snapBatch = writeBatch(db);
+            
+            snapDocs.forEach(d => snapBatch.delete(d.ref));
+            await snapBatch.commit();
 
             console.log('🗑️ Datos en la nube eliminados correctamente');
             return true;
