@@ -1,4 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
+import './modules/services/PersistenceService.js';
 import { Header } from './modules/ui/Header.js';
 
 // 🔧 DEBUG UTILITY (controla console logs en producción)
@@ -2137,8 +2138,8 @@ window.removePositionHours = function (index) {
 // LOCALSTORAGE - PERSISTENCIA DE DATOS
 // ========================================
 
-// ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
-// Evita saturar la cuota de Firebase con guardados demasiado frecuentes
+// ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync) - MOVIDO A PersistenceService.js
+/*
 const syncFirebaseMirrorDebounced = (function() {
     let timeout;
     return function(state) {
@@ -2154,7 +2155,10 @@ const syncFirebaseMirrorDebounced = (function() {
         }, 2000); // 2 segundos de espera
     };
 })();
+*/
 
+// MOVIDO A PersistenceService.js
+/*
 async function saveToIndexedDB(options = {}) {
     try {
         await indexedDBService.saveState(state, options);
@@ -2165,7 +2169,10 @@ async function saveToIndexedDB(options = {}) {
         throw error;
     }
 }
+*/
 
+// MOVIDO A PersistenceService.js
+/*
 async function saveApplicationData(options = {}) {
     if (window._isSavingData) return;
     window._isSavingData = true;
@@ -2268,306 +2275,58 @@ async function saveApplicationData(options = {}) {
 
     window._isSavingData = false;
 }
+*/
 
 /**
  * 🔄 REGENERACIÓN DE IDs PARA CLONADO
  * Genera nuevos UUIDs para todos los datos locales para poder 
  * subirlos a una cuenta nueva de Supabase sin conflictos de Primary Key.
  */
+// MOVIDO A PersistenceService.js
+/*
 async function prepareDataForNewAccount() {
-    console.log('🔄 Iniciando regeneración de IDs para nueva cuenta...');
-    
-    // 0. Limpiar IndexedDB para evitar conflictos de índices únicos (ConstraintError)
-    try {
-        await indexedDBService.clear('leaders');
-        await indexedDBService.clear('positions');
-        await indexedDBService.clear('employees');
-        await indexedDBService.clear('attendance');
-        await indexedDBService.clear('settings');
-        await indexedDBService.clear('sync_queue');
-        console.log('🧹 Almacenes de IndexedDB limpiados');
-    } catch (clearError) {
-        console.warn('⚠️ Error limpiando stores (posiblemente vacíos):', clearError);
-    }
-
-    const idMap = new Map();
-    const now = Date.now();
-
-    // 1. Líderes
-    state.leaders.forEach(l => {
-        const oldId = l.id;
-        l.id = generateUUID();
-        l.updatedAt = now;
-        idMap.set(oldId, l.id);
-    });
-
-    // 2. Posiciones
-    state.positions.forEach(p => {
-        const oldId = p.id;
-        p.id = generateUUID();
-        p.updatedAt = now;
-        if (p.leaderId && idMap.has(p.leaderId)) {
-            p.leaderId = idMap.get(p.leaderId);
-        }
-        idMap.set(oldId, p.id);
-    });
-
-    // 3. Empleados
-    state.employees.forEach(e => {
-        const oldId = e.id;
-        e.id = generateUUID();
-        e.updatedAt = now;
-        if (e.positions) {
-            e.positions = e.positions.map(pid => idMap.has(pid) ? idMap.get(pid) : pid);
-        }
-        idMap.set(oldId, e.id);
-    });
-
-    // 4. Asistencia
-    const newAttendance = {};
-    Object.entries(state.attendance).forEach(([oldKey, att]) => {
-        const oldEmpId = att.employeeId || oldKey.split('-')[0];
-        const newEmpId = idMap.get(oldEmpId) || oldEmpId;
-        const newKey = `${newEmpId}-${att.date}`;
-        
-        att.id = generateUUID();
-        att.employeeId = newEmpId;
-        att.updatedAt = now;
-        if (att.selectedPosition && idMap.has(att.selectedPosition)) {
-            att.selectedPosition = idMap.get(att.selectedPosition);
-        }
-        if (att.positionHours) {
-            att.positionHours.forEach(ph => {
-                if (idMap.has(ph.positionId)) ph.positionId = idMap.get(ph.positionId);
-            });
-        }
-        newAttendance[newKey] = att;
-    });
-    state.attendance = newAttendance;
-
-    // 5. Guardar localmente
-    await saveApplicationData();
-    console.log('✅ IDs regenerados exitosamente');
-    return true;
+    ...
 }
+*/
 
-// Alias para compatibilidad
-window.saveToLocalStorage = saveApplicationData;
-window.prepareDataForNewAccount = prepareDataForNewAccount;
-
-// Sistema de auto-backup para Canvas de Claude
+// MOVIDO A PersistenceService.js
+/*
 function createAutoBackup() {
-    try {
-        const backupData = {
-            version: '1.0.0',
-            timestamp: new Date().toISOString(),
-            data: {
-                employees: state.employees,
-                positions: state.positions,
-                leaders: state.leaders,
-                attendance: state.attendance,
-                settings: state.settings
-            }
-        };
-
-        // Guardar en sessionStorage (persiste mientras esté abierto)
-        sessionStorage.setItem('attendance-backup', JSON.stringify(backupData));
-
-        debug.log('💾 Auto-backup creado');
-    } catch (error) {
-        debug.error('❌ Error en auto-backup:', error);
-    }
+    ...
 }
+*/
 
-// Recuperar auto-backup al cargar
+// MOVIDO A PersistenceService.js
+/*
 function restoreAutoBackup() {
-    try {
-        const backup = sessionStorage.getItem('attendance-backup');
-        if (backup) {
-            const parsed = JSON.parse(backup);
-
-            if (parsed.data) {
-                // Solo restaurar si no hay datos en localStorage
-                const hasData = state.employees.length > 0 ||
-                    state.positions.length > 0;
-
-                if (!hasData) {
-                    state.employees = parsed.data.employees || [];
-                    state.positions = parsed.data.positions || [];
-                    state.leaders = parsed.data.leaders || [];
-                    state.attendance = parsed.data.attendance || {};
-
-                    if (parsed.data.settings) {
-                        Object.assign(state.settings, parsed.data.settings);
-                    }
-
-                    debug.log('✅ Datos restaurados desde auto-backup');
-                    Notification.success('✅ Sesión anterior restaurada');
-                    return true;
-                }
-            }
-        }
-    } catch (error) {
-        debug.error('❌ Error restaurando backup:', error);
-    }
-    return false;
+    ...
 }
+*/
 
+// MOVIDO A PersistenceService.js
+/*
 async function loadFromIndexedDB() {
-    try {
-        // Cargar empleados
-        const employees = await indexedDBService.getAll('employees');
-        if (employees.length > 0) {
-            state.employees = employees.map(e => new Employee(e));
-        }
-
-        // Cargar posiciones
-        const positions = await indexedDBService.getAll('positions');
-        if (positions.length > 0) {
-            state.positions = positions.map(p => new Position(p));
-        }
-
-        // Cargar líderes
-        const leaders = await indexedDBService.getAll('leaders');
-        if (leaders.length > 0) {
-            state.leaders = leaders.map(l => new Leader(l));
-        }
-
-        // Cargar asistencia
-        const attendance = await indexedDBService.getAll('attendance');
-        state.attendance = {};
-        attendance.forEach(att => {
-            const { key, ...data } = att;
-            state.attendance[key] = data;
-        });
-
-        // Cargar settings
-        const settings = await indexedDBService.get('settings', 'app');
-        if (settings) {
-            const { key, ...settingsData } = settings;
-            Object.assign(state.settings, settingsData);
-        }
-
-        debug.log('✅ Datos cargados desde IndexedDB');
-        return true;
-    } catch (error) {
-        debug.error('❌ Error cargando desde IndexedDB:', error);
-        return false;
-    }
+    ...
 }
+*/
 
+// MOVIDO A PersistenceService.js
+/*
 async function loadApplicationData() {
-    console.log('🔵 loadApplicationData() iniciado');
-
-    try {
-        // 1. Intentar cargar desde IndexedDB si está activo
-        if (state.useIndexedDB) {
-            console.log('📦 Intentando cargar desde IndexedDB...');
-            const idbSuccess = await loadFromIndexedDB();
-            
-            if (idbSuccess && state.employees.length > 0) {
-                console.log('✅ Datos cargados desde IndexedDB');
-                validateDataIntegrity();
-                state.isDataLoaded = true;
-                return true;
-            }
-            
-            console.log('ℹ️ IndexedDB está vacío, verificando migración desde localStorage...');
-        }
-
-        // 2. Fallback o Migración desde localStorage
-        const savedData = localStorage.getItem('asistencia-data');
-        const hasBeenMigrated = localStorage.getItem('migrated-to-idb') === 'true';
-
-        if (savedData && !hasBeenMigrated) {
-            console.log('🚀 Iniciando migración de localStorage a IndexedDB...');
-            
-            // Cargar datos actuales de localStorage
-            const result = dataService.loadAll();
-            
-            if (result) {
-                console.log('✅ Datos cargados de localStorage para migración');
-                
-                // Si IndexedDB está activo, guardar inmediatamente
-                if (state.useIndexedDB) {
-                    await saveToIndexedDB();
-                    localStorage.setItem('migrated-to-idb', 'true');
-                    console.log('✅ Migración a IndexedDB completada con éxito');
-                }
-                validateDataIntegrity();
-                state.isDataLoaded = true;
-                return true;
-            }
-        } else if (savedData && hasBeenMigrated) {
-            // Ya fue migrado pero por alguna razón IDB falló o está vacío
-            console.warn('⚠️ Datos ya migrados pero no encontrados en IDB. Usando localStorage como backup.');
-            const success = dataService.loadAll();
-            validateDataIntegrity();
-            state.isDataLoaded = true;
-            return success;
-        }
-
-        console.log('ℹ️ No hay datos guardados para cargar');
-        state.isDataLoaded = true; // No hay datos, pero ya terminamos de "cargar"
-        return false;
-
-    } catch (error) {
-        console.error('❌ Error al cargar datos:', error);
-        state.isDataLoaded = true; // Evitar bloquear para siempre en caso de error
-        return false;
-    }
+    ...
 }
+*/
 
-// 🛡️ VALIDACIÓN DE INTEGRIDAD DE DATOS
-// Limpia referencias huérfanas para evitar crashes
+// MOVIDO A PersistenceService.js
+/*
 function validateDataIntegrity() {
-    let fixes = 0;
-    const positionIds = new Set(state.positions.map(p => p.id));
-    const leaderIds = new Set(state.leaders.map(l => l.id));
-
-    // 1. Limpiar posiciones huérfanas de empleados
-    state.employees.forEach(emp => {
-        if (emp.positions && emp.positions.length > 0) {
-            const validPositions = emp.positions.filter(pid => positionIds.has(pid));
-            if (validPositions.length !== emp.positions.length) {
-                const removed = emp.positions.length - validPositions.length;
-                console.warn(`🛡️ ${emp.name}: ${removed} posición(es) huérfana(s) limpiada(s)`);
-                emp.positions = validPositions;
-                emp._isDirty = true;
-                fixes++;
-            }
-        }
-    });
-
-    // 2. Limpiar leaderId huérfano de posiciones
-    state.positions.forEach(pos => {
-        if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
-            console.warn(`🛡️ Posición "${pos.name}": líder huérfano limpiado`);
-            pos.leaderId = null;
-            fixes++;
-        }
-    });
-
-    // 3. Limpiar positionSalaries con IDs que ya no existen
-    state.employees.forEach(emp => {
-        if (emp.positionSalaries) {
-            Object.keys(emp.positionSalaries).forEach(posId => {
-                if (!positionIds.has(posId)) {
-                    delete emp.positionSalaries[posId];
-                    fixes++;
-                }
-            });
-        }
-    });
-
-    if (fixes > 0) {
-        console.log(`🛡️ Integridad de datos: ${fixes} referencia(s) huérfana(s) corregida(s)`);
-    }
-    return fixes;
+    ...
 }
+*/
 
-// Alias para compatibilidad
-window.loadFromLocalStorage = loadApplicationData;
+// Alias para compatibilidad - MOVIDO A PersistenceService.js
+// window.loadFromLocalStorage = loadApplicationData;
+
 
 function exportDataToJSON() {
     const dataStr = JSON.stringify(state, null, 2);

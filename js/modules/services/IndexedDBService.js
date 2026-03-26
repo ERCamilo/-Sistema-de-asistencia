@@ -13,6 +13,11 @@ export class IndexedDBService {
         this.isInitialized = false;
     }
 
+    /** 🌐 Verificar soporte de navegador */
+    isSupported() {
+        return !!(window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB);
+    }
+
     // Inicializar base de datos
     async init() {
         if (this.isInitialized) return this.db;
@@ -297,6 +302,47 @@ export class IndexedDBService {
             version: this.version
         };
         return data;
+    }
+
+    /**
+     * 📂 CARGAR ESTADO COMPLETO
+     * Lee todas las tablas y reconstruye el objeto de estado.
+     */
+    async loadFullState() {
+        try {
+            await this.init();
+            
+            const [employees, positions, leaders, attendance, settings] = await Promise.all([
+                this.getAll('employees'),
+                this.getAll('positions'),
+                this.getAll('leaders'),
+                this.getAll('attendance'),
+                this.getAll('settings')
+            ]);
+
+            // Convertir el array de asistencia back to object
+            const attendanceObj = {};
+            attendance.forEach(record => {
+                if (record.key) {
+                    const { key, ...data } = record;
+                    attendanceObj[key] = data;
+                }
+            });
+
+            // Obtener settings (es un store tipo key-value, buscamos 'app')
+            const appSettings = settings.find(s => s.key === 'app') || {};
+
+            return {
+                employees: employees || [],
+                positions: positions || [],
+                leaders: leaders || [],
+                attendance: attendanceObj,
+                settings: appSettings.key ? appSettings : (settings[0] || {})
+            };
+        } catch (error) {
+            console.error('❌ Error al cargar estado desde IndexedDB:', error);
+            throw error;
+        }
     }
 
     // Importar DB completa
