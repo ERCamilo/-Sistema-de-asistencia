@@ -388,3 +388,5 @@ export class IndexedDBService {
         }
     }
 }
+export const indexedDBService = new IndexedDBService();
+export default indexedDBService;

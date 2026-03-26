@@ -29,9 +29,7 @@ export class Modal {
                                 <h2 class="modal-title">${this.title}</h2>
                                 ${this.closable ? `<button class="modal-close" data-modal-close aria-label="Cerrar">${icons.get('close')}</button>` : ''}
                             </div>
-                            <div class="modal-body">
-                                ${this.content}
-                            </div>
+                            <div class="modal-body"></div>
                             ${this.buttons ? this.renderButtons() : ''}
                         </div>
                     </div>
@@ -40,6 +38,14 @@ export class Modal {
         const div = document.createElement('div');
         div.innerHTML = modalHTML;
         this.element = div.firstElementChild;
+
+        // Inyectar contenido (string o Elemento)
+        const body = this.element.querySelector('.modal-body');
+        if (typeof this.content === 'string') {
+            body.innerHTML = this.content;
+        } else if (this.content instanceof HTMLElement) {
+            body.appendChild(this.content);
+        }
 
         // Event listeners
         this.attachEventListeners();
@@ -156,7 +162,12 @@ export class Modal {
         if (this.element) {
             const body = this.element.querySelector('.modal-body');
             if (body) {
-                body.innerHTML = newContent;
+                if (typeof newContent === 'string') {
+                    body.innerHTML = newContent;
+                } else if (newContent instanceof HTMLElement) {
+                    body.innerHTML = '';
+                    body.appendChild(newContent);
+                }
             }
         }
         this.content = newContent;

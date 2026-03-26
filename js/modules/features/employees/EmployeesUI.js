@@ -1,7 +1,7 @@
 import icons from '../../ui/IconSystem.js';
-
-import { Modal } from '../../components/Modal.js';
 import { getDateKey } from '../../utils/DateUtils.js';
+import { Modal } from '../../components/Modal.js';
+import { FormComponent } from '../../components/FormComponent.js';
 
 let context = null;
 
@@ -21,6 +21,7 @@ function getServices() {
 // ============================================
 // EMPLOYEES TAB
 // ============================================
+
 
 export function EmployeesTab() {
     const state = getState();
@@ -706,257 +707,178 @@ export function resetEmployeeFilters() {
 
 export function openEmployeeForm(employeeId = null) {
     const state = getState();
-    state.editingEmployee = employeeId ? state.employees.find(e => e.key === employeeId || e.id === employeeId) : null;
+    const editingEmployee = employeeId ? state.employees.find(e => e.id === employeeId || e.key === employeeId) : null;
+    state.editingEmployee = editingEmployee;
 
-    // ⚡ NUEVO: Cargar sueldos personalizados si existen
-    if (state.editingEmployee && state.editingEmployee.positionSalaries) {
-        state.tempPositionSalaries = { ...state.editingEmployee.positionSalaries };
-    } else {
-        state.tempPositionSalaries = {};
-    }
+    const form = new FormComponent({
+        fields: [
+            { name: 'empName', label: 'Nombre Completo', type: 'text', value: editingEmployee?.name || '', required: true, icon: 'user' },
+            { name: 'empNumber', label: 'Número de Empleado', type: 'text', value: editingEmployee?.number || '', required: true, icon: 'hash' },
+            { 
+                name: 'empPosition', 
+                label: 'Posiciones', 
+                type: 'checkbox-group', 
+                value: editingEmployee?.positions || [], 
+                options: state.positions.filter(p => p.active).map(p => ({ value: p.id, label: p.name })),
+                required: true 
+            },
+            { name: 'empPhone', label: 'Teléfono', type: 'text', value: editingEmployee?.phone || '', icon: 'phone' },
+            { name: 'empEmail', label: 'Correo Electrónico', type: 'email', value: editingEmployee?.email || '', icon: 'mail' },
+            { name: 'empHireDate', label: 'Fecha de Ingreso', type: 'date', value: editingEmployee?.hireDate || '', icon: 'calendar' },
+            { name: 'empNotes', label: 'Notas/Observaciones', type: 'textarea', value: editingEmployee?.notes || '', icon: 'file-text' }
+        ],
+        submitText: editingEmployee ? 'Guardar Cambios' : 'Registrar Empleado',
+        values: editingEmployee ? {
+            empName: editingEmployee.name,
+            empNumber: editingEmployee.number,
+            empPosition: editingEmployee.positions,
+            empPhone: editingEmployee.phone,
+            empEmail: editingEmployee.email,
+            empHireDate: editingEmployee.hireDate,
+            empNotes: editingEmployee.notes
+        } : {},
+        onSubmit: (formData) => handleEmployeeSubmit(formData),
+        onCancel: () => modal.close()
+    });
 
-    // ⚡ NUEVO: Inicializar date picker de fecha de contratación
-    const hireDateValue = state.editingEmployee?.hireDate || new Date().toISOString().split('T')[0];
-    state.hireDatePickerMonth = new Date(hireDateValue + 'T00:00:00');
-    state.showHireDatePicker = false;
+    const modal = new Modal({
+        title: editingEmployee ? `${icons.get('user')} Editar Empleado` : `${icons.get('user-plus')} Nuevo Empleado`,
+        content: form.render(),
+        size: 'medium'
+    });
 
-    state.modalType = 'employee-form';
-    state.showModal = true;
-    context.render();
+    modal.open();
 }
 
-export function openLeaderForm(leaderId = null) {
+function handleEmployeeSubmit(formData) {
     const state = getState();
-    state.editingLeader = leaderId ? state.leaders.find(l => l.id === leaderId) : null;
-    state.modalType = 'leader-form';
-    state.showModal = true;
-    context.render();
-}
+    const { empName: name, empNumber: number, empPosition: positions, empPhone: phone, empEmail: email, empHireDate: hireDate, empNotes: notes } = formData;
 
-export function saveEmployee() {
-    const state = getState();
-    // Limpiar errores previos
-    state.formErrors = {};
-
-    const name = document.getElementById('empName').value.trim();
-    const number = document.getElementById('empNumber').value.trim();
-    const positions = Array.from(document.querySelectorAll('input[name="empPosition"]:checked')).map(cb => cb.value);
-    const phone = document.getElementById('empPhone')?.value.trim() || '';
-    const email = document.getElementById('empEmail')?.value.trim() || '';
-    const notes = document.getElementById('empNotes')?.value.trim() || '';
-    const hireDate = document.getElementById('empHireDate')?.value;
-
-    // ⚡ NUEVO: Obtener sueldos personalizados por posición
-    const positionSalaries = state.tempPositionSalaries || {};
-
-    // Validar campos
-    let hasErrors = false;
-
-    if (!name) {
-        state.formErrors.empName = 'El nombre es obligatorio';
-        hasErrors = true;
-    }
-    if (!number) {
-        state.formErrors.empNumber = 'El número de empleado es obligatorio';
-        hasErrors = true;
-    } else if (!/^[0-9A-Za-z-]+$/.test(number)) {
-        state.formErrors.empNumber = 'Solo puede contener números, letras y guiones';
-        hasErrors = true;
-    }
-    if (positions.length === 0) {
-        state.formErrors.empPosition = 'Debe seleccionar al menos una posición';
-        hasErrors = true;
-    }
-
-    if (hasErrors) {
-        context.render();
+    // Validaciones basicas
+    if (!/^[0-9A-Za-z-]+$/.test(number)) {
+        window.showAlert('El número de empleado solo puede contener números, letras y guiones', 'error');
         return;
     }
 
-    // Verificar si el número ya existe (excepto el empleado actual)
-    const existingEmployee = state.employees.find(e =>
-        e.number === number &&
-        (!state.editingEmployee || e.key !== state.editingEmployee.key)
-    );
-
-    if (existingEmployee) {
-        new Modal({
-            title: `${icons.get('zap')} Número Duplicado`,
-            content: `
-                <p style="color: #94a3b8; line-height: 1.6; margin-bottom: 20px;">
-                    Ya existe un empleado con el número <strong>"${number}"</strong>: <br>
-                    <span style="color: #f1f5f9; font-weight: 600;">${existingEmployee.name}</span>
-                </p>
-                <p style="color: #64748b; font-size: 0.875rem;">
-                    ¿Qué deseas hacer? Si continúas, tendrás dos empleados con el mismo número hasta que lo corrijas.
-                </p>
-            `,
-            size: 'medium',
-            buttons: [
-                {
-                    text: 'Cancelar',
-                    class: 'btn-secondary',
-                    onClick: function() { this.close(); }
-                },
-                {
-                    text: 'Sí, continuar',
-                    class: 'btn-primary',
-                    onClick: function() {
-                        this.close();
-                        saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
-                    }
-                },
-                {
-                    text: `Guardar y editar a ${existingEmployee.name.split(' ')[0]}`,
-                    class: 'btn-primary',
-                    style: 'background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; border: none;',
-                    onClick: function() {
-                        this.close();
-                        // Guardar el actual
-                        saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
-                        // Abrir el otro
-                        setTimeout(() => {
-                            openEmployeeForm(existingEmployee.key || existingEmployee.id);
-                        }, 400);
-                    }
-                },
-                {
-                    text: `Intercambiar números`,
-                    class: 'btn-primary',
-                    style: 'background: linear-gradient(135deg, #a855f7, #ec4899); color: #fff; border: none;',
-                    onClick: function() {
-                        this.close();
-                        const oldNumber = state.editingEmployee ? state.editingEmployee.number : null;
-                        if (oldNumber) {
-                            // Pedro (existing) toma el número viejo de Juan
-                            existingEmployee.number = oldNumber;
-                            // Juan (actual) toma el número nuevo (2)
-                            saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
-                            window.showAlert(`${icons.get('zap')} Números intercambiados entre ${name} y ${existingEmployee.name}`, 'success');
-                        } else {
-                            // Si es nuevo, simplemente guardamos ambos (aunque el actual sea el único con número nuevo)
-                            saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
-                        }
-                    }
-                }
-            ]
-        }).open();
+    // Verificar duplicados
+    const existing = state.employees.find(e => e.number === number && (!state.editingEmployee || e.id !== state.editingEmployee.id));
+    if (existing) {
+        window.showAlert(`Ya existe un empleado con el número ${number}: ${existing.name}`, 'error');
         return;
     }
 
-    saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries);
-}
-
-function saveEmployeeData(name, number, positions, phone, email, notes, hireDate, positionSalaries) {
-    const state = getState();
+    const today = new Date().toISOString().split('T')[0];
+    const finalHireDate = hireDate || today;
 
     if (state.editingEmployee) {
-        // Editar existente
-        const emp = state.employees.find(e => e.key === state.editingEmployee.key);
-        emp.name = name;
-        emp.number = number;
-        emp.positions = positions;
-        emp.phone = phone;
-        emp.email = email;
-        emp.notes = notes;
-
-        // 💡 Guardar fecha de contratación (siempre)
-        emp.hireDate = hireDate || getDateKey(new Date());
-
-        // ⚡ NUEVO: Guardar sueldos personalizados por posición
-        emp.positionSalaries = {};
-        positions.forEach(posId => {
-            if (positionSalaries[posId]) {
-                emp.positionSalaries[posId] = positionSalaries[posId];
-            }
-        });
-
-        // Limpiar customSalary antiguo si existe
-        if (emp.customSalary !== undefined) {
-            delete emp.customSalary;
+        // Actualizar
+        const emp = state.employees.find(e => e.id === state.editingEmployee.id || e.key === state.editingEmployee.id);
+        if (emp) {
+            emp.name = name;
+            emp.number = number;
+            emp.positions = positions;
+            emp.phone = phone;
+            emp.email = email;
+            emp.hireDate = finalHireDate;
+            emp.notes = notes;
+            emp.updatedAt = Date.now();
+            emp._isDirty = true;
+            window.showAlert(`${icons.get('check-circle')} Empleado ${name} actualizado correctamente`, 'success');
         }
-
-        emp.updatedAt = Date.now();
-        emp._isDirty = true;
-
-        window.showAlert(`${icons.get('info')} Empleado ${name} actualizado correctamente`, 'success');
     } else {
-        // Crear nuevo
+        // Crear
         const newKey = `EMP${Date.now()}`;
-        const today = getDateKey(new Date());
-
-        // Usar fecha de contratación del input o hoy por defecto
-        const finalHireDate = hireDate || today;
-
-        // ⚡ NUEVO: Preparar sueldos por posición
-        const finalPositionSalaries = {};
-        positions.forEach(posId => {
-            if (positionSalaries[posId]) {
-                finalPositionSalaries[posId] = positionSalaries[posId];
-            }
-        });
-
         const newEmployee = {
             id: newKey,
             key: newKey,
             number: number,
             name: name,
             positions: positions,
-            positionSalaries: finalPositionSalaries, // ${icons.get('info')} NUEVO
             active: true,
             createdDate: today,
             hireDate: finalHireDate,
-            lastStatusChange: null,
             phone: phone,
             email: email,
             notes: notes,
-            statusHistory: [
-                {
-                    date: finalHireDate,
-                    active: true,
-                    timestamp: new Date(finalHireDate).getTime()
-                }
-            ],
+            statusHistory: [{ date: finalHireDate, active: true, timestamp: Date.now() }],
             updatedAt: Date.now(),
             _isDirty: true
         };
-
         state.employees.push(newEmployee);
-        window.showAlert(`${icons.get('info')} Empleado ${name} creado correctamente`, 'success');
+        window.showAlert(`${icons.get('check-circle')} Empleado ${name} creado correctamente`, 'success');
     }
 
-    // Limpiar temporal
-    state.tempPositionSalaries = {};
-
+    state.editingEmployee = null;
     context.saveToLocalStorage();
-    context.closeModal();
-    context.render(); // Ensure render is called to update UI
+    context.closeModal(); // This might be redundant now but closes the overlay if using Modal class's internal close
+    context.render();
 }
 
-export function saveLeader() {
+// Deprecated: used for legacy compatibility during refactor
+export function saveEmployee() {
+    console.warn('saveEmployee is deprecated. Use handleEmployeeSubmit via FormComponent.');
+}
+
+
+export function openLeaderForm(leaderId = null) {
     const state = getState();
-    const name = document.getElementById('ldrName').value.trim();
-    const phone = document.getElementById('ldrPhone')?.value.trim() || '';
-    const email = document.getElementById('ldrEmail')?.value.trim() || '';
-    const notes = document.getElementById('ldrNotes')?.value.trim() || '';
+    const editingLeader = leaderId ? state.leaders.find(l => l.id === leaderId) : null;
+    state.editingLeader = editingLeader;
+
+    const form = new FormComponent({
+        fields: [
+            { name: 'ldrName', label: 'Nombre del Líder', type: 'text', value: editingLeader?.name || '', required: true, icon: 'user' },
+            { name: 'ldrPhone', label: 'Teléfono', type: 'text', value: editingLeader?.phone || '', icon: 'phone' },
+            { name: 'ldrEmail', label: 'Correo Electrónico', type: 'email', value: editingLeader?.email || '', icon: 'mail' },
+            { name: 'ldrNotes', label: 'Notas', type: 'textarea', value: editingLeader?.notes || '', icon: 'file-text' }
+        ],
+        submitText: editingLeader ? 'Guardar Cambios' : 'Registrar Líder',
+        values: editingLeader ? {
+            ldrName: editingLeader.name,
+            ldrPhone: editingLeader.phone,
+            ldrEmail: editingLeader.email,
+            ldrNotes: editingLeader.notes
+        } : {},
+        onSubmit: (formData) => handleLeaderSubmit(formData),
+        onCancel: () => modal.close()
+    });
+
+    const modal = new Modal({
+        title: editingLeader ? `${icons.get('user')} Editar Líder` : `${icons.get('user-plus')} Nuevo Líder`,
+        content: form.render(),
+        size: 'medium'
+    });
+
+    modal.open();
+}
+
+function handleLeaderSubmit(formData) {
+    const state = getState();
+    const { ldrName: name, ldrPhone: phone, ldrEmail: email, ldrNotes: notes } = formData;
 
     if (!name) {
-        alert(`${icons.get('alert')} El nombre es obligatorio`);
+        window.showAlert('El nombre del líder es obligatorio', 'error');
         return;
     }
 
     if (state.editingLeader) {
         // Editar existente
         const ldr = state.leaders.find(l => l.id === state.editingLeader.id);
-        ldr.name = name;
-        ldr.phone = phone;
-        ldr.email = email;
-        ldr.notes = notes;
-        ldr.updatedAt = Date.now();
-        ldr._isDirty = true;
+        if (ldr) {
+            ldr.name = name;
+            ldr.phone = phone;
+            ldr.email = email;
+            ldr.notes = notes;
+            ldr.updatedAt = Date.now();
+            ldr._isDirty = true;
+            window.showAlert(`${icons.get('check-circle')} Líder ${name} actualizado correctamente`, 'success');
+        }
     } else {
         // Crear nuevo
-        const maxNum = Math.max(0, ...state.leaders.map(l => parseInt(l.number.replace('L-', ''))));
+        const maxNum = Math.max(0, ...state.leaders.map(l => {
+            const numPart = l.number ? l.number.replace('L-', '') : '0';
+            return parseInt(numPart) || 0;
+        }));
         const newNum = `L-${String(maxNum + 1).padStart(3, '0')}`;
         state.leaders.push({
             id: `LDR${Date.now()}`,
@@ -969,11 +891,18 @@ export function saveLeader() {
             updatedAt: Date.now(),
             _isDirty: true
         });
+        window.showAlert(`${icons.get('check-circle')} Líder ${name} creado correctamente`, 'success');
     }
 
+    state.editingLeader = null;
     context.saveToLocalStorage();
     context.closeModal();
     context.render();
+}
+
+// Deprecated
+export function saveLeader() {
+    console.warn('saveLeader is deprecated. Use handleLeaderSubmit via FormComponent.');
 }
 
 export function toggleEmployeeStatus(employeeId) {
@@ -1089,11 +1018,131 @@ export function setPositionSortBy(sortBy) {
 
 export function openPositionForm(positionId = null) {
     const state = getState();
-    state.editingPosition = positionId ? state.positions.find(p => p.id === positionId) : null;
-    state.modalType = 'position-form';
-    state.showModal = true;
+    const editingPosition = positionId ? state.positions.find(p => p.id === positionId) : null;
+    state.editingPosition = editingPosition;
+
+    const colorOptions = [
+        { value: '#94a3b8', label: 'Gris' },
+        { value: '#f43f5e', label: 'Rosa' },
+        { value: '#8b5cf6', label: 'Violeta' },
+        { value: '#3b82f6', label: 'Azul' },
+        { value: '#10b981', label: 'Esmeralda' },
+        { value: '#f59e0b', label: 'Ámbar' }
+    ];
+
+    const form = new FormComponent({
+        fields: [
+            { name: 'posName', label: 'Nombre de la Posición', type: 'text', value: editingPosition?.name || '', required: true, icon: 'briefcase' },
+            { name: 'posHourlyRate', label: 'Tarifa por Hora', type: 'number', value: editingPosition?.hourlyRate || 0, required: true, icon: 'dollar-sign' },
+            { 
+                name: 'posLeader', 
+                label: 'Líder Responsable', 
+                type: 'select', 
+                value: editingPosition?.leaderId || '', 
+                options: state.leaders.filter(l => l.active).map(l => ({ value: l.id, label: l.name })),
+                icon: 'user'
+            },
+            { 
+                name: 'posColor', 
+                label: 'Color Distintivo', 
+                type: 'radio-group', 
+                value: editingPosition?.color || '#94a3b8', 
+                options: colorOptions 
+            },
+            { 
+                name: 'workingDay', 
+                label: 'Días Laborales', 
+                type: 'checkbox-group', 
+                value: editingPosition?.workingDays || [1, 2, 3, 4, 5], 
+                options: [
+                    { value: 1, label: 'Lun' },
+                    { value: 2, label: 'Mar' },
+                    { value: 3, label: 'Mie' },
+                    { value: 4, label: 'Jue' },
+                    { value: 5, label: 'Vie' },
+                    { value: 6, label: 'Sab' },
+                    { value: 0, label: 'Dom' }
+                ]
+            }
+        ],
+        submitText: editingPosition ? 'Guardar Cambios' : 'Crear Posición',
+        values: editingPosition ? {
+            posName: editingPosition.name,
+            posHourlyRate: editingPosition.hourlyRate,
+            posLeader: editingPosition.leaderId,
+            posColor: editingPosition.color,
+            workingDay: editingPosition.workingDays
+        } : {},
+        onSubmit: (formData) => handlePositionSubmit(formData),
+        onCancel: () => modal.close()
+    });
+
+    const modal = new Modal({
+        title: editingPosition ? `${icons.get('briefcase')} Editar Posición` : `${icons.get('briefcase')} Nueva Posición`,
+        content: form.render(),
+        size: 'medium'
+    });
+
+    modal.open();
+}
+
+function handlePositionSubmit(formData) {
+    const state = getState();
+    const { posName: name, posHourlyRate: hourlyRate, posLeader: leaderId, posColor: color, workingDay: workingDays } = formData;
+
+    if (!name) {
+        window.showAlert('El nombre de la posición es obligatorio', 'error');
+        return;
+    }
+
+    const rate = parseFloat(hourlyRate);
+    if (isNaN(rate) || rate < 0) {
+        window.showAlert('La tarifa por hora debe ser un número válido >= 0', 'error');
+        return;
+    }
+
+    let finalName = name.trim();
+    // Verificar nombre único
+    if (state.editingPosition) {
+        const existing = state.positions.find(p => p.name.toLowerCase() === finalName.toLowerCase() && p.id !== state.editingPosition.id);
+        if (existing) {
+            window.showAlert('Ya existe una posición con ese nombre', 'error');
+            return;
+        }
+    }
+
+    if (state.editingPosition) {
+        const pos = state.positions.find(p => p.id === state.editingPosition.id);
+        if (pos) {
+            pos.name = finalName;
+            pos.hourlyRate = rate;
+            pos.leaderId = leaderId || null;
+            pos.color = color;
+            pos.workingDays = workingDays.map(d => parseInt(d));
+            pos.updatedAt = Date.now();
+            pos._isDirty = true;
+            window.showAlert(`${icons.get('check-circle')} Posición "${finalName}" actualizada`, 'success');
+        }
+    } else {
+        const newId = finalName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
+        state.positions.push({
+            id: newId,
+            name: finalName,
+            hourlyRate: rate,
+            workingDays: workingDays.map(d => parseInt(d)),
+            leaderId: leaderId || null,
+            color: color,
+            active: true,
+            updatedAt: Date.now(),
+            _isDirty: true
+        });
+        window.showAlert(`${icons.get('check-circle')} Posición "${finalName}" creada correctamente`, 'success');
+    }
+
+    state.editingPosition = null;
+    context.saveToLocalStorage();
+    context.closeModal();
     context.render();
-    if (window.initPositionModalListeners) window.initPositionModalListeners();
 }
 
 export function togglePositionStatus(positionId) {
@@ -1162,95 +1211,9 @@ export function deletePosition(positionId) {
     });
 }
 
+// Deprecated
 export function savePosition() {
-    const state = getState();
-    const name = document.getElementById('posName').value.trim();
-    const hourlyRate = Number.parseFloat(document.getElementById('posHourlyRate').value);
-    const leaderId = document.getElementById('posLeader').value || null;
-    const color = document.querySelector('input[name="posColor"]:checked')?.value || '#94a3b8';
-
-    // 💡 Capturar días laborales seleccionados
-    const workingDays = Array.from(document.querySelectorAll('input[name="workingDay"]:checked'))
-        .map(cb => Number.parseInt(cb.value));
-
-    if (!name) {
-        alert(`${icons.get('alert')} El nombre de la posición es obligatorio`);
-        return;
-    }
-    if (Number.isNaN(hourlyRate) || hourlyRate < 0) {
-        alert(`${icons.get('alert')} La tarifa por hora debe ser mayor o igual a 0`);
-        return;
-    }
-
-    // Verificar nombre único
-    let finalName = name;
-    if (state.editingPosition) {
-        const existing = state.positions.find(p =>
-            p.name.toLowerCase() === name.toLowerCase() &&
-            p.id !== state.editingPosition.id
-        );
-        if (existing) {
-            alert(`${icons.get('alert')} Ya existe una posición con ese nombre`);
-            return;
-        }
-    } else {
-        let counter = 1;
-        const baseName = name;
-        while (state.positions.some(p => p.name.toLowerCase() === finalName.toLowerCase())) {
-            finalName = `${baseName} ${counter}`;
-            counter++;
-        }
-        if (finalName !== name) {
-            const confirmed = confirm(`Ya existe una posición llamada "${name}".\n¿Crear como "${finalName}"?`);
-            if (!confirmed) return;
-        }
-    }
-
-    if (state.editingPosition) {
-        const pos = state.positions.find(p => p.id === state.editingPosition.id);
-        pos.name = finalName;
-        pos.hourlyRate = hourlyRate;
-        pos.leaderId = leaderId;
-        pos.color = color;
-        pos.workingDays = workingDays;
-
-        const dayEquivalent = state.settings.regularHoursPerDay * hourlyRate;
-        const monthlyEquivalent = dayEquivalent * 4.345;
-        const oneWeekWork = ( workingDays.length * dayEquivalent );// Cálculo para 1 semana labora
-        const twoweeksWork = (2.0 * oneWeekWork);// Cálculo para 2 semanas laborales
-        const treeWeeksWork = (3.0 * oneWeekWork);// Cálculo para 3 semanas laborales
-
-        pos.salaryConfig = {
-            amount: Math.round(monthlyEquivalent),
-            period: 'month',
-            workDays: [1, 2, 3, 4, 5, 6]
-        };
-        pos.updatedAt = Date.now();
-        pos._isDirty = true;
-    } else {
-        const newId = finalName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-        const monthlyEquivalent = hourlyRate * state.settings.regularHoursPerDay * 30;
-
-        state.positions.push({
-            id: newId,
-            name: finalName,
-            hourlyRate: hourlyRate,
-            workingDays: workingDays,
-            leaderId: leaderId,
-            color: color,
-            active: true,
-            salaryConfig: {
-                amount: Math.round(monthlyEquivalent, 2),
-                period: 'month',
-                workDays: [1, 2, 3, 4, 5, 6]
-            },
-            updatedAt: Date.now()
-        });
-    }
-
-    context.saveToLocalStorage();
-    context.closeModal();
-    context.render();
+    console.warn('savePosition is deprecated. Use handlePositionSubmit via FormComponent.');
 }
 
 export function openEmployeeFloating(empId) {

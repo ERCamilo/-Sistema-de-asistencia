@@ -22,6 +22,7 @@ import {
 } from './modules/ui/AttendanceUI.js';
 
 // ... (Resto de importaciones existentes)
+import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 // ...
 
 // Sistema de Debounce (evita renders excesivos en búsquedas)
@@ -140,7 +141,6 @@ import { memoCache } from './modules/utils/MemoCache.js';
 
 import { firebaseConfig, APP_CONFIG } from './modules/config/Config.js';
 
-import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
@@ -9177,6 +9177,29 @@ document.head.appendChild(styleTag);
 
         // 5. Preparar UI
         onboardingWizard.show();
+
+        // ⚡ Refactorización Alpha: Exponer manejadores de EmployeesUI al scope global
+        // Esto permite que los onclick="openEmployeeForm()" en los templates sigan funcionando
+        window.openEmployeeForm = EmployeesUI.openEmployeeForm;
+        window.openLeaderForm = EmployeesUI.openLeaderForm;
+        window.openPositionForm = EmployeesUI.openPositionForm;
+        window.changeEmployeeViewMode = EmployeesUI.changeEmployeeViewMode;
+        window.toggleEmployeeStatus = EmployeesUI.toggleEmployeeStatus;
+        window.toggleLeaderStatus = EmployeesUI.toggleLeaderStatus;
+        window.togglePositionStatus = EmployeesUI.togglePositionStatus;
+        window.setEmployeeSearchFilter = EmployeesUI.setEmployeeSearchFilter;
+        window.setEmployeePositionFilter = EmployeesUI.setEmployeePositionFilter;
+        window.setEmployeeLeaderFilter = EmployeesUI.setEmployeeLeaderFilter;
+        window.setEmployeeStatusFilter = EmployeesUI.setEmployeeStatusFilter;
+        window.resetEmployeeFilters = EmployeesUI.resetEmployeeFilters;
+        window.setPositionSearchFilter = EmployeesUI.setPositionSearchFilter;
+        window.setPositionLeaderFilter = EmployeesUI.setPositionLeaderFilter;
+        window.setPositionStatusFilter = EmployeesUI.setPositionStatusFilter;
+        window.setPositionSortBy = EmployeesUI.setPositionSortBy;
+        window.toggleLeaderEmployees = EmployeesUI.toggleLeaderEmployees;
+        window.togglePositionEmployees = EmployeesUI.togglePositionEmployees;
+        window.openEmployeeProfile = EmployeesUI.openEmployeeProfile;
+        window.openEmployeeFloating = EmployeesUI.openEmployeeFloating;
 
         // 6. Renderizado Inicial
         console.log('🎨 Renderizando interfaz...');

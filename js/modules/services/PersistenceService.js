@@ -4,7 +4,9 @@
  */
 
 import { state } from '../core/AppState.js';
-import { FirebaseService, indexedDBService, dataService } from './index.js';
+import FirebaseService from './FirebaseService.js';
+import indexedDBService from './IndexedDBService.js';
+import dataService from './DataService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID } from '../utils/Helpers.js';
 

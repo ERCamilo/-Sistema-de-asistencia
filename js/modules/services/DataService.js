@@ -1,14 +1,11 @@
-import icons from '../ui/IconSystem.js';
-import { Modal } from '../components/Modal.js';
-import { Employee } from '../features/employees/Employee.js';
-import { Position } from '../features/employees/Position.js';
-import { Leader } from '../features/employees/Leader.js';
-import { Attendance } from '../features/attendance/Attendance.js';
+import { state } from '../core/AppState.js';
+import storageService from './StorageService.js';
+import indexedDBService from './IndexedDBService.js';
 
 export class DataService {
-    constructor(state, storage, indexedDBService = null) {
+    constructor() {
         this.state = state;
-        this.storage = storage;
+        this.storage = storageService;
         this.indexedDBService = indexedDBService;
     }
 
@@ -184,3 +181,6 @@ export class DataService {
             });
     }
 }
+
+export const dataService = new DataService();
+export default dataService;

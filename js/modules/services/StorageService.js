@@ -144,3 +144,5 @@ export class StorageService {
         return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
     }
 }
+export const storageService = new StorageService();
+export default storageService;
