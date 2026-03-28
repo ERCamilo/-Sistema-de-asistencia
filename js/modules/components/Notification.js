@@ -245,8 +245,22 @@ export class Notification {
         return new Notification({ message, type: 'loading', duration: 0, closable: false }).show();
     }
 
-    // Limpiar todas las notificaciones
     static clearAll() {
         [...Notification.activeNotifications].forEach(n => n.dismiss());
     }
+}
+
+// 📢 Alias para compatibilidad con el sistema legacy (NotificationSystem)
+export const NotificationSystem = {
+    success: (msg, dur) => Notification.success(msg, dur),
+    error: (msg, dur) => Notification.error(msg, dur),
+    warning: (msg, dur) => Notification.warning(msg, dur),
+    info: (msg, dur) => Notification.info(msg, dur),
+    clear: () => Notification.clearAll(),
+    loading: (msg) => Notification.loading(msg)
+};
+
+// 🌍 Alpha Refactorizer: Exponer a globalThis para disponibilidad inmediata
+if (typeof window !== 'undefined') {
+    window.Notification = Notification;
 }

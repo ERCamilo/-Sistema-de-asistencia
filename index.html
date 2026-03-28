@@ -12,6 +12,45 @@
     <meta name="theme-color" content="#06b6d4">
     <meta name="description" content="Sistema de control de asistencia para construcción con funcionalidad offline">
     <title>Control de Asistencia</title>
+    <script>
+        // 🛡️ Sistema de Resiliencia Alpha Refactorizer (First Responder)
+        window.onerror = function(message, source, lineno, colno, error) {
+            const errorMsg = `🚨 Error de Sistema: ${message} (${lineno}:${colno})`;
+            console.error(errorMsg, error);
+            
+            // Intentar usar el sistema de notificaciones si está disponible
+            if (window.Notification && typeof window.Notification.error === 'function') {
+                window.Notification.error(errorMsg, 0);
+            } else {
+                // Fallback: Mostrar un mensaje minimalista (esperar a que el DOM esté listo si es necesario)
+                const showFallback = () => {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.id = 'critical-system-error';
+                    errorDiv.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);width:90%;max-width:500px;background:#ef4444;color:white;padding:20px;border-radius:12px;z-index:10001;font-family:Inter,sans-serif;box-shadow:0 10px 15px -3px rgba(0,0,0,0.2);display:flex;flex-direction:column;gap:8px;';
+                    errorDiv.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span style="font-size:24px;">🚨</span>
+                            <div style="flex:1">
+                                <strong style="display:block;margin-bottom:2px;">Error Crítico del Sistema</strong>
+                                <span style="font-size:13px;opacity:0.9;">${errorMsg}</span>
+                            </div>
+                        </div>
+                        <button onclick="location.reload()" style="margin-top:10px;background:rgba(255,255,255,0.2);border:none;color:white;padding:8px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">Reiniciar Aplicación</button>
+                    `;
+                    document.body.appendChild(errorDiv);
+                };
+                if (document.body) showFallback();
+                else window.addEventListener('DOMContentLoaded', showFallback);
+            }
+        };
+        window.onunhandledrejection = function(event) {
+            const errorMsg = `🚨 Error de Promesa: ${event.reason?.message || event.reason}`;
+            console.error(errorMsg);
+            if (window.Notification && typeof window.Notification.error === 'function') {
+                window.Notification.error(errorMsg, 0);
+            }
+        };
+    </script>
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.json">

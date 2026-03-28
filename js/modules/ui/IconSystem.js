@@ -115,6 +115,8 @@ class IconSystem {
             'pause': { unicode: '⏸️', lucide: 'pause', phosphor: 'pause', tabler: 'player-pause', bootstrap: 'pause' },
             'date-left': { unicode: '◀', lucide: 'chevron-left', phosphor: 'caret-left', tabler: 'chevron-left', bootstrap: 'chevron-left' },
             'date-right': { unicode: '▶', lucide: 'chevron-right', phosphor: 'caret-right', tabler: 'chevron-right', bootstrap: 'chevron-right' },
+            'chevron-left': { unicode: '◀', lucide: 'chevron-left', phosphor: 'caret-left', tabler: 'chevron-left', bootstrap: 'chevron-left' },
+            'chevron-right': { unicode: '▶', lucide: 'chevron-right', phosphor: 'caret-right', tabler: 'chevron-right', bootstrap: 'chevron-right' },
             'map-pin': { unicode: '📍', lucide: 'map-pin', phosphor: 'map-pin', tabler: 'map-pin', bootstrap: 'geo-alt' },
             'chart-line': { unicode: '📈', lucide: 'line-chart', phosphor: 'chart-line', tabler: 'chart-line', bootstrap: 'graph-up' },
             'chart-pie': { unicode: '🥧', lucide: 'pie-chart', phosphor: 'chart-pie', tabler: 'chart-pie', bootstrap: 'pie-chart' },

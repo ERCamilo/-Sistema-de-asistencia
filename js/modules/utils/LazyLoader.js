@@ -98,3 +98,4 @@ class LazyLoader {
 }
 
 export const lazyLoader = new LazyLoader();
+export default lazyLoader;

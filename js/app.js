@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import './modules/services/PersistenceService.js';
+import { saveApplicationData, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup } from './modules/services/PersistenceService.js';
 import { Header } from './modules/ui/Header.js';
 
 // 🔧 DEBUG UTILITY (controla console logs en producción)
@@ -12,85 +12,20 @@ const debug = {
 window.debug = debug;
 
 // 📦 IMPORTACIÓN DEL ESTADO CENTRAL (Fase 4 - Modularización)
-import { 
-    state, stateManager, renderOptimizer, calculateStats 
+import {
+    state, stateManager, renderOptimizer, calculateStats
 } from './modules/core/AppState.js';
 
-import { 
-    DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar, 
-    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton 
+import {
+    DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
+    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton
 } from './modules/ui/AttendanceUI.js';
 
 // ... (Resto de importaciones existentes)
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
 // ...
 
-// Sistema de Debounce (evita renders excesivos en búsquedas)
-window.debounce = (func, wait = 300) => {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-};
-
-/**
- * ⚡ UTILERÍA DE RENDIMIENTO: Renderizado por fragmentos (Lazy Loading / Non-blocking)
- * Permite insertar grandes cantidades de elementos sin bloquear el hilo principal.
- */
-window.renderInChunks = function(containerId, items, renderer, options = {}) {
-    const { chunkSize = 15, onComplete, initialHTML = '' } = options;
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    let index = 0;
-    
-    // Si hay initialHTML (como un skeleton), ponerlo de inmediato
-    if (initialHTML) {
-        container.innerHTML = initialHTML;
-    } else {
-        container.innerHTML = ''; 
-    }
-
-    function next() {
-        // Verificar si el contenedor sigue en el DOM
-        const currentContainer = document.getElementById(containerId);
-        if (!currentContainer || currentContainer !== container) return;
-
-        const chunk = items.slice(index, index + chunkSize);
-        
-        // Limpiar el skeleton/initialHTML solo antes del primer fragmento real
-        if (index === 0) {
-            container.innerHTML = '';
-        }
-
-        if (chunk.length === 0) {
-            if (onComplete) onComplete();
-            return;
-        }
-
-        const html = chunk.map(item => renderer(item)).join('');
-        container.insertAdjacentHTML('beforeend', html);
-        
-        index += chunkSize;
-        if (index < items.length) {
-            requestAnimationFrame(next);
-        } else if (onComplete) {
-            onComplete();
-        }
-    }
-
-    // Iniciar renderizado
-    if (items.length > 0) {
-        next();
-    } else {
-        container.innerHTML = '<div style="text-align:center;padding:40px;color:#64748b;opacity:0.5;">No hay resultados</div>';
-    }
-};
+import { debounce, renderInChunks, perfMonitor } from './modules/utils/Performance.js';
 
 // ============================================
 // 🏗️ SISTEMA POO - CLASES Y OBJETOS REUTILIZABLES
@@ -99,7 +34,7 @@ window.renderInChunks = function(containerId, items, renderer, options = {}) {
 // ============================================
 // 📢 CLASE NOTIFICATION (POO - Profesional)
 // ============================================
-import { Notification } from './modules/components/Notification.js';
+import { Notification, NotificationSystem } from './modules/components/Notification.js';
 import { Modal } from './modules/components/Modal.js';
 import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
@@ -108,6 +43,9 @@ import { Attendance } from './modules/features/attendance/Attendance.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange } from './modules/utils/DateUtils.js';
 import { formatCurrency } from './modules/utils/Formatters.js';
+
+// 🛡️ SISTEMA DE REPORTE DE ERRORES: Manejado globalmente por index.html (Alpha Refactorizer)
+import { IndexedDBService, indexedDBService } from './modules/services/IndexedDBService.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
 import { ValidationService } from './modules/services/ValidationService.js';
@@ -128,7 +66,6 @@ import { BadgeComponent } from './modules/components/BadgeComponent.js';
 import { TooltipComponent } from './modules/components/TooltipComponent.js';
 import { COLOR_PALETTE } from './modules/utils/Constants.js';
 import icons from './modules/ui/IconSystem.js';
-import { IndexedDBService } from './modules/services/IndexedDBService.js';
 import { DOMDiff } from './modules/utils/DOMDiff.js';
 import {
     DateRangeManager,
@@ -137,19 +74,26 @@ import {
     EmployeeReportDateManager,
     EmployeeReportDateManagerV2
 } from './modules/utils/DateManagers.js';
-import { memoCache } from './modules/utils/MemoCache.js';
+import { renderManager } from './modules/utils/RenderManager.js';
+import lazyLoader from './modules/utils/LazyLoader.js';
+import syncManager from './modules/services/SyncManager.js';
+import offlineManager from './modules/services/OfflineManager.js';
+import workerPool from './modules/utils/WebWorkerPool.js';
 
 import { firebaseConfig, APP_CONFIG } from './modules/config/Config.js';
-
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
 
-const ICON_SET_STORAGE_KEY = 'icon-set';
+//agregado manualmente
+import { eventBus } from './modules/core/Events.js';
+import { ModalManager } from './modules/ui/ModalManager.js';
+import { VirtualScrollComponent } from './modules/components/VirtualScroll.js';
+import { ExportService } from './modules/services/ExportService.js';
+import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
 
-// ⚡ CONFIGURACIÓN DE RENDIMIENTO (Desde Config.js)
-const MAX_ATTENDANCE_RECORDS = APP_CONFIG.MAX_RECORDS_MEMORY; 
-const RELEVANT_DAYS_LIMIT = APP_CONFIG.RELEVANT_DAYS_LIMIT;
+
+const ICON_SET_STORAGE_KEY = 'icon-set';
 
 function resolveIconSet(preferred) {
     const available = (icons && typeof icons.getAvailableSets === 'function') ? icons.getAvailableSets() : ['unicode'];
@@ -172,25 +116,31 @@ const initialIconSet = resolveIconSet();
 icons.init(initialIconSet);
 
 // ============================================
-// 📢 CLASE NOTIFICATION (POO - Profesional)
+// COMPATIBILIDAD CON CÓDIGO VIEJO (Global Bridges)
 // ============================================
-// Movido a js/modules/components/Notification.js
-
-// ============================================
-// 🪟 CLASE MODAL (POO - Profesional)
-// ============================================
-// Movido a js/modules/components/Modal.js
+globalThis.lazyLoader = lazyLoader;
+globalThis.syncManager = syncManager;
+globalThis.offlineManager = offlineManager;
+globalThis.workerPool = workerPool;
+globalThis.renderManager = renderManager;
+globalThis.renderZone = renderManager.renderZone.bind(renderManager);
+globalThis.Notification = Notification;
+globalThis.Modal = Modal;
+globalThis.eventBus = eventBus;
+globalThis.perfMonitor = perfMonitor;
+globalThis.IndexedDBService = IndexedDBService;
+globalThis.indexedDBService = indexedDBService;
+globalThis.Employee = Employee;
+globalThis.Position = Position;
+globalThis.Leader = Leader;
+globalThis.Attendance = Attendance;
 
 // ============================================
 // COMPATIBILIDAD CON CÓDIGO VIEJO
 // ============================================
-const NotificationSystem = {
-    success: (msg, dur) => Notification.success(msg, dur),
-    error: (msg, dur) => Notification.error(msg, dur),
-    warning: (msg, dur) => Notification.warning(msg, dur),
-    info: (msg, dur) => Notification.info(msg, dur),
-    clear: () => Notification.clearAll()
-};
+// ============================================
+// 📢 NOTIFICATIONSYSTEM (Importado)
+// ============================================
 
 function showNotification(message, type = 'info', duration) {
     if (type === 'loading') return Notification.loading(message);
@@ -202,52 +152,21 @@ function showNotification(message, type = 'info', duration) {
 // ============================================
 // Movido a js/modules/utils/UndoManager.js
 // Inicialización diferida para asegurar dependencias
-document.addEventListener('DOMContentLoaded', () => {
-    UndoManager.init({
-        saveFn: saveApplicationData,
-        renderFn: render,
-        showNotificationFn: showNotification
-    });
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        UndoManager.init({
+            saveFn: saveApplicationData,
+            renderFn: render,
+            showNotificationFn: showNotification
+        });
+    } catch (error) {
+        console.error('❌ Error inicializando sistema:', error);
+        showNotification(`🚨 Fallo de arranque: ${error.message}`, 'error', 0);
+    }
 });
 
 // ============================================
-// 🎯 CLASE EMPLOYEE
-// ============================================
-// Movido a js/modules/models/Employee.js
-
-// ============================================
-// 🏢 CLASE POSITION
-// ============================================
-// Movido a js/modules/models/Position.js
-
-// ============================================
-// 👔 CLASE LEADER
-// ============================================
-// Movido a js/modules/models/Leader.js
-
-// ============================================
-// 📅 CLASE ATTENDANCE
-// ============================================
-// Movido a js/modules/models/Attendance.js
-
-// ============================================
-// 📊 OBJETO HELPERS (Utilidades compartidas)
-// ============================================
-// Movido a js/modules/utils/DateUtils.js y js/modules/utils/Formatters.js
-
-// ============================================
-// ESTADO GLOBAL
-// ============================================
-// 📦 EL ESTADO YA SE IMPORTA DESDE './modules/core/AppState.js'
-
-// Core state initialized via AppState.js import
-
-
-
-// IndexedDBService class removed (moved to js/modules/services/IndexedDBService.js)
-
-// Instancia global de IndexedDB
-const indexedDBService = new IndexedDBService();
+// Puentes globales consolidados arriba
 
 // ============================================
 // 🌐 NAMESPACE APP (Encapsulación de Globales)
@@ -424,7 +343,7 @@ Object.defineProperties(window, {
 });
 
 function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
@@ -581,76 +500,10 @@ window.openMultiPositionModal = function (employeeId) {
 // ============================================
 // 🎯 CLASE MODALMANAGER (POO)
 // ============================================
-class ModalManager {
-    constructor() {
-        this.state = state; // Referencia al estado global
-    }
-
-    // Abrir modal avanzado de asistencia
-    openAdvanced(employeeId, forceMultiPosition = false) {
-        const emp = this.state.employees.find(e => e.id === employeeId);
-        if (!emp) {
-            NotificationSystem.error('❌ Empleado no encontrado');
-            return;
-        }
-
-        this.state.selectedEmployee = emp;
-        this.state.modalType = 'advanced';
-        this.state.showModal = true;
-
-        // Determinar si debe abrir en modo fraccionado
-        const key = `${employeeId}-${this.state.selectedDate}`;
-        const att = this.state.attendance[key];
-
-        if (forceMultiPosition) {
-            // Forzar modo fraccionado
-            this.state.isFractionated = true;
-        } else if (att && att.multiPosition) {
-            // Ya está en modo fraccionado
-            this.state.isFractionated = true;
-        } else if (att && att.present && emp.positions.length > 1) {
-            // Tiene asistencia simple pero múltiples posiciones
-            // Activar fraccionado Y pre-llenar con la posición actual
-            this.state.isFractionated = true;
-        } else {
-            // Modo normal
-            this.state.isFractionated = false;
-        }
-
-        render();
-    }
-
-    // Abrir desde menú contextual (vista semana)
-    openFromContext() {
-        if (!this.state.contextMenu) return;
-
-        const emp = this.state.employees.find(e => e.id === this.state.contextMenu.employeeId);
-        if (!emp) return;
-
-        // ✅ NUEVO: Cambiar temporalmente selectedDate al día clickeado
-        // La fecha del menú contextual ya es string (YYYY-MM-DD)
-        this.state.selectedDate = this.state.contextMenu.date;
-
-        this.openAdvanced(emp.id);
-        this.state.contextMenu = null; // Cerrar menú
-    }
-
-    // Cerrar modal
-    close() {
-        // ✅ NUEVO: selectedDate ya está en el día correcto, no necesita restauración
-        // porque selectedDate se usa para la navegación y el modal
-
-        this.state.showModal = false;
-        this.state.modalType = null;
-        this.state.selectedEmployee = null;
-        this.state.showOptionalFields = false;
-        this.state.isFractionated = false;
-        render();
-    }
-}
-
-// Instancia global del manager
-const modalManager = new ModalManager();
+// ============================================
+// 🎯 MODALMANAGER (Inyectado desde módulo)
+// ============================================
+const modalManager = new ModalManager(state, render, NotificationSystem);
 
 // ============================================
 // 💾 CLASE STORAGESERVICE (POO - Persistencia)
@@ -811,1103 +664,28 @@ const employeeReportDateManager = new EmployeeReportDateManager(state, saveAppli
 
 // Instancia global de cache (importada)
 
-// ============================================
-// 🎨 CLASE RENDERMANAGER (POO - Render selectivo por zona)
-// ============================================
-class RenderManager {
-    constructor() {
-        this.zones = new Map();
-        this.renderCount = 0;
-    }
 
-    // Registrar una zona renderizable
-    registerZone(zoneId, generator) {
-        this.zones.set(zoneId, generator);
-    }
 
-    // Render selectivo de una zona específica
-    renderZone(zoneId, data) {
-        const element = document.getElementById(zoneId);
-        if (!element) {
-            console.warn('⚠️ Zone not found:', zoneId);
-            return false;
-        }
 
-        const generator = this.zones.get(zoneId);
-        if (!generator) {
-            console.warn('⚠️ No generator for zone:', zoneId);
-            return false;
-        }
 
-        try {
-            perfMonitor.start(`renderZone:${zoneId}`);
-            const html = typeof generator === 'function' ? generator(data) : generator;
-            element.innerHTML = html;
-            this.renderCount++;
-            perfMonitor.end(`renderZone:${zoneId}`);
-            console.log(`✅ Zone rendered: ${zoneId}`);
-            return true;
-        } catch (error) {
-            console.error(`❌ Error rendering zone ${zoneId}:`, error);
-            return false;
-        }
-    }
 
-    // Render de múltiples zonas
-    renderZones(zones) {
-        const results = {};
-        for (const [zoneId, data] of Object.entries(zones)) {
-            results[zoneId] = this.renderZone(zoneId, data);
-        }
-        return results;
-    }
 
-    // Obtener estadísticas
-    getStats() {
-        return {
-            registeredZones: this.zones.size,
-            totalRenders: this.renderCount,
-            zoneList: Array.from(this.zones.keys())
-        };
-    }
-}
 
-// Instancia global de render manager
-const renderManager = new RenderManager();
-
-// Función helper para render selectivo rápido
-window.renderZone = function (zoneId, htmlOrGenerator) {
-    const element = document.getElementById(zoneId);
-    if (!element) {
-        console.warn('⚠️ Zone not found:', zoneId);
-        return false;
-    }
-
-    try {
-        const html = typeof htmlOrGenerator === 'function'
-            ? htmlOrGenerator()
-            : htmlOrGenerator;
-        element.innerHTML = html;
-        console.log(`✅ Zone rendered: ${zoneId}`);
-        return true;
-    } catch (error) {
-        console.error(`❌ Error rendering zone ${zoneId}:`, error);
-        return false;
-    }
-};
 
 // ============================================
-// 📡 CLASE EVENTBUS (POO - Sistema de eventos desacoplado)
+// 📜 VIRTUALSCROLLCOMPONENT (Importado)
 // ============================================
-class EventBus {
-    constructor() {
-        this._events = new Map();
-        this._eventHistory = [];
-        this._maxHistory = 100;
-    }
-
-    // Suscribirse a evento
-    on(eventName, callback, options = {}) {
-        const { once = false, priority = 0 } = options;
-
-        if (!this._events.has(eventName)) {
-            this._events.set(eventName, []);
-        }
-
-        const listener = {
-            callback,
-            once,
-            priority,
-            id: Date.now() + Math.random()
-        };
-
-        const listeners = this._events.get(eventName);
-        listeners.push(listener);
-
-        // Ordenar por prioridad (mayor primero)
-        listeners.sort((a, b) => b.priority - a.priority);
-
-        // Retornar función para cancelar suscripción
-        return () => this.off(eventName, listener.id);
-    }
-
-    // Suscribirse una sola vez
-    once(eventName, callback, priority = 0) {
-        return this.on(eventName, callback, { once: true, priority });
-    }
-
-    // Cancelar suscripción
-    off(eventName, listenerId) {
-        if (!this._events.has(eventName)) return;
-
-        const listeners = this._events.get(eventName);
-        const index = listeners.findIndex(l => l.id === listenerId);
-
-        if (index !== -1) {
-            listeners.splice(index, 1);
-        }
-    }
-
-    // Emitir evento
-    emit(eventName, data) {
-        // Guardar en historial
-        this._addToHistory(eventName, data);
-
-        if (!this._events.has(eventName)) {
-            debug.log(`📡 Evento '${eventName}' emitido sin listeners`);
-            return;
-        }
-
-        const listeners = this._events.get(eventName);
-        const toRemove = [];
-
-        debug.log(`📡 Emitiendo evento '${eventName}' a ${listeners.length} listeners`);
-
-        listeners.forEach(listener => {
-            try {
-                listener.callback(data);
-
-                if (listener.once) {
-                    toRemove.push(listener.id);
-                }
-            } catch (error) {
-                debug.error(`❌ Error en listener de '${eventName}':`, error);
-            }
-        });
-
-        // Eliminar listeners 'once'
-        toRemove.forEach(id => this.off(eventName, id));
-    }
-
-    // Agregar al historial
-    _addToHistory(eventName, data) {
-        if (this._eventHistory.length >= this._maxHistory) {
-            this._eventHistory.shift();
-        }
-
-        this._eventHistory.push({
-            event: eventName,
-            data,
-            timestamp: Date.now()
-        });
-    }
-
-    // Limpiar todos los eventos
-    clear() {
-        this._events.clear();
-        debug.log('🗑️ EventBus limpiado');
-    }
-
-    // Obtener historial
-    getHistory(limit = 10) {
-        return this._eventHistory.slice(-limit);
-    }
-
-    // Estadísticas
-    getStats() {
-        const stats = {};
-        this._events.forEach((listeners, event) => {
-            stats[event] = listeners.length;
-        });
-        return stats;
-    }
-}
-
-// Instancia global
-const eventBus = new EventBus();
+// Clase manejada por el módulo js/modules/components/VirtualScroll.js
 
 // ============================================
-// 🔄 CLASE LAZYLOADER (POO - Lazy loading de recursos)
+// 📱 INSTALLPROMPTMANAGER (Inyectado)
 // ============================================
-class LazyLoader {
-    constructor() {
-        this._loaded = new Set();
-        this._loading = new Map();
-        this._observers = new Map();
-    }
-
-    // Lazy load de imágenes
-    lazyLoadImages(selector = 'img[data-src]') {
-        const images = document.querySelectorAll(selector);
-
-        if ('IntersectionObserver' in window) {
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target;
-                        img.src = img.dataset.src;
-                        img.removeAttribute('data-src');
-                        observer.unobserve(img);
-                    }
-                });
-            });
-
-            images.forEach(img => observer.observe(img));
-            this._observers.set(selector, observer);
-        } else {
-            // Fallback para navegadores sin IntersectionObserver
-            images.forEach(img => {
-                img.src = img.dataset.src;
-                img.removeAttribute('data-src');
-            });
-        }
-    }
-
-    // Lazy load de componente
-    async loadComponent(componentName, loader) {
-        // Si ya está cargado, retornar
-        if (this._loaded.has(componentName)) {
-            debug.log(`✅ Componente '${componentName}' ya cargado`);
-            return true;
-        }
-
-        // Si ya se está cargando, esperar
-        if (this._loading.has(componentName)) {
-            return this._loading.get(componentName);
-        }
-
-        // Cargar componente
-        const loadPromise = (async () => {
-            try {
-                debug.log(`⏳ Cargando componente '${componentName}'...`);
-                await loader();
-                this._loaded.add(componentName);
-                debug.log(`✅ Componente '${componentName}' cargado`);
-                return true;
-            } catch (error) {
-                debug.error(`❌ Error cargando '${componentName}':`, error);
-                return false;
-            } finally {
-                this._loading.delete(componentName);
-            }
-        })();
-
-        this._loading.set(componentName, loadPromise);
-        return loadPromise;
-    }
-
-    // Precargar recurso
-    preload(url, type = 'script') {
-        return new Promise((resolve, reject) => {
-            if (this._loaded.has(url)) {
-                resolve();
-                return;
-            }
-
-            const element = type === 'script'
-                ? document.createElement('script')
-                : document.createElement('link');
-
-            if (type === 'script') {
-                element.src = url;
-            } else {
-                element.rel = 'stylesheet';
-                element.href = url;
-            }
-
-            element.onload = () => {
-                this._loaded.add(url);
-                resolve();
-            };
-
-            element.onerror = reject;
-
-            document.head.appendChild(element);
-        });
-    }
-
-    // Cleanup observers
-    cleanup() {
-        this._observers.forEach(observer => observer.disconnect());
-        this._observers.clear();
-    }
-}
-
-// Instancia global
-const lazyLoader = new LazyLoader();
+const installPrompt = new InstallPromptManager(eventBus, NotificationSystem, debug, render);
 
 // ============================================
-// 📊 CLASE PERFORMANCEMONITOR (POO - Monitoreo de performance)
+// 📤 EXPORTSERVICE (Inyectado)
 // ============================================
-class PerformanceMonitor {
-    constructor() {
-        this._metrics = new Map();
-        this._marks = new Map();
-    }
-
-    // Iniciar medición
-    start(name) {
-        this._marks.set(name, performance.now());
-    }
-
-    // Finalizar medición
-    end(name) {
-        const start = this._marks.get(name);
-        if (!start) {
-            debug.warn(`⚠️ No se encontró marca '${name}'`);
-            return 0;
-        }
-
-        const duration = performance.now() - start;
-        this._marks.delete(name);
-
-        // Guardar métrica
-        if (!this._metrics.has(name)) {
-            this._metrics.set(name, []);
-        }
-        this._metrics.get(name).push(duration);
-
-        debug.log(`⏱️ ${name}: ${duration.toFixed(2)}ms`);
-        return duration;
-    }
-
-    // Medir función
-    measure(name, fn) {
-        this.start(name);
-        const result = fn();
-        this.end(name);
-        return result;
-    }
-
-    // Medir función async
-    async measureAsync(name, fn) {
-        this.start(name);
-        const result = await fn();
-        this.end(name);
-        return result;
-    }
-
-    // Obtener estadísticas
-    getStats(name) {
-        const measurements = this._metrics.get(name);
-        if (!measurements || measurements.length === 0) {
-            return null;
-        }
-
-        const sorted = [...measurements].sort((a, b) => a - b);
-        const sum = measurements.reduce((a, b) => a + b, 0);
-
-        return {
-            count: measurements.length,
-            min: sorted[0],
-            max: sorted[sorted.length - 1],
-            avg: sum / measurements.length,
-            median: sorted[Math.floor(sorted.length / 2)]
-        };
-    }
-
-    // Reporte completo
-    report() {
-        const report = {};
-        this._metrics.forEach((_, name) => {
-            report[name] = this.getStats(name);
-        });
-        return report;
-    }
-
-    // Limpiar métricas
-    clear() {
-        this._metrics.clear();
-        this._marks.clear();
-    }
-}
-
-// Instancia global
-const perfMonitor = new PerformanceMonitor();
-
-// ============================================
-// 🚀 FASE 5: COMPONENTES AVANZADOS
-// ============================================
-
-
-// ============================================
-// 📡 CLASE SYNCMANAGER (POO - Sincronización local)
-// ============================================
-class SyncManager {
-    constructor(indexedDB) {
-        this.indexedDB = indexedDB;
-        this.isPending = false;
-    }
-
-    // Agregar operación a cola
-    async queueOperation(operation) {
-        const queueItem = {
-            type: operation.type,
-            data: operation.data,
-            status: 'pending',
-            timestamp: Date.now(),
-            retries: 0
-        };
-
-        await this.indexedDB.add('sync_queue', queueItem);
-        this.isPending = true;
-
-        debug.log('📝 Operación agregada a cola de sync');
-        this.updateSyncBadge();
-    }
-
-    // Obtener operaciones pendientes
-    async getPendingOperations() {
-        return await this.indexedDB.query('sync_queue', 'status', 'pending');
-    }
-
-    // Procesar cola (versión local sin backend)
-    async processPendingQueue() {
-        const pending = await this.getPendingOperations();
-
-        if (pending.length === 0) {
-            Notification.info('ℹ️ No hay cambios pendientes');
-            return;
-        }
-
-        debug.log(`🔄 Procesando ${pending.length} operaciones pendientes...`);
-
-        let processed = 0;
-        for (const item of pending) {
-            try {
-                // Procesar según tipo
-                switch (item.type) {
-                    case 'attendance:create':
-                    case 'attendance:update':
-                        await this.indexedDB.update('attendance', item.data);
-                        break;
-                    case 'employee:create':
-                    case 'employee:update':
-                        await this.indexedDB.update('employees', item.data);
-                        break;
-                    case 'position:create':
-                    case 'position:update':
-                        await this.indexedDB.update('positions', item.data);
-                        break;
-                }
-
-                // Marcar como procesado
-                await this.indexedDB.update('sync_queue', {
-                    ...item,
-                    status: 'synced',
-                    syncedAt: Date.now()
-                });
-
-                processed++;
-            } catch (error) {
-                debug.error('❌ Error procesando operación:', error);
-
-                // Marcar como fallida
-                await this.indexedDB.update('sync_queue', {
-                    ...item,
-                    status: 'failed',
-                    error: error.message,
-                    retries: item.retries + 1
-                });
-            }
-        }
-
-        this.isPending = (await this.getPendingOperations()).length > 0;
-        this.updateSyncBadge();
-
-        Notification.success(`✅ ${processed} cambios procesados`);
-    }
-
-    // Actualizar badge de sincronización
-    updateSyncBadge() {
-        eventBus.emit('sync:update', {
-            pending: this.isPending
-        });
-    }
-
-    // Limpiar cola procesada
-    async clearProcessed() {
-        const synced = await this.indexedDB.query('sync_queue', 'status', 'synced');
-
-        for (const item of synced) {
-            await this.indexedDB.delete('sync_queue', item.id);
-        }
-
-        debug.log(`🗑️ ${synced.length} operaciones procesadas eliminadas`);
-    }
-
-    // Obtener estadísticas
-    async getStats() {
-        const all = await this.indexedDB.getAll('sync_queue');
-
-        return {
-            pending: all.filter(i => i.status === 'pending').length,
-            synced: all.filter(i => i.status === 'synced').length,
-            failed: all.filter(i => i.status === 'failed').length,
-            total: all.length
-        };
-    }
-}
-
-// Instancia global
-const syncManager = new SyncManager(indexedDBService);
-
-// ============================================
-// 🌐 CLASE OFFLINEMANAGER (POO - Gestión offline/online)
-// ============================================
-class OfflineManager {
-    constructor() {
-        this.online = navigator.onLine;
-        this.setupListeners();
-    }
-
-    setupListeners() {
-        window.addEventListener('online', () => {
-            this.online = true;
-            this.handleOnline();
-        });
-
-        window.addEventListener('offline', () => {
-            this.online = false;
-            this.handleOffline();
-        });
-    }
-
-    handleOnline() {
-        debug.log('🌐 Conexión restaurada');
-        Notification.success('✅ Conexión restaurada', 3000);
-        eventBus.emit('connection:online');
-        this.hideBanner();
-    }
-
-    handleOffline() {
-        debug.log('📵 Sin conexión');
-        Notification.warning('⚠️ Sin conexión - Modo offline', 5000);
-        eventBus.emit('connection:offline');
-        this.showBanner();
-    }
-
-    isOnline() {
-        return this.online;
-    }
-
-    isOffline() {
-        return !this.online;
-    }
-
-    showBanner() {
-        // El banner se renderiza en el header
-        render();
-    }
-
-    hideBanner() {
-        render();
-    }
-
-    getConnectionType() {
-        const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-        return connection ? connection.effectiveType : 'unknown';
-    }
-}
-
-// Instancia global
-const offlineManager = new OfflineManager();
-
-// ============================================
-// 🧵 CLASE WEBWORKERPOOL (POO - Workers inline)
-// ============================================
-class WebWorkerPool {
-    constructor() {
-        this.workers = new Map();
-        this.tasks = this.defineTasksDefinitions();
-    }
-
-    // Definir tareas inline
-    defineTasksDefinitions() {
-        return {
-            'calculateMonthlyStats': function (e) {
-                const { attendance, employees, startDate, endDate } = e.data;
-
-                const stats = {
-                    totalDays: 0,
-                    totalHours: 0,
-                    totalOvertime: 0,
-                    employeeStats: {}
-                };
-
-                // Calcular estadísticas por empleado
-                employees.forEach(emp => {
-                    const empAttendance = attendance.filter(a =>
-                        a.employeeId === emp.id &&
-                        a.date >= startDate &&
-                        a.date <= endDate &&
-                        a.present
-                    );
-
-                    stats.employeeStats[emp.id] = {
-                        days: empAttendance.length,
-                        hours: empAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0),
-                        overtime: empAttendance.reduce((sum, a) => sum + (a.overtimeHours || 0), 0)
-                    };
-
-                    stats.totalDays += empAttendance.length;
-                    stats.totalHours += stats.employeeStats[emp.id].hours;
-                    stats.totalOvertime += stats.employeeStats[emp.id].overtime;
-                });
-
-                self.postMessage({ type: 'result', data: stats });
-            },
-
-            'generateReport': function (e) {
-                const { employees, attendance, period } = e.data;
-
-                const report = {
-                    period: period,
-                    generatedAt: new Date().toISOString(),
-                    employees: []
-                };
-
-                employees.forEach(emp => {
-                    const empAtt = attendance.filter(a => a.employeeId === emp.id && a.present);
-
-                    report.employees.push({
-                        id: emp.id,
-                        name: emp.name,
-                        number: emp.number,
-                        totalDays: empAtt.length,
-                        totalHours: empAtt.reduce((sum, a) => sum + (a.hoursWorked || 0), 0),
-                        averageHours: empAtt.length > 0 ?
-                            empAtt.reduce((sum, a) => sum + (a.hoursWorked || 0), 0) / empAtt.length : 0
-                    });
-                });
-
-                self.postMessage({ type: 'result', data: report });
-            }
-        };
-    }
-
-    // Crear worker inline desde función
-    createInlineWorker(taskFunction) {
-        const code = `
-                    self.onmessage = ${taskFunction.toString()};
-                `;
-
-        const blob = new Blob([code], { type: 'application/javascript' });
-        const url = URL.createObjectURL(blob);
-
-        return new Worker(url);
-    }
-
-    // Ejecutar tarea
-    async execute(taskName, data) {
-        const taskFunction = this.tasks[taskName];
-
-        if (!taskFunction) {
-            throw new Error(`Tarea '${taskName}' no encontrada`);
-        }
-
-        return new Promise((resolve, reject) => {
-            const worker = this.createInlineWorker(taskFunction);
-
-            const timeout = setTimeout(() => {
-                worker.terminate();
-                reject(new Error('Worker timeout'));
-            }, 30000); // 30 segundos timeout
-
-            worker.onmessage = (e) => {
-                clearTimeout(timeout);
-                if (e.data.type === 'result') {
-                    resolve(e.data.data);
-                }
-                worker.terminate();
-            };
-
-            worker.onerror = (error) => {
-                clearTimeout(timeout);
-                worker.terminate();
-                reject(error);
-            };
-
-            worker.postMessage(data);
-        });
-    }
-
-    // Terminar todos los workers
-    terminateAll() {
-        this.workers.forEach(worker => worker.terminate());
-        this.workers.clear();
-    }
-}
-
-// Instancia global
-const webWorkerPool = new WebWorkerPool();
-
-// ============================================
-// 📜 CLASE VIRTUALSCROLLCOMPONENT (POO - Scroll virtual)
-// ============================================
-class VirtualScrollComponent extends ComponentBase {
-    constructor(props) {
-        super(props);
-        // props: { items, itemHeight, containerHeight, renderItem, buffer }
-        this.scrollTop = 0;
-        this.container = null;
-    }
-
-    calculateVisibleRange() {
-        const { items, itemHeight, containerHeight, buffer = 5 } = this.props;
-
-        if (!items || items.length === 0) {
-            return { start: 0, end: 0, offsetY: 0 };
-        }
-
-        const visibleCount = Math.ceil(containerHeight / itemHeight);
-        const startIndex = Math.floor(this.scrollTop / itemHeight);
-        const endIndex = startIndex + visibleCount;
-
-        return {
-            start: Math.max(0, startIndex - buffer),
-            end: Math.min(items.length, endIndex + buffer),
-            offsetY: Math.max(0, startIndex - buffer) * itemHeight
-        };
-    }
-
-    handleScroll(event) {
-        this.scrollTop = event.target.scrollTop;
-        this.updateVisibleItems();
-    }
-
-    updateVisibleItems() {
-        if (!this.container) return;
-
-        const { items, renderItem } = this.props;
-        const { start, end, offsetY } = this.calculateVisibleRange();
-
-        const visibleItems = items.slice(start, end);
-        const content = this.container.querySelector('.virtual-scroll-content');
-
-        if (content) {
-            content.innerHTML = visibleItems.map(item => renderItem(item)).join('');
-            content.style.transform = `translateY(${offsetY}px)`;
-        }
-    }
-
-    render() {
-        const { items = [], itemHeight, containerHeight } = this.props;
-        const totalHeight = items.length * itemHeight;
-        const { start, end, offsetY } = this.calculateVisibleRange();
-        const visibleItems = items.slice(start, end);
-
-        const id = `virtual-scroll-${Date.now()}`;
-
-        // Guardar referencia después del render
-        setTimeout(() => {
-            this.container = document.getElementById(id);
-            if (this.container) {
-                this.container.addEventListener('scroll', (e) => this.handleScroll(e));
-            }
-        }, 0);
-
-        return `
-                    <div id="${id}" class="virtual-scroll-container" 
-                         style="height: ${containerHeight}px; overflow-y: auto;">
-                        <div class="virtual-scroll-spacer" style="height: ${totalHeight}px; position: relative;">
-                            <div class="virtual-scroll-content" style="transform: translateY(${offsetY}px);">
-                                ${visibleItems.map(item => this.props.renderItem(item)).join('')}
-                            </div>
-                        </div>
-                    </div>
-                `;
-    }
-}
-
-// ============================================
-// 📱 CLASE INSTALLPROMPTMANAGER (POO - PWA Install)
-// ============================================
-class InstallPromptManager {
-    constructor() {
-        this.deferredPrompt = null;
-        this.isInstalled = false;
-        this.setupListeners();
-    }
-
-    setupListeners() {
-        // Capturar evento de instalación
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            this.deferredPrompt = e;
-            debug.log('📱 Install prompt disponible');
-            eventBus.emit('install:available');
-        });
-
-        // Detectar cuando se instala
-        window.addEventListener('appinstalled', () => {
-            this.isInstalled = true;
-            this.deferredPrompt = null;
-            debug.log('✅ App instalada');
-            Notification.success('✅ App instalada correctamente');
-            eventBus.emit('install:completed');
-        });
-    }
-
-    canInstall() {
-        return this.deferredPrompt !== null;
-    }
-
-    async install() {
-        if (!this.deferredPrompt) {
-            Notification.warning('⚠️ La app ya está instalada o no está disponible para instalación');
-            return false;
-        }
-
-        try {
-            // Mostrar prompt
-            this.deferredPrompt.prompt();
-
-            // Esperar respuesta del usuario
-            const { outcome } = await this.deferredPrompt.userChoice;
-
-            if (outcome === 'accepted') {
-                debug.log('✅ Usuario aceptó instalación');
-                return true;
-            } else {
-                debug.log('❌ Usuario rechazó instalación');
-                Notification.info('ℹ️ Instalación cancelada');
-                return false;
-            }
-        } catch (error) {
-            debug.error('❌ Error en instalación:', error);
-            Notification.error('❌ Error al instalar');
-            return false;
-        } finally {
-            this.deferredPrompt = null;
-        }
-    }
-
-    // Generar banner de instalación
-    renderInstallBanner() {
-        if (!this.canInstall()) return '';
-
-        return `
-                    <div class="install-banner" style="
-                        position: fixed;
-                        bottom: 20px;
-                        left: 50%;
-                        transform: translateX(-50%);
-                        background: linear-gradient(135deg, #06b6d4, #0891b2);
-                        color: white;
-                        padding: 16px 24px;
-                        border-radius: 12px;
-                        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-                        display: flex;
-                        align-items: center;
-                        gap: 16px;
-                        z-index: 9999;
-                        animation: slideUp 0.3s ease-out;">
-                        <div style="font-size: 2rem;">📱</div>
-                        <div>
-                            <div style="font-weight: 700; margin-bottom: 4px;">
-                                Instalar Aplicación
-                            </div>
-                            <div style="font-size: 0.875rem; opacity: 0.9;">
-                                Acceso rápido desde tu pantalla de inicio
-                            </div>
-                        </div>
-                        <button onclick="installPrompt.install()" 
-                                style="background: white; color: #0891b2; border: none; 
-                                       padding: 8px 16px; border-radius: 8px; font-weight: 600;
-                                       cursor: pointer;">
-                            Instalar
-                        </button>
-                        <button onclick="installPrompt.dismissBanner()" 
-                                style="background: transparent; color: white; border: 1px solid white;
-                                       padding: 8px; border-radius: 8px; cursor: pointer;
-                                       width: 32px; height: 32px;">
-                            ✕
-                        </button>
-                    </div>
-                `;
-    }
-
-    dismissBanner() {
-        this.deferredPrompt = null;
-        render();
-    }
-}
-
-// Instancia global
-const installPrompt = new InstallPromptManager();
-
-// ============================================
-// 📤 CLASE EXPORTSERVICE (POO - Exportación avanzada)
-// ============================================
-class ExportService {
-    constructor() {
-        this.exportWorker = null;
-    }
-
-    // Crear worker inline para exportación
-    createExportWorker() {
-        const workerCode = `
-                    self.onmessage = (e) => {
-                        const { type, data } = e.data;
-                        
-                        if (type === 'csv') {
-                            const csv = convertToCSV(data);
-                            self.postMessage({ type: 'csv', data: csv });
-                        }
-                        
-                        if (type === 'json') {
-                            const json = JSON.stringify(data, null, 2);
-                            self.postMessage({ type: 'json', data: json });
-                        }
-                    };
-                    
-                    function convertToCSV(data) {
-                        if (!data || data.length === 0) return '';
-                        
-                        const headers = Object.keys(data[0]);
-                        const csvHeaders = headers.join(',');
-                        
-                        const rows = data.map(row => {
-                            return headers.map(header => {
-                                let value = row[header];
-                                
-                                // Escapar valores con comas o comillas
-                                if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-                                    value = '"' + value.replace(/"/g, '""') + '"';
-                                }
-                                
-                                return value;
-                            }).join(',');
-                        });
-                        
-                        return [csvHeaders, ...rows].join('\\n');
-                    }
-                `;
-
-        const blob = new Blob([workerCode], { type: 'application/javascript' });
-        return new Worker(URL.createObjectURL(blob));
-    }
-
-    // Exportar a CSV
-    async exportToCSV(data, filename = 'export.csv') {
-        return new Promise((resolve, reject) => {
-            if (!this.exportWorker) {
-                this.exportWorker = this.createExportWorker();
-            }
-
-            this.exportWorker.onmessage = (e) => {
-                if (e.data.type === 'csv') {
-                    const blob = new Blob([e.data.data], { type: 'text/csv;charset=utf-8;' });
-                    this.downloadBlob(blob, filename);
-                    resolve();
-                }
-            };
-
-            this.exportWorker.onerror = (error) => {
-                reject(error);
-            };
-
-            this.exportWorker.postMessage({ type: 'csv', data });
-        });
-    }
-
-    // Exportar a JSON
-    async exportToJSON(data, filename = 'export.json') {
-        return new Promise((resolve, reject) => {
-            if (!this.exportWorker) {
-                this.exportWorker = this.createExportWorker();
-            }
-
-            this.exportWorker.onmessage = (e) => {
-                if (e.data.type === 'json') {
-                    const blob = new Blob([e.data.data], { type: 'application/json' });
-                    this.downloadBlob(blob, filename);
-                    resolve();
-                }
-            };
-
-            this.exportWorker.onerror = (error) => {
-                reject(error);
-            };
-
-            this.exportWorker.postMessage({ type: 'json', data });
-        });
-    }
-
-    // Descargar blob
-    downloadBlob(blob, filename) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    // Exportar asistencia del mes
-    async exportMonthlyAttendance(year, month) {
-        try {
-            // Obtener datos
-            const employees = await indexedDBService.getAll('employees');
-            const attendance = await indexedDBService.getAll('attendance');
-
-            // Filtrar por mes
-            const monthlyData = attendance.filter(a => {
-                const date = new Date(a.date);
-                return date.getFullYear() === year && date.getMonth() === month;
-            });
-
-            // Preparar datos para export
-            const exportData = monthlyData.map(a => {
-                const emp = employees.find(e => e.id === a.employeeId);
-                return {
-                    Fecha: a.date,
-                    Empleado: emp ? emp.name : a.employeeId,
-                    Numero: emp ? emp.number : '',
-                    Horas: a.hoursWorked || 0,
-                    HorasExtra: a.overtimeHours || 0,
-                    Festivo: a.isHoliday ? 'Sí' : 'No',
-                    Notas: a.notes || ''
-                };
-            });
-
-            // Exportar
-            const filename = `asistencia-${year}-${String(month + 1).padStart(2, '0')}.csv`;
-            await this.exportToCSV(exportData, filename);
-
-            Notification.success(`✅ Exportado: ${filename}`);
-        } catch (error) {
-            debug.error('❌ Error al exportar:', error);
-            Notification.error('❌ Error al exportar datos');
-        }
-    }
-
-    // Share API (si está disponible)
-    async shareFile(blob, title, filename) {
-        if (!navigator.share || !navigator.canShare) {
-            Notification.info('ℹ️ Share no disponible, descargando...');
-            this.downloadBlob(blob, filename);
-            return false;
-        }
-
-        try {
-            const file = new File([blob], filename, { type: blob.type });
-
-            if (navigator.canShare({ files: [file] })) {
-                await navigator.share({
-                    title: title,
-                    files: [file]
-                });
-
-                Notification.success('✅ Archivo compartido');
-                return true;
-            } else {
-                this.downloadBlob(blob, filename);
-                return false;
-            }
-        } catch (error) {
-            debug.error('❌ Error al compartir:', error);
-            this.downloadBlob(blob, filename);
-            return false;
-        }
-    }
-}
-
-// Instancia global
-const exportService = new ExportService();
+const exportService = new ExportService(indexedDBService, NotificationSystem, debug);
 
 // ============================================
 // FUNCIONES DE COMPATIBILIDAD (usan el manager)
@@ -2490,10 +1268,10 @@ window.changeSettingsTab = async (tab) => {
         try {
             state.isLoadingSnapshots = true;
             render();
-            
+
             const snaps = await FirebaseService.listSnapshots();
             state.snapshots = snaps;
-            
+
             state.isLoadingSnapshots = false;
             render();
         } catch (e) {
@@ -2525,7 +1303,7 @@ window.restoreSnapshot = async (snapshotId) => {
         Notification.info('⏳ Restaurando sistema...', 0);
 
         const snapshot = await FirebaseService.getSnapshot(snapshotId);
-        
+
         if (!snapshot || !snapshot.state) {
             throw new Error('El snapshot está vacío o corrupto');
         }
@@ -2534,7 +1312,7 @@ window.restoreSnapshot = async (snapshotId) => {
         state.employees = snapshot.state.employees || [];
         state.positions = snapshot.state.positions || [];
         state.attendance = snapshot.state.attendance || {};
-        
+
         // Mezclar settings con precaución (mantener flags de sesión si existen)
         if (snapshot.state.settings) {
             state.settings = { ...state.settings, ...snapshot.state.settings };
@@ -2543,13 +1321,13 @@ window.restoreSnapshot = async (snapshotId) => {
 
         // Persistencia crítica: IndexedDB y Mirror
         await saveApplicationData();
-        
+
         Notification.clearAll();
         Notification.success('✅ Sistema restaurado con éxito', 5000);
-        
+
         state.isLoadingSnapshots = false;
         render();
-        
+
     } catch (e) {
         console.error('Error fatal en restauración:', e);
         Notification.error('❌ Error al restaurar: ' + e.message);
@@ -3879,7 +2657,7 @@ window.setEmployeeFilter = (filter) => {
 // FUNCIONES DE NUBE (Firebase)
 // ═══════════════════════════════════════════════════════════
 
-window.uploadToCloud = async function() {
+window.uploadToCloud = async function () {
     const loading = showNotification('📤 Sincronizando historial...', 'loading');
     try {
         await FirebaseService.syncHistory(state.attendance);
@@ -3893,10 +2671,10 @@ window.uploadToCloud = async function() {
     }
 };
 
-window.downloadFromCloud = async function() {
+window.downloadFromCloud = async function () {
     const confirm = window.confirm('¿Descargar datos de la nube? Esto fusionará los datos remotos con los locales.');
     if (!confirm) return;
-    
+
     const loading = showNotification('📥 Descargando datos...', 'loading');
     try {
         const remoteState = await FirebaseService.getFullState();
@@ -3906,11 +2684,11 @@ window.downloadFromCloud = async function() {
             state.employees = dedup([...state.employees, ...(remoteState.employees || [])]);
             state.positions = dedup([...state.positions, ...(remoteState.positions || [])]);
             state.leaders = dedup([...state.leaders, ...(remoteState.leaders || [])]);
-            
+
             // Cargar historial completo
             const remoteAttendance = await FirebaseService.getAllAttendance();
             state.attendance = { ...state.attendance, ...remoteAttendance };
-            
+
             render();
             await saveApplicationData();
             showNotification('✅ Datos descargados y fusionados', 'success');
@@ -3925,10 +2703,10 @@ window.downloadFromCloud = async function() {
     }
 };
 
-window.deleteCloudDataNow = async function() {
+window.deleteCloudDataNow = async function () {
     const confirm = window.confirm('⚠️ ¿ELIMINAR TODOS los datos de la nube? Esta acción no se puede deshacer y NO afectará tus datos locales.');
     if (!confirm) return;
-    
+
     const loading = showNotification('🗑️ Eliminando datos remotos...', 'loading');
     try {
         await FirebaseService.deleteCloudData();
@@ -4612,7 +3390,7 @@ function DateControls() {
 /**
  * ⚡ OPTIMIZACIÓN ZONAL: Actualizar solo una fila de empleado en DayView
  */
-window.updateEmployeeRow = function(employeeId) {
+window.updateEmployeeRow = function (employeeId) {
     const rowEl = document.getElementById(`emp-row-${employeeId}`);
     if (!rowEl) return;
 
@@ -4621,7 +3399,7 @@ window.updateEmployeeRow = function(employeeId) {
 
     // Generar el HTML de la fila (respetando el modo de visualización)
     const newHTML = state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
-    
+
     // Usar DOMDiff para actualizar solo lo necesario del DOM real
     if (DOMDiff && typeof DOMDiff.apply === 'function') {
         DOMDiff.apply(rowEl, newHTML);
@@ -4633,7 +3411,7 @@ window.updateEmployeeRow = function(employeeId) {
 /**
  * ⚡ OPTIMIZACIÓN ZONAL: Actualizar solo una fila de empleado en WeekView
  */
-window.updateWeekRow = function(employeeId) {
+window.updateWeekRow = function (employeeId) {
     const rowEl = document.getElementById(`week-row-${employeeId}`);
     if (!rowEl) return;
 
@@ -4642,13 +3420,13 @@ window.updateWeekRow = function(employeeId) {
 
     const week = getWeekDates(new Date(state.selectedDate));
     const newHTML = WeekRow(emp, week);
-    
+
     if (DOMDiff && typeof DOMDiff.apply === 'function') {
         DOMDiff.apply(rowEl, newHTML);
     } else {
         rowEl.outerHTML = newHTML;
     }
-    
+
     // También actualizar totales si es necesario
     window.updateWeekTotals?.();
 };
@@ -4656,10 +3434,10 @@ window.updateWeekRow = function(employeeId) {
 /**
  * ⚡ OPTIMIZACIÓN ZONAL: Actualizar fila de totales en WeekView
  */
-window.updateWeekTotals = function() {
+window.updateWeekTotals = function () {
     const totalsEl = document.getElementById('week-totals-row');
     if (!totalsEl) return;
-    
+
     const week = getWeekDates(new Date(state.selectedDate));
     const newHTML = `
         <tr id="week-totals-row" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
@@ -4667,21 +3445,21 @@ window.updateWeekTotals = function() {
                 <div style="font-weight: 700; color: #06b6d4; font-size: 0.875rem;">TOTALES</div>
             </td>
             ${week.map(date => {
-                const dKey = getDateKey(date);
-                const dayAttendance = Object.values(state.attendance).filter(a => a.date === dKey && a.present);
-                const totalH = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
-                const count = dayAttendance.length;
-                
-                return `
+        const dKey = getDateKey(date);
+        const dayAttendance = Object.values(state.attendance).filter(a => a.date === dKey && a.present);
+        const totalH = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
+        const count = dayAttendance.length;
+
+        return `
                     <td style="text-align: center; padding: 12px 8px;">
                         <div style="color: #06b6d4; font-weight: 700; font-size: 1rem; margin-bottom: 4px;">${count}</div>
                         <div style="font-size: 0.7rem; color: #94a3b8;">${totalH.toFixed(1)}h</div>
                     </td>
                 `;
-            }).join('')}
+    }).join('')}
         </tr>
     `;
-    
+
     if (DOMDiff && typeof DOMDiff.apply === 'function') {
         DOMDiff.apply(totalsEl, newHTML);
     } else {
@@ -4716,7 +3494,7 @@ window.toggleListDisplayMode = () => {
 
 function DisplayModeFloatingToggle() {
     if (state.activeTab !== 'attendance') return '';
-    
+
     return `
         <div class="floating-display-toggle glass-effect" 
              onclick="toggleListDisplayMode()"
@@ -6548,7 +5326,7 @@ window.saveSettings = function () {
     const defaultDeductionPercentage = parseFloat(document.getElementById('defaultDeductionPercentage').value) || 2;
     const globalLastPaymentDate = document.getElementById('globalLastPaymentDate').value || null;
     const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
-    
+
     // Leer toggle legacy
     const legacyNavigationElement = document.getElementById('legacyNavigation');
     const legacyNavigation = legacyNavigationElement ? legacyNavigationElement.checked : !!state.settings.legacyNavigation;
@@ -7817,9 +6595,9 @@ function NotesCenterModal() {
                                         <div style="font-size:1rem;">AÃºn no hay notas guardadas</div>
                                     </div>
                                 ` : employeesWithNotes.map(emp => {
-                                    const lastNote = (notesByEmployee.get(emp.id) || [])[0];
-                                    const preview = lastNote ? (lastNote.note.length > 60 ? `${lastNote.note.slice(0, 60)}...` : lastNote.note) : '';
-                                    return `
+        const lastNote = (notesByEmployee.get(emp.id) || [])[0];
+        const preview = lastNote ? (lastNote.note.length > 60 ? `${lastNote.note.slice(0, 60)}...` : lastNote.note) : '';
+        return `
                                         <button onclick="selectNotesEmployee('${emp.id}')"
                                                 style="width: 100%;
                                                        text-align: left;
@@ -7844,7 +6622,7 @@ function NotesCenterModal() {
                                             </div>
                                         </button>
                                     `;
-                                }).join('')}
+    }).join('')}
                             ` : `
                                 ${selectedNotes.length === 0 ? `
                                     <div style="text-align:center; padding: 60px 20px; color:#94a3b8;">
@@ -7976,14 +6754,14 @@ function updateHeaderOffset() {
     }
 }
 
-window.toggleSidebar = function() {
+window.toggleSidebar = function () {
     state.settings.sidebarCollapsed = !state.settings.sidebarCollapsed;
     state.settings._isDirty = true;
     saveApplicationData();
     render();
 };
 
-window.toggleBottomNav = function() {
+window.toggleBottomNav = function () {
     document.body.classList.toggle('bottom-nav-hidden');
     // Forzar actualización de variables CSS de layout
     if (typeof updateHeaderOffset === 'function') {
@@ -8022,7 +6800,7 @@ function render() {
         // Renderizar con DOMDiff para evitar parpadeos y pérdida de estado
         const root = document.getElementById('root');
         const newHTML = App();
-        
+
         // ⚡ Refactorización Alpha: Usamos el parcheo incremental en lugar de replaceChildren
         DOMDiff.apply(root, newHTML);
 
@@ -8071,7 +6849,7 @@ const debouncedRender = window.debounce(render, 300);
 
 // Versión optimizada con throttle para scroll
 let _throttleTimer = null;
-const throttledRender = function() {
+const throttledRender = function () {
     if (_throttleTimer) return;
     _throttleTimer = setTimeout(() => { _throttleTimer = null; render(); }, 100);
 };
@@ -9053,15 +7831,15 @@ document.head.appendChild(styleTag);
         // 4. Inicializar Auth y Sincronización (Tiempo Real)
         FirebaseService.onAuthStateChanged(async (user) => {
             // Estandarización de Scope Global
-            window.currentUser = user; 
+            window.currentUser = user;
             if (window.App) window.App.currentUser = user;
-            
+
             state.syncStatus = user ? 'synced' : 'idle';
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
-            
+
             if (user) {
                 showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
-                
+
                 // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2) ---
                 if (state.isDataLoaded) {
                     try {
@@ -9083,33 +7861,33 @@ document.head.appendChild(styleTag);
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges((remoteData) => {
                     console.log('📡 Cambio detectado en la nube...');
-                    
+
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
-                    
+
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
                     state.settings = { ...state.settings, ...remoteData.settings };
                     state.employees = dedup(remoteData.employees || state.employees);
                     state.positions = dedup(remoteData.positions || state.positions);
                     state.leaders = dedup(remoteData.leaders || state.leaders);
-                    
+
                     if (remoteData.attendance) {
                         state.attendance = { ...state.attendance, ...remoteData.attendance };
                     }
-                    
+
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta
                     setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
-                    
+
                     if (isInitialLoad) {
                         clearTimeout(loaderTimeout);
                         hideLoader();
                         isInitialLoad = false;
                         console.log('✅ Primera carga de nube completada');
                         const metadataChanged = JSON.stringify(remoteData.employees) !== JSON.stringify(state.employees) ||
-                                              JSON.stringify(remoteData.positions) !== JSON.stringify(state.positions) ||
-                                              JSON.stringify(remoteData.leaders) !== JSON.stringify(state.leaders);
+                            JSON.stringify(remoteData.positions) !== JSON.stringify(state.positions) ||
+                            JSON.stringify(remoteData.leaders) !== JSON.stringify(state.leaders);
 
                         if (metadataChanged) {
                             render();
@@ -9118,7 +7896,7 @@ document.head.appendChild(styleTag);
                 });
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
-                window.updateAttendanceSubscription = function() {
+                window.updateAttendanceSubscription = function () {
                     if (window._attendanceUnsubscribe) {
                         window._attendanceUnsubscribe();
                     }
@@ -9127,7 +7905,7 @@ document.head.appendChild(styleTag);
                     const date = new Date(state.selectedDate);
                     const startOfMonth = new Date(date.getFullYear(), date.getMonth() - 1, 1);
                     const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 2, 0);
-                    
+
                     const startDate = getDateKey(startOfMonth);
                     const endDate = getDateKey(endOfMonth);
 
@@ -9148,7 +7926,7 @@ document.head.appendChild(styleTag);
                             window._isApplyingRemoteData = true;
                             state.attendance = { ...state.attendance, ...records };
                             setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
-                            
+
                             // Actualización Zonal
                             const selectedDateKey = getDateKey(state.selectedDate);
                             if (dateKey === selectedDateKey && state.activeTab === 'attendance' && state.viewMode === 'day') {

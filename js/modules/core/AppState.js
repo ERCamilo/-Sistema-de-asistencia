@@ -132,7 +132,7 @@ window.stateManager = stateManager;
 const stateHandler = {
     get(target, prop, receiver) {
         const value = Reflect.get(target, prop, receiver);
-        if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+        if (value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Blob)) {
             return new Proxy(value, stateHandler);
         }
         return value;
