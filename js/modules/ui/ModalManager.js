@@ -3,6 +3,8 @@
  * Parte de la Fase 6: Infraestructura de UI (Alpha Refactorizer)
  */
 
+import { AdvancedAttendanceModal } from './modals/AdvancedAttendanceModal.js';
+
 export class ModalManager {
     constructor(state, renderCallback, notificationSystem) {
         this.state = state;
@@ -16,31 +18,7 @@ export class ModalManager {
      * @param {boolean} forceMultiPosition 
      */
     openAdvanced(employeeId, forceMultiPosition = false) {
-        const emp = this.state.employees.find(e => e.id === employeeId);
-        if (!emp) {
-            this.Notification.error('❌ Empleado no encontrado');
-            return;
-        }
-
-        this.state.selectedEmployee = emp;
-        this.state.modalType = 'advanced';
-        this.state.showModal = true;
-
-        // Determinar si debe abrir en modo fraccionado
-        const key = `${employeeId}-${this.state.selectedDate}`;
-        const att = this.state.attendance[key];
-
-        if (forceMultiPosition) {
-            this.state.isFractionated = true;
-        } else if (att && att.multiPosition) {
-            this.state.isFractionated = true;
-        } else if (att && att.present && emp.positions.length > 1) {
-            this.state.isFractionated = true;
-        } else {
-            this.state.isFractionated = false;
-        }
-
-        this.render();
+        AdvancedAttendanceModal.open(employeeId, forceMultiPosition);
     }
 
     /**

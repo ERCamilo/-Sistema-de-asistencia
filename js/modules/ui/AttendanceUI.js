@@ -5,7 +5,7 @@
 
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
-import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday } from '../utils/DateUtils.js';
+import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText } from '../utils/DateUtils.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -41,18 +41,7 @@ export function DateControlsCompact() {
         `;
 }
 
-// Helper para DateControlsCompact (Mantenido local para desacoplar de app.js)
-function getWeekRangeText(date) {
-    if (typeof window.getWeekRangeText === 'function') return window.getWeekRangeText(date);
-    // Simple fallback
-    const d = new Date(date);
-    const day = d.getDay() || 7;
-    d.setHours(-24 * (day - 1));
-    const start = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
-    d.setDate(d.getDate() + 6);
-    const end = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
-    return `${start} - ${end}`;
-}
+// El componente ahora usa getWeekRangeText importado de DateUtils
 
 /**
  * 🦴 Renderiza esqueletos de carga para una mejor percepción de velocidad.
@@ -623,7 +612,8 @@ export function updateWeekTotals() {
     totalsRow.replaceWith(newTotalsRow);
 }
 
-// Asignar a window para que las llamadas desde FirebaseService sigan funcionando
+// Asignar a window para que las llamadas desde FirebaseService y handlers de UI sigan funcionando
 window.updateEmployeeRow = updateEmployeeRow;
 window.updateWeekRow = updateWeekRow;
 window.updateWeekTotals = updateWeekTotals;
+window.getFilteredEmployeesForDay = getFilteredEmployeesForDay;

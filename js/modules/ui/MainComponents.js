@@ -23,11 +23,15 @@ import { getEmployeeTotalHours } from '../core/AppState.js';
 
 import { formatCurrency } from '../utils/Formatters.js';
 
+import { EmployeeProfileModal } from './modals/EmployeeProfileModal.js';
+import { AdvancedAttendanceModal } from './modals/AdvancedAttendanceModal.js';
+
 // Re-exportar componentes de AttendanceUI que necesita el App() de forma directa
 export {
-    BottomNavigation, ContextMenu, ExportMenu, ImportFullModal, NotesCenterModal, NoteModal,
-    EmployeeProfileModal
+    BottomNavigation, ContextMenu, ExportMenu, ImportFullModal, NotesCenterModal, NoteModal
 } from './AttendanceUI.js';
+
+export { EmployeeProfileModal, AdvancedAttendanceModal };
 
 /**
  * 📅 PESTAÑA DE ASISTENCIA
@@ -144,28 +148,10 @@ export function PositionFormModal() { return ''; }
 
 /**
  * ⚙️ DETALLES DE ASISTENCIA AVANZADOS
+ * (Ahora delegado al componente modular)
  */
-export function AdvancedAttendanceModal() {
-    const emp = state.selectedEmployee;
-    if (!emp) return '';
-    return `<div class="modal-overlay" onclick="if(event.target === this) window.closeModal()">
-                <div class="modal-content" style="max-width: 400px;">
-                    <div class="modal-header">
-                        <h2 class="modal-title">⚙️ Asistencia: ${emp.name}</h2>
-                        <button class="modal-close" onclick="window.closeModal()">✕</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="form-group">
-                            <label class="form-label">Horas trabajadas</label>
-                            <input type="number" id="hoursWorked" class="form-input" value="${state.settings.regularHoursPerDay}" step="0.5">
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button onclick="window.closeModal()" class="btn btn-secondary">Cancelar</button>
-                        <button onclick="window.saveAdvancedAttendance()" class="btn btn-primary">Guardar</button>
-                    </div>
-                </div>
-            </div>`;
+export function AdvancedAttendanceModalComponent() {
+    return AdvancedAttendanceModal.open();
 }
 
 /**

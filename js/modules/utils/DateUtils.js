@@ -22,7 +22,7 @@ export function parseDate(dateStr) {
 }
 
 export function getDateKey(d) {
-    // 💡 Si ya es string en formato correcto, devolverlo
+    // 💡 Si ya es string en formato grueso, devolverlo
     if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
         return d;
     }
@@ -60,7 +60,6 @@ export function formatDateTime(d) {
     return `${base} - ${hours}:${minutes}`;
 }
 
-
 export function formatDateShort(d) {
     // 💡 Convertir string a Date si es necesario
     const date = typeof d === 'string' ? parseDate(d) : d;
@@ -77,7 +76,20 @@ export function formatMonthYear(d) {
     return `${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-// 💡 NUEVA: Formatear rango de fechas con información del mes
+// 💡 NUEVA: Obtener array de días para un calendario mensual completo (incluye días del mes anterior/siguiente)
+export function getDaysInMonth(date) {
+    const y = date.getFullYear(), m = date.getMonth();
+    const first = new Date(y, m, 1);
+    const last = new Date(y, m + 1, 0);
+    const days = [];
+    const start = first.getDay();
+    for (let i = 0; i < start; i++) days.push({ date: new Date(y, m, -start + i + 1), currentMonth: false });
+    for (let i = 1; i <= last.getDate(); i++) days.push({ date: new Date(y, m, i), currentMonth: true });
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) days.push({ date: new Date(y, m + 1, i), currentMonth: false });
+    return days;
+}
+
 export function formatDateRangeWithMonth(startDateStr, endDateStr) {
     const startDate = typeof startDateStr === 'string' ? parseDate(startDateStr) : startDateStr;
     const endDate = typeof endDateStr === 'string' ? parseDate(endDateStr) : endDateStr;
@@ -170,15 +182,35 @@ export const DateUtils = {
         return holidays.includes(dateStr);
     },
 
-    // Formatear fecha y hora (Fase 4)
+    // Formatear fecha y hora
     formatDateTime(d) {
         return formatDateTime(d);
     }
 };
 
 /**
+ * 📅 Obtener texto con el rango de fechas de la semana (Lunes-Domingo)
+ */
+export function getWeekRangeText(dateInput) {
+    const d = typeof dateInput === 'string' ? parseDate(dateInput) : new Date(dateInput);
+    const day = d.getDay() || 7; // Convertir 0 (Domingo) a 7
+    
+    // Obtener Lunes
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - (day - 1));
+    
+    // Obtener Domingo
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    
+    const start = monday.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+    const end = sunday.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+    
+    return `${start} - ${end}`;
+}
+
+/**
  * 🔍 Verifica si un empleado estaba activo en una fecha específica
- * Versión pura: recibe attendance como parámetro para evitar dependencias circulares.
  */
 export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
     const dateKey = typeof date === 'string' ? date : getDateKey(date);
@@ -193,7 +225,7 @@ export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
     // 3. Verificar fecha de terminación (si existe)
     if (employee.terminationDate && dateKey > employee.terminationDate) return false;
 
-    // 4. Verificar historial de estados (más confiable)
+    // 4. Verificar historial de estados
     if (!employee.statusHistory || employee.statusHistory.length === 0) {
         return employee.active !== false;
     }
@@ -232,3 +264,8 @@ export function wasEmployeeActiveInRange(employee, startDate, endDate, attendanc
     return wasEmployeeActiveOnDate(employee, start, attendance) || wasEmployeeActiveOnDate(employee, end, attendance);
 }
 
+// 🌐 EXPOSICIÓN GLOBAL (Para compatibilidad con handlers legacy)
+window.getDaysInMonth = getDaysInMonth;
+window.formatDateShort = formatDateShort;
+window.getDateKey = getDateKey;
+window.parseDate = parseDate;

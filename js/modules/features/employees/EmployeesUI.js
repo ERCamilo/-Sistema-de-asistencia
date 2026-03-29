@@ -1,16 +1,18 @@
 import icons from '../../ui/IconSystem.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
-import { FormComponent } from '../../components/FormComponent.js';
+import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
+import { LeaderModal } from '../../ui/modals/LeaderModal.js';
+import { PositionModal } from '../../ui/modals/PositionModal.js';
 
-let context = null;
+export let context = null;
 
 export function init(ctx) {
     context = ctx;
 }
 
 // Helper to access state easier
-function getState() {
+export function getState() {
     return context.state;
 }
 
@@ -706,203 +708,11 @@ export function resetEmployeeFilters() {
 }
 
 export function openEmployeeForm(employeeId = null) {
-    const state = getState();
-    const editingEmployee = employeeId ? state.employees.find(e => e.id === employeeId || e.key === employeeId) : null;
-    state.editingEmployee = editingEmployee;
-
-    const form = new FormComponent({
-        fields: [
-            { name: 'empName', label: 'Nombre Completo', type: 'text', value: editingEmployee?.name || '', required: true, icon: 'user' },
-            { name: 'empNumber', label: 'Número de Empleado', type: 'text', value: editingEmployee?.number || '', required: true, icon: 'hash' },
-            { 
-                name: 'empPosition', 
-                label: 'Posiciones', 
-                type: 'checkbox-group', 
-                value: editingEmployee?.positions || [], 
-                options: state.positions.filter(p => p.active).map(p => ({ value: p.id, label: p.name })),
-                required: true 
-            },
-            { name: 'empPhone', label: 'Teléfono', type: 'text', value: editingEmployee?.phone || '', icon: 'phone' },
-            { name: 'empEmail', label: 'Correo Electrónico', type: 'email', value: editingEmployee?.email || '', icon: 'mail' },
-            { name: 'empHireDate', label: 'Fecha de Ingreso', type: 'date', value: editingEmployee?.hireDate || '', icon: 'calendar' },
-            { name: 'empNotes', label: 'Notas/Observaciones', type: 'textarea', value: editingEmployee?.notes || '', icon: 'file-text' }
-        ],
-        submitText: editingEmployee ? 'Guardar Cambios' : 'Registrar Empleado',
-        values: editingEmployee ? {
-            empName: editingEmployee.name,
-            empNumber: editingEmployee.number,
-            empPosition: editingEmployee.positions,
-            empPhone: editingEmployee.phone,
-            empEmail: editingEmployee.email,
-            empHireDate: editingEmployee.hireDate,
-            empNotes: editingEmployee.notes
-        } : {},
-        onSubmit: (formData) => handleEmployeeSubmit(formData),
-        onCancel: () => modal.close()
-    });
-
-    const modal = new Modal({
-        title: editingEmployee ? `${icons.get('user')} Editar Empleado` : `${icons.get('user-plus')} Nuevo Empleado`,
-        content: form.render(),
-        size: 'medium'
-    });
-
-    modal.open();
+    EmployeeModal.open(employeeId);
 }
-
-function handleEmployeeSubmit(formData) {
-    const state = getState();
-    const { empName: name, empNumber: number, empPosition: positions, empPhone: phone, empEmail: email, empHireDate: hireDate, empNotes: notes } = formData;
-
-    // Validaciones basicas
-    if (!/^[0-9A-Za-z-]+$/.test(number)) {
-        window.showAlert('El número de empleado solo puede contener números, letras y guiones', 'error');
-        return;
-    }
-
-    // Verificar duplicados
-    const existing = state.employees.find(e => e.number === number && (!state.editingEmployee || e.id !== state.editingEmployee.id));
-    if (existing) {
-        window.showAlert(`Ya existe un empleado con el número ${number}: ${existing.name}`, 'error');
-        return;
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    const finalHireDate = hireDate || today;
-
-    if (state.editingEmployee) {
-        // Actualizar
-        const emp = state.employees.find(e => e.id === state.editingEmployee.id || e.key === state.editingEmployee.id);
-        if (emp) {
-            emp.name = name;
-            emp.number = number;
-            emp.positions = positions;
-            emp.phone = phone;
-            emp.email = email;
-            emp.hireDate = finalHireDate;
-            emp.notes = notes;
-            emp.updatedAt = Date.now();
-            emp._isDirty = true;
-            window.showAlert(`${icons.get('check-circle')} Empleado ${name} actualizado correctamente`, 'success');
-        }
-    } else {
-        // Crear
-        const newKey = `EMP${Date.now()}`;
-        const newEmployee = {
-            id: newKey,
-            key: newKey,
-            number: number,
-            name: name,
-            positions: positions,
-            active: true,
-            createdDate: today,
-            hireDate: finalHireDate,
-            phone: phone,
-            email: email,
-            notes: notes,
-            statusHistory: [{ date: finalHireDate, active: true, timestamp: Date.now() }],
-            updatedAt: Date.now(),
-            _isDirty: true
-        };
-        state.employees.push(newEmployee);
-        window.showAlert(`${icons.get('check-circle')} Empleado ${name} creado correctamente`, 'success');
-    }
-
-    state.editingEmployee = null;
-    context.saveToLocalStorage();
-    context.closeModal(); // This might be redundant now but closes the overlay if using Modal class's internal close
-    context.render();
-}
-
-// Deprecated: used for legacy compatibility during refactor
-export function saveEmployee() {
-    console.warn('saveEmployee is deprecated. Use handleEmployeeSubmit via FormComponent.');
-}
-
 
 export function openLeaderForm(leaderId = null) {
-    const state = getState();
-    const editingLeader = leaderId ? state.leaders.find(l => l.id === leaderId) : null;
-    state.editingLeader = editingLeader;
-
-    const form = new FormComponent({
-        fields: [
-            { name: 'ldrName', label: 'Nombre del Líder', type: 'text', value: editingLeader?.name || '', required: true, icon: 'user' },
-            { name: 'ldrPhone', label: 'Teléfono', type: 'text', value: editingLeader?.phone || '', icon: 'phone' },
-            { name: 'ldrEmail', label: 'Correo Electrónico', type: 'email', value: editingLeader?.email || '', icon: 'mail' },
-            { name: 'ldrNotes', label: 'Notas', type: 'textarea', value: editingLeader?.notes || '', icon: 'file-text' }
-        ],
-        submitText: editingLeader ? 'Guardar Cambios' : 'Registrar Líder',
-        values: editingLeader ? {
-            ldrName: editingLeader.name,
-            ldrPhone: editingLeader.phone,
-            ldrEmail: editingLeader.email,
-            ldrNotes: editingLeader.notes
-        } : {},
-        onSubmit: (formData) => handleLeaderSubmit(formData),
-        onCancel: () => modal.close()
-    });
-
-    const modal = new Modal({
-        title: editingLeader ? `${icons.get('user')} Editar Líder` : `${icons.get('user-plus')} Nuevo Líder`,
-        content: form.render(),
-        size: 'medium'
-    });
-
-    modal.open();
-}
-
-function handleLeaderSubmit(formData) {
-    const state = getState();
-    const { ldrName: name, ldrPhone: phone, ldrEmail: email, ldrNotes: notes } = formData;
-
-    if (!name) {
-        window.showAlert('El nombre del líder es obligatorio', 'error');
-        return;
-    }
-
-    if (state.editingLeader) {
-        // Editar existente
-        const ldr = state.leaders.find(l => l.id === state.editingLeader.id);
-        if (ldr) {
-            ldr.name = name;
-            ldr.phone = phone;
-            ldr.email = email;
-            ldr.notes = notes;
-            ldr.updatedAt = Date.now();
-            ldr._isDirty = true;
-            window.showAlert(`${icons.get('check-circle')} Líder ${name} actualizado correctamente`, 'success');
-        }
-    } else {
-        // Crear nuevo
-        const maxNum = Math.max(0, ...state.leaders.map(l => {
-            const numPart = l.number ? l.number.replace('L-', '') : '0';
-            return parseInt(numPart) || 0;
-        }));
-        const newNum = `L-${String(maxNum + 1).padStart(3, '0')}`;
-        state.leaders.push({
-            id: `LDR${Date.now()}`,
-            number: newNum,
-            name: name,
-            active: true,
-            phone: phone,
-            email: email,
-            notes: notes,
-            updatedAt: Date.now(),
-            _isDirty: true
-        });
-        window.showAlert(`${icons.get('check-circle')} Líder ${name} creado correctamente`, 'success');
-    }
-
-    state.editingLeader = null;
-    context.saveToLocalStorage();
-    context.closeModal();
-    context.render();
-}
-
-// Deprecated
-export function saveLeader() {
-    console.warn('saveLeader is deprecated. Use handleLeaderSubmit via FormComponent.');
+    LeaderModal.open(leaderId);
 }
 
 export function toggleEmployeeStatus(employeeId) {
@@ -1017,73 +827,7 @@ export function setPositionSortBy(sortBy) {
 }
 
 export function openPositionForm(positionId = null) {
-    const state = getState();
-    const editingPosition = positionId ? state.positions.find(p => p.id === positionId) : null;
-    state.editingPosition = editingPosition;
-
-    const colorOptions = [
-        { value: '#94a3b8', label: 'Gris' },
-        { value: '#f43f5e', label: 'Rosa' },
-        { value: '#8b5cf6', label: 'Violeta' },
-        { value: '#3b82f6', label: 'Azul' },
-        { value: '#10b981', label: 'Esmeralda' },
-        { value: '#f59e0b', label: 'Ámbar' }
-    ];
-
-    const form = new FormComponent({
-        fields: [
-            { name: 'posName', label: 'Nombre de la Posición', type: 'text', value: editingPosition?.name || '', required: true, icon: 'briefcase' },
-            { name: 'posHourlyRate', label: 'Tarifa por Hora', type: 'number', value: editingPosition?.hourlyRate || 0, required: true, icon: 'dollar-sign' },
-            { 
-                name: 'posLeader', 
-                label: 'Líder Responsable', 
-                type: 'select', 
-                value: editingPosition?.leaderId || '', 
-                options: state.leaders.filter(l => l.active).map(l => ({ value: l.id, label: l.name })),
-                icon: 'user'
-            },
-            { 
-                name: 'posColor', 
-                label: 'Color Distintivo', 
-                type: 'radio-group', 
-                value: editingPosition?.color || '#94a3b8', 
-                options: colorOptions 
-            },
-            { 
-                name: 'workingDay', 
-                label: 'Días Laborales', 
-                type: 'checkbox-group', 
-                value: editingPosition?.workingDays || [1, 2, 3, 4, 5], 
-                options: [
-                    { value: 1, label: 'Lun' },
-                    { value: 2, label: 'Mar' },
-                    { value: 3, label: 'Mie' },
-                    { value: 4, label: 'Jue' },
-                    { value: 5, label: 'Vie' },
-                    { value: 6, label: 'Sab' },
-                    { value: 0, label: 'Dom' }
-                ]
-            }
-        ],
-        submitText: editingPosition ? 'Guardar Cambios' : 'Crear Posición',
-        values: editingPosition ? {
-            posName: editingPosition.name,
-            posHourlyRate: editingPosition.hourlyRate,
-            posLeader: editingPosition.leaderId,
-            posColor: editingPosition.color,
-            workingDay: editingPosition.workingDays
-        } : {},
-        onSubmit: (formData) => handlePositionSubmit(formData),
-        onCancel: () => modal.close()
-    });
-
-    const modal = new Modal({
-        title: editingPosition ? `${icons.get('briefcase')} Editar Posición` : `${icons.get('briefcase')} Nueva Posición`,
-        content: form.render(),
-        size: 'medium'
-    });
-
-    modal.open();
+    PositionModal.open(positionId);
 }
 
 function handlePositionSubmit(formData) {
@@ -1238,37 +982,8 @@ export function changeFloatingMonth(delta) {
     context.render();
 }
 
+import { EmployeeProfileModal } from '../../ui/modals/EmployeeProfileModal.js';
+
 export function openEmployeeProfile(employeeId) {
-    const state = getState();
-    const emp = state.employees.find(e => e.id === employeeId || e.key === employeeId);
-    if (!emp) {
-        console.error('Empleado no encontrado:', employeeId);
-        return;
-    }
-
-    const today = new Date();
-    const lastPayment = emp.lastPaymentDate ? new Date(emp.lastPaymentDate + 'T00:00:00') : null;
-
-    let start, end;
-    if (lastPayment) {
-        start = new Date(lastPayment);
-        start.setDate(start.getDate() + 1);
-        end = today;
-    } else {
-        start = new Date(today);
-        start.setDate(start.getDate() - 14);
-        end = today;
-    }
-
-    state.employeeProfile = {
-        employeeId: emp.id,
-        activeTab: 'nomina',
-        periodStart: getDateKey(start),
-        periodEnd: getDateKey(end),
-        deductions: []
-    };
-
-    state.modalType = 'employee-profile';
-    state.showModal = true;
-    context.render();
+    EmployeeProfileModal.open(employeeId);
 }
