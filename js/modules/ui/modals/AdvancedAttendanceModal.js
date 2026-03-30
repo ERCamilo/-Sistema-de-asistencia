@@ -13,18 +13,33 @@ import { debug } from '../../utils/Debug.js';
  * ⚙️ CLASE: AdvancedAttendanceModal
  */
 export class AdvancedAttendanceModal {
-    static open() {
-        const emp = state.selectedEmployee;
+    static open(empId, forceMultiPosition = false) {
+        let emp = state.selectedEmployee;
+        
+        // Si se pasa un empId, buscarlo en el estado
+        if (empId) {
+            emp = state.employees.find(e => e.id === empId);
+            state.selectedEmployee = emp; // Mantener sincronía de estado
+        }
+
         if (!emp) return;
 
         const dateKey = getDateKey(state.selectedDate);
         const key = `${emp.id}-${dateKey}`;
         const att = state.attendance[key] || {};
         
+        // Si se fuerza multi-posición, asegurar un formato coherente si no existe
+        if (forceMultiPosition && (!att.positionHours || att.positionHours.length === 0)) {
+            att.present = true; // Por defecto si abren el modal detallado
+        }
+        
         const modal = new Modal({
             title: '⚙️ Detalles de Asistencia',
             content: this.renderContent(emp, att),
-            size: 'medium',
+            variant: 'drawer',
+            position: 'right',
+            closable: true,
+            backdrop: true,
             buttons: [
                 {
                     text: 'Cancelar',
@@ -32,8 +47,9 @@ export class AdvancedAttendanceModal {
                     onClick: function() { this.close(); }
                 },
                 {
-                    text: '💾 Guardar',
+                    text: '💾 Guardar Cambios',
                     class: 'btn-primary',
+                    style: 'background: linear-gradient(135deg, #06b6d4, #10b981); color: white; border: none;',
                     onClick: function() { 
                         if (saveAdvancedAttendance()) {
                             this.close();

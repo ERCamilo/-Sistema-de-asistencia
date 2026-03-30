@@ -4,6 +4,8 @@ export class Modal {
         this.title = options.title || '';
         this.content = options.content || '';
         this.size = options.size || 'medium'; // 'small', 'medium', 'large', 'fullscreen'
+        this.variant = options.variant || 'modal'; // 'modal', 'drawer'
+        this.position = options.position || 'center'; // 'center', 'right', 'left'
         this.closable = options.closable !== undefined ? options.closable : true;
         this.buttons = options.buttons || null;
         if (options.onClose) this.onClose = options.onClose;
@@ -22,9 +24,12 @@ export class Modal {
             fullscreen: 'modal-fullscreen'
         };
 
+        const variantClass = this.variant === 'drawer' ? `modal-drawer modal-drawer-${this.position}` : '';
+        const animationClass = this.variant === 'drawer' ? 'drawer-enter' : 'modal-enter';
+
         const modalHTML = `
-                    <div class="modal-overlay ${this.backdrop ? 'modal-backdrop' : ''}" data-modal-overlay>
-                        <div class="modal-container ${sizeClasses[this.size]} modal-enter" data-modal-container>
+                    <div class="modal-overlay ${this.backdrop ? 'modal-backdrop' : ''} ${this.variant === 'drawer' ? 'drawer-overlay' : ''}" data-modal-overlay>
+                        <div class="modal-container ${sizeClasses[this.size]} ${variantClass} ${animationClass}" data-modal-container>
                             <div class="modal-header">
                                 <h2 class="modal-title">${this.title}</h2>
                                 ${this.closable ? `<button class="modal-close" data-modal-close aria-label="Cerrar">${icons.get('close')}</button>` : ''}
@@ -116,8 +121,10 @@ export class Modal {
         setTimeout(() => {
             const container = this.element.querySelector('[data-modal-container]');
             if (container) {
-                container.classList.remove('modal-enter');
-                container.classList.add('modal-visible');
+                const enterClass = this.variant === 'drawer' ? 'drawer-enter' : 'modal-enter';
+                const visibleClass = this.variant === 'drawer' ? 'drawer-visible' : 'modal-visible';
+                container.classList.remove(enterClass);
+                container.classList.add(visibleClass);
             }
         }, 10);
 
@@ -136,8 +143,10 @@ export class Modal {
 
         const container = this.element.querySelector('[data-modal-container]');
         if (container) {
-            container.classList.remove('modal-visible');
-            container.classList.add('modal-exit');
+            const visibleClass = this.variant === 'drawer' ? 'drawer-visible' : 'modal-visible';
+            const exitClass = this.variant === 'drawer' ? 'drawer-exit' : 'modal-exit';
+            container.classList.remove(visibleClass);
+            container.classList.add(exitClass);
         }
 
         setTimeout(() => {

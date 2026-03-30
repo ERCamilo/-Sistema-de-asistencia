@@ -2254,13 +2254,8 @@ window.markAsPaid = () => {
 };
 
 window.openQuickEdit = (empId, dateStr) => {
-    const emp = state.employees.find(e => e.id === empId);
-    state.selectedEmployee = emp;
     state.selectedDate = parseDate(dateStr);
-    state.modalType = 'advanced';
-    state.showModal = true;
-    state.contextMenu = null;
-    render();
+    modalManager.openAdvanced(empId, false);
 };
 window.openAdvancedModal = (empId) => {
     modalManager.openAdvanced(empId, false);
@@ -5789,9 +5784,9 @@ function App() {
         ? tabMap[state.activeTab]()
         : '<div style="text-align:center;padding:60px 20px;color:#64748b;"><div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">🚧</div><div style="font-size:1.125rem;">En desarrollo</div></div>';
 
-    // ⚡ OPTIMIZACIÓN: Lazy loading de modales
+    // ⚡ OPTIMIZACIÓN: Lazy loading de modales (Vía DOM, no inyectados en HTML)
     const modalMap = {
-        'advanced': () => AdvancedAttendanceModal(),
+        'advanced': () => '', // El modal avanzado es independiente (DOM-based)
         'employee-form': () => '',
         'leader-form': () => '',
         'leader-form': () => LeaderFormModal(),
