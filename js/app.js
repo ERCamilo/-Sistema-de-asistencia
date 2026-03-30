@@ -3264,23 +3264,10 @@ window.updateWeekTotals = function () {
 };
 window.setSearchFilter = debounce((value) => {
     state.filters.search = value.trim().toLowerCase();
-
-    // Renderizado selectivo para mantener el foco en el input
-    const dayList = document.getElementById('day-view-list');
-    const weekList = document.getElementById('week-view-list');
-
-    if (state.viewMode === 'day' && dayList) {
-        const filtered = window.getFilteredEmployeesForDay();
-        window.renderInChunks('day-view-list', filtered, (emp) => {
-            return state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
-        });
-    } else if (state.viewMode === 'week' && weekList) {
-        const week = window.getWeekDates(new Date(state.selectedDate));
-        const filtered = window.getFilteredEmployeesForWeek(week);
-        window.renderInChunks('week-view-tbody', filtered, (emp) => WeekRow(emp, week));
-    } else {
-        render();
-    }
+    
+    // El sistema de RenderManager.render() ya se encarga de preservar el foco 
+    // y usar DOMDiff para que el filtrado sea instantáneo y sin parpadeos.
+    render();
 }, 300);
 
 window.toggleListDisplayMode = () => {

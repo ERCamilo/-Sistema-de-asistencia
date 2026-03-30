@@ -326,14 +326,13 @@ export function EmployeeRowCompact(emp) {
 
 /**
  * 📅 Vista Diaria Principal (DayView)
+ * Se eliminó el uso de setTimeout + renderInChunks para prevenir parpadeos en renderizado reactivo.
  */
 export function DayView() {
-    setTimeout(() => {
-        const filtered = getFilteredEmployeesForDay();
-        window.renderInChunks('day-view-list', filtered, (emp) => {
-            return state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
-        }, { initialHTML: renderSkeleton(10) });
-    }, 0);
+    const filtered = getFilteredEmployeesForDay();
+    const listHTML = filtered.length > 0 
+        ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
+        : '<div class="empty-state">No hay resultados</div>';
 
     return `
         ${StatsGrid()}
@@ -342,7 +341,7 @@ export function DayView() {
         ${SearchBar()}
         ${DateControlsCompact()}
         <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''}">
-            ${renderSkeleton(10)}
+            ${listHTML}
         </div>
     `;
 }
@@ -423,13 +422,11 @@ function getWeekDates(date) {
  * 📅 Vista Semanal Principal (WeekView)
  */
 export function WeekView() {
-    setTimeout(() => {
-        const week = getWeekDates(new Date(state.selectedDate));
-        const filtered = getFilteredEmployeesForWeek(week);
-        window.renderInChunks('week-view-tbody', filtered, (emp) => WeekRow(emp, week), {
-            initialHTML: `<tr><td colspan="8">${renderSkeleton(5)}</td></tr>`
-        });
-    }, 0);
+    const week = getWeekDates(new Date(state.selectedDate));
+    const filtered = getFilteredEmployeesForWeek(week);
+    const tbodyHTML = filtered.length > 0
+        ? filtered.map(emp => WeekRow(emp, week)).join('')
+        : '<tr><td colspan="8"><div class="empty-state">No hay empleados registrados para este periodo</div></td></tr>';
 
     return `
         ${SearchBar()}
@@ -439,15 +436,15 @@ export function WeekView() {
                 <thead class="sticky-header">
                     <tr>
                         <th class="sticky-column" style="min-width: 180px;">EMPLEADO</th>
-                        ${getWeekDates(new Date(state.selectedDate)).map(date => {
-        const isH = isDayHoliday(date, state.settings?.holidays);
-        const isS = date.getDay() === 0;
-        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(date)}</th>`;
-    }).join('')}
+                        ${week.map(date => {
+                            const isH = isDayHoliday(date, state.settings?.holidays);
+                            const isS = date.getDay() === 0;
+                            return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(date)}</th>`;
+                        }).join('')}
                     </tr>
                 </thead>
                 <tbody id="week-view-tbody">
-                    <tr><td colspan="8">${renderSkeleton(5)}</td></tr>
+                    ${tbodyHTML}
                 </tbody>
                 <tfoot>
                     ${WeekViewTotalsRow()}
