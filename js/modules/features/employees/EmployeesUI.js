@@ -982,8 +982,17 @@ export function changeFloatingMonth(delta) {
     context.render();
 }
 
-import { EmployeeProfileModal } from '../../ui/modals/EmployeeProfileModal.js';
-
 export function openEmployeeProfile(employeeId) {
-    EmployeeProfileModal.open(employeeId);
+    const state = getState();
+    state.employeeProfile = {
+        employeeId,
+        activeTab: 'nomina',
+        periodStart: getDateKey(new Date(Date.now() - 14 * 86400000)),
+        periodEnd: getDateKey(new Date()),
+        deductions: [{ id: 'DED-1', type: 'percentage', value: 2, name: 'Deducción' }]
+    };
+    state.showEmployeeProfile = true;
+    if (context && context.render) {
+        context.render();
+    }
 }

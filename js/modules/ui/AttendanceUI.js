@@ -617,3 +617,5 @@ window.updateEmployeeRow = updateEmployeeRow;
 window.updateWeekRow = updateWeekRow;
 window.updateWeekTotals = updateWeekTotals;
 window.getFilteredEmployeesForDay = getFilteredEmployeesForDay;
+window.getFilteredEmployeesForWeek = getFilteredEmployeesForWeek;
+window.getWeekDates = getWeekDates;

@@ -191,6 +191,13 @@ window.resolveIconSet = resolveIconSet;
 window.loginWithGoogle = window.App.loginWithGoogle;
 window.logoutFirebase = window.App.logoutFirebase;
 
+// PUENTE A EMPLOYEES UI (Modales y Filtros reubicados)
+Object.entries(EmployeesUI).forEach(([key, value]) => {
+    if (typeof value === 'function') {
+        window[key] = value;
+    }
+});
+
 // NOTA: El listener de autenticación se ha consolidado en la función initializeApp() al final del archivo.
 
 // ============================================
@@ -3263,13 +3270,13 @@ window.setSearchFilter = debounce((value) => {
     const weekList = document.getElementById('week-view-list');
 
     if (state.viewMode === 'day' && dayList) {
-        const filtered = getFilteredEmployeesForDay();
+        const filtered = window.getFilteredEmployeesForDay();
         window.renderInChunks('day-view-list', filtered, (emp) => {
             return state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
         });
     } else if (state.viewMode === 'week' && weekList) {
-        const week = getWeekDates(new Date(state.selectedDate));
-        const filtered = getFilteredEmployeesForWeek(week);
+        const week = window.getWeekDates(new Date(state.selectedDate));
+        const filtered = window.getFilteredEmployeesForWeek(week);
         window.renderInChunks('week-view-tbody', filtered, (emp) => WeekRow(emp, week));
     } else {
         render();
