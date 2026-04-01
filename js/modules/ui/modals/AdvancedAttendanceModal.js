@@ -35,6 +35,7 @@ export class AdvancedAttendanceModal {
         
         const modal = new Modal({
             title: '⚙️ Detalles de Asistencia',
+            subtitle: emp.name,
             content: this.renderContent(emp, att),
             variant: 'drawer',
             position: 'right',
@@ -97,10 +98,6 @@ export class AdvancedAttendanceModal {
 
         return `
             <div class="modal-info" style="margin-bottom: 20px;">
-                <div class="info-row" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                    <span class="info-label" style="color: #64748b; font-size: 0.85rem;">Empleado:</span>
-                    <span class="info-value" style="color: #f1f5f9; font-weight: 600;">${emp.number} - ${emp.name}</span>
-                </div>
                 <div class="info-row" style="display: flex; justify-content: space-between;">
                     <span class="info-label" style="color: #64748b; font-size: 0.85rem;">Fecha:</span>
                     <span class="info-value" style="color: #f1f5f9; font-weight: 600;">${formatDateShort(state.selectedDate)}</span>

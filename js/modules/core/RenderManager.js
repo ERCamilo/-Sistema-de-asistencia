@@ -122,6 +122,13 @@ export function render() {
 
         restoreScrollPosition();
 
+        // 🛰️ Inicializar mini-mapa (ScrollService)
+        requestAnimationFrame(() => {
+            if (window.ScrollService) {
+                window.ScrollService.init();
+            }
+        });
+
         // Auto-guardado condicional
         if (typeof window.saveApplicationData === 'function' && !window._isApplyingRemoteData) {
             window.saveApplicationData();

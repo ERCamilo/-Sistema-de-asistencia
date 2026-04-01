@@ -11,7 +11,7 @@ import { FirebaseService } from '../services/index.js';
 import { generateUUID } from '../utils/Helpers.js';
 import { Notification } from '../components/Notification.js';
 import { debug } from '../utils/Debug.js';
-import { demoData, generateDemoAttendance } from '../data/DemoData.js';
+import { loadDemoDataIntoDB } from '../services/PersistenceService.js';
 import icons from './IconSystem.js';
 
 class OnboardingWizard {
@@ -183,11 +183,19 @@ class OnboardingWizard {
         `;
     }
 
-    selectMode(mode) {
+    async selectMode(mode) {
         state.onboardingMode = mode;
         if (mode === 'demo') {
-            this.loadDemoData();
-            state.onboardingStep = this.steps.indexOf('done');
+            const confirmed = window.confirm(
+                '¿Cargar datos de prueba avanzados?\n\nEsto reemplazará cualquier dato actual con un escenario de 30 días, incluyendo feriados, horas extras y contrataciones tardías.'
+            );
+            
+            if (confirmed) {
+                await this.loadDemoData();
+                state.onboardingStep = this.steps.indexOf('done');
+            } else {
+                return; // Volver a selección
+            }
         } else if (mode === 'scratch') {
             this.clearAllData();
             this.next();
@@ -210,15 +218,14 @@ class OnboardingWizard {
         state.dayHoursConfig = {};
     }
 
-    loadDemoData() {
-        state.usingDemoData = true;
-        state.settings = { ...demoData.settings };
-        // state.settings.iconSet = resolveIconSet(state.settings.iconSet);
-        // applyIconSet(state.settings.iconSet);
-        state.positions = JSON.parse(JSON.stringify(demoData.positions));
-        state.employees = JSON.parse(JSON.stringify(demoData.employees));
-        state.attendance = generateDemoAttendance();
-        debug.log('📊 Datos de prueba cargados (NO guardados)');
+    async loadDemoData() {
+        try {
+            await loadDemoDataIntoDB();
+            debug.log('📊 Datos de prueba avanzados cargados y persistidos en IndexedDB');
+        } catch (error) {
+            console.error('❌ Error al cargar datos demo:', error);
+            Notification.error('Error al cargar los datos de prueba');
+        }
     }
 
     renderCompany() {

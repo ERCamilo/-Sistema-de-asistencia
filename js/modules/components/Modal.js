@@ -2,6 +2,7 @@ import icons from '../ui/IconSystem.js';
 export class Modal {
     constructor(options = {}) {
         this.title = options.title || '';
+        this.subtitle = options.subtitle || null;
         this.content = options.content || '';
         this.size = options.size || 'medium'; // 'small', 'medium', 'large', 'fullscreen'
         this.variant = options.variant || 'modal'; // 'modal', 'drawer'
@@ -30,9 +31,12 @@ export class Modal {
         const modalHTML = `
                     <div class="modal-overlay ${this.backdrop ? 'modal-backdrop' : ''} ${this.variant === 'drawer' ? 'drawer-overlay' : ''}" data-modal-overlay>
                         <div class="modal-container ${sizeClasses[this.size]} ${variantClass} ${animationClass}" data-modal-container>
-                            <div class="modal-header">
-                                <h2 class="modal-title">${this.title}</h2>
-                                ${this.closable ? `<button class="modal-close" data-modal-close aria-label="Cerrar">${icons.get('close')}</button>` : ''}
+                            <div class="modal-header" style="${this.subtitle ? 'flex-direction: column; align-items: flex-start; gap: 4px;' : ''}">
+                                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                    <h2 class="modal-title">${this.title}</h2>
+                                    ${this.closable ? `<button class="modal-close" data-modal-close aria-label="Cerrar">${icons.get('close')}</button>` : ''}
+                                </div>
+                                ${this.subtitle ? `<div class="modal-subtitle" style="font-size: 0.85rem; color: #94a3b8; font-weight: 500; margin-top: 2px;">${this.subtitle}</div>` : ''}
                             </div>
                             <div class="modal-body"></div>
                             ${this.buttons ? this.renderButtons() : ''}

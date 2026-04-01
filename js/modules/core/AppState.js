@@ -77,7 +77,8 @@ const initialState = {
         nextPaymentDate: null,
         overtimeFactor: 1.5,
         holidayFactor: 2.0,
-        holidays: []
+        holidays: [],
+        scrollbarMode: 'on-scroll' // Opciones: 'always', 'on-scroll', 'hidden'
     },
     employeeFilter: '', 
     searchQuery: '',

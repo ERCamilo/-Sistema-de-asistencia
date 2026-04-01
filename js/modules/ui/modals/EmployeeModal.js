@@ -7,7 +7,8 @@ export class EmployeeModal {
         const state = getState();
         const emp = employeeId ? (state.employees.find(e => e.id === employeeId) || state.employees.find(e => e.key === employeeId)) : null;
         const isEdit = !!emp;
-        const title = isEdit ? `Editar Empleado - ${emp.name}` : 'Nuevo Empleado';
+        const mainTitle = isEdit ? 'Editar Empleado' : 'Nuevo Empleado';
+        const subtitle = isEdit ? emp.name : null;
 
         // Lógica de número sugerido
         const suggestedNumber = isEdit ? emp.number : (() => {
@@ -130,7 +131,8 @@ export class EmployeeModal {
         `;
 
         const modal = new Modal({
-            title: `👤 ${title}`,
+            title: `👤 ${mainTitle}`,
+            subtitle: subtitle,
             content: contentHTML,
             size: 'medium',
             buttons: [

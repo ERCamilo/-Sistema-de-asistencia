@@ -60,21 +60,104 @@
             border-right: 2px solid #334155 !important;
         }
 
-        /* Scrollbar moderno */
+        /* Scrollbar moderno (Mini-mapa) */
         .modern-scroll::-webkit-scrollbar {
             height: 6px;
-            width: 6px;
+            width: 8px; /* Un poco más ancho para los indicadores */
         }
         .modern-scroll::-webkit-scrollbar-track {
             background: #0f172a;
+            border-left: 1px solid #1e293b;
         }
         .modern-scroll::-webkit-scrollbar-thumb {
             background: #334155;
             border-radius: 10px;
+            border: 2px solid #0f172a; /* Efecto de padding interno */
         }
         .modern-scroll::-webkit-scrollbar-thumb:hover {
-            background: #475569;
+            background: #06b6d4;
         }
+
+        /* Contenedor del Mini-mapa Interactivo */
+        .scrollbar-indicator-container {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 10px;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 1;
+            transition: opacity 0.3s ease, width 0.2s ease;
+            background: rgba(15, 23, 42, 0.2); /* Sutil carril visible */
+            border-left: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .scrollbar-indicator-container.mode-on-scroll {
+            opacity: 0;
+        }
+
+        .scrollbar-indicator-container.mode-on-scroll.scrolling,
+        .scrollbar-indicator-container.mode-on-scroll:hover {
+            opacity: 1;
+            width: 12px; /* Se agranda al interactuar */
+        }
+
+        .scrollbar-indicator-container.mode-hidden {
+            display: none;
+        }
+
+        .scroll-indicator {
+            position: absolute;
+            right: 1px;
+            width: 6px; /* Más ancho para parecer una marca de IDE */
+            height: 2px; /* Altura de barra horizontal */
+            border-radius: 1px;
+            transform: translateY(-50%);
+            box-shadow: 0 0 2px rgba(0,0,0,0.8);
+            transition: all 0.2s ease;
+        }
+
+        .scrollbar-indicator-container:hover .scroll-indicator {
+            width: 10px;
+            right: 1px;
+            height: 3px;
+        }
+
+        /* Colores Neón (IDE Style) */
+        .scroll-indicator.absent { 
+            background: #ff4d4d; 
+            box-shadow: 0 0 5px rgba(255, 77, 77, 0.6); 
+        }
+        .scroll-indicator.extra { 
+            background: #00d9ff; 
+            box-shadow: 0 0 5px rgba(0, 217, 255, 0.6); 
+        }
+        .scroll-indicator.holiday { 
+            background: #ffcc00; 
+            box-shadow: 0 0 4px rgba(255, 204, 0, 0.5); 
+        }
+        .scroll-indicator.note { 
+            background: #ffffff; 
+            box-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
+            width: 3px; /* Más sutil para notas */
+        }
+        .scroll-indicator.multiposition { 
+            background: #bf00ff; 
+            box-shadow: 0 0 5px rgba(191, 0, 255, 0.6); 
+        }
+        .scroll-indicator.pending { 
+            background: #4b5563; /* Gris medio (Slate 600) */
+            box-shadow: 0 0 3px rgba(75, 85, 99, 0.4); 
+            opacity: 0.6;
+        }
+        
+        /* Animación para la aparición de indicadores */
+        @keyframes indicatorFadeIn {
+            from { opacity: 0; transform: scale(0.5) translateY(-50%); }
+            to { opacity: 1; transform: scale(1) translateY(-50%); }
+        }
+        .scroll-indicator { animation: indicatorFadeIn 0.3s ease-out; }
 
         @media (min-width: 768px) {
             .container {

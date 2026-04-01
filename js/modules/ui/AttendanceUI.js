@@ -6,6 +6,7 @@
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
 import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText } from '../utils/DateUtils.js';
+import { ScrollService } from '../services/ScrollService.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -340,8 +341,11 @@ export function DayView() {
         ${PositionFilters()}
         ${SearchBar()}
         ${DateControlsCompact()}
-        <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''}">
-            ${listHTML}
+        <div style="position: relative; margin-top: 16px;">
+            <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
+                ${listHTML}
+            </div>
+            ${ScrollService.renderIndicators(filtered)}
         </div>
     `;
 }

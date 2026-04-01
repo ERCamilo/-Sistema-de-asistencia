@@ -214,76 +214,73 @@ export class IndexedDBService {
      * @param {Object} options - Opciones (ej. { clearFirst: false })
      */
     async saveState(state, options = {}) {
+        const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
         try {
-            // 🛡️ UNBOXING: Convertir el estado (que puede ser un Proxy) a un objeto plano
-            // para evitar errores de DataCloneError en IndexedDB (algoritmo Structured Clone).
             const cleanState = JSON.parse(JSON.stringify(state));
             
             if (options.clearFirst) {
-                await this.clear('employees');
-                await this.clear('positions');
-                await this.clear('leaders');
-                await this.clear('attendance');
-                await this.clear('settings');
+                await this.clearAll();
             }
 
-            // 1. DEDUPLICACIÓN INTERNA DE EMPLEADOS (en el state entrante)
+            // 1. DEDUPLICACIÓN INTERNA DE EMPLEADOS
             const empMap = new Map();
-            const empToDeletesInternal = [];
-
             (cleanState.employees || []).forEach(emp => {
                 const num = String(emp.number || '').trim();
                 if (!num) return;
 
                 const existing = empMap.get(num);
                 if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
-                    if (existing && existing.id !== emp.id) empToDeletesInternal.push(existing.id);
+                    if (existing) stats.deduplicated++;
                     empMap.set(num, emp);
-                } else if (existing.id !== emp.id) {
-                    empToDeletesInternal.push(emp.id);
+                } else {
+                    stats.deduplicated++;
                 }
             });
 
             // 2. DEDUPLICACIÓN INTERNA DE LÍDERES
             const leadMap = new Map();
-            const leadToDeletesInternal = [];
-
             (cleanState.leaders || []).forEach(l => {
                 const num = String(l.number || '').trim();
                 if (!num) return;
 
                 const existing = leadMap.get(num);
                 if (!existing || (l.updatedAt || 0) > (existing.updatedAt || 0)) {
-                    if (existing && existing.id !== l.id) leadToDeletesInternal.push(existing.id);
+                    if (existing) stats.deduplicated++;
                     leadMap.set(num, l);
-                } else if (existing.id !== l.id) {
-                    leadToDeletesInternal.push(l.id);
+                } else {
+                    stats.deduplicated++;
                 }
             });
 
-            // 3. LIMPIEZA DE COLISIONES CONTRA LA BASE DE DATOS
-            // Ya no es necesaria la limpieza de colisiones por 'number' porque el índice ya no es único (v8).
-            // Esto permite total flexibilidad del usuario para organizar sus números.
-
-            // 4. GUARDADO EFECTIVO
-            for (const emp of empMap.values()) await this.update('employees', emp);
-            for (const pos of (cleanState.positions || [])) await this.update('positions', pos);
-            for (const leader of leadMap.values()) await this.update('leaders', leader);
+            // 3. GUARDADO EFECTIVO
+            for (const emp of empMap.values()) {
+                await this.update('employees', emp);
+                stats.employees++;
+            }
+            for (const pos of (cleanState.positions || [])) {
+                await this.update('positions', pos);
+                stats.positions++;
+            }
+            for (const leader of leadMap.values()) {
+                await this.update('leaders', leader);
+                stats.leaders++;
+            }
 
             const attRecords = Object.entries(cleanState.attendance || {}).map(([key, value]) => ({
                 key,
                 ...value
             }));
-            for (const att of attRecords) await this.update('attendance', att);
-
-            if (cleanState.settings) {
-                await this.update('settings', {
-                    key: 'app',
-                    ...cleanState.settings
-                });
+            for (const att of attRecords) {
+                await this.update('attendance', att);
+                stats.attendance++;
             }
 
-            return true;
+            if (cleanState.settings) {
+                await this.update('settings', { key: 'app', ...cleanState.settings });
+            }
+
+            console.log('📊 IndexedDB Save Stats:', stats);
+            return stats;
         } catch (error) {
             console.error('❌ Error en saveState (IndexedDB):', error);
             throw error;

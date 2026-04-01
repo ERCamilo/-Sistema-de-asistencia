@@ -7,7 +7,8 @@ export class LeaderModal {
         const state = getState();
         const ldr = leaderId ? state.leaders.find(l => l.id === leaderId) : null;
         const isEdit = !!ldr;
-        const title = isEdit ? `Editar Líder - ${ldr.name}` : 'Nuevo Líder';
+        const mainTitle = isEdit ? 'Editar Líder' : 'Nuevo Líder';
+        const subtitle = isEdit ? ldr.name : null;
 
         // Sugerencia de número para líder
         const suggestedNumber = isEdit ? ldr.number : (() => {
@@ -73,7 +74,8 @@ export class LeaderModal {
         `;
 
         const modal = new Modal({
-            title: `👑 ${title}`,
+            title: `👑 ${mainTitle}`,
+            subtitle: subtitle,
             content: contentHTML,
             size: 'medium',
             buttons: [

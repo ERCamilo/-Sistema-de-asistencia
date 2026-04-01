@@ -1,7 +1,7 @@
 import icons from '../../ui/IconSystem.js';
 
 import { memoCache } from '../../utils/MemoCache.js';
-import { getDateKey, parseDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
+import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
 
 let context = null;
@@ -787,23 +787,251 @@ export async function exportEmployeeReportExcel() {
         const startLabel = formatDateShort(state.employeeReportStartDate);
         const endLabel = formatDateShort(state.employeeReportEndDate);
 
-        // -------- Resumen general --------
-        const summarySheet = workbook.addWorksheet('Resumen');
-        summarySheet.getCell('A1').value = 'REPORTE DE EMPLEADOS';
-        summarySheet.getCell('A2').value = `Período: ${startLabel} - ${endLabel}`;
+        // -------- CONFIGURACIÓN DE ESTILOS --------
+        const headerStyle = {
+            font: { bold: true, color: { argb: 'FFFFFFFF' } },
+            fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } },
+            alignment: { vertical: 'middle', horizontal: 'center' },
+            border: {
+                top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+            }
+        };
+
+        const sundayStyle = {
+            fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E1' } } // MistyRose (un rojo muy suave)
+        };
+
+        const spanishDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+        const applyTableStyles = (sheet, dateStartIndex, dateEndIndex) => {
+            // Estilo a las dos primeras filas (encabezado doble)
+            [1, 2].forEach(rowNum => {
+                const row = sheet.getRow(rowNum);
+                row.height = 25;
+                row.eachCell((cell) => {
+                    cell.style = headerStyle;
+                });
+            });
+
+            // Resaltar Domingos en todo el rango de datos
+            sheet.eachRow((row, rowNumber) => {
+                for (let colIdx = dateStartIndex; colIdx <= dateEndIndex; colIdx++) {
+                    const date = reportData.days[colIdx - dateStartIndex]?.date;
+                    if (date && date.getDay() === 0) {
+                        const cell = row.getCell(colIdx);
+                        // Mezclamos el estilo (si es header mantenemos el color oscuro, si es data aplicamos el suave)
+                        if (rowNumber > 2) {
+                            cell.fill = sundayStyle.fill;
+                        } else {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF991B1B' } }; // Rojo oscuro para el header de domingo
+                        }
+                    }
+                }
+            });
+
+            // Congelar Paneles (Filas: 2, Columnas: 2)
+            sheet.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }];
+
+            // Auto-filtro (en la fila 2 de fechas)
+            sheet.autoFilter = {
+                from: { row: 2, column: 1 },
+                to: { row: 2, column: sheet.columnCount }
+            };
+
+            // Formato de celdas de datos
+            sheet.eachRow((row, rowNumber) => {
+                if (rowNumber > 2) {
+                    row.eachCell((cell, colNumber) => {
+                        cell.alignment = { vertical: 'middle', horizontal: colNumber <= 2 ? 'left' : 'center' };
+                        if (typeof cell.value === 'number') {
+                            cell.numFmt = '0.00';
+                        }
+                    });
+                }
+            });
+        };
 
         const dayColumns = reportData.days.map(d => ({
-            header: `${d.date.getDate()}/${d.date.getMonth() + 1}`,
+            header: spanishDays[d.date.getDay()], // Fila 1: Nombre del día
             key: getDateKey(d.date),
-            width: 6
+            width: 8
         }));
 
+        const addSubHeader = (sheet, startCol, endCol, extraColsBefore = 2, extraColsAfter = 2) => {
+            // Insertar la fila de números de fecha como fila 2
+            const subHeaderRow = [];
+            for (let i = 0; i < extraColsBefore; i++) subHeaderRow.push('');
+            reportData.days.forEach(d => subHeaderRow.push(`${d.date.getDate()}/${d.date.getMonth() + 1}`));
+            for (let i = 0; i < extraColsAfter; i++) subHeaderRow.push('');
+            
+            sheet.insertRow(2, subHeaderRow);
+            
+            // Mergear celdas del encabezado izquierdo
+            sheet.mergeCells(1, 1, 2, 1); // #
+            sheet.mergeCells(1, 2, 2, 2); // Nombre
+            
+            // Mergear celdas del encabezado derecho (Totales)
+            const lastCol = sheet.columnCount;
+            for (let i = 0; i < extraColsAfter; i++) {
+                const col = lastCol - i;
+                sheet.mergeCells(1, col, 2, col);
+            }
+        };
+
+        // -------- CÁLCULO DE MÉTRICAS GLOBALES PARA DASHBOARD --------
+        const globalMetrics = {
+            totalHours: 0,
+            totalOvertime: 0,
+            totalDays: 0,
+            uniqueEmployees: new Set(),
+            leaderStats: {},
+            positionStats: {},
+            holidays: []
+        };
+
+        // Identificar feriados en el rango
+        reportData.days.forEach(d => {
+            if (isDayHoliday(d.date, state.settings.holidays)) {
+                globalMetrics.holidays.push(formatDate(d.date));
+            }
+        });
+
+        // Procesar todos los datos para métricas
+        reportData.positions.forEach(posData => {
+            const pos = posData.position;
+            const leader = state.leaders.find(l => l.id === pos.leaderId);
+            const leaderName = leader ? leader.name : 'Sin Líder';
+
+            if (!globalMetrics.positionStats[pos.name]) globalMetrics.positionStats[pos.name] = 0;
+            if (!globalMetrics.leaderStats[leaderName]) globalMetrics.leaderStats[leaderName] = 0;
+
+            posData.employees.forEach(emp => {
+                globalMetrics.uniqueEmployees.add(emp.id);
+                globalMetrics.totalDays += emp.total;
+                
+                Object.keys(emp.dayValues).forEach(dateKey => {
+                    const att = state.attendance[`${emp.id}-${dateKey}`];
+                    if (att && att.present) {
+                        const hours = att.hoursWorked || 0;
+                        const dayLimit = state.dayHoursConfig[dateKey] ?? state.settings.regularHoursPerDay ?? 8;
+                        const extra = Math.max(0, hours - dayLimit);
+                        
+                        globalMetrics.totalHours += hours;
+                        globalMetrics.totalOvertime += extra;
+                        globalMetrics.leaderStats[leaderName] += hours;
+                        globalMetrics.positionStats[pos.name] += hours;
+                    }
+                });
+            });
+        });
+
+        // -------- HOJA: DASHBOARD DE CONTROL --------
+        const dashSheet = workbook.addWorksheet('Dashboard de Control');
+        
+        // Estilos para el Dashboard
+        const titleStyle = { font: { size: 18, bold: true, color: { argb: 'FF1E293B' } } };
+        const labelStyle = { font: { bold: true, color: { argb: 'FF64748B' } } };
+        const kpiValueStyle = { font: { size: 14, bold: true, color: { argb: 'FF0F172A' } }, alignment: { horizontal: 'center' } };
+        const kpiLabelStyle = { font: { size: 10, color: { argb: 'FF475569' } }, alignment: { horizontal: 'center' }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } } };
+
+        // 1. Encabezado de la Compañía
+        dashSheet.mergeCells('A1:E2');
+        const titleCell = dashSheet.getCell('A1');
+        titleCell.value = state.settings.companyName || 'Sistema de Asistencia';
+        titleCell.style = titleStyle;
+        titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+        dashSheet.getCell('A3').value = 'REPORTE DE ASISTENCIA Y PRODUCTIVIDAD';
+        dashSheet.getCell('A3').font = { bold: true, color: { argb: 'FF334155' } };
+
+        // 2. Información General
+        dashSheet.getCell('A5').value = 'Desde:'; dashSheet.getCell('A5').style = labelStyle;
+        dashSheet.getCell('B5').value = formatDate(state.employeeReportStartDate);
+        dashSheet.getCell('A6').value = 'Hasta:'; dashSheet.getCell('A6').style = labelStyle;
+        dashSheet.getCell('B6').value = formatDate(state.employeeReportEndDate);
+        dashSheet.getCell('D5').value = 'Fecha Reporte:'; dashSheet.getCell('D5').style = labelStyle;
+        dashSheet.getCell('E5').value = new Date().toLocaleDateString();
+
+        // 3. Tarjetas KPI
+        const kpis = [
+            { label: 'EMPLEADOS', value: globalMetrics.uniqueEmployees.size },
+            { label: 'HORAS TOTALES', value: globalMetrics.totalHours.toFixed(2) },
+            { label: 'HORAS EXTRAS', value: globalMetrics.totalOvertime.toFixed(2) },
+            { label: 'DÍAS TRABAJADOS', value: globalMetrics.totalDays.toFixed(2) }
+        ];
+
+        kpis.forEach((kpi, i) => {
+            const col = String.fromCharCode(65 + i); // A, B, C, D
+            dashSheet.getCell(`${col}8`).value = kpi.label;
+            dashSheet.getCell(`${col}8`).style = kpiLabelStyle;
+            dashSheet.getCell(`${col}9`).value = Number(kpi.value);
+            dashSheet.getCell(`${col}9`).style = kpiValueStyle;
+            dashSheet.getCell(`${col}9`).numFmt = '0.00';
+            dashSheet.getColumn(col).width = 18;
+        });
+
+        // 4. Tablas de Resumen
+        let currentRow = 12;
+
+        // Resumen por Líder
+        dashSheet.getCell(`A${currentRow}`).value = 'RESUMEN POR LÍDER';
+        dashSheet.getCell(`A${currentRow}`).font = { bold: true };
+        currentRow++;
+        dashSheet.getCell(`A${currentRow}`).value = 'Líder';
+        dashSheet.getCell(`B${currentRow}`).value = 'Suma de Horas';
+        dashSheet.getCell(`A${currentRow}`).style = headerStyle;
+        dashSheet.getCell(`B${currentRow}`).style = headerStyle;
+        
+        Object.entries(globalMetrics.leaderStats)
+            .sort((a, b) => b[1] - a[1])
+            .forEach(([name, hours]) => {
+                currentRow++;
+                dashSheet.getCell(`A${currentRow}`).value = name;
+                dashSheet.getCell(`B${currentRow}`).value = Number(hours.toFixed(2));
+                dashSheet.getCell(`B${currentRow}`).numFmt = '0.00';
+            });
+
+        // Resumen por Posición (Top 5)
+        currentRow += 3;
+        dashSheet.getCell(`A${currentRow}`).value = 'TOP 5 POSICIONES (POR HORAS)';
+        dashSheet.getCell(`A${currentRow}`).font = { bold: true };
+        currentRow++;
+        dashSheet.getCell(`A${currentRow}`).value = 'Posición';
+        dashSheet.getCell(`B${currentRow}`).value = 'Total Horas';
+        dashSheet.getCell(`A${currentRow}`).style = headerStyle;
+        dashSheet.getCell(`B${currentRow}`).style = headerStyle;
+
+        Object.entries(globalMetrics.positionStats)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .forEach(([name, hours]) => {
+                currentRow++;
+                dashSheet.getCell(`A${currentRow}`).value = name;
+                dashSheet.getCell(`B${currentRow}`).value = Number(hours.toFixed(2));
+                dashSheet.getCell(`B${currentRow}`).numFmt = '0.00';
+            });
+
+        // Listado de Feriados
+        if (globalMetrics.holidays.length > 0) {
+            currentRow += 3;
+            dashSheet.getCell(`A${currentRow}`).value = 'DÍAS FERIADOS DETECTADOS';
+            dashSheet.getCell(`A${currentRow}`).font = { bold: true };
+            currentRow++;
+            globalMetrics.holidays.forEach(h => {
+                dashSheet.getCell(`A${currentRow}`).value = h;
+                dashSheet.getCell(`A${currentRow}`).font = { color: { argb: 'FFEF4444' } };
+                currentRow++;
+            });
+        }
+
+        // -------- HOJA: RESUMEN GENERAL (EXISTENTE) --------
+        const summarySheet = workbook.addWorksheet('Resumen General');
         summarySheet.columns = [
             { header: '#', key: 'number', width: 8 },
-            { header: 'Empleado', key: 'name', width: 28 },
+            { header: 'Empleado', key: 'name', width: 32 },
             ...dayColumns,
-            { header: 'Días', key: 'totalDays', width: 8 },
-            { header: 'Horas', key: 'totalHours', width: 10 }
+            { header: 'Días Total', key: 'totalDays', width: 12 },
+            { header: 'Horas Total', key: 'totalHours', width: 12 }
         ];
 
         const allEmployeesMap = new Map();
@@ -823,11 +1051,11 @@ export async function exportEmployeeReportExcel() {
         allEmployees.forEach(emp => {
             emp.totalDays = Object.values(emp.dayValues).reduce((sum, v) => sum + v, 0);
             reportData.days.forEach(day => {
-                const att = state.attendance[`${ emp.id }-${ getDateKey(day.date)}`];
+                const att = state.attendance[`${emp.id}-${getDateKey(day.date)}`];
                 if (att && att.present) emp.totalHours += (att.hoursWorked || 0);
             });
         });
-        allEmployees.sort((a, b) => a.number.localeCompare(b.number));
+        allEmployees.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
         allEmployees.forEach(emp => {
             const row = {
@@ -838,24 +1066,27 @@ export async function exportEmployeeReportExcel() {
             };
             reportData.days.forEach(day => {
                 const key = getDateKey(day.date);
-                row[key] = Number((emp.dayValues[key] || 0).toFixed(2));
+                row[key] = emp.dayValues[key] !== undefined ? Number(emp.dayValues[key].toFixed(2)) : null;
             });
             summarySheet.addRow(row);
         });
 
-        // -------- Hojas por posición --------
+        addSubHeader(summarySheet, 3, reportData.days.length + 2, 2, 2);
+        applyTableStyles(summarySheet, 3, reportData.days.length + 2);
+
+        // -------- HOJAS POR POSICIÓN --------
         reportData.positions.forEach(posData => {
-            const sheetName = (posData.position?.name || 'Posición').slice(0, 31);
+            const sheetName = (posData.position?.name || 'Posición').replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
             const sheet = workbook.addWorksheet(sheetName);
             sheet.columns = [
                 { header: '#', key: 'number', width: 8 },
-                { header: 'Empleado', key: 'name', width: 28 },
+                { header: 'Nombre', key: 'name', width: 32 },
                 ...dayColumns,
-                { header: 'Total', key: 'total', width: 8 }
+                { header: 'Total Días', key: 'total', width: 12 }
             ];
 
             posData.employees
-                .sort((a, b) => a.number.localeCompare(b.number))
+                .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }))
                 .forEach(emp => {
                     const row = {
                         number: emp.number,
@@ -864,129 +1095,86 @@ export async function exportEmployeeReportExcel() {
                     };
                     reportData.days.forEach(day => {
                         const key = getDateKey(day.date);
-                        row[key] = Number((emp.dayValues[key] || 0).toFixed(2));
+                        row[key] = emp.dayValues[key] !== undefined ? Number(emp.dayValues[key].toFixed(2)) : null;
                     });
                     sheet.addRow(row);
                 });
+            
+            addSubHeader(sheet, 3, reportData.days.length + 2, 2, 1);
+            applyTableStyles(sheet, 3, reportData.days.length + 2);
         });
 
-        // -------- Hojas por líder --------
-        const leadersWithTeams = state.leaders.filter(l => {
-            return state.positions.some(p => p.leaderId === l.id);
-        });
+        // -------- HOJAS POR LÍDER (OPTIMIZADO) --------
+        state.leaders.forEach(leader => {
+            const leaderPositions = reportData.positions.filter(p => p.position.leaderId === leader.id);
+            if (leaderPositions.length === 0) return;
 
-        const regularHours = state.settings.regularHoursPerDay;
-        const holidayFactor = state.settings.holidayFactor;
+            const sheetName = (`Líder - ${leader.name}`).replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
+            const sheet = workbook.addWorksheet(sheetName);
+            
+            sheet.columns = [
+                { header: 'No.', key: 'idx', width: 8 },
+                { header: 'Descripción/Nombre', key: 'name', width: 32 },
+                { header: 'Ocupación/Posición', key: 'position', width: 25 },
+                ...dayColumns,
+                { header: 'Total Días', key: 'days', width: 12 }
+            ];
 
-        const buildPositionEmployees = (position) => {
-            const employees = [];
-            const empsByPosition = state.employees.filter(e => {
-                if (!wasEmployeeActiveInRange(e, state.employeeReportStartDate, state.employeeReportEndDate)) return false;
-                return (e.positions && Array.isArray(e.positions) && e.positions.includes(position.id)) || e.position === position.id;
-            });
-
-            empsByPosition.forEach(emp => {
-                const dayValues = {};
-                let total = 0;
-                reportData.days.forEach(day => {
-                    const dateKey = getDateKey(day.date);
-                    const att = state.attendance[`${emp.id}-${dateKey}`];
-                    if (att && att.present) {
-                        let dayValue = 0;
-                        if (att.multiPosition && att.positionHours) {
-                            const posHours = att.positionHours.find(ph => ph.positionId === position.id);
-                            if (posHours) dayValue = (posHours.hours || 0) / regularHours;
-                        } else {
-                            const selectedPos = att.selectedPosition || (emp.positions || [])[0];
-                            if (selectedPos !== position.id) return;
-                            dayValue = (att.hoursWorked || 0) / regularHours;
-                        }
-                        if (day.isHoliday || att.isHoliday) dayValue *= (holidayFactor || 1);
-                        if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }
-                    }
-                });
-                if (!isNaN(total)) employees.push({ id: emp.id, number: emp.number, name: emp.name, dayValues, total });
-            });
-            return employees;
-        };
-
-        leadersWithTeams.forEach(leader => {
-            const leaderPositions = state.positions.filter(p => p.leaderId === leader.id);
             const employeeMap = new Map();
-            leaderPositions.forEach(position => {
-                const posEmployees = buildPositionEmployees(position);
-                posEmployees.forEach(emp => {
+            leaderPositions.forEach(posData => {
+                posData.employees.forEach(emp => {
                     if (!employeeMap.has(emp.id)) {
                         employeeMap.set(emp.id, {
                             id: emp.id,
                             number: emp.number,
                             name: emp.name,
-                            positions: []
+                            items: []
                         });
                     }
-                    employeeMap.get(emp.id).positions.push({
-                        positionName: position.name || 'Posición',
-                        totalDays: Number(emp.total.toFixed(2)),
-                        dayValues: { ...emp.dayValues }
+                    employeeMap.get(emp.id).items.push({
+                        positionName: posData.position.name,
+                        total: emp.total,
+                        dayValues: emp.dayValues
                     });
                 });
             });
 
-            const employees = Array.from(employeeMap.values())
-                .sort((a, b) => a.number.localeCompare(b.number));
-            if (employees.length === 0) {
-                const sheetName = (`Líder - ${leader.name}`).slice(0, 31);
-                const sheet = workbook.addWorksheet(sheetName);
-                sheet.columns = [
-                    { header: 'No.', key: 'idx', width: 8 },
-                    { header: 'Description', key: 'name', width: 28 },
-                    { header: 'OCUPACION', key: 'position', width: 22 },
-                    ...dayColumns,
-                    { header: 'Días', key: 'days', width: 10 }
-                ];
-                sheet.addRow({ idx: '-', name: 'Sin datos en el período', position: '', days: '' });
-                return;
-            }
+            const sortedEmployees = Array.from(employeeMap.values())
+                .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
-            const sheetName = (`Líder - ${leader.name}`).slice(0, 31);
-            const sheet = workbook.addWorksheet(sheetName);
-            sheet.columns = [
-                { header: 'No.', key: 'idx', width: 8 },
-                { header: 'Description', key: 'name', width: 28 },
-                { header: 'OCUPACION', key: 'position', width: 22 },
-                ...dayColumns,
-                { header: 'Días', key: 'days', width: 10 }
-            ];
-
-            employees.forEach((emp, i) => {
-                const baseIndex = String(i + 1);
-                emp.positions.forEach((pos, j) => {
-                    const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1)); // b, c, d...
-                    const idx = `${baseIndex}${suffix}`;
+            sortedEmployees.forEach((emp, i) => {
+                const baseIndex = i + 1;
+                emp.items.forEach((item, j) => {
+                    const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1));
                     const row = {
-                        idx,
+                        idx: `${baseIndex}${suffix}`,
                         name: emp.name,
-                        position: pos.positionName,
-                        days: pos.totalDays
+                        position: item.positionName,
+                        days: Number(item.total.toFixed(2))
                     };
                     reportData.days.forEach(day => {
                         const key = getDateKey(day.date);
-                        row[key] = Number((pos.dayValues[key] || 0).toFixed(2));
+                        row[key] = item.dayValues[key] !== undefined ? Number(item.dayValues[key].toFixed(2)) : null;
                     });
                     sheet.addRow(row);
                 });
             });
+            
+            addSubHeader(sheet, 4, reportData.days.length + 3, 3, 1);
+            applyTableStyles(sheet, 4, reportData.days.length + 3);
         });
 
-        // SAVE
+        // -------- GUARDAR Y DESCARGAR --------
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `Reporte_Asistencia_${ state.employeeReportStartDate }_${ state.employeeReportEndDate }.xlsx`;
+        const fileName = `Reporte_Personal_${state.employeeReportStartDate}_${state.employeeReportEndDate}.xlsx`.replace(/:/g, '-');
+        link.download = fileName;
         link.click();
-        if (window.showNotification) window.showNotification(`${ icons.get('info') } Excel exportado exitosamente`, 'success');
+        
+        if (window.showNotification) window.showNotification(`${icons.get('reports')} Excel exportado correctamente`, 'success');
     } else {
-        console.error('ExcelJS not found');
+        if (window.showNotification) window.showNotification('Error: ExcelJS no está cargado', 'error');
     }
 }

@@ -25,27 +25,44 @@ export function EmployeeProfileModal() {
 
     return `<div class="modal-overlay" onclick="if(event.target === this) closeEmployeeProfile()">
                 <div class="modal-content profile-modal" style="max-width: 700px; padding: 0; overflow: hidden; border-radius: 16px;">
-                    <!-- Cabecera Premium -->
-                    <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 24px; position: relative; border-bottom: 1px solid #334155;">
-                        <button class="modal-close" onclick="closeEmployeeProfile()" style="top: 16px; right: 16px; color: #94a3b8;">✕</button>
+                    <!-- Cabecera Premium: Jerarquía Visual Refinada -->
+                    <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 32px 24px; position: relative; border-bottom: 1px solid #334155;">
+                        <button class="modal-close" onclick="closeEmployeeProfile()" style="top: 20px; right: 20px; color: #94a3b8; font-size: 1.2rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#f1f5f9'" onmouseout="this.style.color='#94a3b8'">✕</button>
                         
-                        <div style="display: flex; align-items: center; gap: 20px;">
-                            <div style="width: 80px; height: 80px; background: ${emp.positions?.length > 0 ? (state.positions.find(p => p.id === emp.positions[0])?.color || '#06b6d4') : '#06b6d4'}; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 800; color: white; box-shadow: 0 8px 16px rgba(0,0,0,0.3);">
+                        <div style="display: flex; align-items: center; gap: 24px;">
+                            <!-- Avatar Dinámico -->
+                            <div style="width: 90px; height: 90px; background: ${emp.positions?.length > 0 ? (state.positions.find(p => p.id === emp.positions[0])?.color || '#06b6d4') : '#06b6d4'}; border-radius: 24px; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; font-weight: 800; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4); border: 2px solid rgba(255,255,255,0.1); flex-shrink: 0;">
                                 ${emp.name.charAt(0)}
                             </div>
-                            <div>
-                                <h2 style="font-size: 1.5rem; font-weight: 800; color: #f1f5f9; margin-bottom: 4px;">${emp.name}</h2>
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span style="background: rgba(34, 211, 238, 0.1); color: #22d3ee; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; border: 1px solid rgba(34, 211, 238, 0.2);">
+                            
+                            <div style="flex-grow: 1;">
+                                <!-- Jerarquía de Títulos Reforzada -->
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                                    <span style="font-size: 0.75rem; color: #06b6d4; font-weight: 900; text-transform: uppercase; letter-spacing: 0.12em; background: rgba(6, 182, 212, 0.2); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(6, 182, 212, 0.4); display: inline-block;">
+                                        Perfil de Empleado
+                                    </span>
+                                    <span style="background: rgba(148, 163, 184, 0.2); color: #f1f5f9; padding: 5px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; border: 1px solid rgba(148, 163, 184, 0.4);">
                                         #${emp.number}
                                     </span>
-                                    <span style="color: #94a3b8; font-size: 0.875rem; font-weight: 500;">
-                                        ${emp.active ? '🟢 Activo' : '🔴 Inactivo'}
+                                </div>
+                                <h2 style="font-size: 1.8rem; font-weight: 900; color: #f1f5f9; margin: 0; line-height: 1.2; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 1.6rem;">👤</span> ${emp.name}
+                                </h2>
+                                
+                                <div style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                                    <span style="color: ${emp.active ? '#10b981' : '#ef4444'}; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                                        <span style="width: 8px; height: 8px; background: currentColor; border-radius: 50%; display: inline-block;"></span>
+                                        ${emp.active ? 'Activo' : 'Inactivo'}
+                                    </span>
+                                    <span style="color: #64748b; font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 6px;">
+                                        ${icons.get('layers', { size: 14 })}
+                                        ${emp.positions?.length || 0} Posiciones
                                     </span>
                                 </div>
                             </div>
-                            <button class="btn btn-secondary" onclick="openEmployeeForm('${emp.id}')" style="margin-left: auto; padding: 8px 16px; font-size: 0.8rem; background: #334155; border: none;">
-                                ✏️ Editar
+
+                            <button class="btn btn-secondary" onclick="openEmployeeForm('${emp.id}')" style="align-self: center; padding: 10px 18px; font-size: 0.85rem; background: #1e293b; border: 1px solid #334155; border-radius: 10px; color: #f1f5f9; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='#334155'" onmouseout="this.style.background='#1e293b'">
+                                ${icons.get('edit', { size: 16 })} Editar
                             </button>
                         </div>
                     </div>
@@ -257,38 +274,7 @@ function ProfileEndDatePicker() {
             </div>`;
 }
 
-/**
- * 💰 CÁLCULO DE SALARIO MENSUAL ESTIMADO
- */
-function calculateMonthlyEstimate(emp) {
-    let totalMonthly = 0;
-    const breakdown = [];
-
-    emp.positions.forEach(posId => {
-        const pos = state.positions.find(p => p.id === posId);
-        if (!pos) return;
-
-        // Obtener sueldo (personalizado o estándar)
-        const hourlySalary = emp.positionSalaries?.[posId] || pos.baseSalary || 0;
-
-        // Obtener días laborales (personalizados o estándar)
-        const workingDays = emp.customWorkingDays?.[posId] || pos.workingDays || [1, 2, 3, 4, 5];
-
-        // Calcular: días/semana * 4.33 semanas/mes * horas/día * $/hora
-        const daysPerWeek = workingDays.length;
-        const hoursPerDay = state.settings.regularHoursPerDay || 8;
-        const monthlyForPosition = daysPerWeek * 4.33 * hoursPerDay * hourlySalary;
-
-        totalMonthly += monthlyForPosition;
-        breakdown.push({
-            position: pos.name,
-            daysPerWeek: daysPerWeek,
-            monthly: monthlyForPosition
-        });
-    });
-
-    return { total: totalMonthly, breakdown };
-}
+// 💰 Se delega a PayrollService.calculateMonthlyEstimate
 
 function ProfileHireDatePicker(emp) {
     if (!state.profileHireDatePickerMonth) {
@@ -327,9 +313,9 @@ function ProfileTabResumen(emp) {
 
     const hireDate = emp.hireDate ? new Date(emp.hireDate + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' }) : 'No registrada';
     const lastPayment = emp.lastPaymentDate ? new Date(emp.lastPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Ninguno';
-
-    // Calcular salario mensual estimado
-    const monthlyEst = calculateMonthlyEstimate(emp);
+    
+    // ⚡ NUEVO: Usar servicio central con alta resolución (52/12)
+    const monthlyEst = payrollService.calculateMonthlyEstimate(emp);
 
     return `<div style="display: flex; flex-direction: column; gap: 20px;">
                 <div style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155;">
@@ -354,7 +340,7 @@ function ProfileTabResumen(emp) {
     ).join('')}
                     </div>
                     <div style="font-size: 0.68rem; color: #64748b; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(100,116,139,0.2);">
-                        📊 Basado en ${state.settings.regularHoursPerDay}h/día × 4.33 semanas/mes
+                        📊 Basado en ${state.settings.regularHoursPerDay}h/día × (52/12) semanas/mes
                     </div>
                 </div>
                 
@@ -422,7 +408,7 @@ function ProfileTabDocumentos(emp) {
         const date = new Date(p.date + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'short', day: 'numeric' });
         return `<div style="background: #0f172a; padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                                     <div>
-                                        <div style="font-size: 0.875rem; color: #f1f5f9; font-weight: 600;">$${Math.round(p.amount).toLocaleString()}</div>
+                                        <div style="font-size: 0.875rem; color: #f1f5f9; font-weight: 600;">${formatCurrency(p.amount)}</div>
                                         <div style="font-size: 0.7rem; color: #94a3b8;">${date}</div>
                                     </div>
                                     <div style="font-size: 0.7rem; color: #64748b;">${p.period}</div>

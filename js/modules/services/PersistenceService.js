@@ -8,13 +8,14 @@ import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
-import { generateUUID } from '../utils/Helpers.js';
+import { generateUUID, slugify } from '../utils/Helpers.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
 import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
+import { getDemoSeed } from '../data/DemoSeed.js';
 
 // Lock para evitar guardados concurrentes
 let _isSavingData = false;
@@ -203,6 +204,32 @@ export async function loadApplicationData() {
 }
 
 /**
+ * 🌱 CARGAR DATOS DEMO EN LA BASE DE DATOS
+ * Limpia la base de datos actual e inyecta la semilla de prueba.
+ */
+export async function loadDemoDataIntoDB() {
+    try {
+        console.log('🌱 PersistenceService: Iniciando carga de datos DEMO...');
+        const seed = getDemoSeed();
+        
+        // 1. Guardar en IndexedDB limpiando primero
+        await indexedDBService.saveState(seed.data, { clearFirst: true });
+        
+        // 2. Recargar el estado global desde la base de datos recién poblada
+        await loadApplicationData();
+        
+        // 3. Marcar como modo demo
+        state.usingDemoData = true;
+        
+        console.log('✅ Datos DEMO cargados y persistidos correctamente');
+        return true;
+    } catch (error) {
+        console.error('❌ Error cargando datos demo:', error);
+        throw error;
+    }
+}
+
+/**
  * 🛡️ VALIDACIÓN DE INTEGRIDAD
  * Limpia referencias huérfanas para evitar crashes en la UI.
  */
@@ -378,6 +405,137 @@ export function restoreAutoBackup() {
     return false;
 }
 
+/**
+ * 🧪 PRUEBA DE RESOLUCIÓN DE CONFLICTOS
+ * Simula la restauración de un backup "sucio" con duplicados intencionales.
+ */
+export async function testConflictedRestore() {
+    console.log('🧪 Iniciando prueba de restauración con CONFLICTOS...');
+    
+    try {
+        // 1. Generar semilla con conflictos
+        const conflictedSeed = getDemoSeed({ includeConflicts: true });
+        console.log('📦 Backup de prueba generado (con duplicados intencionales)');
+        
+        // 2. Intentar restaurar usando IndexedDB
+        // clearFirst: true simula una restauración limpia desde un archivo externo
+        const stats = await indexedDBService.saveState(conflictedSeed.data, { clearFirst: true });
+        
+        // 3. Ejecutar saneamiento de puestos (donde unificamos por slug)
+        const currentData = await indexedDBService.loadFullState();
+        sanitizePositions(currentData);
+        await indexedDBService.saveState(currentData);
+        
+        // 4. Recargar estado UI
+        await loadApplicationData();
+        
+        NotificationSystem.success(`✅ Prueba completada: ${stats.deduplicated} conflictos resueltos`);
+        console.log('✅ Resultado de la prueba:', stats);
+        return stats;
+    } catch (error) {
+        console.error('❌ Error en prueba de conflictos:', error);
+        NotificationSystem.error('Error en prueba de conflictos');
+    }
+}
+
+/**
+ * 🧹 sanitizePositions() - Unifica puestos duplicados y migra IDs a Slugs
+ * Este proceso es vital para evitar errores de cálculo de nómina.
+ */
+export function sanitizePositions(state) {
+    if (!state.positions || state.positions.length === 0) return false;
+
+    console.log('🧹 Iniciando sanitización de posiciones...');
+    const idMap = new Map(); // Mapa de ID_Viejo -> ID_Nuevo (Slug)
+    const uniquePositions = [];
+    const positionsBySlug = new Map();
+    let hasChanges = false;
+
+    state.positions.forEach(pos => {
+        const slug = slugify(pos.name);
+        if (!slug) return;
+
+        if (!positionsBySlug.has(slug)) {
+            // Es la primera vez que vemos este nombre de puesto
+            const isNewId = pos.id !== slug;
+            if (isNewId) hasChanges = true;
+
+            const newPos = { ...pos, id: slug };
+            positionsBySlug.set(slug, newPos);
+            idMap.set(pos.id, slug);
+            uniquePositions.push(newPos);
+        } else {
+            // Es un duplicado. Mapear el ID viejo al ID del puesto ya existente
+            idMap.set(pos.id, slug);
+            hasChanges = true;
+            console.log(`🔗 Fusionando duplicado: ${pos.name} (${pos.id} -> ${slug})`);
+        }
+    });
+
+    if (!hasChanges) {
+        console.log('✨ No se encontraron duplicados ni IDs desactualizados.');
+        return false;
+    }
+
+    // 1. Actualizar la lista oficial de puestos
+    state.positions = uniquePositions;
+
+    // 2. Actualizar empleados (sus arreglos de positions)
+    if (state.employees) {
+        state.employees.forEach(emp => {
+            if (Array.isArray(emp.positions)) {
+                const mapped = emp.positions.map(pid => idMap.get(pid) || pid);
+                const unique = [...new Set(mapped)];
+                if (JSON.stringify(emp.positions) !== JSON.stringify(unique)) {
+                    emp.positions = unique;
+                    hasChanges = true;
+                }
+            }
+            // También actualizar positionSalaries si existen
+            if (emp.positionSalaries) {
+                const newSalaries = {};
+                Object.entries(emp.positionSalaries).forEach(([pid, val]) => {
+                    const newId = idMap.get(pid) || pid;
+                    newSalaries[newId] = val;
+                });
+                emp.positionSalaries = newSalaries;
+            }
+            
+            // Especial: Sueldo por posición en el sistema viejo
+            if (emp.positionId && idMap.has(emp.positionId)) {
+                emp.positionId = idMap.get(emp.positionId);
+            }
+        });
+    }
+
+    // 3. Actualizar registros de asistencia (Attendance)
+    if (state.attendance) {
+        Object.values(state.attendance).forEach(att => {
+            if (att.positionHours) {
+                att.positionHours.forEach(ph => {
+                    if (idMap.has(ph.positionId)) {
+                        ph.positionId = idMap.get(ph.positionId);
+                    }
+                });
+            }
+            if (att.selectedPosition && idMap.has(att.selectedPosition)) {
+                att.selectedPosition = idMap.get(att.selectedPosition);
+            }
+            // En algunos casos el record individual tiene positionId
+            if (att.records) {
+                Object.values(att.records).forEach(rec => {
+                    if (rec.positionId && idMap.has(rec.positionId)) {
+                        rec.positionId = idMap.get(rec.positionId);
+                    }
+                });
+            }
+        });
+    }
+
+    console.log('✅ Sanitización completada.');
+    return true;
+}
+
 // Inicializar alias globales (Legacy compatibility)
 globalThis.saveApplicationData = saveApplicationData;
 globalThis.loadApplicationData = loadApplicationData;
@@ -385,5 +543,8 @@ globalThis.validateDataIntegrity = validateDataIntegrity;
 globalThis.prepareDataForNewAccount = prepareDataForNewAccount;
 globalThis.createAutoBackup = createAutoBackup;
 globalThis.restoreAutoBackup = restoreAutoBackup;
+globalThis.sanitizePositions = sanitizePositions; // NUEVO
 globalThis.saveToLocalStorage = saveApplicationData;
 globalThis.loadFromLocalStorage = loadApplicationData;
+globalThis.loadDemoDataIntoDB = loadDemoDataIntoDB;
+globalThis.testConflictedRestore = testConflictedRestore;

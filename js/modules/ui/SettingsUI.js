@@ -450,13 +450,26 @@ function SettingsForm() {
                     <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
                         🖥️ Interfaz de Navegación
                     </h3>
-                    <div class="form-group" style="margin-bottom: 0;">
+                    
+                    <div class="form-group" style="margin-bottom: 20px;">
                         <label class="form-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; margin: 0;">
                             <input type="checkbox" id="legacyNavigation" ${state.settings.legacyNavigation ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer;">
                             <span style="font-weight: 600; font-size: 1rem; color: #f1f5f9;">Usar Menú Superior Clásico</span>
                         </label>
                         <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px; margin-left: 32px; line-height: 1.5;">
                             Si se activa, el menú se mostrará como pestañas en la parte superior en lugar de la barra flotante inferior.
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 0; padding-top: 16px; border-top: 1px solid #334155;">
+                        <label class="form-label" style="margin-bottom: 8px; display: block;">Visibilidad del Mini-mapa (Barra Lateral)</label>
+                        <select id="scrollbarMode" class="form-input" style="background: #0f172a; border-color: #334155;">
+                            <option value="always" ${state.settings.scrollbarMode === 'always' ? 'selected' : ''}>✨ Siempre Visible</option>
+                            <option value="on-scroll" ${state.settings.scrollbarMode === 'on-scroll' ? 'selected' : ''}>🔍 Solo al hacer scroll (Interactivo)</option>
+                            <option value="hidden" ${state.settings.scrollbarMode === 'hidden' ? 'selected' : ''}>🚫 Ocultar Mini-mapa</option>
+                        </select>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px; line-height: 1.5;">
+                            El mini-mapa muestra puntos de color para ausencias (rojo) y extras (azul) en toda la lista.
                         </div>
                     </div>
                 </div>

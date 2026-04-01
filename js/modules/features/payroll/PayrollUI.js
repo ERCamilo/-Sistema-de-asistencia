@@ -278,17 +278,28 @@ function generateExportDeductionsHTML() {
     const deductions = state.exportConfig.deductions || [];
     if (deductions.length === 0) return '<div style="text-align: center; color: #64748b; padding: 20px;">No hay deducciones configuradas</div>';
 
-    const globalDeductions = deductions.filter(d => !d.employeeId);
-    const employeeDeductions = deductions.filter(d => d.employeeId);
+    // 🛡️ REFACTOR INDUSTRIAL: Preservar índices originales antes de filtrar
+    // El sistema de Proxy de AppState genera nuevas instancias en cada acceso,
+    // por lo que indexOf(ded) fallaría devolviendo -1.
+    const mappedDeductions = deductions.map((ded, originalIndex) => ({ 
+        data: ded, 
+        index: originalIndex 
+    }));
 
-    const groupedByEmployee = employeeDeductions.reduce((acc, d) => {
-        const key = d.employeeId || 'unknown';
+    const globalDeductions = mappedDeductions.filter(item => !item.data.employeeId);
+    const employeeDeductions = mappedDeductions.filter(item => item.data.employeeId);
+
+    const groupedByEmployee = employeeDeductions.reduce((acc, item) => {
+        const key = item.data.employeeId || 'unknown';
         if (!acc[key]) acc[key] = [];
-        acc[key].push(d);
+        acc[key].push(item);
         return acc;
     }, {});
 
-    const renderDeductionRow = (ded, index, all) => `
+    const renderDeductionRow = (item, allItems) => {
+        const ded = item.data;
+        const index = item.index;
+        return `
         <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 12px;">
             <div style="display: flex; gap: 12px; align-items: start;">
                 <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;">
@@ -302,33 +313,35 @@ function generateExportDeductionsHTML() {
                     </label>
                 </div>
                 <div style="flex: 1;">
-                    <input type="number" class="form-input" value="${ded.value.toFixed(2)}" onchange="PayrollUI.updateExportDeductionValue(${index}, this.value)" placeholder="0.00" min="0" step="${ded.type === 'fixed' ? '0.01' : '0.1'}" style="width: 100%; font-size: 0.875rem; padding: 8px; margin-bottom: 8px;">
-                    <input type="text" class="form-input" value="${ded.name || ''}" onchange="PayrollUI.updateExportDeductionName(${index}, this.value)" placeholder="Nombre (ej: AFP, SFS...)" style="width: 100%; font-size: 0.75rem; padding: 6px;">
+                    <input type="number" class="form-input" 
+                        value="${ded.value || 0}" 
+                        oninput="PayrollUI.updateExportDeductionValue(${index}, this.value)" 
+                        placeholder="0.00" min="0" step="${ded.type === 'fixed' ? '0.01' : '0.1'}" 
+                        style="width: 100%; font-size: 0.875rem; padding: 8px; margin-bottom: 8px;">
+                    <input type="text" class="form-input" 
+                        value="${ded.name || ''}" 
+                        oninput="PayrollUI.updateExportDeductionName(${index}, this.value)" 
+                        placeholder="Nombre (ej: AFP, SFS...)" 
+                        style="width: 100%; font-size: 0.75rem; padding: 6px;">
                     ${ded.employeeId ? `<div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px;">Empleado: ${ded.employeeName || (state.employees.find(e => e.id === ded.employeeId)?.name || 'N/A')}</div>` : ''}
                 </div>
-                ${all.length > 1 ? `<button onclick="PayrollUI.removeExportDeduction(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
+                ${allItems.length > 0 ? `<button onclick="PayrollUI.removeExportDeduction(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
             </div>
         </div>
     `;
+    };
 
     const globalHTML = globalDeductions.length > 0
         ? `<div style="margin-bottom: 12px; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">${icons.get('info')} Deducciones generales</div>
-           ${globalDeductions.map(ded => renderDeductionRow(ded, deductions.indexOf(ded), deductions)).join('')}`
+           ${globalDeductions.map(item => renderDeductionRow(item, globalDeductions)).join('')}`
         : '';
 
-    const employeeHTML = Object.keys(groupedByEmployee).length > 0
-        ? `<div style="margin-top: 16px; margin-bottom: 12px; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">${icons.get('personnel')} Deducciones por empleado</div>
-           ${Object.keys(groupedByEmployee).map(empId => {
-               const empName = state.employees.find(e => e.id === empId)?.name || 'Empleado';
-               const items = groupedByEmployee[empId];
-               return `
-                   <div style="margin-bottom: 12px; padding: 10px; border: 1px solid #334155; border-radius: 8px; background: #0b1220;">
-                       <div style="font-size: 0.8rem; color: #f1f5f9; font-weight: 700; margin-bottom: 8px;">${icons.get('user')} ${empName}</div>
-                       ${items.map(ded => renderDeductionRow(ded, deductions.indexOf(ded), deductions)).join('')}
-                   </div>
-               `;
-           }).join('')}`
-        : '';
+    const employeeHTML = Object.entries(groupedByEmployee).map(([id, items]) => `
+        <div style="margin-top: 16px; margin-bottom: 12px; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">
+            ${icons.get('personnel')} ${items[0].data.employeeName || (state.employees.find(e => e.id === id)?.name || 'Empleado')}
+        </div>
+        ${items.map(item => renderDeductionRow(item, items)).join('')}
+    `).join('');
 
     return `${globalHTML}${employeeHTML}`;
 }
@@ -347,17 +360,36 @@ export function removeExportDeduction(index) {
 }
 
 export function updateExportDeductionType(index, type) {
-    getState().exportConfig.deductions[index].type = type;
-    context.render();
+    const state = getState();
+    const deductions = state.exportConfig.deductions;
+    if (deductions && deductions[index]) {
+        deductions[index].type = type;
+        context.render();
+    }
 }
 
 export function updateExportDeductionValue(index, value) {
-    getState().exportConfig.deductions[index].value = parseFloat(value) || 0;
-    context.render();
+    const state = getState();
+    const deductions = state.exportConfig.deductions;
+    if (deductions && deductions[index]) {
+        // Guardar el número directamente en el estado
+        deductions[index].value = parseFloat(value) || 0;
+        
+        // No llamamos a render aquí para evitar perder el foco mientras se escribe (oninput)
+        // El proxy de AppState se encargará de cualquier efecto secundario si es necesario, 
+        // pero preferimos re-renderizar solo cuando el usuario termine o cambie de sección.
+        // ACTUALIZACIÓN: Para ver los cambios en la tabla de vista previa, necesitamos un render debounced.
+        window.renderOptimizer.scheduleRender(() => context.render());
+    }
 }
 
 export function updateExportDeductionName(index, value) {
-    getState().exportConfig.deductions[index].name = value;
+    const state = getState();
+    const deductions = state.exportConfig.deductions;
+    if (deductions && deductions[index]) {
+        deductions[index].name = value;
+        window.renderOptimizer.scheduleRender(() => context.render());
+    }
 }
 
 export function addEmployeeDeductionsToExport() {

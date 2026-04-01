@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup } from './modules/services/PersistenceService.js';
+import { saveApplicationData, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
 import { Header } from './modules/ui/Header.js';
 
 // 🔧 DEBUG UTILITY (controla console logs en producción)
@@ -54,7 +54,7 @@ import { AttendanceService } from './modules/features/attendance/AttendanceServi
 import { HolidayService } from './modules/features/attendance/HolidayService.js';
 import { PayrollService } from './modules/features/payroll/PayrollService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
-import { demoData, generateDemoAttendance } from './modules/data/DemoData.js'; // ⚡ NUEVO IMPORT
+// Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
 import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
 import { TabComponent } from './modules/components/TabComponent.js';
 import { TableComponent } from './modules/components/TableComponent.js';
@@ -2998,19 +2998,8 @@ window.showAlert = (message, type = 'info') => {
 
 // Funciones de posiciones y estados movidas a EmployeesUI.js
 
-window.togglePositionEmployees = (positionId) => {
-    const elem = document.getElementById(`pos-employees-${positionId}`);
-    if (elem) {
-        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
-    }
-};
+// Funciones de posiciones y estados se manejan ahora íntegramente en EmployeesUI.js
 
-window.toggleLeaderEmployees = (leaderId) => {
-    const elem = document.getElementById(`leader-employees-${leaderId}`);
-    if (elem) {
-        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
-    }
-};
 
 document.addEventListener('click', (e) => {
     if (state.contextMenu && !e.target.closest('.context-menu')) {
@@ -4391,6 +4380,7 @@ window.saveSettings = function () {
     // Leer toggle legacy
     const legacyNavigationElement = document.getElementById('legacyNavigation');
     const legacyNavigation = legacyNavigationElement ? legacyNavigationElement.checked : !!state.settings.legacyNavigation;
+    const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
 
     // Validaciones
     if (!companyName) {
@@ -4429,6 +4419,7 @@ window.saveSettings = function () {
     state.settings.globalLastPaymentDate = globalLastPaymentDate;
     state.settings.iconSet = applyIconSet(iconSet);
     state.settings.legacyNavigation = legacyNavigation;
+    state.settings.scrollbarMode = scrollbarMode;
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
@@ -5891,8 +5882,8 @@ function render() {
         // Restaurar posición del scroll después de renderizar
         restoreScrollPosition();
 
-        // Auto-guardar datos en LocalStorage (skip si son datos remotos, ya están persistidos)
-        if (!window._isApplyingRemoteData) {
+        // Auto-guardar datos (solo si están cargados y no estamos aplicando cambios remotos async)
+        if (!window._isApplyingRemoteData && state.isDataLoaded) {
             saveApplicationData();
         }
 
@@ -6209,18 +6200,22 @@ class OnboardingWizard {
                 `;
     }
 
-    selectMode(mode) {
+    async selectMode(mode) {
         state.onboardingMode = mode;
 
         if (mode === 'demo') {
-            // Cargar datos de prueba
-            this.loadDemoData();
-            // Saltar directo al final
-            state.onboardingStep = this.steps.indexOf('done');
+            const confirmed = window.confirm(
+                '¿Cargar datos de prueba avanzados?\n\nEsto reemplazará cualquier dato actual con un escenario de 30 días, incluyendo feriados, horas extras y contrataciones tardías.'
+            );
+            
+            if (confirmed) {
+                await this.loadDemoData();
+                state.onboardingStep = this.steps.indexOf('done');
+            } else {
+                return; // Volver a selección
+            }
         } else if (mode === 'scratch') {
-            // Limpiar todos los datos para empezar desde cero
             this.clearAllData();
-            // Continuar con configuración desde cero
             this.next();
         }
 
@@ -6257,17 +6252,14 @@ class OnboardingWizard {
         console.log('✅ Sistema limpio y listo para configurar');
     }
 
-    loadDemoData() {
-        state.usingDemoData = true;
-        state.settings = { ...demoData.settings };
-        state.settings.iconSet = resolveIconSet(state.settings.iconSet);
-        applyIconSet(state.settings.iconSet);
-        state.positions = JSON.parse(JSON.stringify(demoData.positions));
-        state.employees = JSON.parse(JSON.stringify(demoData.employees));
-        state.attendance = generateDemoAttendance();
-
-        // NO guardar en localStorage
-        debug.log('📊 Datos de prueba cargados (NO guardados)');
+    async loadDemoData() {
+        try {
+            await loadDemoDataIntoDB();
+            console.log('✅ app.js: Datos demo avanzados cargados correctamente');
+        } catch (error) {
+            console.error('❌ app.js: Error al cargar datos demo:', error);
+            if (window.Notification) window.Notification.error('Error al cargar datos de prueba');
+        }
     }
 
     renderCompany() {
@@ -6880,6 +6872,13 @@ document.head.appendChild(styleTag);
         // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
         console.log('📂 Cargando datos...');
         await loadApplicationData();
+        
+        // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
+        if (sanitizePositions(state)) {
+            console.log('💾 Guardando cambios de sanitización inicial...');
+            await saveApplicationData({ force: true });
+            render(); 
+        }
 
         // 2. Aplicar configuraciones de interfaz
         state.settings.iconSet = applyIconSet(state.settings.iconSet);
@@ -6937,6 +6936,11 @@ document.head.appendChild(styleTag);
 
                     if (remoteData.attendance) {
                         state.attendance = { ...state.attendance, ...remoteData.attendance };
+                    }
+
+                    // 🛡️ Sanitización post-sincronización (Evita que la nube traiga basura vieja)
+                    if (sanitizePositions(state)) {
+                        console.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta

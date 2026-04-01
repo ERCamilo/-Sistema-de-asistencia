@@ -1,5 +1,8 @@
 import { getDateKey } from '../../utils/DateUtils.js';
 
+const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
+
+
 export class PayrollService {
     constructor(state) {
         this.state = state;
@@ -14,17 +17,15 @@ export class PayrollService {
             const hourlyRate = employee.positionSalaries[firstPosId];
             
             if (hourlyRate) {
-                const regularHours = this.state.settings?.regularHoursPerDay || 8;
-                // ⚡ CORREGIDO: Usar factor weeks (4.333) * workDays en lugar de 30 fijo
                 const workDays = employee.positions[0] ? 
                     (this.state.positions.find(p => p.id === employee.positions[0])?.workingDays || [1,2,3,4,5,6]) : 
                     [1,2,3,4,5,6];
                 
-                const monthlyAmount = hourlyRate * regularHours * (workDays.length * 4.333);
+                const monthlyAmount = hourlyRate * regularHours * (workDays.length * WEEKS_PER_MONTH);
                 
                 return {
                     type: 'custom',
-                    amount: Math.round(monthlyAmount),
+                    amount: monthlyAmount, // Alta resolución
                     period: 'month',
                     workDays: workDays
                 };
@@ -51,7 +52,7 @@ export class PayrollService {
                     const workDays = pos.workingDays || [1, 2, 3, 4, 5, 6];
                     return {
                         type: 'standard',
-                        amount: Math.round(pos.hourlyRate * regularHours * (workDays.length * 4.333)),
+                        amount: pos.hourlyRate * regularHours * (workDays.length * WEEKS_PER_MONTH), // Alta resolución
                         period: 'month',
                         workDays: workDays
                     };
@@ -82,12 +83,11 @@ export class PayrollService {
             case 'week':
                 return amount / daysPerWeek;
             case 'biweekly':
-                return amount / (daysPerWeek * 2);
+                return amount / (daysPerWeek * (WEEKS_PER_MONTH / 2));
             case '3weeks':
-                return amount / (daysPerWeek * 3);
+                return amount / (daysPerWeek * (WEEKS_PER_MONTH / 1.333)); // Aproximado para 3 semanas
             case 'month':
-                // Aproximado: 4.33 semanas por mes
-                return amount / (daysPerWeek * 4.33);
+                return amount / (daysPerWeek * WEEKS_PER_MONTH);
             default:
                 return 0;
         }
@@ -223,7 +223,7 @@ export class PayrollService {
 
             // 6. Calcular sueldo mensual equivalente (para mostrar)
             const workDaysCount = (pos.workingDays && pos.workingDays.length > 0) ? pos.workingDays.length : 6;
-            const monthlyEquivalent = hourlyRate * this.state.settings.regularHoursPerDay * (workDaysCount * 4.333);
+            const monthlyEquivalent = hourlyRate * this.state.settings.regularHoursPerDay * (workDaysCount * WEEKS_PER_MONTH);
 
             breakdown.push({
                 positionId: posId,
@@ -251,27 +251,20 @@ export class PayrollService {
         // Si no, usar las del perfil activo (comportamiento original).
         const deductionsList = deductions ?? this.state.employeeProfile?.deductions ?? [];
         const deductionBreakdown = [];
-        let currentAmount = totalBruto;
         let totalDeductions = 0;
 
         deductionsList.forEach((ded, index) => {
-            let deductionAmount = 0;
-
-            if (ded.type === 'fixed') {
-                deductionAmount = ded.value;
-            } else {  // percentage
-                deductionAmount = (currentAmount * ded.value) / 100;
-            }
+            const val = parseFloat(ded.value) || 0;
+            let deductionAmount = (ded.type === 'fixed') ? val : (totalBruto * val) / 100;
 
             deductionBreakdown.push({
                 id: ded.id || `DED-${index + 1}`,
+                name: ded.name || `Deducción ${index + 1}`,
                 type: ded.type,
-                value: ded.value,
-                amount: deductionAmount,
-                appliedTo: currentAmount  // Monto sobre el que se aplicó
+                value: val,
+                amount: deductionAmount
             });
 
-            currentAmount -= deductionAmount;
             totalDeductions += deductionAmount;
         });
 
@@ -284,5 +277,37 @@ export class PayrollService {
             neto: neto,
             breakdown: breakdown
         };
+    }
+
+    /**
+     * Calcula una estimación del sueldo mensual basado en las posiciones actuales
+     */
+    calculateMonthlyEstimate(employee) {
+        let totalMonthly = 0;
+        const breakdown = [];
+        const regularHoursPerDay = this.state.settings?.regularHoursPerDay || 8;
+
+        (employee.positions || []).forEach(posId => {
+            const pos = this.state.positions.find(p => p.id === posId);
+            if (!pos) return;
+
+            // Obtener sueldo (personalizado o estándar)
+            const hourlySalary = (employee.positionSalaries && employee.positionSalaries[posId]) || pos.hourlyRate || 0;
+
+            // Obtener días laborales
+            const workingDays = pos.workingDays || [1, 2, 3, 4, 5, 6];
+
+            const daysPerWeek = workingDays.length;
+            const monthlyForPosition = daysPerWeek * WEEKS_PER_MONTH * regularHoursPerDay * hourlySalary;
+
+            totalMonthly += monthlyForPosition;
+            breakdown.push({
+                position: pos.name,
+                daysPerWeek: daysPerWeek,
+                monthly: monthlyForPosition
+            });
+        });
+
+        return { total: totalMonthly, breakdown };
     }
 }

@@ -16,3 +16,18 @@ export function debounce(func, wait = 300) {
         timeout = setTimeout(() => func(...args), wait);
     };
 }
+
+/**
+ * 🔗 slugify() - Normaliza texto para usar como ID (minúsculas, sin espacios ni tildes)
+ */
+export function slugify(text) {
+    if (!text) return '';
+    return text.toString().toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Quitar tildes
+        .replace(/\s+/g, '-')           // Espacios a guiones
+        .replace(/[^\w-]+/g, '')        // Quitar caracteres especiales
+        .replace(/--+/g, '-')           // Quitar guiones dobles
+        .replace(/^-+/, '')             // Quitar guiones al inicio
+        .replace(/-+$/, '');            // Quitar guiones al final
+}

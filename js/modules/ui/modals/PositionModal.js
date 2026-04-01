@@ -2,13 +2,16 @@ import { Modal } from '../../components/Modal.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import icons from '../../ui/IconSystem.js';
+import { slugify } from '../../utils/Helpers.js';
 
 export class PositionModal {
     static open(positionId = null) {
         const state = getState();
         const pos = positionId ? state.positions.find(p => p.id === positionId) : null;
         const isEdit = !!pos;
-        const title = isEdit ? `Editar Posición - ${pos.name}` : 'Nueva Posición';
+        const mainTitle = isEdit ? 'Editar Posición' : 'Nueva Posición';
+        const subtitle = isEdit ? pos.name : null;
+        const title = isEdit ? mainTitle : mainTitle; // Mantener variable title por si se usa abajo (en el objeto modal)
 
         const activeLeaders = state.leaders.filter(l => l.active);
         const selectedColor = pos?.color || COLOR_PALETTE[0];
@@ -120,7 +123,8 @@ export class PositionModal {
         `;
 
         const modal = new Modal({
-            title: `🎯 ${title}`,
+            title: `🎯 ${mainTitle}`,
+            subtitle: subtitle,
             content: contentHTML,
             size: 'medium',
             buttons: [
@@ -258,17 +262,22 @@ export class PositionModal {
         }
 
         const state = getState();
+        const newId = slugify(name);
 
         // Verificar nombre único
-        const duplicate = state.positions.find(p => p.name.toLowerCase() === name.toLowerCase() && (!existingPos || p.id !== existingPos.id));
+        const duplicate = state.positions.find(p => p.id === newId && (!existingPos || p.id !== existingPos.id));
         if (duplicate) {
-            window.showAlert('Ya existe una posición con ese nombre', 'error');
+            window.showAlert('Ya existe una posición con este nombre', 'error');
             return;
         }
 
         if (existingPos) {
-            const posToEdit = state.positions.find(p => p.id === existingPos.id);
+            const oldId = existingPos.id;
+            const posToEdit = state.positions.find(p => p.id === oldId);
             if (posToEdit) {
+                const idChanged = oldId !== newId;
+                
+                posToEdit.id = newId; 
                 posToEdit.name = name;
                 posToEdit.hourlyRate = rate;
                 posToEdit.leaderId = leaderId || null;
@@ -276,10 +285,33 @@ export class PositionModal {
                 posToEdit.workingDays = workingDays;
                 posToEdit.updatedAt = Date.now();
                 posToEdit._isDirty = true;
+
+                if (idChanged) {
+                    console.log(`🔄 Renombrando posición: ${oldId} -> ${newId}. Actualizando referencias...`);
+                    // Actualizar empleados
+                    state.employees.forEach(emp => {
+                        if (emp.positions) {
+                            emp.positions = emp.positions.map(pid => pid === oldId ? newId : pid);
+                        }
+                        if (emp.positionSalaries && emp.positionSalaries[oldId] !== undefined) {
+                            emp.positionSalaries[newId] = emp.positionSalaries[oldId];
+                            delete emp.positionSalaries[oldId];
+                        }
+                    });
+                    // Actualizar asistencias
+                    Object.values(state.attendance).forEach(att => {
+                        if (att.positionHours) {
+                            att.positionHours.forEach(ph => {
+                                if (ph.positionId === oldId) ph.positionId = newId;
+                            });
+                        }
+                        if (att.selectedPosition === oldId) att.selectedPosition = newId;
+                    });
+                }
+
                 window.showAlert(`${icons.get('check-circle')} Posición "${name}" actualizada`, 'success');
             }
         } else {
-            const newId = name.toLowerCase().replace(/\\s+/g, '-') + '-' + Date.now();
             state.positions.push({
                 id: newId,
                 name: name,

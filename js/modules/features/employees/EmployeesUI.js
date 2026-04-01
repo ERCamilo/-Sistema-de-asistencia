@@ -1,5 +1,6 @@
 import icons from '../../ui/IconSystem.js';
 import { getDateKey } from '../../utils/DateUtils.js';
+import { slugify } from '../../utils/Helpers.js';
 import { Modal } from '../../components/Modal.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
@@ -715,6 +716,20 @@ export function openLeaderForm(leaderId = null) {
     LeaderModal.open(leaderId);
 }
 
+export function togglePositionEmployees(positionId) {
+    const elem = document.getElementById(`pos-employees-${positionId}`);
+    if (elem) {
+        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+export function toggleLeaderEmployees(leaderId) {
+    const elem = document.getElementById(`leader-employees-${leaderId}`);
+    if (elem) {
+        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
 export function toggleEmployeeStatus(employeeId) {
     const state = getState();
     const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
@@ -846,9 +861,11 @@ function handlePositionSubmit(formData) {
     }
 
     let finalName = name.trim();
+    const newId = slugify(finalName);
+
     // Verificar nombre único
     if (state.editingPosition) {
-        const existing = state.positions.find(p => p.name.toLowerCase() === finalName.toLowerCase() && p.id !== state.editingPosition.id);
+        const existing = state.positions.find(p => p.id === newId && p.id !== state.editingPosition.id);
         if (existing) {
             window.showAlert('Ya existe una posición con ese nombre', 'error');
             return;
@@ -856,8 +873,12 @@ function handlePositionSubmit(formData) {
     }
 
     if (state.editingPosition) {
-        const pos = state.positions.find(p => p.id === state.editingPosition.id);
+        const oldId = state.editingPosition.id;
+        const pos = state.positions.find(p => p.id === oldId);
         if (pos) {
+            const idChanged = oldId !== newId;
+            
+            pos.id = newId;
             pos.name = finalName;
             pos.hourlyRate = rate;
             pos.leaderId = leaderId || null;
@@ -865,10 +886,25 @@ function handlePositionSubmit(formData) {
             pos.workingDays = workingDays.map(d => parseInt(d));
             pos.updatedAt = Date.now();
             pos._isDirty = true;
+
+            if (idChanged) {
+                // Actualizar Referencias
+                state.employees.forEach(emp => {
+                    if (emp.positions) emp.positions = emp.positions.map(pid => pid === oldId ? newId : pid);
+                    if (emp.positionSalaries && emp.positionSalaries[oldId] !== undefined) {
+                        emp.positionSalaries[newId] = emp.positionSalaries[oldId];
+                        delete emp.positionSalaries[oldId];
+                    }
+                });
+                Object.values(state.attendance).forEach(att => {
+                    if (att.positionHours) att.positionHours.forEach(ph => { if (ph.positionId === oldId) ph.positionId = newId; });
+                    if (att.selectedPosition === oldId) att.selectedPosition = newId;
+                });
+            }
+
             window.showAlert(`${icons.get('check-circle')} Posición "${finalName}" actualizada`, 'success');
         }
     } else {
-        const newId = finalName.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
         state.positions.push({
             id: newId,
             name: finalName,
