@@ -440,8 +440,8 @@ export function ReportsTab() {
 
     return `
         <div>
-            <div class="date-controls" style="margin-bottom: 20px;">
-                <div class="view-controls" style="grid-template-columns: 1fr 1fr;">
+            <div class="date-controls">
+                <div class="view-controls">
                     <button class="view-btn ${!isDashboard ? 'active' : ''}" onclick="AnalyticsUI.changeReportViewMode('employee-report')">${icons.get('info')} Reporte Personal</button>
                     <button class="view-btn ${isDashboard ? 'active' : ''}" onclick="AnalyticsUI.changeReportViewMode('dashboard')">${icons.get('chevron-right')} Gráficas</button>
                 </div>
@@ -579,14 +579,14 @@ function EmployeeReportGeneralTable(employees, days) {
         let color = '#334155';
         let text = '-';
         if (val > 0) {
-            text = val.toFixed(1);
+            text = Number(val.toFixed(3));
             color = Math.abs(val - 1) < 0.01 ? (d.isHoliday ? '#f59e0b' : '#10b981') : (val < 1 ? '#ef4444' : '#3b82f6');
             if (Math.abs(val - 1) < 0.01) text = `${icons.get('check')}`;
         }
         return `<td style="padding: 10px 4px; text-align: center; color: ${color}; border-bottom: 1px solid #1e293b; font-weight: 700;">${text}</td>`;
     }).join('')}
-                            <td style="padding: 10px 8px; text-align: center; color: #10b981; border-bottom: 1px solid #1e293b;">${emp.daysWorked}</td>
-                            <td style="padding: 10px 8px; text-align: center; color: #3b82f6; border-bottom: 1px solid #1e293b;">${emp.totalHours.toFixed(1)}</td>
+                            <td style="padding: 10px 8px; text-align: center; color: #10b981; border-bottom: 1px solid #1e293b;">${Number(emp.totalDays.toFixed(3))}</td>
+                            <td style="padding: 10px 8px; text-align: center; color: #3b82f6; border-bottom: 1px solid #1e293b;">${emp.totalHours.toFixed(2)}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -628,9 +628,9 @@ function EmployeeReportTable(posData, days) {
         const val = emp.dayValues[getDateKey(d.date)] || 0;
         let color = '#334155';
         if (val > 0) color = val < 0.75 ? '#ef4444' : val < 1 ? '#f59e0b' : val === 1 ? '#10b981' : '#3b82f6';
-        return `<td style="padding: 8px 4px; text-align: center; background: ${color}; color: white; font-weight: 600;">${val > 0 ? val.toFixed(2).replace('.00', '') : '0'}</td>`;
+        return `<td style="padding: 8px 4px; text-align: center; background: ${color}; color: white; font-weight: 600;">${val > 0 ? Number(val.toFixed(3)) : '0'}</td>`;
     }).join('')}
-                            <td style="padding: 12px 8px; text-align: center; color: #10b981; background: #0f172a;">${emp.total.toFixed(2)}</td>
+                            <td style="padding: 12px 8px; text-align: center; color: #10b981; background: #0f172a;">${Number(emp.total.toFixed(3))}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -844,7 +844,7 @@ export async function exportEmployeeReportExcel() {
                     row.eachCell((cell, colNumber) => {
                         cell.alignment = { vertical: 'middle', horizontal: colNumber <= 2 ? 'left' : 'center' };
                         if (typeof cell.value === 'number') {
-                            cell.numFmt = '0.00';
+                            cell.numFmt = '0.00####';
                         }
                     });
                 }
@@ -955,9 +955,9 @@ export async function exportEmployeeReportExcel() {
         // 3. Tarjetas KPI
         const kpis = [
             { label: 'EMPLEADOS', value: globalMetrics.uniqueEmployees.size },
-            { label: 'HORAS TOTALES', value: globalMetrics.totalHours.toFixed(2) },
-            { label: 'HORAS EXTRAS', value: globalMetrics.totalOvertime.toFixed(2) },
-            { label: 'DÍAS TRABAJADOS', value: globalMetrics.totalDays.toFixed(2) }
+            { label: 'HORAS TOTALES', value: globalMetrics.totalHours },
+            { label: 'HORAS EXTRAS', value: globalMetrics.totalOvertime },
+            { label: 'DÍAS TRABAJADOS', value: globalMetrics.totalDays }
         ];
 
         kpis.forEach((kpi, i) => {
@@ -966,7 +966,7 @@ export async function exportEmployeeReportExcel() {
             dashSheet.getCell(`${col}8`).style = kpiLabelStyle;
             dashSheet.getCell(`${col}9`).value = Number(kpi.value);
             dashSheet.getCell(`${col}9`).style = kpiValueStyle;
-            dashSheet.getCell(`${col}9`).numFmt = '0.00';
+            dashSheet.getCell(`${col}9`).numFmt = '0.00####';
             dashSheet.getColumn(col).width = 18;
         });
 
@@ -987,8 +987,8 @@ export async function exportEmployeeReportExcel() {
             .forEach(([name, hours]) => {
                 currentRow++;
                 dashSheet.getCell(`A${currentRow}`).value = name;
-                dashSheet.getCell(`B${currentRow}`).value = Number(hours.toFixed(2));
-                dashSheet.getCell(`B${currentRow}`).numFmt = '0.00';
+                dashSheet.getCell(`B${currentRow}`).value = hours;
+                dashSheet.getCell(`B${currentRow}`).numFmt = '0.00####';
             });
 
         // Resumen por Posición (Top 5)
@@ -1007,8 +1007,8 @@ export async function exportEmployeeReportExcel() {
             .forEach(([name, hours]) => {
                 currentRow++;
                 dashSheet.getCell(`A${currentRow}`).value = name;
-                dashSheet.getCell(`B${currentRow}`).value = Number(hours.toFixed(2));
-                dashSheet.getCell(`B${currentRow}`).numFmt = '0.00';
+                dashSheet.getCell(`B${currentRow}`).value = hours;
+                dashSheet.getCell(`B${currentRow}`).numFmt = '0.00####';
             });
 
         // Listado de Feriados
@@ -1061,12 +1061,12 @@ export async function exportEmployeeReportExcel() {
             const row = {
                 number: emp.number,
                 name: emp.name,
-                totalDays: Number(emp.totalDays.toFixed(2)),
-                totalHours: Number(emp.totalHours.toFixed(2))
+                totalDays: emp.totalDays,
+                totalHours: emp.totalHours
             };
             reportData.days.forEach(day => {
                 const key = getDateKey(day.date);
-                row[key] = emp.dayValues[key] !== undefined ? Number(emp.dayValues[key].toFixed(2)) : null;
+                row[key] = emp.dayValues[key] !== undefined ? emp.dayValues[key] : null;
             });
             summarySheet.addRow(row);
         });
@@ -1091,11 +1091,11 @@ export async function exportEmployeeReportExcel() {
                     const row = {
                         number: emp.number,
                         name: emp.name,
-                        total: Number(emp.total.toFixed(2))
+                        total: emp.total
                     };
                     reportData.days.forEach(day => {
                         const key = getDateKey(day.date);
-                        row[key] = emp.dayValues[key] !== undefined ? Number(emp.dayValues[key].toFixed(2)) : null;
+                        row[key] = emp.dayValues[key] !== undefined ? emp.dayValues[key] : null;
                     });
                     sheet.addRow(row);
                 });
@@ -1150,11 +1150,11 @@ export async function exportEmployeeReportExcel() {
                         idx: `${baseIndex}${suffix}`,
                         name: emp.name,
                         position: item.positionName,
-                        days: Number(item.total.toFixed(2))
+                        days: item.total
                     };
                     reportData.days.forEach(day => {
                         const key = getDateKey(day.date);
-                        row[key] = item.dayValues[key] !== undefined ? Number(item.dayValues[key].toFixed(2)) : null;
+                        row[key] = item.dayValues[key] !== undefined ? item.dayValues[key] : null;
                     });
                     sheet.addRow(row);
                 });

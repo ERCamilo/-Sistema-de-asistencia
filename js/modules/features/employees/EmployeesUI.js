@@ -36,8 +36,8 @@ export function EmployeesTab() {
 
     // Renderizar sub-tabs siempre
     const subTabsHTML = `
-                <div class="date-controls" style="margin-bottom: 16px;">
-                    <div class="view-controls" style="grid-template-columns: 1fr 1fr 1fr;">
+                <div class="date-controls">
+                    <div class="view-controls">
                         <button class="view-btn ${isEmployees ? 'active' : ''}" 
                                 onclick="changeEmployeeViewMode('employees')"
                                 title="Ver empleados">

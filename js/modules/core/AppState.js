@@ -75,8 +75,8 @@ const initialState = {
         syncEnabled: true,
         lastPaymentDate: null,
         nextPaymentDate: null,
-        overtimeFactor: 1.5,
-        holidayFactor: 2.0,
+        overtimeFactor: 1,
+        holidayFactor: 2,
         holidays: [],
         scrollbarMode: 'on-scroll' // Opciones: 'always', 'on-scroll', 'hidden'
     },

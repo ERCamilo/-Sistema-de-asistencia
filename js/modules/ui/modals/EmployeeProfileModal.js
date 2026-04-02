@@ -68,10 +68,11 @@ export function EmployeeProfileModal() {
                     </div>
 
                     <!-- Navegación de Tabs -->
-                    <div style="display: flex; background: #0f172a; padding: 0 10px; border-bottom: 1px solid #334155;">
+                    <div class="profile-tabs-container">
                         ${tabs.map(tab => `
                             <div onclick="changeProfileTab('${tab.id}')" 
-                                 style="padding: 14px 20px; font-size: 0.85rem; font-weight: 600; color: ${state.employeeProfile.activeTab === tab.id ? '#06b6d4' : '#64748b'}; cursor: pointer; border-bottom: 3px solid ${state.employeeProfile.activeTab === tab.id ? '#06b6d4' : 'transparent'}; transition: all 0.2s; display: flex; align-items: center; gap: 8px;">
+                                 class="profile-tab"
+                                 style="color: ${state.employeeProfile.activeTab === tab.id ? '#06b6d4' : '#64748b'}; border-bottom: 3px solid ${state.employeeProfile.activeTab === tab.id ? '#06b6d4' : 'transparent'};">
                                 ${icons.get(tab.icon, { size: 16 })}
                                 ${tab.label}
                             </div>

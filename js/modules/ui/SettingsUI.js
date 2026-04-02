@@ -588,7 +588,7 @@ function SettingsForm() {
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <input type="number" 
                                    id="overtimeFactor" 
-                                   value="${state.settings.overtimeFactor || 1.5}" 
+                                   value="${state.settings.overtimeFactor || 1}" 
                                    min="1" 
                                    max="5" 
                                    step="0.1"

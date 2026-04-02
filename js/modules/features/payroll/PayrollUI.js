@@ -264,13 +264,13 @@ function generateExportData() {
         return {
             id: parseInt(emp.number) || 0,
             nombre: `${emp.name} (Ref #${emp.number})`,
-            monto: parseFloat(payroll.neto.toFixed(2)),
+            monto: payroll.neto, // <--- PRECISIÓN TOTAL: No redondear aquí (Permitir estilo Excel)
             _bruto: payroll.bruto,
             _deductions: payroll.deductions,
             _employeeName: emp.name,
             _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion'
         };
-    }).filter(emp => emp.monto > 0);
+    }).filter(emp => emp.monto > 0.001); // Filtro de seguridad para montos casi cero
 }
 
 function generateExportDeductionsHTML() {

@@ -11,18 +11,19 @@ export class PayrollService {
     getSalaryConfig(employee) {
         // ⚡ NUEVO: Priorizar sueldos por posición (Nuevo Sistema)
         const hasPositionSalaries = employee.positionSalaries && Object.keys(employee.positionSalaries).length > 0;
-        
+
         if (hasPositionSalaries) {
             const firstPosId = employee.positions[0];
             const hourlyRate = employee.positionSalaries[firstPosId];
-            
+
             if (hourlyRate) {
-                const workDays = employee.positions[0] ? 
-                    (this.state.positions.find(p => p.id === employee.positions[0])?.workingDays || [1,2,3,4,5,6]) : 
-                    [1,2,3,4,5,6];
-                
+                const workDays = employee.positions[0] ?
+                    (this.state.positions.find(p => p.id === employee.positions[0])?.workingDays || [1, 2, 3, 4, 5, 6]) :
+                    [1, 2, 3, 4, 5, 6];
+
+                const regularHours = this.state.settings?.regularHoursPerDay || 8;
                 const monthlyAmount = hourlyRate * regularHours * (workDays.length * WEEKS_PER_MONTH);
-                
+
                 return {
                     type: 'custom',
                     amount: monthlyAmount, // Alta resolución
@@ -205,11 +206,13 @@ export class PayrollService {
 
             // 3. Si no tiene hourlyRate, intentar calcular desde salaryConfig (migración)
             if (!hourlyRate && pos.salaryConfig?.amount) {
+                // USAR PRECISIÓN TOTAL: No redondear la tasa por hora.
+                // 30 días es el estándar de nómina mensual para este sistema.
                 hourlyRate = pos.salaryConfig.amount / 30 / this.state.settings.regularHoursPerDay;
             }
 
             // 4. Calcular tarifas con factores globales
-            const overtimeFactor = this.state.settings.overtimeFactor || 1.5;
+            const overtimeFactor = this.state.settings.overtimeFactor || 1;
             const holidayFactor = this.state.settings.holidayFactor || 2;
 
             const overtimeRate = hourlyRate * overtimeFactor;

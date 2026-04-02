@@ -27,16 +27,20 @@ export function DateControlsCompact() {
 
     return `
             <div class="date-controls-compact ${isVisible ? 'visible' : ''} ${isWeek ? 'at-bottom' : ''}">
-                <div class="date-navigation" style="display: flex; align-items: center; background: #1e293b; border-radius: 20px; padding: 4px 8px; border: 1px solid #334155;">
-                    <button class="date-btn" onclick="changeDate(-1)" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px 8px; font-size: 1rem;">◀</button>
-                    <div class="date-display" onclick="toggleDatePicker('compact')" style="padding: 0 10px; cursor: pointer;">
-                        <span style="display:flex; align-items:center; gap:6px; font-size: 0.85rem; font-weight: 600; color: #f1f5f9;">
-                            ${icons.get('calendar', { size: 14 })}
-                            ${dateText}
-                        </span>
+                <div class="pill-nav">
+                    <button class="pill-btn" onclick="changeDate(-1)">
+                        ${icons.get('chevron-left', { size: 18 })}
+                    </button>
+                    
+                    <div class="pill-display" onclick="toggleDatePicker('compact')">
+                        ${icons.get('calendar', { size: 14 })}
+                        <span>${dateText}</span>
                         ${showPicker ? (typeof window.DatePicker === 'function' ? window.DatePicker() : '') : ''}
                     </div>
-                    <button class="date-btn" onclick="changeDate(1)" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 4px 8px; font-size: 1rem;">▶</button>
+                    
+                    <button class="pill-btn" onclick="changeDate(1)">
+                        ${icons.get('chevron-right', { size: 18 })}
+                    </button>
                 </div>
             </div>
         `;

@@ -3097,17 +3097,25 @@ function DateControls() {
         ? getWeekRangeText(state.selectedDate)
         : formatDateShort(state.selectedDate);
 
-    return `<div class="date-controls">
-                <div class="date-navigation">
-                    <button class="date-btn" onclick="changeDate(-1)">◀</button>
-                    <div class="date-display" onclick="toggleDatePicker('full')">
-                        ${dateText}
-                        ${showPicker ? DatePicker() : ''}
-                    </div>
-                    <button class="date-btn" onclick="changeDate(1)">▶</button>
+    return `
+        <div class="date-controls">
+            <div class="pill-nav">
+                <button class="pill-btn" onclick="changeDate(-1)" title="Anterior">
+                    ${icons.get('chevron-left', { size: 20 })}
+                </button>
+                
+                <div class="pill-display" onclick="toggleDatePicker('full')">
+                    ${icons.get('calendar', { size: 16 })}
+                    <span>${dateText}</span>
+                    ${showPicker ? (typeof DatePicker === 'function' ? DatePicker() : '') : ''}
                 </div>
                 
-                <div class="view-controls-row">
+                <button class="pill-btn" onclick="changeDate(1)" title="Siguiente">
+                    ${icons.get('chevron-right', { size: 20 })}
+                </button>
+            </div>
+            
+            <div class="view-controls-row">
                     <div class="segmented-control">
                         <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="changeViewMode('day')">Día</button>
                         <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="changeViewMode('week')">Semana</button>
@@ -5948,16 +5956,26 @@ window.addEventListener('resize', () => {
 // âš¡ NUEVO: Listener de scroll para controles flotantes
 let lastScrollTime = 0;
 window.addEventListener('scroll', () => {
-    const scrolled = window.scrollY > 200;
-    if (scrolled !== state.isScrolled) {
+    const scrollY = window.scrollY;
+    const isScrolled = scrollY > 200;
+    const showBackToTop = scrollY > 400;
+
+    // 🚀 Control del botón "Ir Arriba"
+    const backToTopBtn = document.getElementById('backToTop');
+    if (backToTopBtn) {
+        if (showBackToTop) backToTopBtn.classList.add('visible');
+        else backToTopBtn.classList.remove('visible');
+    }
+
+    if (isScrolled !== state.isScrolled) {
         // Usar requestAnimationFrame para evitar lag
         const now = Date.now();
         if (now - lastScrollTime > 50) { // Throttle de 50ms
-            state.isScrolled = scrolled;
+            state.isScrolled = isScrolled;
             const compactControls = document.querySelector('.date-controls-compact');
             if (compactControls) {
                 const isWeekView = state.viewMode === 'week';
-                if ((scrolled || isWeekView) && state.activeTab === 'attendance') {
+                if ((isScrolled || isWeekView) && state.activeTab === 'attendance') {
                     compactControls.classList.add('visible');
                 } else {
                     compactControls.classList.remove('visible');
@@ -7028,6 +7046,7 @@ document.head.appendChild(styleTag);
 
         // 5. Preparar UI
         onboardingWizard.show();
+        initBackToTop();
 
         // ⚡ Refactorización Alpha: Exponer manejadores de EmployeesUI al scope global
         // Esto permite que los onclick="openEmployeeForm()" en los templates sigan funcionando
@@ -7084,4 +7103,19 @@ document.head.appendChild(styleTag);
         });
     }
 })();
+
+/**
+ * 🚀 Inicializa el botón flotante 'Ir Arriba' con efecto Glassmorphism
+ */
+function initBackToTop() {
+    if (document.getElementById('backToTop')) return;
+    
+    const btn = document.createElement('div');
+    btn.className = 'back-to-top';
+    btn.id = 'backToTop';
+    btn.innerHTML = '▲'; // Unicode arrow para máxima compatibilidad
+    btn.title = 'Ir arriba';
+    btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.body.appendChild(btn);
+}
 

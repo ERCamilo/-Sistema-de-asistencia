@@ -58,7 +58,7 @@
     display: none; /* Oculto en portrait por defecto */
     position: fixed;
     right: 15px;
-    bottom: 85px; /* Arriba de la barra de nav */
+    bottom: var(--bottom-nav-offset, 85px); /* Arriba de la barra de nav */
     width: 44px;
     height: 44px;
     background: rgba(6, 182, 212, 0.85);
@@ -93,7 +93,7 @@
     }
 
     body.bottom-nav-hidden .landscape-toggle-btn {
-        bottom: 20px;
+        bottom: var(--bottom-nav-offset, 25px);
         background: rgba(30, 41, 59, 0.8);
         color: #f1f5f9;
     }
