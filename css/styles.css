@@ -107,6 +107,17 @@
             display: none;
         }
 
+        /* Variante para Scroll de Página (Fixed) */
+        .scrollbar-indicator-container.mode-fixed {
+            position: fixed;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 10000;
+            background: rgba(15, 23, 42, 0.4);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
         .scroll-indicator {
             position: absolute;
             right: 1px;
@@ -125,6 +136,10 @@
         }
 
         /* Colores Neón (IDE Style) */
+        .scroll-indicator.regular { 
+            background: #10b981; /* Verde esmeralda */
+            box-shadow: 0 0 5px rgba(16, 185, 129, 0.6); 
+        }
         .scroll-indicator.absent { 
             background: #ff4d4d; 
             box-shadow: 0 0 5px rgba(255, 77, 77, 0.6); 
@@ -165,6 +180,30 @@
                 margin: 0 auto;
                 padding: 0 24px;
             }
+        }
+
+        /* --- MODO SCROLL DE PÁGINA (VISTA DIARIA) --- */
+        .day-view-page-mode {
+            padding-bottom: 100px; /* Espacio para que no lo tape el footer/controles */
+        }
+
+        .sticky-controls-wrapper {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: rgba(15, 23, 42, 0.85); /* Glassmorphism */
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 10px 0;
+            margin-top: -10px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Asegurar que la lista no tenga altura fija en modo página */
+        .day-view-page-mode .employee-list.sticky-table-container {
+            max-height: none !important;
+            overflow: visible !important;
         }
 
         /* --- GLOBAL BUTTONS --- */
@@ -345,10 +384,41 @@
             position: relative;
         }
 
-        .view-controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+        .view-controls-row {
+            display: flex;
             gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .segmented-control {
+            display: flex;
+            background: #1e293b;
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            gap: 4px;
+            flex: 1;
+        }
+
+        .segmented-item {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 200ms ease;
+            white-space: nowrap;
+        }
+
+        .segmented-item.active {
+            background: #06b6d4;
+            color: #0f172a;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
         }
 
         .view-btn {
@@ -359,16 +429,104 @@
             color: #94a3b8;
             font-size: 0.875rem;
             font-weight: 600;
+            cursor: pointer;
+            transition: all 200ms ease;
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-width: 44px;
+            min-height: 44px;
         }
 
-        .view-btn.active {
+        .view-btn:active {
+            transform: scale(0.95);
+        }
+
+        .view-btn.active:not(.segmented-item) {
             background: #06b6d4;
-            color: #000;
+            color: #0f172a;
             border-color: #06b6d4;
+        }
+
+        .view-btn.action-btn {
+            border-radius: 12px;
+            padding: 10px 16px;
+            color: #f1f5f9;
+        }
+
+        /* Holiday Switch Component */
+        .holiday-switch-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #1e293b;
+            padding: 4px 14px;
+            border-radius: 14px;
+            border: 1px solid #334155;
+            cursor: pointer;
+            user-select: none;
+            transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+            min-height: 44px;
+            flex: 1;
+            justify-content: space-between;
+        }
+
+        .holiday-switch-container:hover {
+            border-color: #475569;
+            background: #242f42;
+        }
+
+        .holiday-switch-container.active {
+            background: rgba(245, 158, 11, 0.1);
+            border-color: rgba(245, 158, 11, 0.5);
+        }
+
+        .switch-track {
+            width: 40px;
+            height: 22px;
+            background: #0f172a;
+            border-radius: 20px;
+            position: relative;
+            transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1.5px solid #334155;
+        }
+
+        .holiday-switch-container.active .switch-track {
+            background: #f59e0b;
+            border-color: #f59e0b;
+        }
+
+        .switch-thumb {
+            width: 16px;
+            height: 16px;
+            background: #64748b;
+            border-radius: 50%;
+            position: absolute;
+            top: 1.5px;
+            left: 2px;
+            transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .holiday-switch-container.active .switch-thumb {
+            left: calc(100% - 18.5px);
+            background: #0f172a;
+            transform: scale(1.1);
+        }
+
+        .switch-label {
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            pointer-events: none;
+        }
+
+        .holiday-switch-container.active .switch-label {
+            color: #f59e0b;
         }
 
         /* Compact Sticky Date Navigation (for scroll) */

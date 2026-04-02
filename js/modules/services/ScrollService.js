@@ -3,7 +3,7 @@
  * Maneja el renderizado de indicadores (ausencias/extras) en la barra de scroll.
  */
 import { state } from '../core/AppState.js';
-import { getDateKey } from '../utils/DateUtils.js';
+import { getDateKey, isDayHoliday } from '../utils/DateUtils.js';
 
 export const ScrollService = {
     /**
@@ -11,14 +11,18 @@ export const ScrollService = {
      */
     init() {
         const container = document.querySelector('.sticky-table-container');
-        if (!container) return;
+        // Si el contenedor no tiene scroll (VISTA DIARIA), escuchamos window
+        const isPageScroll = container ? (window.getComputedStyle(container).overflow === 'visible') : true;
+        const scrollTarget = isPageScroll ? window : container;
 
-        // Evitar duplicar listeners si el contenedor ya los tiene
-        if (container._hasScrollListener) return;
+        if (!scrollTarget) return;
+
+        // Evitar duplicar listeners
+        if (scrollTarget._hasScrollListener) return;
 
         let scrollTimeout;
         const onScroll = () => {
-            const mode = state.settings.scrollbarMode || 'on-scroll';
+            const mode = state.settings?.scrollbarMode || 'on-scroll';
             if (mode !== 'on-scroll') return;
             
             const indicatorContainer = document.querySelector('.scrollbar-indicator-container');
@@ -31,8 +35,8 @@ export const ScrollService = {
             }
         };
 
-        container.addEventListener('scroll', onScroll, { passive: true });
-        container._hasScrollListener = true;
+        scrollTarget.addEventListener('scroll', onScroll, { passive: true });
+        scrollTarget._hasScrollListener = true;
         
         // Disparar una vez para detectar estado inicial
         onScroll();
@@ -41,16 +45,19 @@ export const ScrollService = {
     /**
      * Renderiza los puntos de color en el mini-mapa basado en la asistencia.
      * @param {Array} employees - Lista de empleados filtrados.
+     * @param {Boolean} fixedMode - Si el mini-mapa debe ser fixed (para scroll de página).
      */
-    renderIndicators(employees) {
+    renderIndicators(employees, fixedMode = false) {
         const mode = state.settings?.scrollbarMode || 'on-scroll';
         if (mode === 'hidden') return '';
 
         const dateKey = getDateKey(state.selectedDate);
-        console.log(`🛰️ ScrollService: Renderizando ${employees?.length || 0} indicadores (Modo: ${mode})`);
+        const displayModeClass = fixedMode ? 'mode-fixed' : `mode-${mode}`;
+        
+        console.log(`🛰️ ScrollService: Renderizando ${employees?.length || 0} indicadores (Fixed: ${fixedMode})`);
         
         // Generar contenedor
-        return `<div class="scrollbar-indicator-container mode-${mode}" id="scroll-mini-map">
+        return `<div class="scrollbar-indicator-container ${displayModeClass}" id="scroll-mini-map">
             ${this.getIndicatorDots(employees, dateKey)}
         </div>`;
     },
@@ -63,31 +70,43 @@ export const ScrollService = {
         
         let dotsHTML = '';
         const total = employees.length;
+        const regular = state.settings?.regularHoursPerDay || 8;
+        const tolerance = 0.1;
+        const isH = isDayHoliday(state.selectedDate, state.settings?.holidays);
         
         employees.forEach((emp, index) => {
             const key = `${emp.id}-${dateKey}`;
             const att = state.attendance[key];
-            const positionPercent = (index / total) * 100;
+            const positionPercent = total > 1 ? (index / (total - 1)) * 96 + 2 : 50; 
             
             if (att && att.present) {
-                // Priority for indicators
-                if (att.multiPosition) {
-                    dotsHTML += `<div class="scroll-indicator multiposition" style="top: ${positionPercent}%;" title="Multi-posición: ${emp.name}"></div>`;
-                }
-                
-                if (att.hoursWorked === 0) {
-                    dotsHTML += `<div class="scroll-indicator absent" style="top: ${positionPercent}%;" title="Ausente: ${emp.name}"></div>`;
-                } else if (att.overtimeHours > 0 || att.hoursWorked > (state.settings.regularHoursPerDay || 8)) {
-                    dotsHTML += `<div class="scroll-indicator extra" style="top: ${positionPercent}%;" title="Extras: ${emp.name}"></div>`;
-                } else if (att.isHoliday) {
+                const hours = att.hoursWorked || 0;
+                const isExtra = hours > regular + tolerance;
+                const isUndertime = hours < regular - tolerance;
+                const isMulti = att.positionHours && att.positionHours.length > 1;
+                const hasNote = att.note || att.notes;
+
+                // 1. Indicador de Estado Base (Derecha)
+                if (isH) {
                     dotsHTML += `<div class="scroll-indicator holiday" style="top: ${positionPercent}%;" title="Festivo: ${emp.name}"></div>`;
+                } else if (isExtra) {
+                    dotsHTML += `<div class="scroll-indicator extra" style="top: ${positionPercent}%;" title="Extras: ${emp.name}"></div>`;
+                } else if (isUndertime) {
+                    dotsHTML += `<div class="scroll-indicator absent" style="top: ${positionPercent}%;" title="Menos: ${emp.name}"></div>`;
+                } else {
+                    dotsHTML += `<div class="scroll-indicator regular" style="top: ${positionPercent}%;" title="Regular: ${emp.name}"></div>`;
                 }
 
-                if (att.note || att.notes) {
-                    dotsHTML += `<div class="scroll-indicator note" style="top: ${positionPercent}%; right: 8px;" title="Nota: ${emp.name}"></div>`;
+                // 2. Indicadores Especiales (Desplazados a la izquierda)
+                if (isMulti) {
+                    dotsHTML += `<div class="scroll-indicator multiposition" style="top: ${positionPercent}%; right: 10px;" title="Multi-posición: ${emp.name}"></div>`;
+                }
+
+                if (hasNote) {
+                    dotsHTML += `<div class="scroll-indicator note" style="top: ${positionPercent}%; right: 18px;" title="Nota: ${emp.name}"></div>`;
                 }
             } else if (emp.active !== false) {
-                // Si está activo pero no tiene asistencia, se considera "PENDIENTE" en gris
+                // PENDIENTE en gris
                 dotsHTML += `<div class="scroll-indicator pending" style="top: ${positionPercent}%;" title="Pendiente: ${emp.name}"></div>`;
             }
         });

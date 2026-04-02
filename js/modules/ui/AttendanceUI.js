@@ -336,16 +336,23 @@ export function DayView() {
         : '<div class="empty-state">No hay resultados</div>';
 
     return `
-        ${StatsGrid()}
-        ${Legend()}
-        ${PositionFilters()}
-        ${SearchBar()}
-        ${DateControlsCompact()}
-        <div style="position: relative; margin-top: 16px;">
-            <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
-                ${listHTML}
+        <div class="day-view-page-mode">
+            ${StatsGrid()}
+            ${Legend()}
+            ${PositionFilters()}
+            
+            <div class="sticky-controls-wrapper">
+                ${SearchBar()}
             </div>
-            ${ScrollService.renderIndicators(filtered)}
+            
+            ${DateControlsCompact()}
+            
+            <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
+                <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
+                    ${listHTML}
+                </div>
+                ${ScrollService.renderIndicators(filtered, true)}
+            </div>
         </div>
     `;
 }

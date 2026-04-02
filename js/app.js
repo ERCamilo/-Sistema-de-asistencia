@@ -3107,29 +3107,36 @@ function DateControls() {
                     <button class="date-btn" onclick="changeDate(1)">▶</button>
                 </div>
                 
-                <div class="view-controls">
-                    <button class="view-btn ${state.viewMode === 'day' ? 'active' : ''}" onclick="changeViewMode('day')">Día</button>
-                    <button class="view-btn ${state.viewMode === 'week' ? 'active' : ''}" onclick="changeViewMode('week')">Semana</button>
-                    <button class="view-btn ${isToday ? 'active' : ''}" onclick="goToToday()">🎯 Hoy</button>
+                <div class="view-controls-row">
+                    <div class="segmented-control">
+                        <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="changeViewMode('day')">Día</button>
+                        <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="changeViewMode('week')">Semana</button>
+                    </div>
+                    <button class="view-btn action-btn ${isToday ? 'active' : ''}" onclick="goToToday()">🎯 Hoy</button>
                 </div>
                 
                 ${state.viewMode === 'day' ? `
-                    <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; margin-top: 8px;">
-                        <div style="display: flex; align-items: center; gap: 6px; background: #1e293b; padding: 8px 10px; border-radius: 8px; border: 1px solid #334155;">
-                            <label style="font-size: 0.75rem; color: #94a3b8; white-space: nowrap;">⏱️ Horas:</label>
+                    <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin-top: 10px;">
+                        <div style="display: flex; align-items: center; gap: 6px; background: #1e293b; padding: 0 12px; border-radius: 14px; border: 1px solid #334155; min-height: 44px;">
+                            <label style="font-size: 0.7rem; color: #64748b; font-weight: 800; text-transform: uppercase;">⏱️ Horas</label>
                             <input type="number" value="${dayHours}" min="0.5" max="24" step="0.5"
                                    onchange="setDayHours(this.value)"
-                                   style="flex: 1; background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 6px 8px; border-radius: 6px; font-size: 0.875rem; min-width: 50px;"
-                                   title="Horas de trabajo configuradas para este día">
+                                   style="width: 45px; background: transparent; border: none; color: #f1f5f9; padding: 4px 0; font-size: 0.9rem; font-weight: 700; outline: none; text-align: center;"
+                                   title="Horas de trabajo">
                         </div>
+                        
                         <button class="view-btn" onclick="toggleListDisplayMode()" 
                                 title="Cambiar densidad (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})"
-                                style="font-size: 1rem; padding: 8px 12px; min-width: 40px;">
+                                style="font-size: 1.1rem; border-radius: 14px;">
                             ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
                         </button>
-                        <button class="view-btn ${isHoliday ? 'active' : ''}" onclick="markDayAsHoliday()" style="font-size: 0.75rem; padding: 8px 6px;">
-                            ${isHoliday ? '☀️ Quitar' : '☀️ Festivo'}
-                        </button>
+
+                        <div class="holiday-switch-container ${isHoliday ? 'active' : ''}" onclick="markDayAsHoliday()">
+                            <span class="switch-label">${isHoliday ? 'Festivo' : 'Normal'}</span>
+                            <div class="switch-track">
+                                <div class="switch-thumb"></div>
+                            </div>
+                        </div>
                     </div>
                 ` : ''}
 
