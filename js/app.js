@@ -18,7 +18,8 @@ import {
 
 import {
     DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
-    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton
+    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
+    DateControls, DateControlsCompact, getDayHours, getCheckColor
 } from './modules/ui/AttendanceUI.js';
 
 // ... (Resto de importaciones existentes)
@@ -57,6 +58,8 @@ import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
 import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
 import { TabComponent } from './modules/components/TabComponent.js';
+import './modules/ui/AttendanceHandlers.js';
+
 import { TableComponent } from './modules/components/TableComponent.js';
 import { FormComponent } from './modules/components/FormComponent.js';
 import { CalendarPickerComponent } from './modules/components/CalendarPickerComponent.js';
@@ -72,9 +75,10 @@ import {
     DashboardDateManager,
     DashboardDateManagerV2,
     EmployeeReportDateManager,
-    EmployeeReportDateManagerV2
+    EmployeeReportDateManagerV2,
+    AttendanceDateManager
 } from './modules/utils/DateManagers.js';
-import { renderManager } from './modules/utils/RenderManager.js';
+import { render, setRootComponent } from './modules/core/RenderManager.js';
 import lazyLoader from './modules/utils/LazyLoader.js';
 import syncManager from './modules/services/SyncManager.js';
 import offlineManager from './modules/services/OfflineManager.js';
@@ -190,6 +194,53 @@ window.applyIconSet = applyIconSet;
 window.resolveIconSet = resolveIconSet;
 window.loginWithGoogle = window.App.loginWithGoogle;
 window.logoutFirebase = window.App.logoutFirebase;
+
+// ============================================
+// 📅 INICIALIZACIÓN DE GESTORES DE FECHA (POO)
+// ============================================
+const attendanceDateManager = new AttendanceDateManager(state, saveApplicationData);
+
+// PUENTES GLOBALES PARA ASISTENCIA
+window.toggleDatePicker = (target, force) => attendanceDateManager.togglePicker(target, force);
+window.changeDate = (delta) => attendanceDateManager.changeDate(delta);
+window.selectAttendanceDate = (date) => attendanceDateManager.selectDate(date);
+
+window.DatePicker = (target) => {
+    if (!state.showDatePicker) return '';
+    const activeTarget = state.datePickerTarget || 'full';
+    if (target && activeTarget !== target) return '';
+
+    // Preparar indicadores (por ejemplo, puntos si hay notas o feriados)
+    const indicators = {};
+    // Podríamos agregar lógica aquí para mostrar puntos en días con notas o cambios especiales
+    
+    const component = new CalendarPickerComponent({
+        selectedDate: state.selectedDate,
+        viewDate: state.datePickerMonth,
+        currentView: state.datePickerView,
+        holidays: state.settings?.holidays || [],
+        indicators: indicators,
+        onDateSelect: 'window.selectAttendanceDate',
+        onClose: () => attendanceDateManager.togglePicker(target, false)
+    });
+    return component.render();
+};
+
+// CERRAR CALENDARIO AL HACER CLIC FUERA
+document.addEventListener('click', (e) => {
+    if (state.showDatePicker) {
+        // Si el elemento ya no está en el DOM, ignoramos el clic (probablemente fue un 
+        // botón de navegación que disparó un re-render y se eliminó a sí mismo)
+        if (!document.body.contains(e.target)) return;
+        
+        const isClickInside = e.target.closest('.calendar-picker') || 
+                             e.target.closest('.pill-display') || 
+                             e.target.closest('.calendar-picker-popup');
+        if (!isClickInside) {
+            attendanceDateManager.togglePicker(null, false);
+        }
+    }
+});
 
 // PUENTE A EMPLOYEES UI (Modales y Filtros reubicados)
 Object.entries(EmployeesUI).forEach(([key, value]) => {
@@ -391,19 +442,7 @@ function restoreScrollPosition() {
 }
 
 // Obtener horas configuradas para un día específico
-function getDayHours(date) {
-    const key = getDateKey(date);
-    return state.dayHoursConfig[key] ?? state.settings.regularHoursPerDay;
-}
-
-// Establecer horas para el día actual
-window.App.setDayHours = function (hours) {
-    const key = getDateKey(state.selectedDate);
-    const h = parseFloat(hours);
-    if (isNaN(h) || h < 0.5 || h > 24) { alert('❌ Las horas deben estar entre 0.5 y 24'); return; }
-    state.dayHoursConfig[key] = h;
-    render();
-};
+// getDayHours movido a AttendanceUI.js
 window.setDayHours = window.App.setDayHours;
 
 // ✅ NUEVO: Configurar horas rápidas para vista semanal
@@ -609,6 +648,9 @@ window.PayrollUI = PayrollUI;
 
 // Map Global Functions for Legacy Compatibility (Employees)
 window.changeEmployeeViewMode = EmployeesUI.changeEmployeeViewMode;
+
+// ═══ Handlers para Día Seleccionado (Festivos y Horas Base se manejan en AttendanceHandlers.js) ═══
+
 window.setEmployeeStatusFilter = EmployeesUI.setEmployeeStatusFilter;
 window.setEmployeeSearchFilter = EmployeesUI.setEmployeeSearchFilter;
 window.setEmployeePositionFilter = EmployeesUI.setEmployeePositionFilter;
@@ -1185,32 +1227,8 @@ function getWeekRangeText(date) {
 // ========================================
 
 
-function getCheckColor(att, date) {
-    if (!att || !att.present) return '';
+// getCheckColor ha sido migrado a AttendanceUI.js para mejor modularidad
 
-    // ⚡ PRIORIDAD 1: Multi-posición (MORADO) - Se sobrepone a TODO
-    // Solo si trabajó en 2+ posiciones ESE DÍA específicamente
-    if (att.positionHours && att.positionHours.length > 1) {
-        return 'check-multiposition';  // 🟣 MORADO
-    }
-
-    // ⚡ IMPORTANTE: Verificar SOLO configuración actual, no valor histórico
-    // Esto permite que al quitar un festivo, los checks cambien de color inmediatamente
-
-    // PRIORIDAD 2: Día festivo (DORADO)
-    // Solo verifica isDayHoliday(date) - configuración ACTUAL
-    if (isDayHoliday(date, state.settings.holidays)) return 'check-holiday';
-
-    // PRIORIDAD 3-5: Horas trabajadas
-    // ✅ Agregar tolerancia de 6 minutos (0.1 horas)
-    const tolerance = 0.1;
-    const hours = att.hoursWorked || 0;
-    const regular = state.settings.regularHoursPerDay;
-
-    if (hours > regular + tolerance) return 'check-overtime';   // Azul (más horas)
-    if (hours < regular - tolerance) return 'check-undertime';  // Rosa (menos horas)
-    return 'check-regular';  // Verde (horas normales)
-}
 function getWeekDates(date) {
     // ✅ Convertir string a Date si es necesario
     const d = typeof date === 'string' ? parseDate(date) : date;
@@ -1366,6 +1384,7 @@ window.goToToday = () => {
 
 window.changeViewMode = (mode) => {
     state.viewMode = mode;
+    state.isScrolled = false; // Resetear scroll al cambiar de vista
 
     // ✅ Guardar cambios
     saveApplicationData();
@@ -1376,6 +1395,7 @@ window.changeViewMode = (mode) => {
     render();
 };
 
+window.showDatePicker = (target = 'full') => window.toggleDatePicker(target);
 window.toggleDatePicker = (target = 'full') => {
     const currentTarget = state.datePickerTarget || 'full';
     if (state.showDatePicker && currentTarget === target) {
@@ -1388,6 +1408,8 @@ window.toggleDatePicker = (target = 'full') => {
     }
     render();
 };
+
+// Eliminado el DatePicker duplicado y movido al inicio del archivo para consolidación.
 
 window.changeDatePickerMonth = (delta) => {
     state.datePickerMonth.setMonth(state.datePickerMonth.getMonth() + delta);
@@ -2431,10 +2453,8 @@ window.removeAttendance = (empId, dateStr) => {
     saveApplicationData({ dateKey: dateStr });
     render();
 };
-window.markDayAsHoliday = () => {
-    holidayService.toggleSelectedDayHoliday(() => saveApplicationData({ dateKey: getDateKey(state.selectedDate) }));
-    render();
-};
+// Redefinición de markDayAsHoliday eliminada
+
 
 // ═══ Marcadores de fechas de pago ═══
 window.toggleLegend = () => { state.showLegend = !state.showLegend; render(); };
@@ -3059,117 +3079,12 @@ function BottomNavigation() {
             </nav>`;
 }
 
-function DatePicker() {
-    if (!state.showDatePicker) return '';
-    const days = getDaysInMonth(state.datePickerMonth);
-    const dayNames = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
-    const today = getDateKey(new Date());
-    const selected = getDateKey(state.selectedDate);
-
-    return `<div class="date-picker-popup">
-                <div class="date-picker-header">
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); changeDatePickerMonth(-1)">◀</button>
-                    <div class="date-picker-month">${formatMonthYear(state.datePickerMonth)}</div>
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); changeDatePickerMonth(1)">▶</button>
-                </div>
-                <div class="date-picker-grid">
-                    ${dayNames.map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
-                    ${days.map(({ date, currentMonth }) => {
-        const dKey = getDateKey(date);
-        let cls = ['date-picker-day'];
-        if (!currentMonth) cls.push('other-month');
-        if (dKey === today) cls.push('today');
-        if (dKey === selected) cls.push('selected');
-        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectDate('${date.toISOString()}')">${date.getDate()}</div>`;
-    }).join('')}
-                </div>
-            </div>`;
-}
-
-function DateControls() {
-    const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
-    const isToday = getDateKey(state.selectedDate) === getDateKey(new Date());
-    const dayHours = getDayHours(state.selectedDate);
-    const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'full';
-
-    // Determinar qué texto mostrar según la vista
-    const dateText = state.viewMode === 'week'
-        ? getWeekRangeText(state.selectedDate)
-        : formatDateShort(state.selectedDate);
-
-    return `
-        <div class="date-controls">
-            <div class="pill-nav">
-                <button class="pill-btn" onclick="changeDate(-1)" title="Anterior">
-                    ${icons.get('chevron-left', { size: 20 })}
-                </button>
-                
-                <div class="pill-display" onclick="toggleDatePicker('full')">
-                    ${icons.get('calendar', { size: 16 })}
-                    <span>${dateText}</span>
-                    ${showPicker ? (typeof DatePicker === 'function' ? DatePicker() : '') : ''}
-                </div>
-                
-                <button class="pill-btn" onclick="changeDate(1)" title="Siguiente">
-                    ${icons.get('chevron-right', { size: 20 })}
-                </button>
-            </div>
-            
-            <div class="view-controls-row">
-                    <div class="segmented-control">
-                        <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="changeViewMode('day')">Día</button>
-                        <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="changeViewMode('week')">Semana</button>
-                    </div>
-                    <button class="view-btn action-btn ${isToday ? 'active' : ''}" onclick="goToToday()">🎯 Hoy</button>
-                </div>
-                
-                ${state.viewMode === 'day' ? `
-                    <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin-top: 10px;">
-                        <div style="display: flex; align-items: center; gap: 6px; background: #1e293b; padding: 0 12px; border-radius: 14px; border: 1px solid #334155; min-height: 44px;">
-                            <label style="font-size: 0.7rem; color: #64748b; font-weight: 800; text-transform: uppercase;">⏱️ Horas</label>
-                            <input type="number" value="${dayHours}" min="0.5" max="24" step="0.5"
-                                   onchange="setDayHours(this.value)"
-                                   style="width: 45px; background: transparent; border: none; color: #f1f5f9; padding: 4px 0; font-size: 0.9rem; font-weight: 700; outline: none; text-align: center;"
-                                   title="Horas de trabajo">
-                        </div>
-                        
-                        <button class="view-btn" onclick="toggleListDisplayMode()" 
-                                title="Cambiar densidad (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})"
-                                style="font-size: 1.1rem; border-radius: 14px;">
-                            ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
-                        </button>
-
-                        <div class="holiday-switch-container ${isHoliday ? 'active' : ''}" onclick="markDayAsHoliday()">
-                            <span class="switch-label">${isHoliday ? 'Festivo' : 'Normal'}</span>
-                            <div class="switch-track">
-                                <div class="switch-thumb"></div>
-                            </div>
-                        </div>
-                    </div>
-                ` : ''}
-
-                ${state.viewMode === 'week' ? `
-                    <div style="display: flex; align-items: center; gap: 8px; background: #1e293b; padding: 8px 12px; border-radius: 8px; border: 1px solid #334155; margin-top: 8px;">
-                        <label style="font-size: 0.875rem; color: #94a3b8; white-space: nowrap;">⚡ Horas rápidas:</label>
-                        <input type="number" value="${state.quickWeekHours}" min="0.5" max="24" step="0.5"
-                               onchange="setQuickWeekHours(this.value)"
-                               style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 6px 8px; border-radius: 6px; font-size: 0.875rem; width: 70px;"
-                               title="Horas que se aplicarán automáticamente al marcar asistencia en vista semanal">
-                        <span style="font-size: 0.75rem; color: #64748b;">
-                            (Al marcar ✓ se aplicarán estas horas automáticamente)
-                        </span>
-                    </div>
-                ` : ''}
-            </div>`;
-}
-
-// ⚡ componente DateControlsCompact movido a AttendanceUI.js
-
-// ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DayView, WeekView, etc.)
+// ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
 // han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
 
-
-// ⚡ getFilteredEmployeesForDay, DayView, WeekView y WeekViewTotalsRow movidos a AttendanceUI.js
+// ============================================
+// 📊 REPORTES Y ESTADÍSTICAS — (Refactorizados)
+// ============================================
 
 // ============================================
 // LEGACY EMPLOYEES UI — Removed (now in EmployeesUI.js)
@@ -3263,7 +3178,7 @@ window.updateWeekTotals = function () {
 };
 window.setSearchFilter = debounce((value) => {
     state.filters.search = value.trim().toLowerCase();
-    
+
     // El sistema de RenderManager.render() ya se encarga de preservar el foco 
     // y usar DOMDiff para que el filtrado sea instantáneo y sin parpadeos.
     render();
@@ -3287,7 +3202,14 @@ function DisplayModeFloatingToggle() {
 }
 
 function AttendanceTab() {
-    return `${DateControls()}${state.viewMode === 'day' ? DayView() : WeekView()}`;
+    return `
+        ${DateControls()}
+        <div class="sticky-controls-wrapper">
+            ${SearchBar()}
+        </div>
+        ${DateControlsCompact()}
+        ${state.viewMode === 'day' ? DayView() : WeekView()}
+    `;
 }
 
 // ============================================
@@ -3984,10 +3906,8 @@ window.changeSettingsCalendarMonth = function (delta) {
     render();
 };
 
-window.toggleHoliday = function (dateKey) {
-    holidayService.toggleHoliday(dateKey, () => saveApplicationData());
-    render();
-};
+// window.toggleHoliday eliminado (ahora en AttendanceHandlers.js)
+
 
 // ═══ SISTEMA DE TOGGLE BUTTONS PARA CALENDARIO ═══
 window.handleCalendarDayClick = function (dateKey) {
@@ -5786,18 +5706,17 @@ function App() {
     };
 
     // ✅ Solo renderiza el tab activo
-    const content = tabMap[state.activeTab]
+        const content = tabMap[state.activeTab]
         ? tabMap[state.activeTab]()
         : '<div style="text-align:center;padding:60px 20px;color:#64748b;"><div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">🚧</div><div style="font-size:1.125rem;">En desarrollo</div></div>';
 
     // ⚡ OPTIMIZACIÓN: Lazy loading de modales (Vía DOM, no inyectados en HTML)
     const modalMap = {
-        'advanced': () => '', // El modal avanzado es independiente (DOM-based)
+        'advanced': () => '', 
         'employee-form': () => '',
         'leader-form': () => '',
-        'leader-form': () => LeaderFormModal(),
-        'position-form': () => PositionFormModal(),
-        'multi-position': () => MultiPositionModal()
+        'position-form': () => '',
+        'multi-position': () => ''
     };
 
     const modal = state.showModal && modalMap[state.modalType]
@@ -5815,6 +5734,9 @@ function App() {
     })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
+// 🎯 Registrar el componente raíz para el motor modular
+setRootComponent(App);
+
 function updateHeaderOffset() {
     const header = document.querySelector('.header');
     if (header) {
@@ -5822,105 +5744,8 @@ function updateHeaderOffset() {
     }
 }
 
-window.toggleSidebar = function () {
-    state.settings.sidebarCollapsed = !state.settings.sidebarCollapsed;
-    state.settings._isDirty = true;
-    saveApplicationData();
-    render();
-};
-
-window.toggleBottomNav = function () {
-    document.body.classList.toggle('bottom-nav-hidden');
-    // Forzar actualización de variables CSS de layout
-    if (typeof updateHeaderOffset === 'function') {
-        updateHeaderOffset();
-    }
-};
-
-function render() {
-    // ⚡ Optimizado con RenderOptimizer
-    renderOptimizer.scheduleRender(() => {
-        perfMonitor.start('render');
-
-        // Preservar foco en el buscador de empleados si está activo
-        const activeEl = document.activeElement;
-        const keepSearchFocus = activeEl && activeEl.classList && activeEl.classList.contains('employee-search-input');
-        const searchCursorPos = keepSearchFocus ? activeEl.selectionStart : null;
-        const searchValue = keepSearchFocus ? activeEl.value : null;
-
-        // Guardar posición del scroll antes de renderizar
-        saveScrollPosition();
-
-        if (state.settings.sidebarCollapsed) {
-            document.body.classList.add('sidebar-collapsed');
-        } else {
-            document.body.classList.remove('sidebar-collapsed');
-        }
-
-        // Controlar si el body tiene sidebar (para el margin-left en desktop)
-        if (!state.settings.legacyNavigation) {
-            document.body.classList.add('has-sidebar');
-        } else {
-            document.body.classList.remove('has-sidebar');
-            document.body.classList.remove('sidebar-collapsed');
-        }
-
-        // Renderizar con DOMDiff para evitar parpadeos y pérdida de estado
-        const root = document.getElementById('root');
-        const newHTML = App();
-
-        // ⚡ Refactorización Alpha: Usamos el parcheo incremental en lugar de replaceChildren
-        DOMDiff.apply(root, newHTML);
-
-        // Renderizar iconos Lucide despues de actualizar el DOM
-        // La actualización de iconos ya es inline o se maneja internamente.
-        // No es necesario llamar a icons.refresh() en cada renderizado.
-        updateHeaderOffset();
-
-        // Restaurar foco del buscador si estaba activo
-        if (keepSearchFocus) {
-            requestAnimationFrame(() => {
-                const input = document.querySelector('.employee-search-input');
-                if (input) {
-                    input.focus();
-                    if (searchValue !== null && input.value !== searchValue) {
-                        input.value = searchValue;
-                    }
-                    const pos = searchCursorPos !== null ? searchCursorPos : input.value.length;
-                    if (input.setSelectionRange) {
-                        input.setSelectionRange(pos, pos);
-                    }
-                }
-            });
-        }
-
-        // Restaurar posición del scroll después de renderizar
-        restoreScrollPosition();
-
-        // Auto-guardar datos (solo si están cargados y no estamos aplicando cambios remotos async)
-        if (!window._isApplyingRemoteData && state.isDataLoaded) {
-            saveApplicationData();
-        }
-
-        // Emitir evento de render completado
-        eventBus.emit('render:complete', {
-            timestamp: Date.now(),
-            activeTab: state.activeTab
-        });
-
-        perfMonitor.end('render');
-    });
-}
-
-// Versión optimizada con debounce para búsquedas
-const debouncedRender = window.debounce(render, 300);
-
-// Versión optimizada con throttle para scroll
-let _throttleTimer = null;
-const throttledRender = function () {
-    if (_throttleTimer) return;
-    _throttleTimer = setTimeout(() => { _throttleTimer = null; render(); }, 100);
-};
+// El renderizado ahora se gestiona a través de modules/core/RenderManager.js
+// No es necesario definir render(), debouncedRender o throttledRender aquí.
 
 // Event listener global para cerrar menú contextual y calendarios
 document.addEventListener('click', function (e) {
@@ -5975,7 +5800,7 @@ window.addEventListener('scroll', () => {
             const compactControls = document.querySelector('.date-controls-compact');
             if (compactControls) {
                 const isWeekView = state.viewMode === 'week';
-                if ((isScrolled || isWeekView) && state.activeTab === 'attendance') {
+                if (isScrolled && state.activeTab === 'attendance') {
                     compactControls.classList.add('visible');
                 } else {
                     compactControls.classList.remove('visible');
@@ -6232,7 +6057,7 @@ class OnboardingWizard {
             const confirmed = window.confirm(
                 '¿Cargar datos de prueba avanzados?\n\nEsto reemplazará cualquier dato actual con un escenario de 30 días, incluyendo feriados, horas extras y contrataciones tardías.'
             );
-            
+
             if (confirmed) {
                 await this.loadDemoData();
                 state.onboardingStep = this.steps.indexOf('done');
@@ -6897,12 +6722,12 @@ document.head.appendChild(styleTag);
         // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
         console.log('📂 Cargando datos...');
         await loadApplicationData();
-        
+
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
             console.log('💾 Guardando cambios de sanitización inicial...');
             await saveApplicationData({ force: true });
-            render(); 
+            render();
         }
 
         // 2. Aplicar configuraciones de interfaz
@@ -7070,6 +6895,7 @@ document.head.appendChild(styleTag);
         window.togglePositionEmployees = EmployeesUI.togglePositionEmployees;
         window.openEmployeeProfile = EmployeesUI.openEmployeeProfile;
         window.openEmployeeFloating = EmployeesUI.openEmployeeFloating;
+        window.toggleBottomNav = () => { state.bottomNavHidden = !state.bottomNavHidden; };
 
         // 6. Renderizado Inicial
         console.log('🎨 Renderizando interfaz...');
@@ -7109,7 +6935,7 @@ document.head.appendChild(styleTag);
  */
 function initBackToTop() {
     if (document.getElementById('backToTop')) return;
-    
+
     const btn = document.createElement('div');
     btn.className = 'back-to-top';
     btn.id = 'backToTop';

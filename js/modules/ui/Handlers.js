@@ -12,8 +12,9 @@ import { perfMonitor } from '../core/Performance.js';
 import { Notification } from '../components/Notification.js';
 import { UndoManager } from '../utils/UndoManager.js';
 import { 
-    getDateKey, parseDate, isDayHoliday, getDayHours, getCheckColor 
+    getDateKey, parseDate, isDayHoliday, getDayHours 
 } from '../utils/DateUtils.js';
+import { getCheckColor } from './AttendanceUI.js';
 import { 
     payrollService, 
     holidayService, 

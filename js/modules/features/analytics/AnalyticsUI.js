@@ -7,6 +7,7 @@ import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils
 let context = null;
 let dashboardDateManagerV2 = null;
 let employeeReportDateManagerV2 = null;
+let activeCharts = {};
 
 export function init(ctx) {
     context = ctx;
@@ -17,6 +18,39 @@ export function init(ctx) {
 
 function getState() {
     return context.state;
+}
+
+/**
+ * Inicializa un gráfico de forma segura, destruyendo cualquier instancia previa
+ * vinculada a la misma 'key' lógica para evitar errores de canvas en uso.
+ */
+function initChartSafely(canvasId, chartKey, config) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx || !window.Chart) return;
+
+    // 1. Limpieza: Si ya existe un gráfico para esta función, destruirlo
+    if (activeCharts[chartKey]) {
+        try {
+            activeCharts[chartKey].destroy();
+        } catch (e) {
+            console.warn(`Error al destruir gráfico previo (${chartKey}):`, e);
+        }
+        delete activeCharts[chartKey];
+    }
+
+    // 2. Doble verificación: Chart.js a veces deja rastro en el contexto
+    // Buscamos si hay un gráfico huérfano en este canvas específico
+    const existingChart = Chart.getChart(ctx);
+    if (existingChart) {
+        existingChart.destroy();
+    }
+
+    // 3. Creación de la nueva instancia
+    try {
+        activeCharts[chartKey] = new Chart(ctx, config);
+    } catch (error) {
+        console.error(`Error crítico al inicializar gráfico ${chartKey}:`, error);
+    }
 }
 
 // ============================================
@@ -117,10 +151,8 @@ function DashboardEndDatePicker() {
 function AttendanceChart() {
     const chartId = 'attendanceChart-' + Date.now();
     setTimeout(() => {
-        const ctx = document.getElementById(chartId);
-        if (!ctx || !window.Chart) return;
         const data = getAttendanceChartData();
-        new Chart(ctx, {
+        initChartSafely(chartId, 'dashboardAttendance', {
             type: 'line',
             data: {
                 labels: data.labels,
@@ -172,10 +204,8 @@ function getAttendanceChartData() {
 function HoursChart() {
     const chartId = 'hoursChart-' + Date.now();
     setTimeout(() => {
-        const ctx = document.getElementById(chartId);
-        if (!ctx || !window.Chart) return;
         const data = getHoursChartData();
-        new Chart(ctx, {
+        initChartSafely(chartId, 'dashboardHours', {
             type: 'bar',
             data: {
                 labels: data.labels,
@@ -246,10 +276,8 @@ function getHoursChartData() {
 function PositionsChart() {
     const chartId = 'positionsChart-' + Date.now();
     setTimeout(() => {
-        const ctx = document.getElementById(chartId);
-        if (!ctx || !window.Chart) return;
         const data = getPositionsChartData();
-        new Chart(ctx, {
+        initChartSafely(chartId, 'dashboardPositions', {
             type: 'doughnut',
             data: {
                 labels: data.labels,
@@ -294,10 +322,8 @@ function getPositionsChartData() {
 function Top10Chart() {
     const chartId = 'top10Chart-' + Date.now();
     setTimeout(() => {
-        const ctx = document.getElementById(chartId);
-        if (!ctx || !window.Chart) return;
         const data = getTop10ChartData();
-        new Chart(ctx, {
+        initChartSafely(chartId, 'dashboardTop10', {
             type: 'bar',
             data: {
                 labels: data.labels,

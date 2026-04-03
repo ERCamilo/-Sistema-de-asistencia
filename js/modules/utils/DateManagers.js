@@ -433,3 +433,103 @@ export class EmployeeReportDateManager {
         if (this.onSave) this.onSave();
     }
 }
+
+// ============================================
+// 💡 NUEVA CLASE SingleDateManager (POO)
+// ============================================
+/**
+ * Gestiona una única fecha seleccionada.
+ * Centraliza la lógica de cambio de fecha y control de calendario flotante.
+ */
+export class SingleDateManager {
+    constructor(state, config = {}, onSave) {
+        this.state = state;
+        this.onSave = onSave;
+        this.config = {
+            dateKey: config.dateKey || 'selectedDate',
+            showPickerKey: config.showPickerKey || 'showDatePicker',
+            pickerTargetKey: config.pickerTargetKey || 'datePickerTarget',
+            name: config.name || 'SingleDate'
+        };
+    }
+
+    /**
+     * Alternar visibilidad del selector de fechas
+     * @param {string} target - El identificador del componente que lo abre (full, compact, etc)
+     * @param {boolean|null} force - Si se especifica, fuerza el estado (true = abrir, false = cerrar)
+     */
+    togglePicker(target = 'full', force = null) {
+        const currentShow = this.state[this.config.showPickerKey];
+        const currentTarget = this.state[this.config.pickerTargetKey];
+
+        if (force !== null) {
+            this.state[this.config.showPickerKey] = force;
+            if (force) this.state[this.config.pickerTargetKey] = target;
+        } else if (currentShow && currentTarget === target) {
+            this.state[this.config.showPickerKey] = false;
+        } else {
+            this.state[this.config.showPickerKey] = true;
+            this.state[this.config.pickerTargetKey] = target;
+        }
+        
+        console.log(`💡 ${this.config.name} Toggle Picker:`, this.state[this.config.showPickerKey], 'Target:', target);
+    }
+
+    /**
+     * Cambiar la fecha por un delta (unidades de días)
+     */
+    changeDate(days) {
+        const current = parseDate(this.state[this.config.dateKey]);
+        current.setDate(current.getDate() + days);
+        this.state[this.config.dateKey] = current; // Proxied state handles the update
+        
+        console.log(`💡 ${this.config.name} Date cambiado por ${days} días:`, getDateKey(current));
+        if (this.onSave) this.onSave();
+    }
+
+    /**
+     * Seleccionar una fecha específica (desde calendario)
+     */
+    selectDate(dateKey) {
+        this.state[this.config.dateKey] = parseDate(dateKey);
+        this.state[this.config.showPickerKey] = false;
+        
+        console.log(`💡 ${this.config.name} Date seleccionado:`, dateKey);
+        if (this.onSave) this.onSave();
+    }
+
+    /**
+     * Establecer fecha a hoy
+     */
+    setToday() {
+        this.state[this.config.dateKey] = new Date();
+        if (this.onSave) this.onSave();
+    }
+}
+
+// ============================================
+// 💡 CLASE AttendanceDateManager (Especializada)
+// ============================================
+/**
+ * Extensión de SingleDateManager para la vista de Asistencia.
+ * Implementa saltos inteligentes (7 días si está en modo semana).
+ */
+export class AttendanceDateManager extends SingleDateManager {
+    constructor(state, onSave) {
+        super(state, {
+            dateKey: 'selectedDate',
+            showPickerKey: 'showDatePicker',
+            pickerTargetKey: 'datePickerTarget',
+            name: 'Attendance'
+        }, onSave);
+    }
+
+    /**
+     * Cambio de fecha inteligente según viewMode
+     */
+    changeDate(delta) {
+        const isWeek = this.state.viewMode === 'week';
+        const jump = isWeek ? (delta * 7) : delta;
+        super.changeDate(jump);
+    }
+}

@@ -190,6 +190,9 @@ class IconSystem {
             'terminal': { unicode: '🖥️', lucide: 'terminal', phosphor: 'terminal-window', tabler: 'terminal', bootstrap: 'terminal' },
             'bug': { unicode: '🐛', lucide: 'bug', phosphor: 'bug', tabler: 'bug', bootstrap: 'bug' },
             'activity': { unicode: '📡', lucide: 'activity', phosphor: 'activity', tabler: 'activity', bootstrap: 'activity' },
+            'calendar-check': { unicode: '📅✅', lucide: 'calendar-check', phosphor: 'calendar-check', tabler: 'calendar-check', bootstrap: 'calendar-check' },
+            'calendar-off': { unicode: '📅❌', lucide: 'calendar-off', phosphor: 'calendar-off', tabler: 'calendar-off', bootstrap: 'calendar-x' },
+            'palmtree': { unicode: '🌴', lucide: 'palm-tree', phosphor: 'palm-tree', tabler: 'tree-palm', bootstrap: 'brightness-high' }
         };
     }
 

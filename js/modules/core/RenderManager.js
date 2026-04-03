@@ -92,6 +92,7 @@ export function render() {
         // Actualizar clases del body según el estado
         document.body.classList.toggle('sidebar-collapsed', !!state.settings.sidebarCollapsed);
         document.body.classList.toggle('has-sidebar', !state.settings.legacyNavigation);
+        document.body.classList.toggle('bottom-nav-hidden', !!state.bottomNavHidden);
         if (state.settings.legacyNavigation) {
             document.body.classList.remove('sidebar-collapsed');
         }

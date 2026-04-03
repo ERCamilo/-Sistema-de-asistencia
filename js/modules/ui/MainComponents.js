@@ -6,7 +6,8 @@
 import { state } from '../core/AppState.js';
 import {
     DateControls, DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
-    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton
+    EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
+    getCheckColor
 } from './AttendanceUI.js';
 
 import * as EmployeesUI from '../features/employees/EmployeesUI.js';
@@ -15,8 +16,7 @@ import * as PayrollUI from '../features/payroll/PayrollUI.js';
 import * as SettingsUI from './SettingsUI.js';
 import * as SyncUI from './SyncUI.js';
 import {
-    getDateKey, getDaysInMonth, formatMonthYear, formatDateShort,
-    getCheckColor
+    getDateKey, getDaysInMonth, formatMonthYear, formatDateShort
 } from '../utils/DateUtils.js';
 
 import { getEmployeeTotalHours } from '../core/AppState.js';

@@ -15,35 +15,137 @@ import { ScrollService } from '../services/ScrollService.js';
 // 📅 COMPONENTE: DateControlsCompact
 // --------------------------------------------------------------------------
 export function DateControlsCompact() {
-    const dateText = state.viewMode === 'week'
+    const isWeek = state.viewMode === 'week';
+    const isLegacy = state.settings?.legacyNavigation;
+    const isAsBottomBar = isWeek && isLegacy;
+
+    const dateText = isWeek
         ? getWeekRangeText(state.selectedDate)
         : formatDateShort(state.selectedDate);
 
     // El picker ahora depende del estado global y funciones de window (Legacy bridge)
     const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'compact';
-    const isWeek = state.viewMode === 'week';
-    // Forzado: En vista semanal siempre es visible porque el scroll es interno y no llegará a 200px en la página.
-    const isVisible = (state.isScrolled || isWeek) && (state.activeTab === 'attendance');
+    const isVisible = (state.isScrolled || isAsBottomBar) && (state.activeTab === 'attendance');
+
+    const classes = [
+        'date-controls-compact',
+        isVisible ? 'visible' : '',
+        isWeek ? 'at-bottom' : '',
+        isAsBottomBar ? 'as-bottom-bar' : ''
+    ].filter(Boolean).join(' ');
 
     return `
-            <div class="date-controls-compact ${isVisible ? 'visible' : ''} ${isWeek ? 'at-bottom' : ''}">
+            <div class="${classes}">
                 <div class="pill-nav">
-                    <button class="pill-btn" onclick="changeDate(-1)">
+                    <button class="pill-btn" onclick="window.changeDate(-1)">
                         ${icons.get('chevron-left', { size: 18 })}
                     </button>
                     
-                    <div class="pill-display" onclick="toggleDatePicker('compact')">
+                    <div class="pill-display" onclick="window.toggleDatePicker('compact'); event.stopPropagation();">
                         ${icons.get('calendar', { size: 14 })}
                         <span>${dateText}</span>
                         ${showPicker ? (typeof window.DatePicker === 'function' ? window.DatePicker() : '') : ''}
                     </div>
                     
-                    <button class="pill-btn" onclick="changeDate(1)">
+                    <button class="pill-btn" onclick="window.changeDate(1)">
                         ${icons.get('chevron-right', { size: 18 })}
                     </button>
                 </div>
             </div>
         `;
+}
+
+/**
+ * 🕒 Obtener horas configuradas para un día específico
+ */
+export function getDayHours(date) {
+    const key = getDateKey(date);
+    return state.dayHoursConfig[key] ?? state.settings.regularHoursPerDay;
+}
+
+/**
+ * 🎨 Determinar el color del checkbox basado en el estado
+ */
+export function getCheckColor(att, date) {
+    if (!att || !att.present) return 'check-empty';
+    // Multi-posición (MORADO)
+    if (att.positionHours && att.positionHours.length > 1) {
+        return 'check-multiposition';
+    }
+    // Día festivo (DORADO)
+    if (isDayHoliday(date, state.settings?.holidays)) return 'check-holiday';
+    // Horas trabajadas
+    const hours = att.hoursWorked || 0;
+    const regular = state.settings?.regularHoursPerDay || 8;
+    const tolerance = 0.1;
+    if (hours > regular + tolerance) return 'check-overtime';
+    if (hours < regular - tolerance) return 'check-undertime';
+    return 'check-regular';
+}
+
+/**
+ * 📅 COMPONENTE: DateControls (Estándar)
+ */
+export function DateControls() {
+    const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
+    const dayHours = getDayHours(state.selectedDate);
+    const displayText = state.viewMode === 'week'
+        ? getWeekRangeText(state.selectedDate)
+        : formatDateShort(state.selectedDate);
+
+    // Lógica de etiquetas adaptativas para ahorrar espacio en móvil
+    const dayLabel = state.viewMode === 'day' ? 'Día' : 'D';
+    const weekLabel = state.viewMode === 'week' ? 'Semana' : 'S';
+
+    // Semántica de colores en horas: Rojo < 8h, Verde = 8h, Azul > 8h
+    const hourColor = dayHours > 8 ? '#3b82f6' : (dayHours < 8 ? '#ef4444' : '#10b981');
+
+    return `
+        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 1000; padding: 16px; border-radius: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
+            <div class="pill-nav" style="margin-bottom: 16px;">
+                <button class="pill-btn" onclick="window.changeDate(-1)">${icons.get('chevron-left')}</button>
+                <div class="pill-display" onclick="window.toggleDatePicker('full'); event.stopPropagation();" style="position: relative;">
+                    ${icons.get('calendar', { size: 18 })}
+                    <span>${displayText}</span>
+                    ${(state.showDatePicker && (state.datePickerTarget || 'full') === 'full') ? (typeof window.DatePicker === 'function' ? window.DatePicker('full') : '') : ''}
+                </div>
+                <button class="pill-btn" onclick="window.changeDate(1)">${icons.get('chevron-right')}</button>
+            </div>
+            
+            <div class="view-controls-row">
+                <!-- Seccion Vista -->
+                <div class="control-section">
+                    <div class="control-section-label">Vista</div>
+                    <div class="segmented-control">
+                        <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="window.changeViewMode('day')">${dayLabel}</button>
+                        <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="window.changeViewMode('week')">${weekLabel}</button>
+                    </div>
+                </div>
+
+                <!-- Seccion Horas Base -->
+                <div class="control-section">
+                    <div class="control-section-label">Horas Base</div>
+                    <div class="stepper-container" title="Horas base para este día">
+                        <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
+                        <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
+                        <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
+                    </div>
+                </div>
+
+                <!-- Seccion Feriado -->
+                <div class="control-section">
+                    <div class="control-section-label">Feriado</div>
+                    <div class="holiday-control ${isHoliday ? 'active' : ''}" onclick="window.toggleHoliday()" title="${isHoliday ? 'Día Feriado' : 'Día Laboral'}">
+                        <div class="holiday-icon-box">
+                            ${icons.get(isHoliday ? 'palmtree' : 'briefcase', { size: 20 })}
+                        </div>
+                        <div class="switch-toggle">
+                            <div class="switch-handle"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
 }
 
 // El componente ahora usa getWeekRangeText importado de DateUtils
@@ -53,7 +155,7 @@ export function DateControlsCompact() {
  */
 export function renderSkeleton(count = 5) {
     return Array(count).fill(0).map(() => `
-        <div class="skeleton" style="height: 120px; margin-bottom: 16px; width: 100%; opacity: 0.2;"></div>
+        <div class="skeleton skeleton-item"></div>
     `).join('');
 }
 
@@ -89,7 +191,10 @@ export function StatsGrid() {
                     <div class="stat-value">${stats.overtimeHours}h</div>
                     <div class="stat-label">Extras</div>
                 </div>
-            </div>${f ? `<div style="margin-top:12px;padding:8px 12px;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);border-radius:8px;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;"><span style="font-size:0.875rem;color:#06b6d4;font-weight:600;">🔍 ${filterNames[f]}</span><button onclick="setEmployeeFilter(null)" style="background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:4px 12px;border-radius:6px;font-size:0.75rem;cursor:pointer;font-weight:600;">✕ Limpiar</button></div>` : ''}</div>`;
+            </div>${f ? `<div class="filter-status-notification">
+                <span class="filter-status-text">🔍 ${filterNames[f]}</span>
+                <button onclick="setEmployeeFilter(null)" class="view-btn" style="padding: 4px 12px; font-size: 0.75rem;">✕ Limpiar</button>
+            </div>` : ''}</div>`;
 }
 
 /**
@@ -125,13 +230,12 @@ export function PositionFilters() {
 
     return `
         <div class="position-filters-container" style="margin-top: 16px;">
-            <button class="filters-toggle" onclick="toggleFilters()" 
-                    style="width: 100%; background: #1e293b; border: 1px solid #334155; padding: 10px 14px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.2s;">
+            <button class="filters-toggle view-btn" onclick="toggleFilters()" style="width: 100%; justify-content: space-between;">
                 <span style="color: #f1f5f9; font-weight: 600; font-size: 0.875rem;">🎯 Filtrar Posición</span>
                 <span style="font-size: 1.25rem; color: #94a3b8;">${state.showFilters ? '▼' : '▶'}</span>
             </button>
             ${state.showFilters ? `
-                <div class="filters-content" style="margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px;">
+                <div class="filters-content position-filters-grid">
                     <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" 
                             onclick="setPositionFilter('all')"
                             style="background: ${currentFilter === 'all' ? 'linear-gradient(135deg, #06b6d4, #10b981)' : '#1e293b'}; border: 2px solid ${currentFilter === 'all' ? '#06b6d4' : '#334155'}; padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
@@ -160,20 +264,20 @@ export function SearchBar() {
     const leaderFilter = state.filters.leaderId || 'all';
 
     return `
-        <div class="search-container" style="margin-bottom: 16px; display: flex; gap: 12px; width: 100%;">
-            <div style="position: relative; flex: 3;">
+        <div class="search-wrapper">
+            <div class="search-input-group">
                 <input type="text" id="search-input" value="${searchValue}" oninput="setSearchFilter(this.value)"
-                       placeholder="🔍 Buscar por nombre, número o posición..."
-                       style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; padding-left: 36px; border-radius: 8px; font-size: 0.875rem;">
-                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 1rem; opacity: 0.5;">🔍</span>
+                       placeholder="Buscar por nombre, número o posición..."
+                       class="search-input-field">
+                <span class="search-icon-fixed">🔍</span>
                 ${searchValue ? `<button onclick="setSearchFilter('');" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">✕</button>` : ''}
             </div>
-            <div style="flex: 2; position: relative;">
-                <div style="position: absolute; left: 12px; top: 52%; transform: translateY(-50%); font-size: 1rem; opacity: 0.5; display: flex; align-items: center;">
+            <div class="search-input-group" style="flex: 2;">
+                <div class="search-icon-fixed">
                     ${icons.get('key')}
                 </div>
                 <select onchange="setLeaderFilter(this.value)" 
-                        style="width: 100%; background: #1e293b; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; padding-left: 36px; border-radius: 8px; font-size: 0.875rem; cursor: pointer; outline: none; appearance: none; -webkit-appearance: none;">
+                        class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
                     ${state.leaders.filter(l => l.active).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
                 </select>
@@ -183,26 +287,6 @@ export function SearchBar() {
     `;
 }
 
-/**
- * 🎨 Determina el color del check según tipo de jornada
- * (Migrado desde app.js para independencia modular)
- */
-function getCheckColor(att, date) {
-    if (!att || !att.present) return '';
-    // Multi-posición (MORADO)
-    if (att.positionHours && att.positionHours.length > 1) {
-        return 'check-multiposition';
-    }
-    // Día festivo (DORADO)
-    if (isDayHoliday(date, state.settings?.holidays)) return 'check-holiday';
-    // Horas trabajadas
-    const tolerance = 0.1;
-    const hours = att.hoursWorked || 0;
-    const regular = state.settings?.regularHoursPerDay || 8;
-    if (hours > regular + tolerance) return 'check-overtime';
-    if (hours < regular - tolerance) return 'check-undertime';
-    return 'check-regular';
-}
 
 /**
  * 👤 Fila de Empleado (Vista Diaria / Relajada)
@@ -311,7 +395,7 @@ export function EmployeeRowCompact(emp) {
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
-    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode" style="padding: 8px 12px; height: 60px; display: flex; align-items: center; border-bottom: 1px solid #1e293b;">
+    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" onclick="openEmployeeFloating('${emp.id}')">${emp.name}</div>
@@ -334,22 +418,17 @@ export function EmployeeRowCompact(emp) {
  * Se eliminó el uso de setTimeout + renderInChunks para prevenir parpadeos en renderizado reactivo.
  */
 export function DayView() {
+    const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const filtered = getFilteredEmployeesForDay();
     const listHTML = filtered.length > 0 
         ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
         : '<div class="empty-state">No hay resultados</div>';
 
     return `
-        <div class="day-view-page-mode">
+        <div class="day-view-page-mode ${isHoliday ? 'holiday-theme' : ''}">
             ${StatsGrid()}
             ${Legend()}
             ${PositionFilters()}
-            
-            <div class="sticky-controls-wrapper">
-                ${SearchBar()}
-            </div>
-            
-            ${DateControlsCompact()}
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
                 <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
@@ -444,8 +523,6 @@ export function WeekView() {
         : '<tr><td colspan="8"><div class="empty-state">No hay empleados registrados para este periodo</div></td></tr>';
 
     return `
-        ${SearchBar()}
-        ${DateControlsCompact()}
         <div id="week-view-list" class="sticky-table-container modern-scroll">
             <table class="week-view-table">
                 <thead class="sticky-header">

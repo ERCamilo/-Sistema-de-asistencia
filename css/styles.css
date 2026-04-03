@@ -10,7 +10,14 @@
             background: #000;
             min-height: 100vh;
             color: #f1f5f9;
-            padding-bottom: 80px;
+        }
+
+        body.has-bottom-nav {
+            padding-bottom: 80px; /* Espacio para el menú inferior moderno de 70px */
+        }
+
+        body.has-bottom-bar-weekly {
+            padding-bottom: 60px; /* Espacio exacto para la nueva barra de fechas semanal */
         }
 
         :root {
@@ -55,96 +62,7 @@
             border-color: #06b6d4;
         }
 
-        /* 💊 NAVEGACIÓN ESTILO PÍLDORA (DATE NAVIGATION) */
-        .pill-nav {
-            display: flex;
-            align-items: center;
-            background: #1e293b;
-            border-radius: 50px;
-            padding: 4px;
-            border: 1px solid #334155;
-            width: fit-content;
-            margin: 0 auto 20px auto;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        }
 
-        .pill-btn {
-            background: transparent;
-            border: none;
-            color: #94a3b8;
-            cursor: pointer;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-            font-size: 1.2rem;
-        }
-
-        .pill-btn:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: #f1f5f9;
-        }
-
-        .pill-btn:active {
-            transform: scale(0.9);
-            background: rgba(6, 182, 212, 0.2);
-        }
-
-        .pill-display {
-            padding: 0 20px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: #f1f5f9;
-            min-width: 180px;
-            justify-content: center;
-            transition: color 0.2s;
-            user-select: none;
-        }
-
-        .pill-display:hover {
-            color: #06b6d4;
-        }
-
-        .pill-display i, .pill-display svg {
-            color: #06b6d4;
-            opacity: 0.9;
-        }
-
-        /* 📊 UTILIDADES PARA TABLAS RESPONSIVAS */
-        .sticky-table-container {
-            overflow: auto; /* Scroll interno en ambas direcciones */
-            max-height: calc(100vh - 180px); /* Ajuste dinámico para evitar solapamientos */
-            position: relative;
-            border-radius: 8px;
-            box-shadow: inset -10px 0 10px -10px rgba(0,0,0,0.5); /* Sombra para indicar scroll */
-        }
-
-        .sticky-column {
-            position: sticky;
-            left: 0;
-            z-index: 10;
-            background: #1e293b !important;
-        }
-
-        .sticky-header {
-            position: sticky;
-            top: 0; /* Ahora se fija al contenedor interno (.sticky-table-container) */
-            z-index: 20;
-            background: #0f172a !important;
-        }
-
-        /* Intersection cell (Top-Left) needs the highest z-index */
-        th.sticky-column {
-            z-index: 30;
-            background: #0f172a !important;
-        }
 
         .sticky-column-2 {
             position: sticky;
@@ -538,12 +456,6 @@
             transform: scale(0.95);
         }
 
-        .view-btn.active:not(.segmented-item) {
-            background: #06b6d4;
-            color: #0f172a;
-            border-color: #06b6d4;
-        }
-
         .view-btn.action-btn {
             border-radius: 12px;
             padding: 10px 16px;
@@ -660,6 +572,35 @@
             transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), bottom 0.3s ease;
         }
 
+        /* 🆕 Barra Fija Inferior (Modo Semanal Legacy) */
+        .date-controls-compact.as-bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            top: auto;
+            transform: none !important;
+            width: 100%;
+            min-width: 100%;
+            max-width: 100%;
+            border-radius: 0;
+            padding: 8px 0;
+            background: #0f172a; /* Fondo sólido para eliminar la franja negra */
+            border: none;
+            border-top: 1px solid rgba(6, 182, 212, 0.3);
+            opacity: 1 !important;
+            visibility: visible !important;
+            pointer-events: auto !important;
+            display: flex;
+            justify-content: center;
+            z-index: 2000;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.6);
+        }
+
+        .date-controls-compact.as-bottom-bar .pill-nav {
+            transform: scale(1.1); /* Ligeramente más grande para facilitar el toque */
+        }
+
         /* Ajuste dinámico cuando la barra de navegación inferior está oculta */
         body.bottom-nav-hidden .date-controls-compact.at-bottom {
             bottom: 25px; /* Baja al fondo cuando no hay nav-bar */
@@ -678,6 +619,9 @@
             padding: 0;
         }
 
+        .pill-display {
+            position: relative;
+        }
         .date-controls-compact .pill-display {
             min-width: auto;
             padding: 0 12px;
@@ -2668,10 +2612,32 @@
 
         /* CalendarPickerComponent */
         .calendar-picker {
+            position: absolute;
+            top: calc(100% + 12px);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2000;
             background: #1e293b;
-            border-radius: 12px;
-            padding: 20px;
-            border: 1px solid #334155;
+            border-radius: 20px;
+            padding: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 
+                0 20px 40px rgba(0, 0, 0, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.05);
+            min-width: 320px;
+            animation: calendar-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            backdrop-filter: blur(12px);
+        }
+
+        @keyframes calendar-pop {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) scale(0.95) translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) scale(1) translateY(0);
+            }
         }
 
         .calendar-header {
@@ -3632,5 +3598,234 @@
             }
             .week-employee-name {
                 font-size: 0.8rem;
+            }
+        }
+
+        /* ============================================
+           🗓️ PREMIUM CALENDAR PICKER
+           ============================================ */
+        .calendar-picker {
+            position: absolute;
+            top: calc(100% + 12px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            width: 320px;
+            padding: 16px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 
+                        0 0 30px rgba(6, 182, 212, 0.2);
+            animation: calendarPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            user-select: none;
+            z-index: 5000;
+        }
+
+        @keyframes calendarPopIn {
+            from { transform: translateX(-50%) scale(0.9) translateY(-10px); opacity: 0; }
+            to { transform: translateX(-50%) scale(1) translateY(0); opacity: 1; }
+        }
+
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .calendar-title {
+            font-weight: 800;
+            font-size: 1rem;
+            color: #f1f5f9;
+            cursor: pointer;
+            padding: 4px 12px;
+            border-radius: 8px;
+            transition: all 0.2s;
+            text-transform: capitalize;
+        }
+
+        .calendar-title:hover {
+            background: rgba(6, 182, 212, 0.1);
+            color: #06b6d4;
+        }
+
+        .calendar-nav {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #06b6d4;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .calendar-nav:hover {
+            border-color: #06b6d4;
+            background: #334155;
+            transform: scale(1.1);
+        }
+
+        .calendar-weekdays {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .calendar-weekday {
+            text-align: center;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+        }
+
+        .calendar-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #f1f5f9;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            border: 1px solid transparent;
+        }
+
+        .calendar-day:hover:not(.calendar-day-empty) {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: #334155;
+            transform: translateY(-2px);
+        }
+
+        .calendar-day-selected {
+            background: #06b6d4 !important;
+            color: #0f172a !important;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
+        }
+
+        .calendar-day-today {
+            border: 2px solid #10b981 !important;
+            color: #10b981;
+        }
+
+        .calendar-day-holiday {
+            background: linear-gradient(135deg, #f59e0b, #fbbf24) !important;
+            color: #000 !important;
+            font-weight: 800;
+        }
+
+        .calendar-day-other {
+            opacity: 0.3;
+            font-weight: 400;
+        }
+
+        .calendar-day-highlighted {
+            background: rgba(6, 182, 212, 0.15);
+        }
+
+        /* Indicadores */
+        .calendar-indicators {
+            display: flex;
+            gap: 2px;
+            position: absolute;
+            bottom: 4px;
+        }
+
+        .indicator-dot {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: #06b6d4;
+        }
+
+        .indicator-icon {
+            font-size: 0.6rem;
+        }
+
+        /* Footer */
+        .calendar-footer {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: center;
+        }
+
+        .btn-today {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #10b981;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-today:hover {
+            background: #10b981;
+            color: #0f172a;
+            transform: scale(1.05);
+        }
+
+        /* Grid de Selección Rápida (Meses) */
+        .calendar-grid-jumper {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .jumper-item {
+            padding: 10px 4px;
+            text-align: center;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #f1f5f9;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .jumper-item:hover {
+            border-color: #06b6d4;
+            background: rgba(6, 182, 212, 0.1);
+            color: #06b6d4;
+        }
+
+        .jumper-item.active {
+            background: #06b6d4;
+            color: #0f172a;
+            border-color: #06b6d4;
+        }
+
+        /* 📱 Responsive */
+        @media (max-width: 480px) {
+            .calendar-picker {
+                width: 290px;
+                padding: 12px;
+            }
+            .calendar-day {
+                font-size: 0.75rem;
             }
         }

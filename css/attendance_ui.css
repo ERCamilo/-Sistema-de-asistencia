@@ -1,0 +1,439 @@
+/* 
+ * 🎨 attendance_ui.css
+ * Estilos específicos para el módulo de Asistencia
+ */
+
+/* --- 🦴 SKELETON LOADING --- */
+.skeleton {
+    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 8px;
+}
+
+.skeleton-item {
+    height: 120px;
+    margin-bottom: 16px;
+    width: 100%;
+    opacity: 0.2;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* --- 🚀 APP LOADER --- */
+#app-loader {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+#app-loader.hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.loader-spinner {
+    width: 60px;
+    height: 60px;
+    border: 4px solid rgba(255, 255, 255, 0.1);
+    border-left-color: #06b6d4;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* --- 💊 NAVEGACIÓN Y CONTROLES --- */
+.pill-nav {
+    display: flex;
+    align-items: center;
+    background: #1e293b;
+    border-radius: 50px;
+    padding: 4px;
+    border: 1px solid #334155;
+    width: fit-content;
+    margin: 0 auto 20px auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.pill-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.pill-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #f1f5f9;
+}
+
+.pill-display {
+    padding: 0 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    min-width: 180px;
+    justify-content: center;
+    user-select: none;
+}
+
+.pill-display:hover {
+    color: #06b6d4;
+}
+
+.segmented-control {
+    display: flex;
+    background: #1e293b;
+    padding: 2px; /* Reducido de 4px para que coincida con el stepper */
+    border-radius: 12px;
+    border: 1.5px solid #334155;
+    gap: 4px;
+    width: 100%;
+    height: 44px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.segmented-item {
+    flex: 1;
+    padding: 8px 4px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: flex 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.3s, color 0.3s;
+    white-space: nowrap;
+    text-align: center;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.segmented-item.active {
+    flex: 1.8; /* El botón activo se expande */
+    background: #06b6d4;
+    color: #0f172a;
+    box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
+}
+
+.view-btn {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #1e293b;
+    border: 2px solid #334155;
+    color: #94a3b8;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 200ms ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.view-btn.active {
+    background: #06b6d4;
+    color: #0f172a;
+    border-color: #06b6d4;
+}
+
+/* --- ⏱️ STEPPER DE HORAS --- */
+.stepper-container {
+    display: flex;
+    align-items: center;
+    background: #1e293b;
+    border-radius: 12px;
+    border: 1.5px solid #334155;
+    padding: 2px;
+    height: 44px;
+    width: 100%;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.stepper-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.25rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.stepper-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #f1f5f9;
+}
+
+.stepper-btn:active {
+    transform: scale(0.9);
+}
+
+.stepper-value {
+    padding: 0 12px;
+    font-weight: 700;
+    color: #10b981; /* Verde esmeralda por defecto */
+    font-size: 0.95rem;
+    min-width: 50px;
+    text-align: center;
+    user-select: none;
+}
+
+.view-controls-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.control-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Anchos fijos para estabilidad */
+.control-section:nth-child(1) { flex: 0 0 135px !important; } /* Vista */
+.control-section:nth-child(2) { flex: 0 0 100px !important; } /* Horas Base */
+.control-section:nth-child(3) { flex: 0 0 85px !important; }  /* Feriado */
+
+.control-section-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    user-select: none;
+    height: 12px !important;
+    line-height: 12px !important;
+    white-space: nowrap !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- 🗓️ SWITCH DE FERIADO --- */
+.holiday-control {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: #1e293b;
+    padding: 2px; /* Unificado con los otros */
+    border-radius: 12px;
+    border: 1.5px solid #334155;
+    cursor: pointer;
+    user-select: none;
+    height: 44px;
+    width: 100%;
+    transition: all 0.3s;
+    box-sizing: border-box;
+}
+
+.holiday-icon-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    transition: all 0.3s;
+}
+
+.holiday-control.active .holiday-icon-box {
+    color: #ffcc00;
+}
+
+.holiday-control:not(.active) .holiday-icon-box {
+    color: #10b981; /* Verde esmeralda para estado laboral */
+}
+
+.switch-toggle {
+    width: 36px;
+    height: 20px;
+    background: #0f172a;
+    border-radius: 20px;
+    position: relative;
+    border: 1.5px solid #334155;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.switch-handle {
+    width: 14px;
+    height: 14px;
+    background: #475569;
+    border-radius: 50%;
+    position: absolute;
+    top: 1.5px;
+    left: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --- ✨ ESTADO DORADO (FERIADO) --- */
+.holiday-control.active .switch-toggle {
+    background: #ffcc00;
+    border-color: #ffcc00;
+    box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);
+}
+
+.holiday-control.active .switch-handle {
+    left: 17px;
+    background: #0f172a;
+    transform: scale(1.1);
+}
+
+.holiday-control.active .switch-handle {
+    left: 17px;
+    background: #0f172a;
+    transform: scale(1.1);
+}
+
+/* --- 📊 ESTADÍSTICAS Y FILTROS --- */
+.stats-combined {
+    margin-bottom: 16px;
+}
+
+.filter-status-notification {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    border-radius: 8px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.filter-status-text {
+    font-size: 0.875rem;
+    color: #06b6d4;
+    font-weight: 600;
+}
+
+/* --- 🎯 POSICIONES --- */
+.position-filters-grid {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+}
+
+/* --- 🔍 BÚSQUEDA --- */
+.search-wrapper {
+    margin-bottom: 16px;
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.search-input-group {
+    position: relative;
+    flex: 3;
+}
+
+.search-input-field {
+    width: 100%;
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    color: #f1f5f9 !important;
+    padding: 10px 12px;
+    padding-left: 36px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+}
+
+.search-icon-fixed {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.5;
+}
+
+/* --- 👤 FILAS DE EMPLEADO --- */
+.employee-row-compact {
+    padding: 8px 12px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #1e293b;
+}
+
+/* --- 📅 TABLA SEMANAL (STICKY) --- */
+.sticky-table-container {
+    overflow: auto;
+    max-height: calc(100vh - 180px);
+    position: relative;
+    border-radius: 8px;
+    box-shadow: inset -10px 0 10px -10px rgba(0,0,0,0.5);
+}
+
+.sticky-column {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: #1e293b !important;
+}
+
+.sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #0f172a !important;
+}
+
+/* --- ✨ MISC --- */
+.glass-effect {
+    background: rgba(15, 23, 42, 0.7) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.header-content {
+    align-items: center !important;
+}
