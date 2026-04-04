@@ -49,14 +49,25 @@ export function toggleHoliday(providedDateKey = null) {
 
     if (index > -1) {
         holidays.splice(index, 1);
+        isNowHoliday = false;
         Notification.info('Día marcado como laborable');
     } else {
         holidays.push(dateKey);
+        isNowHoliday = true;
         Notification.success('Día marcado como FERIADO 🚩', { icon: 'gold' });
     }
     
     state.settings.holidays = holidays;
     
+    // 🔥 Sincronizar los registros existentes para este día
+    Object.keys(state.attendance).forEach(key => {
+        const att = state.attendance[key];
+        if (att && att.date === dateKey) {
+            att.isHoliday = isNowHoliday;
+            att.updatedAt = Date.now();
+        }
+    });
+
     // Guardar y refrescar
     saveApplicationData();
     render();
@@ -74,6 +85,7 @@ export function setDayHours(val) {
         : [getDateKey(state.selectedDate)];
 
     datesToUpdate.forEach(dateKey => {
+        let currentHours = state.dayHoursConfig?.[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
         if (!state.dayHoursConfig) state.dayHoursConfig = {};
         state.dayHoursConfig[dateKey] = hours;
     });

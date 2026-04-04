@@ -2788,7 +2788,7 @@
             top: calc(100% + 12px);
             left: 50%;
             transform: translateX(-50%);
-            z-index: 2000;
+            z-index: 20000;
             background: #1e293b;
             border-radius: 20px;
             padding: 16px;
@@ -2799,6 +2799,7 @@
             min-width: 320px;
             animation: calendar-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
             backdrop-filter: blur(12px);
+
         }
 
         @keyframes calendar-pop {

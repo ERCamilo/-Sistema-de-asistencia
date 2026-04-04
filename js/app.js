@@ -2372,7 +2372,8 @@ window.handleWeekCheck = (empId, dateStr) => {
             positionHours: emp.positions?.length > 0 ?
                 [{ positionId: emp.positions[0], hours: hours }] :
                 [],
-            selectedPosition: emp.positions?.[0] || null
+            selectedPosition: emp.positions?.[0] || null,
+            updatedAt: Date.now()
         };
 
         console.log('⚡ Asistencia creada con', hours, 'horas (vista semanal)');

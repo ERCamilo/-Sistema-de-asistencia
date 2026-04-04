@@ -84,7 +84,10 @@ export class CalendarPickerComponent extends ComponentBase {
     selectMonth(mIdx) {
         const { viewDate } = this.state;
         viewDate.setMonth(mIdx);
-        if (window.state) window.state.datePickerMonth = new Date(viewDate);
+        if (window.state) {
+            window.state.datePickerMonth = new Date(viewDate);
+            window.state.datePickerView = 'calendar';
+        }
         this.setState({ currentView: 'calendar' });
         this.renderGlobal();
     }
@@ -92,7 +95,10 @@ export class CalendarPickerComponent extends ComponentBase {
     selectYear(year) {
         const { viewDate } = this.state;
         viewDate.setFullYear(year);
-        if (window.state) window.state.datePickerMonth = new Date(viewDate);
+        if (window.state) {
+            window.state.datePickerMonth = new Date(viewDate);
+            window.state.datePickerView = 'months';
+        }
         this.setState({ currentView: 'months' });
         this.renderGlobal();
     }

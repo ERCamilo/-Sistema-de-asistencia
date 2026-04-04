@@ -76,9 +76,9 @@ export class AdvancedAttendanceModal {
         const isHoliday = att.isHoliday || false;
         const notes = att.notes || '';
 
-        // Inicializar positionHours if multi
+        // Inicializar positionHours si está vacío
         let positionHours = att.positionHours || [];
-        if (hasMultiplePositions && positionHours.length === 0) {
+        if (positionHours.length === 0) {
             if (att.present && att.selectedPosition && att.hoursWorked > 0) {
                 positionHours = emp.positions.map(pid => ({
                     positionId: pid,
@@ -105,7 +105,7 @@ export class AdvancedAttendanceModal {
             </div>
             
             <form id="advancedAttendanceForm">
-                ${hasMultiplePositions ? this.renderMultiPositionFields(emp, positionHours, totalFractionated) : this.renderSimplePositionFields(emp, selP, hoursWorked, overtimeHours)}
+                ${this.renderMultiPositionFields(emp, positionHours, totalFractionated)}
                 
                 <div class="form-group" style="margin-top: 16px;">
                     <label class="form-checkbox" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
@@ -182,37 +182,6 @@ export class AdvancedAttendanceModal {
         `;
     }
 
-    static renderSimplePositionFields(emp, selP, hoursWorked, overtimeHours) {
-        const positionOptions = emp.positions.map(pid => {
-            const position = state.positions.find(p => p.id === pid);
-            const positionSalary = position?.salaryConfig?.amount ?? position?.baseSalary ?? 0;
-            return `<option value="${pid}" ${selP === pid ? 'selected' : ''}>${position.name} - $${positionSalary.toLocaleString()}</option>`;
-        }).join('');
-
-        return `
-            ${emp.positions.length > 1 ? `
-                <div class="form-group">
-                    <label class="form-label" style="display: block; margin-bottom: 8px; color: #94a3b8; font-size: 0.85rem;">🎯 Posición</label>
-                    <select id="selectedPosition" class="form-select" style="width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; padding: 10px;">
-                        ${positionOptions}
-                    </select>
-                </div>
-            ` : `
-                <input type="hidden" id="selectedPosition" value="${selP}">
-            `}
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;">
-                <div class="form-group">
-                    <label class="form-label" style="display: block; margin-bottom: 8px; color: #94a3b8; font-size: 0.85rem;">⏱️ Horas Trabajadas</label>
-                    <input type="number" id="hoursWorked" class="form-input" min="0" max="24" step="0.5" value="${hoursWorked}" required style="width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; padding: 10px;">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" style="display: block; margin-bottom: 8px; color: #94a3b8; font-size: 0.85rem;">⚡ Horas Extras</label>
-                    <input type="number" id="overtimeHours" class="form-input" min="0" max="12" step="0.5" value="${overtimeHours}" style="width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; padding: 10px;">
-                </div>
-            </div>
-        `;
-    }
-
     static initListeners(emp) {
         // Asignar funciones globales temporales para compatibilidad con el HTML inyectado
         window.updateAdvancedTotalHours = () => {
@@ -239,56 +208,40 @@ export function saveAdvancedAttendance() {
     const dateKey = getDateKey(state.selectedDate);
     const key = `${emp.id}-${dateKey}`;
 
-    const isMultiPosition = emp.positions && emp.positions.length > 1;
-    let attendanceRecord;
+    const positionHours = [];
+    let totalHours = 0;
+    let totalOvertime = 0;
 
-    if (isMultiPosition) {
-        const positionHours = [];
-        let totalHours = 0;
-        let totalOvertime = 0;
+    emp.positions.forEach(pid => {
+        const hoursInput = document.getElementById(`posHours_${pid}`);
+        const overtimeInput = document.getElementById(`posOvertime_${pid}`);
 
-        emp.positions.forEach(pid => {
-            const hoursInput = document.getElementById(`posHours_${pid}`);
-            const overtimeInput = document.getElementById(`posOvertime_${pid}`);
+        if (hoursInput) {
+            const hours = parseFloat(hoursInput.value) || 0;
+            const overtime = parseFloat(overtimeInput.value) || 0;
 
-            if (hoursInput) {
-                const hours = parseFloat(hoursInput.value) || 0;
-                const overtime = parseFloat(overtimeInput.value) || 0;
-
-                if (hours > 0 || overtime > 0) {
-                    positionHours.push({
-                        positionId: pid,
-                        hours: hours,
-                        overtimeHours: overtime
-                    });
-                    totalHours += hours;
-                    totalOvertime += overtime;
-                }
+            if (hours > 0 || overtime > 0) {
+                positionHours.push({
+                    positionId: pid,
+                    hours: hours,
+                    overtimeHours: overtime
+                });
+                totalHours += hours;
+                totalOvertime += overtime;
             }
-        });
+        }
+    });
 
-        attendanceRecord = {
-            present: totalHours > 0 || totalOvertime > 0,
-            hoursWorked: totalHours,
-            overtimeHours: totalOvertime,
-            positionHours: positionHours,
-            isHoliday: document.getElementById('isHoliday')?.checked || false,
-            notes: document.getElementById('notes')?.value || '',
-            selectedPosition: positionHours.length > 0 ? positionHours[0].positionId : emp.positions[0]
-        };
-    } else {
-        const hours = parseFloat(document.getElementById('hoursWorked')?.value) || 0;
-        const overtime = parseFloat(document.getElementById('overtimeHours')?.value) || 0;
-        
-        attendanceRecord = {
-            present: hours > 0 || overtime > 0,
-            hoursWorked: hours,
-            overtimeHours: overtime,
-            isHoliday: document.getElementById('isHoliday')?.checked || false,
-            notes: document.getElementById('notes')?.value || '',
-            selectedPosition: document.getElementById('selectedPosition')?.value || emp.positions[0]
-        };
-    }
+    const attendanceRecord = {
+        present: totalHours > 0 || totalOvertime > 0,
+        hoursWorked: totalHours,
+        overtimeHours: totalOvertime,
+        positionHours: positionHours,
+        multiPosition: positionHours.length > 1,
+        isHoliday: document.getElementById('isHoliday')?.checked || false,
+        notes: document.getElementById('notes')?.value || '',
+        selectedPosition: positionHours.length > 0 ? positionHours[0].positionId : emp.positions[0]
+    };
 
     // Guardar en el estado
     state.attendance[key] = attendanceRecord;

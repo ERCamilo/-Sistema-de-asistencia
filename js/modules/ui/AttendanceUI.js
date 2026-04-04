@@ -82,10 +82,12 @@ export function getCheckColor(att, date) {
     }
     // Día festivo (DORADO)
     if (isDayHoliday(date, state.settings?.holidays)) return 'check-holiday';
-    // Horas trabajadas
+    
+    // Horas trabajadas vs Configuración Global General
     const hours = att.hoursWorked || 0;
-    const regular = state.settings?.regularHoursPerDay || 8;
+    const regular = state.settings?.regularHoursPerDay || 8; 
     const tolerance = 0.1;
+
     if (hours > regular + tolerance) return 'check-overtime';
     if (hours < regular - tolerance) return 'check-undertime';
     return 'check-regular';
@@ -152,11 +154,11 @@ function ControlesAsistenciaFeriado(isHoliday) {
                 </div>`
 }
 function ControlesAsistenciaHorasBase(hourColor, dayHours) {
-    //    <!-- Seccion Horas Base (Centro - Auto) -->
+    //    <!-- Seccion Horas a Asignar (Centro - Auto) -->
     return `          
                 <div class="control-section center-control">
-                    <div class="control-section-label">Horas Base</div>
-                    <div class="stepper-container" title="Horas base para este día">
+                    <div class="control-section-label">Horas a Asignar</div>
+                    <div class="stepper-container" title="Horas a asignar para este día">
                         <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
                         <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
                         <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
@@ -213,7 +215,7 @@ export function DateControls() {
         : '';
 
     return `
-        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
+        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 100; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
             
             <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
             <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
@@ -393,7 +395,15 @@ export function EmployeeRow(emp) {
     return componentMemo.get(
         `emp-row-${emp.id}`,
         () => _buildEmployeeRow(emp, dateKey, attKey, att),
-        [dateKey, att?.updatedAt ?? 0, emp.updatedAt ?? 0, state.listDisplayMode]
+        [
+            dateKey, 
+            att?.updatedAt ?? 0, 
+            emp.updatedAt ?? 0, 
+            state.listDisplayMode,
+            state.settings?.regularHoursPerDay || 8,
+            getDayHours(state.selectedDate),
+            (state.settings.holidays || []).join(',')
+        ]
     );
 }
 
@@ -646,15 +656,18 @@ export function WeekView() {
     `;
 }
 
-/**
- * 📏 Fila de Empleado (Vista Semanal)
- */
 export function WeekRow(emp, week) {
     // ⚡ P4-OPT: Fingerprint = updatedAt de cada día de la semana para este empleado
-    const deps = [emp.updatedAt ?? 0, ...week.map(date => {
-        const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
-        return att?.updatedAt ?? 0;
-    })];
+    const deps = [
+        emp.updatedAt ?? 0, 
+        (state.settings.holidays || []).join(','),
+        state.settings?.regularHoursPerDay || 8,
+        ...week.map(date => getDayHours(date)),
+        ...week.map(date => {
+            const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
+            return att?.updatedAt ?? 0;
+        })
+    ];
     return componentMemo.get(
         `week-row-${emp.id}-${getDateKey(week[0])}`,
         () => _buildWeekRow(emp, week),
