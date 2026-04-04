@@ -1,9 +1,10 @@
 /**
- * 💾 PersistenceService.js - Central de Persistencia
+ * ðŸ’¾ PersistenceService.js - Central de Persistencia
  * Coordina el guardado de datos entre IndexedDB, LocalStorage y Firebase.
  */
 
 import { state } from '../core/AppState.js';
+import { buildAttendanceIndex } from '../core/AppState.js';
 import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
@@ -17,11 +18,12 @@ import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
 import { getDemoSeed } from '../data/DemoSeed.js';
 
-// Lock para evitar guardados concurrentes
-let _isSavingData = false;
+// ⚡ Debounce de guardado: colapsa llamadas rápidas en un solo guardado
+let _saveDebounceTimer = null;
+let _pendingSaveOptions = {};
 
 /**
- * ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
+ * âš¡ SINCRONIZACIÃ“N DEBUNCED PARA FIREBASE (Mirror Sync)
  * Evita saturar la cuota de Firebase con guardados demasiado frecuentes
  */
 export const syncFirebaseMirrorDebounced = (function() {
@@ -33,7 +35,7 @@ export const syncFirebaseMirrorDebounced = (function() {
                 try {
                     await FirebaseService.saveFullState(state);
                 } catch (e) {
-                    console.error('⚠️ Error en sincronización debounced:', e);
+                    console.error('âš ï¸ Error en sincronizaciÃ³n debounced:', e);
                 }
             }
         }, 2000); // 2 segundos de espera
@@ -41,16 +43,15 @@ export const syncFirebaseMirrorDebounced = (function() {
 })();
 
 /**
- * 💾 GUARDADO SEGURO EN INDEXEDDB
+ * ðŸ’¾ GUARDADO SEGURO EN INDEXEDDB
  */
 export async function saveToIndexedDB(options = {}) {
     try {
         await indexedDBService.saveState(state, options);
-        console.log('💾 Datos guardados en IndexedDB');
+        console.log('ðŸ’¾ Datos guardados en IndexedDB');
         return true;
     } catch (error) {
-        console.error('❌ Error guardando en IndexedDB:', error);
-        throw error;
+        console.error('âŒ Error guardando en IndexedDB:', error);
     }
 }
 
@@ -58,19 +59,31 @@ export async function saveToIndexedDB(options = {}) {
  * 💾 FUNCIÓN PRINCIPAL DE PERSISTENCIA
  * Orquesta el guardado local y la sincronización con la nube.
  */
-export async function saveApplicationData(options = {}) {
-    if (_isSavingData) return;
-    _isSavingData = true;
+export function saveApplicationData(options = {}) {
+    // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
+    if (options.dateKey && _pendingSaveOptions.dateKey) {
+        _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
+    } else {
+        _pendingSaveOptions = { ...options }; // Guardado completo o primer call
+    }
 
+    clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = setTimeout(() => {
+        const opts = _pendingSaveOptions;
+        _pendingSaveOptions = {};
+        _executeSave(opts);
+    }, 300);
+}
+
+async function _executeSave(options = {}) {
     if (!state.isDataLoaded) {
-        console.warn('⚠️ Intento de guardado ignorado: los datos aún no se han cargado completamente.');
-        _isSavingData = false;
+        console.warn('⚠️ Intento de guardado ignorado: datos aún no cargados.');
         return;
     }
 
-    console.log('🔵 PersistenceService: saveApplicationData() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
+    console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
-    // ☁️ Sincronización con Firebase
+    // ☀️ Sincronización con Firebase
     if (globalThis.currentUser && !globalThis._isApplyingRemoteData) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
@@ -82,14 +95,14 @@ export async function saveApplicationData(options = {}) {
                 }
             });
             FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => 
-                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e)
+                console.error(`âš ï¸ Error en sync granular (${options.dateKey}):`, e)
             );
         }
 
-        // 2. Sincronización Espejo (Full State) - DEBOUNCED
+        // 2. SincronizaciÃ³n Espejo (Full State) - DEBOUNCED
         syncFirebaseMirrorDebounced(state);
 
-        // 3. Backup Automático (Snapshots)
+        // 3. Backup AutomÃ¡tico (Snapshots)
         const freq = state.settings?.backupFrequency || 'none';
         if (freq !== 'none') {
             const now = Date.now();
@@ -103,51 +116,50 @@ export async function saveApplicationData(options = {}) {
             if (now - lastBackup > (intervals[freq] || Infinity)) {
                 FirebaseService.createSnapshot(state, 'auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
-                }).catch(e => console.error('Error en backup automático:', e));
+                }).catch(e => console.error('Error en backup automÃ¡tico:', e));
             }
         }
     }
 
-    // 💾 Persistencia Local
+    // ðŸ’¾ Persistencia Local
     if (state.useIndexedDB) {
         try {
             await indexedDBService.saveState(state, options);
         } catch (error) {
             // Manejo de conflictos de integridad
             if (error.name === 'ConstraintError' || error.message?.includes('ConstraintError')) {
-                console.warn('⚡ Conflicto de integridad en IndexedDB.');
-                NotificationSystem.error('❌ Conflicto de datos detectado');
+                console.warn('âš¡ Conflicto de integridad en IndexedDB.');
+                NotificationSystem.error('âŒ Conflicto de datos detectado');
             } else {
                 // Fallback a localStorage
                 if (dataService) dataService.saveAll();
-                NotificationSystem.error('❌ Error al guardar localmente');
+                NotificationSystem.error('âŒ Error al guardar localmente');
             }
         }
     } else {
         if (dataService) dataService.saveAll();
     }
 
-    // 📡 Emitir evento de guardado si existe eventBus global o mediante globalThis
+    // ðŸ“¡ Emitir evento de guardado si existe eventBus global o mediante globalThis
     if (globalThis.eventBus) {
         globalThis.eventBus.emit('data:saved', { timestamp: Date.now() });
     }
 
-    _isSavingData = false;
 }
 
 /**
- * 📂 CARGA INICIAL DE DATOS
- * Maneja la migración de LocalStorage a IndexedDB si es necesario.
+ * ðŸ“‚ CARGA INICIAL DE DATOS
+ * Maneja la migraciÃ³n de LocalStorage a IndexedDB si es necesario.
  */
 export async function loadApplicationData() {
     try {
-        console.log('📂 PersistenceService: Iniciando carga de datos...');
+        console.log('ðŸ“‚ PersistenceService: Iniciando carga de datos...');
         
         // 1. Intentar cargar desde IndexedDB (Fase 2+)
         const idbData = await indexedDBService.loadFullState();
         
         if (idbData && (idbData.employees?.length > 0 || idbData.positions?.length > 0)) {
-            console.log('✅ Datos cargados desde IndexedDB');
+            console.log('âœ… Datos cargados desde IndexedDB');
             
             // Inflar datos (convertir a instancias de clase)
             const inflatedData = {
@@ -169,20 +181,21 @@ export async function loadApplicationData() {
             state.useIndexedDB = true;
             
             validateDataIntegrity();
+            buildAttendanceIndex(); // P3-OPT: Construir indice tras carga inicial
             return true;
         }
 
-        // 2. Fallback a LocalStorage (Migración o Legacy)
-        console.log('🔄 No se detectaron datos en IndexedDB. Buscando en LocalStorage...');
+        // 2. Fallback a LocalStorage (MigraciÃ³n o Legacy)
+        console.log('ðŸ”„ No se detectaron datos en IndexedDB. Buscando en LocalStorage...');
         const hasDataInLS = dataService.loadAll();
         
         if (hasDataInLS) {
-            console.log('✅ Datos cargados desde LocalStorage');
+            console.log('âœ… Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
             
             // Si el navegador soporta IndexedDB, migramos de inmediato
             if (indexedDBService.isSupported()) {
-                console.log('🚀 Migrando datos de LocalStorage a IndexedDB...');
+                console.log('ðŸš€ Migrando datos de LocalStorage a IndexedDB...');
                 await indexedDBService.saveState(state);
                 state.useIndexedDB = true;
                 localStorage.setItem('migrated-to-idb', 'true');
@@ -192,46 +205,46 @@ export async function loadApplicationData() {
             return true;
         }
 
-        console.log('ℹ️ No hay datos guardados para cargar');
+        console.log('â„¹ï¸ No hay datos guardados para cargar');
         state.isDataLoaded = true;
         return false;
 
     } catch (error) {
-        console.error('❌ Error fatal al cargar datos:', error);
+        console.error('âŒ Error fatal al cargar datos:', error);
         state.isDataLoaded = true; // No bloquear la UI
         return false;
     }
 }
 
 /**
- * 🌱 CARGAR DATOS DEMO EN LA BASE DE DATOS
+ * ðŸŒ± CARGAR DATOS DEMO EN LA BASE DE DATOS
  * Limpia la base de datos actual e inyecta la semilla de prueba.
  */
 export async function loadDemoDataIntoDB() {
     try {
-        console.log('🌱 PersistenceService: Iniciando carga de datos DEMO...');
+        console.log('ðŸŒ± PersistenceService: Iniciando carga de datos DEMO...');
         const seed = getDemoSeed();
         
         // 1. Guardar en IndexedDB limpiando primero
         await indexedDBService.saveState(seed.data, { clearFirst: true });
         
-        // 2. Recargar el estado global desde la base de datos recién poblada
+        // 2. Recargar el estado global desde la base de datos reciÃ©n poblada
         await loadApplicationData();
         
         // 3. Marcar como modo demo
         state.usingDemoData = true;
         
-        console.log('✅ Datos DEMO cargados y persistidos correctamente');
+        console.log('âœ… Datos DEMO cargados y persistidos correctamente');
         return true;
     } catch (error) {
-        console.error('❌ Error cargando datos demo:', error);
+        console.error('âŒ Error cargando datos demo:', error);
         throw error;
     }
 }
 
 /**
- * 🛡️ VALIDACIÓN DE INTEGRIDAD
- * Limpia referencias huérfanas para evitar crashes en la UI.
+ * ðŸ›¡ï¸ VALIDACIÃ“N DE INTEGRIDAD
+ * Limpia referencias huÃ©rfanas para evitar crashes en la UI.
  */
 export function validateDataIntegrity() {
     let fixes = 0;
@@ -259,7 +272,7 @@ export function validateDataIntegrity() {
         }
     });
 
-    // 3. Limpiar líderes en posiciones
+    // 3. Limpiar lÃ­deres en posiciones
     state.positions.forEach(pos => {
         if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
             pos.leaderId = null;
@@ -283,18 +296,18 @@ export function validateDataIntegrity() {
     });
 
     if (fixes > 0) {
-        console.log(`🛡️ PersistenceService: ${fixes} referencia(s) huérfana(s) corregida(s)`);
+        console.log(`ðŸ›¡ï¸ PersistenceService: ${fixes} referencia(s) huÃ©rfana(s) corregida(s)`);
     }
     return fixes;
 }
 
 /**
- * 🔄 REGENERACIÓN DE IDs PARA CLONADO
+ * ðŸ”„ REGENERACIÃ“N DE IDs PARA CLONADO
  * Genera nuevos UUIDs para todos los datos locales para poder 
  * subirlos a una cuenta nueva de Firebase/Supabase sin conflictos.
  */
 export async function prepareDataForNewAccount() {
-    console.log('🔄 Iniciando regeneración de IDs para nueva cuenta...');
+    console.log('ðŸ”„ Iniciando regeneraciÃ³n de IDs para nueva cuenta...');
     
     try {
         await indexedDBService.clear('leaders');
@@ -303,13 +316,13 @@ export async function prepareDataForNewAccount() {
         await indexedDBService.clear('attendance');
         console.log('Sweep: Almacenes de IndexedDB limpiados');
     } catch (clearError) {
-        console.warn('⚠️ Error limpiando stores:', clearError);
+        console.warn('âš ï¸ Error limpiando stores:', clearError);
     }
 
     const idMap = new Map();
     const now = Date.now();
 
-    // 1. Líderes
+    // 1. LÃ­deres
     state.leaders.forEach(l => {
         const oldId = l.id;
         l.id = generateUUID();
@@ -362,12 +375,12 @@ export async function prepareDataForNewAccount() {
     state.attendance = newAttendance;
 
     await saveApplicationData();
-    console.log('✅ IDs regenerados exitosamente');
+    console.log('âœ… IDs regenerados exitosamente');
     return true;
 }
 
 /**
- * 💾 SISTEMA DE AUTO-BACKUP (sessionStorage)
+ * ðŸ’¾ SISTEMA DE AUTO-BACKUP (sessionStorage)
  */
 export function createAutoBackup() {
     try {
@@ -384,7 +397,7 @@ export function createAutoBackup() {
         };
         sessionStorage.setItem('attendance-backup', JSON.stringify(backupData));
     } catch (error) {
-        console.error('❌ Error en auto-backup:', error);
+        console.error('âŒ Error en auto-backup:', error);
     }
 }
 
@@ -395,30 +408,30 @@ export function restoreAutoBackup() {
             const parsed = JSON.parse(backup);
             if (parsed.data && state.employees.length === 0) {
                 Object.assign(state, parsed.data);
-                NotificationSystem.success('✅ Sesión anterior restaurada');
+                NotificationSystem.success('âœ… SesiÃ³n anterior restaurada');
                 return true;
             }
         }
     } catch (error) {
-        console.error('❌ Error restaurando backup:', error);
+        console.error('âŒ Error restaurando backup:', error);
     }
     return false;
 }
 
 /**
- * 🧪 PRUEBA DE RESOLUCIÓN DE CONFLICTOS
- * Simula la restauración de un backup "sucio" con duplicados intencionales.
+ * ðŸ§ª PRUEBA DE RESOLUCIÃ“N DE CONFLICTOS
+ * Simula la restauraciÃ³n de un backup "sucio" con duplicados intencionales.
  */
 export async function testConflictedRestore() {
-    console.log('🧪 Iniciando prueba de restauración con CONFLICTOS...');
+    console.log('ðŸ§ª Iniciando prueba de restauraciÃ³n con CONFLICTOS...');
     
     try {
         // 1. Generar semilla con conflictos
         const conflictedSeed = getDemoSeed({ includeConflicts: true });
-        console.log('📦 Backup de prueba generado (con duplicados intencionales)');
+        console.log('ðŸ“¦ Backup de prueba generado (con duplicados intencionales)');
         
         // 2. Intentar restaurar usando IndexedDB
-        // clearFirst: true simula una restauración limpia desde un archivo externo
+        // clearFirst: true simula una restauraciÃ³n limpia desde un archivo externo
         const stats = await indexedDBService.saveState(conflictedSeed.data, { clearFirst: true });
         
         // 3. Ejecutar saneamiento de puestos (donde unificamos por slug)
@@ -429,23 +442,23 @@ export async function testConflictedRestore() {
         // 4. Recargar estado UI
         await loadApplicationData();
         
-        NotificationSystem.success(`✅ Prueba completada: ${stats.deduplicated} conflictos resueltos`);
-        console.log('✅ Resultado de la prueba:', stats);
+        NotificationSystem.success(`âœ… Prueba completada: ${stats.deduplicated} conflictos resueltos`);
+        console.log('âœ… Resultado de la prueba:', stats);
         return stats;
     } catch (error) {
-        console.error('❌ Error en prueba de conflictos:', error);
+        console.error('âŒ Error en prueba de conflictos:', error);
         NotificationSystem.error('Error en prueba de conflictos');
     }
 }
 
 /**
- * 🧹 sanitizePositions() - Unifica puestos duplicados y migra IDs a Slugs
- * Este proceso es vital para evitar errores de cálculo de nómina.
+ * ðŸ§¹ sanitizePositions() - Unifica puestos duplicados y migra IDs a Slugs
+ * Este proceso es vital para evitar errores de cÃ¡lculo de nÃ³mina.
  */
 export function sanitizePositions(state) {
     if (!state.positions || state.positions.length === 0) return false;
 
-    console.log('🧹 Iniciando sanitización de posiciones...');
+    console.log('ðŸ§¹ Iniciando sanitizaciÃ³n de posiciones...');
     const idMap = new Map(); // Mapa de ID_Viejo -> ID_Nuevo (Slug)
     const uniquePositions = [];
     const positionsBySlug = new Map();
@@ -468,12 +481,12 @@ export function sanitizePositions(state) {
             // Es un duplicado. Mapear el ID viejo al ID del puesto ya existente
             idMap.set(pos.id, slug);
             hasChanges = true;
-            console.log(`🔗 Fusionando duplicado: ${pos.name} (${pos.id} -> ${slug})`);
+            console.log(`ðŸ”— Fusionando duplicado: ${pos.name} (${pos.id} -> ${slug})`);
         }
     });
 
     if (!hasChanges) {
-        console.log('✨ No se encontraron duplicados ni IDs desactualizados.');
+        console.log('âœ¨ No se encontraron duplicados ni IDs desactualizados.');
         return false;
     }
 
@@ -491,7 +504,7 @@ export function sanitizePositions(state) {
                     hasChanges = true;
                 }
             }
-            // También actualizar positionSalaries si existen
+            // TambiÃ©n actualizar positionSalaries si existen
             if (emp.positionSalaries) {
                 const newSalaries = {};
                 Object.entries(emp.positionSalaries).forEach(([pid, val]) => {
@@ -501,7 +514,7 @@ export function sanitizePositions(state) {
                 emp.positionSalaries = newSalaries;
             }
             
-            // Especial: Sueldo por posición en el sistema viejo
+            // Especial: Sueldo por posiciÃ³n en el sistema viejo
             if (emp.positionId && idMap.has(emp.positionId)) {
                 emp.positionId = idMap.get(emp.positionId);
             }
@@ -532,7 +545,7 @@ export function sanitizePositions(state) {
         });
     }
 
-    console.log('✅ Sanitización completada.');
+    console.log('âœ… SanitizaciÃ³n completada.');
     return true;
 }
 

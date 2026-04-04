@@ -8,6 +8,7 @@ import { render, saveScrollPosition, restoreScrollPosition, renderZone } from '.
 import { eventBus } from '../core/Events.js';
 import { modalManager } from '../core/ModalManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
+import { buildAttendanceIndex } from '../core/AppState.js';
 import { perfMonitor } from '../core/Performance.js';
 import { Notification } from '../components/Notification.js';
 import { UndoManager } from '../utils/UndoManager.js';
@@ -58,6 +59,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         UndoManager.push(null, `Asistencia de ${emp.name}`, () => { delete state.attendance[key]; });
     }
 
+    buildAttendanceIndex(); // ⚡ P3-OPT: Actualizar índice tras mutación
     saveApplicationData({ dateKey: getDateKey(date) });
     
     if (state.viewMode === 'day') {
@@ -138,6 +140,7 @@ window.handleWeekCheck = (empId, dateStr) => {
             positionHours: emp.positions?.[0] ? [{ positionId: emp.positions[0], hours: hours }] : [],
             updatedAt: Date.now()
         };
+        buildAttendanceIndex(); // ⚡ P3-OPT: Actualizar índice tras mutación
         saveApplicationData({ dateKey: dateStr });
     }
     state.isProcessingClick = false;
@@ -165,6 +168,7 @@ window.saveAdvancedAttendance = () => {
         updatedAt: Date.now()
     };
 
+    buildAttendanceIndex(); // ⚡ P3-OPT: Actualizar índice tras mutación
     saveApplicationData({ dateKey });
     modalManager.close();
     render();

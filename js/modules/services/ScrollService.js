@@ -53,9 +53,7 @@ export const ScrollService = {
 
         const dateKey = getDateKey(state.selectedDate);
         const displayModeClass = fixedMode ? 'mode-fixed' : `mode-${mode}`;
-        
-        console.log(`🛰️ ScrollService: Renderizando ${employees?.length || 0} indicadores (Fixed: ${fixedMode})`);
-        
+
         // Generar contenedor
         return `<div class="scrollbar-indicator-container ${displayModeClass}" id="scroll-mini-map">
             ${this.getIndicatorDots(employees, dateKey)}

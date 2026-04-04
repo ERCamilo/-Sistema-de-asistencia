@@ -3148,7 +3148,8 @@ window.updateWeekTotals = function () {
             </td>
             ${week.map(date => {
         const dKey = getDateKey(date);
-        const dayAttendance = Object.values(state.attendance).filter(a => a.date === dKey && a.present);
+        // ⚡ P3-OPT: Lookup O(1) en lugar de filter O(N)
+        const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present);
         const totalH = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
         const count = dayAttendance.length;
 

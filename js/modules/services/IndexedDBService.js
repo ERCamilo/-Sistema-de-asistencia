@@ -121,6 +121,28 @@ export class IndexedDBService {
         });
     }
 
+    /**
+     * ⚡ P2-OPT: Escribe N registros en una sola transacción de IndexedDB.
+     * Reduce el overhead de N transacciones a 1 transacción con N escrituras.
+     * @param {string} storeName - Nombre del store
+     * @param {Array} records - Registros a guardar
+     */
+    async batchUpdate(storeName, records) {
+        if (!records || records.length === 0) return 0;
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            let count = 0;
+            transaction.oncomplete = () => resolve(count);
+            transaction.onerror = () => reject(transaction.error);
+            records.forEach(record => {
+                store.put(record);
+                count++;
+            });
+        });
+    }
+
     async get(storeName, key) {
         await this.init();
         return new Promise((resolve, reject) => {
@@ -252,28 +274,21 @@ export class IndexedDBService {
                 }
             });
 
-            // 3. GUARDADO EFECTIVO
-            for (const emp of empMap.values()) {
-                await this.update('employees', emp);
-                stats.employees++;
-            }
-            for (const pos of (cleanState.positions || [])) {
-                await this.update('positions', pos);
-                stats.positions++;
-            }
-            for (const leader of leadMap.values()) {
-                await this.update('leaders', leader);
-                stats.leaders++;
-            }
+            // 3. GUARDADO EFECTIVO (⚡ P2-OPT: batch por store, 1 transacción cada uno)
+            const empList = [...empMap.values()];
+            stats.employees = await this.batchUpdate('employees', empList);
+
+            const posList = cleanState.positions || [];
+            stats.positions = await this.batchUpdate('positions', posList);
+
+            const leaderList = [...leadMap.values()];
+            stats.leaders = await this.batchUpdate('leaders', leaderList);
 
             const attRecords = Object.entries(cleanState.attendance || {}).map(([key, value]) => ({
                 key,
                 ...value
             }));
-            for (const att of attRecords) {
-                await this.update('attendance', att);
-                stats.attendance++;
-            }
+            stats.attendance = await this.batchUpdate('attendance', attRecords);
 
             if (cleanState.settings) {
                 await this.update('settings', { key: 'app', ...cleanState.settings });

@@ -7,6 +7,7 @@ import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.j
 import icons from './IconSystem.js';
 import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
+import { componentMemo } from '../utils/MemoCache.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -381,8 +382,22 @@ export function SearchBar() {
  * 👤 Fila de Empleado (Vista Diaria / Relajada)
  */
 export function EmployeeRow(emp) {
-    const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
-    const att = state.attendance[key];
+    const dateKey = getDateKey(state.selectedDate);
+    const attKey = `${emp.id}-${dateKey}`;
+    const att = state.attendance[attKey];
+
+    // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
+    // - att.updatedAt: cambia cuando se registra/modifica asistencia de este empleado
+    // - emp.updatedAt: cambia cuando se editan datos del empleado
+    // - dateKey: cambia cuando el usuario navega a otra fecha
+    return componentMemo.get(
+        `emp-row-${emp.id}`,
+        () => _buildEmployeeRow(emp, dateKey, attKey, att),
+        [dateKey, att?.updatedAt ?? 0, emp.updatedAt ?? 0, state.listDisplayMode]
+    );
+}
+
+function _buildEmployeeRow(emp, dateKey, key, att) {
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
     const selPos = att?.selectedPosition || emp.positions?.[0] || null;
@@ -635,6 +650,19 @@ export function WeekView() {
  * 📏 Fila de Empleado (Vista Semanal)
  */
 export function WeekRow(emp, week) {
+    // ⚡ P4-OPT: Fingerprint = updatedAt de cada día de la semana para este empleado
+    const deps = [emp.updatedAt ?? 0, ...week.map(date => {
+        const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
+        return att?.updatedAt ?? 0;
+    })];
+    return componentMemo.get(
+        `week-row-${emp.id}-${getDateKey(week[0])}`,
+        () => _buildWeekRow(emp, week),
+        deps
+    );
+}
+
+function _buildWeekRow(emp, week) {
     return `
         <tr id="week-row-${emp.id}">
             <td class="sticky-column">
@@ -689,6 +717,7 @@ export function WeekRow(emp, week) {
     `;
 }
 
+
 /**
  * 📏 Fila de Totales (Vista Semanal)
  */
@@ -701,7 +730,8 @@ export function WeekViewTotalsRow() {
             </td>
             ${week.map(date => {
         const dKey = getDateKey(date);
-        const dayAttendance = Object.values(state.attendance).filter(a => a.date === dKey && a.present);
+        // ⚡ P3-OPT: Lookup O(1) en lugar de filter O(N) sobre todo el historial
+        const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present);
         const totalHours = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
         const presentCount = dayAttendance.length;
         return `

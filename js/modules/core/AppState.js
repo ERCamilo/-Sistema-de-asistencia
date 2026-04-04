@@ -68,6 +68,7 @@ const initialState = {
     selectedDate: new Date(),
     employees: [],
     attendance: {},
+    attendanceByDate: {}, // ⚡ P3-OPT: Índice rápido { dateKey -> [records] }
     positions: [],
     leaders: [],
     settings: {
@@ -155,9 +156,28 @@ export const state = new Proxy(stateManager._state, stateHandler);
 window.state = state;
 
 // 📊 Funciones de Cálculo de Estadísticas (Exportadas para UI)
+/**
+ * ⚡ P3-OPT: Construye el índice de asistencia por fecha.
+ * Convierte la búsqueda O(N) en acceso O(1).
+ * Llamar al cargar datos y al mutar state.attendance.
+ */
+export function buildAttendanceIndex() {
+    const index = {};
+    for (const [key, record] of Object.entries(state.attendance)) {
+        const dKey = record.date;
+        if (!dKey) continue;
+        if (!index[dKey]) index[dKey] = [];
+        index[dKey].push(record);
+    }
+    // Asignación silenciosa para no disparar un re-render
+    stateManager._state.attendanceByDate = index;
+}
+window.buildAttendanceIndex = buildAttendanceIndex;
+
 export function calculateStats() {
     const dKey = getDateKey(state.selectedDate);
-    const todayAtt = Object.values(state.attendance).filter(a => a.date === dKey);
+    // ⚡ P3-OPT: Usar índice O(1) en lugar de filter O(N)
+    const todayAtt = state.attendanceByDate[dKey] || [];
     const present = todayAtt.filter(a => a.present).length;
     
     // Filtrar empleados activos usando la utilidad centralizada

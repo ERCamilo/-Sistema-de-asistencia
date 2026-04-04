@@ -130,10 +130,10 @@ export function render() {
             }
         });
 
-        // Auto-guardado condicional
-        if (typeof window.saveApplicationData === 'function' && !window._isApplyingRemoteData) {
-            window.saveApplicationData();
-        }
+        // ⚡ P1-OPT: El guardado fue eliminado del ciclo de render.
+        // saveApplicationData() se llama directamente en los handlers de mutación de datos
+        // (handleWeekCheck, toggleHoliday, changeBaseHours, etc.) para evitar escrituras
+        // innecesarias en IndexedDB con cada repintado de UI.
 
         eventBus.emit('render:complete', {
             timestamp: Date.now(),
