@@ -34,6 +34,8 @@ export function DateControlsCompact() {
         isAsBottomBar ? 'as-bottom-bar' : ''
     ].filter(Boolean).join(' ');
 
+    const isToday = getDateKey(new Date()) === getDateKey(state.selectedDate);
+
     return `
             <div class="${classes}">
                 <div class="pill-nav">
@@ -41,9 +43,9 @@ export function DateControlsCompact() {
                         ${icons.get('chevron-left', { size: 18 })}
                     </button>
                     
-                    <div class="pill-display" onclick="window.toggleDatePicker('compact'); event.stopPropagation();">
-                        ${icons.get('calendar', { size: 14 })}
-                        <span>${dateText}</span>
+                    <div class="pill-display" onclick="window.toggleDatePicker('compact'); event.stopPropagation();" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
+                        ${icons.get('calendar', { size: 14, color: isToday ? '#06b6d4' : undefined })}
+                        <span style="${isToday ? 'color: #06b6d4;' : ''}">${dateText}</span>
                         ${showPicker ? (typeof window.DatePicker === 'function' ? window.DatePicker() : '') : ''}
                     </div>
                     
@@ -100,40 +102,39 @@ export function DateControls() {
     // Semántica de colores en horas: Rojo < 8h, Verde = 8h, Azul > 8h
     const hourColor = dayHours > 8 ? '#3b82f6' : (dayHours < 8 ? '#ef4444' : '#10b981');
 
+    // Seccion Hoy (Derecha - 1fr)
+    const isToday = getDateKey(new Date()) === getDateKey(state.selectedDate);
+    const todayBtnStyle = isToday 
+        ? 'background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.5); color: #06b6d4;' 
+        : '';
+    const todayIconColor = isToday ? '#06b6d4' : '#10b981';
+
     return `
-        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 1000; padding: 16px; border-radius: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
-            <div class="pill-nav" style="margin-bottom: 16px;">
+        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
+            
+            <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
+            <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
+                <div class="segmented-control" style="width: 200px;">
+                    <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="window.changeViewMode('day')">${dayLabel}</button>
+                    <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="window.changeViewMode('week')">${weekLabel}</button>
+                </div>
+            </div>
+
+            <!-- 2. NIVEL MEDIO: Nav Pill (Fecha) -->
+            <div class="pill-nav" style="margin-bottom: 20px;">
                 <button class="pill-btn" onclick="window.changeDate(-1)">${icons.get('chevron-left')}</button>
-                <div class="pill-display" onclick="window.toggleDatePicker('full'); event.stopPropagation();" style="position: relative;">
-                    ${icons.get('calendar', { size: 18 })}
-                    <span>${displayText}</span>
+                <div class="pill-display" onclick="window.toggleDatePicker('full'); event.stopPropagation();" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
+                    ${icons.get('calendar', { size: 18, color: isToday ? '#06b6d4' : undefined })}
+                    <span style="${isToday ? 'color: #06b6d4;' : ''}">${displayText}</span>
                     ${(state.showDatePicker && (state.datePickerTarget || 'full') === 'full') ? (typeof window.DatePicker === 'function' ? window.DatePicker('full') : '') : ''}
                 </div>
                 <button class="pill-btn" onclick="window.changeDate(1)">${icons.get('chevron-right')}</button>
             </div>
             
+            <!-- 3. NIVEL INFERIOR: Controles Equilibrados -->
             <div class="view-controls-row">
-                <!-- Seccion Vista -->
-                <div class="control-section">
-                    <div class="control-section-label">Vista</div>
-                    <div class="segmented-control">
-                        <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="window.changeViewMode('day')">${dayLabel}</button>
-                        <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="window.changeViewMode('week')">${weekLabel}</button>
-                    </div>
-                </div>
-
-                <!-- Seccion Horas Base -->
-                <div class="control-section">
-                    <div class="control-section-label">Horas Base</div>
-                    <div class="stepper-container" title="Horas base para este día">
-                        <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
-                        <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
-                        <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
-                    </div>
-                </div>
-
-                <!-- Seccion Feriado -->
-                <div class="control-section">
+                <!-- Seccion Feriado (Izquierda - 1fr) -->
+                <div class="control-section side-control">
                     <div class="control-section-label">Feriado</div>
                     <div class="holiday-control ${isHoliday ? 'active' : ''}" onclick="window.toggleHoliday()" title="${isHoliday ? 'Día Feriado' : 'Día Laboral'}">
                         <div class="holiday-icon-box">
@@ -143,6 +144,25 @@ export function DateControls() {
                             <div class="switch-handle"></div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Seccion Horas Base (Centro - Auto) -->
+                <div class="control-section center-control">
+                    <div class="control-section-label">Horas Base</div>
+                    <div class="stepper-container" title="Horas base para este día">
+                        <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
+                        <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
+                        <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
+                    </div>
+                </div>
+
+                <!-- Seccion Hoy (Derecha - 1fr) -->
+                <div class="control-section side-control">
+                    <div class="control-section-label">Navegación</div>
+                    <button class="btn-today-nav" onclick="window.goToToday()" title="Ir a hoy" style="${todayBtnStyle}">
+                        ${icons.get('target', { size: 18, color: todayIconColor })}
+                        <span style="${isToday ? 'color: #06b6d4;' : ''}">Hoy</span>
+                    </button>
                 </div>
             </div>
         </div>`;
@@ -420,7 +440,7 @@ export function EmployeeRowCompact(emp) {
 export function DayView() {
     const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const filtered = getFilteredEmployeesForDay();
-    const listHTML = filtered.length > 0 
+    const listHTML = filtered.length > 0
         ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
         : '<div class="empty-state">No hay resultados</div>';
 
@@ -429,6 +449,10 @@ export function DayView() {
             ${StatsGrid()}
             ${Legend()}
             ${PositionFilters()}
+            
+            <div class="sticky-controls-wrapper" style="margin-top: 12px; margin-bottom: 0;">
+                ${SearchBar()}
+            </div>
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
                 <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
@@ -523,16 +547,19 @@ export function WeekView() {
         : '<tr><td colspan="8"><div class="empty-state">No hay empleados registrados para este periodo</div></td></tr>';
 
     return `
+        <div class="sticky-controls-wrapper" style="margin: 8px 0 16px 0;">
+            ${SearchBar()}
+        </div>
         <div id="week-view-list" class="sticky-table-container modern-scroll">
-            <table class="week-view-table">
+            <table class="week-view-table" style="margin-bottom: 100px;">
                 <thead class="sticky-header">
                     <tr>
                         <th class="sticky-column" style="min-width: 180px;">EMPLEADO</th>
                         ${week.map(date => {
-                            const isH = isDayHoliday(date, state.settings?.holidays);
-                            const isS = date.getDay() === 0;
-                            return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(date)}</th>`;
-                        }).join('')}
+        const isH = isDayHoliday(date, state.settings?.holidays);
+        const isS = date.getDay() === 0;
+        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(date)}</th>`;
+    }).join('')}
                     </tr>
                 </thead>
                 <tbody id="week-view-tbody">

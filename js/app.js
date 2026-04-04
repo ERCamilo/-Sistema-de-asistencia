@@ -204,6 +204,7 @@ const attendanceDateManager = new AttendanceDateManager(state, saveApplicationDa
 window.toggleDatePicker = (target, force) => attendanceDateManager.togglePicker(target, force);
 window.changeDate = (delta) => attendanceDateManager.changeDate(delta);
 window.selectAttendanceDate = (date) => attendanceDateManager.selectDate(date);
+window.goToToday = () => attendanceDateManager.setToday();
 
 window.DatePicker = (target) => {
     if (!state.showDatePicker) return '';
@@ -3204,9 +3205,6 @@ function DisplayModeFloatingToggle() {
 function AttendanceTab() {
     return `
         ${DateControls()}
-        <div class="sticky-controls-wrapper">
-            ${SearchBar()}
-        </div>
         ${DateControlsCompact()}
         ${state.viewMode === 'day' ? DayView() : WeekView()}
     `;

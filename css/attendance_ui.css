@@ -19,8 +19,13 @@
 }
 
 @keyframes skeleton-loading {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 /* --- 🚀 APP LOADER --- */
@@ -56,7 +61,9 @@
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* --- 💊 NAVEGACIÓN Y CONTROLES --- */
@@ -112,7 +119,8 @@
 .segmented-control {
     display: flex;
     background: #1e293b;
-    padding: 2px; /* Reducido de 4px para que coincida con el stepper */
+    padding: 2px;
+    /* Reducido de 4px para que coincida con el stepper */
     border-radius: 12px;
     border: 1.5px solid #334155;
     gap: 4px;
@@ -142,7 +150,8 @@
 }
 
 .segmented-item.active {
-    flex: 1.8; /* El botón activo se expande */
+    flex: 1.8;
+    /* El botón activo se expande */
     background: #06b6d4;
     color: #0f172a;
     box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
@@ -212,7 +221,8 @@
 .stepper-value {
     padding: 0 12px;
     font-weight: 700;
-    color: #10b981; /* Verde esmeralda por defecto */
+    color: #10b981;
+    /* Verde esmeralda por defecto */
     font-size: 0.95rem;
     min-width: 50px;
     text-align: center;
@@ -224,7 +234,7 @@
     gap: 8px;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 12px;
+
 }
 
 .control-section {
@@ -237,9 +247,21 @@
 }
 
 /* Anchos fijos para estabilidad */
-.control-section:nth-child(1) { flex: 0 0 135px !important; } /* Vista */
-.control-section:nth-child(2) { flex: 0 0 100px !important; } /* Horas Base */
-.control-section:nth-child(3) { flex: 0 0 85px !important; }  /* Feriado */
+.control-section:nth-child(1) {
+    flex: 0 0 135px !important;
+}
+
+/* Vista */
+.control-section:nth-child(2) {
+    flex: 0 0 100px !important;
+}
+
+/* Horas Base */
+.control-section:nth-child(3) {
+    flex: 0 0 85px !important;
+}
+
+/* Feriado */
 
 .control-section-label {
     font-size: 0.65rem;
@@ -263,7 +285,8 @@
     justify-content: center;
     gap: 10px;
     background: #1e293b;
-    padding: 2px; /* Unificado con los otros */
+    padding: 2px;
+    /* Unificado con los otros */
     border-radius: 12px;
     border: 1.5px solid #334155;
     cursor: pointer;
@@ -287,7 +310,8 @@
 }
 
 .holiday-control:not(.active) .holiday-icon-box {
-    color: #10b981; /* Verde esmeralda para estado laboral */
+    color: #10b981;
+    /* Verde esmeralda para estado laboral */
 }
 
 .switch-toggle {
@@ -409,7 +433,7 @@
     max-height: calc(100vh - 180px);
     position: relative;
     border-radius: 8px;
-    box-shadow: inset -10px 0 10px -10px rgba(0,0,0,0.5);
+    box-shadow: inset -10px 0 10px -10px rgba(0, 0, 0, 0.5);
 }
 
 .sticky-column {

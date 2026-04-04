@@ -13,22 +13,26 @@
         }
 
         body.has-bottom-nav {
-            padding-bottom: 80px; /* Espacio para el menú inferior moderno de 70px */
+            padding-bottom: 80px;
+            /* Espacio para el menú inferior moderno de 70px */
         }
 
         body.has-bottom-bar-weekly {
-            padding-bottom: 60px; /* Espacio exacto para la nueva barra de fechas semanal */
+            padding-bottom: 60px;
+            /* Espacio exacto para la nueva barra de fechas semanal */
         }
 
         :root {
             --header-height: 0px;
-            --bottom-nav-offset: 85px; /* Altura por defecto sobre el menú (70px + 15px) */
+            --bottom-nav-offset: 85px;
+            /* Altura por defecto sobre el menú (70px + 15px) */
         }
 
         .container {
             width: 100%;
             padding: 0 12px;
             max-width: 100%;
+
         }
 
         /* 📱 CONTROLES DE VISTA (NAVEGACIÓN INTERNA) */
@@ -66,7 +70,8 @@
 
         .sticky-column-2 {
             position: sticky;
-            left: 32px; /* Offset exacto para el # de 32px */
+            left: 32px;
+            /* Offset exacto para el # de 32px */
             z-index: 9;
             background: #1e293b !important;
             border-right: 2px solid #334155 !important;
@@ -75,17 +80,22 @@
         /* Scrollbar moderno (Mini-mapa) */
         .modern-scroll::-webkit-scrollbar {
             height: 6px;
-            width: 8px; /* Un poco más ancho para los indicadores */
+            width: 8px;
+            /* Un poco más ancho para los indicadores */
         }
+
         .modern-scroll::-webkit-scrollbar-track {
             background: #0f172a;
             border-left: 1px solid #1e293b;
         }
+
         .modern-scroll::-webkit-scrollbar-thumb {
             background: #334155;
             border-radius: 10px;
-            border: 2px solid #0f172a; /* Efecto de padding interno */
+            border: 2px solid #0f172a;
+            /* Efecto de padding interno */
         }
+
         .modern-scroll::-webkit-scrollbar-thumb:hover {
             background: #06b6d4;
         }
@@ -101,7 +111,8 @@
             z-index: 9999;
             opacity: 1;
             transition: opacity 0.3s ease, width 0.2s ease;
-            background: rgba(15, 23, 42, 0.2); /* Sutil carril visible */
+            background: rgba(15, 23, 42, 0.2);
+            /* Sutil carril visible */
             border-left: 1px solid rgba(255, 255, 255, 0.05);
         }
 
@@ -112,7 +123,8 @@
         .scrollbar-indicator-container.mode-on-scroll.scrolling,
         .scrollbar-indicator-container.mode-on-scroll:hover {
             opacity: 1;
-            width: 12px; /* Se agranda al interactuar */
+            width: 12px;
+            /* Se agranda al interactuar */
         }
 
         .scrollbar-indicator-container.mode-hidden {
@@ -133,11 +145,13 @@
         .scroll-indicator {
             position: absolute;
             right: 1px;
-            width: 6px; /* Más ancho para parecer una marca de IDE */
-            height: 2px; /* Altura de barra horizontal */
+            width: 6px;
+            /* Más ancho para parecer una marca de IDE */
+            height: 2px;
+            /* Altura de barra horizontal */
             border-radius: 1px;
             transform: translateY(-50%);
-            box-shadow: 0 0 2px rgba(0,0,0,0.8);
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
             transition: all 0.2s ease;
         }
 
@@ -148,43 +162,62 @@
         }
 
         /* Colores Neón (IDE Style) */
-        .scroll-indicator.regular { 
-            background: #10b981; /* Verde esmeralda */
-            box-shadow: 0 0 5px rgba(16, 185, 129, 0.6); 
+        .scroll-indicator.regular {
+            background: #10b981;
+            /* Verde esmeralda */
+            box-shadow: 0 0 5px rgba(16, 185, 129, 0.6);
         }
-        .scroll-indicator.absent { 
-            background: #ff4d4d; 
-            box-shadow: 0 0 5px rgba(255, 77, 77, 0.6); 
+
+        .scroll-indicator.absent {
+            background: #ff4d4d;
+            box-shadow: 0 0 5px rgba(255, 77, 77, 0.6);
         }
-        .scroll-indicator.extra { 
-            background: #00d9ff; 
-            box-shadow: 0 0 5px rgba(0, 217, 255, 0.6); 
+
+        .scroll-indicator.extra {
+            background: #00d9ff;
+            box-shadow: 0 0 5px rgba(0, 217, 255, 0.6);
         }
-        .scroll-indicator.holiday { 
-            background: #ffcc00; 
-            box-shadow: 0 0 4px rgba(255, 204, 0, 0.5); 
+
+        .scroll-indicator.holiday {
+            background: #ffcc00;
+            box-shadow: 0 0 4px rgba(255, 204, 0, 0.5);
         }
-        .scroll-indicator.note { 
-            background: #ffffff; 
+
+        .scroll-indicator.note {
+            background: #ffffff;
             box-shadow: 0 0 3px rgba(255, 255, 255, 0.5);
-            width: 3px; /* Más sutil para notas */
+            width: 3px;
+            /* Más sutil para notas */
         }
-        .scroll-indicator.multiposition { 
-            background: #bf00ff; 
-            box-shadow: 0 0 5px rgba(191, 0, 255, 0.6); 
+
+        .scroll-indicator.multiposition {
+            background: #bf00ff;
+            box-shadow: 0 0 5px rgba(191, 0, 255, 0.6);
         }
-        .scroll-indicator.pending { 
-            background: #4b5563; /* Gris medio (Slate 600) */
-            box-shadow: 0 0 3px rgba(75, 85, 99, 0.4); 
+
+        .scroll-indicator.pending {
+            background: #4b5563;
+            /* Gris medio (Slate 600) */
+            box-shadow: 0 0 3px rgba(75, 85, 99, 0.4);
             opacity: 0.6;
         }
-        
+
         /* Animación para la aparición de indicadores */
         @keyframes indicatorFadeIn {
-            from { opacity: 0; transform: scale(0.5) translateY(-50%); }
-            to { opacity: 1; transform: scale(1) translateY(-50%); }
+            from {
+                opacity: 0;
+                transform: scale(0.5) translateY(-50%);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1) translateY(-50%);
+            }
         }
-        .scroll-indicator { animation: indicatorFadeIn 0.3s ease-out; }
+
+        .scroll-indicator {
+            animation: indicatorFadeIn 0.3s ease-out;
+        }
 
         @media (min-width: 768px) {
             .container {
@@ -196,14 +229,16 @@
 
         /* --- MODO SCROLL DE PÁGINA (VISTA DIARIA) --- */
         .day-view-page-mode {
-            padding-bottom: 100px; /* Espacio para que no lo tape el footer/controles */
+            padding-bottom: 60px;
+            /* Espacio para que no lo tape el footer/controles */
         }
 
         .sticky-controls-wrapper {
             position: sticky;
             top: 0;
             z-index: 50;
-            background: rgba(15, 23, 42, 0.85); /* Glassmorphism */
+            background: rgba(15, 23, 42, 0.85);
+            /* Glassmorphism */
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             padding: 10px 0;
@@ -211,7 +246,7 @@
             border-bottom: 1px solid rgba(51, 65, 85, 0.5);
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
-        
+
         /* Asegurar que la lista no tenga altura fija en modo página */
         .day-view-page-mode .employee-list.sticky-table-container {
             max-height: none !important;
@@ -396,11 +431,54 @@
             position: relative;
         }
 
-        .view-controls-row {
+
+
+        .control-section.side-control {
             display: flex;
-            gap: 8px;
+            flex-direction: column;
             align-items: center;
-            margin-bottom: 8px;
+        }
+
+        .control-section.center-control {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .btn-today-nav {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #f1f5f9;
+            padding: 8px 16px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            height: 40px;
+            /* Igual que los otros controles */
+        }
+
+        .btn-today-nav:hover {
+            background: rgba(51, 65, 85, 0.8);
+            transform: translateY(-2px);
+            border-color: rgba(6, 182, 212, 0.4);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .btn-today-nav:active {
+            transform: translateY(0);
+        }
+
+        .btn-today-nav svg {
+            color: #10b981;
+            /* Verde esmeralda para el icono de hoy */
         }
 
         .segmented-control {
@@ -513,7 +591,7 @@
             top: 1.5px;
             left: 2px;
             transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .holiday-switch-container.active .switch-thumb {
@@ -542,13 +620,17 @@
             left: 50%;
             transform: translateX(-50%) translateY(-100px);
             width: auto;
-            min-width: 320px; /* Un poco más ancha */
-            z-index: 1500; /* Asegurar que esté por encima de todo */
+            min-width: 320px;
+            /* Un poco más ancha */
+            z-index: 1500;
+            /* Asegurar que esté por encima de todo */
             background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(16px);
             border: 1px solid rgba(6, 182, 212, 0.4);
-            border-radius: 100px; /* Estilo píldora */
-            padding: 8px 24px;   /* Más aire interno */
+            border-radius: 100px;
+            /* Estilo píldora */
+            padding: 8px 24px;
+            /* Más aire interno */
             box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(6, 182, 212, 0.1);
             opacity: 0;
             pointer-events: none;
@@ -564,8 +646,10 @@
         /* Variantes para Vista Semanal (Fijo abajo) */
         .date-controls-compact.at-bottom {
             top: auto;
-            bottom: 85px; /* Elevado para estar sobre la nav-bar (70px + 15px gap) */
-            transform: translateX(-50%) translateY(100px); /* Aparece desde abajo */
+            bottom: 85px;
+            /* Elevado para estar sobre la nav-bar (70px + 15px gap) */
+            transform: translateX(-50%) translateY(100px);
+            /* Aparece desde abajo */
             background: rgba(15, 23, 42, 0.9);
             border-color: rgba(6, 182, 212, 0.6);
             box-shadow: 0 -12px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(6, 182, 212, 0.2);
@@ -585,7 +669,8 @@
             max-width: 100%;
             border-radius: 0;
             padding: 8px 0;
-            background: #0f172a; /* Fondo sólido para eliminar la franja negra */
+            background: #0f172a;
+            /* Fondo sólido para eliminar la franja negra */
             border: none;
             border-top: 1px solid rgba(6, 182, 212, 0.3);
             opacity: 1 !important;
@@ -594,16 +679,18 @@
             display: flex;
             justify-content: center;
             z-index: 2000;
-            box-shadow: 0 -4px 20px rgba(0,0,0,0.6);
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
         }
 
         .date-controls-compact.as-bottom-bar .pill-nav {
-            transform: scale(1.1); /* Ligeramente más grande para facilitar el toque */
+            transform: scale(1.1);
+            /* Ligeramente más grande para facilitar el toque */
         }
 
         /* Ajuste dinámico cuando la barra de navegación inferior está oculta */
         body.bottom-nav-hidden .date-controls-compact.at-bottom {
-            bottom: 25px; /* Baja al fondo cuando no hay nav-bar */
+            bottom: 25px;
+            /* Baja al fondo cuando no hay nav-bar */
         }
 
         .date-controls-compact.at-bottom.visible {
@@ -622,6 +709,7 @@
         .pill-display {
             position: relative;
         }
+
         .date-controls-compact .pill-display {
             min-width: auto;
             padding: 0 12px;
@@ -1805,7 +1893,7 @@
         }
 
         .main-content {
-            padding: 16px 0;
+            padding: 0 0 0 0;
         }
 
         .legend {
@@ -2038,23 +2126,56 @@
             padding: 20px;
             width: 100%;
             max-width: 420px;
-            contain: layout; /* Aísla el layout del resto de la página */
+            contain: layout;
+            /* Aísla el layout del resto de la página */
         }
 
-        .notification-container.top-right { top: 10px; right: 10px; align-items: flex-end; }
-        .notification-container.top-center { top: 10px; left: 50%; transform: translateX(-50%); align-items: center; }
-        .notification-container.top-left { top: 10px; left: 10px; align-items: flex-start; }
-        .notification-container.bottom-right { bottom: 10px; right: 10px; align-items: flex-end; }
-        .notification-container.bottom-center { bottom: 10px; left: 50%; transform: translateX(-50%); align-items: center; }
-        .notification-container.bottom-left { bottom: 10px; left: 10px; align-items: flex-start; }
+        .notification-container.top-right {
+            top: 10px;
+            right: 10px;
+            align-items: flex-end;
+        }
+
+        .notification-container.top-center {
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            align-items: center;
+        }
+
+        .notification-container.top-left {
+            top: 10px;
+            left: 10px;
+            align-items: flex-start;
+        }
+
+        .notification-container.bottom-right {
+            bottom: 10px;
+            right: 10px;
+            align-items: flex-end;
+        }
+
+        .notification-container.bottom-center {
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            align-items: center;
+        }
+
+        .notification-container.bottom-left {
+            bottom: 10px;
+            left: 10px;
+            align-items: flex-start;
+        }
 
         .notification {
-            background: rgba(15, 23, 42, 0.99); /* Casi sólido para evitar estrés de transparencia */
+            background: rgba(15, 23, 42, 0.99);
+            /* Casi sólido para evitar estrés de transparencia */
             backdrop-filter: blur(8px) saturate(180%);
             -webkit-backdrop-filter: blur(8px) saturate(180%);
             border-radius: 20px;
             padding: 14px;
-            box-shadow: 
+            box-shadow:
                 0 10px 15px -3px rgba(0, 0, 0, 0.4),
                 0 0 0 1.5px rgba(255, 255, 255, 0.1);
             display: flex;
@@ -2065,8 +2186,10 @@
             margin-bottom: 0;
             position: absolute;
             transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-            will-change: transform, opacity; /* Simplificado will-change */
-            contain: content; /* Aísla el contenido */
+            will-change: transform, opacity;
+            /* Simplificado will-change */
+            contain: content;
+            /* Aísla el contenido */
         }
 
         /* Anclaje según posición */
@@ -2095,10 +2218,21 @@
             opacity: 0.9;
         }
 
-        .notification-success::after { background: #10b981; }
-        .notification-error::after { background: #ef4444; }
-        .notification-warning::after { background: #f59e0b; }
-        .notification-info::after { background: #06b6d4; }
+        .notification-success::after {
+            background: #10b981;
+        }
+
+        .notification-error::after {
+            background: #ef4444;
+        }
+
+        .notification-warning::after {
+            background: #f59e0b;
+        }
+
+        .notification-info::after {
+            background: #06b6d4;
+        }
 
         .notification-icon-wrapper {
             width: 42px;
@@ -2112,10 +2246,21 @@
             margin-left: 10px;
         }
 
-        .notification-success .notification-icon { color: #10b981; }
-        .notification-error .notification-icon { color: #ef4444; }
-        .notification-warning .notification-icon { color: #f59e0b; }
-        .notification-info .notification-icon { color: #06b6d4; }
+        .notification-success .notification-icon {
+            color: #10b981;
+        }
+
+        .notification-error .notification-icon {
+            color: #ef4444;
+        }
+
+        .notification-warning .notification-icon {
+            color: #f59e0b;
+        }
+
+        .notification-info .notification-icon {
+            color: #06b6d4;
+        }
 
         .notification-content {
             flex: 1;
@@ -2161,11 +2306,30 @@
         }
 
         /* State-specific colors and icons */
-        .notification-success .notification-icon-wrapper { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .notification-error .notification-icon-wrapper { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .notification-warning .notification-icon-wrapper { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
-        .notification-info .notification-icon-wrapper { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
-        .notification-loading .notification-icon-wrapper { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+        .notification-success .notification-icon-wrapper {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .notification-error .notification-icon-wrapper {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .notification-warning .notification-icon-wrapper {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+
+        .notification-info .notification-icon-wrapper {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+
+        .notification-loading .notification-icon-wrapper {
+            background: rgba(148, 163, 184, 0.2);
+            color: #94a3b8;
+        }
 
         /* Loading Spinner */
         .notification-spinner {
@@ -2180,8 +2344,13 @@
         }
 
         @keyframes rotation {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         /* Base styles for message updates */
@@ -2424,8 +2593,10 @@
             background: rgba(15, 23, 42, 0.4);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
-            justify-content: flex-end; /* Alinear container a la derecha */
-            padding: 0; /* Sin padding para que el drawer pegue al borde */
+            justify-content: flex-end;
+            /* Alinear container a la derecha */
+            padding: 0;
+            /* Sin padding para que el drawer pegue al borde */
         }
 
         /* Animaciones para Drawer (Slide de Derecha) */
@@ -2621,7 +2792,7 @@
             border-radius: 20px;
             padding: 16px;
             border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 
+            box-shadow:
                 0 20px 40px rgba(0, 0, 0, 0.4),
                 0 0 0 1px rgba(255, 255, 255, 0.05);
             min-width: 320px;
@@ -2634,6 +2805,7 @@
                 opacity: 0;
                 transform: translateX(-50%) scale(0.95) translateY(-10px);
             }
+
             to {
                 opacity: 1;
                 transform: translateX(-50%) scale(1) translateY(0);
@@ -3584,18 +3756,25 @@
             border-color: #ef4444;
             color: #ef4444;
         }
+
+
+
         /* 📱 OPTIMIZACIÓN LANDSCAPE PARA TABLA SEMANAL */
         @media screen and (orientation: landscape) {
             .week-view-table th {
                 font-size: 0.75rem !important;
                 padding: 6px 4px !important;
+                margin-bottom: 100px;
             }
+
             .week-view-table td {
                 padding: 4px 4px !important;
             }
+
             .week-employee-cell {
                 gap: 6px;
             }
+
             .week-employee-name {
                 font-size: 0.8rem;
             }
@@ -3616,16 +3795,23 @@
             border-radius: 16px;
             width: 320px;
             padding: 16px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 
-                        0 0 30px rgba(6, 182, 212, 0.2);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5),
+                0 0 30px rgba(6, 182, 212, 0.2);
             animation: calendarPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
             user-select: none;
             z-index: 5000;
         }
 
         @keyframes calendarPopIn {
-            from { transform: translateX(-50%) scale(0.9) translateY(-10px); opacity: 0; }
-            to { transform: translateX(-50%) scale(1) translateY(0); opacity: 1; }
+            from {
+                transform: translateX(-50%) scale(0.9) translateY(-10px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(-50%) scale(1) translateY(0);
+                opacity: 1;
+            }
         }
 
         .calendar-header {
@@ -3721,8 +3907,10 @@
         }
 
         .calendar-day-today {
-            border: 2px solid #10b981 !important;
-            color: #10b981;
+            background: #10b981 !important;
+            color: #ffffff !important;
+            border-color: #10b981 !important;
+            font-weight: 800;
         }
 
         .calendar-day-holiday {
@@ -3825,6 +4013,7 @@
                 width: 290px;
                 padding: 12px;
             }
+
             .calendar-day {
                 font-size: 0.75rem;
             }
