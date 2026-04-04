@@ -225,20 +225,24 @@ export class Notification {
     }
 
     // Metodos estaticos de conveniencia
-    static success(message, duration) {
-        return new Notification({ message, type: 'success', duration }).show();
+    static success(message, optionsOrDuration) {
+        const options = typeof optionsOrDuration === 'object' ? optionsOrDuration : { duration: optionsOrDuration };
+        return new Notification({ ...options, message, type: 'success' }).show();
     }
 
-    static error(message, duration) {
-        return new Notification({ message, type: 'error', duration }).show();
+    static error(message, optionsOrDuration) {
+        const options = typeof optionsOrDuration === 'object' ? optionsOrDuration : { duration: optionsOrDuration };
+        return new Notification({ ...options, message, type: 'error' }).show();
     }
 
-    static warning(message, duration) {
-        return new Notification({ message, type: 'warning', duration }).show();
+    static warning(message, optionsOrDuration) {
+        const options = typeof optionsOrDuration === 'object' ? optionsOrDuration : { duration: optionsOrDuration };
+        return new Notification({ ...options, message, type: 'warning' }).show();
     }
 
-    static info(message, duration) {
-        return new Notification({ message, type: 'info', duration }).show();
+    static info(message, optionsOrDuration) {
+        const options = typeof optionsOrDuration === 'object' ? optionsOrDuration : { duration: optionsOrDuration };
+        return new Notification({ ...options, message, type: 'info' }).show();
     }
 
     static loading(message) {

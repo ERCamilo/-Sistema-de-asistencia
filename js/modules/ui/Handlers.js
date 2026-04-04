@@ -122,7 +122,9 @@ window.handleWeekCheck = (empId, dateStr) => {
     } else {
         const date = parseDate(dateStr);
         const emp = state.employees.find(e => e.id === empId);
-        const hours = state.quickWeekHours || 8;
+        
+        // 🔥 Unificación: Usar horas configuradas para el día, o el default
+        const hours = state.dayHoursConfig?.[dateStr] ?? state.settings?.regularHoursPerDay ?? 8;
 
         state.attendance[key] = {
             employeeId: empId,
@@ -133,7 +135,7 @@ window.handleWeekCheck = (empId, dateStr) => {
             isHoliday: isDayHoliday(date, state.settings.holidays),
             selectedPosition: emp.positions?.[0] || null,
             multiPosition: false,
-            positionHours: [],
+            positionHours: emp.positions?.[0] ? [{ positionId: emp.positions[0], hours: hours }] : [],
             updatedAt: Date.now()
         };
         saveApplicationData({ dateKey: dateStr });

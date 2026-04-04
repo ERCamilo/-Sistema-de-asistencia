@@ -6,29 +6,34 @@
 import { state } from '../core/AppState.js';
 import { render } from '../core/RenderManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
-import { getDateKey } from '../utils/DateUtils.js';
+import { DateUtils, getDateKey } from '../utils/DateUtils.js';
 import { Notification } from '../components/Notification.js';
 
 /**
- * ⏱️ Ajusta las horas base para el día seleccionado (+/- 0.5h)
+ * ⏱️ Ajusta las horas base para el día seleccionado o la semana completa (+/- 0.5h)
  */
 export function changeBaseHours(delta) {
-    const dateKey = getDateKey(state.selectedDate);
+    // Si estamos en vista semanal, actualizamos los 7 días de la semana actual
+    const datesToUpdate = state.viewMode === 'week' 
+        ? DateUtils.getWeekDates(state.selectedDate)
+        : [getDateKey(state.selectedDate)];
     
-    // Obtener horas actuales del día o las regulares
-    let currentHours = state.dayHoursConfig[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
+    datesToUpdate.forEach(dateKey => {
+        // Obtener horas actuales del día o las regulares
+        let currentHours = state.dayHoursConfig[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
+        
+        // Calcular nuevo valor
+        let newHours = Math.max(0, Math.min(24, currentHours + delta));
+        
+        // Actualizar configuración
+        if (!state.dayHoursConfig) state.dayHoursConfig = {};
+        state.dayHoursConfig[dateKey] = newHours;
+    });
     
-    // Calcular nuevo valor
-    let newHours = Math.max(0, Math.min(24, currentHours + delta));
-    
-    // Actualizar configuración del día
-    if (!state.dayHoursConfig) state.dayHoursConfig = {};
-    state.dayHoursConfig[dateKey] = newHours;
-    
-    console.log(`⏱️ Horas base para ${dateKey} ajustadas a: ${newHours}h`);
+    console.log(`⏱️ Horas base ajustadas para ${datesToUpdate.length} días. Último valor: ${state.dayHoursConfig[datesToUpdate[datesToUpdate.length-1]]}h`);
     
     // Guardar y refrescar
-    saveApplicationData({ dateKey });
+    saveApplicationData({ dateKey: datesToUpdate[0] });
     render();
 }
 
@@ -44,11 +49,9 @@ export function toggleHoliday(providedDateKey = null) {
 
     if (index > -1) {
         holidays.splice(index, 1);
-        isNowHoliday = false;
         Notification.info('Día marcado como laborable');
     } else {
         holidays.push(dateKey);
-        isNowHoliday = true;
         Notification.success('Día marcado como FERIADO 🚩', { icon: 'gold' });
     }
     
@@ -60,17 +63,22 @@ export function toggleHoliday(providedDateKey = null) {
 }
 
 /**
- * ⌨️ Establece horas base manualmente (vía input)
+ * ⌨️ Establece horas base manualmente (vía input) para el día o la semana
  */
 export function setDayHours(val) {
-    const hours = parseFloat(val);
-    if (isNaN(hours) || hours < 0 || hours > 24) return;
+    const hours = Number.parseFloat(val);
+    if (Number.isNaN(hours) || hours < 0 || hours > 24) return;
     
-    const dateKey = getDateKey(state.selectedDate);
-    if (!state.dayHoursConfig) state.dayHoursConfig = {};
-    state.dayHoursConfig[dateKey] = hours;
+    const datesToUpdate = state.viewMode === 'week' 
+        ? DateUtils.getWeekDates(state.selectedDate)
+        : [getDateKey(state.selectedDate)];
+
+    datesToUpdate.forEach(dateKey => {
+        if (!state.dayHoursConfig) state.dayHoursConfig = {};
+        state.dayHoursConfig[dateKey] = hours;
+    });
     
-    saveApplicationData({ dateKey });
+    saveApplicationData({ dateKey: datesToUpdate[0] });
     render();
 }
 

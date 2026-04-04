@@ -154,11 +154,11 @@ export const DateUtils = {
         return formatDateShort(parseDate(dateStr));
     },
 
-    // Obtener inicio de semana (domingo)
+    // Obtener inicio de semana (Lunes)
     getWeekStart(dateStr) {
         const date = parseDate(dateStr);
-        const day = date.getDay();
-        date.setDate(date.getDate() - day);
+        const day = date.getDay() || 7; // Convertir 0 (Domingo) a 7
+        date.setDate(date.getDate() - (day - 1));
         return getDateKey(date);
     },
 

@@ -5,7 +5,7 @@
 
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
-import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText } from '../utils/DateUtils.js';
+import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 
 // Componentes y utilerías locales
@@ -27,6 +27,11 @@ export function DateControlsCompact() {
     const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'compact';
     const isVisible = (state.isScrolled || isAsBottomBar) && (state.activeTab === 'attendance');
 
+    // Extraer lógica de DatePicker (Antes era ternario anidado)
+    const datePickerHTML = (showPicker && typeof window.DatePicker === 'function')
+        ? window.DatePicker()
+        : '';
+
     const classes = [
         'date-controls-compact',
         isVisible ? 'visible' : '',
@@ -46,7 +51,7 @@ export function DateControlsCompact() {
                     <div class="pill-display" onclick="window.toggleDatePicker('compact'); event.stopPropagation();" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
                         ${icons.get('calendar', { size: 14, color: isToday ? '#06b6d4' : undefined })}
                         <span style="${isToday ? 'color: #06b6d4;' : ''}">${dateText}</span>
-                        ${showPicker ? (typeof window.DatePicker === 'function' ? window.DatePicker() : '') : ''}
+                        ${datePickerHTML}
                     </div>
                     
                     <button class="pill-btn" onclick="window.changeDate(1)">
@@ -85,6 +90,92 @@ export function getCheckColor(att, date) {
     return 'check-regular';
 }
 
+function ViewModeSelector() {
+    //   <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
+    return `
+
+            <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
+                <div class="segmented-control" style="width: 200px;">
+                    <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="window.changeViewMode('day')">${dayLabel}</button>
+                    <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="window.changeViewMode('week')">${weekLabel}</button>
+                </div>
+            </div>
+        `;
+}
+function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
+    //<!-- 2. NIVEL MEDIO: Nav Pill (Fecha) -->
+    const iconoCalendario = icons.get('calendar', { size: 18, color: isToday ? '#06b6d4' : undefined });
+    const flechaDerecha = icons.get('chevron-right');
+    const flechaIzquierda = icons.get('chevron-left');
+    let colorBorde = isToday ? 'rgba(6, 182, 212, 0.5)' : '';
+    let colorTexto = isToday ? '#06b6d4' : '';
+
+
+    return `<div class="pill-nav" style="margin-bottom: 20px;">
+                <button class="pill-btn" onclick="window.changeDate(-1)">${flechaIzquierda}</button>
+                <div class="pill-display" onclick="window.toggleDatePicker('full'); event.stopPropagation();" style="position: relative; ${colorBorde}">
+                    ${iconoCalendario}
+                    <span style="${colorTexto}">${displayText}</span>
+                    ${datePickerHTML}
+                </div>
+                <button class="pill-btn" onclick="window.changeDate(1)">${flechaDerecha}</button>
+            </div>`
+}
+//            <!-- 3. NIVEL INFERIOR: Controles Equilibrados -->
+
+function ControlesAsistenciaFeriado(isHoliday) {
+    //    <!-- Seccion Feriado (Izquierda - 1fr) -->
+    let title, icono, clase = "";
+
+    if (isHoliday) {
+        title = "Día Feriado";
+        icono = "palmtree";
+        clase = "active";
+
+    } else {
+        title = "Día Laboral";
+        icono = "briefcase";
+    }
+    return `          
+             <div class="view-controls-row">
+                <div class="control-section side-control">
+                    <div class="control-section-label">Feriado</div>
+                    <div class="holiday-control ${clase}" onclick="window.toggleHoliday()" title="${title}">
+                        <div class="holiday-icon-box">
+                            ${icons.get(icono, { size: 20 })}
+                        </div>
+                        <div class="switch-toggle">
+                            <div class="switch-handle"></div>
+                        </div>
+                    </div>
+                </div>`
+}
+function ControlesAsistenciaHorasBase(hourColor, dayHours) {
+    //    <!-- Seccion Horas Base (Centro - Auto) -->
+    return `          
+                <div class="control-section center-control">
+                    <div class="control-section-label">Horas Base</div>
+                    <div class="stepper-container" title="Horas base para este día">
+                        <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
+                        <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
+                        <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
+                    </div>
+                </div>`
+}
+function ControlesAsistenciaHoy(isToday, todayBtnStyle, todayIconColor) {
+    //    <!-- Seccion Hoy (Derecha - 1fr) -->
+    let color = isToday ? 'color: #06b6d4;' : '';
+
+    return ` <div class="control-section side-control">
+                 <div class="control-section-label">Navegación</div>
+                <button class="btn-today-nav" onclick="window.goToToday()" title="Ir a hoy" style="${todayBtnStyle}">
+                     ${icons.get('target', { size: 18, color: todayIconColor })}
+                      <span style="${color}">Hoy</span>
+                </button>
+             </div>`
+}
+
+
 /**
  * 📅 COMPONENTE: DateControls (Estándar)
  */
@@ -99,18 +190,29 @@ export function DateControls() {
     const dayLabel = state.viewMode === 'day' ? 'Día' : 'D';
     const weekLabel = state.viewMode === 'week' ? 'Semana' : 'S';
 
-    // Semántica de colores en horas: Rojo < 8h, Verde = 8h, Azul > 8h
-    const hourColor = dayHours > 8 ? '#3b82f6' : (dayHours < 8 ? '#ef4444' : '#10b981');
+    // Semántica de colores en horas (Refactorizado de operador ternario anidado)
+    let hourColor = '#10b981'; // Verde (8h) - Default
+    if (dayHours > 8) {
+        hourColor = '#3b82f6'; // Azul (> 8h)
+    } else if (dayHours < 8) {
+        hourColor = '#ef4444'; // Rojo (< 8h)
+    }
 
     // Seccion Hoy (Derecha - 1fr)
     const isToday = getDateKey(new Date()) === getDateKey(state.selectedDate);
-    const todayBtnStyle = isToday 
-        ? 'background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.5); color: #06b6d4;' 
+    const todayBtnStyle = isToday
+        ? 'background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.5); color: #06b6d4;'
         : '';
     const todayIconColor = isToday ? '#06b6d4' : '#10b981';
 
+    // Extraer lógica de DatePicker (Antes era ternario anidado)
+    const showPicker = state.showDatePicker && (state.datePickerTarget || 'full') === 'full';
+    const datePickerHTML = (showPicker && typeof window.DatePicker === 'function')
+        ? window.DatePicker('full')
+        : '';
+
     return `
-        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
+        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
             
             <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
             <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
@@ -121,49 +223,16 @@ export function DateControls() {
             </div>
 
             <!-- 2. NIVEL MEDIO: Nav Pill (Fecha) -->
-            <div class="pill-nav" style="margin-bottom: 20px;">
-                <button class="pill-btn" onclick="window.changeDate(-1)">${icons.get('chevron-left')}</button>
-                <div class="pill-display" onclick="window.toggleDatePicker('full'); event.stopPropagation();" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
-                    ${icons.get('calendar', { size: 18, color: isToday ? '#06b6d4' : undefined })}
-                    <span style="${isToday ? 'color: #06b6d4;' : ''}">${displayText}</span>
-                    ${(state.showDatePicker && (state.datePickerTarget || 'full') === 'full') ? (typeof window.DatePicker === 'function' ? window.DatePicker('full') : '') : ''}
-                </div>
-                <button class="pill-btn" onclick="window.changeDate(1)">${icons.get('chevron-right')}</button>
-            </div>
+                ${navPillSelectorDeFecha(isToday, displayText, datePickerHTML)}
             
             <!-- 3. NIVEL INFERIOR: Controles Equilibrados -->
-            <div class="view-controls-row">
-                <!-- Seccion Feriado (Izquierda - 1fr) -->
-                <div class="control-section side-control">
-                    <div class="control-section-label">Feriado</div>
-                    <div class="holiday-control ${isHoliday ? 'active' : ''}" onclick="window.toggleHoliday()" title="${isHoliday ? 'Día Feriado' : 'Día Laboral'}">
-                        <div class="holiday-icon-box">
-                            ${icons.get(isHoliday ? 'palmtree' : 'briefcase', { size: 20 })}
-                        </div>
-                        <div class="switch-toggle">
-                            <div class="switch-handle"></div>
-                        </div>
-                    </div>
-                </div>
+                ${ControlesAsistenciaFeriado(isHoliday)}
 
                 <!-- Seccion Horas Base (Centro - Auto) -->
-                <div class="control-section center-control">
-                    <div class="control-section-label">Horas Base</div>
-                    <div class="stepper-container" title="Horas base para este día">
-                        <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
-                        <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
-                        <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
-                    </div>
-                </div>
+                ${ControlesAsistenciaHorasBase(hourColor, dayHours)}
 
                 <!-- Seccion Hoy (Derecha - 1fr) -->
-                <div class="control-section side-control">
-                    <div class="control-section-label">Navegación</div>
-                    <button class="btn-today-nav" onclick="window.goToToday()" title="Ir a hoy" style="${todayBtnStyle}">
-                        ${icons.get('target', { size: 18, color: todayIconColor })}
-                        <span style="${isToday ? 'color: #06b6d4;' : ''}">Hoy</span>
-                    </button>
-                </div>
+                ${ControlesAsistenciaHoy(isToday, todayBtnStyle, todayIconColor)}
             </div>
         </div>`;
 }
@@ -182,6 +251,17 @@ export function renderSkeleton(count = 5) {
 /**
  * 📊 Grid de Estadísticas (Presentes, Ausentes, Horas, Extras)
  */
+
+function statCard(f, nombreID, nombre, icon, stats, filtro) {
+    return `<div class="stat-item ${f === nombreID ? 'active' : ''}" onclick="setEmployeeFilter(${filtro})">
+        <div class="stat-icon">${icon}</div>
+        <div class="stat-value">${stats}</div>
+        <div class="stat-label">${nombre}</div>
+    </div>`
+}
+
+
+
 export function StatsGrid() {
     const stats = calculateStats();
     const f = state.employeeFilter;
@@ -191,26 +271,13 @@ export function StatsGrid() {
         overtime: 'Mostrando solo con EXTRAS'
     };
     return `<div id="day-stats" class="stats-combined"><div class="stats-row">
-                <div class="stat-item ${f === 'present' ? 'active' : ''}" onclick="setEmployeeFilter('present')">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-value">${stats.present}</div>
-                    <div class="stat-label">Presentes</div>
-                </div>
-                <div class="stat-item ${f === 'absent' ? 'active' : ''}" onclick="setEmployeeFilter('absent')">
-                    <div class="stat-icon">❌</div>
-                    <div class="stat-value">${stats.absent}</div>
-                    <div class="stat-label">Ausentes</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-icon">⏱️</div>
-                    <div class="stat-value">${stats.totalHours}h</div>
-                    <div class="stat-label">Horas</div>
-                </div>
-                <div class="stat-item ${f === 'overtime' ? 'active' : ''}" onclick="setEmployeeFilter('overtime')">
-                    <div class="stat-icon">⚡</div>
-                    <div class="stat-value">${stats.overtimeHours}h</div>
-                    <div class="stat-label">Extras</div>
-                </div>
+    
+             ${statCard(f, 'present', 'Presente', '✅', stats.present, `'present'`)}
+             ${statCard(f, 'absent', 'Ausentes', '❌', stats.absent, `'absent'`)}
+             ${statCard(f, 'time', 'Horas', '⏱️', stats.totalHours, `''`)}
+             ${statCard(f, 'overtime', 'Extras', '⚡', stats.overtimeHours, `'overtime'`)}
+
+
             </div>${f ? `<div class="filter-status-notification">
                 <span class="filter-status-text">🔍 ${filterNames[f]}</span>
                 <button onclick="setEmployeeFilter(null)" class="view-btn" style="padding: 4px 12px; font-size: 0.75rem;">✕ Limpiar</button>
@@ -258,14 +325,16 @@ export function PositionFilters() {
                 <div class="filters-content position-filters-grid">
                     <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" 
                             onclick="setPositionFilter('all')"
-                            style="background: ${currentFilter === 'all' ? 'linear-gradient(135deg, #06b6d4, #10b981)' : '#1e293b'}; border: 2px solid ${currentFilter === 'all' ? '#06b6d4' : '#334155'}; padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                            style="background: ${currentFilter === 'all' ? 'linear-gradient(135deg, #06b6d4, #10b981)' : '#1e293b'}; border: 2px solid ${currentFilter === 'all' ? '#06b6d4' : '#334155'}; 
+                            padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
                         <span style="font-size: 0.875rem; font-weight: 600; color: #f1f5f9;">Todos</span>
                         <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === 'all' ? '#fff' : '#06b6d4'};">${totalCount}</span>
                     </button>
                     ${activePositions.map(pos => `
                         <button class="filter-btn ${currentFilter === pos.id ? 'active' : ''}" 
                                 onclick="setPositionFilter('${pos.id}')"
-                                style="background: ${currentFilter === pos.id ? pos.color : '#1e293b'}; border: 2px solid ${currentFilter === pos.id ? pos.color : '#334155'}; padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                                style="background: ${currentFilter === pos.id ? pos.color : '#1e293b'}; border: 2px solid ${currentFilter === pos.id ? pos.color : '#334155'}; padding: 10px; border-radius: 
+                                8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
                             <span style="font-size: 0.875rem; font-weight: 600; color: ${currentFilter === pos.id ? '#fff' : '#f1f5f9'};">${pos.name}</span>
                             <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === pos.id ? '#fff' : pos.color};">${positionCounts[pos.id] || 0}</span>
                         </button>
@@ -339,6 +408,12 @@ export function EmployeeRow(emp) {
 
     const selectedPosId = state.tempPositionSelection?.[key] || emp.positions[0];
 
+    // Extraer badge de horas (Antes era ternario anidado)
+    const multiPosIcon = isMultiPosition ? ' 🔄' : '';
+    const hoursBadgeHTML = isChecked
+        ? `<div class="hours-badge">${att.hoursWorked}h${multiPosIcon}</div>`
+        : '';
+
     return `<div id="emp-row-${emp.id}" class="employee-row">
                 <div class="employee-info">
                     <div class="employee-header">
@@ -352,7 +427,7 @@ export function EmployeeRow(emp) {
         return `<button class="position-toggle ${isActive ? 'active' : ''}" 
                                                    onclick="${isChecked ? `togglePosition('${emp.id}', '${pid}')` : `event.stopPropagation(); selectTempPosition('${emp.id}', '${pid}')`}">
                                         <span class="pos-dot" style="background:${pos.color || "#64748b"};"></span>${pos.name || "Posición"}
-                                    </button>`;
+                                      </button>`;
     }).join('')}
                     </div>
                     ${isMultiPosition ? `
@@ -361,10 +436,10 @@ export function EmployeeRow(emp) {
                             ${att.positionHours.map(ph => {
         const pos = state.positions.find(p => p.id === ph.positionId);
         return `<div style="display: flex; align-items: center; gap: 8px; font-size: 0.875rem; margin-bottom: 4px;">
-                                            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${pos?.color || '#64748b'};"></span>
-                                            <span style="flex: 1; color: #f1f5f9;">${pos?.name || '?'}</span>
-                                            <span style="color: #10b981; font-weight: 600;">${ph.hours}h${ph.overtimeHours > 0 ? ` +${ph.overtimeHours}h` : ''}</span>
-                                        </div>`;
+                                              <span style="width: 8px; height: 8px; border-radius: 50%; background: ${pos?.color || '#64748b'};"></span>
+                                              <span style="flex: 1; color: #f1f5f9;">${pos?.name || '?'}</span>
+                                              <span style="color: #10b981; font-weight: 600;">${ph.hours}h${ph.overtimeHours > 0 ? ` +${ph.overtimeHours}h` : ''}</span>
+                                          </div>`;
     }).join('')}
                         </div>
                     ` : ''}
@@ -391,7 +466,7 @@ export function EmployeeRow(emp) {
                     <label class="check-container" style="position: relative;">
                         <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} onclick="handleCheckboxClick(event, '${emp.id}')">
                         <div class="check-box ${checkColor}">${isChecked ? '✓' : ''}</div>
-                        ${isChecked ? `<div class="hours-badge">${att.hoursWorked}h${isMultiPosition ? ' 🔄' : ''}</div>` : ''}
+                        ${hoursBadgeHTML}
                     </label>
                     ${isChecked && hasMultiplePositions ? `
                         <button onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')" 
@@ -517,30 +592,12 @@ export function getFilteredEmployeesForDay() {
     return employees;
 }
 
-/**
- * 📅 Calcula las 7 fechas de la semana para una fecha dada
- * (Migrado desde app.js para independencia modular)
- */
-function getWeekDates(date) {
-    const d = typeof date === 'string' ? parseDate(date) : date;
-    const dayOfWeek = d.getDay();
-    const diff = d.getDate() - dayOfWeek;
-    const sunday = new Date(d);
-    sunday.setDate(diff);
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-        const weekDay = new Date(sunday);
-        weekDay.setDate(sunday.getDate() + i);
-        week.push(weekDay);
-    }
-    return week;
-}
 
 /**
  * 📅 Vista Semanal Principal (WeekView)
  */
 export function WeekView() {
-    const week = getWeekDates(new Date(state.selectedDate));
+    const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
     const filtered = getFilteredEmployeesForWeek(week);
     const tbodyHTML = filtered.length > 0
         ? filtered.map(emp => WeekRow(emp, week)).join('')
@@ -556,9 +613,10 @@ export function WeekView() {
                     <tr>
                         <th class="sticky-column" style="min-width: 180px;">EMPLEADO</th>
                         ${week.map(date => {
+        const dObj = parseDate(date);
         const isH = isDayHoliday(date, state.settings?.holidays);
-        const isS = date.getDay() === 0;
-        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(date)}</th>`;
+        const isS = dObj.getDay() === 0;
+        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(dObj)}</th>`;
     }).join('')}
                     </tr>
                 </thead>
@@ -600,7 +658,7 @@ export function WeekRow(emp, week) {
             attendanceService.touchRecord(emp.id, dKey);
         }
         const isCh = att && att.present;
-        const cColor = getCheckColor(att, date);
+        const cColor = getCheckColor(att, parseDate(date));
         const selP = att?.selectedPosition || emp.positions?.[0] || null;
 
         return `
@@ -635,7 +693,7 @@ export function WeekRow(emp, week) {
  * 📏 Fila de Totales (Vista Semanal)
  */
 export function WeekViewTotalsRow() {
-    const week = getWeekDates(new Date(state.selectedDate));
+    const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
     return `
         <tr id="week-totals-row" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
             <td style="padding: 12px 16px; position: sticky; left: 0; background: #0f172a; z-index: 5;">
@@ -709,7 +767,7 @@ export function updateWeekRow(empId) {
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
 
-    const week = getWeekDates(new Date(state.selectedDate));
+    const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
     const temp = document.createElement('tbody');
     temp.innerHTML = WeekRow(emp, week);
     const newRow = temp.firstElementChild;
@@ -734,4 +792,4 @@ window.updateWeekRow = updateWeekRow;
 window.updateWeekTotals = updateWeekTotals;
 window.getFilteredEmployeesForDay = getFilteredEmployeesForDay;
 window.getFilteredEmployeesForWeek = getFilteredEmployeesForWeek;
-window.getWeekDates = getWeekDates;
+window.getWeekDates = DateUtils.getWeekDates;

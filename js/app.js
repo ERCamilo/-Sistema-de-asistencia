@@ -1231,19 +1231,7 @@ function getWeekRangeText(date) {
 // getCheckColor ha sido migrado a AttendanceUI.js para mejor modularidad
 
 function getWeekDates(date) {
-    // ✅ Convertir string a Date si es necesario
-    const d = typeof date === 'string' ? parseDate(date) : date;
-    const dayOfWeek = d.getDay();
-    const diff = d.getDate() - dayOfWeek;
-    const sunday = new Date(d); // ✅ Crear copia primero
-    sunday.setDate(diff); // ✅ Modificar solo la copia
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-        const weekDay = new Date(sunday);
-        weekDay.setDate(sunday.getDate() + i);
-        week.push(weekDay);
-    }
-    return week;
+    return DateUtils.getWeekDates(date);
 }
 // ⚡ Versión original (sin caché)
 // Statistics calculation moved to AppState.js
@@ -2367,24 +2355,27 @@ window.handleWeekCheck = (empId, dateStr) => {
             isHoliday: isDayHoliday(date, state.settings.holidays)
         });
 
+        // 🔥 Unificación: Usar horas configuradas para el día, o el default
+        const hours = (state.dayHoursConfig && state.dayHoursConfig[dateStr]) || (state.settings?.regularHoursPerDay || 8);
+
         // Crear registro de asistencia
         const newAttendance = {
             employeeId: empId,
             date: dateStr,
             present: true,
-            hoursWorked: state.quickWeekHours, // ✅ Usar horas rápidas semanales
+            hoursWorked: hours,
             overtimeHours: 0,
             isHoliday: isDayHoliday(date, state.settings.holidays),
             useTempPosition: false,
             notes: '',
             multiPosition: emp.positions?.length > 1,
             positionHours: emp.positions?.length > 0 ?
-                [{ positionId: emp.positions[0], hours: state.quickWeekHours }] :  // ✅ También aquí
+                [{ positionId: emp.positions[0], hours: hours }] :
                 [],
             selectedPosition: emp.positions?.[0] || null
         };
 
-        console.log('⚡ Asistencia creada con', state.quickWeekHours, 'horas (vista semanal)');
+        console.log('⚡ Asistencia creada con', hours, 'horas (vista semanal)');
 
         // ─── SNAPSHOT antes de mutar (para undo) ───
         const prevWeekAtt = state.attendance[key]
