@@ -1,5 +1,5 @@
 import { ComponentBase } from './ComponentBase.js';
-import { parseDate, getDateKey } from '../utils/DateUtils.js';
+import { parseDate, getDateKey, isDateInPayPeriod, isPayday } from '../utils/DateUtils.js';
 import icons from '../ui/IconSystem.js';
 
 /**
@@ -197,18 +197,24 @@ export class CalendarPickerComponent extends ComponentBase {
         const todayKey = getDateKey(new Date());
 
         // Días mes actual
+        const payPeriod = window.state?.settings?.payPeriod;
+
         for (let day = 1; day <= daysInMonth; day++) {
             const dateKey = getDateKey(new Date(year, month, day));
             const isSelected = selectedDateKey === dateKey;
             const isToday = todayKey === dateKey;
             const isHoliday = holidays.includes(dateKey);
+            const isInPayPeriod = isDateInPayPeriod(dateKey, payPeriod);
+            const isWorkPayday = isPayday(dateKey, payPeriod);
             const dayIndicators = indicators[dateKey] || [];
 
             const classes = [
                 'calendar-day',
                 isSelected ? 'calendar-day-selected' : '',
                 isToday ? 'calendar-day-today' : '',
-                isHoliday ? 'calendar-day-holiday' : ''
+                isHoliday ? 'calendar-day-holiday' : '',
+                isInPayPeriod ? 'calendar-day-pay-period' : '',
+                isWorkPayday ? 'calendar-payday' : ''
             ].filter(Boolean).join(' ');
 
             const indicatorsHTML = dayIndicators.length > 0 
@@ -219,9 +225,12 @@ export class CalendarPickerComponent extends ComponentBase {
                    </div>` 
                 : '';
 
+            const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" title="Día de Pago">💰</span>` : '';
+
             daysHTML += `
                 <div class="${classes}" onclick="calendarPicker.handleDateClick('${dateKey}')">
                     ${day}
+                    ${paydayIconHTML}
                     ${indicatorsHTML}
                 </div>
             `;

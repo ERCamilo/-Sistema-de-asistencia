@@ -196,7 +196,6 @@ window.closeEmployeeProfile = () => {
 window.markAsPaid = () => {
     const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
     if (!emp) return;
-    emp.lastPaymentDate = getDateKey(new Date());
     saveApplicationData();
     Notification.success('✅ Marcado como pagado');
     render();

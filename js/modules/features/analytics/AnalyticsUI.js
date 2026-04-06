@@ -1,7 +1,7 @@
 import icons from '../../ui/IconSystem.js';
 
 import { memoCache } from '../../utils/MemoCache.js';
-import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
+import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
 
 let context = null;
@@ -114,6 +114,7 @@ function DashboardControls() {
                 <button onclick="AnalyticsUI.setDashboardThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Esta Semana</button>
                 <button onclick="AnalyticsUI.setDashboardThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Este Mes</button>
                 <button onclick="AnalyticsUI.setDashboardLast30Days()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Últimos 30</button>
+                <button onclick="AnalyticsUI.setDashboardPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; font-weight: 700;">🗓️ Período Actual</button>
             </div>
         </div>
     </div>
@@ -525,6 +526,7 @@ function EmployeeReportControls() {
                  <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 200px;">
                     <button onclick="AnalyticsUI.setEmployeeReportThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Esta Semana</button>
                     <button onclick="AnalyticsUI.setEmployeeReportThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Este Mes</button>
+                    <button onclick="AnalyticsUI.setEmployeeReportPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;">🗓️ Período Actual</button>
                  </div>
              </div>
         </div>`;
@@ -730,36 +732,53 @@ function EmployeeReportEndDatePicker() {
 }
 
 function generateDatePicker(month, selectedDate, selectFunc, changeMonthFunc) {
-    const year = month.getFullYear();
-    const monthIndex = month.getMonth();
-    const firstDay = new Date(year, monthIndex, 1);
-    const lastDay = new Date(year, monthIndex + 1, 0);
-    const startDayOfWeek = firstDay.getDay();
-    const prevMonthLastDay = new Date(year, monthIndex, 0).getDate();
+    const state = getState();
+    const y = month.getFullYear(), m = month.getMonth();
+    const first = new Date(y, m, 1);
+    const last = new Date(y, m + 1, 0);
     const days = [];
+    const start = first.getDay();
+    for (let i = 0; i < start; i++) days.push({ date: new Date(y, m, -start + i + 1), currentMonth: false });
+    for (let i = 1; i <= last.getDate(); i++) days.push({ date: new Date(y, m, i), currentMonth: true });
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) days.push({ date: new Date(y, m + 1, i), currentMonth: false });
 
-    for (let i = startDayOfWeek - 1; i >= 0; i--) days.push({ date: new Date(year, monthIndex - 1, prevMonthLastDay - i), currentMonth: false });
-    for (let i = 1; i <= lastDay.getDate(); i++) days.push({ date: new Date(year, monthIndex, i), currentMonth: true });
-
-    const today = getDateKey(new Date());
-    const selected = getDateKey(selectedDate);
-    const dayNames = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+    const selectedDateKey = selectedDate ? getDateKey(selectedDate) : null;
+    const todayKey = getDateKey(new Date());
+    const payPeriod = state.settings?.payPeriod;
 
     return `<div class="date-picker" onclick="event.stopPropagation()">
-                <div class="date-picker-header">
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); ${changeMonthFunc}(-1)">${icons.get('edit')}</button>
-                    <div class="date-picker-month">${formatMonthYear(month)}</div>
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); ${changeMonthFunc}(1)">${icons.get('edit')}</button>
-                </div>
-                <div class="date-picker-grid">
-                    ${dayNames.map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
-                    ${days.map(d => {
-        const dKey = getDateKey(d.date);
-        let cls = 'date-picker-day' + (d.currentMonth ? '' : ' other-month') + (dKey === today ? ' today' : '') + (dKey === selected ? ' selected' : '');
-        return `<div class="${cls}" onclick="event.stopPropagation(); ${selectFunc}('${d.date.toISOString()}')">${d.date.getDate()}</div>`;
+        <div class="date-picker-header">
+            <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); ${changeMonthFunc}(-1)">${icons.get('chevron-left')}</button>
+            <div class="date-picker-month">${formatMonthYear(month)}</div>
+            <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); ${changeMonthFunc}(1)">${icons.get('chevron-right')}</button>
+        </div>
+        <div class="date-picker-grid">
+            ${['D', 'L', 'M', 'X', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
+            ${days.map(d => {
+        const dateKey = getDateKey(d.date);
+        const isSelected = selectedDateKey === dateKey;
+        const isToday = todayKey === dateKey;
+        const isCurrentMonth = d.currentMonth;
+        const isInPayPeriod = isCurrentMonth && isDateInPayPeriod(dateKey, payPeriod);
+        const isWorkPayday = isCurrentMonth && isPayday(dateKey, payPeriod);
+
+        let cls = ['date-picker-day'];
+        if (isSelected) cls.push('selected');
+        if (isToday) cls.push('today');
+        if (!isCurrentMonth) cls.push('other-month');
+        if (isInPayPeriod) cls.push('date-picker-day-pay-period');
+        if (isWorkPayday) cls.push('date-picker-day-payday');
+
+        const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" style="top:2px; right:2px;">💰</span>` : '';
+
+        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); ${selectFunc}('${dateKey}')">
+                    ${d.date.getDate()}
+                    ${paydayIconHTML}
+                </div>`;
     }).join('')}
-                </div>
-            </div>`;
+        </div>
+    </div>`;
 }
 
 // ============================================
@@ -779,6 +798,7 @@ export function selectEndDate(dateStr) { dashboardDateManagerV2.selectEndDate(da
 export function setDashboardThisWeek() { dashboardDateManagerV2.setThisWeek(); memoCache.clear('chart-'); context.render(); }
 export function setDashboardThisMonth() { dashboardDateManagerV2.setThisMonth(); memoCache.clear('chart-'); context.render(); }
 export function setDashboardLast30Days() { dashboardDateManagerV2.setLast30Days(); memoCache.clear('chart-'); context.render(); }
+export function setDashboardPayPeriod() { dashboardDateManagerV2.setPayPeriod(); memoCache.clear('chart-'); context.render(); }
 
 export function changeReportViewMode(mode) { getState().reportViewMode = mode; context.render(); }
 export function toggleEmployeeReportStartPicker() { employeeReportDateManagerV2.toggleStartPicker(); context.render(); }
@@ -790,6 +810,7 @@ export function selectEmployeeReportEndDate(dateStr) { employeeReportDateManager
 export function setEmployeeReportThisWeek() { employeeReportDateManagerV2.setThisWeek(); memoCache.clear('report-'); context.render(); }
 export function setEmployeeReportThisMonth() { employeeReportDateManagerV2.setThisMonth(); memoCache.clear('report-'); context.render(); }
 export function setEmployeeReportLast30Days() { employeeReportDateManagerV2.setLast30Days(); memoCache.clear('report-'); context.render(); }
+export function setEmployeeReportPayPeriod() { employeeReportDateManagerV2.setPayPeriod(); memoCache.clear('report-'); context.render(); }
 export function togglePositionCollapse(id) {
     const state = getState();
     if (!state.collapsedPositions) state.collapsedPositions = {};

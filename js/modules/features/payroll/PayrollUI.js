@@ -19,6 +19,11 @@ function getEmployeesWithDeductions() {
     return state.employees.filter(e => Array.isArray(e.deductions) && e.deductions.length > 0);
 }
 
+function getEmployeesWithBonuses() {
+    const state = getState();
+    return state.employees.filter(e => Array.isArray(e.bonuses) && e.bonuses.length > 0);
+}
+
 function getLeaderFilteredEmployees(state) {
     const leaderFilter = state.exportConfig.leaderFilter || 'all';
     const activeEmployees = state.employees.filter(emp => emp.active !== false);
@@ -47,6 +52,10 @@ export function PayrollTab() {
     const employeesWithDeductions = getEmployeesWithDeductions();
     const hasEmployeeDeductions = employeesWithDeductions.length > 0;
     const employeeDeductionsAdded = !!state.exportConfig.employeeDeductionsAdded;
+
+    const employeesWithBonuses = getEmployeesWithBonuses();
+    const hasEmployeeBonuses = employeesWithBonuses.length > 0;
+    const employeeBonusesAdded = !!state.exportConfig.employeeBonusesAdded;
     
     const employeeOptions = state.employees
         .filter(e => e.active !== false)
@@ -57,7 +66,7 @@ export function PayrollTab() {
     const leaders = state.leaders.filter(l => l.active);
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto; padding: 20px;">
+        <div style="max-width: 1000px; margin: 0 auto; padding: 20px; padding-bottom: 120px;">
             <!-- Header -->
             <div style="margin-bottom: 32px;">
                 <h2 style="margin: 0 0 8px 0; font-size: 1.75rem; display: flex; align-items: center; gap: 12px;">
@@ -104,6 +113,10 @@ export function PayrollTab() {
                     <button onclick="PayrollUI.setExportPreset('last15')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'last15' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Últimos 15 días
+                    </button>
+                    <button onclick="PayrollUI.setExportPreset('payPeriod')" 
+                            style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
+                        🗓️ Período Actual
                     </button>
                     <button onclick="PayrollUI.setExportPreset('sinceLastPay')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'sinceLastPay' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.exportConfig.activePreset === 'sinceLastPay' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'sinceLastPay' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
@@ -168,24 +181,76 @@ export function PayrollTab() {
                 ${generateExportDeductionsHTML()}
             </div>
             
+            <!-- Paso 2B: Bonificaciones Globales -->
+            <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700;">
+                        🎁 Paso 2B: Bonificaciones Globales
+                    </h3>
+                    <button onclick="PayrollUI.addExportBonus()" 
+                            style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                            onmouseover="this.style.transform='scale(1.05)'"
+                            onmouseout="this.style.transform='scale(1)'">
+                        +
+                    </button>
+                </div>
+                
+                <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 16px;">
+                    Estos bonos se sumarán a todos los empleados de forma general o por empleado
+                </p>
+
+                ${hasEmployeeBonuses ? `
+                    <div style="margin-bottom: 16px; padding: 10px 12px; border: 1px solid ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; border-radius: 8px; background: ${employeeBonusesAdded ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)'};">
+                        <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 8px; color: ${employeeBonusesAdded ? '#86efac' : '#fcd34d'}; font-size: 0.875rem;">
+                                <span style="width: 8px; height: 8px; border-radius: 999px; background: ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; display: inline-block; ${employeeBonusesAdded ? '' : 'animation: pulse 1.5s infinite;'}"></span>
+                                <span>${employeeBonusesAdded ? `${icons.get('check')} Bonos individuales agregados` : `🎁 Hay ${employeesWithBonuses.length} empleados con bonos programados`}</span>
+                            </div>
+                            <button onclick="PayrollUI.addEmployeeBonusesToExport()"
+                                    style="padding: 6px 12px; background: ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; border: none; border-radius: 6px; color: #fff; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
+                                ${employeeBonusesAdded ? 'Actualizar lista' : 'Agregar a nómina'}
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a;">
+                    <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 8px;">Abonar bono individual por empleado</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px;">
+                        <select id="payroll-emp-bonus-employee" class="form-input">
+                            <option value="">Seleccionar empleado</option>
+                            ${employeeOptions}
+                        </select>
+                        <select id="payroll-emp-bonus-type" class="form-input">
+                            <option value="fixed">Monto</option>
+                            <option value="percentage">Porcentaje</option>
+                        </select>
+                        <input id="payroll-emp-bonus-value" type="number" class="form-input" placeholder="0.00" min="0" step="0.01">
+                        <input id="payroll-emp-bonus-name" type="text" class="form-input" placeholder="Nombre del bono">
+                        <button onclick="PayrollUI.addEmployeeBonusFromForm()"
+                                style="padding: 8px 12px; background: #10b981; border: none; border-radius: 6px; color: #fff; font-weight: 700; cursor: pointer;">
+                            Agregar bono
+                        </button>
+                    </div>
+                </div>
+                
+                ${generateExportBonusesHTML()}
+            </div>
+            
             <!-- Paso 3: Vista Previa -->
             <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
                         Paso 3: Vista Previa (${exportData.length} empleados)
                     </h3>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap; max-width: 60%;">
-                        <span style="font-size: 0.75rem; color: #94a3b8; align-self: center; margin-right: 4px;">Líder:</span>
-                        <button onclick="PayrollUI.setLeaderFilter('all')"
-                                style="padding: 4px 10px; background: ${leaderFilter === 'all' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === 'all' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === 'all' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.7rem; font-weight: 600;">
-                            Todos
-                        </button>
-                        ${leaders.map(ldr => `
-                            <button onclick="PayrollUI.setLeaderFilter('${ldr.id}')"
-                                    style="padding: 4px 10px; background: ${leaderFilter === ldr.id ? '#06b6d4' : '#0f172a'}; border: 1px solid ${leaderFilter === ldr.id ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${leaderFilter === ldr.id ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.7rem; font-weight: 600;">
-                                ${ldr.name}
-                            </button>
-                        `).join('')}
+                    <div style="display: flex; gap: 8px; align-items: center; max-width: 60%;">
+                        <span style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</span>
+                        <select onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
+                            <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos</option>
+                            ${leaders.map(ldr => `
+                                <option value="${ldr.id}" ${leaderFilter === ldr.id ? 'selected' : ''}>${ldr.name}</option>
+                            `).join('')}
+                        </select>
                     </div>
                 </div>
 
@@ -197,6 +262,7 @@ export function PayrollTab() {
                                 <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NOMBRE</th>
                                 <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">POSICIÓN</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BRUTO</th>
+                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BONIFIC.</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DEDUCC.</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NETO</th>
                             </tr>
@@ -207,7 +273,8 @@ export function PayrollTab() {
                                     <td style="padding: 12px; color: #06b6d4; font-weight: 600; font-family: monospace;">#${emp.id}</td>
                                     <td style="padding: 12px; color: #f1f5f9; font-weight: 600;">${emp._employeeName}</td>
                                     <td style="padding: 12px; color: #94a3b8; font-size: 0.875rem;">${emp._employeePosition}</td>
-                                    <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._bruto)}</td>
+                                     <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._brutoOriginal)}</td>
+                                    <td style="padding: 12px; text-align: right; color: #3b82f6;">+${formatCurrency(emp._bonuses)}</td>
                                     <td style="padding: 12px; text-align: right; color: #ec4899;">-${formatCurrency(emp._deductions)}</td>
                                     <td style="padding: 12px; text-align: right; color: #06b6d4; font-weight: 700; font-size: 1rem;">${formatCurrency(emp.monto)}</td>
                                 </tr>
@@ -215,7 +282,7 @@ export function PayrollTab() {
                         </tbody>
                         <tfoot>
                             <tr style="background: linear-gradient(135deg, #10b981, #06b6d4); border-top: 2px solid #06b6d4;">
-                                <td colspan="5" style="padding: 16px; color: #000; font-weight: 700; font-size: 1.125rem;">TOTAL NÓMINA:</td>
+                                <td colspan="6" style="padding: 16px; color: #000; font-weight: 700; font-size: 1.125rem;">TOTAL NÓMINA:</td>
                                 <td style="padding: 16px; text-align: right; color: #000; font-weight: 900; font-size: 1.25rem;">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
@@ -251,7 +318,8 @@ function generateExportData() {
 
     return filteredEmployees.map(emp => {
         const applicableDeductions = (deductions || []).filter(d => !d.employeeId || d.employeeId === emp.id);
-        const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, applicableDeductions);
+        const applicableBonuses = (state.exportConfig.bonuses || []).filter(b => !b.employeeId || b.employeeId === emp.id);
+        const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, applicableDeductions, applicableBonuses);
         
         const positionIds = (emp.positions && emp.positions.length > 0)
             ? emp.positions
@@ -265,7 +333,9 @@ function generateExportData() {
             id: parseInt(emp.number) || 0,
             nombre: `${emp.name} (Ref #${emp.number})`,
             monto: payroll.neto, // <--- PRECISIÓN TOTAL: No redondear aquí (Permitir estilo Excel)
+            _brutoOriginal: payroll.brutoOriginal,
             _bruto: payroll.bruto,
+            _bonuses: payroll.bonuses,
             _deductions: payroll.deductions,
             _employeeName: emp.name,
             _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion'
@@ -461,6 +531,189 @@ export function addEmployeeDeductionFromForm() {
     context.render();
 }
 
+// ---------------------- BONIFICACIONES GLOBALES E INDIVIDUALES ----------------------
+
+function generateExportBonusesHTML() {
+    const state = getState();
+    const bonuses = state.exportConfig.bonuses || [];
+    if (bonuses.length === 0) return '<div style="text-align: center; color: #64748b; padding: 20px;">No hay bonificaciones configuradas</div>';
+
+    const mappedBonuses = bonuses.map((bon, originalIndex) => ({ 
+        data: bon, 
+        index: originalIndex 
+    }));
+
+    const globalBonuses = mappedBonuses.filter(item => !item.data.employeeId);
+    const employeeBonuses = mappedBonuses.filter(item => item.data.employeeId);
+
+    const groupedByEmployee = employeeBonuses.reduce((acc, item) => {
+        const key = item.data.employeeId || 'unknown';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(item);
+        return acc;
+    }, {});
+
+    const renderBonusRow = (item, allItems) => {
+        const bon = item.data;
+        const index = item.index;
+        return `
+        <div style="background: rgba(16, 185, 129, 0.05); padding: 12px; border-radius: 8px; border: 1px solid #10b981; margin-bottom: 12px;">
+            <div style="display: flex; gap: 12px; align-items: start;">
+                <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
+                        <input type="radio" name="exportBonusType_${index}" value="fixed" ${bon.type === 'fixed' ? 'checked' : ''} onchange="PayrollUI.updateExportBonusType(${index}, 'fixed')" style="accent-color: #10b981;">
+                        <span style="color: #f1f5f9;">Monto</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
+                        <input type="radio" name="exportBonusType_${index}" value="percentage" ${bon.type === 'percentage' ? 'checked' : ''} onchange="PayrollUI.updateExportBonusType(${index}, 'percentage')" style="accent-color: #10b981;">
+                        <span style="color: #f1f5f9;">Porcentaje%</span>
+                    </label>
+                </div>
+                <div style="flex: 1;">
+                    <input type="number" class="form-input" 
+                        value="${bon.value || 0}" 
+                        oninput="PayrollUI.updateExportBonusValue(${index}, this.value)" 
+                        placeholder="0.00" min="0" step="${bon.type === 'fixed' ? '0.01' : '0.1'}" 
+                        style="width: 100%; font-size: 0.875rem; padding: 8px; margin-bottom: 8px; border-color: rgba(16, 185, 129, 0.3);">
+                    <input type="text" class="form-input" 
+                        value="${bon.name || ''}" 
+                        oninput="PayrollUI.updateExportBonusName(${index}, this.value)" 
+                        placeholder="Nombre (ej: Bono mensual...)" 
+                        style="width: 100%; font-size: 0.75rem; padding: 6px; border-color: rgba(16, 185, 129, 0.3);">
+                    ${bon.employeeId ? `<div style="font-size: 0.7rem; color: #10b981; margin-top: 6px;">Empleado: ${bon.employeeName || (state.employees.find(e => e.id === bon.employeeId)?.name || 'N/A')}</div>` : ''}
+                </div>
+                ${allItems.length > 0 ? `<button onclick="PayrollUI.removeExportBonus(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
+            </div>
+        </div>
+    `;
+    };
+
+    const globalHTML = globalBonuses.length > 0
+        ? `<div style="margin-bottom: 12px; color: #10b981; font-size: 0.75rem; font-weight: 700;">🎁 Bonos generales</div>
+           ${globalBonuses.map(item => renderBonusRow(item, globalBonuses)).join('')}`
+        : '';
+
+    const employeeHTML = Object.entries(groupedByEmployee).map(([id, items]) => `
+        <div style="margin-top: 16px; margin-bottom: 12px; color: #10b981; font-size: 0.75rem; font-weight: 700;">
+            ${icons.get('personnel')} ${items[0].data.employeeName || (state.employees.find(e => e.id === id)?.name || 'Empleado')}
+        </div>
+        ${items.map(item => renderBonusRow(item, items)).join('')}
+    `).join('');
+
+    return `${globalHTML}${employeeHTML}`;
+}
+
+export function addExportBonus() {
+    const state = getState();
+    if (!state.exportConfig.bonuses) state.exportConfig.bonuses = [];
+    state.exportConfig.bonuses.push({ type: 'fixed', value: 0, name: '' });
+    context.render();
+}
+
+export function removeExportBonus(index) {
+    const state = getState();
+    state.exportConfig.bonuses.splice(index, 1);
+    context.render();
+}
+
+export function updateExportBonusType(index, type) {
+    const state = getState();
+    const bonuses = state.exportConfig.bonuses;
+    if (bonuses && bonuses[index]) {
+        bonuses[index].type = type;
+        context.render();
+    }
+}
+
+export function updateExportBonusValue(index, value) {
+    const state = getState();
+    const bonuses = state.exportConfig.bonuses;
+    if (bonuses && bonuses[index]) {
+        bonuses[index].value = parseFloat(value) || 0;
+        window.renderOptimizer.scheduleRender(() => context.render());
+    }
+}
+
+export function updateExportBonusName(index, value) {
+    const state = getState();
+    const bonuses = state.exportConfig.bonuses;
+    if (bonuses && bonuses[index]) {
+        bonuses[index].name = value;
+        window.renderOptimizer.scheduleRender(() => context.render());
+    }
+}
+
+export function addEmployeeBonusesToExport() {
+    const state = getState();
+    if (!state.exportConfig.bonuses) state.exportConfig.bonuses = [];
+
+    const employeesWithBonuses = getEmployeesWithBonuses();
+    const existingKeys = new Set(
+        state.exportConfig.bonuses
+            .filter(b => b.employeeId)
+            .map(b => `${b.employeeId}:${b.type}:${b.value}:${b.name || ''}`)
+    );
+
+    employeesWithBonuses.forEach(emp => {
+        (emp.bonuses || []).forEach(bon => {
+            const newBon = {
+                id: bon.id || `BON-${Date.now()}`,
+                type: bon.type,
+                value: bon.value,
+                name: bon.name || `Bono ${emp.name}`,
+                employeeId: emp.id,
+                employeeName: emp.name,
+                source: 'employee'
+            };
+            const key = `${newBon.employeeId}:${newBon.type}:${newBon.value}:${newBon.name || ''}`;
+            if (!existingKeys.has(key)) {
+                state.exportConfig.bonuses.push(newBon);
+                existingKeys.add(key);
+            }
+        });
+    });
+
+    state.exportConfig.employeeBonusesAdded = true;
+    if (window.showNotification) window.showNotification('✅ Bonos individuales agregados', 'success');
+    context.render();
+}
+
+export function addEmployeeBonusFromForm() {
+    const state = getState();
+    const employeeId = document.getElementById('payroll-emp-bonus-employee')?.value;
+    const type = document.getElementById('payroll-emp-bonus-type')?.value || 'fixed';
+    const value = parseFloat(document.getElementById('payroll-emp-bonus-value')?.value) || 0;
+    const name = document.getElementById('payroll-emp-bonus-name')?.value?.trim() || 'Abono individual';
+
+    if (!employeeId) {
+        if (window.showNotification) window.showNotification('❌ Selecciona un empleado', 'error');
+        return;
+    }
+    if (value <= 0) {
+        if (window.showNotification) window.showNotification('❌ El valor debe ser mayor a 0', 'error');
+        return;
+    }
+
+    const emp = state.employees.find(e => e.id === employeeId);
+    if (!emp) return;
+
+    if (!state.exportConfig.bonuses) state.exportConfig.bonuses = [];
+    state.exportConfig.bonuses.push({
+        id: `BON-${Date.now()}`,
+        type,
+        value,
+        name,
+        employeeId: emp.id,
+        employeeName: emp.name,
+        source: 'manual'
+    });
+
+    if (window.showNotification) window.showNotification('✅ Bono individual agregado', 'success');
+    context.render();
+}
+
+// ---------------------- PERIODOS DE EXPORTACIÓN ----------------------
+
 export function updateExportPeriod(type, value) {
     const state = getState();
     if (type === 'start') state.exportConfig.periodStart = value;
@@ -495,6 +748,17 @@ export function setExportPreset(preset) {
             start.setDate(start.getDate() + 1);
         } else {
             start = new Date(today.getFullYear(), today.getMonth(), 1);
+        }
+    } else if (preset === 'payPeriod') {
+        const pp = state.settings.payPeriod;
+        if (pp?.periodStart) {
+            start = new Date(pp.periodStart + 'T00:00:00');
+            const len = pp.periodLength || 15;
+            end = new Date(start);
+            end.setDate(end.getDate() + len - 1);
+        } else {
+            if (window.showNotification) window.showNotification('❌ No hay período configurado. Ve a Ajustes.', 'warning');
+            return;
         }
     }
 

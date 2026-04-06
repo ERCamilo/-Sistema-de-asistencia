@@ -682,7 +682,7 @@ function _buildWeekRow(emp, week) {
                 <div class="week-employee-cell">
                     <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
-                        <div class="week-employee-name">${emp.name}</div>
+                        <div class="week-employee-name" style="cursor: pointer;" onclick="openEmployeeFloating('${emp.id}')">${emp.name}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
                             ${emp.positions?.map(pid => state.positions.find(p => p.id === pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>

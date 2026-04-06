@@ -126,6 +126,24 @@ export class DateRangeManager {
         this.state[this.config.endDateKey] = getDateKey(today);
         if (this.onSave) this.onSave();
     }
+
+    // Establecer periodo de pago actual
+    setPayPeriod() {
+        const pp = this.state.settings?.payPeriod;
+        if (pp?.periodStart) {
+            const start = new Date(pp.periodStart + 'T00:00:00');
+            const len = pp.periodLength || 15;
+            const end = new Date(start);
+            end.setDate(end.getDate() + len - 1);
+            
+            this.state[this.config.startDateKey] = getDateKey(start);
+            this.state[this.config.endDateKey] = getDateKey(end);
+            if (this.onSave) this.onSave();
+        } else {
+            if (window.showNotification) window.showNotification('❌ No hay período configurado. Ve a Ajustes.', 'warning');
+            else if (window.showAlert) window.showAlert('❌ No hay período configurado.', 'warning');
+        }
+    }
 }
 
 // ============================================

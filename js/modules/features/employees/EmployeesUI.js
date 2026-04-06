@@ -491,8 +491,8 @@ export function LeaderCard(ldr) {
                 <div style="font-size: 0.75rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px;">${pos.name}</div>
                 ${emps.map(emp => `
                     <div style="display:flex; gap:8px; color:#f1f5f9; font-size:0.8rem; padding:2px 0;">
-                        <span style="min-width:28px; color:#94a3b8; font-weight:700;">${emp.number || ''}-</span>
-                        <span>${emp.name}</span>
+                        <span>${emp.number || ''}-</span>
+                        <span style="cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" onclick="openEmployeeFloating('${emp.key || emp.id}')">${emp.name}</span>
                     </div>
                 `).join('')}
             </div>
@@ -605,7 +605,7 @@ export function PositionCard(pos) {
                                         <div style="padding: 4px 0; color: #f1f5f9; ${idx < employeesInPosition.length - 1 ? 'border-bottom: 1px solid #334155;' : ''}">
                                             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                                                 <div style="min-width:40px; color:#94a3b8; font-weight:700;">${emp.number || ''}</div>
-                                                <div style="flex:1;">${emp.name}</div>
+                                                <div style="flex:1; cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" onclick="openEmployeeFloating('${emp.key || emp.id}')">${emp.name}</div>
                                                 <div style="display:flex; align-items:center; gap:8px; justify-content:flex-end; min-width:140px;">
                                                     ${showCustomRate ? `<span style="color:#38bdf8; font-weight:700;">$${customRate}/hr</span>` : ''}
                                                     ${deductionText ? `<span style="color:#f87171; font-weight:700;">${deductionText}</span>` : ''}
@@ -1018,15 +1018,45 @@ export function changeFloatingMonth(delta) {
     context.render();
 }
 
+export function changeProfileAsistenciaMonth(delta) {
+    const state = getState();
+    if (!state.employeeProfile.assistanceMonth) state.employeeProfile.assistanceMonth = new Date();
+    state.employeeProfile.assistanceMonth.setMonth(state.employeeProfile.assistanceMonth.getMonth() + delta);
+    state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
+    context.render();
+}
+
+export function changeProfileStartMonth(delta) {
+    const state = getState();
+    if (!state.employeeProfile.startPickerMonth) state.employeeProfile.startPickerMonth = new Date();
+    state.employeeProfile.startPickerMonth.setMonth(state.employeeProfile.startPickerMonth.getMonth() + delta);
+    state.employeeProfile.startPickerMonth = new Date(state.employeeProfile.startPickerMonth);
+    context.render();
+}
+
+export function changeProfileEndMonth(delta) {
+    const state = getState();
+    if (!state.employeeProfile.endPickerMonth) state.employeeProfile.endPickerMonth = new Date();
+    state.employeeProfile.endPickerMonth.setMonth(state.employeeProfile.endPickerMonth.getMonth() + delta);
+    state.employeeProfile.endPickerMonth = new Date(state.employeeProfile.endPickerMonth);
+    context.render();
+}
+
 export function openEmployeeProfile(employeeId) {
     const state = getState();
     state.employeeProfile = {
         employeeId,
-        activeTab: 'nomina',
-        periodStart: getDateKey(new Date(Date.now() - 14 * 86400000)),
-        periodEnd: getDateKey(new Date()),
-        deductions: [{ id: 'DED-1', type: 'percentage', value: 2, name: 'Deducción' }]
+        activeTab: 'resumen', // Empezar en resumen es más natural
+        periodStart: state.exportConfig?.periodStart || getDateKey(new Date(Date.now() - 14 * 86400000)),
+        periodEnd: state.exportConfig?.periodEnd || getDateKey(new Date()),
+        assistanceMonth: new Date(),
+        startPickerMonth: new Date(),
+        endPickerMonth: new Date(),
+        showStartPicker: false,
+        showEndPicker: false,
+        showPositionBreakdown: true
     };
+    state.selectedEmployee = state.employees.find(e => e.id === employeeId);
     state.showEmployeeProfile = true;
     if (context && context.render) {
         context.render();

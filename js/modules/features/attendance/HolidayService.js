@@ -63,38 +63,21 @@ export class HolidayService {
     }
 
     /**
-     * Cambiar modo de marcador del calendario (holiday, lastPayment, nextPayment)
-     */
-    setCalendarMarkerMode(mode) {
-        this.state.calendarMarkerMode = mode;
-    }
-
-    /**
      * Manejar click en un día del calendario de configuración.
-     * Según el modo, togglea festivo o marca fecha de pago.
+     * Togglea festivo.
      */
     handleCalendarDayClick(dateKey, saveFn) {
-        const mode = this.state.calendarMarkerMode;
-
+        const mode = this.state.settingsCalendarMode || 'holiday';
         if (mode === 'holiday') {
             this.toggleHoliday(dateKey, saveFn);
-        } else if (mode === 'lastPayment') {
-            const today = getDateKey(new Date());
-            if (dateKey <= today) {
-                if (this.state.settings.lastPaymentDate === dateKey) {
-                    this.state.settings.lastPaymentDate = null;
-                } else {
-                    this.state.settings.lastPaymentDate = dateKey;
-                }
-                saveFn();
-            }
-        } else if (mode === 'nextPayment') {
-            if (this.state.settings.nextPaymentDate === dateKey) {
-                this.state.settings.nextPaymentDate = null;
-            } else {
-                this.state.settings.nextPaymentDate = dateKey;
-            }
-            saveFn();
+        } else if (mode === 'periodStart') {
+            if (!this.state.settings.payPeriod) this.state.settings.payPeriod = { periodLength: 15 };
+            this.state.settings.payPeriod.periodStart = dateKey;
+            if (saveFn) saveFn();
+        } else if (mode === 'payDay') {
+            if (!this.state.settings.payPeriod) this.state.settings.payPeriod = { periodLength: 15 };
+            this.state.settings.payPeriod.payDay = dateKey;
+            if (saveFn) saveFn();
         }
     }
 
@@ -131,6 +114,15 @@ export class HolidayService {
             days.push({ date: new Date(year, monthIndex + 1, i), currentMonth: false });
         }
 
+        // Rango del período de pago
+        const pp = this.state.settings?.payPeriod;
+        let pStart = null, pEnd = null;
+        if (pp?.periodStart && pp?.periodLength) {
+            pStart = new Date(pp.periodStart + 'T00:00:00');
+            pEnd = new Date(pStart);
+            pEnd.setDate(pEnd.getDate() + pp.periodLength - 1);
+        }
+
         const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
         return `
@@ -155,6 +147,26 @@ export class HolidayService {
                             ▶
                         </button>
                     </div>
+                    <!-- Selector de Modo de Calendario -->
+                    <div style="display: flex; gap: 8px; margin-bottom: 16px; background: #1e293b; padding: 4px; border-radius: 8px;">
+                        ${['holiday', 'periodStart', 'payDay'].map(mode => {
+                            const isSelected = (this.state.settingsCalendarMode || 'holiday') === mode;
+                            const labels = {
+                                holiday: '☀️ Festivo',
+                                periodStart: '🗓️ Inicio Período',
+                                payDay: '💰 Día de Pago'
+                            };
+                            return `
+                                <button type="button" 
+                                        onclick="changeSettingsCalendarMode('${mode}')" 
+                                        style="flex: 1; padding: 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none;
+                                               background: ${isSelected ? '#3b82f6' : 'transparent'}; 
+                                               color: ${isSelected ? '#ffffff' : '#94a3b8'};">
+                                    ${labels[mode]}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
                     
                     <!-- Grid del calendario -->
                     <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;">
@@ -170,13 +182,20 @@ export class HolidayService {
         const dateKey = getDateKey(date);
         const isHoliday = this.state.settings.holidays.includes(dateKey);
         const isToday = dateKey === getDateKey(new Date());
-        const isFuture = dateKey > getDateKey(new Date());
-        const isLastPayment = this.state.settings.lastPaymentDate === dateKey;
-        const isNextPayment = this.state.settings.nextPaymentDate === dateKey;
+        
+        let inPeriod = false;
+        if (pStart && pEnd) {
+            inPeriod = date >= pStart && date <= pEnd;
+        }
+        const isPayDay = pp?.payDay === dateKey;
 
         let bgColor = '#1e293b';
+        if (inPeriod && currentMonth && !isHoliday) {
+            bgColor = '#1e3a5f'; // Un azul sutil para el rango
+        }
+
         let textColor = currentMonth ? '#f1f5f9' : '#475569';
-        let borderColor = '#334155';
+        let borderColor = inPeriod && currentMonth ? '#3b82f6' : '#334155';
         let dayIcon = '';
 
         // Determinar color e icono según los marcadores
@@ -186,19 +205,18 @@ export class HolidayService {
             borderColor = '#f59e0b';
             dayIcon = '☀️';
         }
-        if (isLastPayment) {
-            dayIcon = dayIcon ? dayIcon + ' 💵' : '💵';
-        }
-        if (isNextPayment) {
-            dayIcon = dayIcon ? dayIcon + ' 📅' : '📅';
+        if (isPayDay) {
+            dayIcon = dayIcon ? dayIcon + ' 💰' : '💰';
+            borderColor = '#10b981';
+            if (!isHoliday && currentMonth) bgColor = 'linear-gradient(135deg, #059669, #10b981)';
+            if (!isHoliday && currentMonth) textColor = '#fff';
         }
 
-        if (isToday && !isHoliday) {
+        if (isToday && !isHoliday && !isPayDay) {
             borderColor = '#06b6d4';
         }
 
-        // Deshabilitar clic en "último pago" para fechas futuras
-        const isClickable = currentMonth && !(this.state.calendarMarkerMode === 'lastPayment' && isFuture);
+        const isClickable = currentMonth;
 
         return `
                                 <div onclick="${isClickable ? `handleCalendarDayClick('${dateKey}')` : ''}"
@@ -224,43 +242,6 @@ export class HolidayService {
                                 </div>
                             `;
     }).join('')}
-                    </div>
-                    
-                    <!-- Toggle Buttons -->
-                    <div style="display: flex; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #334155;">
-                        <button onclick="setCalendarMarkerMode('holiday')" 
-                                style="flex: 1; padding: 10px; background: ${this.state.calendarMarkerMode === 'holiday' ? '#f59e0b' : 'rgba(245,158,11,0.2)'}; border: 2px solid ${this.state.calendarMarkerMode === 'holiday' ? '#f59e0b' : 'rgba(245,158,11,0.3)'}; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; font-size: 0.8rem; font-weight: ${this.state.calendarMarkerMode === 'holiday' ? '700' : '600'}; color: ${this.state.calendarMarkerMode === 'holiday' ? '#000' : '#f59e0b'};">
-                            <span style="font-size: 1rem;">☀️</span>
-                            <span>Festivo</span>
-                        </button>
-                        <button onclick="setCalendarMarkerMode('lastPayment')" 
-                                style="flex: 1; padding: 10px; background: ${this.state.calendarMarkerMode === 'lastPayment' ? '#10b981' : 'rgba(16,185,129,0.2)'}; border: 2px solid ${this.state.calendarMarkerMode === 'lastPayment' ? '#10b981' : 'rgba(16,185,129,0.3)'}; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; font-size: 0.8rem; font-weight: ${this.state.calendarMarkerMode === 'lastPayment' ? '700' : '600'}; color: ${this.state.calendarMarkerMode === 'lastPayment' ? '#000' : '#10b981'};">
-                            <span style="font-size: 1rem;">💵</span>
-                            <span>Último pago</span>
-                        </button>
-                        <button onclick="setCalendarMarkerMode('nextPayment')" 
-                                style="flex: 1; padding: 10px; background: ${this.state.calendarMarkerMode === 'nextPayment' ? '#06b6d4' : 'rgba(6,182,212,0.2)'}; border: 2px solid ${this.state.calendarMarkerMode === 'nextPayment' ? '#06b6d4' : 'rgba(6,182,212,0.3)'}; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; font-size: 0.8rem; font-weight: ${this.state.calendarMarkerMode === 'nextPayment' ? '700' : '600'}; color: ${this.state.calendarMarkerMode === 'nextPayment' ? '#000' : '#06b6d4'};">
-                            <span style="font-size: 1rem;">📅</span>
-                            <span>Próximo pago</span>
-                        </button>
-                    </div>
-                    
-                    <!-- Info de fechas -->
-                    <div style="margin-top: 16px; padding: 12px; background: #1e293b; border-radius: 8px; border: 1px solid #334155;">
-                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #94a3b8;">📅 Total de días festivos:</span>
-                                <span style="color: #f59e0b; font-weight: 700;">${this.state.settings.holidays.length}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #94a3b8;">💵 Último pago:</span>
-                                <span style="color: #10b981; font-weight: 700;">${this.state.settings.lastPaymentDate ? new Date(this.state.settings.lastPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No configurado'}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="color: #94a3b8;">📅 Próximo pago:</span>
-                                <span style="color: #06b6d4; font-weight: 700;">${this.state.settings.nextPaymentDate ? new Date(this.state.settings.nextPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No configurado'}</span>
-                            </div>
-                        </div>
                     </div>
                 </div>
             `;

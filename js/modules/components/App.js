@@ -4,7 +4,7 @@
  */
 
 import { state } from '../core/AppState.js';
-import * as MainComponents from '../ui/MainComponents.js';
+import * as MainComponents from '../ui/QuickViewComponents.js';
 import * as SyncUI from '../ui/SyncUI.js';
 import * as EmployeesUI from '../features/employees/EmployeesUI.js';
 import * as AnalyticsUI from '../features/analytics/AnalyticsUI.js';

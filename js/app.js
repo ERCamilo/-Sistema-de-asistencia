@@ -21,6 +21,7 @@ import {
     EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
     DateControls, DateControlsCompact, getDayHours, getCheckColor
 } from './modules/ui/AttendanceUI.js';
+import { CalendarView } from './modules/ui/components/CalendarView.js';
 
 // ... (Resto de importaciones existentes)
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
@@ -387,6 +388,46 @@ window.App.updateBackupFrequency = (value) => {
 
 window.updateBackupFrequency = window.App.updateBackupFrequency;
 
+window.App.updatePayPeriod = (field, value) => {
+    if (!state.settings.payPeriod) {
+        state.settings.payPeriod = { periodStart: '', periodLength: 15, payDay: '' };
+    }
+    if (field === 'periodLength') {
+        value = parseInt(value, 10);
+        if (isNaN(value) || value < 1) value = 15;
+    }
+    state.settings.payPeriod[field] = value;
+    saveApplicationData();
+    render();
+};
+
+window.App.advancePayPeriod = () => {
+    const pp = state.settings.payPeriod;
+    if (!pp || !pp.periodStart || !pp.periodLength) {
+        showNotification('⚠️ Configura el inicio y duración primero', 'warning');
+        return;
+    }
+    const startDate = new Date(pp.periodStart + 'T00:00:00');
+    startDate.setDate(startDate.getDate() + pp.periodLength);
+    const newStart = getDateKey(startDate);
+    
+    pp.periodStart = newStart;
+    
+    // Si hay un payDay, también avanzarlo
+    if (pp.payDay) {
+        const pd = new Date(pp.payDay + 'T00:00:00');
+        pd.setDate(pd.getDate() + pp.periodLength);
+        pp.payDay = getDateKey(pd);
+    }
+    
+    saveApplicationData();
+    render();
+    showNotification('⏭️ Período de pago avanzado', 'success');
+};
+
+window.updatePayPeriod = window.App.updatePayPeriod;
+window.advancePayPeriod = window.App.advancePayPeriod;
+
 // Getters/Setters para mantener las variables globales sincronizadas (Migrado a Firebase)
 let _autoSyncEnabled = false;
 
@@ -475,25 +516,16 @@ window.App.setProfilePeriod = function (periodType) {
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
         startDate = getDateKey(start);
     } else if (periodType === 'lastPayment') {
-        // Obtener fecha de último pago del sistema o del empleado
-        // Prioridad: Empleado > Sistema > 15 días atrás
-        const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
-
-        if (emp && emp.lastPaymentDate) {
-            startDate = emp.lastPaymentDate;
-        } else if (state.settings.lastPaymentDate) {
-            startDate = state.settings.lastPaymentDate;
+        // Usar período de pago unificado
+        const pp = state.settings.payPeriod;
+        if (pp?.periodStart) {
+            startDate = pp.periodStart;
         } else {
-            // Fallback a 15 días si no hay registro
+            // Fallback a 15 días si no hay período configurado
             const start = new Date(today);
             start.setDate(today.getDate() - 15);
             startDate = getDateKey(start);
-            NotificationSystem.info('ℹ️ No se encontró fecha de último pago, mostrando últimos 15 días');
-        }
-
-        // Si la fecha de inicio es mayor o igual a hoy, ajustar
-        if (startDate >= endDate) {
-            // Ajustar fin a hoy, inicio a fecha guardada
+            NotificationSystem.info('ℹ️ No hay período configurado. Ve a Ajustes > Calendario para configurarlo.');
         }
     } else {
         return; // Tipo desconocido
@@ -1775,6 +1807,13 @@ window.changeProfileEndMonth = (delta) => {
     render();
 };
 
+window.changeProfileAsistenciaMonth = (delta) => {
+    if (!state.employeeProfile.assistanceMonth) state.employeeProfile.assistanceMonth = new Date();
+    state.employeeProfile.assistanceMonth.setMonth(state.employeeProfile.assistanceMonth.getMonth() + delta);
+    state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
+    render();
+};
+
 window.selectProfileStartDate = (dateKey) => {
     state.employeeProfile.periodStart = dateKey;
     state.employeeProfile.showStartPicker = false;
@@ -1807,19 +1846,31 @@ window.setProfilePeriod = (preset) => {
             start = new Date(today.getFullYear(), today.getMonth(), 1);
             end = today;
             break;
-        case 'lastPayment':
-            // ⚡ NUEVO: Usar fecha individual del empleado o global de settings
-            const lastPayDate = emp?.lastPaymentDate || state.settings.globalLastPaymentDate;
-
-            if (lastPayDate) {
-                start = new Date(lastPayDate + 'T00:00:00');
-                start.setDate(start.getDate() + 1);  // Día siguiente al último pago
-                end = today;
+        case 'payPeriod': {
+            const pp = state.settings.payPeriod;
+            if (pp?.periodStart) {
+                start = new Date(pp.periodStart + 'T00:00:00');
+                const len = pp.periodLength || 15;
+                end = new Date(start);
+                end.setDate(end.getDate() + len - 1);
             } else {
-                showAlert('❌ No hay registro de último pago. Configura uno en Ajustes o marca un pago en el perfil.', 'warning');
+                showAlert('❌ No hay período configurado. Ve a Ajustes > Calendario para configurarlo.', 'warning');
                 return;
             }
             break;
+        }
+        case 'lastPayment': {
+            // Usar período de pago unificado
+            const pp = state.settings.payPeriod;
+            if (pp?.periodStart) {
+                start = new Date(pp.periodStart + 'T00:00:00');
+                end = today;
+            } else {
+                showAlert('❌ No hay período configurado. Ve a Ajustes > Calendario para configurarlo.', 'warning');
+                return;
+            }
+            break;
+        }
         default:
             return;
     }
@@ -1849,21 +1900,13 @@ window.addDeduction = () => {
 };
 
 window.removeDeduction = (index) => {
-    if (state.employeeProfile.deductions.length <= 1) {
-        showNotification('❌ Debe haber al menos una deducción', 'error');
-        return;
-    }
     state.employeeProfile.deductions.splice(index, 1);
-
-    // ⚡ Render selectivo: solo actualizar sección de deducciones
     updateDeductionsSection();
 };
 
 window.updateDeductionType = (index, type) => {
     if (state.employeeProfile.deductions[index]) {
         state.employeeProfile.deductions[index].type = type;
-
-        // ⚡ Render selectivo: solo actualizar sección de deducciones
         updateDeductionsSection();
     }
 };
@@ -1871,13 +1914,45 @@ window.updateDeductionType = (index, type) => {
 window.updateDeductionValue = (index, value) => {
     if (state.employeeProfile.deductions[index]) {
         state.employeeProfile.deductions[index].value = parseFloat(value) || 0;
-
-        // ⚡ Render selectivo: solo actualizar sección de deducciones
         updateDeductionsSection();
     }
 };
 
-// ⚡ NUEVO: Función para actualizar solo la sección de deducciones
+// 🎁 SISTEMA DE BONIFICACIONES / PAGOS
+window.addBonus = () => {
+    if (!state.employeeProfile.bonuses) {
+        state.employeeProfile.bonuses = [];
+    }
+
+    state.employeeProfile.bonuses.push({
+        id: `BON-${Date.now()}`,
+        type: 'fixed',
+        value: 0
+    });
+
+    updateDeductionsSection(); // Usamos la misma función para repintar ambos
+};
+
+window.removeBonus = (index) => {
+    state.employeeProfile.bonuses.splice(index, 1);
+    updateDeductionsSection();
+};
+
+window.updateBonusType = (index, type) => {
+    if (state.employeeProfile.bonuses[index]) {
+        state.employeeProfile.bonuses[index].type = type;
+        updateDeductionsSection();
+    }
+};
+
+window.updateBonusValue = (index, value) => {
+    if (state.employeeProfile.bonuses[index]) {
+        state.employeeProfile.bonuses[index].value = parseFloat(value) || 0;
+        updateDeductionsSection();
+    }
+};
+
+// ⚡ NUEVO: Función para actualizar solo la sección de ajustes
 function updateDeductionsSection() {
     const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
     if (!emp) return;
@@ -1887,8 +1962,11 @@ function updateDeductionsSection() {
         state.employeeProfile.employeeId,
         state.employeeProfile.periodStart,
         state.employeeProfile.periodEnd,
-        state.employeeProfile.deductions
+        state.employeeProfile.deductions,
+        state.employeeProfile.bonuses
     );
+    
+    // Sincronizar estado base si es necesario
     emp.deductions = (state.employeeProfile.deductions || []).map(d => ({
         id: d.id || `DED-${Date.now()}`,
         type: d.type,
@@ -1896,28 +1974,30 @@ function updateDeductionsSection() {
         name: d.name || 'Deducción'
     }));
 
-    // Encontrar contenedor de deducciones
+    emp.bonuses = (state.employeeProfile.bonuses || []).map(b => ({
+        id: b.id || `BON-${Date.now()}`,
+        type: b.type,
+        value: b.value,
+        name: b.name || 'Bono / Pago'
+    }));
+
+    // Actualizar sección de Deducciones
     const deductionsContainer = document.querySelector('#deductions-section');
-    if (!deductionsContainer) {
-        render(); // Fallback si no encontramos el elemento
-        return;
+    if (deductionsContainer) {
+        deductionsContainer.innerHTML = generateDeductionsHTML(payroll);
+    }
+    
+    // Actualizar sección de Bonificaciones
+    const bonusesContainer = document.querySelector('#bonuses-section');
+    if (bonusesContainer) {
+        bonusesContainer.innerHTML = generateBonusesHTML(payroll);
     }
 
-    // Actualizar HTML de deducciones
-    deductionsContainer.innerHTML = generateDeductionsHTML(payroll);
-
-    // Actualizar también el total neto
-    const netoElement = document.querySelector('#neto-total');
-    if (netoElement) {
-        netoElement.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <div style="font-size: 0.875rem; color: rgba(0,0,0,0.7); font-weight: 600; margin-bottom: 4px;">💰 NETO A PAGAR</div>
-                            <div style="font-size: 2rem; font-weight: 900; color: #000;">${formatCurrency(payroll.neto)}</div>
-                        </div>
-                    </div>
-                `;
-    }
+    // Actualizar tarjetas Bruto y Neto
+    const grossVal = document.querySelector('.profile-gross-card .profile-earnings-val');
+    const netVal = document.querySelector('.profile-net-card .profile-earnings-val');
+    if (grossVal) grossVal.innerHTML = `$${Math.round(payroll.bruto).toLocaleString()}`;
+    if (netVal) netVal.innerHTML = `$${Math.round(payroll.neto).toLocaleString()}`;
 }
 
 // ⚡ NUEVO: Generar HTML de deducciones (separado para reusabilidad)
@@ -1972,15 +2052,13 @@ function generateDeductionsHTML(payroll) {
                                        style="width: 100%; font-size: 0.875rem; padding: 8px;">
                             </div>
                             
-                            <!-- Botón eliminar (solo si hay más de 1) -->
-                            ${payroll.deductionBreakdown.length > 1 ? `
-                                <button onclick="removeDeduction(${index})" 
-                                        style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;"
-                                        onmouseover="this.style.background='#dc2626'"
-                                        onmouseout="this.style.background='#ef4444'">
-                                    🗑️
-                                </button>
-                            ` : ''}
+                            <!-- Botón eliminar (siempre visible ahora) -->
+                            <button onclick="removeDeduction(${index})" 
+                                    style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;"
+                                    onmouseover="this.style.background='#dc2626'"
+                                    onmouseout="this.style.background='#ef4444'">
+                                🗑️
+                            </button>
                         </div>
                         
                         <!-- Preview de esta deducción -->
@@ -2005,6 +2083,91 @@ function generateDeductionsHTML(payroll) {
                     </div>
                 </div>
             `;
+}
+
+// ⚡ NUEVO: Generar HTML de Bonificaciones
+function generateBonusesHTML(payroll) {
+    return `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <div style="font-size: 0.875rem; font-weight: 700; color: #10b981;">
+                        🎁 PAGOS / BONIFICACIONES
+                    </div>
+                    <button onclick="addBonus()" 
+                            style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                            onmouseover="this.style.transform='scale(1.05)'"
+                            onmouseout="this.style.transform='scale(1)'">
+                        +
+                    </button>
+                </div>
+                
+                ${payroll.bonusBreakdown && payroll.bonusBreakdown.length > 0 ? payroll.bonusBreakdown.map((bon, index) => `
+                    <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 12px;">
+                        <div style="display: flex; gap: 12px; align-items: start;">
+                            <!-- Radio buttons de tipo -->
+                            <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;">
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
+                                    <input type="radio" 
+                                           name="bonusType_${index}" 
+                                           value="fixed" 
+                                           ${bon.type === 'fixed' ? 'checked' : ''} 
+                                           onchange="updateBonusType(${index}, 'fixed')" 
+                                           style="accent-color: #10b981;">
+                                    <span style="color: #f1f5f9;">Monto</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
+                                    <input type="radio" 
+                                           name="bonusType_${index}" 
+                                           value="percentage" 
+                                           ${bon.type === 'percentage' ? 'checked' : ''} 
+                                           onchange="updateBonusType(${index}, 'percentage')" 
+                                           style="accent-color: #10b981;">
+                                    <span style="color: #f1f5f9;">Porcentaje%</span>
+                                </label>
+                            </div>
+                            
+                            <!-- Input de valor -->
+                            <div style="flex: 1;">
+                                <input type="number" 
+                                       class="form-input" 
+                                       value="${parseFloat(bon.value).toFixed(2)}" 
+                                       onchange="updateBonusValue(${index}, this.value)"
+                                       placeholder="0.00"
+                                       min="0"
+                                       step="${bon.type === 'fixed' ? '0.01' : '0.1'}"
+                                       style="width: 100%; font-size: 0.875rem; padding: 8px;">
+                            </div>
+                            
+                            <!-- Botón eliminar (siempre visible) -->
+                            <button onclick="removeBonus(${index})" 
+                                    style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;"
+                                    onmouseover="this.style.background='#dc2626'"
+                                    onmouseout="this.style.background='#ef4444'">
+                                🗑️
+                            </button>
+                        </div>
+                        
+                        <!-- Preview de esta bonificación -->
+                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #334155; font-size: 0.75rem; color: #94a3b8;">
+                            Monto a sumar: <span style="color: #10b981; font-weight: 600;">
+                                ${bon.type === 'fixed'
+            ? formatCurrency(bon.amount)
+            : `${bon.value}% de ${formatCurrency(bon.appliedTo)} = ${formatCurrency(bon.amount)}`
+        }
+                            </span>
+                        </div>
+                    </div>
+                `).join('') : '<div style="text-align: center; color: #64748b; padding: 20px;">No hay bonificaciones</div>'}
+                
+                <!-- Total de bonificaciones -->
+                <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-top: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.875rem; color: #94a3b8;">Total bonificaciones:</span>
+                        <span style="font-size: 1.125rem; font-weight: 700; color: #10b981;">
+                            +${formatCurrency(payroll.bonuses)}
+                        </span>
+                    </div>
+                </div>
+    `;
 }
 
 // ⚠️ DEPRECATED: Mantener para compatibilidad
@@ -2243,7 +2406,6 @@ window.markAsPaid = () => {
     if (!emp) return;
 
     const today = getDateKey(new Date());
-    emp.lastPaymentDate = today;
 
     // Agregar al historial
     if (!emp.paymentHistory) emp.paymentHistory = [];
@@ -3222,14 +3384,10 @@ function getDateMarker(emp, dateKey) {
         }
     }
 
-    // 💵 Fecha del último pago
-    if (state.settings?.lastPaymentDate === dateKey) {
-        markers.push('💵');
-    }
-
-    // 📅 Fecha del próximo pago
-    if (state.settings?.nextPaymentDate === dateKey) {
-        markers.push('📅');
+    // 💰 Día de pago del período actual
+    const pp = state.settings?.payPeriod;
+    if (pp?.payDay === dateKey) {
+        markers.push('💰');
     }
 
     if (markers.length === 0) return '';
@@ -3240,8 +3398,6 @@ function getDateMarker(emp, dateKey) {
 function FloatingCard() {
     if (!state.showFloatingCard || !state.floatingCardEmployee) return '';
     const emp = state.floatingCardEmployee;
-    const days = getDaysInMonth(state.floatingCardMonth);
-    const dayN = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
     const today = getDateKey(new Date());
     const l7 = new Date(); l7.setDate(l7.getDate() - 6);
     const h7 = getEmployeeTotalHours(emp.id, l7, new Date());
@@ -3252,28 +3408,62 @@ function FloatingCard() {
     const maxH = Math.max(maxVal, 1);
     const scale = 140 / maxH;
 
-    return `<div class="overlay" onclick="closeFloatingCard()"></div><div class="floating-card" onclick="event.stopPropagation()"><div class="floating-card-header"><div class="floating-card-title">👤 ${emp.name}</div><button class="floating-card-close" onclick="closeFloatingCard()">✕</button></div><div class="stats-compact"><div class="stat-compact"><div class="stat-compact-label">Últimos 7 días</div><div class="stat-compact-value">${h7}h</div></div><div class="stat-compact"><div class="stat-compact-label">Este mes</div><div class="stat-compact-value">${hm}h</div></div></div><div class="calendar-compact"><div class="calendar-nav"><button class="calendar-nav-btn" onclick="changeFloatingMonth(-1)">◀</button><div class="calendar-month">${formatMonthYear(state.floatingCardMonth)}</div><button class="calendar-nav-btn" onclick="changeFloatingMonth(1)">▶</button></div><div class="calendar-header">${dayN.map(d => `<div class="calendar-header-day">${d}</div>`).join('')}</div><div class="calendar-grid">${days.map(({ date, currentMonth }) => {
-        const dKey = getDateKey(date);
-        const aKey = `${emp.id}-${dKey}`;
-        const att = state.attendance[aKey];
-        const isT = dKey === today;
-        let cls = ['calendar-day'];
-        if (!currentMonth) cls.push('other-month');
-        if (att && att.present) {
-            cls.push('has-attendance');
-            const col = getCheckColor(att, date).replace('check-', '');
-            cls.push(col);
-        }
-        if (isT) cls.push('today');
-        return `<div class="${cls.join(' ')}"><div>${date.getDate()}</div>${att && att.present ? `<div class="calendar-day-hours">${att.hoursWorked}h</div>` : ''}${getDateMarker(emp, dKey)}</div>`;
-    }).join('')}</div></div><div class="chart-compact"><div class="chart-compact-header"><div class="chart-compact-title">📈 ${state.chartPeriod === 'all' ? 'Historial por Meses' : 'Asistencia y Horas'}</div><div class="chart-filter"><button class="chart-filter-btn ${state.chartPeriod === 'week' ? 'active' : ''}" onclick="changeChartPeriod('week')">7D</button><button class="chart-filter-btn ${state.chartPeriod === 'month' ? 'active' : ''}" onclick="changeChartPeriod('month')">Mes</button><button class="chart-filter-btn ${state.chartPeriod === 'all' ? 'active' : ''}" onclick="changeChartPeriod('all')">Todo</button></div></div><div class="chart-bars">${chartData.map(d => {
-        const tot = (d.regular + d.overtime + d.holiday + d.absent) * scale;
-        const rH = d.regular * scale;
-        const oH = d.overtime * scale;
-        const hH = d.holiday * scale;
-        const aH = d.absent * scale;
-        return `<div class="chart-bar-wrapper"><div class="chart-bar" style="height:${Math.max(tot, 10)}px;">${d.absent > 0 ? `<div class="chart-segment absent" style="height:${aH}px;"></div>` : ''}${d.regular > 0 ? `<div class="chart-segment regular" style="height:${rH}px;"></div>` : ''}${d.overtime > 0 ? `<div class="chart-segment overtime" style="height:${oH}px;"></div>` : ''}${d.holiday > 0 ? `<div class="chart-segment holiday" style="height:${hH}px;"></div>` : ''}</div><div class="chart-bar-label">${d.label || `${d.date.getDate()}/${d.date.getMonth() + 1}`}</div></div>`;
-    }).join('')}</div></div>
+    const calendarHTML = CalendarView({ 
+        employee: emp, 
+        month: state.floatingCardMonth, 
+        navAction: 'changeFloatingMonth',
+        showLegend: false 
+    });
+
+    return `
+        <div class="overlay" onclick="closeFloatingCard()"></div>
+        <div class="floating-card" onclick="event.stopPropagation()">
+            <div class="floating-card-header">
+                <div class="floating-card-title">👤 ${emp.name}</div>
+                <button class="floating-card-close" onclick="closeFloatingCard()">✕</button>
+            </div>
+            
+            <div class="stats-compact">
+                <div class="stat-compact">
+                    <div class="stat-compact-label">Últimos 7 días</div>
+                    <div class="stat-compact-value">${h7}h</div>
+                </div>
+                <div class="stat-compact">
+                    <div class="stat-compact-label">Este mes</div>
+                    <div class="stat-compact-value">${hm}h</div>
+                </div>
+            </div>
+
+            ${calendarHTML}
+
+            <div class="chart-compact">
+                <div class="chart-compact-header">
+                    <div class="chart-compact-title">📈 ${state.chartPeriod === 'all' ? 'Historial por Meses' : 'Asistencia y Horas'}</div>
+                    <div class="chart-filter">
+                        <button class="chart-filter-btn ${state.chartPeriod === 'week' ? 'active' : ''}" onclick="changeChartPeriod('week')">7D</button>
+                        <button class="chart-filter-btn ${state.chartPeriod === 'month' ? 'active' : ''}" onclick="changeChartPeriod('month')">Mes</button>
+                        <button class="chart-filter-btn ${state.chartPeriod === 'all' ? 'active' : ''}" onclick="changeChartPeriod('all')">Todo</button>
+                    </div>
+                </div>
+                <div class="chart-bars">
+                    ${chartData.map(d => {
+                        const tot = (d.regular + d.overtime + d.holiday + d.absent) * scale;
+                        const rH = d.regular * scale;
+                        const oH = d.overtime * scale;
+                        const hH = d.holiday * scale;
+                        const aH = d.absent * scale;
+                        return `<div class="chart-bar-wrapper">
+                            <div class="chart-bar" style="height:${Math.max(tot, 10)}px;">
+                                ${d.absent > 0 ? `<div class="chart-segment absent" style="height:${aH}px;"></div>` : ''}
+                                ${d.regular > 0 ? `<div class="chart-segment regular" style="height:${rH}px;"></div>` : ''}
+                                ${d.overtime > 0 ? `<div class="chart-segment overtime" style="height:${oH}px;"></div>` : ''}
+                                ${d.holiday > 0 ? `<div class="chart-segment holiday" style="height:${hH}px;"></div>` : ''}
+                            </div>
+                            <div class="chart-bar-label">${d.label || `${d.date.getDate()}/${d.date.getMonth() + 1}`}</div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
 
                         <!-- 📝 VISTA PREVIA DE NOTAS GENERALES -->
                         ${emp.notes && emp.notes.trim() ? `
@@ -3364,8 +3554,9 @@ function ProfileTabNomina(emp) {
     const totalHours = payroll.breakdown.reduce((sum, b) => sum + b.regularHours + b.holidayHours, 0);
     const totalOvertime = payroll.breakdown.reduce((sum, b) => sum + b.overtimeHours, 0);
 
-    // Último pago
-    const lastPayment = emp.lastPaymentDate ? new Date(emp.lastPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Ninguno';
+    // Período de pago actual
+    const pp = state.settings?.payPeriod;
+    const lastPayment = pp?.payDay ? new Date(pp.payDay + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'No configurado';
 
     // Preview de deducción
     let deductionPreview = '';
@@ -3412,6 +3603,9 @@ function ProfileTabNomina(emp) {
                         <button onclick="setProfilePeriod('month')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'month' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === 'month' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'month' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                             Este Mes
                         </button>
+                        <button onclick="setProfilePeriod('payPeriod')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'payPeriod' ? '#fff' : '#8b5cf6'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
+                            🗓️ Período Actual
+                        </button>
                         <button onclick="setProfilePeriod('lastPayment')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'lastPayment' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.employeeProfile.activePeriod === 'lastPayment' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'lastPayment' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                             💰 Desde Último Pago
                         </button>
@@ -3422,23 +3616,31 @@ function ProfileTabNomina(emp) {
                     </div>
                 </div>
                 
-                <!-- Resumen Rápido -->
-                    <div style="background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; text-align: center;">
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">📅 Días</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #06b6d4;">${workedDays || 0}</div>
-                        <div style="font-size: 0.65rem; color: #64748b;">de ${totalDays || 0}</div>
+                <!-- 🚀 Tarjetas Estadísticas Horizontales -->
+                <div class="profile-stats-row">
+                    <div class="profile-stat-card">
+                        <span>Días</span>
+                        <strong>${workedDays || 0}</strong>
                     </div>
-                    <div style="background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; text-align: center;">
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">⏱️ Horas</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #10b981;">${Math.round(totalHours)}h</div>
+                    <div class="profile-stat-card">
+                        <span>Horas</span>
+                        <strong>${Math.round(totalHours)}h</strong>
                     </div>
-                    <div style="background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; text-align: center;">
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">⚡ Extras</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #3b82f6;">${Math.round(totalOvertime)}h</div>
+                    <div class="profile-stat-card">
+                        <span>Extras</span>
+                        <strong>${Math.round(totalOvertime)}h</strong>
                     </div>
-                    <div style="background: #1e293b; padding: 12px; border-radius: 8px; border: 1px solid #334155; text-align: center;">
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">💰 Bruto</div>
-                        <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">$${Math.round(payroll.bruto).toLocaleString()}</div>
+                </div>
+
+                <!-- 🚀 Resumen de Ganancias -->
+                <div class="profile-earnings-row">
+                    <div class="profile-gross-card">
+                        <div class="profile-earnings-label">TOTAL BRUTO</div>
+                        <div class="profile-earnings-val" style="color: #f1f5f9;">$${Math.round(payroll.bruto).toLocaleString()}</div>
+                    </div>
+                    <div class="profile-net-card">
+                        <div class="profile-earnings-label">NETO A PAGAR</div>
+                        <div class="profile-earnings-val">$${Math.round(payroll.neto).toLocaleString()}</div>
                     </div>
                 </div>
                 
@@ -3524,88 +3726,13 @@ function ProfileTabNomina(emp) {
                 </div>
                 
                 <!-- Deducciones Múltiples -->
-                <div id="deductions-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <div style="font-size: 0.875rem; font-weight: 700; color: #06b6d4;">
-                            💸 DEDUCCIONES
-                        </div>
-                        <button onclick="addDeduction()" 
-                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
-                                onmouseover="this.style.transform='scale(1.05)'"
-                                onmouseout="this.style.transform='scale(1)'">
-                            +
-                        </button>
-                    </div>
-                    
-                    ${payroll.deductionBreakdown && payroll.deductionBreakdown.length > 0 ? payroll.deductionBreakdown.map((ded, index) => `
-                        <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 12px;">
-                            <div style="display: flex; gap: 12px; align-items: start;">
-                                <!-- Radio buttons de tipo -->
-                                <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;">
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
-                                        <input type="radio" 
-                                               name="deductionType_${index}" 
-                                               value="fixed" 
-                                               ${ded.type === 'fixed' ? 'checked' : ''} 
-                                               onchange="updateDeductionType(${index}, 'fixed')" 
-                                               style="accent-color: #06b6d4;">
-                                        <span style="color: #f1f5f9;">Monto</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
-                                        <input type="radio" 
-                                               name="deductionType_${index}" 
-                                               value="percentage" 
-                                               ${ded.type === 'percentage' ? 'checked' : ''} 
-                                               onchange="updateDeductionType(${index}, 'percentage')" 
-                                               style="accent-color: #06b6d4;">
-                                        <span style="color: #f1f5f9;">Porcentaje%</span>
-                                    </label>
-                                </div>
-                                
-                                <!-- Input de valor -->
-                                <div style="flex: 1;">
-                                    <input type="number" 
-                                           class="form-input" 
-                                           value="${ded.value.toFixed(2)}" 
-                                           onchange="updateDeductionValue(${index}, this.value)"
-                                           placeholder="0.00"
-                                           min="0"
-                                           step="${ded.type === 'fixed' ? '0.01' : '0.1'}"
-                                           style="width: 100%; font-size: 0.875rem; padding: 8px;">
-                                </div>
-                                
-                                <!-- Botón eliminar (solo si hay más de 1) -->
-                                ${payroll.deductionBreakdown.length > 1 ? `
-                                    <button onclick="removeDeduction(${index})" 
-                                            style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;"
-                                            onmouseover="this.style.background='#dc2626'"
-                                            onmouseout="this.style.background='#ef4444'">
-                                        🗑️
-                                    </button>
-                                ` : ''}
-                            </div>
-                            
-                            <!-- Preview de esta deducción -->
-                            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #334155; font-size: 0.75rem; color: #94a3b8;">
-                                Descuento: <span style="color: #ec4899; font-weight: 600;">
-                                    ${ded.type === 'fixed'
-            ? formatCurrency(ded.amount)
-            : `${ded.value.toFixed(2)}% de ${formatCurrency(ded.appliedTo)} = ${formatCurrency(ded.amount)}`
-        }
-                                </span>
-                                <br>
-                                Restante: <span style="color: #10b981; font-weight: 600;">${formatCurrency(ded.appliedTo - ded.amount)}</span>
-                            </div>
-                        </div>
-                    `).join('') : '<div style="text-align: center; color: #64748b; padding: 20px;">No hay deducciones</div>'}
-                    
-                    <!-- Total de deducciones -->
-                    <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-top: 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 0.875rem; color: #94a3b8;">Total deducciones:</span>
-                            <span style="font-size: 1.125rem; font-weight: 700; color: #ec4899;">-${formatCurrency(payroll.deductions)}</span>
-                        </div>
-                    </div>
+                <div id="deductions-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
+                    ${generateDeductionsHTML(payroll)}
+                </div>
+
+                <!-- Bonificaciones Múltiples -->
+                <div id="bonuses-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155;">
+                    ${generateBonusesHTML(payroll)}
                 </div>
                 
                 <!-- Total Neto -->
@@ -3767,7 +3894,8 @@ function ProfileTabResumen(emp) {
     }).join(', ');
 
     const hireDate = emp.hireDate ? new Date(emp.hireDate + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' }) : 'No registrada';
-    const lastPayment = emp.lastPaymentDate ? new Date(emp.lastPaymentDate + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Ninguno';
+    const ppResumen = state.settings?.payPeriod;
+    const lastPayment = ppResumen?.payDay ? new Date(ppResumen.payDay + 'T00:00:00').toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' }) : 'No configurado';
 
     // Calcular salario mensual estimado
     const monthlyEst = calculateMonthlyEstimate(emp);
@@ -3817,7 +3945,7 @@ function ProfileTabResumen(emp) {
                         ${state.showProfileHireDatePicker ? ProfileHireDatePicker(emp) : ''}
                         ${emp.phone ? `<div><span style="color: #94a3b8;">Teléfono:</span> <span style="color: #f1f5f9; font-weight: 600;">${emp.phone}</span></div>` : ''}
                         ${emp.email ? `<div><span style="color: #94a3b8;">Email:</span> <span style="color: #f1f5f9; font-weight: 600;">${emp.email}</span></div>` : ''}
-                        <div><span style="color: #94a3b8;">Último pago:</span> <span style="color: #f1f5f9; font-weight: 600;">${lastPayment}</span></div>
+                        <div><span style="color: #94a3b8;">Próximo pago:</span> <span style="color: #f1f5f9; font-weight: 600;">${lastPayment}</span></div>
                     </div>
                 </div>
                 
@@ -3833,11 +3961,31 @@ function ProfileTabResumen(emp) {
 }
 
 function ProfileTabAsistencia(emp) {
-    return `<div style="text-align: center; padding: 40px; color: #94a3b8;">
-                <div style="font-size: 3rem; margin-bottom: 16px;">📅</div>
-                <div style="font-size: 1.125rem; font-weight: 600; margin-bottom: 8px;">Calendario de Asistencia</div>
-                <div style="font-size: 0.875rem;">Próximamente...</div>
-            </div>`;
+    if (typeof CalendarView !== 'function') {
+        return `<div style="text-align: center; padding: 40px; color: #94a3b8;">
+                    <div style="font-size: 0.875rem;">Error: Componente de Calendario no cargado.</div>
+                </div>`;
+    }
+    
+    return `
+        <div class="profile-tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <h3 style="margin: 0; color: #f1f5f9; font-size: 1.1rem; display: flex; align-items: center; gap: 10px;">
+                    ${icons.get('calendar', { size: 20, color: '#06b6d4' })}
+                    Historial de Asistencia
+                </h3>
+            </div>
+
+            <div class="profile-calendar-wrapper" style="background: rgba(15, 23, 42, 0.4); padding: 24px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                ${CalendarView({ 
+                    employee: emp, 
+                    month: state.employeeProfile?.assistanceMonth || new Date(), 
+                    navAction: 'window.changeProfileAsistenciaMonth',
+                    showLegend: true 
+                })}
+            </div>
+        </div>
+    `;
 }
 
 function ProfileTabDocumentos(emp) {
@@ -3906,27 +4054,61 @@ window.handleCalendarDayClick = function (dateKey) {
     render();
 };
 
-// Cambiar modo de marcador activo
-window.setCalendarMarkerMode = function (mode) {
-    holidayService.setCalendarMarkerMode(mode);
+// Cambiar modo de marcador activo en Calendario de Ajustes
+window.changeSettingsCalendarMode = function (mode) {
+    holidayService.state.settingsCalendarMode = mode;
     render();
 };
 
 
 // ============================================
 // ============================================
-// ACTUALIZAR CONFIGURACIÓN DE FECHA DE PAGO GLOBAL
+// GESTIÓN DEL PERÍODO DE PAGO UNIFICADO
 // ============================================
 
-window.updateGlobalPaymentDay = function (day) {
-    const dayNum = parseInt(day);
-    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
-        state.settings.globalPaymentDay = null;
-    } else {
-        state.settings.globalPaymentDay = dayNum;
+window.updatePayPeriod = function (field, value) {
+    if (!state.settings.payPeriod) {
+        state.settings.payPeriod = { periodStart: null, periodLength: 21, payDay: null };
+    }
+    if (field === 'periodLength') {
+        const num = parseInt(value);
+        if (!isNaN(num) && num >= 1 && num <= 60) {
+            state.settings.payPeriod.periodLength = num;
+        }
+    } else if (field === 'periodStart' || field === 'payDay') {
+        state.settings.payPeriod[field] = value || null;
     }
     saveApplicationData();
-    showNotification(`💰 Fecha de pago actualizada: día ${dayNum || 'no configurado'}`, 'success');
+    render();
+};
+
+window.advancePayPeriod = function () {
+    const pp = state.settings.payPeriod;
+    if (!pp?.periodStart || !pp?.periodLength) {
+        showNotification('❌ Configura el inicio y duración del período primero', 'error');
+        return;
+    }
+    // Calcular nuevo inicio = periodStart + periodLength
+    const oldStart = new Date(pp.periodStart + 'T00:00:00');
+    const newStart = new Date(oldStart);
+    newStart.setDate(newStart.getDate() + pp.periodLength);
+    
+    // Calcular nuevo payDay = newStart + periodLength - 1 + offset (misma distancia que antes)
+    let newPayDay = null;
+    if (pp.payDay) {
+        const oldPayDay = new Date(pp.payDay + 'T00:00:00');
+        const dayOffset = Math.round((oldPayDay - oldStart) / (1000 * 60 * 60 * 24));
+        const calculatedPayDay = new Date(newStart);
+        calculatedPayDay.setDate(calculatedPayDay.getDate() + dayOffset);
+        newPayDay = getDateKey(calculatedPayDay);
+    }
+    
+    pp.periodStart = getDateKey(newStart);
+    pp.payDay = newPayDay;
+    
+    saveApplicationData();
+    showNotification(`✅ Período avanzado. Nuevo inicio: ${new Date(pp.periodStart + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })}`, 'success');
+    render();
 };
 
 // ============================================
@@ -4300,7 +4482,6 @@ window.saveSettings = function () {
 
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentage = parseFloat(document.getElementById('defaultDeductionPercentage').value) || 2;
-    const globalLastPaymentDate = document.getElementById('globalLastPaymentDate').value || null;
     const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
 
     // Leer toggle legacy
@@ -4342,7 +4523,6 @@ window.saveSettings = function () {
 
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
-    state.settings.globalLastPaymentDate = globalLastPaymentDate;
     state.settings.iconSet = applyIconSet(iconSet);
     state.settings.legacyNavigation = legacyNavigation;
     state.settings.scrollbarMode = scrollbarMode;

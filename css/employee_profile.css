@@ -1,0 +1,128 @@
+/* 👤 Modal Employee Profile Styles */
+
+.profile-modal {
+    max-width: 700px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 16px;
+}
+
+.profile-header-gradient {
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    padding: 32px 24px;
+    position: relative;
+    border-bottom: 1px solid #334155;
+}
+
+.profile-header-info {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.profile-avatar-box {
+    width: 90px;
+    height: 90px;
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: white;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+    border: 2px solid rgba(255,255,255,0.1);
+    flex-shrink: 0;
+}
+
+.profile-stats-row {
+    display: flex;
+    flex-direction: row !important;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: nowrap !important;
+    width: 100%;
+}
+
+.profile-stat-card {
+    flex: 1;
+    background: #1e293b;
+    padding: 14px;
+    border-radius: 12px;
+    border: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    justify-content: center;
+}
+
+.profile-stat-card span {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.profile-stat-card strong {
+    font-size: 1.25rem;
+    color: #f1f5f9;
+    font-weight: 800;
+}
+
+.profile-earnings-row {
+    flex-direction: column;
+    display: flex;
+    gap: 12px;
+}
+
+.profile-gross-card, .profile-net-card {
+    padding: 18px;
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    display:flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.profile-gross-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+}
+
+.profile-net-card {
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: none;
+    color: white;
+}
+
+.profile-earnings-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    opacity: 0.8;
+}
+
+.profile-earnings-val {
+    font-size: 1.6rem;
+    font-weight: 900;
+}
+
+@media (max-width: 500px) {
+    .profile-stats-row {
+        flex-direction: row; /* Mantener al lado en móviles si los textos son cortos, o si no caben: flex-wrap: wrap */
+        gap: 8px;
+    }
+    .profile-stat-card {
+        padding: 10px;
+    }
+    .profile-stat-card span {
+        font-size: 0.65rem;
+    }
+    .profile-stat-card strong {
+        font-size: 1.1rem;
+    }
+}

@@ -264,8 +264,31 @@ export function wasEmployeeActiveInRange(employee, startDate, endDate, attendanc
     return wasEmployeeActiveOnDate(employee, start, attendance) || wasEmployeeActiveOnDate(employee, end, attendance);
 }
 
+/**
+ * 💰 Utilidades de Periodo de Pago
+ */
+export function isDateInPayPeriod(dateKey, payPeriod) {
+    if (!payPeriod || !payPeriod.periodStart) return false;
+    const start = payPeriod.periodStart;
+    const len = payPeriod.periodLength || 15;
+    const startDate = parseDate(start);
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + len - 1);
+    const end = getDateKey(endDate);
+    
+    return dateKey >= start && dateKey <= end;
+}
+
+export function isPayday(dateKey, payPeriod) {
+    if (!payPeriod || !payPeriod.payDay) return false;
+    return dateKey === payPeriod.payDay;
+}
+
 // 🌐 EXPOSICIÓN GLOBAL (Para compatibilidad con handlers legacy)
+export const Utils = { isDateInPayPeriod, isPayday };
 window.getDaysInMonth = getDaysInMonth;
 window.formatDateShort = formatDateShort;
 window.getDateKey = getDateKey;
 window.parseDate = parseDate;
+window.isDateInPayPeriod = isDateInPayPeriod;
+window.isPayday = isPayday;

@@ -123,7 +123,7 @@ export class PayrollService {
     }
 
     // ⚡ NUEVO: Calcular nómina completa de un empleado en un período
-    calculateEmployeePayroll(empId, startDateKey, endDateKey, deductions = null) {
+    calculateEmployeePayroll(empId, startDateKey, endDateKey, deductions = null, bonuses = null) {
         const emp = this.state.employees.find(e => e.id === empId);
         if (!emp) return { bruto: 0, neto: 0, deductions: 0, breakdown: [] };
 
@@ -249,6 +249,28 @@ export class PayrollService {
             totalBruto += subtotal;
         });
 
+        // 🎁 NUEVO: Calcular bonificaciones / pagos extra
+        const bonusesList = bonuses ?? this.state.employeeProfile?.bonuses ?? [];
+        const bonusBreakdown = [];
+        let totalBonuses = 0;
+
+        bonusesList.forEach((bon, index) => {
+            const val = parseFloat(bon.value) || 0;
+            // El bono porcentual se calcula sobre el Bruto base original (antes de sumarle este u otros bonos)
+            let bonusAmount = (bon.type === 'fixed') ? val : (totalBruto * val) / 100;
+
+            bonusBreakdown.push({
+                id: bon.id || `BON-${index + 1}`,
+                name: bon.name || `Bono ${index + 1}`,
+                type: bon.type,
+                value: val,
+                amount: bonusAmount,
+                appliedTo: totalBruto
+            });
+
+            totalBonuses += bonusAmount;
+        });
+
         // ⚡ NUEVO: Calcular deducciones encadenadas
         // Si se pasaron deducciones explícitas (exportación global), usarlas.
         // Si no, usar las del perfil activo (comportamiento original).
@@ -265,18 +287,23 @@ export class PayrollService {
                 name: ded.name || `Deducción ${index + 1}`,
                 type: ded.type,
                 value: val,
-                amount: deductionAmount
+                amount: deductionAmount,
+                appliedTo: totalBruto
             });
 
             totalDeductions += deductionAmount;
         });
 
-        const neto = totalBruto - totalDeductions;
+        const totalBrutoConBonos = totalBruto + totalBonuses;
+        const neto = totalBrutoConBonos - totalDeductions;
 
         return {
-            bruto: totalBruto,
+            brutoOriginal: totalBruto, // Salario base por posiciones
+            bruto: totalBrutoConBonos, // Salario base + bonificaciones
             deductions: totalDeductions,
-            deductionBreakdown: deductionBreakdown,  // ${icons.get('info')} NUEVO: Desglose detallado
+            deductionBreakdown: deductionBreakdown,
+            bonuses: totalBonuses,
+            bonusBreakdown: bonusBreakdown,
             neto: neto,
             breakdown: breakdown
         };

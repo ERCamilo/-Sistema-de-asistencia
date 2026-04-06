@@ -1,13 +1,8 @@
-/**
- * 👤 EmployeeProfileModal.js - Modal de Perfil de Empleado
- * Parte de la Fase 4: Modularización y Componentización
- */
-
 import { state } from '../../core/AppState.js';
 import { payrollService } from '../../services/index.js';
 import { formatCurrency } from '../../utils/Formatters.js';
-import { getDateKey, getDaysInMonth, formatMonthYear, formatDateShort } from '../../utils/DateUtils.js';
 import icons from '../IconSystem.js';
+import { CalendarView } from '../components/CalendarView.js';
 
 /**
  * 👤 MODAL PRINCIPAL: Perfil de Empleado
@@ -101,8 +96,30 @@ function renderProfileTab(tabId, emp) {
  * 💰 TAB: Nómina y Pagos
  */
 function ProfileTabNomina(emp) {
-    const periodData = payrollService.calculatePeriod(emp.id, state.employeeProfile.periodStart, state.employeeProfile.periodEnd);
-    const summary = periodData.summary;
+    // Soporte cruzado para APIs antigua (calculatePeriod) y nueva (calculateEmployeePayroll)
+    const payData = (typeof payrollService.calculateEmployeePayroll === 'function') 
+        ? payrollService.calculateEmployeePayroll(emp.id, state.employeeProfile.periodStart, state.employeeProfile.periodEnd)
+        : payrollService.calculatePeriod(emp.id, state.employeeProfile.periodStart, state.employeeProfile.periodEnd);
+        
+    const summary = payData.summary || {
+        grossTotal: payData.bruto || 0,
+        netTotal: payData.neto || 0,
+        deductions: payData.deductionBreakdown || []
+    };
+    
+    const byPosition = payData.byPosition || payData.breakdown || [];
+    
+    let totalDays = summary.totalDays || 0;
+    let totalRegHours = 0;
+    let totalExtHours = 0;
+    
+    byPosition.forEach(pos => {
+        if (!summary.totalDays) totalDays += pos.days || 0; // Si la nueva API no trae totalDays
+        totalRegHours += pos.regularHours || pos.totalHours || 0;
+        totalExtHours += pos.overtimeHours || pos.totalOvertime || 0;
+    });
+    
+    if (!summary.totalDays) summary.totalDays = totalDays;
 
     return `<div style="display: flex; flex-direction: column; gap: 20px;">
                 <!-- Selector de Período Premium -->
@@ -126,25 +143,39 @@ function ProfileTabNomina(emp) {
                         </div>
                     </div>
                     
-                    <div style="display: flex; gap: 6px; margin-top: 12px;">
+                    <div style="display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;">
                         <button onclick="setProfilePeriod('thisMonth')" class="period-chip">Este Mes</button>
                         <button onclick="setProfilePeriod('lastMonth')" class="period-chip">Mes Anterior</button>
                         <button onclick="setProfilePeriod('last15')" class="period-chip">Últimos 15 días</button>
+                        <button onclick="setProfilePeriod('payPeriod')" class="period-chip" style="background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.4); color: #c4b5fd;">🗓️ Período Actual</button>
                     </div>
                 </div>
 
-                <!-- Resumen de Totales -->
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-                    <div style="background: #1e293b; padding: 18px; border-radius: 12px; border: 1px solid #334155; position: relative; overflow: hidden;">
-                         <div style="position: absolute; right: -10px; top: -10px; opacity: 0.05; font-size: 4rem;">💰</div>
-                         <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 10px;">TOTAL BRUTO</div>
-                         <div style="font-size: 1.5rem; font-weight: 800; color: #f1f5f9;">${formatCurrency(summary.grossTotal)}</div>
-                         <div style="font-size: 0.7rem; color: #64748b; margin-top: 4px;">${summary.totalDays} días registrados</div>
+                <!-- 🚀 Tarjetas Estadísticas Horizontales -->
+                <div class="profile-stats-row">
+                    <div class="profile-stat-card">
+                        <span>Días</span>
+                        <strong>${summary.totalDays}</strong>
                     </div>
-                    <div style="background: linear-gradient(135deg, #10b981, #059669); padding: 18px; border-radius: 12px; border: none; color: white;">
-                         <div style="font-size: 0.75rem; opacity: 0.8; font-weight: 600; margin-bottom: 10px;">NETO A PAGAR</div>
-                         <div style="font-size: 1.5rem; font-weight: 900;">${formatCurrency(summary.netTotal)}</div>
-                         <div style="font-size: 0.7rem; opacity: 0.7; margin-top: 4px;">Después de deducciones</div>
+                    <div class="profile-stat-card">
+                        <span>Horas</span>
+                        <strong>${totalRegHours}h</strong>
+                    </div>
+                    <div class="profile-stat-card">
+                        <span>Extras</span>
+                        <strong>${totalExtHours}h</strong>
+                    </div>
+                </div>
+
+                <!-- 🚀 Resumen de Ganancias -->
+                <div class="profile-earnings-row">
+                    <div class="profile-gross-card">
+                        <div class="profile-earnings-label">TOTAL BRUTO</div>
+                        <div class="profile-earnings-val" style="color: #f1f5f9;">${formatCurrency(summary.grossTotal)}</div>
+                    </div>
+                    <div class="profile-net-card">
+                        <div class="profile-earnings-label">NETO A PAGAR</div>
+                        <div class="profile-earnings-val">${formatCurrency(summary.netTotal)}</div>
                     </div>
                 </div>
 
@@ -159,16 +190,16 @@ function ProfileTabNomina(emp) {
                     
                     ${state.employeeProfile.showPositionBreakdown ? `
                         <div style="padding: 18px; border-top: 1px solid #334155;">
-                            ${periodData.byPosition.map(pos => `
+                            ${byPosition.map(pos => `
                                 <div style="margin-bottom: 16px; last-child: margin-bottom: 0;">
                                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.875rem;">${pos.name}</span>
+                                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.875rem;">${pos.name || pos.positionName}</span>
                                         <span style="font-weight: 700; color: #f1f5f9; font-size: 0.875rem;">${formatCurrency(pos.subtotal)}</span>
                                     </div>
                                     <div style="display: flex; gap: 12px; font-size: 0.75rem; color: #94a3b8;">
-                                        <span>⏱️ ${pos.totalHours}h Reg</span>
-                                        <span>⚡ ${pos.totalOvertime}h Ext</span>
-                                        <span>☀️ ${pos.totalHoliday}h Fest</span>
+                                        <span>⏱️ ${pos.totalHours || pos.regularHours || 0}h Reg</span>
+                                        <span>⚡ ${pos.totalOvertime || pos.overtimeHours || 0}h Ext</span>
+                                        <span>☀️ ${pos.totalHoliday || pos.holidayHours || 0}h Fest</span>
                                     </div>
                                 </div>
                             `).join('')}
@@ -212,11 +243,11 @@ function ProfileTabNomina(emp) {
                 </button>
             </div>`;
 }
-
 function ProfileStartDatePicker() {
     const days = getDaysInMonth(state.employeeProfile.startPickerMonth);
     const today = getDateKey(new Date());
     const selected = state.employeeProfile.periodStart;
+    const payPeriod = state.settings?.payPeriod;
 
     return `<div class="date-picker-popup" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; margin-top: 4px;">
                 <div class="date-picker-header">
@@ -227,13 +258,25 @@ function ProfileStartDatePicker() {
                 <div class="date-picker-grid">
                     ${['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
                     ${days.map(({ date, currentMonth }) => {
-        const dKey = getDateKey(date);
-        let cls = ['date-picker-day'];
-        if (!currentMonth) cls.push('other-month');
-        if (dKey === today) cls.push('today');
-        if (dKey === selected) cls.push('selected');
-        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectProfileStartDate('${dKey}')">${date.getDate()}</div>`;
-    }).join('')}
+                        const dKey = getDateKey(date);
+                        const isInPayPeriod = isDateInPayPeriod(dKey, payPeriod);
+                        const isWorkPayday = isPayday(dKey, payPeriod);
+                        
+                        let cls = ['date-picker-day'];
+                        if (!currentMonth) cls.push('other-month');
+                        if (dKey === today) cls.push('today');
+                        if (dKey === selected) cls.push('selected');
+                        if (isInPayPeriod) cls.push('date-picker-day-pay-period');
+                        if (isWorkPayday) cls.push('date-picker-day-payday');
+
+                        const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" title="Día de Pago" style="position: absolute; top: -2px; right: -2px; font-size: 0.55rem;">💰</span>` : '';
+                        const inlineStyle = isInPayPeriod ? `background: rgba(6, 182, 212, 0.25) !important; border-color: #06b6d4 !important;` : '';
+
+                        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectProfileStartDate('${dKey}')">
+                                    ${date.getDate()}
+                                    ${isWorkPayday ? `<span class="payday-icon">💰</span>` : ''}
+                                </div>`;
+                    }).join('')}
                 </div>
                 <div style="padding: 8px; border-top: 1px solid #334155;">
                     <button onclick="event.stopPropagation(); state.employeeProfile.showStartPicker = false; render();" 
@@ -248,6 +291,7 @@ function ProfileEndDatePicker() {
     const days = getDaysInMonth(state.employeeProfile.endPickerMonth);
     const today = getDateKey(new Date());
     const selected = state.employeeProfile.periodEnd;
+    const payPeriod = state.settings?.payPeriod;
 
     return `<div class="date-picker-popup" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; margin-top: 4px;">
                 <div class="date-picker-header">
@@ -258,13 +302,25 @@ function ProfileEndDatePicker() {
                 <div class="date-picker-grid">
                     ${['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
                     ${days.map(({ date, currentMonth }) => {
-        const dKey = getDateKey(date);
-        let cls = ['date-picker-day'];
-        if (!currentMonth) cls.push('other-month');
-        if (dKey === today) cls.push('today');
-        if (dKey === selected) cls.push('selected');
-        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectProfileEndDate('${dKey}')">${date.getDate()}</div>`;
-    }).join('')}
+                        const dKey = getDateKey(date);
+                        const isInPayPeriod = isDateInPayPeriod(dKey, payPeriod);
+                        const isWorkPayday = isPayday(dKey, payPeriod);
+                
+                        let cls = ['date-picker-day'];
+                        if (!currentMonth) cls.push('other-month');
+                        if (dKey === today) cls.push('today');
+                        if (dKey === selected) cls.push('selected');
+                        if (isInPayPeriod) cls.push('date-picker-day-pay-period');
+                        if (isWorkPayday) cls.push('date-picker-day-payday');
+
+                        const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" title="Día de Pago" style="position: absolute; top: -2px; right: -2px; font-size: 0.55rem;">💰</span>` : '';
+                        const inlineStyle = isInPayPeriod ? `background: rgba(6, 182, 212, 0.25) !important; border-color: #06b6d4 !important;` : '';
+
+                        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectProfileEndDate('${dKey}')">
+                                    ${date.getDate()}
+                                    ${isWorkPayday ? `<span class="payday-icon">💰</span>` : ''}
+                                </div>`;
+                    }).join('')}
                 </div>
                 <div style="padding: 8px; border-top: 1px solid #334155;">
                     <button onclick="event.stopPropagation(); state.employeeProfile.showEndPicker = false; render();" 
@@ -378,12 +434,29 @@ function ProfileTabResumen(emp) {
             </div>`;
 }
 
+/**
+ * 📅 PESTAÑA: Asistencia (Calendario)
+ */
 function ProfileTabAsistencia(emp) {
-    return `<div style="text-align: center; padding: 40px; color: #94a3b8;">
-                <div style="font-size: 3rem; margin-bottom: 16px;">📅</div>
-                <div style="font-size: 1.125rem; font-weight: 600; margin-bottom: 8px;">Calendario de Asistencia</div>
-                <div style="font-size: 0.875rem;">Próximamente...</div>
-            </div>`;
+    return `
+        <div class="profile-tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <h3 style="margin: 0; color: #f1f5f9; font-size: 1.1rem; display: flex; align-items: center; gap: 10px;">
+                    ${icons.get('calendar', { size: 20, color: '#06b6d4' })}
+                    Historial de Asistencia
+                </h3>
+            </div>
+
+            <div class="profile-calendar-wrapper" style="background: rgba(15, 23, 42, 0.4); padding: 24px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
+                ${CalendarView({ 
+                    employee: emp, 
+                    month: state.employeeProfile.assistanceMonth || new Date(), 
+                    navAction: 'window.changeProfileAsistenciaMonth',
+                    showLegend: true 
+                })}
+            </div>
+        </div>
+    `;
 }
 
 function ProfileTabDocumentos(emp) {

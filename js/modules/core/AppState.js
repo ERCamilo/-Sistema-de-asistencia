@@ -74,12 +74,15 @@ const initialState = {
     settings: {
         regularHoursPerDay: 8,
         syncEnabled: true,
-        lastPaymentDate: null,
-        nextPaymentDate: null,
         overtimeFactor: 1,
         holidayFactor: 2,
         holidays: [],
-        scrollbarMode: 'on-scroll' // Opciones: 'always', 'on-scroll', 'hidden'
+        scrollbarMode: 'on-scroll', // Opciones: 'always', 'on-scroll', 'hidden'
+        payPeriod: {
+            periodStart: null,   // '2026-03-27' — primer día del período actual
+            periodLength: 21,    // cantidad de días del ciclo
+            payDay: null         // '2026-04-18' — día en que se paga
+        }
     },
     employeeFilter: '', 
     searchQuery: '',

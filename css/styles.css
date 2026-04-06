@@ -873,6 +873,69 @@
             cursor: not-allowed !important;
         }
 
+        /* 💰 Periodo de Pago y Día de Pago */
+        .calendar-day-pay-period, .date-picker-day-pay-period {
+            border: 2px solid #06b6d4 !important;
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(6, 182, 212, 0.2)) !important;
+            box-shadow: inset 0 0 10px rgba(6, 182, 212, 0.1);
+            position: relative;
+            z-index: 1;
+        }
+
+        .calendar-payday, .date-picker-day-payday {
+            border: 2px solid #f59e0b !important; /* Ámbar/Dorado para Día de Pago */
+            background: rgba(245, 158, 11, 0.15) !important;
+            font-weight: 800 !important;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.3) !important;
+        }
+
+        .payday-icon {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            font-size: 0.7rem;
+            filter: drop-shadow(0 0 2px rgba(0,0,0,0.5));
+            background: #f59e0b;
+            color: #fff;
+            width: 14px;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            z-index: 10;
+            border: 1px solid #fff;
+        }
+
+        /* Leyenda de Calendario */
+        .calendar-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 10px 16px;
+            background: rgba(30, 41, 59, 0.5);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-box {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+
+        .legend-box.pay-period { background: rgba(6, 182, 212, 0.3); border: 1px solid #06b6d4; }
+        .legend-box.payday { background: rgba(245, 158, 11, 0.3); border: 1px solid #f59e0b; }
+        .legend-box.present { background: #10b981; }
+        .legend-box.absent { background: #ef4444; }
+
         /* Stats - Combinado en una tarjeta con toggle */
         /* Stats Grid - RESPONSIVE */
         .stats-combined {
@@ -1314,8 +1377,16 @@
             background: #1e293b;
             border: 2px solid #334155;
             font-size: 0.75rem;
-            font-weight: 600;
             position: relative;
+            transition: all 0.2s;
+        }
+
+        /* 💰 Refuerzo para Período de Pago en Card Flotante */
+        .calendar-day.calendar-day-pay-period {
+            background: rgba(6, 182, 212, 0.25) !important;
+            border: 2px solid #06b6d4 !important;
+            box-shadow: inset 0 0 10px rgba(6, 182, 212, 0.3) !important;
+            z-index: 1;
         }
 
         .calendar-day.has-attendance {
@@ -4015,4 +4086,171 @@
             .calendar-day {
                 font-size: 0.75rem;
             }
+        }
+
+        /* ============================================
+           💎 PREMIUM CALENDAR VIEW (Reusable)
+           ============================================ */
+        .premium-calendar {
+            background: transparent;
+            user-select: none;
+        }
+
+        .premium-calendar .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+        }
+
+        .premium-calendar .calendar-day-name {
+            text-align: center;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: #64748b;
+            text-transform: uppercase;
+            padding-bottom: 8px;
+        }
+
+        .premium-calendar .calendar-day {
+            aspect-ratio: 1;
+            background: rgba(30, 41, 59, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .premium-calendar .calendar-day:hover {
+            background: rgba(30, 41, 59, 0.6);
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .premium-calendar .calendar-day.other-month {
+            opacity: 0.2;
+            pointer-events: none;
+        }
+
+        .premium-calendar .calendar-day.today {
+            background: rgba(6, 182, 212, 0.1);
+            border-color: rgba(6, 182, 212, 0.4);
+        }
+
+        .premium-calendar .calendar-day.today .day-number {
+            color: #06b6d4;
+            font-weight: 800;
+        }
+
+        /* 📅 Periodo de Pago (Marco Neón Azul) */
+        .calendar-day-pay-period {
+            border: 2px solid #06b6d4 !important;
+            box-shadow: 0 0 8px rgba(6, 182, 212, 0.4), inset 0 0 4px rgba(6, 182, 212, 0.2) !important;
+            z-index: 1;
+        }
+
+        /* Colores Sólidos para estados de asistencia */
+        .premium-calendar .calendar-day.has-attendance {
+            border-color: rgba(255,255,255,0.1);
+        }
+
+        /* 🟢 Estado: Regular (Asistencia normal) */
+        .premium-calendar .calendar-day.check-regular {
+            background: #10b981 !important;
+        }
+        .premium-calendar .calendar-day.check-regular .day-number,
+        .premium-calendar .calendar-day.check-regular .hours-dot { color: white !important; }
+
+        /* 🔴 Estado: Horas insuficientes */
+        .premium-calendar .calendar-day.check-undertime {
+            background: #ef4444 !important;
+        }
+        .premium-calendar .calendar-day.check-undertime .day-number,
+        .premium-calendar .calendar-day.check-undertime .hours-dot { color: white !important; }
+
+        /* 🟣 Estado: Multi-posición */
+        .premium-calendar .calendar-day.check-multiposition {
+            background: #8b5cf6 !important;
+        }
+        .premium-calendar .calendar-day.check-multiposition .day-number,
+        .premium-calendar .calendar-day.check-multiposition .hours-dot { color: white !important; }
+
+        /* 🟡 Estado: Día Festivo */
+        .premium-calendar .calendar-day.check-holiday {
+            background: #f59e0b !important;
+        }
+        .premium-calendar .calendar-day.check-holiday .day-number,
+        .premium-calendar .calendar-day.check-holiday .hours-dot { color: white !important; }
+
+        /* 🔵 Estado: Horas Extras */
+        .premium-calendar .calendar-day.check-overtime {
+            background: #06b6d4 !important;
+        }
+        .premium-calendar .calendar-day.check-overtime .day-number,
+        .premium-calendar .calendar-day.check-overtime .hours-dot { color: white !important; }
+
+        /* 💰 Día de Pago (Marco Dorado Premium) */
+        .calendar-payday {
+            border: 2.5px solid #fbbf24 !important;
+            background: rgba(251, 191, 36, 0.2) !important;
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.3) !important;
+            z-index: 2;
+        }
+
+        .calendar-payday .day-number {
+            color: #fbbf24 !important;
+            font-weight: 900;
+        }
+
+        /* 💰 Icono de Dinero */
+        .money-badge {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            font-size: 0.9rem;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+        }
+
+        .payday-indicator {
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            color: #fbbf24;
+            opacity: 0.8;
+        }
+
+        /* ⚡ Indicador de Horas */
+        .hours-dot {
+            font-size: 0.6rem;
+            font-weight: 800;
+            padding: 2px 4px;
+            border-radius: 4px;
+            margin-top: 2px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+        }
+
+        .has-attendance.present .hours-dot {
+            background: #10b981;
+            color: #000;
+        }
+
+        .has-attendance.absent .hours-dot {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .has-attendance.holiday .hours-dot {
+            background: #f59e0b;
+            color: #000;
         }
