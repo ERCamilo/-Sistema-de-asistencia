@@ -82,10 +82,10 @@ export function getCheckColor(att, date) {
     }
     // Día festivo (DORADO)
     if (isDayHoliday(date, state.settings?.holidays)) return 'check-holiday';
-    
+
     // Horas trabajadas vs Configuración Global General
     const hours = att.hoursWorked || 0;
-    const regular = state.settings?.regularHoursPerDay || 8; 
+    const regular = state.settings?.regularHoursPerDay || 8;
     const tolerance = 0.1;
 
     if (hours > regular + tolerance) return 'check-overtime';
@@ -215,7 +215,7 @@ export function DateControls() {
         : '';
 
     return `
-        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 100; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
+        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
             
             <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
             <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
@@ -396,9 +396,9 @@ export function EmployeeRow(emp) {
         `emp-row-${emp.id}`,
         () => _buildEmployeeRow(emp, dateKey, attKey, att),
         [
-            dateKey, 
-            att?.updatedAt ?? 0, 
-            emp.updatedAt ?? 0, 
+            dateKey,
+            att?.updatedAt ?? 0,
+            emp.updatedAt ?? 0,
             state.listDisplayMode,
             state.settings?.regularHoursPerDay || 8,
             getDayHours(state.selectedDate),
@@ -441,7 +441,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         ? `<div class="hours-badge">${att.hoursWorked}h${multiPosIcon}</div>`
         : '';
 
-    const workedPositionIds = isChecked 
+    const workedPositionIds = isChecked
         ? (isMultiPosition ? att.positionHours.map(ph => ph.positionId) : [selPos])
         : [];
 
@@ -456,7 +456,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
         const isActive = isChecked ? (selPos === pid) : (selectedPosId === pid);
         const isWorked = workedPositionIds.includes(pid);
-        
+
         // Estilos Neón dinámicos
         const posColor = pos.color || "#64748b";
         const neonStyle = isWorked ? `border-color: ${posColor}; box-shadow: 0 0 10px ${posColor}66; background: ${posColor}15; color: #fff;` : '';
@@ -672,7 +672,7 @@ export function WeekView() {
 export function WeekRow(emp, week) {
     // ⚡ P4-OPT: Fingerprint = updatedAt de cada día de la semana para este empleado
     const deps = [
-        emp.updatedAt ?? 0, 
+        emp.updatedAt ?? 0,
         (state.settings.holidays || []).join(','),
         state.settings?.regularHoursPerDay || 8,
         ...week.map(date => getDayHours(date)),

@@ -549,7 +549,7 @@ function EmployeeReportContent() {
 function EmployeeReportGeneralSection(reportData) {
     const state = getState();
     const collapses = state.collapsedPositions || {};
-    const isCollapsed = collapses['general'];
+    const isCollapsed = collapses['general'] !== false; // Colapsado por defecto si es undefined o true
     const allEmployeesMap = new Map();
 
     reportData.positions.forEach(posData => {
@@ -624,7 +624,7 @@ function EmployeeReportGeneralTable(employees, days) {
 function EmployeeReportPositionSection(posData, days) {
     const state = getState();
     const collapses = state.collapsedPositions || {};
-    const isCollapsed = collapses[posData.position.id];
+    const isCollapsed = collapses[posData.position.id] !== false; // Colapsado por defecto si es undefined o true
     return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
     <div onclick="AnalyticsUI.togglePositionCollapse('${posData.position.id}')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
         <div style="display: flex; align-items: center; gap: 12px;">
@@ -814,7 +814,11 @@ export function setEmployeeReportPayPeriod() { employeeReportDateManagerV2.setPa
 export function togglePositionCollapse(id) {
     const state = getState();
     if (!state.collapsedPositions) state.collapsedPositions = {};
-    state.collapsedPositions[id] = !state.collapsedPositions[id];
+    
+    // Si no está definido (undefined), se asume que está colapsado (true)
+    const current = state.collapsedPositions[id] !== false;
+    state.collapsedPositions[id] = !current;
+    
     context.render();
 }
 

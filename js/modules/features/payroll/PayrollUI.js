@@ -37,6 +37,13 @@ function getLeaderFilteredEmployees(state) {
 
 export function PayrollTab() {
     const state = getState();
+    
+    // Inicializar secciones colapsadas por defecto
+    if (state.exportConfig.collapsedSteps === undefined) {
+        state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step3'];
+    }
+    const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
+
     if (!state.exportConfig.periodStart || !state.exportConfig.periodEnd) {
         const today = new Date();
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -79,27 +86,32 @@ export function PayrollTab() {
             </div>
             
             <!-- Paso 1: Período -->
-            <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                    Paso 1: Período de Pago
-                </h3>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
-                    <div class="form-group">
-                        <label class="form-label">Desde:</label>
-                        <input type="date" 
-                               value="${state.exportConfig.periodStart}" 
-                               onchange="PayrollUI.updateExportPeriod('start', this.value)"
-                               class="form-input">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Hasta:</label>
-                        <input type="date" 
-                               value="${state.exportConfig.periodEnd}" 
-                               onchange="PayrollUI.updateExportPeriod('end', this.value)"
-                               class="form-input">
-                    </div>
+            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step1') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+                <div onclick="PayrollUI.toggleStep('step1')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step1') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
+                        Paso 1: Período de Pago
+                    </h3>
+                    ${isStepCollapsed('step1') ? `<span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">${formatDateShort(state.exportConfig.periodStart)} - ${formatDateShort(state.exportConfig.periodEnd)}</span>` : ''}
                 </div>
+                
+                <div style="display: ${isStepCollapsed('step1') ? 'none' : 'block'}; margin-top: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+                        <div class="form-group">
+                            <label class="form-label">Desde:</label>
+                            <input type="date" 
+                                   value="${state.exportConfig.periodStart}" 
+                                   onchange="PayrollUI.updateExportPeriod('start', this.value)"
+                                   class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Hasta:</label>
+                            <input type="date" 
+                                   value="${state.exportConfig.periodEnd}" 
+                                   onchange="PayrollUI.updateExportPeriod('end', this.value)"
+                                   class="form-input">
+                        </div>
+                    </div>
                 
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button onclick="PayrollUI.setExportPreset('thisMonth')" 
@@ -123,21 +135,27 @@ export function PayrollTab() {
                         Desde Último Pago + 1
                     </button>
                 </div>
+                </div>
             </div>
             
             <!-- Paso 2: Deducciones Globales -->
-            <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
+            <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+                <div onclick="PayrollUI.toggleStep('step2')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         ${icons.get('payroll')} Paso 2: Deducciones Globales
                     </h3>
-                    <button onclick="PayrollUI.addExportDeduction()" 
-                            style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
-                            onmouseover="this.style.transform='scale(1.05)'"
-                            onmouseout="this.style.transform='scale(1)'">
-                        +
-                    </button>
                 </div>
+                
+                <div style="display: ${isStepCollapsed('step2') ? 'none' : 'block'}; margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <button onclick="PayrollUI.addExportDeduction()" 
+                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                                onmouseover="this.style.transform='scale(1.05)'"
+                                onmouseout="this.style.transform='scale(1)'">
+                            +
+                        </button>
+                    </div>
                 
                 <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 16px;">
                     Estas deducciones se aplicarán a todos los empleados de forma encadenada
@@ -180,20 +198,26 @@ export function PayrollTab() {
                 
                 ${generateExportDeductionsHTML()}
             </div>
+            </div>
             
             <!-- Paso 2B: Bonificaciones Globales -->
-            <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700;">
+            <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+                <div onclick="PayrollUI.toggleStep('step2b')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2b') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         🎁 Paso 2B: Bonificaciones Globales
                     </h3>
-                    <button onclick="PayrollUI.addExportBonus()" 
-                            style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
-                            onmouseover="this.style.transform='scale(1.05)'"
-                            onmouseout="this.style.transform='scale(1)'">
-                        +
-                    </button>
                 </div>
+                
+                <div style="display: ${isStepCollapsed('step2b') ? 'none' : 'block'}; margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <button onclick="PayrollUI.addExportBonus()" 
+                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                                onmouseover="this.style.transform='scale(1.05)'"
+                                onmouseout="this.style.transform='scale(1)'">
+                            +
+                        </button>
+                    </div>
                 
                 <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 16px;">
                     Estos bonos se sumarán a todos los empleados de forma general o por empleado
@@ -236,13 +260,20 @@ export function PayrollTab() {
                 
                 ${generateExportBonusesHTML()}
             </div>
+            </div>
             
             <!-- Paso 3: Vista Previa -->
-            <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
-                    <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
+            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+                <div onclick="PayrollUI.toggleStep('step3')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step3') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 3: Vista Previa (${exportData.length} empleados)
                     </h3>
+                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: #10b981; font-weight: 700;">${formatCurrency(totalAmount)}</span>` : ''}
+                </div>
+                
+                <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
                     <div style="display: flex; gap: 8px; align-items: center; max-width: 60%;">
                         <span style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</span>
                         <select onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
@@ -288,6 +319,7 @@ export function PayrollTab() {
                         </tfoot>
                     </table>
                 </div>
+            </div>
             </div>
             
             <!-- Paso 4: Exportar -->
@@ -340,7 +372,8 @@ function generateExportData() {
             _employeeName: emp.name,
             _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion'
         };
-    }).filter(emp => emp.monto > 0.001); // Filtro de seguridad para montos casi cero
+    }).filter(emp => emp.monto > 0.001) // Filtro de seguridad para montos casi cero
+      .sort((a, b) => a.id - b.id);
 }
 
 function generateExportDeductionsHTML() {
@@ -787,4 +820,16 @@ export function downloadExportJSON() {
     a.click();
     URL.revokeObjectURL(url);
     if (window.showNotification) window.showNotification('✅ Archivo JSON descargado', 'success');
+}
+
+export function toggleStep(stepId) {
+    const state = getState();
+    if (!state.exportConfig.collapsedSteps) state.exportConfig.collapsedSteps = [];
+    
+    if (state.exportConfig.collapsedSteps.includes(stepId)) {
+        state.exportConfig.collapsedSteps = state.exportConfig.collapsedSteps.filter(id => id !== stepId);
+    } else {
+        state.exportConfig.collapsedSteps.push(stepId);
+    }
+    context.render();
 }
