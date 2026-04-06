@@ -286,22 +286,50 @@ class OnboardingWizard {
 
     renderPositions() {
         const positionsCount = state.positions.filter(p => p.active).length;
+        const activePositions = state.positions.filter(p => p.active);
+
         return `
-            <div style="padding: 60px 40px; max-width: 800px; margin: 0 auto;">
-                <div style="text-align: center; margin-bottom: 40px;">
-                    <div style="font-size: 4rem; margin-bottom: 20px;">🎯</div>
-                    <h2 style="font-size: 2rem; color: #f1f5f9; font-weight: 800;">Paso 3: Posiciones</h2>
+            <div style="padding: 40px 20px; max-width: 800px; margin: 0 auto;">
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <div style="font-size: 3.5rem; margin-bottom: 16px;">🎯</div>
+                    <h2 style="font-size: 1.75rem; color: #f1f5f9; font-weight: 800; margin-bottom: 8px;">Paso 3: Cargos y Salarios</h2>
+                    <p style="color: #94a3b8;">Define los roles de tu equipo (se pueden editar luego)</p>
                 </div>
                 
-                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px;">
-                    ${['Ayudante', 'Albañil', 'Carpintero', 'Electricista'].map(name => `
-                        <button onclick="window.quickAddPosition('${name}')" class="btn btn-secondary">+ ${name}</button>
-                    `).join('')}
+                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 16px; padding: 24px; border: 1px solid #334155; margin-bottom: 32px;">
+                    <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; text-transform: uppercase; font-weight: 700;">Sugerencias rápidas:</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px;">
+                        ${['Maestro', 'Albañil', 'Carpintero', 'Varillero', 'Ayudante', 'Sereno'].map(name => `
+                            <button onclick="window.quickAddPosition('${name}')" 
+                                    class="btn-tag" 
+                                    style="padding: 8px 16px; background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; border-radius: 20px; cursor: pointer; transition: all 0.2s;">
+                                + ${name}
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    ${activePositions.length > 0 ? `
+                        <div style="display: grid; gap: 10px; margin-top: 24px;">
+                            ${activePositions.map(pos => `
+                                <div style="display: flex; align-items: center; justify-content: space-between; background: #0f172a; padding: 12px 16px; border-radius: 12px; border-left: 4px solid ${pos.color};">
+                                    <div>
+                                        <div style="font-weight: 700; color: #f1f5f9;">${pos.name}</div>
+                                        <div style="font-size: 0.75rem; color: #64748b;">$${pos.salaryConfig.amount.toLocaleString()}/${pos.salaryConfig.period === 'month' ? 'mes' : 'día'}</div>
+                                    </div>
+                                    <button onclick="window.removePosition('${pos.id}')" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.25rem;">&times;</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div style="text-align: center; padding: 20px; color: #475569; border: 2px dashed #1e293b; border-radius: 12px;">
+                            Agrega al menos un cargo para continuar
+                        </div>
+                    `}
                 </div>
                 
                 <div style="display: flex; gap: 12px;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">← Atrás</button>
-                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2;" ${positionsCount === 0 ? 'disabled' : ''}>Siguiente →</button>
+                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1; padding: 14px;">← Atrás</button>
+                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2; padding: 14px;" ${activePositions.length === 0 ? 'disabled' : ''}>Siguiente →</button>
                 </div>
                 ${this.renderProgress()}
             </div>
@@ -309,17 +337,52 @@ class OnboardingWizard {
     }
 
     renderEmployees() {
-        const employeesCount = state.employees.filter(e => e.active).length;
+        const activeEmployees = state.employees.filter(e => e.active);
+        const activePositions = state.positions.filter(p => p.active);
+
         return `
-            <div style="padding: 60px 40px; max-width: 800px; margin: 0 auto;">
-                <div style="text-align: center; margin-bottom: 40px;">
-                    <div style="font-size: 4rem; margin-bottom: 20px;">👥</div>
-                    <h2 style="font-size: 2rem; color: #f1f5f9; font-weight: 800;">Paso 4: Empleados</h2>
+            <div style="padding: 40px 20px; max-width: 800px; margin: 0 auto;">
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <div style="font-size: 3.5rem; margin-bottom: 16px;">👥</div>
+                    <h2 style="font-size: 1.75rem; color: #f1f5f9; font-weight: 800; margin-bottom: 8px;">Paso 4: Tu Equipo</h2>
+                    <p style="color: #94a3b8;">Agrega a los trabajadores actuales</p>
+                </div>
+
+                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 16px; padding: 24px; border: 1px solid #334155; margin-bottom: 32px;">
+                    <form onsubmit="window.addOnboardingEmployee(event)" style="display: grid; gap: 12px; margin-bottom: 24px;">
+                        <input type="text" id="onboarding-emp-name" placeholder="Nombre completo" required 
+                               style="padding: 14px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; color: white;">
+                        
+                        <select id="onboarding-emp-position" required 
+                                style="padding: 14px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; color: white;">
+                            <option value="">Selecciona un cargo...</option>
+                            ${activePositions.map(pos => `<option value="${pos.id}">${pos.name}</option>`).join('')}
+                        </select>
+                        
+                        <button type="submit" class="btn btn-primary" style="padding: 14px; background: #10b981;">+ Agregar al equipo</button>
+                    </form>
+
+                    ${activeEmployees.length > 0 ? `
+                        <div style="display: grid; gap: 10px; border-top: 1px solid #1e293b; padding-top: 20px;">
+                            ${activeEmployees.map(emp => {
+                                const pos = state.positions.find(p => p.id === emp.positionId);
+                                return `
+                                    <div style="display: flex; align-items: center; justify-content: space-between; background: #0f172a; padding: 12px 16px; border-radius: 12px;">
+                                        <div>
+                                            <div style="font-weight: 700; color: #f1f5f9;">${emp.name}</div>
+                                            <div style="font-size: 0.75rem; color: #64748b;">${pos ? pos.name : 'Sin cargo'}</div>
+                                        </div>
+                                        <button onclick="window.removeEmployeeOnboarding('${emp.id}')" style="background: none; border: none; color: #ef4444; cursor: pointer;">Borrar</button>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    ` : ''}
                 </div>
                 
                 <div style="display: flex; gap: 12px;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">← Atrás</button>
-                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2;" ${employeesCount === 0 ? 'disabled' : ''}>Siguiente →</button>
+                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1; padding: 14px;">← Atrás</button>
+                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2; padding: 14px;" ${activeEmployees.length === 0 ? 'disabled' : ''}>Finalizar Configuración →</button>
                 </div>
                 ${this.renderProgress()}
             </div>
@@ -378,8 +441,8 @@ class OnboardingWizard {
     }
 
     complete() {
+        localStorage.setItem('onboardingCompleted', 'true');
         if (state.onboardingMode === 'scratch') {
-            localStorage.setItem('onboardingCompleted', 'true');
             saveApplicationData();
         }
         state.showOnboarding = false;
@@ -394,12 +457,105 @@ class OnboardingWizard {
     }
 
     skipToRestoreBackup() {
-        localStorage.setItem('onboardingCompleted', 'true');
-        state.showOnboarding = false;
-        render();
-        // Lógica de backup...
+        // Crear un input de archivo temporal
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            if (window.loadBackupFromFile) {
+                // Marcar como completado antes de cargar para que no vuelva a aparecer
+                localStorage.setItem('onboardingCompleted', 'true');
+                state.showOnboarding = false;
+                
+                window.loadBackupFromFile(file);
+                // Notification se encarga del mensaje
+            } else {
+                console.error('❌ loadBackupFromFile no está disponible globalmente');
+                if (window.Notification) window.Notification.error('Error: Sistema de restauración no listo');
+            }
+        };
+        
+        input.click();
     }
 }
 
 export const onboardingWizard = new OnboardingWizard();
 window.onboardingWizard = onboardingWizard;
+
+// ⚡ HELPERS GLOBALES (Mantenidos para handlers HTML onclick)
+window.selectHours = function (hours) {
+    state.settings.regularHoursPerDay = hours;
+    render();
+};
+
+window.quickAddPosition = function (name) {
+    const colors = ['#10b981', '#f59e0b', '#3b82f6', '#06b6d4', '#8b5cf6', '#ec4899'];
+    const existingPos = state.positions.find(p => p.name === name && p.active);
+
+    if (existingPos) {
+        if (window.Notification) window.Notification.error(`La posición "${name}" ya existe`);
+        return;
+    }
+
+    const newPosition = {
+        id: generateUUID(),
+        name: name,
+        salaryConfig: {
+            amount: 30000,
+            period: 'month',
+            workDays: [1, 2, 3, 4, 5, 6]
+        },
+        color: colors[state.positions.length % colors.length],
+        leaderId: null,
+        active: true,
+        updatedAt: Date.now()
+    };
+
+    state.positions.push(newPosition);
+    if (window.Notification) window.Notification.success(`Posición "${name}" agregada`);
+    render();
+};
+
+window.removePosition = function (positionId) {
+    state.positions = state.positions.filter(p => p.id !== positionId);
+    render();
+};
+
+window.addOnboardingEmployee = function (event) {
+    if (event) event.preventDefault();
+
+    const nameInput = document.getElementById('onboarding-emp-name');
+    const positionSelect = document.getElementById('onboarding-emp-position');
+
+    if (!nameInput || !positionSelect) return;
+
+    const name = nameInput.value.trim();
+    const positionId = positionSelect.value;
+
+    if (!name || !positionId) {
+        if (window.Notification) window.Notification.error('Por favor ingresa nombre y cargo');
+        return;
+    }
+
+    const newEmployee = {
+        id: generateUUID(),
+        name: name,
+        positionId: positionId,
+        active: true,
+        joinedAt: Date.now()
+    };
+
+    state.employees.push(newEmployee);
+    nameInput.value = '';
+    
+    if (window.Notification) window.Notification.success(`Empleado "${name}" agregado`);
+    render();
+};
+window.removeEmployeeOnboarding = function (empId) {
+    state.employees = state.employees.filter(e => e.id !== empId);
+    render();
+};

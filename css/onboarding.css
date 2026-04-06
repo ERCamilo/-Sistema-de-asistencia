@@ -1,0 +1,55 @@
+/* 
+ * 🚀 ONBOARDING STYLES (Fase 3)
+ */
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+.onboarding-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #0f172a;
+    z-index: 10000;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.btn-tag:hover {
+    background: #1e293b !important;
+    border-color: #06b6d4 !important;
+    color: #f1f5f9 !important;
+    transform: translateY(-2px);
+}
+
+.btn-tag:active {
+    transform: translateY(0);
+}
+
+.onboarding-card {
+    background: rgba(30, 41, 59, 0.4);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 32px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* Scrollbar para el onboarding */
+.onboarding-overlay::-webkit-scrollbar {
+    width: 6px;
+}
+
+.onboarding-overlay::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.onboarding-overlay::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 10px;
+}

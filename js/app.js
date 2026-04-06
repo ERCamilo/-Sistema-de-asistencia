@@ -92,6 +92,7 @@ import * as SyncUI from './modules/ui/SyncUI.js';
 
 //agregado manualmente
 import { eventBus } from './modules/core/Events.js';
+import { onboardingWizard } from './modules/ui/Onboarding.js';
 import { ModalManager } from './modules/ui/ModalManager.js';
 import { VirtualScrollComponent } from './modules/components/VirtualScroll.js';
 import { ExportService } from './modules/services/ExportService.js';
@@ -1694,6 +1695,7 @@ window.togglePosition = (empId, posId) => {
 
         const posName = state.positions.find(p => p.id === posId)?.name || 'N/A';
         showNotification(`✅ Cambiado a ${posName}`, 'success');
+        att.updatedAt = Date.now();
         render();
     }
 };
@@ -3398,11 +3400,46 @@ function getDateMarker(emp, dateKey) {
 function FloatingCard() {
     if (!state.showFloatingCard || !state.floatingCardEmployee) return '';
     const emp = state.floatingCardEmployee;
-    const today = getDateKey(new Date());
+    const now = new Date();
+    const today = getDateKey(now);
+    
+    // 7 Días
     const l7 = new Date(); l7.setDate(l7.getDate() - 6);
-    const h7 = getEmployeeTotalHours(emp.id, l7, new Date());
-    const fm = new Date(); fm.setDate(1);
-    const hm = getEmployeeTotalHours(emp.id, fm, new Date());
+    const h7 = getEmployeeTotalHours(emp.id, l7, now);
+    
+    // Mes
+    const fm = new Date(now.getFullYear(), now.getMonth(), 1);
+    const hm = getEmployeeTotalHours(emp.id, fm, now);
+    
+    // Semana (Lunes a Hoy)
+    const day = now.getDay() || 7;
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - (day - 1));
+    const hw = getEmployeeTotalHours(emp.id, weekStart, now);
+    
+    // Periodo Actual (Acumulado hasta hoy o fin de periodo)
+    const pStartKey = state.settings?.payPeriod?.periodStart;
+    const pLen = state.settings?.payPeriod?.periodLength || 15;
+    let hp = 0;
+    let gross = 0;
+    
+    if (pStartKey) {
+        // Calcular fin de periodo
+        const start = parseDate(pStartKey);
+        const end = new Date(start);
+        end.setDate(start.getDate() + pLen - 1);
+        const pEndKey = getDateKey(end);
+        
+        // El cálculo debe ser el acumulado desde el inicio hasta:
+        // - Hoy (si el periodo está en curso)
+        // - El fin del periodo (si el periodo ya expiró pero no se ha avanzado)
+        const effectiveEnd = (today < pEndKey) ? today : pEndKey;
+        
+        hp = getEmployeeTotalHours(emp.id, pStartKey, effectiveEnd);
+        const payroll = payrollService.calculateEmployeePayroll(emp.id, pStartKey, effectiveEnd);
+        gross = payroll.bruto;
+    }
+
     const chartData = chartService.getChartData(emp.id, state.chartPeriod);
     const maxVal = chartData && chartData.length > 0 ? Math.max(...chartData.map(d => (d.regular || 0) + (d.overtime || 0) + (d.holiday || 0) + (d.absent || 0))) : 1;
     const maxH = Math.max(maxVal, 1);
@@ -3423,15 +3460,28 @@ function FloatingCard() {
                 <button class="floating-card-close" onclick="closeFloatingCard()">✕</button>
             </div>
             
-            <div class="stats-compact">
-                <div class="stat-compact">
-                    <div class="stat-compact-label">Últimos 7 días</div>
-                    <div class="stat-compact-value">${h7}h</div>
+            <div class="stats-compact-grid">
+                <div class="stat-mini">
+                    <div class="stat-mini-label">7 Días</div>
+                    <div class="stat-mini-value">${h7}h</div>
                 </div>
-                <div class="stat-compact">
-                    <div class="stat-compact-label">Este mes</div>
-                    <div class="stat-compact-value">${hm}h</div>
+                <div class="stat-mini">
+                    <div class="stat-mini-label">Semana</div>
+                    <div class="stat-mini-value">${hw}h</div>
                 </div>
+                <div class="stat-mini">
+                    <div class="stat-mini-label">Mes</div>
+                    <div class="stat-mini-value">${hm}h</div>
+                </div>
+                <div class="stat-mini">
+                    <div class="stat-mini-label">Periodo</div>
+                    <div class="stat-mini-value">${hp}h</div>
+                </div>
+            </div>
+
+            <div class="earnings-highlight">
+                <div class="earnings-label">💰 Ganancias Brutas del Periodo</div>
+                <div class="earnings-value">$${gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             </div>
 
             ${calendarHTML}
@@ -5949,7 +5999,7 @@ window.addEventListener('resize', () => {
     updateHeaderOffset();
 });
 
-// âš¡ NUEVO: Listener de scroll para controles flotantes
+// ⚡ NUEVO: Listener de scroll para controles flotantes
 let lastScrollTime = 0;
 window.addEventListener('scroll', () => {
     const scrollY = window.scrollY;
@@ -5982,883 +6032,7 @@ window.addEventListener('scroll', () => {
     }
 });
 
-
-// ============================================
-// DATOS DE PRUEBA
-// ============================================
-
-// Demo data moved to modules/data/DemoData.js
-// ============================================
-// ONBOARDING WIZARD
-// ============================================
-
-class OnboardingWizard {
-    constructor() {
-        this.steps = [
-            'welcome',
-            'mode-selection',
-            'company',
-            'hours',
-            'positions',
-            'employees',
-            'done'
-        ];
-    }
-
-    show() {
-        // Solo mostrar si no está en modo demo Y no ha completado onboarding
-        if (!state.usingDemoData && !localStorage.getItem('onboardingCompleted')) {
-            state.showOnboarding = true;
-            state.onboardingStep = 0;
-            render();
-        }
-    }
-
-    renderStep() {
-        const step = this.steps[state.onboardingStep];
-
-        switch (step) {
-            case 'welcome': return this.renderWelcome();
-            case 'mode-selection': return this.renderModeSelection();
-            case 'company': return this.renderCompany();
-            case 'hours': return this.renderHours();
-            case 'positions': return this.renderPositions();
-            case 'employees': return this.renderEmployees();
-            case 'done': return this.renderDone();
-            default: return '';
-        }
-    }
-
-    renderWelcome() {
-        return `
-                    <div style="text-align: center; padding: 60px 40px;">
-                        <div style="font-size: 5rem; margin-bottom: 24px; animation: bounce 2s ease-in-out infinite;">👷‍♂️</div>
-                        <h1 style="font-size: 2.5rem; margin-bottom: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900;">
-                            ¡Bienvenido a Control de Asistencia!
-                        </h1>
-                        <p style="font-size: 1.25rem; color: #94a3b8; margin-bottom: 40px; max-width: 600px; margin-left: auto; margin-right: auto; line-height: 1.6;">
-                            Sistema profesional para gestionar la asistencia de tu equipo de construcción
-                        </p>
-                        
-                        <div style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-radius: 16px; padding: 32px; margin-bottom: 40px; max-width: 500px; margin-left: auto; margin-right: auto; border: 1px solid rgba(6, 182, 212, 0.2);">
-                            <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Lo que puedes hacer:</div>
-                            <div style="display: grid; gap: 12px; text-align: left;">
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="background: #10b981; width: 8px; height: 8px; border-radius: 50%;"></div>
-                                    <span style="color: #f1f5f9; font-size: 0.875rem;">Registrar asistencia diaria</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="background: #06b6d4; width: 8px; height: 8px; border-radius: 50%;"></div>
-                                    <span style="color: #f1f5f9; font-size: 0.875rem;">Gestionar horas extras y festivos</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="background: #f59e0b; width: 8px; height: 8px; border-radius: 50%;"></div>
-                                    <span style="color: #f1f5f9; font-size: 0.875rem;">Generar reportes y exportar a Excel</span>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="background: #8b5cf6; width: 8px; height: 8px; border-radius: 50%;"></div>
-                                    <span style="color: #f1f5f9; font-size: 0.875rem;">Sincronizar en la nube (Firebase)</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; flex-direction: column; gap: 16px; max-width: 400px; margin: 0 auto;">
-                            <button onclick="onboardingWizard.next()" class="btn btn-primary" style="padding: 18px 48px; font-size: 1.25rem; font-weight: 700; box-shadow: 0 10px 30px rgba(6, 182, 212, 0.3);">
-                                🚀 Comenzar desde Cero
-                            </button>
-                            
-                            <button onclick="onboardingWizard.skipToCloudLogin()" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1rem; font-weight: 600; background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2)); border: 2px solid #10b981;">
-                                ☁️ Ya tengo cuenta en la nube
-                            </button>
-                            
-                            <button onclick="onboardingWizard.skipToRestoreBackup()" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1rem; font-weight: 600; background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.2)); border: 2px solid #8b5cf6;">
-                                💾 Restaurar desde Backup
-                            </button>
-                        </div>
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    renderModeSelection() {
-        return `
-                    <div style="padding: 20px; max-width: 900px; margin: 0 auto;">
-                        <div style="text-align: center; margin-bottom: 32px;">
-                            <h2 style="font-size: 1.5rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">¿Cómo quieres comenzar?</h2>
-                            <p style="color: #94a3b8; font-size: 1rem;">Elige la opción que mejor se adapte a ti</p>
-                        </div>
-                        
-                        <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 24px;">
-                            <!-- Opción: Datos de Prueba -->
-                            <div onclick="onboardingWizard.selectMode('demo')" 
-                                 style="background: linear-gradient(135deg, #1e293b, #0f172a); 
-                                        border: 2px solid #06b6d4; 
-                                        border-radius: 16px; 
-                                        padding: 24px; 
-                                        cursor: pointer; 
-                                        transition: all 0.3s; 
-                                        position: relative;">
-                                
-                                <div style="position: absolute; top: 12px; right: 12px; 
-                                           background: linear-gradient(135deg, #06b6d4, #0891b2); 
-                                           color: white; 
-                                           padding: 4px 10px; 
-                                           border-radius: 8px; 
-                                           font-size: 0.65rem; 
-                                           font-weight: 700;">
-                                    RECOMENDADO
-                                </div>
-                                
-                                <div style="font-size: 3rem; margin-bottom: 12px; text-align: center;">🎮</div>
-                                
-                                <h3 style="font-size: 1.25rem; 
-                                           margin-bottom: 8px; 
-                                           color: #06b6d4; 
-                                           font-weight: 700; 
-                                           text-align: center;">
-                                    Explorar con Datos de Prueba
-                                </h3>
-                                
-                                <p style="color: #94a3b8; 
-                                          margin-bottom: 16px; 
-                                          line-height: 1.5; 
-                                          text-align: center; 
-                                          font-size: 0.875rem;">
-                                    Perfecto para conocer el sistema
-                                </p>
-                                
-                                <div style="background: rgba(6, 182, 212, 0.1); 
-                                           border-radius: 10px; 
-                                           padding: 14px; 
-                                           margin-bottom: 14px; 
-                                           border-left: 3px solid #06b6d4;">
-                                    <div style="font-size: 0.8rem; color: #f1f5f9; line-height: 1.6;">
-                                        <div style="margin-bottom: 6px;">✓ 5 empleados de ejemplo</div>
-                                        <div style="margin-bottom: 6px;">✓ 3 posiciones configuradas</div>
-                                        <div style="margin-bottom: 6px;">✓ Asistencia de últimos 7 días</div>
-                                        <div>✓ Puedes probar todas las funciones</div>
-                                    </div>
-                                </div>
-                                
-                                <div style="background: rgba(251, 191, 36, 0.1); 
-                                           border-radius: 8px; 
-                                           padding: 12px; 
-                                           border-left: 2px solid #fbbf24;">
-                                    <div style="font-size: 0.7rem; color: #fbbf24; font-weight: 600; margin-bottom: 4px;">
-                                        💡 IMPORTANTE
-                                    </div>
-                                    <div style="font-size: 0.7rem; color: #94a3b8; line-height: 1.4;">
-                                        Los datos de prueba NO se guardan. Puedes reiniciar cuando quieras para ingresar tus datos reales.
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Opción: Desde Cero -->
-                            <div onclick="onboardingWizard.selectMode('scratch')" 
-                                 style="background: linear-gradient(135deg, #1e293b, #0f172a); 
-                                        border: 2px solid #334155; 
-                                        border-radius: 16px; 
-                                        padding: 24px; 
-                                        cursor: pointer; 
-                                        transition: all 0.3s;">
-                                
-                                <div style="font-size: 3rem; margin-bottom: 12px; text-align: center;">🚀</div>
-                                
-                                <h3 style="font-size: 1.25rem; 
-                                           margin-bottom: 8px; 
-                                           color: #10b981; 
-                                           font-weight: 700; 
-                                           text-align: center;">
-                                    Configurar Desde Cero
-                                </h3>
-                                
-                                <p style="color: #94a3b8; 
-                                          margin-bottom: 16px; 
-                                          line-height: 1.5; 
-                                          text-align: center; 
-                                          font-size: 0.875rem;">
-                                    Para empezar con tus datos reales
-                                </p>
-                                
-                                <div style="background: rgba(16, 185, 129, 0.1); 
-                                           border-radius: 10px; 
-                                           padding: 14px; 
-                                           margin-bottom: 14px; 
-                                           border-left: 3px solid #10b981;">
-                                    <div style="font-size: 0.8rem; color: #f1f5f9; line-height: 1.6;">
-                                        <div style="margin-bottom: 6px;">✓ Configuración guiada paso a paso</div>
-                                        <div style="margin-bottom: 6px;">✓ Tus datos se guardan permanentemente</div>
-                                        <div style="margin-bottom: 6px;">✓ Listo para producción</div>
-                                        <div>✓ Toma solo 3-5 minutos</div>
-                                    </div>
-                                </div>
-                                
-                                <div style="background: rgba(6, 182, 212, 0.1); 
-                                           border-radius: 8px; 
-                                           padding: 12px; 
-                                           border-left: 2px solid #06b6d4;">
-                                    <div style="font-size: 0.7rem; color: #06b6d4; font-weight: 600; margin-bottom: 4px;">
-                                        ✨ RECOMENDADO SI
-                                    </div>
-                                    <div style="font-size: 0.7rem; color: #94a3b8; line-height: 1.4;">
-                                        Ya conoces el sistema o quieres empezar a usar en producción inmediatamente.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div style="text-align: center;">
-                            <button onclick="onboardingWizard.prev()" 
-                                    class="btn btn-secondary" 
-                                    style="padding: 12px 32px;">
-                                ← Atrás
-                            </button>
-                        </div>
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    async selectMode(mode) {
-        state.onboardingMode = mode;
-
-        if (mode === 'demo') {
-            const confirmed = window.confirm(
-                '¿Cargar datos de prueba avanzados?\n\nEsto reemplazará cualquier dato actual con un escenario de 30 días, incluyendo feriados, horas extras y contrataciones tardías.'
-            );
-
-            if (confirmed) {
-                await this.loadDemoData();
-                state.onboardingStep = this.steps.indexOf('done');
-            } else {
-                return; // Volver a selección
-            }
-        } else if (mode === 'scratch') {
-            this.clearAllData();
-            this.next();
-        }
-
-        render();
-    }
-
-    clearAllData() {
-        console.log('🧹 Limpiando datos de prueba...');
-
-        // Limpiar posiciones (dejar array vacío)
-        state.positions = [];
-
-        // Limpiar líderes
-        state.leaders = [];
-
-        // Limpiar empleados
-        state.employees = [];
-
-        // Limpiar asistencias
-        state.attendance = {};
-
-        // Resetear settings a valores por defecto limpios
-        state.settings = {
-            companyName: 'Mi Empresa',
-            regularHoursPerDay: 8,
-            holidayFactor: 2,
-            iconSet: resolveIconSet(),
-            holidays: []
-        };
-
-        // Limpiar configuraciones de días
-        state.dayHoursConfig = {};
-
-        console.log('✅ Sistema limpio y listo para configurar');
-    }
-
-    async loadDemoData() {
-        try {
-            await loadDemoDataIntoDB();
-            console.log('✅ app.js: Datos demo avanzados cargados correctamente');
-        } catch (error) {
-            console.error('❌ app.js: Error al cargar datos demo:', error);
-            if (window.Notification) window.Notification.error('Error al cargar datos de prueba');
-        }
-    }
-
-    renderCompany() {
-        return `
-                    <div style="padding: 60px 40px; max-width: 600px; margin: 0 auto;">
-                        <div style="text-align: center; margin-bottom: 40px;">
-                            <div style="font-size: 4rem; margin-bottom: 20px;">🏗️</div>
-                            <h2 style="font-size: 2rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">Paso 1: Tu Empresa</h2>
-                            <p style="color: #94a3b8; font-size: 1.125rem;">¿Cómo se llama tu constructora?</p>
-                        </div>
-                        
-                        <div style="margin-bottom: 40px;">
-                            <label style="display: block; font-size: 0.875rem; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">
-                                Nombre de la Empresa
-                            </label>
-                            <input 
-                                type="text" 
-                                id="onboarding-company-name"
-                                placeholder="Ej: Constructora El Progreso"
-                                value="${state.settings.companyName}"
-                                style="width: 100%; padding: 16px; font-size: 1.125rem; border-radius: 12px; border: 2px solid #334155; background: #0f172a; color: #f1f5f9; transition: all 0.2s;"
-                                autofocus
-                                onfocus="this.style.borderColor='#06b6d4'; this.style.boxShadow='0 0 0 3px rgba(6,182,212,0.1)'"
-                                onblur="this.style.borderColor='#334155'; this.style.boxShadow='none'"
-                            >
-                        </div>
-                        
-                        <div style="display: flex; gap: 12px; justify-content: space-between;">
-                            <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">
-                                ← Atrás
-                            </button>
-                            <button onclick="onboardingWizard.saveCompanyAndNext()" class="btn btn-primary" style="flex: 2;">
-                                Siguiente →
-                            </button>
-                        </div>
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    renderHours() {
-        return `
-                    <div style="padding: 60px 40px; max-width: 700px; margin: 0 auto;">
-                        <div style="text-align: center; margin-bottom: 40px;">
-                            <div style="font-size: 4rem; margin-bottom: 20px;">⏰</div>
-                            <h2 style="font-size: 2rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">Paso 2: Jornada Laboral</h2>
-                            <p style="color: #94a3b8; font-size: 1.125rem;">Define cuántas horas trabajan normalmente</p>
-                        </div>
-                        
-                        <div style="margin-bottom: 40px;">
-                            <label style="display: block; font-size: 0.875rem; color: #94a3b8; margin-bottom: 16px; font-weight: 600; text-align: center;">
-                                Selecciona las horas regulares por día
-                            </label>
-                            
-                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
-                                ${[6, 8, 9, 10].map(h => `
-                                    <button 
-                                        onclick="selectHours(${h})"
-                                        style="padding: 32px 16px; border-radius: 16px; border: 3px solid ${state.settings.regularHoursPerDay === h ? '#06b6d4' : '#334155'}; background: ${state.settings.regularHoursPerDay === h ? 'linear-gradient(135deg, rgba(6,182,212,0.2), rgba(6,182,212,0.05))' : '#1e293b'}; cursor: pointer; transition: all 0.3s; position: relative;"
-                                        onmouseover="if(${state.settings.regularHoursPerDay !== h}) { this.style.borderColor='#475569'; this.style.transform='scale(1.05)'; }"
-                                        onmouseout="if(${state.settings.regularHoursPerDay !== h}) { this.style.borderColor='#334155'; this.style.transform='scale(1)'; }"
-                                    >
-                                        ${state.settings.regularHoursPerDay === h ? '<div style="position: absolute; top: 8px; right: 8px; color: #06b6d4; font-size: 1.25rem;">✓</div>' : ''}
-                                        <div style="font-size: 2.5rem; font-weight: 900; color: ${state.settings.regularHoursPerDay === h ? '#06b6d4' : '#f1f5f9'}; margin-bottom: 8px;">${h}</div>
-                                        <div style="font-size: 0.875rem; color: #94a3b8; font-weight: 600;">horas</div>
-                                    </button>
-                                `).join('')}
-                            </div>
-                            
-                            <div style="text-align: center; padding: 16px; background: rgba(6, 182, 212, 0.05); border-radius: 12px; border: 1px solid rgba(6, 182, 212, 0.2);">
-                                <div style="color: #06b6d4; font-size: 0.875rem; font-weight: 600; margin-bottom: 4px;">💡 No te preocupes</div>
-                                <div style="color: #94a3b8; font-size: 0.875rem;">Puedes cambiar esto después en Ajustes</div>
-                            </div>
-                        </div>
-                        
-                        <div style="display: flex; gap: 12px; justify-content: space-between;">
-                            <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">
-                                ← Atrás
-                            </button>
-                            <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2;">
-                                Siguiente →
-                            </button>
-                        </div>
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    renderPositions() {
-        const positionsCount = state.positions.filter(p => p.active).length;
-
-        return `
-                    <div style="padding: 60px 40px; max-width: 800px; margin: 0 auto;">
-                        <div style="text-align: center; margin-bottom: 40px;">
-                            <div style="font-size: 4rem; margin-bottom: 20px;">🎯</div>
-                            <h2 style="font-size: 2rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">Paso 3: Posiciones</h2>
-                            <p style="color: #94a3b8; font-size: 1.125rem;">¿Qué tipos de trabajadores tienes?</p>
-                        </div>
-                        
-                        <div style="margin-bottom: 32px;">
-                            <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 16px; font-weight: 600;">
-                                Posiciones comunes (click para agregar):
-                            </div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px;">
-                                ${['Ayudante', 'Albañil', 'Carpintero', 'Electricista', 'Plomero', 'Supervisor'].map(name => `
-                                    <button 
-                                        onclick="quickAddPosition('${name}')"
-                                        style="padding: 12px 24px; border-radius: 10px; border: 2px solid #334155; background: #1e293b; color: #f1f5f9; cursor: pointer; font-size: 0.875rem; font-weight: 600; transition: all 0.2s;"
-                                        onmouseover="this.style.borderColor='#06b6d4'; this.style.background='rgba(6,182,212,0.1)'; this.style.transform='translateY(-2px)'"
-                                        onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'; this.style.transform='translateY(0)'"
-                                    >
-                                        + ${name}
-                                    </button>
-                                `).join('')}
-                            </div>
-                            
-                            ${positionsCount === 0 ? `
-                                <div style="text-align: center; padding: 48px 32px; background: rgba(239, 68, 68, 0.05); border: 2px dashed #ef4444; border-radius: 16px;">
-                                    <div style="font-size: 2.5rem; margin-bottom: 12px;">👆</div>
-                                    <div style="color: #ef4444; font-weight: 600; margin-bottom: 8px;">Agrega al menos una posición</div>
-                                    <div style="color: #94a3b8; font-size: 0.875rem;">Click en alguna de las opciones de arriba para continuar</div>
-                                </div>
-                            ` : `
-                                <div style="background: #1e293b; border-radius: 16px; padding: 20px; border: 1px solid #334155;">
-                                    <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 16px; font-weight: 600;">Posiciones agregadas (${positionsCount}):</div>
-                                    <div style="display: grid; gap: 12px; max-height: 300px; overflow-y: auto;">
-                                        ${state.positions.filter(p => p.active).map(pos => `
-                                            <div style="background: #0f172a; padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155;">
-                                                <div style="display: flex; align-items: center; gap: 16px;">
-                                                    <div style="width: 20px; height: 20px; border-radius: 50%; background: ${pos.color}; box-shadow: 0 0 12px ${pos.color}50;"></div>
-                                                    <span style="font-weight: 700; color: #f1f5f9; font-size: 1rem;">${pos.name}</span>
-                                                </div>
-                                                <button onclick="removePosition('${pos.id}')" style="color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: all 0.2s; font-weight: 600; font-size: 0.875rem;" onmouseover="this.style.background='#ef4444'; this.style.color='white'" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444'">
-                                                    🗑️ Eliminar
-                                                </button>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `}
-                        </div>
-                        
-                        <div style="display: flex; gap: 12px; justify-content: space-between;">
-                            <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">
-                                ← Atrás
-                            </button>
-                            <button 
-                                onclick="onboardingWizard.next()" 
-                                class="btn btn-primary" 
-                                style="flex: 2; ${positionsCount === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''}"
-                                ${positionsCount === 0 ? 'disabled' : ''}
-                            >
-                                Siguiente →
-                            </button>
-                        </div>
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    renderEmployees() {
-        const employeesCount = state.employees.filter(e => e.active).length;
-
-        return `
-                    <div style="padding: 60px 40px; max-width: 800px; margin: 0 auto;">
-                        <div style="text-align: center; margin-bottom: 40px;">
-                            <div style="font-size: 4rem; margin-bottom: 20px;">👥</div>
-                            <h2 style="font-size: 2rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">Paso 4: Empleados</h2>
-                            <p style="color: #94a3b8; font-size: 1.125rem;">Agrega tu primer empleado (puedes agregar más después)</p>
-                        </div>
-                        
-                        <form onsubmit="addOnboardingEmployee(event); return false;" style="background: #1e293b; border-radius: 16px; padding: 24px; margin-bottom: 32px; border: 1px solid #334155;">
-                            <div style="display: grid; gap: 20px;">
-                                <div>
-                                    <label style="display: block; font-size: 0.875rem; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">
-                                        Nombre Completo *
-                                    </label>
-                                    <input 
-                                        type="text" 
-                                        id="onboarding-emp-name"
-                                        placeholder="Ej: Juan Pérez"
-                                        style="width: 100%; padding: 14px; border-radius: 10px; border: 2px solid #334155; background: #0f172a; color: #f1f5f9; font-size: 1rem; transition: all 0.2s;"
-                                        required
-                                        onfocus="this.style.borderColor='#06b6d4'"
-                                        onblur="this.style.borderColor='#334155'"
-                                    >
-                                </div>
-                                
-                                <div>
-                                    <label style="display: block; font-size: 0.875rem; color: #94a3b8; margin-bottom: 8px; font-weight: 600;">
-                                        Posición *
-                                    </label>
-                                    <select 
-                                        id="onboarding-emp-position"
-                                        style="width: 100%; padding: 14px; border-radius: 10px; border: 2px solid #334155; background: #0f172a; color: #f1f5f9; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
-                                        required
-                                        onfocus="this.style.borderColor='#06b6d4'"
-                                        onblur="this.style.borderColor='#334155'"
-                                    >
-                                        ${state.positions.filter(p => p.active).map(pos => `
-                                            <option value="${pos.id}">${pos.name}</option>
-                                        `).join('')}
-                                    </select>
-                                </div>
-                                
-                                <button type="submit" class="btn btn-secondary" style="width: 100%; padding: 14px; font-weight: 700;">
-                                    + Agregar Empleado
-                                </button>
-                            </div>
-                        </form>
-                        
-                        ${employeesCount === 0 ? `
-                            <div style="text-align: center; padding: 48px 32px; background: rgba(239, 68, 68, 0.05); border: 2px dashed #ef4444; border-radius: 16px;">
-                                <div style="font-size: 2.5rem; margin-bottom: 12px;">👆</div>
-                                <div style="color: #ef4444; font-weight: 600; margin-bottom: 8px;">Agrega al menos un empleado</div>
-                                <div style="color: #94a3b8; font-size: 0.875rem;">Llena el formulario de arriba para continuar</div>
-                            </div>
-                        ` : `
-                            <div style="background: #1e293b; border-radius: 16px; padding: 20px; border: 1px solid #334155; margin-bottom: 32px;">
-                                <div style="font-size: 0.875rem; color: #94a3b8; margin-bottom: 16px; font-weight: 600;">Empleados agregados (${employeesCount}):</div>
-                                <div style="display: grid; gap: 12px; max-height: 300px; overflow-y: auto;">
-                                    ${state.employees.filter(e => e.active).map(emp => {
-            const pos = state.positions.find(p => p.id === emp.position);
-            return `
-                                            <div style="background: #0f172a; padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155;">
-                                                <div>
-                                                    <div style="font-weight: 700; color: #f1f5f9; margin-bottom: 4px; font-size: 1rem;">${emp.name}</div>
-                                                    <div style="font-size: 0.875rem; color: #94a3b8; display: flex; align-items: center; gap: 8px;">
-                                                        <div style="width: 12px; height: 12px; border-radius: 50%; background: ${pos?.color || '#64748b'};"></div>
-                                                        ${pos?.name || 'Sin posición'}
-                                                    </div>
-                                                </div>
-                                                <button onclick="removeEmployee('${emp.id}')" style="color: #ef4444; background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 8px 16px; cursor: pointer; transition: all 0.2s; font-weight: 600; font-size: 0.875rem;" onmouseover="this.style.background='#ef4444'; this.style.color='white'" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444'">
-                                                    🗑️
-                                                </button>
-                                            </div>
-                                        `;
-        }).join('')}
-                                </div>
-                            </div>
-                        `}
-                        
-                        <div style="display: flex; gap: 12px; justify-content: space-between;">
-                            <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">
-                                ← Atrás
-                            </button>
-                            <button 
-                                onclick="onboardingWizard.next()" 
-                                class="btn btn-primary" 
-                                style="flex: 2; ${employeesCount === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''}"
-                                ${employeesCount === 0 ? 'disabled' : ''}
-                            >
-                                Siguiente →
-                            </button>
-                        </div>
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    renderDone() {
-        const isDemo = state.onboardingMode === 'demo';
-
-        return `
-                    <div style="text-align: center; padding: 60px 40px; max-width: 700px; margin: 0 auto;">
-                        <div style="font-size: 5rem; margin-bottom: 32px; animation: bounce 1s ease-in-out 3;">🎉</div>
-                        <h1 style="font-size: 2.5rem; margin-bottom: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900;">
-                            ${isDemo ? '¡Modo Exploración Activado!' : '¡Todo Listo!'}
-                        </h1>
-                        <p style="font-size: 1.25rem; color: #94a3b8; margin-bottom: 48px; line-height: 1.6;">
-                            ${isDemo
-                ? 'Puedes explorar todas las funciones con datos de prueba. Los cambios NO se guardarán.'
-                : 'Tu sistema está configurado y listo para usar en producción.'}
-                        </p>
-                        
-                        ${isDemo ? `
-                            <div style="background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.1)); border: 2px solid #fbbf24; border-radius: 16px; padding: 24px; margin-bottom: 40px;">
-                                <div style="font-size: 1rem; color: #fbbf24; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                    <span>⚠️</span>
-                                    <span>MODO DEMO ACTIVO</span>
-                                </div>
-                                <div style="color: #f1f5f9; font-size: 0.875rem; line-height: 1.6; margin-bottom: 16px;">
-                                    Estás usando datos de prueba. Puedes explorar libremente todas las funciones:
-                                </div>
-                                <div style="display: grid; gap: 8px; text-align: left; color: #f1f5f9; font-size: 0.875rem;">
-                                    <div>✓ Marcar asistencia</div>
-                                    <div>✓ Generar reportes</div>
-                                    <div>✓ Exportar a Excel</div>
-                                    <div>✓ Probar todas las funciones</div>
-                                </div>
-                                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(251, 191, 36, 0.3); color: #fbbf24; font-size: 0.875rem; font-weight: 600;">
-                                    Para ingresar tus datos reales, recarga la página y selecciona "Configurar Desde Cero"
-                                </div>
-                            </div>
-                        ` : `
-                            <div style="background: #1e293b; border-radius: 16px; padding: 32px; margin-bottom: 40px; border: 1px solid #334155;">
-                                <div style="display: grid; gap: 16px; text-align: left;">
-                                    <div style="padding-bottom: 16px; border-bottom: 1px solid #334155;">
-                                        <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Empresa</div>
-                                        <div style="font-weight: 700; color: #f1f5f9; font-size: 1.125rem;">${state.settings.companyName}</div>
-                                    </div>
-                                    <div style="padding-bottom: 16px; border-bottom: 1px solid #334155;">
-                                        <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Jornada Laboral</div>
-                                        <div style="font-weight: 700; color: #f1f5f9; font-size: 1.125rem;">${state.settings.regularHoursPerDay} horas/día</div>
-                                    </div>
-                                    <div style="padding-bottom: 16px; border-bottom: 1px solid #334155;">
-                                        <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Posiciones</div>
-                                        <div style="font-weight: 700; color: #f1f5f9; font-size: 1.125rem;">${state.positions.filter(p => p.active).length} configuradas</div>
-                                    </div>
-                                    <div>
-                                        <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Empleados</div>
-                                        <div style="font-weight: 700; color: #f1f5f9; font-size: 1.125rem;">${state.employees.filter(e => e.active).length} registrados</div>
-                                    </div>
-                                </div>
-                            </div>
-                        `}
-                        
-                        <div style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-radius: 16px; padding: 24px; margin-bottom: 40px; border: 1px solid rgba(6, 182, 212, 0.3);">
-                            <div style="font-weight: 700; margin-bottom: 16px; color: #06b6d4; font-size: 1.125rem;">💡 Consejos rápidos:</div>
-                            <div style="display: grid; gap: 12px; text-align: left; color: #f1f5f9; font-size: 0.875rem; line-height: 1.6;">
-                                <div style="display: flex; align-items: start; gap: 12px;">
-                                    <div style="background: #10b981; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 0.75rem;">1</div>
-                                    <div>Ve a <strong>📋 Asistencia</strong> para marcar quién trabajó hoy</div>
-                                </div>
-                                <div style="display: flex; align-items: start; gap: 12px;">
-                                    <div style="background: #06b6d4; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 0.75rem;">2</div>
-                                    <div>Usa <strong>Vista Semana</strong> para ver y editar toda la semana</div>
-                                </div>
-                                <div style="display: flex; align-items: start; gap: 12px;">
-                                    <div style="background: #f59e0b; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 0.75rem;">3</div>
-                                    <div>Exporta backups desde <strong>⚙️ Ajustes</strong> regularmente</div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <button onclick="onboardingWizard.complete()" class="btn btn-primary" style="padding: 20px 64px; font-size: 1.25rem; font-weight: 800; box-shadow: 0 12px 40px rgba(6, 182, 212, 0.4); animation: pulse 2s ease-in-out infinite;">
-                            ${isDemo ? '🎮 Empezar a Explorar →' : '🚀 Empezar a Usar →'}
-                        </button>
-                        
-                        ${isDemo ? `
-                            <div style="margin-top: 24px;">
-                                <button onclick="location.reload()" style="background: none; border: 2px solid #64748b; color: #94a3b8; padding: 12px 24px; border-radius: 10px; cursor: pointer; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.borderColor='#06b6d4'; this.style.color='#06b6d4'" onmouseout="this.style.borderColor='#64748b'; this.style.color='#94a3b8'">
-                                    🔄 Reiniciar para Configurar Desde Cero
-                                </button>
-                            </div>
-                        ` : ''}
-                        
-                        ${this.renderProgress()}
-                    </div>
-                `;
-    }
-
-    renderProgress() {
-        const total = this.steps.length;
-        const current = state.onboardingStep + 1;
-        const percentage = (current / total) * 100;
-
-        return `
-                    <div style="margin-top: 48px; text-align: center;">
-                        <div style="background: #334155; height: 8px; border-radius: 4px; overflow: hidden; max-width: 400px; margin: 0 auto 12px;">
-                            <div style="background: linear-gradient(90deg, #06b6d4, #10b981); height: 100%; width: ${percentage}%; transition: width 0.3s ease-out; border-radius: 4px;"></div>
-                        </div>
-                        <div style="color: #64748b; font-size: 0.875rem; font-weight: 600;">
-                            Paso ${current} de ${total}
-                        </div>
-                    </div>
-                `;
-    }
-
-    next() {
-        if (state.onboardingStep < this.steps.length - 1) {
-            state.onboardingStep++;
-            render();
-        }
-    }
-
-    prev() {
-        if (state.onboardingStep > 0) {
-            state.onboardingStep--;
-            render();
-        }
-    }
-
-    saveCompanyAndNext() {
-        const input = document.getElementById('onboarding-company-name');
-        if (!input) return;
-
-        const name = input.value.trim();
-        if (name.length < 2) {
-            showNotification('❌ Por favor ingresa el nombre de la empresa', 'error');
-            return;
-        }
-
-        state.settings.companyName = name;
-        this.next();
-    }
-
-    complete() {
-        if (state.onboardingMode === 'scratch') {
-            // Guardar datos permanentemente
-            localStorage.setItem('onboardingCompleted', 'true');
-            saveApplicationData();
-            showNotification('✅ ¡Sistema configurado! Tus datos se han guardado', 'success');
-        } else {
-            // Modo demo: NO guardar en localStorage
-            showNotification('🎮 Modo exploración activo. Los cambios NO se guardarán', 'info');
-        }
-
-        state.showOnboarding = false;
-        render();
-    }
-
-    skipToCloudLogin() {
-        // Completar onboarding y abrir login de Firebase
-        localStorage.setItem('onboardingCompleted', 'true');
-        state.showOnboarding = false;
-
-        // Primero renderizar para quitar el overlay de onboarding
-        render();
-
-        // Luego abrir login con Google
-        setTimeout(() => {
-            FirebaseService.loginWithGoogle();
-        }, 200);
-    }
-
-    skipToRestoreBackup() {
-        // Completar onboarding y abrir restauración de backup
-        localStorage.setItem('onboardingCompleted', 'true');
-        state.showOnboarding = false;
-
-        // Trigger file input para backup
-        setTimeout(() => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    try {
-                        const text = await file.text();
-                        const importedData = JSON.parse(text);
-
-                        // Validar estructura (igual que importData)
-                        if (!importedData.data) {
-                            throw new Error('Formato de archivo inválido');
-                        }
-
-                        // Importar datos (igual que importData que sí funciona)
-                        state.settings = importedData.data.settings || state.settings;
-                        state.positions = importedData.data.positions || [];
-                        state.employees = importedData.data.employees || [];
-                        state.attendance = importedData.data.attendance || {};
-                        state.tempAssignments = importedData.data.tempAssignments || [];
-
-                        // Guardar en localStorage
-                        saveApplicationData();
-
-                        showNotification('✅ Backup restaurado correctamente', 'success');
-                        render();
-                    } catch (error) {
-                        console.error('Error restaurando backup:', error);
-                        showNotification('❌ Archivo de backup inválido: ' + error.message, 'error');
-                    }
-                }
-            };
-            input.click();
-        }, 100);
-    }
-}
-
-// Crear instancia global
-const onboardingWizard = new OnboardingWizard();
-window.onboardingWizard = onboardingWizard; // Expose to window for HTML onclick handlers
-
-// Funciones auxiliares para onboarding
-window.selectHours = function (hours) {
-    state.settings.regularHoursPerDay = hours;
-    render();
-};
-
-window.quickAddPosition = function (name) {
-    const colors = ['#10b981', '#f59e0b', '#3b82f6', '#06b6d4', '#8b5cf6', '#ec4899'];
-    const existingPos = state.positions.find(p => p.name === name && p.active);
-
-    if (existingPos) {
-        showNotification(`⚠️ La posición "${name}" ya existe`, 'error');
-        return;
-    }
-
-    const newPosition = {
-        id: generateUUID(), // ✅ UUID estándar
-        name: name,
-        salaryConfig: {
-            amount: 30000,
-            period: 'month',
-            workDays: [1, 2, 3, 4, 5, 6]
-        },
-        color: colors[state.positions.length % colors.length],
-        leaderId: null,
-        active: true,
-        updatedAt: Date.now()
-    };
-
-    state.positions.push(newPosition);
-    showNotification(`✅ Posición "${name}" agregada`, 'success');
-    render();
-};
-
-window.removePosition = function (positionId) {
-    state.positions = state.positions.filter(p => p.id !== positionId);
-    render();
-};
-
-window.addOnboardingEmployee = function (event) {
-    event.preventDefault();
-
-    const nameInput = document.getElementById('onboarding-emp-name');
-    const positionSelect = document.getElementById('onboarding-emp-position');
-
-    if (!nameInput || !positionSelect) return;
-
-    const name = nameInput.value.trim();
-    const positionId = positionSelect.value;
-
-    if (name.length < 2) {
-        showNotification('❌ El nombre debe tener al menos 2 caracteres', 'error');
-        return;
-    }
-
-    const newNumber = String(state.employees.length + 1).padStart(3, '0');
-    const newEmployee = {
-        id: generateUUID(), // ✅ UUID estándar
-        number: newNumber,
-        name: name,
-        position: positionId,
-        positions: [positionId],
-        active: true,
-        updatedAt: Date.now()
-    };
-
-    state.employees.push(newEmployee);
-    showNotification(`✅ Empleado "${name}" agregado`, 'success');
-
-    // Limpiar formulario
-    nameInput.value = '';
-
-    render();
-};
-
-window.removeEmployee = function (employeeId) {
-    state.employees = state.employees.filter(e => e.id !== employeeId);
-    render();
-};
-
-// ============================================
-// CSS ADICIONAL PARA ANIMACIONES
-// ============================================
-
-const additionalStyles = `
-            @keyframes bounce {
-                0%, 100% { transform: translateY(0); }
-                50% { transform: translateY(-20px); }
-            }
-            
-            @keyframes pulse {
-                0%, 100% { box-shadow: 0 12px 40px rgba(6, 182, 212, 0.4); }
-                50% { box-shadow: 0 16px 60px rgba(6, 182, 212, 0.6); }
-            }
-        `;
-
-const styleTag = document.createElement('style');
-styleTag.textContent = additionalStyles;
-document.head.appendChild(styleTag);
+// [LEGACY ONBOARDING REMOVED - MOVED TO modules/ui/Onboarding.js]
 
 // ============================================
 // 🚀 INICIALIZACIÓN DE LA APLICACIÓN

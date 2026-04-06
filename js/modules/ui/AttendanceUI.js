@@ -402,7 +402,9 @@ export function EmployeeRow(emp) {
             state.listDisplayMode,
             state.settings?.regularHoursPerDay || 8,
             getDayHours(state.selectedDate),
-            (state.settings.holidays || []).join(',')
+            (state.settings.holidays || []).join(','),
+            state.tempPositionSelection?.[attKey] || '',
+            att?.selectedPosition || ''
         ]
     );
 }
@@ -439,6 +441,10 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         ? `<div class="hours-badge">${att.hoursWorked}h${multiPosIcon}</div>`
         : '';
 
+    const workedPositionIds = isChecked 
+        ? (isMultiPosition ? att.positionHours.map(ph => ph.positionId) : [selPos])
+        : [];
+
     return `<div id="emp-row-${emp.id}" class="employee-row">
                 <div class="employee-info">
                     <div class="employee-header">
@@ -449,9 +455,16 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                         ${emp.positions.map(pid => {
         const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
         const isActive = isChecked ? (selPos === pid) : (selectedPosId === pid);
-        return `<button class="position-toggle ${isActive ? 'active' : ''}" 
+        const isWorked = workedPositionIds.includes(pid);
+        
+        // Estilos Neón dinámicos
+        const posColor = pos.color || "#64748b";
+        const neonStyle = isWorked ? `border-color: ${posColor}; box-shadow: 0 0 10px ${posColor}66; background: ${posColor}15; color: #fff;` : '';
+
+        return `<button class="position-toggle ${isActive ? 'active' : ''} ${isWorked ? 'worked-today' : ''}" 
+                                                   style="${neonStyle}"
                                                    onclick="${isChecked ? `togglePosition('${emp.id}', '${pid}')` : `event.stopPropagation(); selectTempPosition('${emp.id}', '${pid}')`}">
-                                        <span class="pos-dot" style="background:${pos.color || "#64748b"};"></span>${pos.name || "Posición"}
+                                        <span class="pos-dot" style="background:${posColor};"></span>${pos.name || "Posición"}
                                       </button>`;
     }).join('')}
                     </div>

@@ -52,7 +52,8 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
         ].filter(Boolean).join(' ');
 
         // Tooltip y Marcadores
-        const tooltip = isPresent ? `${att.hoursWorked}h trabajadas` : (isPaid ? 'Día de Pago' : '');
+        const tooltip = isToday ? 'Hoy (Día Actual)' : (isPresent ? `${att.hoursWorked}h trabajadas` : (isPaid ? 'Día de Pago' : ''));
+        const todayIcon = isToday ? '<span class="today-marker">🎯</span>' : '';
         const paydayIcon = isPaid ? `<div class="payday-indicator" title="Día de Pago">${icons.get('zap', { size: 10 })}</div>` : '';
         const moneyIcon = isPaid ? `<span class="money-badge">💰</span>` : '';
 
@@ -60,6 +61,7 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
             <div class="${classes}" title="${tooltip}">
                 <span class="day-number">${d.date.getDate()}</span>
                 ${isPresent ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
+                ${todayIcon}
                 ${paydayIcon}
                 ${moneyIcon}
             </div>
