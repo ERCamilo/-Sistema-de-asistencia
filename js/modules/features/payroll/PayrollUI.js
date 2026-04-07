@@ -32,7 +32,8 @@ function getLeaderFilteredEmployees(state) {
     const leaderPositions = new Set(
         state.positions.filter(p => p.leaderId === leaderFilter).map(p => p.id)
     );
-    return activeEmployees.filter(emp => (emp.positions || []).some(pid => leaderPositions.has(pid)));
+    return activeEmployees.filter(emp => (emp.positions || []).some(pid => leaderPositions.has(pid)))
+        .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
 }
 
 export function PayrollTab() {
@@ -66,7 +67,8 @@ export function PayrollTab() {
     
     const employeeOptions = state.employees
         .filter(e => e.active !== false)
-        .map(e => `<option value="${e.id}">${e.name}</option>`)
+        .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }))
+        .map(e => `<option value="${e.id}">${e.number} - ${e.name}</option>`)
         .join('');
         
     const leaderFilter = state.exportConfig.leaderFilter || 'all';
@@ -301,7 +303,7 @@ export function PayrollTab() {
                         <tbody>
                             ${exportData.map((emp, idx) => `
                                 <tr style="border-bottom: 1px solid #334155; ${idx % 2 === 0 ? 'background: #0f172a;' : ''}">
-                                    <td style="padding: 12px; color: #06b6d4; font-weight: 600; font-family: monospace;">#${emp.id}</td>
+                                    <td style="padding: 12px; color: #06b6d4; font-weight: 600; font-family: monospace;">#${emp._number || emp.id}</td>
                                     <td style="padding: 12px; color: #f1f5f9; font-weight: 600;">${emp._employeeName}</td>
                                     <td style="padding: 12px; color: #94a3b8; font-size: 0.875rem;">${emp._employeePosition}</td>
                                      <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._brutoOriginal)}</td>
@@ -370,10 +372,11 @@ function generateExportData() {
             _bonuses: payroll.bonuses,
             _deductions: payroll.deductions,
             _employeeName: emp.name,
-            _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion'
+            _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion',
+            _number: emp.number
         };
     }).filter(emp => emp.monto > 0.001) // Filtro de seguridad para montos casi cero
-      .sort((a, b) => a.id - b.id);
+       .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
 }
 
 function generateExportDeductionsHTML() {

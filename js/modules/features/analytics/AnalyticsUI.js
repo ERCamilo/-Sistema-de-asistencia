@@ -573,7 +573,7 @@ function EmployeeReportGeneralSection(reportData) {
 });
 return emp;
     });
-allEmployees.sort((a, b) => a.number.localeCompare(b.number));
+    allEmployees.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
 return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
                 <div onclick="AnalyticsUI.togglePositionCollapse('general')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
@@ -713,6 +713,10 @@ function calculateEmployeeReportData() {
             });
             if (!isNaN(total)) employees.push({ id: emp.id, number: emp.number, name: emp.name, dayValues, total });
         });
+        
+        // Ordenar empleados por número de referencia antes de agregar la posición
+        employees.sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
+        
         if (employees.length > 0) positions.push({ position, employees });
     });
 

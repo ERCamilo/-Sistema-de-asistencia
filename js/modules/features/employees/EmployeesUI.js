@@ -247,7 +247,7 @@ export function EmployeesTab() {
                                         onfocus="this.closest('.filter-pill').classList.add('open')"
                                         onblur="this.closest('.filter-pill').classList.remove('open')">
                                     <option value="all" ${(leaderFilter || 'all') === 'all' ? 'selected' : ''}>Todos los lideres</option>
-                                    ${state.leaders.filter(l => l.active).map(l => `
+                                    ${state.leaders.filter(l => l.active).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(l => `
                                         <option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>
                                             ${l.name}
                                         </option>
@@ -569,7 +569,12 @@ export function PositionCard(pos) {
                                     ${icons.get('eye')} Ver Empleados (${employeesInPosition.length})
                                 </button>
                                 <div id="pos-employees-${pos.id}" style="display: none; margin-top: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px;">
-                                    ${employeesInPosition.map((emp, idx) => {
+                                    ${employeesInPosition.slice().sort((a, b) => {
+                                        const aNum = parseInt(a.number, 10);
+                                        const bNum = parseInt(b.number, 10);
+                                        if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+                                        return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
+                                    }).map((emp, idx) => {
         const customRate = emp.positionSalaries && emp.positionSalaries[pos.id] !== undefined
             ? Number(emp.positionSalaries[pos.id])
             : null;

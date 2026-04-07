@@ -371,7 +371,7 @@ export function SearchBar() {
                 <select onchange="setLeaderFilter(this.value)" 
                         class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
-                    ${state.leaders.filter(l => l.active).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
+                    ${state.leaders.filter(l => l.active).sort((a,b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
                 </select>
                 <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; font-size: 0.75rem;">▼</div>
             </div>
