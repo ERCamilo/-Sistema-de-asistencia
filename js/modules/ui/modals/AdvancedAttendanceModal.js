@@ -233,6 +233,8 @@ export function saveAdvancedAttendance() {
     });
 
     const attendanceRecord = {
+        employeeId: emp.id,
+        date: dateKey,
         present: totalHours > 0 || totalOvertime > 0,
         hoursWorked: totalHours,
         overtimeHours: totalOvertime,
@@ -240,14 +242,16 @@ export function saveAdvancedAttendance() {
         multiPosition: positionHours.length > 1,
         isHoliday: document.getElementById('isHoliday')?.checked || false,
         notes: document.getElementById('notes')?.value || '',
-        selectedPosition: positionHours.length > 0 ? positionHours[0].positionId : emp.positions[0]
+        selectedPosition: positionHours.length > 0 ? positionHours[0].positionId : (emp.positions?.[0] || null),
+        updatedAt: Date.now(),
+        lastAccessed: Date.now()
     };
 
-    // Guardar en el estado
+    // Guardar en el estado (Proxy activará la actualización del índice por fecha)
     state.attendance[key] = attendanceRecord;
     
-    // Notificar y renderizar
-    if (window.saveApplicationData) window.saveApplicationData();
+    // Sincronizar y renderizar
+    if (window.saveApplicationData) window.saveToLocalStorage({ dateKey });
     if (window.render) window.render();
     if (window.showNotification) window.showNotification('✅ Detalles guardados correctamente', 'success');
 
