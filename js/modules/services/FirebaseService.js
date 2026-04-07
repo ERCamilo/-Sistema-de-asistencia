@@ -2,7 +2,7 @@ import {
     auth, googleProvider, db, storage,
     signInWithPopup, signOut, onAuthStateChanged,
     doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, 
-    query, orderBy, limit, getDocs, Timestamp,
+    query, orderBy, limit, getDocs,
     ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch
 } from '../data/firebase.js';
 
@@ -117,6 +117,7 @@ class FirebaseService {
                 metadata: {
                     timestamp,
                     type,
+                    isProtected: type === 'pre-restore',
                     size: stateString.length,
                     employeeCount: state.employees?.length || 0,
                     attendanceCount: Object.keys(state.attendance || {}).length,
@@ -395,7 +396,14 @@ class FirebaseService {
             const snapDocs = await getDocs(snapshotsRef);
             const snapBatch = writeBatch(db);
             
-            snapDocs.forEach(d => snapBatch.delete(d.ref));
+            snapDocs.forEach(d => {
+                const data = d.data();
+                if (data.metadata?.type !== 'pre-restore' && !data.metadata?.isProtected) {
+                    snapBatch.delete(d.ref);
+                } else {
+                    console.log(`🛡️ Conservando snapshot protegido: ${d.id}`);
+                }
+            });
             await snapBatch.commit();
 
             console.log('🗑️ Datos en la nube eliminados correctamente');

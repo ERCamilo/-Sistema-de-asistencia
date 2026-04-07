@@ -48,8 +48,11 @@ class StateManager {
     constructor(initialState = {}) {
         this._state = initialState;
         this._silent = false;
+        this._attendanceDirty = false;
     }
     isSilent() { return this._silent; }
+    isAttendanceDirty() { return this._attendanceDirty; }
+    markAttendanceDirty() { this._attendanceDirty = true; }
     getState() { return this._state; }
     setState(updates, options = {}) {
         const { silent = false } = options;
@@ -137,49 +140,121 @@ const initialState = {
 export const stateManager = new StateManager(initialState);
 window.stateManager = stateManager;
 
-const stateHandler = {
-    get(target, prop, receiver) {
-        const value = Reflect.get(target, prop, receiver);
-        if (value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Blob)) {
-            return new Proxy(value, stateHandler);
-        }
-        return value;
-    },
-    set(target, prop, value, receiver) {
-        const oldValue = target[prop];
-        const result = Reflect.set(target, prop, value, receiver);
-        if (oldValue !== value && !stateManager.isSilent()) {
-            if (window.render) renderOptimizer.scheduleRender(window.render);
-        }
-        return result;
+const proxyCache = new WeakMap();
+
+const createRecursiveProxy = (obj, path = []) => {
+    if (obj === null || typeof obj !== 'object' || obj instanceof Date || obj instanceof Blob) {
+        return obj;
     }
+    
+    // Devolver del caché si ya existe
+    if (proxyCache.has(obj)) return proxyCache.get(obj);
+
+    const handler = {
+        get(target, prop, receiver) {
+            if (prop === '_isProxy') return true;
+            if (prop === '_rawTarget') return target;
+            
+            const value = Reflect.get(target, prop, receiver);
+            
+            // Solo proxificar objetos/arrays que no sean nativos especiales
+            if (value !== null && typeof value === 'object' && 
+                !(value instanceof Date) && !(value instanceof Blob)) {
+                return createRecursiveProxy(value, [...path, prop]);
+            }
+            return value;
+        },
+        set(target, prop, value, receiver) {
+            const oldValue = target[prop];
+            // Importante: Reflect.set sin receiver previene problemas en arrays y herencia
+            const result = Reflect.set(target, prop, value);
+
+            if (oldValue !== value && !stateManager.isSilent()) {
+                const fullPath = [...path, prop];
+                const rootProp = fullPath[0];
+
+                if (rootProp === 'attendance') {
+                    let dateKey = null;
+                    if (path.length === 1 && value && value.date) {
+                        dateKey = value.date;
+                    } else if (path.length > 1) {
+                        const recordKey = path[1];
+                        const record = stateManager._state.attendance[recordKey];
+                        if (record && record.date) dateKey = record.date;
+                    }
+                    if (dateKey) buildAttendanceIndex(dateKey);
+                    else stateManager.markAttendanceDirty();
+                } else if (['employees', 'positions', 'leaders', 'settings'].includes(rootProp)) {
+                    if (rootProp === 'attendance') stateManager.markAttendanceDirty();
+                }
+
+                if (window.render) renderOptimizer.scheduleRender(window.render);
+            }
+            return result;
+        },
+        deleteProperty(target, prop) {
+            const oldValue = target[prop];
+            const result = Reflect.deleteProperty(target, prop);
+            
+            if (result && !stateManager.isSilent()) {
+                const rootProp = path[0] || prop;
+                if (rootProp === 'attendance') {
+                    if (oldValue && oldValue.date) buildAttendanceIndex(oldValue.date);
+                    else stateManager.markAttendanceDirty();
+                }
+                if (window.render) renderOptimizer.scheduleRender(window.render);
+            }
+            return result;
+        }
+    };
+
+    const proxy = new Proxy(obj, handler);
+    proxyCache.set(obj, proxy);
+    return proxy;
 };
 
-export const state = new Proxy(stateManager._state, stateHandler);
+export const state = createRecursiveProxy(stateManager._state);
 window.state = state;
 
-// 📊 Funciones de Cálculo de Estadísticas (Exportadas para UI)
+
+
 /**
- * ⚡ P3-OPT: Construye el índice de asistencia por fecha.
- * Convierte la búsqueda O(N) en acceso O(1).
- * Llamar al cargar datos y al mutar state.attendance.
+ * ⚡ P3-OPT: Construye o actualiza el índice de asistencia por fecha.
+ * @param {string} specificDate - Si se provee, solo actualiza esa fecha ($O(M)$).
  */
-export function buildAttendanceIndex() {
-    const index = {};
-    for (const [key, record] of Object.entries(state.attendance)) {
+export function buildAttendanceIndex(specificDate = null) {
+    const mainAttendance = stateManager._state.attendance;
+    const index = stateManager._state.attendanceByDate;
+
+    if (specificDate) {
+        // ACTUALIZACIÓN GRANULAR: Reconstruir solo el bucket de esa fecha
+        index[specificDate] = Object.values(mainAttendance)
+            .filter(record => record.date === specificDate);
+        return;
+    }
+
+    // RECONSTRUCCIÓN TOTAL: Escaneo completo de la asistencia
+    const newIndex = {};
+    for (const record of Object.values(mainAttendance)) {
         const dKey = record.date;
         if (!dKey) continue;
-        if (!index[dKey]) index[dKey] = [];
-        index[dKey].push(record);
+        if (!newIndex[dKey]) newIndex[dKey] = [];
+        newIndex[dKey].push(record);
     }
-    // Asignación silenciosa para no disparar un re-render
-    stateManager._state.attendanceByDate = index;
+    
+    stateManager._state.attendanceByDate = newIndex;
+    stateManager._attendanceDirty = false;
 }
 window.buildAttendanceIndex = buildAttendanceIndex;
 
 export function calculateStats() {
+    // ⚡ P3-OPT: Reconstrucción lazy si los datos están sucios
+    if (stateManager.isAttendanceDirty()) {
+        if (window.debug) window.debug.log('🔄 Reconstruyendo índice de asistencia (Auto)...');
+        buildAttendanceIndex();
+    }
+
     const dKey = getDateKey(state.selectedDate);
-    // ⚡ P3-OPT: Usar índice O(1) en lugar de filter O(N)
     const todayAtt = state.attendanceByDate[dKey] || [];
     const present = todayAtt.filter(a => a.present).length;
     
@@ -190,7 +265,15 @@ export function calculateStats() {
     const totalHours = todayAtt.reduce((sum, a) => sum + (a.present ? (a.hoursWorked || 0) : 0), 0);
     const overtimeHours = todayAtt.reduce((sum, a) => {
         if (!a.present) return sum;
-        return sum + Math.max(0, (a.hoursWorked || 0) - (state.settings?.regularHoursPerDay || 8));
+        
+        // ⚡ REGLA: Si es multiposición, ya tenemos las extras calculadas manualmente (prioridad)
+        if (a.multiPosition && typeof a.overtimeHours === 'number') {
+            return sum + a.overtimeHours;
+        }
+
+        // Cálculo automático basado en el umbral global de ajustes (no el del botón ±8h)
+        const threshold = state.settings?.regularHoursPerDay || 8;
+        return sum + Math.max(0, (a.hoursWorked || 0) - threshold);
     }, 0);
     
     return { present, absent, totalHours, overtimeHours };

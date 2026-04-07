@@ -13,12 +13,12 @@ export class PayrollService {
         const hasPositionSalaries = employee.positionSalaries && Object.keys(employee.positionSalaries).length > 0;
 
         if (hasPositionSalaries) {
-            const firstPosId = employee.positions[0];
+            const firstPosId = employee.positions?.[0];
             const hourlyRate = employee.positionSalaries[firstPosId];
 
             if (hourlyRate) {
-                const workDays = employee.positions[0] ?
-                    (this.state.positions.find(p => p.id === employee.positions[0])?.workingDays || [1, 2, 3, 4, 5, 6]) :
+                const workDays = employee.positions?.[0] ?
+                    (this.state.positions.find(p => p.id === employee.positions?.[0])?.workingDays || [1, 2, 3, 4, 5, 6]) :
                     [1, 2, 3, 4, 5, 6];
 
                 const regularHours = this.state.settings?.regularHoursPerDay || 8;
@@ -43,7 +43,7 @@ export class PayrollService {
                     workDays: [1, 2, 3, 4, 5, 6]
                 };
             } else {
-                const pos = this.state.positions.find(p => p.id === employee.positions[0]);
+                const pos = this.state.positions.find(p => p.id === employee.positions?.[0]);
                 if (pos?.salaryConfig) {
                     return pos.salaryConfig;
                 }
@@ -63,7 +63,7 @@ export class PayrollService {
         }
 
         if (employee.salaryConfig.type === 'standard') {
-            const posId = employee.salaryConfig.positionId || employee.positions[0];
+            const posId = employee.salaryConfig.positionId || employee.positions?.[0];
             const pos = this.state.positions.find(p => p.id === posId);
             if (pos?.salaryConfig) {
                 return pos.salaryConfig;
@@ -146,13 +146,13 @@ export class PayrollService {
             if (att.positionHours && att.positionHours.length > 0) {
                 // Multi-posición
                 positionsWorked = att.positionHours.map(ph => ({
-                    positionId: ph.positionId || att.selectedPosition || emp.positions[0],
+                    positionId: ph.positionId || att.selectedPosition || emp.positions?.[0],
                     hours: ph.hours || 0,
                     overtimeHours: ph.overtimeHours || 0
                 }));
             } else {
                 // Posición simple
-                const posId = att.selectedPosition || emp.positions[0];
+                const posId = att.selectedPosition || emp.positions?.[0];
                 positionsWorked = [{
                     positionId: posId,
                     hours: att.hoursWorked || 0,

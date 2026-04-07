@@ -181,7 +181,7 @@ export async function loadApplicationData() {
             state.useIndexedDB = true;
             
             validateDataIntegrity();
-            buildAttendanceIndex(); // P3-OPT: Construir indice tras carga inicial
+            stateManager.markAttendanceDirty(); // Asegurar reconstrucción total tras carga masiva
             return true;
         }
 

@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
 import { Header } from './modules/ui/Header.js';
 
 // 🔧 DEBUG UTILITY (controla console logs en producción)
@@ -22,6 +22,8 @@ import {
     DateControls, DateControlsCompact, getDayHours, getCheckColor
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
+import { RestoreUI } from './modules/ui/RestoreUI.js';
+import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
@@ -216,7 +218,7 @@ window.DatePicker = (target) => {
     // Preparar indicadores (por ejemplo, puntos si hay notas o feriados)
     const indicators = {};
     // Podríamos agregar lógica aquí para mostrar puntos en días con notas o cambios especiales
-    
+
     const component = new CalendarPickerComponent({
         selectedDate: state.selectedDate,
         viewDate: state.datePickerMonth,
@@ -235,10 +237,10 @@ document.addEventListener('click', (e) => {
         // Si el elemento ya no está en el DOM, ignoramos el clic (probablemente fue un 
         // botón de navegación que disparó un re-render y se eliminó a sí mismo)
         if (!document.body.contains(e.target)) return;
-        
-        const isClickInside = e.target.closest('.calendar-picker') || 
-                             e.target.closest('.pill-display') || 
-                             e.target.closest('.calendar-picker-popup');
+
+        const isClickInside = e.target.closest('.calendar-picker') ||
+            e.target.closest('.pill-display') ||
+            e.target.closest('.calendar-picker-popup');
         if (!isClickInside) {
             attendanceDateManager.togglePicker(null, false);
         }
@@ -411,16 +413,16 @@ window.App.advancePayPeriod = () => {
     const startDate = new Date(pp.periodStart + 'T00:00:00');
     startDate.setDate(startDate.getDate() + pp.periodLength);
     const newStart = getDateKey(startDate);
-    
+
     pp.periodStart = newStart;
-    
+
     // Si hay un payDay, también avanzarlo
     if (pp.payDay) {
         const pd = new Date(pp.payDay + 'T00:00:00');
         pd.setDate(pd.getDate() + pp.periodLength);
         pp.payDay = getDateKey(pd);
     }
-    
+
     saveApplicationData();
     render();
     showNotification('⏭️ Período de pago avanzado', 'success');
@@ -895,7 +897,7 @@ window.saveMultiPosition = function () {
         att.multiPosition = att.positionHours.length > 1;
         att.hoursWorked = totalHours;
         att.overtimeHours = totalOvertime;
-        att.present = true;
+        att.present = true; // ✅ Garantizar marcado como presente
 
         // Si solo hay una posición, usar selectedPosition
         if (att.positionHours.length === 1) {
@@ -914,14 +916,17 @@ window.saveMultiPosition = function () {
 
         att.hoursWorked = hours;
         att.overtimeHours = overtime;
+        att.present = true; // ✅ FIX: Garantizar que esté presente en modo simple para que cuente en estadísticas
         att.multiPosition = false;
         att.selectedPosition = emp.positions?.[0] || null;
         att.positionHours = [];
     }
 
     // Guardar en state
-    state.attendance[key] = att;
     att.updatedAt = Date.now();
+    // ⚡ FIX REACTIVIDAD: Usamos un spread {...att} para que la referencia sea nueva.
+    // Esto obliga al Proxy en AppState.js a detectar el cambio y reconstruir el índice de estadísticas.
+    state.attendance[key] = { ...att };
 
     // ─── Registrar Undo: restaurar estado previo de multi-posición ───
     UndoManager.push(
@@ -1967,7 +1972,7 @@ function updateDeductionsSection() {
         state.employeeProfile.deductions,
         state.employeeProfile.bonuses
     );
-    
+
     // Sincronizar estado base si es necesario
     emp.deductions = (state.employeeProfile.deductions || []).map(d => ({
         id: d.id || `DED-${Date.now()}`,
@@ -1988,7 +1993,7 @@ function updateDeductionsSection() {
     if (deductionsContainer) {
         deductionsContainer.innerHTML = generateDeductionsHTML(payroll);
     }
-    
+
     // Actualizar sección de Bonificaciones
     const bonusesContainer = document.querySelector('#bonuses-section');
     if (bonusesContainer) {
@@ -2928,11 +2933,19 @@ function applyFullImport(importedData) {
     state.tempAssignments = importedData.data.tempAssignments || [];
     state.dayHoursConfig = importedData.data.dayHoursConfig || {};
 
+    // 🧹 Sanitización preventiva antes de guardar
+    if (typeof sanitizePositions === 'function') {
+        sanitizePositions(state);
+    }
+
     saveApplicationData();
     showNotification('✅ Datos importados correctamente', 'success');
     closeImportFullModal();
     closeExportMenu();
     render();
+
+    // 🔄 Refrescar para asegurar sincronización total
+    setTimeout(() => location.reload(), 1500);
 }
 
 window.confirmImportFull = () => {
@@ -3402,39 +3415,39 @@ function FloatingCard() {
     const emp = state.floatingCardEmployee;
     const now = new Date();
     const today = getDateKey(now);
-    
+
     // 7 Días
     const l7 = new Date(); l7.setDate(l7.getDate() - 6);
     const h7 = getEmployeeTotalHours(emp.id, l7, now);
-    
+
     // Mes
     const fm = new Date(now.getFullYear(), now.getMonth(), 1);
     const hm = getEmployeeTotalHours(emp.id, fm, now);
-    
+
     // Semana (Lunes a Hoy)
     const day = now.getDay() || 7;
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - (day - 1));
     const hw = getEmployeeTotalHours(emp.id, weekStart, now);
-    
+
     // Periodo Actual (Acumulado hasta hoy o fin de periodo)
     const pStartKey = state.settings?.payPeriod?.periodStart;
     const pLen = state.settings?.payPeriod?.periodLength || 15;
     let hp = 0;
     let gross = 0;
-    
+
     if (pStartKey) {
         // Calcular fin de periodo
         const start = parseDate(pStartKey);
         const end = new Date(start);
         end.setDate(start.getDate() + pLen - 1);
         const pEndKey = getDateKey(end);
-        
+
         // El cálculo debe ser el acumulado desde el inicio hasta:
         // - Hoy (si el periodo está en curso)
         // - El fin del periodo (si el periodo ya expiró pero no se ha avanzado)
         const effectiveEnd = (today < pEndKey) ? today : pEndKey;
-        
+
         hp = getEmployeeTotalHours(emp.id, pStartKey, effectiveEnd);
         const payroll = payrollService.calculateEmployeePayroll(emp.id, pStartKey, effectiveEnd);
         gross = payroll.bruto;
@@ -3445,11 +3458,11 @@ function FloatingCard() {
     const maxH = Math.max(maxVal, 1);
     const scale = 140 / maxH;
 
-    const calendarHTML = CalendarView({ 
-        employee: emp, 
-        month: state.floatingCardMonth, 
+    const calendarHTML = CalendarView({
+        employee: emp,
+        month: state.floatingCardMonth,
         navAction: 'changeFloatingMonth',
-        showLegend: false 
+        showLegend: false
     });
 
     return `
@@ -3497,12 +3510,12 @@ function FloatingCard() {
                 </div>
                 <div class="chart-bars">
                     ${chartData.map(d => {
-                        const tot = (d.regular + d.overtime + d.holiday + d.absent) * scale;
-                        const rH = d.regular * scale;
-                        const oH = d.overtime * scale;
-                        const hH = d.holiday * scale;
-                        const aH = d.absent * scale;
-                        return `<div class="chart-bar-wrapper">
+        const tot = (d.regular + d.overtime + d.holiday + d.absent) * scale;
+        const rH = d.regular * scale;
+        const oH = d.overtime * scale;
+        const hH = d.holiday * scale;
+        const aH = d.absent * scale;
+        return `<div class="chart-bar-wrapper">
                             <div class="chart-bar" style="height:${Math.max(tot, 10)}px;">
                                 ${d.absent > 0 ? `<div class="chart-segment absent" style="height:${aH}px;"></div>` : ''}
                                 ${d.regular > 0 ? `<div class="chart-segment regular" style="height:${rH}px;"></div>` : ''}
@@ -3511,7 +3524,7 @@ function FloatingCard() {
                             </div>
                             <div class="chart-bar-label">${d.label || `${d.date.getDate()}/${d.date.getMonth() + 1}`}</div>
                         </div>`;
-                    }).join('')}
+    }).join('')}
                 </div>
             </div>
 
@@ -4016,7 +4029,7 @@ function ProfileTabAsistencia(emp) {
                     <div style="font-size: 0.875rem;">Error: Componente de Calendario no cargado.</div>
                 </div>`;
     }
-    
+
     return `
         <div class="profile-tab-content">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
@@ -4027,12 +4040,12 @@ function ProfileTabAsistencia(emp) {
             </div>
 
             <div class="profile-calendar-wrapper" style="background: rgba(15, 23, 42, 0.4); padding: 24px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);">
-                ${CalendarView({ 
-                    employee: emp, 
-                    month: state.employeeProfile?.assistanceMonth || new Date(), 
-                    navAction: 'window.changeProfileAsistenciaMonth',
-                    showLegend: true 
-                })}
+                ${CalendarView({
+        employee: emp,
+        month: state.employeeProfile?.assistanceMonth || new Date(),
+        navAction: 'window.changeProfileAsistenciaMonth',
+        showLegend: true
+    })}
             </div>
         </div>
     `;
@@ -4142,7 +4155,7 @@ window.advancePayPeriod = function () {
     const oldStart = new Date(pp.periodStart + 'T00:00:00');
     const newStart = new Date(oldStart);
     newStart.setDate(newStart.getDate() + pp.periodLength);
-    
+
     // Calcular nuevo payDay = newStart + periodLength - 1 + offset (misma distancia que antes)
     let newPayDay = null;
     if (pp.payDay) {
@@ -4152,10 +4165,10 @@ window.advancePayPeriod = function () {
         calculatedPayDay.setDate(calculatedPayDay.getDate() + dayOffset);
         newPayDay = getDateKey(calculatedPayDay);
     }
-    
+
     pp.periodStart = getDateKey(newStart);
     pp.payDay = newPayDay;
-    
+
     saveApplicationData();
     showNotification(`✅ Período avanzado. Nuevo inicio: ${new Date(pp.periodStart + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })}`, 'success');
     render();
@@ -4627,82 +4640,150 @@ window.exportData = async function () {
     }
 };
 
-window.loadBackupFromFile = async function (file) {
-    if (!file) return false;
-
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = function (e) {
-            try {
-                const importedData = JSON.parse(e.target.result);
-
-                // Validar estructura
-                if (!importedData.data) {
-                    throw new Error('Formato de archivo inválido');
-                }
-
-                // Confirmar antes de importar
-                const confirmImport = confirm(
-                    '⚠️ ADVERTENCIA\n\n' +
-                    'Esto reemplazará TODOS tus datos actuales con los del archivo de respaldo.\n\n' +
-                    'Se recomienda exportar tus datos actuales primero.\n\n' +
-                    '¿Estás seguro de continuar?'
-                );
-
-                if (!confirmImport) {
-                    resolve(false);
-                    return;
-                }
-
-                // Importar datos
-                state.settings = importedData.data.settings || state.settings;
-                state.positions = importedData.data.positions || [];
-                state.employees = importedData.data.employees || [];
-                state.leaders = importedData.data.leaders || [];
-                state.attendance = importedData.data.attendance || {};
-                state.tempAssignments = importedData.data.tempAssignments || [];
-                state.dayHoursConfig = importedData.data.dayHoursConfig || {};
-
-                // Normalizar updatedAt para Smart Sync
-                const now = Date.now();
-                if (!state.settings.updatedAt) state.settings.updatedAt = now;
-                state.leaders.forEach(l => { if (!l.updatedAt) l.updatedAt = now; });
-                state.positions.forEach(p => { if (!p.updatedAt) p.updatedAt = now; });
-                state.employees.forEach(e => { if (!e.updatedAt) e.updatedAt = now; });
-                Object.values(state.attendance).forEach(a => { if (!a.updatedAt) a.updatedAt = now; });
-
-                // Guardar en IndexedDB con limpieza previa (esto evita ConstraintErrors con datos viejos)
-                saveApplicationData({ clearFirst: true });
-
-                showNotification('✅ Datos importados correctamente', 'success');
-                render();
-                resolve(true);
-
-            } catch (error) {
-                console.error('Error importando datos:', error);
-                showNotification('❌ Error al importar datos: ' + error.message, 'error');
-                resolve(false);
-            }
-        };
-
-        reader.onerror = function () {
-            showNotification('❌ Error al leer el archivo', 'error');
-            resolve(false);
-        };
-
-        reader.readAsText(file);
-    });
+/**
+ * 📸 Creador de Snapshots accesible globalmente para RestoreUI
+ */
+window.createFirebaseSnapshot = async function (type = 'auto') {
+    if (!window.currentUser) return null;
+    try {
+        const id = await FirebaseService.createSnapshot(state, type);
+        return id;
+    } catch (error) {
+        console.error('Error creando snapshot:', error);
+        throw error;
+    }
 };
 
+/**
+ * 🛠️ Aplica los datos de un backup al estado actual y guarda localmente
+ */
+async function applyBackupData(importedData) {
+    try {
+        const data = importedData.data;
+
+        // Sobrescribir estado (Atomicity local)
+        state.settings = data.settings || state.settings;
+        state.positions = data.positions || [];
+        state.employees = data.employees || [];
+        state.leaders = data.leaders || [];
+        state.attendance = data.attendance || {};
+        state.tempAssignments = data.tempAssignments || [];
+        state.dayHoursConfig = data.dayHoursConfig || {};
+
+        // Sincronizar timestamps locales
+        const now = Date.now();
+        if (!state.settings.updatedAt) state.settings.updatedAt = now;
+        state.employees.forEach(e => { if (!e.updatedAt) e.updatedAt = now; });
+        state.positions.forEach(p => { if (!p.updatedAt) p.updatedAt = now; });
+        Object.values(state.attendance).forEach(a => { if (!a.updatedAt) a.updatedAt = now; });
+
+        // 🧹 Sanitización preventiva antes de guardar
+        if (typeof sanitizePositions === 'function') {
+            sanitizePositions(state);
+        }
+
+        // Guardar en IndexedDB
+        await saveToIndexedDB({ clearFirst: true });
+
+        showNotification('✅ Datos restaurados localmente', 'success');
+        render(); // Refrescar UI
+
+        return true;
+    } catch (error) {
+        console.error("Error aplicando backup:", error);
+        showNotification('❌ Error al aplicar backup local: ' + error.message, 'error');
+        return false;
+    }
+}
+
+/**
+ * 📁 Punto de entrada principal para importación de archivos
+ */
 window.importData = function (event) {
     const file = event.target.files[0];
     if (!file) return;
-
     window.loadBackupFromFile(file);
+    event.target.value = ''; // Resetear input
+};
 
-    // Limpiar input
-    event.target.value = '';
+/**
+ * 📂 PROCESAR ARCHIVO DE BACKUP (Global para PWA y Onboarding)
+ */
+window.loadBackupFromFile = function (file) {
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            let importedData = JSON.parse(e.target.result);
+
+            // 🚛 Filtro de Migración Legacy
+            if (LegacyMigrator.needsMigration(importedData)) {
+                importedData = LegacyMigrator.migrate(importedData);
+            }
+
+            if (!importedData.data) throw new Error('Formato de archivo inválido');
+
+            RestoreUI.showComparisonModal(importedData, state, {
+                // Opción 1: Restaurar Local (Offline)
+                onLocalRestore: async () => {
+                    await applyBackupData(importedData);
+                    setTimeout(() => location.reload(), 1200);
+                },
+
+                // Opción 2: Desconectar y Restaurar (Evitar impacto en nube antigua)
+                onDisconnectRestore: async () => {
+                    await FirebaseService.logout();
+                    window.currentUser = null;
+                    await applyBackupData(importedData);
+                    showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
+                    setTimeout(() => location.reload(), 1200);
+                },
+
+                // Opción 3: Reemplazo Total de la Nube
+                onReplaceCloudRestore: async () => {
+                    // 1. Aplicar localmente primero
+                    const ok = await applyBackupData(importedData);
+                    if (!ok) return;
+
+                    // 2. Bloquear UI para proceso crítico
+                    const syncLoader = document.createElement('div');
+                    syncLoader.innerHTML = `
+                        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.98); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:10050; color:white; font-family:sans-serif; gap:25px;">
+                            <div class="sync-spinner" style="width:60px; height:60px; border:6px solid rgba(255,255,255,0.05); border-top:6px solid #ef4444; border-radius:50%; animation: spin 1s linear infinite;"></div>
+                            <div style="text-align:center;">
+                                <div style="font-weight:800; font-size:1.4rem; color:#f1f5f9; margin-bottom:8px;">🔥 REEMPLAZANDO NUBE...</div>
+                                <div style="color:#94a3b8; font-size:0.95rem; max-width:300px; line-height:1.5;">Estamos borrando los datos antiguos y subiendo tu backup. No cierres esta ventana.</div>
+                            </div>
+                            <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+                        </div>`;
+                    document.body.appendChild(syncLoader);
+
+                    // 3. Limpieza profunda y subida (Modo Espejo)
+                    try {
+                        console.log('☁️ Iniciando limpieza espejo en la nube...');
+                        await FirebaseService.deleteCloudData();
+                        await FirebaseService.saveFullState(state);
+                        await FirebaseService.syncHistory(state.attendance);
+
+                        showNotification('🚀 Nube actualizada con éxito', 'success');
+
+                        // 🔄 Refrescar tras éxito
+                        setTimeout(() => location.reload(), 1000);
+                    } catch (err) {
+                        console.error("Error sincronizando nube tras backup:", err);
+                        showNotification('⚠️ Error al actualizar nube, pero los datos locales están guardados.', 'warning');
+                        if (syncLoader) syncLoader.remove();
+                        render();
+                    }
+                }
+            });
+
+        } catch (err) {
+            showNotification('❌ Error al leer el backup: ' + err.message, 'error');
+        }
+    };
+    reader.readAsText(file);
 };
 
 window.deleteAllData = function () {
@@ -5927,13 +6008,13 @@ function App() {
     };
 
     // ✅ Solo renderiza el tab activo
-        const content = tabMap[state.activeTab]
+    const content = tabMap[state.activeTab]
         ? tabMap[state.activeTab]()
         : '<div style="text-align:center;padding:60px 20px;color:#64748b;"><div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">🚧</div><div style="font-size:1.125rem;">En desarrollo</div></div>';
 
     // ⚡ OPTIMIZACIÓN: Lazy loading de modales (Vía DOM, no inyectados en HTML)
     const modalMap = {
-        'advanced': () => '', 
+        'advanced': () => '',
         'employee-form': () => '',
         'leader-form': () => '',
         'position-form': () => '',

@@ -262,7 +262,13 @@ function statCard(f, nombreID, nombre, icon, stats, filtro) {
         <div class="stat-label">${nombre}</div>
     </div>`
 }
-
+function statCard_clock(f, nombreID, nombre, icon, stats, filtro) {
+    return `<div class="stat-item ${f === nombreID ? 'active' : ''}" onclick="setEmployeeFilter(${filtro})">
+        <div class="stat-icon">${icon}</div>
+        <div class="stat-value-clock">${stats}</div>
+        <div class="stat-label">${nombre}</div>
+    </div>`
+}
 
 
 export function StatsGrid() {
@@ -277,7 +283,7 @@ export function StatsGrid() {
     
              ${statCard(f, 'present', 'Presente', '✅', stats.present, `'present'`)}
              ${statCard(f, 'absent', 'Ausentes', '❌', stats.absent, `'absent'`)}
-             ${statCard(f, 'time', 'Horas', '⏱️', stats.totalHours, `''`)}
+             ${statCard_clock(f, 'time', 'Horas', '⏱️', stats.totalHours, `''`)}
              ${statCard(f, 'overtime', 'Extras', '⚡', stats.overtimeHours, `'overtime'`)}
 
 
@@ -371,7 +377,7 @@ export function SearchBar() {
                 <select onchange="setLeaderFilter(this.value)" 
                         class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
-                    ${state.leaders.filter(l => l.active).sort((a,b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
+                    ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
                 </select>
                 <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; font-size: 0.75rem;">▼</div>
             </div>
@@ -414,7 +420,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     const isChecked = att && att.present;
     const selPos = att?.selectedPosition || emp.positions?.[0] || null;
     const isMultiPosition = att?.multiPosition || false;
-    const hasMultiplePositions = emp.positions.length > 1;
+    const hasMultiplePositions = (emp.positions?.length || 0) > 1;
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
@@ -433,7 +439,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         }
     }
 
-    const selectedPosId = state.tempPositionSelection?.[key] || emp.positions[0];
+    const selectedPosId = state.tempPositionSelection?.[key] || emp.positions?.[0];
 
     // Extraer badge de horas (Antes era ternario anidado)
     const multiPosIcon = isMultiPosition ? ' 🔄' : '';
@@ -442,7 +448,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         : '';
 
     const workedPositionIds = isChecked
-        ? (isMultiPosition ? att.positionHours.map(ph => ph.positionId) : [selPos])
+        ? (isMultiPosition ? (att.positionHours || []).map(ph => ph.positionId) : [selPos])
         : [];
 
     return `<div id="emp-row-${emp.id}" class="employee-row">
@@ -488,9 +494,14 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                         ${monthOvertimeHours > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="color:#06b6d4;">⚡ +${monthOvertimeHours}h extras mes</div>` : ''}
                     </div>
                     <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; min-height: 24px; display: flex; align-items: center; overflow: hidden;">
-                        ${isChecked && att.hoursWorked > state.settings.regularHoursPerDay ? `
-                            <div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${(att.hoursWorked - state.settings.regularHoursPerDay).toFixed(1)}h extras</div>
-                        ` : ''}
+                        ${(() => {
+        if (!isChecked) return '';
+        const threshold = state.settings?.regularHoursPerDay || 8;
+        const overtime = att.overtimeHours || Math.max(0, att.hoursWorked - threshold);
+        return overtime > 0 ? `
+                            <div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${overtime.toFixed(1)}h extras</div>
+                        ` : '';
+    })()}
                         ${isChecked && att.notes && att.notes.trim() ? `
                             <div class="employee-meta-divider"></div>
                             <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1;" 
@@ -597,8 +608,8 @@ export function getFilteredEmployeesForDay() {
         const selectedPos = state.positions.find(p => p.id === state.filters.position);
         if (selectedPos) {
             // Incluir todas las posiciones con el mismo nombre (por si hay IDs duplicados)
-            const sameNameIds = state.positions.filter(p => p.name === selectedPos.name).map(p => p.id);
-            employees = employees.filter(emp => emp.positions?.some(pid => sameNameIds.includes(pid)));
+            const sameNameIds = new Set(state.positions.filter(p => p.name === selectedPos.name).map(p => p.id));
+            employees = employees.filter(emp => emp.positions?.some(pid => sameNameIds.has(pid)));
         }
     }
 

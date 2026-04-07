@@ -104,6 +104,9 @@ export function render() {
             DOMDiff.apply(root, newHTML);
         }
 
+        if (typeof window.clarifyDefaultHoursControl === 'function') {
+            window.clarifyDefaultHoursControl();
+        }
         updateHeaderOffset();
 
         // Restaurar foco del buscador
