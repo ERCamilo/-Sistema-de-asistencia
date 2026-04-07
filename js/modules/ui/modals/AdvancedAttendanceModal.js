@@ -107,12 +107,6 @@ export class AdvancedAttendanceModal {
             <form id="advancedAttendanceForm">
                 ${this.renderMultiPositionFields(emp, positionHours, totalFractionated)}
                 
-                <div class="form-group" style="margin-top: 16px;">
-                    <label class="form-checkbox" style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="isHoliday" ${isHoliday ? 'checked' : ''} style="width: 18px; height: 18px;">
-                        <span class="form-label" style="margin: 0; color: #f1f5f9;">☀️ Día Festivo</span>
-                    </label>
-                </div>
                 
                 <div class="form-group" style="margin-top: 16px;">
                     <label class="form-label" style="display: block; margin-bottom: 8px; color: #94a3b8; font-size: 0.85rem;">📝 Notas</label>
@@ -240,7 +234,7 @@ export function saveAdvancedAttendance() {
         overtimeHours: totalOvertime,
         positionHours: positionHours,
         multiPosition: positionHours.length > 1,
-        isHoliday: document.getElementById('isHoliday')?.checked || false,
+        isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
         notes: document.getElementById('notes')?.value || '',
         selectedPosition: positionHours.length > 0 ? positionHours[0].positionId : (emp.positions?.[0] || null),
         updatedAt: Date.now(),

@@ -3,7 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
-import { getDateKey, wasEmployeeActiveOnDate } from '../utils/DateUtils.js';
+import { getDateKey, wasEmployeeActiveOnDate, parseDate } from '../utils/DateUtils.js';
 
 // 1. Clase Optimizador (Batch Rendering)
 class RenderOptimizer {
@@ -134,6 +134,9 @@ const initialState = {
         leaderFilter: 'all',
         deductions: [],
         employeeDeductionsAdded: false
+    },
+    statsCache: { 
+        mtd: {} // ⚡ P3-OPT: Caché de estadísticas mensuales { empId: { days: N, hours: H, overtime: O, monthKey: 'YYYY-MM' } }
     }
 };
 
@@ -175,13 +178,24 @@ const createRecursiveProxy = (obj, path = []) => {
 
                 if (rootProp === 'attendance') {
                     let dateKey = null;
+                    let employeeId = null;
+
                     if (path.length === 1 && value && value.date) {
                         dateKey = value.date;
+                        employeeId = value.employeeId;
                     } else if (path.length > 1) {
                         const recordKey = path[1];
+                        const parts = recordKey.split('-');
+                        employeeId = parts[0];
                         const record = stateManager._state.attendance[recordKey];
                         if (record && record.date) dateKey = record.date;
                     }
+
+                    // ⚡ P3-OPT: Invalidación selectiva de caché
+                    if (employeeId && stateManager._state.statsCache.mtd[employeeId]) {
+                        delete stateManager._state.statsCache.mtd[employeeId];
+                    }
+
                     if (dateKey) buildAttendanceIndex(dateKey);
                     else stateManager.markAttendanceDirty();
                 } else if (['employees', 'positions', 'leaders', 'settings'].includes(rootProp)) {
@@ -199,6 +213,9 @@ const createRecursiveProxy = (obj, path = []) => {
             if (result && !stateManager.isSilent()) {
                 const rootProp = path[0] || prop;
                 if (rootProp === 'attendance') {
+                    if (oldValue && oldValue.employeeId) {
+                        delete stateManager._state.statsCache.mtd[oldValue.employeeId];
+                    }
                     if (oldValue && oldValue.date) buildAttendanceIndex(oldValue.date);
                     else stateManager.markAttendanceDirty();
                 }
@@ -293,3 +310,41 @@ export function getEmployeeTotalHours(empId, start, end) {
     return total;
 }
 window.getEmployeeTotalHours = getEmployeeTotalHours;
+
+/**
+ * ⚡ P3-OPT: Obtener estadísticas mensuales acumuladas con caché persistente (O(1) amortizado).
+ */
+export function getEmployeeMTDStats(empId, dateInput) {
+    const date = parseDate(dateInput);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const cache = stateManager._state.statsCache.mtd[empId];
+
+    // Devolver caché si es válido para el mes actual
+    if (cache && cache.monthKey === monthKey) {
+        return cache;
+    }
+
+    // Calcular si no hay caché o si es de otro mes
+    const firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+    const today = new Date(date);
+    
+    let hours = 0;
+    let days = 0;
+    let overtime = 0;
+
+    for (let d = new Date(firstDay); d <= today; d.setDate(d.getDate() + 1)) {
+        const key = `${empId}-${getDateKey(new Date(d))}`;
+        const att = stateManager._state.attendance[key];
+        if (att && att.present) {
+            days++;
+            hours += (att.hoursWorked || 0);
+            overtime += (att.overtimeHours || 0);
+        }
+    }
+
+    const stats = { hours, days, overtime, monthKey };
+    stateManager._state.statsCache.mtd[empId] = stats;
+    
+    return stats;
+}
+window.getEmployeeMTDStats = getEmployeeMTDStats;

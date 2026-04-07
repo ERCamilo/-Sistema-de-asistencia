@@ -3,7 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
-import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
+import { state, calculateStats, getEmployeeTotalHours, getEmployeeMTDStats } from '../core/AppState.js';
 import icons from './IconSystem.js';
 import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
@@ -425,19 +425,11 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthHours = getEmployeeTotalHours(emp.id, firstDay, today);
-    let monthDays = 0;
-    let monthOvertimeHours = 0;
-    for (let d = new Date(firstDay); d <= today; d.setDate(d.getDate() + 1)) {
-        const k = `${emp.id}-${getDateKey(new Date(d))}`;
-        const a = state.attendance[k];
-        if (a && a.present) {
-            monthDays++;
-            if (a.overtimeHours) monthOvertimeHours += a.overtimeHours;
-        }
-    }
+    const today = state.selectedDate;
+    const mtdStats = getEmployeeMTDStats(emp.id, today);
+    const monthHours = mtdStats.hours;
+    const monthDays = mtdStats.days;
+    const monthOvertimeHours = mtdStats.overtime;
 
     const selectedPosId = state.tempPositionSelection?.[key] || emp.positions?.[0];
 

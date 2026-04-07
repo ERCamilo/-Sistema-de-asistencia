@@ -872,15 +872,8 @@ window.saveMultiPosition = function () {
         positionHours: []
     };
 
-    // Leer valores del formulario
-    const notesInput = document.getElementById('attendanceNotes');
-    const isHolidayInput = document.getElementById('isHolidayCheck');
-    const simpleHoursInput = document.getElementById('simpleHours');
-    const simpleOvertimeInput = document.getElementById('simpleOvertimeHours');
-
-    // Guardar notas y festivo
+    // Guardar notas
     att.notes = notesInput ? notesInput.value.trim() : '';
-    att.isHoliday = isHolidayInput ? isHolidayInput.checked : false;
 
     // Si usa distribución multi-posición
     if (att.positionHours && att.positionHours.length > 0) {
@@ -4942,17 +4935,6 @@ function MultiPositionModal() {
                                     <div style="font-size: 1.75rem; font-weight: 700; color: #3b82f6;" id="totalOvertimeDisplay">${totalOvertime}h</div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Día festivo -->
-                        <div class="form-group" style="margin-bottom: 20px;">
-                            <label class="form-checkbox" style="cursor: pointer;">
-                                <input type="checkbox" id="isHolidayCheck" ${att.isHoliday ? 'checked' : ''}>
-                                <span class="form-label" style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.25rem;">☀️</span>
-                                    <span>Día Festivo (Pago doble)</span>
-                                </span>
-                            </label>
                         </div>
                         
                         <!-- Notas -->
