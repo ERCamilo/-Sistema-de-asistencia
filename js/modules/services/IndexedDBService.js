@@ -238,63 +238,70 @@ export class IndexedDBService {
     async saveState(state, options = {}) {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
         try {
-            const cleanState = JSON.parse(JSON.stringify(state));
+            const isGranular = !!options.dateKey;
             
             if (options.clearFirst) {
                 await this.clearAll();
             }
 
-            // 1. DEDUPLICACIÓN INTERNA DE EMPLEADOS
-            const empMap = new Map();
-            (cleanState.employees || []).forEach(emp => {
-                const num = String(emp.number || '').trim();
-                if (!num) return;
+            // ⚡ P1-OPT: No clonar todo el estado (evita 500ms+ de CPU)
+            // Solo procesamos lo necesario según si es granular o completo
 
-                const existing = empMap.get(num);
-                if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
-                    if (existing) stats.deduplicated++;
-                    empMap.set(num, emp);
-                } else {
-                    stats.deduplicated++;
-                }
-            });
+            if (!isGranular) {
+                // 1. DEDUPLICACIÓN INTERNA (Solo en guardado completo)
+                const empMap = new Map();
+                (state.employees || []).forEach(emp => {
+                    const num = String(emp.number || '').trim();
+                    if (!num) return;
+                    const existing = empMap.get(num);
+                    if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
+                        if (existing) stats.deduplicated++;
+                        empMap.set(num, emp);
+                    } else {
+                        stats.deduplicated++;
+                    }
+                });
 
-            // 2. DEDUPLICACIÓN INTERNA DE LÍDERES
-            const leadMap = new Map();
-            (cleanState.leaders || []).forEach(l => {
-                const num = String(l.number || '').trim();
-                if (!num) return;
+                const leadMap = new Map();
+                (state.leaders || []).forEach(l => {
+                    const num = String(l.number || '').trim();
+                    if (!num) return;
+                    const existing = leadMap.get(num);
+                    if (!existing || (l.updatedAt || 0) > (existing.updatedAt || 0)) {
+                        if (existing) stats.deduplicated++;
+                        leadMap.set(num, l);
+                    } else {
+                        stats.deduplicated++;
+                    }
+                });
 
-                const existing = leadMap.get(num);
-                if (!existing || (l.updatedAt || 0) > (existing.updatedAt || 0)) {
-                    if (existing) stats.deduplicated++;
-                    leadMap.set(num, l);
-                } else {
-                    stats.deduplicated++;
-                }
-            });
-
-            // 3. GUARDADO EFECTIVO (⚡ P2-OPT: batch por store, 1 transacción cada uno)
-            const empList = [...empMap.values()];
-            stats.employees = await this.batchUpdate('employees', empList);
-
-            const posList = cleanState.positions || [];
-            stats.positions = await this.batchUpdate('positions', posList);
-
-            const leaderList = [...leadMap.values()];
-            stats.leaders = await this.batchUpdate('leaders', leaderList);
-
-            const attRecords = Object.entries(cleanState.attendance || {}).map(([key, value]) => ({
-                key,
-                ...value
-            }));
-            stats.attendance = await this.batchUpdate('attendance', attRecords);
-
-            if (cleanState.settings) {
-                await this.update('settings', { key: 'app', ...cleanState.settings });
+                // GUARDADO DE METADATOS
+                stats.employees = await this.batchUpdate('employees', [...empMap.values()]);
+                stats.positions = await this.batchUpdate('positions', state.positions || []);
+                stats.leaders = await this.batchUpdate('leaders', [...leadMap.values()]);
             }
 
-            console.log('📊 IndexedDB Save Stats:', stats);
+            // 2. GUARDADO DE ASISTENCIA (Incremental si hay dateKey)
+            let attToSave = [];
+            if (isGranular) {
+                const suffix = `-${options.dateKey}`;
+                attToSave = Object.entries(state.attendance || {})
+                    .filter(([key]) => key.endsWith(suffix))
+                    .map(([key, value]) => ({ key, ...value }));
+            } else {
+                attToSave = Object.entries(state.attendance || {}).map(([key, value]) => ({
+                    key,
+                    ...value
+                }));
+            }
+
+            stats.attendance = await this.batchUpdate('attendance', attToSave);
+
+            if (state.settings) {
+                await this.update('settings', { key: 'app', ...state.settings });
+            }
+
+            console.log(`📊 IndexedDB ${isGranular ? 'Granular' : 'Full'} Save Stats:`, stats);
             return stats;
         } catch (error) {
             console.error('❌ Error en saveState (IndexedDB):', error);

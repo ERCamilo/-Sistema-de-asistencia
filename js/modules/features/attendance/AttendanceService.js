@@ -1,5 +1,6 @@
 import icons from '../../ui/IconSystem.js';
 import { getDateKey, isDayHoliday } from '../../utils/DateUtils.js';
+import { getDeviceId } from '../../config/Config.js';
 
 export class AttendanceService {
     constructor(state) {
@@ -30,7 +31,8 @@ export class AttendanceService {
             notes: options.notes || '',
             createdAt: new Date().toISOString(),
             updatedAt: Date.now(),
-            lastAccessed: Date.now()
+            lastAccessed: Date.now(),
+            deviceId: getDeviceId()
         };
 
         this.state.attendance[key] = record;
@@ -50,7 +52,8 @@ export class AttendanceService {
 
         Object.assign(record, updates, {
             updatedAt: Date.now(),
-            lastAccessed: Date.now()
+            lastAccessed: Date.now(),
+            deviceId: getDeviceId()
         });
 
         return record;

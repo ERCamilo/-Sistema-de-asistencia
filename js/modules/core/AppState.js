@@ -43,6 +43,34 @@ class RenderOptimizer {
 export const renderOptimizer = new RenderOptimizer();
 window.renderOptimizer = renderOptimizer;
 
+/**
+ * 🧹 toRaw(value) - Desenuelve recursivamente Proxies generados por createRecursiveProxy.
+ * Vital para evitar DataCloneError al guardar en IndexedDB.
+ */
+export function toRaw(value) {
+    if (value === null || typeof value !== 'object' || value instanceof Date || value instanceof Blob) {
+        return value;
+    }
+    
+    // Si es un Proxy de nuestro sistema, tomamos su target original
+    const raw = value._rawTarget || value;
+    
+    // Si es un array, procesar sus elementos
+    if (Array.isArray(raw)) {
+        return raw.map(item => toRaw(item));
+    }
+    
+    // Si es un objeto (POJO o Clase), crear un clon plano de sus propiedades
+    const result = {};
+    for (const key in raw) {
+        if (Object.prototype.hasOwnProperty.call(raw, key)) {
+            result[key] = toRaw(raw[key]);
+        }
+    }
+    return result;
+}
+window.toRaw = toRaw;
+
 // 2. StateManager
 class StateManager {
     constructor(initialState = {}) {
@@ -59,7 +87,9 @@ class StateManager {
         const oldSilent = this._silent;
         this._silent = silent;
         
-        Object.assign(this._state, updates);
+        // 🧹 Sanitizar actualizaciones para evitar filtración de Proxies
+        const sanitizedUpdates = toRaw(updates);
+        Object.assign(this._state, sanitizedUpdates);
         
         // ⚡ P3-OPT: Si se actualizó la asistencia, marcamos para rebuild
         if (updates.attendance) this.markAttendanceDirty();
@@ -193,8 +223,10 @@ const createRecursiveProxy = (obj, path = []) => {
         },
         set(target, prop, value, receiver) {
             const oldValue = target[prop];
+            // 🧹 Desenvolver el valor si es un proxy antes de guardarlo en el target real
+            const rawValue = toRaw(value);
             // Importante: Reflect.set sin receiver previene problemas en arrays y herencia
-            const result = Reflect.set(target, prop, value);
+            const result = Reflect.set(target, prop, rawValue);
 
             if (oldValue !== value && !stateManager.isSilent()) {
                 const fullPath = [...path, prop];

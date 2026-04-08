@@ -8,6 +8,7 @@ import { payrollService } from '../../services/index.js';
 import { getDateKey, formatDateShort, isDayHoliday } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
 import { debug } from '../../utils/Debug.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
 
 /**
  * ⚙️ CLASE: AdvancedAttendanceModal
@@ -244,8 +245,9 @@ export function saveAdvancedAttendance() {
     // Guardar en el estado (Proxy activará la actualización del índice por fecha)
     state.attendance[key] = attendanceRecord;
     
-    // Sincronizar y renderizar
-    if (window.saveToLocalStorage) window.saveToLocalStorage({ dateKey });
+    // Sincronizar y renderizar (Zonal Sync)
+    saveApplicationData({ dateKey });
+    
     if (window.render) window.render();
     if (window.showNotification) window.showNotification('✅ Detalles guardados correctamente', 'success');
 

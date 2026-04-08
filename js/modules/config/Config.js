@@ -20,3 +20,16 @@ export const APP_CONFIG = {
     MAX_RECORDS_MEMORY: 2000,
     RELEVANT_DAYS_LIMIT: 60
 };
+
+/**
+ * 🆔 Genera o recupera un ID único para este dispositivo/navegador.
+ * Vital para evitar eco de red en sincronización.
+ */
+export const getDeviceId = () => {
+    let deviceId = localStorage.getItem('asistencia_device_id');
+    if (!deviceId) {
+        deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
+        localStorage.setItem('asistencia_device_id', deviceId);
+    }
+    return deviceId;
+};

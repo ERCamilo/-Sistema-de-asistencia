@@ -10,6 +10,7 @@ export class Attendance {
         this.multiPosition = data.multiPosition || false;
         this.positionHours = data.positionHours || [];
         this.notes = data.notes || '';
+        this.deviceId = data.deviceId || null;
     }
 
     get key() {

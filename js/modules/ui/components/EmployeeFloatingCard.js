@@ -4,6 +4,7 @@
  */
 
 import { state } from '../../core/AppState.js';
+import { getDateKey } from '../../utils/DateUtils.js';
 import { CalendarView } from './CalendarView.js';
 
 export class EmployeeFloatingCard {
@@ -53,7 +54,34 @@ export class EmployeeFloatingCard {
             <div class="overlay" onclick="closeFloatingCard()"></div>
             <div class="floating-card" onclick="event.stopPropagation()">
                 <div class="floating-card-header">
-                    <div class="floating-card-title">👤 ${emp.name}</div>
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div class="floating-card-title">👤 ${emp.name}</div>
+                        ${(() => {
+                            if (!emp.positions || emp.positions.length <= 1) return '';
+                            
+                            const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
+                            const att = state.attendance[key];
+                            if (!att || !att.present) return '';
+
+                            return `
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+                                    ${emp.positions.map(pid => {
+                                        const pos = state.positions.find(p => p.id === pid);
+                                        if (!pos) return '';
+                                        const isActive = att.selectedPosition === pid || (!att.selectedPosition && emp.positions[0] === pid);
+                                        return `
+                                            <span onclick="window.togglePosition('${pid}', '${emp.id}')" 
+                                                  style="font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; cursor: pointer; border: 1px solid ${isActive ? '#ec4899' : '#334155'}; 
+                                                         background: ${isActive ? 'rgba(236, 72, 153, 0.2)' : 'transparent'}; 
+                                                         color: ${isActive ? '#f472b6' : '#94a3b8'}; transition: all 0.2s;">
+                                                ${pos.name}
+                                            </span>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            `;
+                        })()}
+                    </div>
                     <button class="floating-card-close" onclick="closeFloatingCard()">✕</button>
                 </div>
                 

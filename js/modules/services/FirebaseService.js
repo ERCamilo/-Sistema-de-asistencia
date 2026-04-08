@@ -5,6 +5,7 @@ import {
     query, orderBy, limit, getDocs,
     ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch
 } from '../data/firebase.js';
+import { getDeviceId } from '../config/Config.js';
 
 class FirebaseService {
     constructor() {
@@ -65,6 +66,8 @@ class FirebaseService {
             delete snapshotContext.snapshots;
             delete snapshotContext.isLoadingSnapshots;
             delete snapshotContext.currentUser;
+            delete snapshotContext.attendance; // ⚡ OPT: La asistencia se guarda por separado en su propia colección
+            delete snapshotContext.attendanceByDate; // ⚡ OPT: Índices locales no se suben
             
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
@@ -73,7 +76,8 @@ class FirebaseService {
             await setDoc(docRef, {
                 ...cleanState,
                 updatedAt: serverTimestamp(),
-                lastDevice: navigator.userAgent
+                lastDevice: navigator.userAgent,
+                lastChangedBy: getDeviceId()
             });
             console.log('☁️ Estado sincronizado en Firebase');
         } catch (error) {
@@ -121,7 +125,8 @@ class FirebaseService {
                     size: stateString.length,
                     employeeCount: state.employees?.length || 0,
                     attendanceCount: Object.keys(state.attendance || {}).length,
-                    createdAt: serverTimestamp()
+                    createdAt: serverTimestamp(),
+                    lastChangedBy: getDeviceId()
                 }
             });
             console.log(`📸 Snapshot (${type}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
@@ -192,7 +197,15 @@ class FirebaseService {
         const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
         return onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
-                callback(docSnap.data());
+                const data = docSnap.data();
+                
+                // 🛡️ Filtro de Eco: Ignorar si el cambio fue hecho por este mismo dispositivo
+                if (data.lastChangedBy === getDeviceId()) {
+                    if (window.debug) window.debug.log('📡 Ignorando eco de red: cambio local detectado via deviceId');
+                    return;
+                }
+                
+                callback(data);
             }
         }, (error) => {
             console.error('❌ Error en suscripción de estado:', error);
@@ -243,8 +256,16 @@ class FirebaseService {
             }
 
             querySnapshot.docChanges().forEach((change) => {
+                const data = change.doc.data();
+                
+                // 🛡️ Filtro de Eco Granular: Ignorar si el documento fue actualizado por este dispositivo
+                if (data.deviceId === getDeviceId()) {
+                    // if (window.debug) window.debug.log(`📡 Ignorando eco de asistencia: ${change.doc.id}`);
+                    return;
+                }
+
                 const dateKey = change.doc.id;
-                const records = change.doc.data().records || {};
+                const records = data.records || {};
 
                 if (change.type === "added" || change.type === "modified") {
                     // Inyectar timestamp de acceso para LRU
@@ -291,7 +312,8 @@ class FirebaseService {
             await setDoc(docRef, {
                 records: cleanAttendance,
                 updatedAt: serverTimestamp(),
-                date: dateKey
+                date: dateKey,
+                deviceId: getDeviceId()
             }, { merge: true });
             
             console.log(`☁️ Asistencia sincronizada: ${dateKey}`);

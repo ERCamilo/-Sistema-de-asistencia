@@ -936,6 +936,9 @@ window.saveMultiPosition = function () {
         }
     );
 
+    // ✅ Sincronizar con la base de datos (Zonal Sync)
+    saveApplicationData({ dateKey: getDateKey(state.selectedDate) });
+
     closeModal();
 };
 
@@ -1730,6 +1733,10 @@ window.togglePosition = (empId, posId) => {
         const posName = state.positions.find(p => p.id === posId)?.name || 'N/A';
         showNotification(`✅ Cambiado a ${posName}`, 'success');
         att.updatedAt = Date.now();
+        
+        // ✅ Sincronizar con la base de datos (Zonal Sync)
+        saveApplicationData({ dateKey: getDateKey(state.selectedDate) });
+        
         render();
     }
 };
@@ -6035,10 +6042,14 @@ window.addEventListener('scroll', () => {
     const showLoader = (isNavigation = false) => {
         if (loader) {
             if (isNavigation) window._isNavigating = true;
-            console.log(`🔄 Mostrando Loader... ${isNavigation ? '(Bloqueo de Navegación ACTIVO)' : ''}`);
-            loader.style.display = 'flex';
-            void loader.offsetWidth;
-            loader.classList.remove('hidden');
+            
+            // Solo actuar y loguear si no estaba ya visible
+            if (loader.classList.contains('hidden') || loader.style.display === 'none') {
+                console.log(`🔄 Mostrando Loader... ${isNavigation ? '(Bloqueo de Navegación ACTIVO)' : ''}`);
+                loader.style.display = 'flex';
+                void loader.offsetWidth;
+                loader.classList.remove('hidden');
+            }
         }
     };
 
@@ -6046,18 +6057,22 @@ window.addEventListener('scroll', () => {
         if (loader) {
             // Ignorar si hay una navegación en curso y no hemos forzado el cierre
             if (window._isNavigating && !force) {
-                console.log('⏳ Postponiendo ocultación de loader: Navegación en curso...');
                 return;
             }
 
-            console.log('✨ Ocultando Loader...');
-            loader.classList.add('hidden');
-            setTimeout(() => {
-                if (loader.classList.contains('hidden')) {
-                    loader.style.display = 'none';
-                }
-            }, 500);
+            // Solo actuar y loguear si estaba visible
+            if (!loader.classList.contains('hidden')) {
+                console.log('✨ Ocultando Loader...');
+                loader.classList.add('hidden');
+                setTimeout(() => {
+                    if (loader.classList.contains('hidden')) {
+                        loader.style.display = 'none';
+                    }
+                }, 500);
+                return true; // Indicamos que realmente se ocultó
+            }
         }
+        return false;
     };
 
     // Exponer globalmente para uso en navegación
@@ -6067,8 +6082,10 @@ window.addEventListener('scroll', () => {
     // 📡 ESCUCHA AUTOMÁTICA: Ocultar loader cuando el render termine
     eventBus.on('render:complete', () => {
         if (!isInitialLoad) {
-            console.log('🎯 Render finalizado, auto-ocultando loader');
-            hideLoader();
+            const wasHidden = hideLoader();
+            if (wasHidden) {
+                console.log('🎯 Render finalizado, loader ocultado.');
+            }
         }
     });
 
@@ -6148,7 +6165,7 @@ window.addEventListener('scroll', () => {
                     state.leaders = dedup(remoteData.leaders || state.leaders);
 
                     if (remoteData.attendance) {
-                        state.attendance = { ...state.attendance, ...remoteData.attendance };
+                        console.log('⚠️ Ignorando attendance de Mirror Sync (gestionado por Zonal Sync)');
                     }
 
                     // 🛡️ Sanitización post-sincronización (Evita que la nube traiga basura vieja)
