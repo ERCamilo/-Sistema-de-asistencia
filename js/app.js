@@ -1276,11 +1276,15 @@ function getWeekDates(date) {
 
 // Event Handlers
 window.changeTab = (tab) => {
-    window.showLoader?.();
+    window.showLoader?.(true);
 
-    requestAnimationFrame(() => {
+    setTimeout(() => {
         state.activeTab = tab;
         render();
+
+        // Liberar bloqueo tras el renderizado inicial de pestaña
+        window._isNavigating = false;
+        window.hideLoader?.();
 
         // Si se abre settings y está usando IndexedDB, actualizar estadísticas
         if (tab === 'settings' && state.useIndexedDB) {
@@ -1378,10 +1382,10 @@ window.restoreSnapshot = async (snapshotId) => {
 
 
 window.changeDate = async (days) => {
-    window.showLoader?.();
+    window.showLoader?.(true);
 
-    // Pequeño delay para dejar que el navegador pinte el loader
-    requestAnimationFrame(() => {
+    // Delay de 50ms para asegurar que el navegador pinte el loader antes del bloqueo de JS
+    setTimeout(() => {
         // Si estamos en vista semanal, cambiar por semanas completas (7 días)
         if (state.viewMode === 'week') {
             state.selectedDate = DateUtils.addDays(state.selectedDate, days * 7);
@@ -1396,13 +1400,17 @@ window.changeDate = async (days) => {
         window.updateAttendanceSubscription?.();
 
         render();
+        
+        // Liberar bloqueo tras el renderizado
+        window._isNavigating = false;
+        window.hideLoader?.();
     });
 };
 
 window.goToToday = () => {
-    window.showLoader?.();
+    window.showLoader?.(true);
 
-    requestAnimationFrame(() => {
+    setTimeout(() => {
         state.selectedDate = DateUtils.today();
         state.today = DateUtils.today(); // Actualizar today también
 
@@ -1413,13 +1421,19 @@ window.goToToday = () => {
         window.updateAttendanceSubscription?.();
 
         render();
+        
+        // Liberar bloqueo tras el renderizado
+        window._isNavigating = false;
+        window.hideLoader?.();
     });
 };
 
 window.changeViewMode = (mode) => {
-    window.showLoader?.();
+    window.showLoader?.(true);
 
-    requestAnimationFrame(() => {
+    // Mayor delay para asegurar persistencia visual antes del bloqueo
+    setTimeout(() => {
+        console.log('⚡ Iniciando cambio de vista pesado...');
         state.viewMode = mode;
         state.isScrolled = false; // Resetear scroll al cambiar de vista
 
@@ -1430,7 +1444,11 @@ window.changeViewMode = (mode) => {
         window.updateAttendanceSubscription?.();
 
         render();
-    });
+
+        // Liberar bloqueo tras el renderizado final para que el loader pueda ocultarse
+        window._isNavigating = false;
+        window.hideLoader?.();
+    }, 150);
 };
 
 window.showDatePicker = (target = 'full') => window.toggleDatePicker(target);
@@ -6014,17 +6032,25 @@ window.addEventListener('scroll', () => {
     const loader = document.getElementById('app-loader');
     let isInitialLoad = true;
 
-    const showLoader = () => {
+    const showLoader = (isNavigation = false) => {
         if (loader) {
+            if (isNavigation) window._isNavigating = true;
+            console.log(`🔄 Mostrando Loader... ${isNavigation ? '(Bloqueo de Navegación ACTIVO)' : ''}`);
             loader.style.display = 'flex';
-            // Forzar reflow para que la transición de opacidad funcione
             void loader.offsetWidth;
             loader.classList.remove('hidden');
         }
     };
 
-    const hideLoader = () => {
+    const hideLoader = (force = false) => {
         if (loader) {
+            // Ignorar si hay una navegación en curso y no hemos forzado el cierre
+            if (window._isNavigating && !force) {
+                console.log('⏳ Postponiendo ocultación de loader: Navegación en curso...');
+                return;
+            }
+
+            console.log('✨ Ocultando Loader...');
             loader.classList.add('hidden');
             setTimeout(() => {
                 if (loader.classList.contains('hidden')) {
@@ -6040,8 +6066,8 @@ window.addEventListener('scroll', () => {
 
     // 📡 ESCUCHA AUTOMÁTICA: Ocultar loader cuando el render termine
     eventBus.on('render:complete', () => {
-        // Solo ocultar si no es la carga inicial (que tiene su propia lógica con Firebase)
         if (!isInitialLoad) {
+            console.log('🎯 Render finalizado, auto-ocultando loader');
             hideLoader();
         }
     });
