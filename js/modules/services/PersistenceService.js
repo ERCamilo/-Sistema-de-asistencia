@@ -32,10 +32,17 @@ export const syncFirebaseMirrorDebounced = (function() {
         clearTimeout(timeout);
         timeout = setTimeout(async () => {
             if (globalThis.currentUser && !globalThis._isApplyingRemoteData) {
-                try {
-                    await FirebaseService.saveFullState(state);
-                } catch (e) {
-                    console.error('âš ï¸ Error en sincronizaciÃ³n debounced:', e);
+                // ⚡ P4-OPT: Ejecutar guardado en Firebase solo cuando el hilo principal esté libre
+                const runSync = () => {
+                    FirebaseService.saveFullState(state).catch(e => {
+                        console.warn('⚠️ Error en sincronización debounced:', e);
+                    });
+                };
+
+                if (window.requestIdleCallback) {
+                    window.requestIdleCallback(runSync, { timeout: 1000 });
+                } else {
+                    runSync();
                 }
             }
         }, 2000); // 2 segundos de espera
@@ -122,7 +129,7 @@ async function _executeSave(options = {}) {
     }
 
     // ðŸ’¾ Persistencia Local
-    if (state.useIndexedDB) {
+    if (state.useIndexedDB && !globalThis._isApplyingRemoteData) {
         try {
             await indexedDBService.saveState(state, options);
         } catch (error) {
@@ -289,11 +296,20 @@ export function validateDataIntegrity() {
                 fixes++;
             }
         }
-        if (att.selectedPosition && !positionIds.has(att.selectedPosition)) {
-            att.selectedPosition = null;
-            fixes++;
-        }
-    });
+            // ⚡ P3-OPT: Si la posición seleccionada no existe por ID, puede ser un "Legacy ID" (un número largo de Firebase)
+            // Intentamos buscar una posición activa con un nombre similar antes de borrarla.
+            if (att.selectedPosition && !positionIds.has(att.selectedPosition)) {
+                const legacyId = att.selectedPosition;
+                // Si es un ID numérico largo (indicativo de Firebase), no lo borramos de inmediato
+                // ya que la sanitización en el otro módulo puede estar por ocurrir.
+                if (legacyId.length > 10 && !isNaN(legacyId)) {
+                    // Esperar a que la sanitización actúe, no borrar nada
+                } else {
+                    att.selectedPosition = null;
+                    fixes++;
+                }
+            }
+        });
 
     if (fixes > 0) {
         console.log(`ðŸ›¡ï¸ PersistenceService: ${fixes} referencia(s) huÃ©rfana(s) corregida(s)`);

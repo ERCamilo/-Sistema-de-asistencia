@@ -443,7 +443,8 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         ? (isMultiPosition ? (att.positionHours || []).map(ph => ph.positionId) : [selPos])
         : [];
 
-    return `<div id="emp-row-${emp.id}" class="employee-row">
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}`;
+    return `<div id="emp-row-${emp.id}" class="employee-row" data-memo-f="${fingerprint}">
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-number">${emp.number}</div>
@@ -639,9 +640,13 @@ export function getFilteredEmployeesForDay() {
  */
 export function WeekView() {
     const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
-    const filtered = getFilteredEmployeesForWeek(week);
+    
+    // ⚡ P4-OPT: Mapa de posiciones para búsquedas O(1)
+    const positionMap = new Map(state.positions.map(p => [p.id, p]));
+    const filtered = getFilteredEmployeesForWeek(week, positionMap);
+    
     const tbodyHTML = filtered.length > 0
-        ? filtered.map(emp => WeekRow(emp, week)).join('')
+        ? filtered.map(emp => WeekRow(emp, week, positionMap)).join('')
         : '<tr><td colspan="8"><div class="empty-state">No hay empleados registrados para este periodo</div></td></tr>';
 
     return `
@@ -672,13 +677,12 @@ export function WeekView() {
     `;
 }
 
-export function WeekRow(emp, week) {
+export function WeekRow(emp, week, positionMap) {
     // ⚡ P4-OPT: Fingerprint = updatedAt de cada día de la semana para este empleado
     const deps = [
         emp.updatedAt ?? 0,
-        (state.settings.holidays || []).join(','),
+        state.settings?.updatedAt ?? 0, // ⚡ P4-OPT: Sincronismo vía timestamp global de settings
         state.settings?.regularHoursPerDay || 8,
-        ...week.map(date => getDayHours(date)),
         ...week.map(date => {
             const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
             return att?.updatedAt ?? 0;
@@ -686,21 +690,22 @@ export function WeekRow(emp, week) {
     ];
     return componentMemo.get(
         `week-row-${emp.id}-${getDateKey(week[0])}`,
-        () => _buildWeekRow(emp, week),
+        () => _buildWeekRow(emp, week, positionMap, deps.join('-')),
         deps
     );
 }
 
-function _buildWeekRow(emp, week) {
+function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
+    const fingerprint = `${emp.id}-${getDateKey(week[0])}-${depsFingerprint}`;
     return `
-        <tr id="week-row-${emp.id}">
+        <tr id="week-row-${emp.id}" data-memo-f="${fingerprint}">
             <td class="sticky-column">
                 <div class="week-employee-cell">
                     <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
                         <div class="week-employee-name" style="cursor: pointer;" onclick="openEmployeeFloating('${emp.id}')">${emp.name}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
-                            ${emp.positions?.map(pid => state.positions.find(p => p.id === pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
+                            ${emp.positions?.map(pid => positionMap.get(pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>
                     </div>
                 </div>
@@ -728,7 +733,7 @@ function _buildWeekRow(emp, week) {
                             ${isCh && emp.positions?.length > 1 ? `
                                 <div class="week-position-toggles">
                                     ${emp.positions.map(pid => {
-            const pos = state.positions.find(p => p.id === pid);
+            const pos = positionMap.get(pid);
             if (!pos) return '';
             const isSel = selP === pid;
             return `<button class="week-position-toggle ${isSel ? 'active' : ''}" 
@@ -777,14 +782,18 @@ export function WeekViewTotalsRow() {
 /**
  * 🔍 Lógica de filtrado para WeekView
  */
-export function getFilteredEmployeesForWeek(week) {
+export function getFilteredEmployeesForWeek(week, positionMapArg = null) {
     const startDate = week[0];
     const endDate = week[6];
+    
+    // Crear mapa si no se provee
+    const positionMap = positionMapArg || new Map(state.positions.map(p => [p.id, p]));
+
     let employees = state.employees.filter(emp => wasEmployeeActiveInRange(emp, startDate, endDate, state.attendance));
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
 
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {
-        employees = employees.filter(emp => emp.positions?.some(pid => state.positions.find(p => p.id === pid)?.leaderId === state.filters.leaderId));
+        employees = employees.filter(emp => emp.positions?.some(pid => positionMap.get(pid)?.leaderId === state.filters.leaderId));
     }
 
     if (state.filters.search) {
@@ -792,7 +801,7 @@ export function getFilteredEmployeesForWeek(week) {
         employees = employees.filter(emp => {
             const matchesName = emp.name.toLowerCase().includes(term);
             const matchesNumber = emp.number.toLowerCase().includes(term);
-            const matchesPosition = emp.positions?.some(pid => state.positions.find(p => p.id === pid)?.name.toLowerCase().includes(term));
+            const matchesPosition = emp.positions?.some(pid => positionMap.get(pid)?.name.toLowerCase().includes(term));
             return matchesName || matchesNumber || matchesPosition;
         });
     }

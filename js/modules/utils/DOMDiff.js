@@ -116,13 +116,22 @@ export class DOMDiff {
 
             // Case 3: Both exist -> Patch recursively
             if (oldChild && newChild) {
+                // ⚡ Mega-Opt: Si tienen un "fingerprint" de memoización, comparar primero.
+                // Esto es mucho más rápido que isEqualNode para componentes complejos.
+                if (oldChild.nodeType === Node.ELEMENT_NODE && newChild.nodeType === Node.ELEMENT_NODE) {
+                    const oldFingerprint = oldChild.getAttribute('data-memo-f');
+                    const newFingerprint = newChild.getAttribute('data-memo-f');
+                    if (oldFingerprint && newFingerprint && oldFingerprint === newFingerprint) {
+                        continue;
+                    }
+                }
+
                 // ⚡ Optimización Alpha: Si el nodo es idéntico estructuralmente, saltar el parcheo.
-                // Esto previene mutaciones innecesarias y mejora drásticamente el rendimiento en listas grandes.
                 if (oldChild.isEqualNode(newChild)) continue;
-                // To optimize, if it's the same HTML, we could skip (optional)
-                // But full deep patch is more reliable for simple implementations
+                
                 this.patch(oldChild, newChild);
             }
         }
     }
 }
+

@@ -1276,23 +1276,26 @@ function getWeekDates(date) {
 
 // Event Handlers
 window.changeTab = (tab) => {
-    state.activeTab = tab;
-    render();
+    window.showLoader?.();
 
-    // Si se abre settings y está usando IndexedDB, actualizar estadísticas
-    if (tab === 'settings' && state.useIndexedDB) {
-        setTimeout(() => {
-            updateIndexedDBStats();
-        }, 100);
-    }
+    requestAnimationFrame(() => {
+        state.activeTab = tab;
+        render();
 
-    // Si se abre settings, actualizar estado del botón de instalación PWA
-    if (tab === 'settings') {
-        setTimeout(() => {
-            updateInstallPWAButton();
-        }, 100);
-    }
+        // Si se abre settings y está usando IndexedDB, actualizar estadísticas
+        if (tab === 'settings' && state.useIndexedDB) {
+            setTimeout(() => {
+                updateIndexedDBStats();
+            }, 100);
+        }
 
+        // Si se abre settings, actualizar estado del botón de instalación PWA
+        if (tab === 'settings') {
+            setTimeout(() => {
+                updateInstallPWAButton();
+            }, 100);
+        }
+    });
 };
 
 // ⚡ NUEVO: Cambiar pestaña de configuración (Asíncrono para Snapshots)
@@ -1374,47 +1377,60 @@ window.restoreSnapshot = async (snapshotId) => {
 };
 
 
-window.changeDate = (days) => {
-    // Si estamos en vista semanal, cambiar por semanas completas (7 días)
-    if (state.viewMode === 'week') {
-        state.selectedDate = DateUtils.addDays(state.selectedDate, days * 7);
-    } else {
-        state.selectedDate = DateUtils.addDays(state.selectedDate, days);
-    }
+window.changeDate = async (days) => {
+    window.showLoader?.();
 
-    // ✅ Guardar cambios
-    saveApplicationData();
+    // Pequeño delay para dejar que el navegador pinte el loader
+    requestAnimationFrame(() => {
+        // Si estamos en vista semanal, cambiar por semanas completas (7 días)
+        if (state.viewMode === 'week') {
+            state.selectedDate = DateUtils.addDays(state.selectedDate, days * 7);
+        } else {
+            state.selectedDate = DateUtils.addDays(state.selectedDate, days);
+        }
 
-    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
-    window.updateAttendanceSubscription?.();
+        // ✅ Guardar cambios
+        saveApplicationData();
 
-    render();
+        // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+        window.updateAttendanceSubscription?.();
+
+        render();
+    });
 };
 
 window.goToToday = () => {
-    state.selectedDate = DateUtils.today();
-    state.today = DateUtils.today(); // Actualizar today también
+    window.showLoader?.();
 
-    // ✅ Guardar cambios
-    saveApplicationData();
+    requestAnimationFrame(() => {
+        state.selectedDate = DateUtils.today();
+        state.today = DateUtils.today(); // Actualizar today también
 
-    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
-    window.updateAttendanceSubscription?.();
+        // ✅ Guardar cambios
+        saveApplicationData();
 
-    render();
+        // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+        window.updateAttendanceSubscription?.();
+
+        render();
+    });
 };
 
 window.changeViewMode = (mode) => {
-    state.viewMode = mode;
-    state.isScrolled = false; // Resetear scroll al cambiar de vista
+    window.showLoader?.();
 
-    // ✅ Guardar cambios
-    saveApplicationData();
+    requestAnimationFrame(() => {
+        state.viewMode = mode;
+        state.isScrolled = false; // Resetear scroll al cambiar de vista
 
-    // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
-    window.updateAttendanceSubscription?.();
+        // ✅ Guardar cambios
+        saveApplicationData();
 
-    render();
+        // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
+        window.updateAttendanceSubscription?.();
+
+        render();
+    });
 };
 
 window.showDatePicker = (target = 'full') => window.toggleDatePicker(target);
@@ -5998,12 +6014,37 @@ window.addEventListener('scroll', () => {
     const loader = document.getElementById('app-loader');
     let isInitialLoad = true;
 
+    const showLoader = () => {
+        if (loader) {
+            loader.style.display = 'flex';
+            // Forzar reflow para que la transición de opacidad funcione
+            void loader.offsetWidth;
+            loader.classList.remove('hidden');
+        }
+    };
+
     const hideLoader = () => {
         if (loader) {
             loader.classList.add('hidden');
-            setTimeout(() => loader.style.display = 'none', 500);
+            setTimeout(() => {
+                if (loader.classList.contains('hidden')) {
+                    loader.style.display = 'none';
+                }
+            }, 500);
         }
     };
+
+    // Exponer globalmente para uso en navegación
+    window.showLoader = showLoader;
+    window.hideLoader = hideLoader;
+
+    // 📡 ESCUCHA AUTOMÁTICA: Ocultar loader cuando el render termine
+    eventBus.on('render:complete', () => {
+        // Solo ocultar si no es la carga inicial (que tiene su propia lógica con Firebase)
+        if (!isInitialLoad) {
+            hideLoader();
+        }
+    });
 
     // Timeout de seguridad: Ocultar loader tras 6 segundos si Firebase falla
     const loaderTimeout = setTimeout(() => {
@@ -6096,14 +6137,8 @@ window.addEventListener('scroll', () => {
                         clearTimeout(loaderTimeout);
                         hideLoader();
                         isInitialLoad = false;
-                        console.log('✅ Primera carga de nube completada');
-                        const metadataChanged = JSON.stringify(remoteData.employees) !== JSON.stringify(state.employees) ||
-                            JSON.stringify(remoteData.positions) !== JSON.stringify(state.positions) ||
-                            JSON.stringify(remoteData.leaders) !== JSON.stringify(state.leaders);
-
-                        if (metadataChanged) {
-                            render();
-                        }
+                        // Forzar render inicial con datos de la nube
+                        render();
                     }
                 });
 
@@ -6198,6 +6233,7 @@ window.addEventListener('scroll', () => {
         render();
 
         console.log('✅ Aplicación iniciada correctamente');
+        hideLoader(); // 🚀 Ocultar el loader al completar el primer render
     } catch (error) {
         console.error('❌ Error fatal durante la inicialización:', error);
         // Intentar renderizar aunque sea un estado de error

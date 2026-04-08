@@ -245,22 +245,23 @@ export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
 }
 
 /**
- * 📅 Verifica si un empleado estuvo activo en un rango de fechas
+ * 📅 Verifica si un empleado estuvo activo en un rango de fechas de forma eficiente.
  */
-export function wasEmployeeActiveInRange(employee, startDate, endDate, attendance = {}) {
+export function wasEmployeeActiveInRange(employee, startDate, endDate, attendance = {}, attendanceByDate = {}) {
     const start = typeof startDate === 'string' ? startDate : getDateKey(startDate);
     const end = typeof endDate === 'string' ? endDate : getDateKey(endDate);
 
-    // 1. Verificar si tiene asistencia en el rango (prueba definitiva)
-    const hasAttendanceInRange = Object.keys(attendance).some(key => {
-        if (!key.startsWith(employee.id + '-')) return false;
-        const dateKey = key.split('-').slice(1).join('-');
-        return dateKey >= start && dateKey <= end;
-    });
+    // 1. Verificación O(1): ¿Tiene récords en los días del rango?
+    // En lugar de iterar sobre todas las llaves, iteramos sobre los días del rango (generalmente 7)
+    const sDate = parseDate(start);
+    const eDate = parseDate(end);
+    
+    for (let d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
+        const dKey = getDateKey(d);
+        if (attendance[`${employee.id}-${dKey}`]) return true;
+    }
 
-    if (hasAttendanceInRange) return true;
-
-    // 2. Si no tiene asistencia, verificar si estuvo activo al inicio o al final
+    // 2. Si no hay asistencia en el rango, verificar estado en los límites
     return wasEmployeeActiveOnDate(employee, start, attendance) || wasEmployeeActiveOnDate(employee, end, attendance);
 }
 

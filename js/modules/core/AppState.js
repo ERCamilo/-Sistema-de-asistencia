@@ -56,14 +56,38 @@ class StateManager {
     getState() { return this._state; }
     setState(updates, options = {}) {
         const { silent = false } = options;
+        const oldSilent = this._silent;
         this._silent = silent;
+        
         Object.assign(this._state, updates);
-        if (!silent && window.render) renderOptimizer.scheduleRender(window.render);
-        this._silent = false;
+        
+        // ⚡ P3-OPT: Si se actualizó la asistencia, marcamos para rebuild
+        if (updates.attendance) this.markAttendanceDirty();
+        
+        if (!this._silent && window.render) {
+            renderOptimizer.scheduleRender(window.render);
+        }
+        
+        this._silent = oldSilent;
         return this._state;
     }
     silentSetState(updates) { return this.setState(updates, { silent: true }); }
+    
+    /**
+     * ⚡ BATCH UPDATE: Ejecuta múltiples actualizaciones y solo dispara un render al final.
+     */
+    batchSetState(callback) {
+        const oldSilent = this._silent;
+        this._silent = true;
+        try {
+            callback(this._state);
+        } finally {
+            this._silent = oldSilent;
+            if (!this._silent && window.render) renderOptimizer.scheduleRender(window.render);
+        }
+    }
 }
+
 
 const initialState = {
     activeTab: 'attendance',

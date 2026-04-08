@@ -51,7 +51,10 @@ class RenderManager {
         try {
             perfMonitor.start(`renderZone:${zoneId}`);
             const html = typeof generator === 'function' ? generator(data) : generator;
-            element.innerHTML = html;
+            
+            // ⚡ P4-OPT: Usar DOMDiff para actualizaciones de zona (Evita parpadeo y es más rápido)
+            DOMDiff.apply(element, html);
+            
             this.renderCount++;
             perfMonitor.end(`renderZone:${zoneId}`);
             return true;
