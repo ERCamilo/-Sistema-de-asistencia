@@ -98,6 +98,8 @@ import { onboardingWizard } from './modules/ui/Onboarding.js';
 import { ModalManager } from './modules/ui/ModalManager.js';
 import { VirtualScrollComponent } from './modules/components/VirtualScroll.js';
 import { ExportService } from './modules/services/ExportService.js';
+import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsService.js';
+import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
 
 
@@ -613,6 +615,8 @@ const payrollService = new PayrollService(state);
 
 // 📈 CLASE CHARTSERVICE
 const chartService = new ChartService(state);
+const employeeStatsService = new EmployeeStatsService(state, payrollService, chartService);
+const employeeFloatingCard = new EmployeeFloatingCard(employeeStatsService);
 
 // 🛠️ Inicializar SettingsUI
 initSettingsUI({
@@ -706,9 +710,7 @@ window.openPositionForm = EmployeesUI.openPositionForm;
 window.savePosition = EmployeesUI.savePosition;
 window.togglePositionStatus = EmployeesUI.togglePositionStatus;
 window.deletePosition = EmployeesUI.deletePosition;
-window.openEmployeeFloating = EmployeesUI.openEmployeeFloating;
-window.closeFloatingCard = EmployeesUI.closeFloatingCard;
-window.changeFloatingMonth = EmployeesUI.changeFloatingMonth;
+window.deletePosition = EmployeesUI.deletePosition;
 window.openEmployeeProfile = EmployeesUI.openEmployeeProfile;
 
 // ============================================
@@ -1724,22 +1726,7 @@ window.toggleWeekPosition = (empId, posId, dateStr) => {
         render();
     }
 };
-window.openEmployeeFloating = (empId) => {
-    state.floatingCardEmployee = state.employees.find(e => e.id === empId);
-    state.showFloatingCard = true;
-    state.floatingCardMonth = new Date();
-    render();
-};
-window.closeFloatingCard = () => {
-    state.showFloatingCard = false;
-    state.floatingCardEmployee = null;
-    render();
-};
-window.changeFloatingMonth = (delta) => {
-    state.floatingCardMonth.setMonth(state.floatingCardMonth.getMonth() + delta);
-    state.floatingCardMonth = new Date(state.floatingCardMonth);
-    render();
-};
+// Handlers de Tarjeta Flotante movidos a EmployeesUI.js y delegados a EmployeeFloatingCard.js
 window.changeChartPeriod = (period) => { state.chartPeriod = period; render(); };
 
 // ═══════════════════════════════════════════════════════════════
@@ -3403,96 +3390,8 @@ function getDateMarker(emp, dateKey) {
     return `<div class="calendar-day-markers" style="position:absolute; bottom:2px; left:50%; transform:translateX(-50%); display:flex; gap:1px; font-size:0.6rem; line-height:1;">${markers.join('')}</div>`;
 }
 
-function FloatingCard() {
-    if (!state.showFloatingCard || !state.floatingCardEmployee) return '';
-    const emp = state.floatingCardEmployee;
-    const now = new Date();
-    const today = getDateKey(now);
-
-    // 7 Días
-    const l7 = new Date(); l7.setDate(l7.getDate() - 6);
-    const h7 = getEmployeeTotalHours(emp.id, l7, now);
-
-    // Mes
-    const fm = new Date(now.getFullYear(), now.getMonth(), 1);
-    const hm = getEmployeeTotalHours(emp.id, fm, now);
-
-    // Semana (Lunes a Hoy)
-    const day = now.getDay() || 7;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - (day - 1));
-    const hw = getEmployeeTotalHours(emp.id, weekStart, now);
-
-    // Periodo Actual (Acumulado hasta hoy o fin de periodo)
-    const pStartKey = state.settings?.payPeriod?.periodStart;
-    const pLen = state.settings?.payPeriod?.periodLength || 15;
-    let hp = 0;
-    let gross = 0;
-
-    if (pStartKey) {
-        // Calcular fin de periodo
-        const start = parseDate(pStartKey);
-        const end = new Date(start);
-        end.setDate(start.getDate() + pLen - 1);
-        const pEndKey = getDateKey(end);
-
-        // El cálculo debe ser el acumulado desde el inicio hasta:
-        // - Hoy (si el periodo está en curso)
-        // - El fin del periodo (si el periodo ya expiró pero no se ha avanzado)
-        const effectiveEnd = (today < pEndKey) ? today : pEndKey;
-
-        hp = getEmployeeTotalHours(emp.id, pStartKey, effectiveEnd);
-        const payroll = payrollService.calculateEmployeePayroll(emp.id, pStartKey, effectiveEnd);
-        gross = payroll.bruto;
-    }
-
-    const chartData = chartService.getChartData(emp.id, state.chartPeriod);
-    const maxVal = chartData && chartData.length > 0 ? Math.max(...chartData.map(d => (d.regular || 0) + (d.overtime || 0) + (d.holiday || 0) + (d.absent || 0))) : 1;
-    const maxH = Math.max(maxVal, 1);
-    const scale = 140 / maxH;
-
-    const calendarHTML = CalendarView({
-        employee: emp,
-        month: state.floatingCardMonth,
-        navAction: 'changeFloatingMonth',
-        showLegend: false
-    });
-
-    return `
-        <div class="overlay" onclick="closeFloatingCard()"></div>
-        <div class="floating-card" onclick="event.stopPropagation()">
-            <div class="floating-card-header">
-                <div class="floating-card-title">👤 ${emp.name}</div>
-                <button class="floating-card-close" onclick="closeFloatingCard()">✕</button>
-            </div>
-            
-            <div class="stats-compact-grid">
-                <div class="stat-mini">
-                    <div class="stat-mini-label">7 Días</div>
-                    <div class="stat-mini-value">${h7}h</div>
-                </div>
-                <div class="stat-mini">
-                    <div class="stat-mini-label">Semana</div>
-                    <div class="stat-mini-value">${hw}h</div>
-                </div>
-                <div class="stat-mini">
-                    <div class="stat-mini-label">Mes</div>
-                    <div class="stat-mini-value">${hm}h</div>
-                </div>
-                <div class="stat-mini">
-                    <div class="stat-mini-label">Periodo</div>
-                    <div class="stat-mini-value">${hp}h</div>
-                </div>
-            </div>
-
-            <div class="earnings-highlight">
-                <div class="earnings-label">💰 Ganancias Brutas del Periodo</div>
-                <div class="earnings-value">$${gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            </div>
-
-            ${calendarHTML}
-
-            <div class="chart-compact">
+//fraficos de barras
+/*const GraficosDeBarra = `            <div class="chart-compact">
                 <div class="chart-compact-header">
                     <div class="chart-compact-title">📈 ${state.chartPeriod === 'all' ? 'Historial por Meses' : 'Asistencia y Horas'}</div>
                     <div class="chart-filter">
@@ -3503,12 +3402,12 @@ function FloatingCard() {
                 </div>
                 <div class="chart-bars">
                     ${chartData.map(d => {
-        const tot = (d.regular + d.overtime + d.holiday + d.absent) * scale;
-        const rH = d.regular * scale;
-        const oH = d.overtime * scale;
-        const hH = d.holiday * scale;
-        const aH = d.absent * scale;
-        return `<div class="chart-bar-wrapper">
+    const tot = (d.regular + d.overtime + d.holiday + d.absent) * scale;
+    const rH = d.regular * scale;
+    const oH = d.overtime * scale;
+    const hH = d.holiday * scale;
+    const aH = d.absent * scale;
+    return `<div class="chart-bar-wrapper">
                             <div class="chart-bar" style="height:${Math.max(tot, 10)}px;">
                                 ${d.absent > 0 ? `<div class="chart-segment absent" style="height:${aH}px;"></div>` : ''}
                                 ${d.regular > 0 ? `<div class="chart-segment regular" style="height:${rH}px;"></div>` : ''}
@@ -3517,23 +3416,12 @@ function FloatingCard() {
                             </div>
                             <div class="chart-bar-label">${d.label || `${d.date.getDate()}/${d.date.getMonth() + 1}`}</div>
                         </div>`;
-    }).join('')}
+}).join('')}
                 </div>
-            </div>
+            </div>`;
+*/
 
-                        <!-- 📝 VISTA PREVIA DE NOTAS GENERALES -->
-                        ${emp.notes && emp.notes.trim() ? `
-                            <div style="padding: 12px 16px; border-top: 1px solid #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(15, 23, 42, 0.5);" 
-                                 title="${emp.notes.replace(/"/g, '&quot;')}">
-                                <div style="color: #94a3b8; font-size: 0.8rem; display: flex; align-items: center; gap: 8px;">
-                                    <span>📝</span>
-                                    <span style="overflow: hidden; text-overflow: ellipsis;">${emp.notes}</span>
-                                </div>
-                            </div>
-                        ` : ''}
-
-    <div style="padding: 16px; border-top: 1px solid #334155;"><button onclick="openEmployeeProfile('${emp.id}')" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">👤 Ver Perfil Completo</button></div></div>`;
-}
+// La función FloatingCard() ha sido movida a js/modules/ui/components/EmployeeFloatingCard.js
 
 
 // ============================================
@@ -6015,7 +5903,7 @@ function App() {
         activeTab: state.activeTab,
         changeTab: (tab) => window.changeTab(tab),
         legacyNavigation: state.settings.legacyNavigation
-    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${FloatingCard()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
+    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
 // 🎯 Registrar el componente raíz para el motor modular

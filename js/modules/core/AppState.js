@@ -297,19 +297,7 @@ export function calculateStats() {
 }
 window.calculateStats = calculateStats;
 
-export function getEmployeeTotalHours(empId, start, end) {
-    let total = 0;
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-        const key = `${empId}-${getDateKey(new Date(d))}`;
-        const att = state.attendance[key];
-        if (att && att.present) total += (att.hoursWorked || 0);
-    }
-    return total;
-}
-window.getEmployeeTotalHours = getEmployeeTotalHours;
+// getEmployeeTotalHours movido a js/modules/features/stats/EmployeeStatsService.js
 
 /**
  * ⚡ P3-OPT: Obtener estadísticas mensuales acumuladas con caché persistente (O(1) amortizado).
@@ -347,4 +335,22 @@ export function getEmployeeMTDStats(empId, dateInput) {
     
     return stats;
 }
-window.getEmployeeMTDStats = getEmployeeMTDStats;
+
+
+export function getHoursWorked(empId, dateKey) {
+    const att = stateManager._state.attendance[`${empId}-${dateKey}`];
+    return (att && att.present) ? (att.hoursWorked || 0) : 0;
+}
+
+export function getEmployeeTotalHours(empId, start, end) {
+    let total = 0;
+    const startDate = parseDate(start);
+    const endDate = parseDate(end);
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        total += getHoursWorked(empId, getDateKey(new Date(d)));
+    }
+    return total;
+}
+
+window.getEmployeeTotalHours = getEmployeeTotalHours;
+// state ya está exportado arriba como proxy (L233)

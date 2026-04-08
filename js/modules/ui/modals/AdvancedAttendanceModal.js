@@ -5,7 +5,7 @@
 
 import { state } from '../../core/AppState.js';
 import { payrollService } from '../../services/index.js';
-import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
+import { getDateKey, formatDateShort, isDayHoliday } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
 import { debug } from '../../utils/Debug.js';
 
@@ -245,7 +245,7 @@ export function saveAdvancedAttendance() {
     state.attendance[key] = attendanceRecord;
     
     // Sincronizar y renderizar
-    if (window.saveApplicationData) window.saveToLocalStorage({ dateKey });
+    if (window.saveToLocalStorage) window.saveToLocalStorage({ dateKey });
     if (window.render) window.render();
     if (window.showNotification) window.showNotification('✅ Detalles guardados correctamente', 'success');
 

@@ -5,6 +5,7 @@ import { Modal } from '../../components/Modal.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
+import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
 
 export let context = null;
 
@@ -1002,25 +1003,15 @@ export function savePosition() {
 }
 
 export function openEmployeeFloating(empId) {
-    const state = getState();
-    state.floatingCardEmployee = state.employees.find(e => e.id === empId);
-    state.showFloatingCard = true;
-    state.floatingCardMonth = new Date();
-    context.render();
+    EmployeeFloatingCard.open(empId);
 }
 
 export function closeFloatingCard() {
-    const state = getState();
-    state.showFloatingCard = false;
-    state.floatingCardEmployee = null;
-    context.render();
+    EmployeeFloatingCard.close();
 }
 
 export function changeFloatingMonth(delta) {
-    const state = getState();
-    state.floatingCardMonth.setMonth(state.floatingCardMonth.getMonth() + delta);
-    state.floatingCardMonth = new Date(state.floatingCardMonth);
-    context.render();
+    EmployeeFloatingCard.changeMonth(delta);
 }
 
 export function changeProfileAsistenciaMonth(delta) {

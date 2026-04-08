@@ -439,14 +439,14 @@
 .sticky-column {
     position: sticky;
     left: 0;
-    z-index: 10;
+    z-index: 1;
     background: #1e293b !important;
 }
 
 .sticky-header {
     position: sticky;
     top: 0;
-    z-index: 20;
+    z-index: 2;
     background: #0f172a !important;
 }
 
