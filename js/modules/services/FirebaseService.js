@@ -395,43 +395,77 @@ class FirebaseService {
     }
 
     /**
-     * Elimina permanentemente todos los datos del usuario en la nube
+     * Elimina un snapshot específico
      */
-    async deleteCloudData() {
+    async deleteSnapshot(snapshotId) {
         if (!auth.currentUser) return;
 
         try {
-            // 1. Eliminar documento 'current'
-            const currentDocRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
-            await deleteDoc(currentDocRef);
-
-            // 2. Eliminar toda la colección de attendance mediante Batch
-            const attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
-            const attDocs = await getDocs(attendanceRef);
-            const attBatch = writeBatch(db);
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'snapshots', snapshotId);
+            const docSnap = await getDoc(docRef);
             
-            attDocs.forEach(d => attBatch.delete(d.ref));
-            await attBatch.commit();
-
-            // 3. Eliminar snapshots con Batch
-            const snapshotsRef = collection(db, 'users', auth.currentUser.uid, 'snapshots');
-            const snapDocs = await getDocs(snapshotsRef);
-            const snapBatch = writeBatch(db);
-            
-            snapDocs.forEach(d => {
-                const data = d.data();
-                if (data.metadata?.type !== 'pre-restore' && !data.metadata?.isProtected) {
-                    snapBatch.delete(d.ref);
-                } else {
-                    console.log(`🛡️ Conservando snapshot protegido: ${d.id}`);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                // 1. Si está en Storage, borrarlo de allí primero
+                if (data.isExternal) {
+                    const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/${snapshotId}.json`);
+                    try {
+                        await deleteObject(storageRef);
+                        console.log('🗑️ Archivo de snapshot eliminado de Storage');
+                    } catch (e) {
+                        console.warn('⚠️ No se pudo eliminar el archivo en Storage:', e);
+                    }
                 }
-            });
-            await snapBatch.commit();
-
-            console.log('🗑️ Datos en la nube eliminados correctamente');
+                
+                // 2. Borrar documento de Firestore
+                await deleteDoc(docRef);
+                console.log(`🗑️ Snapshot ${snapshotId} eliminado de Firestore`);
+            }
             return true;
         } catch (error) {
-            console.error('❌ Error al eliminar datos en la nube:', error);
+            console.error(`❌ Error eliminando snapshot ${snapshotId}:`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * Elimina todos los snapshots de un tipo específico (Limpieza masiva)
+     * @param {string} type 'auto' o 'manual'
+     */
+    async deleteSnapshotsByType(type) {
+        if (!auth.currentUser) return;
+
+        try {
+            const snapshotsRef = collection(db, 'users', auth.currentUser.uid, 'snapshots');
+            const q = query(snapshotsRef, where('metadata.type', '==', type));
+            const querySnapshot = await getDocs(q);
+            
+            const batch = writeBatch(db);
+            let count = 0;
+
+            for (const docSnap of querySnapshot.docs) {
+                const data = docSnap.data();
+                
+                // 🛡️ Ignorar protegidos
+                if (data.metadata?.isProtected || data.metadata?.type === 'pre-restore') continue;
+
+                // Borrar de Storage si es externo
+                if (data.isExternal) {
+                    const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/${docSnap.id}.json`);
+                    try { await deleteObject(storageRef); } catch (e) {}
+                }
+
+                batch.delete(docSnap.ref);
+                count++;
+            }
+
+            if (count > 0) {
+                await batch.commit();
+                console.log(`🗑️ Historial limpio: ${count} snapshots de tipo ${type} eliminados`);
+            }
+            return count;
+        } catch (error) {
+            console.error(`❌ Error en borrado masivo de snapshots (${type}):`, error);
             throw error;
         }
     }

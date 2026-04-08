@@ -299,10 +299,10 @@ window.App.Sync = {
         }
     },
 
-    createSnapshot: async () => {
+    createSnapshot: async (type = 'manual') => {
         try {
             showNotification('📸 Creando snapshot...', 'info');
-            await FirebaseService.createSnapshot(state, 'manual');
+            await FirebaseService.createSnapshot(state, type);
             if (state.settingsActiveTab === 'data') {
                 state.isLoadingSnapshots = true; render();
                 state.snapshots = await FirebaseService.listSnapshots();
@@ -383,6 +383,67 @@ window.createFirebaseSnapshot = window.App.Sync.createSnapshot;
 window.downloadFromCloudNow = window.App.Sync.downloadFromCloud;
 window.uploadToCloudNow = window.App.Sync.uploadToCloud;
 window.deleteCloudDataNow = window.App.Sync.deleteCloudData;
+
+/**
+ * 🗑️ ELIMINACIÓN DE SNAPSHOTS (Gestión de historial)
+ */
+window.deleteSnapshotHandler = async (snapshotId) => {
+    if (!window.currentUser) return;
+    
+    const isConfirmed = confirm('¿Estás seguro de que deseas eliminar permanentemente esta versión? Esta acción no se puede deshacer.');
+    if (!isConfirmed) return;
+
+    const loader = showNotification('🗑️ Eliminando versión...', 'loading');
+    try {
+        await FirebaseService.deleteSnapshot(snapshotId);
+        // Actualizar lista local para refrescar UI inmediatamente
+        if (state.snapshots) {
+            state.snapshots = state.snapshots.filter(s => s.id !== snapshotId);
+        }
+        showNotification('✅ Versión eliminada', 'success');
+        render();
+    } catch (e) {
+        console.error('Error al eliminar snapshot:', e);
+        showNotification('❌ Error al eliminar la versión', 'error');
+    } finally {
+        if (loader && typeof loader.close === 'function') loader.close();
+    }
+};
+
+window.bulkDeleteSnapshotsHandler = async (type) => {
+    if (!window.currentUser) return;
+    
+    const typeLabel = type === 'auto' ? 'AUTOMÁTICAS' : 'MANUALES';
+    const isConfirmed = confirm(`¿Estás seguro de que deseas eliminar TODAS las versiones ${typeLabel}? Esta acción es permanente.`);
+    if (!isConfirmed) return;
+
+    const loader = showNotification(`🗑️ Limpiando versiones ${typeLabel.toLowerCase()}...`, 'loading');
+    try {
+        const deletedCount = await FirebaseService.deleteSnapshotsByType(type);
+        
+        // Recargar la lista desde la nube para estar seguros
+        state.isLoadingSnapshots = true;
+        render();
+        
+        const freshSnapshots = await FirebaseService.listSnapshots(50);
+        state.snapshots = freshSnapshots;
+        state.isLoadingSnapshots = false;
+        
+        if (deletedCount > 0) {
+            showNotification(`✅ Se eliminaron ${deletedCount} versiones`, 'success');
+        } else {
+            showNotification('ℹ️ No se encontraron versiones para eliminar', 'info');
+        }
+        render();
+    } catch (e) {
+        console.error('Error en limpieza masiva:', e);
+        showNotification('❌ Error en limpieza masiva', 'error');
+        state.isLoadingSnapshots = false;
+        render();
+    } finally {
+        if (loader && typeof loader.close === 'function') loader.close();
+    }
+};
 
 
 window.App.updateBackupFrequency = (value) => {

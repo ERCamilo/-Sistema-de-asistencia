@@ -373,6 +373,24 @@ function SettingsTabData() {
                                     <button onclick="deleteCloudDataNow()" class="btn-danger" style="white-space: nowrap; padding: 10px 20px; background: none; border: 1px solid #ef4444; color: #ef4444;">🗑️ Borrar Nube</button>
                                 </div>
                             </div>
+                            
+                            <!-- NUEVO: Limpieza de Historial Masiva -->
+                            <div style="margin-top: 16px; padding: 16px; background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px solid #334155;">
+                                <div style="color: #94a3b8; font-weight: 700; font-size: 0.85rem; margin-bottom: 12px; text-transform: uppercase; display: flex; align-items: center; gap: 8px;">
+                                    <span>🧹</span> Limpieza de Historial (Snapshots)
+                                </div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <button onclick="bulkDeleteSnapshotsHandler('auto')" class="btn-secondary" style="font-size: 0.75rem; padding: 8px; border-color: rgba(239, 68, 68, 0.3); color: #94a3b8;">
+                                        Borrar Todos los Autos
+                                    </button>
+                                    <button onclick="bulkDeleteSnapshotsHandler('manual')" class="btn-secondary" style="font-size: 0.75rem; padding: 8px; border-color: rgba(239, 68, 68, 0.3); color: #94a3b8;">
+                                        Borrar Todos los Manuales
+                                    </button>
+                                </div>
+                                <p style="margin: 8px 0 0 0; font-size: 0.65rem; color: #64748b;">
+                                    * Las versiones marcadas como 'Protegidas' (p. ej. pre-restauración) no se borrarán.
+                                </p>
+                            </div>
                         </div>
                         ` : ''}
                     </div>
@@ -717,9 +735,15 @@ function SnapshotHistory() {
                         <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
                             <div style="flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                    <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: ${snap.type === 'auto' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(6, 182, 212, 0.1)'}; color: ${snap.type === 'auto' ? '#10b981' : '#06b6d4'}; border: 1px solid currentColor;">
-                                        ${snap.type === 'auto' ? 'AUTO' : 'MANUAL'}
-                                    </span>
+                                    ${snap.type === 'pre-restore' ? `
+                                        <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                                            🛡️ PROTEGIDO
+                                        </span>
+                                    ` : `
+                                        <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: ${snap.type === 'auto' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(6, 182, 212, 0.1)'}; color: ${snap.type === 'auto' ? '#10b981' : '#06b6d4'}; border: 1px solid currentColor;">
+                                            ${snap.type === 'auto' ? 'AUTO' : 'MANUAL'}
+                                        </span>
+                                    `}
                                     <span style="color: #f1f5f9; font-weight: 600; font-size: 0.9rem;">
                                         ${DateUtils.formatDateTime(snap.createdAt)}
                                     </span>
@@ -729,10 +753,17 @@ function SnapshotHistory() {
                                     👥 ${snap.employeeCount} empleados | 📝 ${snap.attendanceCount} registros
                                 </div>
                             </div>
-                            <button onclick="restoreSnapshot('${snap.id}')" 
-                                    style="padding: 8px 16px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">
-                                ⏪ Restaurar
-                            </button>
+                            <div style="display: flex; gap: 6px;">
+                                <button onclick="deleteSnapshotHandler('${snap.id}')" 
+                                        style="padding: 8px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;"
+                                        title="Eliminar permanentemente">
+                                    🗑️
+                                </button>
+                                <button onclick="restoreSnapshot('${snap.id}')" 
+                                        style="padding: 8px 16px; background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">
+                                    ⏪ Restaurar
+                                </button>
+                            </div>
                         </div>
                     `).join('')}
                 </div>

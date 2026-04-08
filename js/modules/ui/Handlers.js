@@ -239,3 +239,60 @@ window.toggleSidebar = () => {
     saveApplicationData();
     render();
 };
+
+/**
+ * 🗑️ ELIMINACIÓN DE SNAPSHOTS
+ */
+window.deleteSnapshotHandler = async (snapshotId) => {
+    if (!window.currentUser) return;
+    
+    const isConfirmed = confirm('¿Estás seguro de que deseas eliminar permanentemente esta versión? Esta acción no se puede deshacer.');
+    if (!isConfirmed) return;
+
+    const loading = Notification.loading('🗑️ Eliminando versión...');
+    try {
+        await FirebaseService.deleteSnapshot(snapshotId);
+        // Actualizar lista local para refrescar UI inmediatamente
+        if (state.snapshots) {
+            state.snapshots = state.snapshots.filter(s => s.id !== snapshotId);
+        }
+        Notification.success('✅ Versión eliminada');
+        render(); // Re-renderizar la pestaña de ajustes
+    } catch (e) {
+        Notification.error('❌ Error al eliminar');
+    } finally {
+        loading.close();
+    }
+};
+
+window.bulkDeleteSnapshotsHandler = async (type) => {
+    if (!window.currentUser) return;
+    
+    const typeLabel = type === 'auto' ? 'AUTOMÁTICAS' : 'MANUALES';
+    const isConfirmed = confirm(`¿Estás seguro de que deseas eliminar TODAS las versiones ${typeLabel}? Esta acción es permanente.`);
+    if (!isConfirmed) return;
+
+    const loading = Notification.loading(`🗑️ Limpiando versiones ${typeLabel.toLowerCase()}...`);
+    try {
+        const deletedCount = await FirebaseService.deleteSnapshotsByType(type);
+        
+        // Recargar la lista desde la nube para estar seguros
+        state.isLoadingSnapshots = true;
+        render();
+        
+        const freshSnapshots = await FirebaseService.listSnapshots(50);
+        state.snapshots = freshSnapshots;
+        state.isLoadingSnapshots = false;
+        
+        if (deletedCount > 0) {
+            Notification.success(`✅ Se eliminaron ${deletedCount} versiones`);
+        } else {
+            Notification.info('Información', 'No se encontraron versiones para eliminar.');
+        }
+        render();
+    } catch (e) {
+        Notification.error('❌ Error en limpieza masiva');
+    } finally {
+        loading.close();
+    }
+};
