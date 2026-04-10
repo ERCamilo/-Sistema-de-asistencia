@@ -176,7 +176,8 @@ const initialState = {
         showStartPicker: false,
         showEndPicker: false,
         deductions: [],
-        expandedPositions: {}
+        expandedPositions: {},
+        editingAdvances: {}
     },
     settingsCalendarMonth: new Date(),
     calendarMarkerMode: 'holiday',

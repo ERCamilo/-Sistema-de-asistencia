@@ -96,110 +96,137 @@ function renderProfileTab(tabId, emp) {
  * 💰 TAB: Nómina y Pagos
  */
 function ProfileTabNomina(emp) {
-    // Soporte cruzado para APIs antigua (calculatePeriod) y nueva (calculateEmployeePayroll)
-    const payData = (typeof payrollService.calculateEmployeePayroll === 'function') 
-        ? payrollService.calculateEmployeePayroll(emp.id, state.employeeProfile.periodStart, state.employeeProfile.periodEnd)
-        : payrollService.calculatePeriod(emp.id, state.employeeProfile.periodStart, state.employeeProfile.periodEnd);
+    const payData = payrollService.calculateEmployeePayroll(
+        emp.id, 
+        state.employeeProfile.periodStart, 
+        state.employeeProfile.periodEnd
+    );
         
-    const summary = payData.summary || {
-        grossTotal: payData.bruto || 0,
-        netTotal: payData.neto || 0,
-        deductions: payData.deductionBreakdown || []
-    };
+    const byPosition = payData.breakdown || [];
     
-    const byPosition = payData.byPosition || payData.breakdown || [];
-    
-    let totalDays = summary.totalDays || 0;
     let totalRegHours = 0;
     let totalExtHours = 0;
     
     byPosition.forEach(pos => {
-        if (!summary.totalDays) totalDays += pos.days || 0; // Si la nueva API no trae totalDays
-        totalRegHours += pos.regularHours || pos.totalHours || 0;
-        totalExtHours += pos.overtimeHours || pos.totalOvertime || 0;
+        totalRegHours += pos.regularHours || 0;
+        totalExtHours += pos.overtimeHours || 0;
     });
     
-    if (!summary.totalDays) summary.totalDays = totalDays;
+    const totalDays = byPosition.reduce((sum, pos) => sum + (pos.days || 0), 0);
 
-    return `<div style="display: flex; flex-direction: column; gap: 20px;">
-                <!-- Selector de Período Premium -->
-                <div style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid #334155;">
-                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">
-                        📅 Período de Cálculo
+    return `<div style="display: flex; flex-direction: column; gap: 24px;">
+                <!-- 🛠️ CONFIGURACIÓN DE AJUSTES (Deducciones, Bonos, Adelantos) -->
+                <div class="payroll-config-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div id="deductions-section">
+                        <!-- Renderizado por app.js -->
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px;">
+                    <div id="bonuses-section">
+                        <!-- Renderizado por app.js -->
+                    </div>
+                </div>
+
+                <!-- SECCIÓN DE ADELANTOS (Ancho completo) -->
+                <div id="advances-section">
+                    <!-- Renderizado por app.js -->
+                </div>
+
+                <div style="border-top: 1px solid #334155; margin: 10px 0;"></div>
+
+                <!-- 📅 SELECTOR DE PERÍODO -->
+                <div style="background: #1e293b; padding: 20px; border-radius: 12px; border: 1px solid #334155;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 8px;">
+                        ${icons.get('calendar', { size: 14 })} PERÍODO DE CÁLCULO
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;">
                         <div style="position: relative;">
-                            <button onclick="toggleProfileStartPicker()" class="date-selector-btn">
+                            <button onclick="toggleProfileStartPicker()" class="date-selector-btn" style="width: 100%;">
                                 ${formatDateShort(state.employeeProfile.periodStart)}
                             </button>
                             ${state.employeeProfile.showStartPicker ? ProfileStartDatePicker() : ''}
                         </div>
                         <div style="color: #475569;">➜</div>
                         <div style="position: relative;">
-                            <button onclick="toggleProfileEndPicker()" class="date-selector-btn">
+                            <button onclick="toggleProfileEndPicker()" class="date-selector-btn" style="width: 100%;">
                                 ${formatDateShort(state.employeeProfile.periodEnd)}
                             </button>
                             ${state.employeeProfile.showEndPicker ? ProfileEndDatePicker() : ''}
                         </div>
                     </div>
                     
-                    <div style="display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap;">
+                        <button onclick="setProfilePeriod('payPeriod')" class="period-chip" style="background: rgba(6, 182, 212, 0.1); border-color: rgba(6, 182, 212, 0.4); color: #06b6d4; font-weight: 700;">Período Actual</button>
                         <button onclick="setProfilePeriod('thisMonth')" class="period-chip">Este Mes</button>
                         <button onclick="setProfilePeriod('lastMonth')" class="period-chip">Mes Anterior</button>
-                        <button onclick="setProfilePeriod('last15')" class="period-chip">Últimos 15 días</button>
-                        <button onclick="setProfilePeriod('payPeriod')" class="period-chip" style="background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.4); color: #c4b5fd;">🗓️ Período Actual</button>
                     </div>
                 </div>
 
-                <!-- 🚀 Tarjetas Estadísticas Horizontales -->
-                <div class="profile-stats-row">
-                    <div class="profile-stat-card">
-                        <span>Días</span>
-                        <strong>${summary.totalDays}</strong>
+                <!-- 📊 RESUMEN DE CRONOS -->
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                    <div style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid #334155; text-align: center;">
+                        <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Días</div>
+                        <div style="font-size: 1.25rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">${totalDays}</div>
                     </div>
-                    <div class="profile-stat-card">
-                        <span>Horas</span>
-                        <strong>${totalRegHours}h</strong>
+                    <div style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid #334155; text-align: center;">
+                        <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Hrs Reg</div>
+                        <div style="font-size: 1.25rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">${totalRegHours}h</div>
                     </div>
-                    <div class="profile-stat-card">
-                        <span>Extras</span>
-                        <strong>${totalExtHours}h</strong>
-                    </div>
-                </div>
-
-                <!-- 🚀 Resumen de Ganancias -->
-                <div class="profile-earnings-row">
-                    <div class="profile-gross-card">
-                        <div class="profile-earnings-label">TOTAL BRUTO</div>
-                        <div class="profile-earnings-val" style="color: #f1f5f9;">${formatCurrency(summary.grossTotal)}</div>
-                    </div>
-                    <div class="profile-net-card">
-                        <div class="profile-earnings-label">NETO A PAGAR</div>
-                        <div class="profile-earnings-val">${formatCurrency(summary.netTotal)}</div>
+                    <div style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid #334155; text-align: center;">
+                        <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Hrs Ext</div>
+                        <div style="font-size: 1.25rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">${totalExtHours}h</div>
                     </div>
                 </div>
 
-                <!-- Desglose por Posición -->
+                <!-- 💰 RESUMEN FINANCIERO (TARJETAS) -->
+                <div class="earnings-summary-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+                    <div class="earnings-summary-card profile-gross-card" style="background: rgba(241, 245, 249, 0.05); border-left: 4px solid #f1f5f9; padding: 16px; border-radius: 10px;">
+                        <div style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; text-transform: uppercase;">Bruto</div>
+                        <div style="font-size: 1.1rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">${formatCurrency(payData.brutoOriginal || 0)}</div>
+                    </div>
+                    <div class="earnings-summary-card profile-bonus-card" style="background: rgba(16, 185, 129, 0.05); border-left: 4px solid #10b981; padding: 16px; border-radius: 10px;">
+                        <div style="font-size: 0.7rem; color: #10b981; font-weight: 700; text-transform: uppercase;">Bonos (+)</div>
+                        <div style="font-size: 1.1rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">+${formatCurrency(payData.bonuses || 0)}</div>
+                    </div>
+                    <div class="earnings-summary-card profile-deduction-card" style="background: rgba(244, 63, 94, 0.05); border-left: 4px solid #f43f5e; padding: 16px; border-radius: 10px;">
+                        <div style="font-size: 0.7rem; color: #f43f5e; font-weight: 700; text-transform: uppercase;">Deducc (-)</div>
+                        <div style="font-size: 1.1rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">-${formatCurrency(payData.deductions || 0)}</div>
+                    </div>
+                    <div class="earnings-summary-card profile-advance-card" style="background: rgba(245, 158, 11, 0.05); border-left: 4px solid #f59e0b; padding: 16px; border-radius: 10px;">
+                        <div style="font-size: 0.7rem; color: #f59e0b; font-weight: 700; text-transform: uppercase;">Adelantos (-)</div>
+                        <div style="font-size: 1.1rem; font-weight: 800; color: #f1f5f9; margin-top: 4px;">-${formatCurrency(payData.advances || 0)}</div>
+                    </div>
+                </div>
+
+                <!-- 💎 NETO A PAGAR -->
+                <div style="background: linear-gradient(135deg, #0f172a, #1e293b); padding: 24px; border-radius: 16px; border: 1px solid #334155; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                    <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;">NETO A PAGAR</div>
+                    <div style="font-size: 2.2rem; font-weight: 950; color: #10b981;">${formatCurrency(payData.neto)}</div>
+                    <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">Bruto: ${formatCurrency(payData.brutoOriginal)} + Bonos: ${formatCurrency(payData.bonuses)}</div>
+                </div>
+
+                <!-- 📜 DESGLOSE POR POSICIÓN -->
                 <div style="background: #1e293b; border-radius: 12px; border: 1px solid #334155; overflow: hidden;">
-                    <div onclick="togglePositionBreakdown()" style="padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: rgba(255,255,255,0.02);">
-                        <div style="font-size: 0.875rem; font-weight: 700; color: #06b6d4; display: flex; align-items: center; gap: 8px;">
-                            ${icons.get('layers', { size: 16 })} DESGLOSE POR POSICIÓN
+                    <div onclick="togglePositionBreakdown()" style="padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: rgba(255,255,255,0.02);">
+                        <div style="font-size: 0.8rem; font-weight: 800; color: #06b6d4; display: flex; align-items: center; gap: 10px; text-transform: uppercase;">
+                            ${icons.get('layers', { size: 16 })} Desglose por Posición
                         </div>
-                        <span style="color: #64748b; font-size: 0.8rem;">${state.employeeProfile.showPositionBreakdown ? '▼' : '▲'}</span>
+                        <span style="color: #475569;">${state.employeeProfile.showPositionBreakdown ? '▲' : '▼'}</span>
                     </div>
                     
                     ${state.employeeProfile.showPositionBreakdown ? `
-                        <div style="padding: 18px; border-top: 1px solid #334155;">
+                        <div style="padding: 20px; border-top: 1px solid #334155; display: flex; flex-direction: column; gap: 16px;">
                             ${byPosition.map(pos => `
-                                <div style="margin-bottom: 16px; last-child: margin-bottom: 0;">
-                                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-                                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.875rem;">${pos.name || pos.positionName}</span>
-                                        <span style="font-weight: 700; color: #f1f5f9; font-size: 0.875rem;">${formatCurrency(pos.subtotal)}</span>
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div>
+                                        <div style="font-weight: 700; color: #f1f5f9; font-size: 0.9rem;">${pos.name || pos.positionName}</div>
+                                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px; display: flex; gap: 10px;">
+                                            <span>⏱️ ${pos.regularHours || 0}h</span>
+                                            <span>⚡ ${pos.overtimeHours || 0}h</span>
+                                            ${pos.holidayHours > 0 ? `<span>☀️ ${pos.holidayHours}h Fest</span>` : ''}
+                                        </div>
                                     </div>
-                                    <div style="display: flex; gap: 12px; font-size: 0.75rem; color: #94a3b8;">
-                                        <span>⏱️ ${pos.totalHours || pos.regularHours || 0}h Reg</span>
-                                        <span>⚡ ${pos.totalOvertime || pos.overtimeHours || 0}h Ext</span>
-                                        <span>☀️ ${pos.totalHoliday || pos.holidayHours || 0}h Fest</span>
+                                    <div style="text-align: right;">
+                                        <div style="font-weight: 800; color: #f1f5f9; font-size: 1rem;">${formatCurrency(pos.subtotal)}</div>
+                                        <div style="font-size: 0.7rem; color: #06b6d4;">${formatCurrency(pos.hourlyRate)}/h</div>
                                     </div>
                                 </div>
                             `).join('')}
@@ -207,38 +234,19 @@ function ProfileTabNomina(emp) {
                     ` : ''}
                 </div>
 
-                <!-- Deducciones Manuales -->
-                <div style="background: #1e293b; border-radius: 12px; border: 1px solid #334155; overflow: hidden;">
-                    <div style="padding: 14px 18px; background: rgba(255,255,255,0.02); display: flex; justify-content: space-between; align-items: center;">
-                        <div style="font-size: 0.875rem; font-weight: 700; color: #f87171; display: flex; align-items: center; gap: 8px;">
-                            ${icons.get('minus-circle', { size: 16 })} DEDUCCIONES / PRÉSTAMOS
-                        </div>
-                        <button onclick="addDeduction()" style="padding: 4px 10px; border-radius: 6px; background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: #f87171; font-size: 0.7rem; font-weight: 700; cursor: pointer;">
-                            + Agregar
-                        </button>
-                    </div>
-                    
-                    <div style="padding: 18px; border-top: 1px solid #334155;">
-                        ${summary.deductions.length > 0 ? summary.deductions.map((ded, index) => `
-                            <div style="display: grid; grid-template-columns: 1fr 100px 40px; gap: 10px; margin-bottom: 10px; align-items: center;">
-                                <input type="text" value="${ded.type}" onchange="updateDeductionType(${index}, this.value)" 
-                                       placeholder="Motivo (ej. Adelanto)" 
-                                       style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;">
-                                <input type="number" value="${ded.amount}" onchange="updateDeductionValue(${index}, this.value)" 
-                                       style="background: #0f172a; border: 1px solid #334155; color: #f87171; padding: 6px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 700;">
-                                <button onclick="removeDeduction(${index})" style="background: none; border: none; color: #475569; cursor: pointer; font-size: 1.2rem;">✕</button>
-                            </div>
-                        `).join('') : `
-                            <div style="text-align: center; color: #64748b; font-size: 0.8rem; padding: 10px;">
-                                No hay deducciones registradas
-                            </div>
-                        `}
-                    </div>
+                <!-- 🛠️ AJUSTES DE PAGO -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
+                    <div id="deductions-section" style="background: rgba(244, 63, 94, 0.03); padding: 20px; border-radius: 12px; border: 1px dashed rgba(244, 63, 94, 0.2);"></div>
+                    <div id="bonuses-section" style="background: rgba(16, 185, 129, 0.03); padding: 20px; border-radius: 12px; border: 1px dashed rgba(16, 185, 129, 0.2);"></div>
                 </div>
 
-                <!-- Botón de Pago (Cierre de Período) -->
-                <button onclick="markAsPaid('${emp.id}', ${summary.netTotal})" 
-                        style="background: #06b6d4; color: #0f172a; border: none; border-radius: 12px; padding: 16px; font-weight: 800; font-size: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(6,182,212,0.3); display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <!-- 🏦 ADELANTOS Y PRÉSTAMOS -->
+                <div id="advances-section"></div>
+
+                <button onclick="markAsPaid('${emp.id}', ${payData.neto})" 
+                        style="background: #06b6d4; color: #0f172a; border: none; border-radius: 14px; padding: 18px; font-weight: 900; font-size: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(6,182,212,0.3); display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; width: 100%;"
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 25px rgba(6,182,212,0.4)'"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(6,182,212,0.3)'">
                     ${icons.get('check-circle', { size: 20 })} REGISTRAR PAGO Y CERRAR PERÍODO
                 </button>
             </div>`;

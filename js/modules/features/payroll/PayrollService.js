@@ -123,9 +123,9 @@ export class PayrollService {
     }
 
     // ⚡ NUEVO: Calcular nómina completa de un empleado en un período
-    calculateEmployeePayroll(empId, startDateKey, endDateKey, deductions = null, bonuses = null) {
+    calculateEmployeePayroll(empId, startDateKey, endDateKey, deductions = null, bonuses = null, advances = null) {
         const emp = this.state.employees.find(e => e.id === empId);
-        if (!emp) return { bruto: 0, neto: 0, deductions: 0, breakdown: [] };
+        if (!emp) return { bruto: 0, neto: 0, deductions: 0, advances: 0, breakdown: [] };
 
         const start = new Date(startDateKey + 'T12:00:00');
         const end = new Date(endDateKey + 'T12:00:00');
@@ -294,8 +294,34 @@ export class PayrollService {
             totalDeductions += deductionAmount;
         });
 
+        // 🏦 NUEVO: Calcular adelantos y préstamos
+        const advancesList = advances ?? this.state.employeeProfile?.advances ?? [];
+        const advanceBreakdown = [];
+        let totalAdvances = 0;
+
+        advancesList.forEach((adv, index) => {
+            const amount = parseFloat(adv.amount) || 0;
+            const interest = parseFloat(adv.interest) || 0;
+            const included = adv.interestIncluded || false;
+
+            // Total = Monto + (Si no está incluido, sumar interés del monto)
+            const totalToCollect = amount + (included ? 0 : (amount * interest / 100));
+
+            advanceBreakdown.push({
+                id: adv.id || `ADV-${index + 1}`,
+                name: adv.name || `Adelanto ${index + 1}`,
+                amount: amount,
+                interest: interest,
+                interestIncluded: included,
+                total: totalToCollect,
+                date: adv.date || startDateKey
+            });
+
+            totalAdvances += totalToCollect;
+        });
+
         const totalBrutoConBonos = totalBruto + totalBonuses;
-        const neto = totalBrutoConBonos - totalDeductions;
+        const neto = totalBrutoConBonos - totalDeductions - totalAdvances;
 
         return {
             brutoOriginal: totalBruto, // Salario base por posiciones
@@ -304,6 +330,8 @@ export class PayrollService {
             deductionBreakdown: deductionBreakdown,
             bonuses: totalBonuses,
             bonusBreakdown: bonusBreakdown,
+            advances: totalAdvances,
+            advanceBreakdown: advanceBreakdown,
             neto: neto,
             breakdown: breakdown
         };

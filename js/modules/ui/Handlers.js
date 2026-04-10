@@ -174,32 +174,7 @@ window.saveAdvancedAttendance = () => {
     render();
 };
 
-// --- PERFIL Y NÓMINA ---
-
-window.openEmployeeProfile = (employeeId) => {
-    state.employeeProfile = {
-        employeeId,
-        activeTab: 'nomina',
-        periodStart: getDateKey(new Date(Date.now() - 14 * 86400000)),
-        periodEnd: getDateKey(new Date()),
-        deductions: [{ id: 'DED-1', type: 'percentage', value: 2, name: 'Deducción' }]
-    };
-    state.showEmployeeProfile = true;
-    render();
-};
-
-window.closeEmployeeProfile = () => {
-    state.showEmployeeProfile = false;
-    render();
-};
-
-window.markAsPaid = () => {
-    const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
-    if (!emp) return;
-    saveApplicationData();
-    Notification.success('✅ Marcado como pagado');
-    render();
-};
+// --- PERFIL Y NÓMINA (Gestionado en app.js y EmployeesUI.js) ---
 
 // --- NUBE ---
 

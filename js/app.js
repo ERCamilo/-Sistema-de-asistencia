@@ -621,6 +621,47 @@ window.setPositionFilter = function (positionId) {
     render();
 };
 
+window.addAdvance = () => {
+    const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
+    if (!emp) return;
+
+    if (!emp.advances) emp.advances = [];
+    
+    const newIndex = emp.advances.length;
+    emp.advances.push({
+        amount: 0,
+        interest: 0,
+        date: getDateKey(new Date()),
+        note: ''
+    });
+
+    // Abrir automáticamente en modo edición el nuevo adelanto
+    if (!state.employeeProfile.editingAdvances) state.employeeProfile.editingAdvances = {};
+    state.employeeProfile.editingAdvances[newIndex] = true;
+
+    render();
+    saveApplicationData();
+};
+
+window.saveAdvance = (index) => {
+    // Cerrar modo edición
+    if (state.employeeProfile.editingAdvances) {
+        state.employeeProfile.editingAdvances[index] = false;
+    }
+    
+    // Sincronizar y guardar
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    saveApplicationData();
+    render();
+    showNotification('✅ Adelanto guardado correctamente', 'success');
+};
+
+window.editAdvance = (index) => {
+    if (!state.employeeProfile.editingAdvances) state.employeeProfile.editingAdvances = {};
+    state.employeeProfile.editingAdvances[index] = true;
+    render();
+};
+
 // Establecer filtro de líder
 window.setLeaderFilter = function (leaderId) {
     state.filters.leaderId = leaderId;
@@ -1836,6 +1877,9 @@ window.changeChartPeriod = (period) => { state.chartPeriod = period; render(); }
 // ═══════════════════════════════════════════════════════════════
 
 window.closeEmployeeProfile = () => {
+    // ⚡ Sincronización final antes de cerrar para evitar pérdida de datos huérfanos
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    
     state.showEmployeeProfile = false;
     render();
 };
@@ -1969,49 +2013,64 @@ window.setProfilePeriod = (preset) => {
     render();
 };
 
-// ⚡ NUEVO: Sistema de múltiples deducciones con render selectivo
-window.addDeduction = () => {
-    if (!state.employeeProfile.deductions) {
-        state.employeeProfile.deductions = [];
+// ⚡ NUEVO: Función de sincronización maestra para el perfil de empleado
+function syncProfileToMaster(empId) {
+    if (!empId) return;
+    
+    // 🔍 Buscar siempre en la lista maestra para evitar problemas de clonación de proxies
+    const emp = state.employees.find(e => e.id === empId);
+    if (emp && state.employeeProfile) {
+        // Sincronizar todas las colecciones del perfil al objeto original
+        if (state.employeeProfile.deductions) emp.deductions = [...state.employeeProfile.deductions];
+        if (state.employeeProfile.bonuses) emp.bonuses = [...state.employeeProfile.bonuses];
+        if (state.employeeProfile.advances) emp.advances = [...state.employeeProfile.advances];
+        
+        // 💾 Persistir inmediatamente
+        saveApplicationData();
+        return true;
     }
+    return false;
+}
 
-    // Obtener porcentaje por defecto de settings
+window.addDeduction = () => {
+    if (!state.employeeProfile.deductions) state.employeeProfile.deductions = [];
+
     const defaultPercentage = state.settings.defaultDeductionPercentage || 2;
-
     state.employeeProfile.deductions.push({
         id: `DED-${Date.now()}`,
         type: 'percentage',
         value: defaultPercentage
     });
 
-    // ⚡ Render selectivo: solo actualizar sección de deducciones
-    updateDeductionsSection();
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    updatePayrollUI();
 };
 
 window.removeDeduction = (index) => {
     state.employeeProfile.deductions.splice(index, 1);
-    updateDeductionsSection();
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    updatePayrollUI();
 };
 
 window.updateDeductionType = (index, type) => {
     if (state.employeeProfile.deductions[index]) {
         state.employeeProfile.deductions[index].type = type;
-        updateDeductionsSection();
+        syncProfileToMaster(state.employeeProfile.employeeId);
+        updatePayrollUI();
     }
 };
 
 window.updateDeductionValue = (index, value) => {
     if (state.employeeProfile.deductions[index]) {
         state.employeeProfile.deductions[index].value = parseFloat(value) || 0;
-        updateDeductionsSection();
+        syncProfileToMaster(state.employeeProfile.employeeId);
+        updatePayrollUI();
     }
 };
 
 // 🎁 SISTEMA DE BONIFICACIONES / PAGOS
 window.addBonus = () => {
-    if (!state.employeeProfile.bonuses) {
-        state.employeeProfile.bonuses = [];
-    }
+    if (!state.employeeProfile.bonuses) state.employeeProfile.bonuses = [];
 
     state.employeeProfile.bonuses.push({
         id: `BON-${Date.now()}`,
@@ -2019,75 +2078,161 @@ window.addBonus = () => {
         value: 0
     });
 
-    updateDeductionsSection(); // Usamos la misma función para repintar ambos
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    updatePayrollUI();
 };
 
 window.removeBonus = (index) => {
     state.employeeProfile.bonuses.splice(index, 1);
-    updateDeductionsSection();
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    updatePayrollUI();
 };
 
 window.updateBonusType = (index, type) => {
     if (state.employeeProfile.bonuses[index]) {
         state.employeeProfile.bonuses[index].type = type;
-        updateDeductionsSection();
+        syncProfileToMaster(state.employeeProfile.employeeId);
+        updatePayrollUI();
     }
 };
 
 window.updateBonusValue = (index, value) => {
     if (state.employeeProfile.bonuses[index]) {
         state.employeeProfile.bonuses[index].value = parseFloat(value) || 0;
-        updateDeductionsSection();
+        syncProfileToMaster(state.employeeProfile.employeeId);
+        updatePayrollUI();
     }
 };
 
-// ⚡ NUEVO: Función para actualizar solo la sección de ajustes
-function updateDeductionsSection() {
-    const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
+// 📡 Event Listener para actualización de nómina post-render
+eventBus.on('render:complete', () => {
+    if (state.showEmployeeProfile && state.employeeProfile.activeTab === 'nomina') {
+        updatePayrollSectionsTrigger();
+    }
+});
+
+// 💵 SISTEMA DE ADELANTOS / PRÉSTAMOS
+window.addAdvance = () => {
+    if (!state.employeeProfile.advances) state.employeeProfile.advances = [];
+
+    state.employeeProfile.advances.push({
+        id: `ADV-${Date.now()}`,
+        amount: 0,
+        date: getDateKey(new Date()),
+        interest: 0,
+        note: ''
+    });
+
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    updatePayrollUI();
+};
+
+window.removeAdvance = (index) => {
+    state.employeeProfile.advances.splice(index, 1);
+    syncProfileToMaster(state.employeeProfile.employeeId);
+    updatePayrollUI();
+};
+
+window.updateAdvanceValue = (index, amount) => {
+    if (state.employeeProfile.advances[index]) {
+        state.employeeProfile.advances[index].amount = parseFloat(amount) || 0;
+        syncAdvancesAndSave(); // ⚡ Auto-save
+        updatePayrollUI();
+    }
+};
+
+window.updateAdvanceDate = (index, date) => {
+    if (state.employeeProfile.advances[index]) {
+        state.employeeProfile.advances[index].date = date;
+        syncAdvancesAndSave(); // ⚡ Auto-save
+        updatePayrollUI();
+    }
+};
+
+window.updateAdvanceInterest = (index, interest) => {
+    if (state.employeeProfile.advances[index]) {
+        state.employeeProfile.advances[index].interest = parseFloat(interest) || 0;
+        syncAdvancesAndSave(); // ⚡ Auto-save
+        updatePayrollUI();
+    }
+};
+
+window.updateAdvanceNote = (index, note) => {
+    if (state.employeeProfile.advances[index]) {
+        state.employeeProfile.advances[index].note = note;
+        syncAdvancesAndSave(); // ⚡ Auto-save
+        updatePayrollUI();
+    }
+};
+
+window.saveAdvance = (index) => {
+    syncAdvancesAndSave();
+    showNotification('✅ Adelanto guardado correctamente', 'success');
+};
+
+/**
+ * ⚡ Sincroniza adelantos del perfil al empleado y guarda en DB
+ */
+function syncAdvancesAndSave() {
+    syncProfileToMaster(state.employeeProfile.employeeId);
+}
+
+// ⚡ NUEVO: Función principal para actualizar toda la interfaz de nómina
+function updatePayrollUI(payrollOverride = null) {
+    if (!state.showEmployeeProfile || state.employeeProfile.activeTab !== 'nomina') return;
+    
+    const empId = state.employeeProfile.employeeId;
+    const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
 
-    // Recalcular nómina
-    const payroll = payrollService.calculateEmployeePayroll(
-        state.employeeProfile.employeeId,
+    // Usar payroll pasado o recalcular si es necesario
+    const payroll = payrollOverride || payrollService.calculateEmployeePayroll(
+        empId,
         state.employeeProfile.periodStart,
-        state.employeeProfile.periodEnd,
-        state.employeeProfile.deductions,
-        state.employeeProfile.bonuses
+        state.employeeProfile.periodEnd
     );
 
-    // Sincronizar estado base si es necesario
-    emp.deductions = (state.employeeProfile.deductions || []).map(d => ({
-        id: d.id || `DED-${Date.now()}`,
-        type: d.type,
-        value: d.value,
-        name: d.name || 'Deducción'
-    }));
+    // 1. Actualizar contenedores HTML si existen
+    const sections = {
+        '#deductions-section': generateDeductionsHTML,
+        '#bonuses-section': generateBonusesHTML,
+        '#advances-section': generateAdvancesHTML
+    };
 
-    emp.bonuses = (state.employeeProfile.bonuses || []).map(b => ({
-        id: b.id || `BON-${Date.now()}`,
-        type: b.type,
-        value: b.value,
-        name: b.name || 'Bono / Pago'
-    }));
+    Object.entries(sections).forEach(([selector, generator]) => {
+        const container = document.querySelector(selector);
+        if (container) container.innerHTML = generator(payroll);
+    });
 
-    // Actualizar sección de Deducciones
-    const deductionsContainer = document.querySelector('#deductions-section');
-    if (deductionsContainer) {
-        deductionsContainer.innerHTML = generateDeductionsHTML(payroll);
+    // 2. Actualizar tarjetas de resumen en el modal
+    const summaryMap = {
+        '.profile-gross-card .profile-earnings-val': formatCurrency(payroll.brutoOriginal),
+        '.profile-bonus-card .profile-earnings-val': `+${formatCurrency(payroll.bonuses)}`,
+        '.profile-deduction-card .profile-earnings-val': `-${formatCurrency(payroll.deductions)}`,
+        '.profile-advance-card .profile-earnings-val': `-${formatCurrency(payroll.advances)}`,
+        '.profile-net-card .profile-earnings-val': formatCurrency(payroll.neto)
+    };
+
+    Object.entries(summaryMap).forEach(([selector, value]) => {
+        const el = document.querySelector(selector);
+        if (el) el.innerHTML = value;
+    });
+
+    // Caso especial para el neto si el selector anterior falla
+    const backupNet = document.querySelector('[style*="color: #10b981"][style*="font-size: 2.2rem"]');
+    if (backupNet && !document.querySelector('.profile-net-card')) {
+        backupNet.innerHTML = formatCurrency(payroll.neto);
     }
-
-    // Actualizar sección de Bonificaciones
-    const bonusesContainer = document.querySelector('#bonuses-section');
-    if (bonusesContainer) {
-        bonusesContainer.innerHTML = generateBonusesHTML(payroll);
-    }
-
-    // Actualizar tarjetas Bruto y Neto
-    const grossVal = document.querySelector('.profile-gross-card .profile-earnings-val');
-    const netVal = document.querySelector('.profile-net-card .profile-earnings-val');
-    if (grossVal) grossVal.innerHTML = `$${Math.round(payroll.bruto).toLocaleString()}`;
-    if (netVal) netVal.innerHTML = `$${Math.round(payroll.neto).toLocaleString()}`;
 }
+window.updatePayrollUI = updatePayrollUI;
+
+// ⚠️ Mantener alias por compatibilidad temporal con eventos inline
+window.updateDeductionsSection = updatePayrollUI;
+
+function updatePayrollSectionsTrigger() {
+    updatePayrollUI();
+}
+window.updatePayrollSectionsTrigger = updatePayrollSectionsTrigger;
 
 // ⚡ NUEVO: Generar HTML de deducciones (separado para reusabilidad)
 function generateDeductionsHTML(payroll) {
@@ -2174,7 +2319,7 @@ function generateDeductionsHTML(payroll) {
             `;
 }
 
-// ⚡ NUEVO: Generar HTML de Bonificaciones
+// 🎁 SISTEMA DE BONIFICACIONES / PAGOS (AUX)
 function generateBonusesHTML(payroll) {
     return `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -2192,70 +2337,180 @@ function generateBonusesHTML(payroll) {
                 ${payroll.bonusBreakdown && payroll.bonusBreakdown.length > 0 ? payroll.bonusBreakdown.map((bon, index) => `
                     <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 12px;">
                         <div style="display: flex; gap: 12px; align-items: start;">
-                            <!-- Radio buttons de tipo -->
                             <div style="flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px;">
                                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
-                                    <input type="radio" 
-                                           name="bonusType_${index}" 
-                                           value="fixed" 
-                                           ${bon.type === 'fixed' ? 'checked' : ''} 
-                                           onchange="updateBonusType(${index}, 'fixed')" 
-                                           style="accent-color: #10b981;">
+                                    <input type="radio" name="bonusType_${index}" value="fixed" ${bon.type === 'fixed' ? 'checked' : ''} onchange="updateBonusType(${index}, 'fixed')" style="accent-color: #10b981;">
                                     <span style="color: #f1f5f9;">Monto</span>
                                 </label>
                                 <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.75rem;">
-                                    <input type="radio" 
-                                           name="bonusType_${index}" 
-                                           value="percentage" 
-                                           ${bon.type === 'percentage' ? 'checked' : ''} 
-                                           onchange="updateBonusType(${index}, 'percentage')" 
-                                           style="accent-color: #10b981;">
-                                    <span style="color: #f1f5f9;">Porcentaje%</span>
+                                    <input type="radio" name="bonusType_${index}" value="percentage" ${bon.type === 'percentage' ? 'checked' : ''} onchange="updateBonusType(${index}, 'percentage')" style="accent-color: #10b981;">
+                                    <span style="color: #f1f5f9;">%</span>
                                 </label>
                             </div>
-                            
-                            <!-- Input de valor -->
                             <div style="flex: 1;">
-                                <input type="number" 
-                                       class="form-input" 
-                                       value="${parseFloat(bon.value).toFixed(2)}" 
-                                       onchange="updateBonusValue(${index}, this.value)"
-                                       placeholder="0.00"
-                                       min="0"
-                                       step="${bon.type === 'fixed' ? '0.01' : '0.1'}"
-                                       style="width: 100%; font-size: 0.875rem; padding: 8px;">
+                                <input type="number" class="form-input" value="${parseFloat(bon.value).toFixed(2)}" onchange="updateBonusValue(${index}, this.value)" style="width: 100%; font-size: 0.875rem; padding: 8px;">
                             </div>
-                            
-                            <!-- Botón eliminar (siempre visible) -->
-                            <button onclick="removeBonus(${index})" 
-                                    style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;"
-                                    onmouseover="this.style.background='#dc2626'"
-                                    onmouseout="this.style.background='#ef4444'">
-                                🗑️
-                            </button>
-                        </div>
-                        
-                        <!-- Preview de esta bonificación -->
-                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #334155; font-size: 0.75rem; color: #94a3b8;">
-                            Monto a sumar: <span style="color: #10b981; font-weight: 600;">
-                                ${bon.type === 'fixed'
-            ? formatCurrency(bon.amount)
-            : `${bon.value}% de ${formatCurrency(bon.appliedTo)} = ${formatCurrency(bon.amount)}`
-        }
-                            </span>
+                            <button onclick="removeBonus(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">🗑️</button>
                         </div>
                     </div>
                 `).join('') : '<div style="text-align: center; color: #64748b; padding: 20px;">No hay bonificaciones</div>'}
                 
-                <!-- Total de bonificaciones -->
                 <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; margin-top: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 0.875rem; color: #94a3b8;">Total bonificaciones:</span>
-                        <span style="font-size: 1.125rem; font-weight: 700; color: #10b981;">
-                            +${formatCurrency(payroll.bonuses)}
-                        </span>
+                        <span style="font-size: 0.875rem; color: #94a3b8;">Total:</span>
+                        <span style="font-size: 1.125rem; font-weight: 700; color: #10b981;">+${formatCurrency(payroll.bonuses)}</span>
                     </div>
                 </div>
+    `;
+}
+
+function generateAdvancesHTML(payroll) {
+    const advances = state.employeeProfile.advances || [];
+    const totalAdvancesAccumulated = advances.reduce((sum, adv) => {
+        const amount = parseFloat(adv.amount) || 0;
+        const interest = parseFloat(adv.interest) || 0;
+        return sum + (amount + (amount * interest / 100));
+    }, 0);
+
+    return `
+        <div class="advances-section-wrapper" style="background: #1e293b; padding: 24px; border-radius: 16px; border: 1px solid #334155;">
+            <!-- Header Refinado -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 40px; height: 40px; background: rgba(245, 158, 11, 0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #f59e0b;">
+                        ${icons.get('payroll', { size: 20 })}
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; font-weight: 950; color: #f1f5f9; text-transform: uppercase; letter-spacing: 0.05em;">
+                            Adelantos y Préstamos
+                        </div>
+                        <div style="font-size: 0.75rem; color: #64748b; font-weight: 500;">
+                            ${advances.length} registros en este periodo
+                        </div>
+                    </div>
+                </div>
+                <button onclick="addAdvance()" 
+                        class="btn-add-advance"
+                        style="background: #f59e0b; color: #0f172a; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 900; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;"
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(245, 158, 11, 0.3)'"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                    ${icons.get('add', { size: 16 })} Nuevo Registro
+                </button>
+            </div>
+            
+            <div class="advances-container">
+                ${advances.length > 0 ? advances.map((adv, index) => {
+                    const isEditing = state.employeeProfile.editingAdvances && state.employeeProfile.editingAdvances[index];
+                    const amount = parseFloat(adv.amount) || 0;
+                    const interest = parseFloat(adv.interest) || 0;
+                    const interestAmount = (amount * interest / 100);
+                    const total = amount + interestAmount;
+
+                    if (!isEditing) {
+                        // 📏 VISTA REDUCIDA (Fila Dual-Layer)
+                        const dateObj = new Date(adv.date + 'T00:00:00');
+                        const day = dateObj.getDate();
+                        const month = dateObj.toLocaleString('es-ES', { month: 'short' }).replace('.', '');
+                        const dateLabel = `${day}-${month.charAt(0).toUpperCase() + month.slice(1)}`;
+
+                        return `
+                        <div class="advance-row-reduced" onclick="editAdvance(${index})">
+                            <div class="advance-reduced-main">
+                                <div class="advance-reduced-data">
+                                    <span class="advance-reduced-date">${dateLabel}</span>
+                                    <span class="advance-reduced-amount">${formatCurrency(total)}</span>
+                                    <span class="advance-reduced-interest">(${interest}%)</span>
+                                </div>
+                                <div class="advance-actions">
+                                    <button onclick="event.stopPropagation(); editAdvance(${index})" 
+                                            class="btn-edit-advance" title="Editar">
+                                        ${icons.get('edit', { size: 14 })}
+                                    </button>
+                                    <button onclick="event.stopPropagation(); removeAdvance(${index})" 
+                                            class="btn-delete-advance" style="width: 28px; height: 28px;" title="Eliminar">
+                                        ${icons.get('delete', { size: 14 })}
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="advance-reduced-note">
+                                ${adv.note || 'Sin concepto'}
+                            </div>
+                        </div>
+                        `;
+                    }
+                    
+                    return `
+                    <div class="advance-card">
+                        <!-- Fila 1: Inputs Principales -->
+                        <div class="advance-row-inputs">
+                            <div class="advance-input-group">
+                                <label>Monto Capital</label>
+                                <input type="number" value="${adv.amount}" 
+                                       onchange="updateAdvanceValue(${index}, this.value)" 
+                                       placeholder="0.00">
+                            </div>
+                            <div class="advance-input-group">
+                                <label>Interés (%)</label>
+                                <input type="number" value="${adv.interest || 0}" 
+                                       onchange="updateAdvanceInterest(${index}, this.value)" 
+                                       placeholder="0%">
+                            </div>
+                            <div class="advance-input-group">
+                                <label>Fecha</label>
+                                <input type="date" value="${adv.date}" 
+                                       onchange="updateAdvanceDate(${index}, this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Fila 2: Nota / Concepto -->
+                        <div class="advance-row-note">
+                            <input type="text" value="${adv.note || ''}" 
+                                   placeholder="Añadir una nota o concepto del préstamo..." 
+                                   onchange="updateAdvanceNote(${index}, this.value)">
+                        </div>
+
+                        <!-- Fila 3: Matemática Visual y Acción -->
+                        <div class="advance-row-math">
+                            <div class="advance-math-text">
+                                <span>${formatCurrency(amount)}</span>
+                                <span style="margin: 0 8px; opacity: 0.5;">+</span>
+                                <span>${formatCurrency(interestAmount)} <small>(${interest}%)</small></span>
+                                <span style="margin: 0 12px; font-weight: 900; color: #f59e0b;">=</span>
+                                <strong class="advance-math-total">${formatCurrency(total)}</strong>
+                            </div>
+                            <div class="advance-actions">
+                                <button onclick="saveAdvance(${index})" 
+                                        class="btn-save-advance" 
+                                        title="Guardar cambios">
+                                    ${icons.get('check', { size: 16 })}
+                                </button>
+                                <button onclick="removeAdvance(${index})" 
+                                        class="btn-delete-advance" 
+                                        title="Eliminar registro">
+                                    ${icons.get('delete', { size: 16 })}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('') : `
+                    <div style="text-align: center; padding: 40px 20px; background: rgba(15, 23, 42, 0.3); border: 1px dashed #334155; border-radius: 14px;">
+                        <div style="font-size: 2rem; margin-bottom: 12px; opacity: 0.5;">🏦</div>
+                        <div style="color: #64748b; font-size: 0.9rem; font-weight: 500;">No hay adelantos o préstamos registrados</div>
+                        <div style="color: #475569; font-size: 0.75rem; margin-top: 4px;">Usa el botón superior para crear uno nuevo</div>
+                    </div>
+                `}
+            </div>
+
+            <!-- Resumen de Sección -->
+            <div style="margin-top: 24px; padding-top: 20px; border-top: 2px solid #334155; display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 0.85rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                    Total Acumulado
+                </span>
+                <span style="font-size: 1.4rem; font-weight: 950; color: #f59e0b;">
+                    ${formatCurrency(totalAdvancesAccumulated)}
+                </span>
+            </div>
+        </div>
     `;
 }
 
@@ -3777,8 +4032,13 @@ function ProfileTabNomina(emp) {
                 </div>
 
                 <!-- Bonificaciones Múltiples -->
-                <div id="bonuses-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155;">
+                <div id="bonuses-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">
                     ${generateBonusesHTML(payroll)}
+                </div>
+
+                <!-- 🏦 Adelantos y Préstamos -->
+                <div id="advances-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155;">
+                    ${generateAdvancesHTML(payroll)}
                 </div>
                 
                 <!-- Total Neto -->

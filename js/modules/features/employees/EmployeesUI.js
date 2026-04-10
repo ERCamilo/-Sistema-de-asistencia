@@ -408,7 +408,7 @@ export function EmployeeCard(emp) {
 
     const salaryConfig = payroll.getSalaryConfig(emp);
     const salaryDisplay = payroll.formatSalaryDisplay(salaryConfig);
-    
+
     // ⚡ MEJORADO: Detectar personalizado tanto en sistema viejo como nuevo
     const hasPositionSalaries = emp.positionSalaries && Object.keys(emp.positionSalaries).length > 0;
     const isCustom = emp.salaryConfig?.type === 'custom' || emp.customSalary || hasPositionSalaries;
@@ -571,11 +571,11 @@ export function PositionCard(pos) {
                                 </button>
                                 <div id="pos-employees-${pos.id}" style="display: none; margin-top: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px;">
                                     ${employeesInPosition.slice().sort((a, b) => {
-                                        const aNum = parseInt(a.number, 10);
-                                        const bNum = parseInt(b.number, 10);
-                                        if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
-                                        return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
-                                    }).map((emp, idx) => {
+        const aNum = parseInt(a.number, 10);
+        const bNum = parseInt(b.number, 10);
+        if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
+        return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
+    }).map((emp, idx) => {
         const customRate = emp.positionSalaries && emp.positionSalaries[pos.id] !== undefined
             ? Number(emp.positionSalaries[pos.id])
             : null;
@@ -631,7 +631,7 @@ export function PositionCard(pos) {
                         </button>
                         
                         ${pos.active ? "" :
-                            `<button class="view-btn" onclick="${canDelete ? `deletePosition('${pos.id}')` : ''}" style="padding: 8px; ${canDelete ? '' : 'opacity: 0.4; cursor: allowed;'}" title="${canDelete ? 'Eliminar posición' : 'No se puede eliminar: hay empleados asignados o la posición está activa'}">
+            `<button class="view-btn" onclick="${canDelete ? `deletePosition('${pos.id}')` : ''}" style="padding: 8px; ${canDelete ? '' : 'opacity: 0.4; cursor: allowed;'}" title="${canDelete ? 'Eliminar posición' : 'No se puede eliminar: hay empleados asignados o la posición está activa'}">
                             ${icons.get('delete')} 
                             </button>`}
 
@@ -883,7 +883,7 @@ function handlePositionSubmit(formData) {
         const pos = state.positions.find(p => p.id === oldId);
         if (pos) {
             const idChanged = oldId !== newId;
-            
+
             pos.id = newId;
             pos.name = finalName;
             pos.hourlyRate = rate;
@@ -944,7 +944,7 @@ export function togglePositionStatus(positionId) {
         cancelText: 'Cancelar',
         type: pos.active ? 'warning' : 'info',
         onConfirm: () => {
-            pos.active = !pos.active; 
+            pos.active = !pos.active;
             pos.updatedAt = Date.now();
             pos._isDirty = true;
             context.saveToLocalStorage();
@@ -1040,6 +1040,9 @@ export function changeProfileEndMonth(delta) {
 
 export function openEmployeeProfile(employeeId) {
     const state = getState();
+    const employee = state.employees.find(e => e.id === employeeId);
+    state.selectedEmployee = employee;
+
     state.employeeProfile = {
         employeeId,
         activeTab: 'resumen', // Empezar en resumen es más natural
@@ -1050,11 +1053,16 @@ export function openEmployeeProfile(employeeId) {
         endPickerMonth: new Date(),
         showStartPicker: false,
         showEndPicker: false,
-        showPositionBreakdown: true
+        showPositionBreakdown: true,
+        // Cargar datos persistidos
+        advances: Array.isArray(employee?.advances) ? JSON.parse(JSON.stringify(employee.advances)) : [],
+        bonuses: Array.isArray(employee?.bonuses) ? JSON.parse(JSON.stringify(employee.bonuses)) : [],
+        deductions: Array.isArray(employee?.deductions) ? JSON.parse(JSON.stringify(employee.deductions)) : []
     };
-    state.selectedEmployee = state.employees.find(e => e.id === employeeId);
+
     state.showEmployeeProfile = true;
     if (context && context.render) {
         context.render();
     }
 }
+
