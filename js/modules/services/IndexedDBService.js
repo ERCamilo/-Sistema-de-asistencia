@@ -115,7 +115,7 @@ export class IndexedDBService {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
             const store = transaction.objectStore(storeName);
-            const request = store.put(data);
+            const request = store.put(this._serializeForIDB(data));
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => {
                 console.error(`❌ Error en put (${storeName}):`, request.error);
@@ -144,8 +144,45 @@ export class IndexedDBService {
     }
 
     /**
+     * 🛡️ Convierte objetos no serializables por IndexedDB (ej: Timestamp de Firestore)
+     * a valores planos antes de escribir en la DB.
+     * - Timestamp de Firestore {seconds, nanoseconds} → número (milisegundos)
+     * - Instancias de clase → objeto plano (JSON round-trip)
+     * No lanza: si un valor no puede convertirse, lo omite.
+     * @param {*} value - Valor a serializar
+     * @returns {*} Valor serializable
+     */
+    _serializeForIDB(value) {
+        if (value === null || value === undefined) return value;
+
+        // Timestamp de Firestore: tiene .toMillis() o {seconds, nanoseconds}
+        if (typeof value?.toMillis === 'function') {
+            return value.toMillis();
+        }
+
+        if (Array.isArray(value)) {
+            return value.map(item => this._serializeForIDB(item));
+        }
+
+        if (typeof value === 'object') {
+            // Instancias de Date son clonables, no tocar
+            if (value instanceof Date) return value;
+
+            const plain = {};
+            for (const [k, v] of Object.entries(value)) {
+                plain[k] = this._serializeForIDB(v);
+            }
+            return plain;
+        }
+
+        // Primitivos (string, number, boolean): clonables directamente
+        return value;
+    }
+
+    /**
      * ⚡ P2-OPT: Escribe N registros en una sola transacción de IndexedDB.
      * Reduce el overhead de N transacciones a 1 transacción con N escrituras.
+     * Incluye serialización defensiva para tipos no clonables (Timestamp de Firestore).
      * @param {string} storeName - Nombre del store
      * @param {Array} records - Registros a guardar
      */
@@ -163,7 +200,9 @@ export class IndexedDBService {
                 reject(err);
             };
             records.forEach(record => {
-                store.put(record);
+                // 🛡️ Saneamiento defensivo: elimina cualquier Timestamp u objeto
+                // de clase de Firestore que rompería el Structured Clone Algorithm.
+                store.put(this._serializeForIDB(record));
                 count++;
             });
         });

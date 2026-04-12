@@ -100,6 +100,11 @@ export function render() {
             document.body.classList.remove('sidebar-collapsed');
         }
 
+        // 🛡️ HEALTH CHECK: Evaluar estado del sistema antes de inyectar HTML de la UI
+        if (window._systemAlerts) {
+            window._systemAlerts.checkHealth();
+        }
+
         // Aplicar cambios al DOM
         const root = document.getElementById('root');
         if (root) {

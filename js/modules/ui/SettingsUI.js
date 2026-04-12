@@ -530,6 +530,16 @@ function SettingsForm() {
                             El mini-mapa muestra puntos de color para ausencias (rojo) y extras (azul) en toda la lista.
                         </div>
                     </div>
+
+                    <div class="form-group" style="margin-bottom: 0; padding-top: 16px; border-top: 1px solid #334155;">
+                        <label class="form-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; margin: 0;">
+                            <input type="checkbox" id="hideDuplicateAlerts" ${state.settings.hideDuplicateAlerts ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer;">
+                            <span style="font-weight: 600; font-size: 1rem; color: #f1f5f9;">Ocultar Alertas de Duplicados</span>
+                        </label>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px; margin-left: 32px; line-height: 1.5;">
+                            Si se activa, el triángulo ⚠️ no se mostrará en el menú principal aunque existan conflictos.
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Iconos -->

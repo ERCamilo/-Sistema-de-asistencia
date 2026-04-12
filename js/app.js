@@ -98,6 +98,12 @@ import { onboardingWizard } from './modules/ui/Onboarding.js';
 import { ModalManager } from './modules/ui/ModalManager.js';
 import { VirtualScrollComponent } from './modules/components/VirtualScroll.js';
 import { ExportService } from './modules/services/ExportService.js';
+import { MaintenanceUI } from './modules/ui/MaintenanceUI.js';
+import { SystemAlertsManager } from './modules/components/SystemAlertsManager.js';
+
+// Inicializar SystemAlertsManager globalmente
+window._systemAlerts = new SystemAlertsManager();
+window._maintenanceUI = new MaintenanceUI();
 import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsService.js';
 import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
@@ -4795,6 +4801,8 @@ window.saveSettings = function () {
     const legacyNavigationElement = document.getElementById('legacyNavigation');
     const legacyNavigation = legacyNavigationElement ? legacyNavigationElement.checked : !!state.settings.legacyNavigation;
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
+    const hideDuplicateAlertsElement = document.getElementById('hideDuplicateAlerts');
+    const hideDuplicateAlerts = hideDuplicateAlertsElement ? hideDuplicateAlertsElement.checked : !!state.settings.hideDuplicateAlerts;
 
     // Validaciones
     if (!companyName) {
@@ -4833,6 +4841,7 @@ window.saveSettings = function () {
     state.settings.iconSet = applyIconSet(iconSet);
     state.settings.legacyNavigation = legacyNavigation;
     state.settings.scrollbarMode = scrollbarMode;
+    state.settings.hideDuplicateAlerts = hideDuplicateAlerts;
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
@@ -6475,14 +6484,39 @@ window.addEventListener('scroll', () => {
                 FirebaseService.subscribeToChanges((remoteData) => {
                     console.log('📡 Cambio detectado en la nube...');
 
+                    // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
+                    // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
+                    const remoteTime = remoteData.settings?.localUpdatedAt || 0;
+                    const localTime = state.settings?.localUpdatedAt || 0;
+                    
+                    if (localTime > remoteTime) {
+                        console.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
+                        // Si F5 frenó la sincronización, forzamos un save ahora que reinició
+                        if (!window._forceSyncTimer) {
+                            window._forceSyncTimer = setTimeout(() => {
+                                FirebaseService.saveFullState(state);
+                                window._forceSyncTimer = null;
+                            }, 1000);
+                        }
+                        return; // Ignorar estos datos obsoletos para no destruir el state local
+                    }
+
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
+                    window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
 
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
+                    
+                    // ⚡ FIX: Asegurar instancias correctas de clase al recibir de Firebase
+                    let newEmployees = dedup(remoteData.employees || state.employees);
+                    if (typeof Employee !== 'undefined') {
+                        newEmployees = newEmployees.map(e => e instanceof Employee ? e : new Employee(e));
+                    }
+
                     state.settings = { ...state.settings, ...remoteData.settings };
-                    state.employees = dedup(remoteData.employees || state.employees);
+                    state.employees = newEmployees;
                     state.positions = dedup(remoteData.positions || state.positions);
                     state.leaders = dedup(remoteData.leaders || state.leaders);
 
@@ -6495,8 +6529,15 @@ window.addEventListener('scroll', () => {
                         console.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
-                    // Desactivar flag después de un tick para que el render/save no suba de vuelta
-                    setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
+                    // Desactivar flag después de un tick para que el render/save no suba de vuelta.
+                    // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
+                    setTimeout(() => {
+                        window._isApplyingRemoteData = false;
+                        if (window._pendingRemoteSave) {
+                            window._pendingRemoteSave = false;
+                            saveToIndexedDB().catch(e => console.warn('⚠️ Error persistiendo datos remotos localmente:', e));
+                        }
+                    }, 500);
 
                     if (isInitialLoad) {
                         clearTimeout(loaderTimeout);
@@ -6531,13 +6572,21 @@ window.addEventListener('scroll', () => {
                         onInitialLoad: (allAttendance) => {
                             window._isApplyingRemoteData = true;
                             state.attendance = { ...state.attendance, ...allAttendance };
-                            setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
+                            // ⚡ FIX: Persistir asistencia remota en IndexedDB
+                            setTimeout(() => {
+                                window._isApplyingRemoteData = false;
+                                saveToIndexedDB({ skipValidation: true }).catch(e => console.warn('⚠️ Error persistiendo asistencia inicial remota:', e));
+                            }, 500);
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
                             window._isApplyingRemoteData = true;
                             state.attendance = { ...state.attendance, ...records };
-                            setTimeout(() => { window._isApplyingRemoteData = false; }, 500);
+                            // ⚡ FIX: Persistir asistencia remota en IndexedDB para sobrevivir F5
+                            setTimeout(() => {
+                                window._isApplyingRemoteData = false;
+                                saveToIndexedDB({ dateKey, skipValidation: true }).catch(e => console.warn('⚠️ Error persistiendo asistencia remota:', e));
+                            }, 500);
 
                             // Actualización Zonal
                             const selectedDateKey = getDateKey(state.selectedDate);

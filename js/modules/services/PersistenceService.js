@@ -88,6 +88,14 @@ async function _executeSave(options = {}) {
         return;
     }
 
+    // ⚡ FIX: Almacenar marca de tiempo de la última modificación local
+    // Esto previene que la caché de Firebase sobrescriba cambios si se refresca la página
+    // muy rápido antes de que se complete el debounced sync a la nube.
+    if (!globalThis._isApplyingRemoteData) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
+
     console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ☀️ Sincronización con Firebase

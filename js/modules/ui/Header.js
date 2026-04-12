@@ -24,6 +24,8 @@ export const Header = ({
                     <div class="header-right">
                         ${SyncIndicator ? SyncIndicator() : ''}
                         
+                        ${window._systemAlerts ? window._systemAlerts.renderAlertButton() : ''}
+                        
                         <button class="header-icon-btn" onclick="openNotesCenter()" title="Notas">
                             ${icons.get('mail', { size: 20 })}
                         </button>
