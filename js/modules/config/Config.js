@@ -22,14 +22,23 @@ export const APP_CONFIG = {
 };
 
 /**
- * 🆔 Genera o recupera un ID único para este dispositivo/navegador.
- * Vital para evitar eco de red en sincronización.
+ * 🆔 Genera o recupera un ID único para este dispositivo/navegador/origen.
+ * El ID incluye el origen de la URL (host:port) para garantizar que dos instancias
+ * de la app en dominios distintos (ej: localhost:5500 vs GitHub Pages) nunca
+ * compartan el mismo ID, lo que causaría que el echo filter bloqueara la sincronización
+ * en una de las dos direcciones.
  */
 export const getDeviceId = () => {
-    let deviceId = localStorage.getItem('asistencia_device_id');
+    // La clave incluye el origen para que cada "entorno" tenga su propio ID
+    const origin = window.location.host; // ej: "127.0.0.1:5500" o "usuario.github.io"
+    const storageKey = `asistencia_device_id_${origin}`;
+
+    let deviceId = localStorage.getItem(storageKey);
     if (!deviceId) {
-        deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36);
-        localStorage.setItem('asistencia_device_id', deviceId);
+        // Incluir el origen en el ID para trazabilidad en logs de Firebase
+        const originSlug = origin.replace(/[^a-zA-Z0-9]/g, '-').substring(0, 20);
+        deviceId = `${originSlug}_${Math.random().toString(36).substr(2, 9)}_${Date.now().toString(36)}`;
+        localStorage.setItem(storageKey, deviceId);
     }
     return deviceId;
 };
