@@ -117,7 +117,29 @@ export class IndexedDBService {
             const store = transaction.objectStore(storeName);
             const request = store.put(data);
             request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
+            request.onerror = () => {
+                console.error(`❌ Error en put (${storeName}):`, request.error);
+                reject(request.error || new Error('Error en solicitud IndexedDB (request.error balance null)'));
+            };
+        });
+    }
+
+    /**
+     * 🧹 Limpia todos los registros de una store específica.
+     * Usado antes de reescribir la store de attendance tras fusiones.
+     * @param {string} storeName - Nombre del store a limpiar
+     */
+    async clear(storeName) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.clear();
+            request.onsuccess = () => resolve();
+            request.onerror = () => {
+                console.error(`❌ Error limpiando store ${storeName}:`, request.error);
+                reject(request.error);
+            };
         });
     }
 
@@ -135,7 +157,11 @@ export class IndexedDBService {
             const store = transaction.objectStore(storeName);
             let count = 0;
             transaction.oncomplete = () => resolve(count);
-            transaction.onerror = () => reject(transaction.error);
+            transaction.onerror = () => {
+                const err = transaction.error || new Error('Transacción abortada o fallida sin error explícito');
+                console.error(`❌ Transacción fallida en ${storeName}:`, err);
+                reject(err);
+            };
             records.forEach(record => {
                 store.put(record);
                 count++;
@@ -282,6 +308,13 @@ export class IndexedDBService {
             }
 
             // 2. GUARDADO DE ASISTENCIA (Incremental si hay dateKey)
+            // ⚡ FIX: Si clearAttendance está activo, limpiar toda la store antes de reescribir.
+            // Esto elimina registros huérfanos que causan ConstraintError tras fusiones.
+            if (options.clearAttendance) {
+                await this.clear('attendance');
+                console.log('🧹 Store attendance limpiada antes de reescritura completa');
+            }
+
             let attToSave = [];
             if (isGranular) {
                 const suffix = `-${options.dateKey}`;
@@ -294,6 +327,19 @@ export class IndexedDBService {
                     ...value
                 }));
             }
+
+            // 🛡️ BARRERA DE PROTECCIÓN: Deduplicar forzosamente (employeeId, date)
+            // Asegura que no rompa el Unique Index (employeeDate) si el JS state se desincronizó o corrompió.
+            const seenAttendance = new Set();
+            attToSave = attToSave.filter(record => {
+                const empDateKey = `${record.employeeId}_${record.date}`;
+                if (seenAttendance.has(empDateKey)) {
+                    console.warn(`🛡️ Purgado registro IDB huérfano para evitar ConstraintError: ${empDateKey}`);
+                    return false;
+                }
+                seenAttendance.add(empDateKey);
+                return true;
+            });
 
             stats.attendance = await this.batchUpdate('attendance', attToSave);
 

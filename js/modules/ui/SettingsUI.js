@@ -289,6 +289,19 @@ function SettingsTabData() {
                     <!-- Fase 4: Historial de Snapshots -->
                     ${currentUser ? SnapshotHistory() : ''}
                     
+                    <!-- Salud de Datos y Duplicados -->
+                    <div style="background: linear-gradient(135deg, rgba(8, 145, 178, 0.1), rgba(15, 23, 42, 0.1)); border-radius: 12px; padding: 24px; margin-top: 20px; border: 1px solid #0891b2;">
+                        <h3 style="margin: 0 0 12px 0; font-size: 1.125rem; color: #f1f5f9; font-weight: 700; display: flex; align-items: center; gap: 10px;">
+                            <span>🛡️</span> Salud de los Datos
+                        </h3>
+                        <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; line-height: 1.6;">
+                            Busca y resuelve inconsistencias, como empleados con números de ficha duplicados. Esto asegura que la nómina y las asistencias sean precisas.
+                        </p>
+                        <button onclick="startMaintenanceWizard()" class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; background: #0891b2; border: none;">
+                            🧹 Iniciar Asistente de Saneamiento
+                        </button>
+                    </div>
+
                     <!-- Gestión de Datos -->
                     <div style="margin-top: 32px; display: flex; flex-direction: column; gap: 24px;">
                         

@@ -141,14 +141,18 @@ async function _executeSave(options = {}) {
             const rawState = stateManager.getState();
             await indexedDBService.saveState(rawState, options);
         } catch (error) {
-            // Manejo de conflictos de integridad
-            if (error.name === 'ConstraintError' || error.message?.includes('ConstraintError')) {
+            // Manejo de conflictos de integridad con defensa contra error nulo
+            const errorName = error?.name || '';
+            const errorMessage = error?.message || 'Error desconocido';
+
+            if (errorName === 'ConstraintError' || errorMessage.includes('ConstraintError')) {
                 console.warn('⚡ Conflicto de integridad en IndexedDB.');
                 NotificationSystem.error('❌ Conflicto de datos detectado');
             } else {
+                console.error('❌ Error fatal en persistencia local:', error);
                 // Fallback a localStorage
                 if (dataService) dataService.saveAll();
-                NotificationSystem.error('❌ Error al guardar localmente');
+                NotificationSystem.error('❌ Error al guardar localmente: ' + errorMessage);
             }
         }
     } else {
@@ -584,3 +588,247 @@ globalThis.saveToLocalStorage = saveApplicationData;
 globalThis.loadFromLocalStorage = loadApplicationData;
 globalThis.loadDemoDataIntoDB = loadDemoDataIntoDB;
 globalThis.testConflictedRestore = testConflictedRestore;
+
+/**
+ * 🔍 analyzeConflicts() - Detecta empleados duplicados por número de ficha
+ * @returns {Array} Lista de grupos de conflictos
+ */
+export function analyzeConflicts() {
+    if (!state.employees || state.employees.length === 0) return [];
+
+    const groups = new Map();
+    const processedIds = new Set();
+
+    state.employees.forEach(emp => {
+        if (!emp.number || !emp.id) return;
+        
+        // ⚡ FIX: Ignorar si ya procesamos este ID exacto en memoria (duplicado de referencia)
+        if (processedIds.has(emp.id)) return;
+        processedIds.add(emp.id);
+
+        if (!groups.has(emp.number)) groups.set(emp.number, []);
+        groups.get(emp.number).push(emp);
+    });
+
+    const conflicts = [];
+    groups.forEach((members, number) => {
+        if (members.length > 1) {
+            const conflictGroup = members.map(emp => {
+                // Calcular metadatos para ayudar en la decisión
+                const idPrefix = `${emp.id}-`;
+                const attendanceKeys = Object.keys(state.attendance || {}).filter(k => k.startsWith(idPrefix));
+                
+                let lastDate = 'Nunca';
+                if (attendanceKeys.length > 0) {
+                    const sortedDates = attendanceKeys.map(k => k.substring(idPrefix.length)).sort();
+                    lastDate = sortedDates[sortedDates.length - 1];
+                }
+
+                // Calcular completitud del perfil (0-100)
+                const fields = ['phone', 'email', 'salary', 'dailyRate', 'entryDate'];
+                const filled = fields.filter(f => emp[f] && emp[f] !== '').length;
+                const completeness = Math.round((filled / fields.length) * 100);
+
+                return {
+                    ...emp,
+                    attendanceCount: attendanceKeys.length,
+                    lastAttendance: lastDate,
+                    completeness: completeness
+                };
+            });
+            conflicts.push({ number, members: conflictGroup });
+        }
+    });
+
+    return conflicts;
+}
+
+/**
+ * 🤝 mergeEmployees() - Fusiona un registro duplicado en un registro maestro
+ * ⚠️ NO guarda automáticamente. El caller debe llamar saveApplicationData() al terminar.
+ */
+export function mergeEmployees(masterId, duplicateId) {
+    const master = state.employees.find(e => e.id === masterId);
+    const duplicate = state.employees.find(e => e.id === duplicateId);
+
+    // Protección contra auto-fusión y existencias
+    if (!master || !duplicate || masterId === duplicateId) {
+        console.warn(`⚠️ Fusión abortada: ${!master ? 'Maestro no existe' : !duplicate ? 'Duplicado no existe' : 'Son el mismo ID'}`);
+        return false;
+    }
+
+    console.log(`🤝 Fusionando: ${duplicate.name} -> ${master.name}`);
+
+    // 1. Remapear Asistencia
+    const idPrefix = `${duplicateId}-`;
+    Object.keys(state.attendance || {}).forEach(oldKey => {
+        if (oldKey.startsWith(idPrefix)) {
+            const datePart = oldKey.substring(idPrefix.length);
+            const newKey = `${masterId}-${datePart}`;
+            const oldRecord = state.attendance[oldKey];
+            const existingRecord = state.attendance[newKey];
+
+            if (!existingRecord) {
+                // Simplemente mover
+                oldRecord.employeeId = masterId;
+                oldRecord.key = newKey;
+                state.attendance[newKey] = oldRecord;
+            } else {
+                // Fusionar inteligentemente
+                existingRecord.present = existingRecord.present || oldRecord.present;
+                existingRecord.hoursWorked = Math.max(existingRecord.hoursWorked || 0, oldRecord.hoursWorked || 0);
+                if (oldRecord.note && (!existingRecord.note || !existingRecord.note.includes(oldRecord.note))) {
+                    existingRecord.note = existingRecord.note ? `${existingRecord.note} | ${oldRecord.note}` : oldRecord.note;
+                }
+                // Fusionar horas por posición si existen
+                if (oldRecord.positionHours) {
+                    existingRecord.positionHours = existingRecord.positionHours || [];
+                    oldRecord.positionHours.forEach(oph => {
+                        const existingPh = existingRecord.positionHours.find(eph => eph.positionId === oph.positionId);
+                        if (existingPh) {
+                            existingPh.hours = Math.max(existingPh.hours, oph.hours);
+                        } else {
+                            existingRecord.positionHours.push(oph);
+                        }
+                    });
+                }
+            }
+            delete state.attendance[oldKey];
+        }
+    });
+
+    // 2. Fusionar Datos Financieros
+    if (duplicate.advances) {
+        master.advances = [...(master.advances || []), ...(duplicate.advances || [])];
+    }
+    if (duplicate.bonuses) {
+        master.bonuses = [...(master.bonuses || []), ...(duplicate.bonuses || [])];
+    }
+    if (duplicate.deductions) {
+        master.deductions = [...(master.deductions || []), ...(duplicate.deductions || [])];
+    }
+
+    // 3. Completar campos del maestro si están vacíos
+    ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
+        if (!master[field] && duplicate[field]) master[field] = duplicate[field];
+    });
+
+    // 4. Eliminar el duplicado del estado
+    state.employees = state.employees.filter(e => e.id !== duplicateId);
+
+    return true;
+}
+
+/**
+ * 🔤 Normaliza un nombre para comparación (sin acentos, minúsculas, sin espacios extra)
+ */
+function normalizeName(name) {
+    return (name || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 🔍 Determina si dos nombres son suficientemente similares para considerarlos la misma persona
+ */
+function areSamePerson(nameA, nameB) {
+    const a = normalizeName(nameA);
+    const b = normalizeName(nameB);
+    if (a === b) return true;
+    // Si uno contiene al otro (ej: "Juan" vs "Juan Perez")
+    if (a.includes(b) || b.includes(a)) return true;
+    return false;
+}
+
+/**
+ * ⚡ executeAutoRepair() - Ejecuta limpieza automática basada en puntuación
+ * Separa conflictos en dos categorías:
+ *   - Misma persona (nombres similares) → fusión automática
+ *   - Personas distintas (nombres diferentes) → pendientes de reasignación
+ * @returns {{ success, fixed, pendingReassignments }}
+ */
+export async function executeAutoRepair() {
+    const conflicts = analyzeConflicts();
+    if (conflicts.length === 0) {
+        NotificationSystem.info('✨ No se encontraron duplicados.');
+        return { success: true, fixed: 0, pendingReassignments: [] };
+    }
+
+    let fixedCount = 0;
+    const pendingReassignments = [];
+
+    conflicts.forEach(group => {
+        // Verificar si todos los miembros son la misma persona
+        const firstMember = group.members[0];
+        const allSamePerson = group.members.every(m => areSamePerson(m.name, firstMember.name));
+
+        if (!allSamePerson) {
+            // Personas distintas: no fusionar, acumular para reasignación
+            console.log(`⚠️ Ficha ${group.number}: nombres diferentes detectados, omitiendo fusión automática`);
+            pendingReassignments.push(group);
+            return;
+        }
+
+        // Misma persona: fusionar automáticamente
+        const sorted = [...group.members].sort((a, b) => {
+            if (b.attendanceCount !== a.attendanceCount) return b.attendanceCount - a.attendanceCount;
+            const timeA = new Date(a.updatedAt || 0).getTime();
+            const timeB = new Date(b.updatedAt || 0).getTime();
+            if (timeB !== timeA) return timeB - timeA;
+            return b.completeness - a.completeness;
+        });
+
+        const master = sorted[0];
+        const duplicates = sorted.slice(1);
+
+        duplicates.forEach(dup => {
+            if (mergeEmployees(master.id, dup.id)) fixedCount++;
+        });
+    });
+
+    // Guardar UNA sola vez con limpieza de attendance en IndexedDB
+    if (fixedCount > 0) {
+        await saveApplicationData({ skipValidation: false, clearAttendance: true });
+    }
+
+    if (pendingReassignments.length > 0) {
+        NotificationSystem.info(`⚡ ${fixedCount} duplicados fusionados. ${pendingReassignments.length} conflicto(s) requieren reasignación manual.`);
+    } else {
+        NotificationSystem.success(`⚡ Limpieza automática completada. Se eliminaron ${fixedCount} duplicados.`);
+    }
+
+    if (globalThis.render) globalThis.render();
+    
+    return { success: true, fixed: fixedCount, pendingReassignments };
+}
+
+/**
+ * 🔄 reassignEmployeeNumber() - Cambia el número de ficha de un empleado
+ * También actualiza las claves de asistencia para mantener coherencia.
+ * ⚠️ NO guarda automáticamente. El caller debe llamar saveApplicationData().
+ */
+export function reassignEmployeeNumber(employeeId, newNumber) {
+    const emp = state.employees.find(e => e.id === employeeId);
+    if (!emp) return false;
+
+    // Verificar que el nuevo número no esté en uso
+    const conflict = state.employees.find(e => e.number === newNumber && e.id !== employeeId);
+    if (conflict) {
+        console.warn(`⚠️ Número ${newNumber} ya en uso por ${conflict.name}`);
+        return false;
+    }
+
+    const oldNumber = emp.number;
+    emp.number = newNumber;
+    emp.updatedAt = Date.now();
+    emp._isDirty = true;
+
+    console.log(`🔄 Ficha reasignada: ${emp.name} (${oldNumber} → ${newNumber})`);
+    return true;
+}
+
+// Inicializar alias globales
+globalThis.analyzeConflicts = analyzeConflicts;
+globalThis.mergeEmployees = mergeEmployees;
+globalThis.executeAutoRepair = executeAutoRepair;
+globalThis.reassignEmployeeNumber = reassignEmployeeNumber;

@@ -3,7 +3,7 @@ import {
     signInWithPopup, signOut, onAuthStateChanged,
     doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, 
     query, orderBy, limit, getDocs,
-    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch
+    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob
 } from '../data/firebase.js';
 import { getDeviceId } from '../config/Config.js';
 
@@ -172,17 +172,27 @@ class FirebaseService {
             if (!docSnap.exists()) return null;
             
             const data = docSnap.data();
-            
-            if (data.isExternal && data.storageUrl) {
-                console.log('📦 Recuperando snapshot grande desde Storage...');
-                const response = await fetch(data.storageUrl);
-                return await response.json();
+            let state = data.state;
+
+            // ⚡ OPTIMIZACIÓN: Si es externo, usar getBlob del SDK (más robusto contra Tracking Prevention)
+            if (data.isExternal) {
+                console.log('📦 Recuperando snapshot grande vía Firebase SDK...');
+                // Construir referencia interna para evitar bloqueos por URL de fetch
+                const timestamp = data.metadata?.timestamp || snapshotId.replace('snapshot_', '');
+                const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/snapshot_${timestamp}.json`);
+                
+                const blob = await getBlob(storageRef);
+                const text = await blob.text();
+                state = JSON.parse(text);
             }
             
-            return data.state;
+            return {
+                state: state,
+                metadata: data.metadata || {}
+            };
         } catch (error) {
             console.error(`❌ Error recuperando snapshot ${snapshotId}:`, error);
-            return null;
+            throw error; // Lanzar para que app.js lo maneje
         }
     }
 

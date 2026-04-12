@@ -101,6 +101,7 @@ import { ExportService } from './modules/services/ExportService.js';
 import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsService.js';
 import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
+import './modules/ui/MaintenanceUI.js';
 
 
 const ICON_SET_STORAGE_KEY = 'icon-set';

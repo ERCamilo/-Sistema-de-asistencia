@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebas
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, query, orderBy, limit, getDocs, Timestamp, onSnapshot, where, documentId, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { getStorage, ref, uploadString, getDownloadURL, deleteObject, getBlob } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
 import { firebaseConfig } from '../config/Config.js';
 
@@ -21,5 +21,5 @@ export {
     // Firestore functions
     doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, query, orderBy, limit, getDocs, Timestamp, onSnapshot, where, documentId, writeBatch,
     // Storage functions
-    ref, uploadString, getDownloadURL, deleteObject
-};
+    ref, uploadString, getDownloadURL, deleteObject, getBlob
+};
