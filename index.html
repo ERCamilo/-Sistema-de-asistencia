@@ -96,6 +96,34 @@
     <!-- 🧪 Pruebas Unitarias -->
     <script src="js/tests/TestRunner.js"></script>
     <script src="js/tests/BusinessLogicTests.js"></script>
+
+    <!-- 📱 Registro del Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js', { scope: './' })
+                    .then((registration) => {
+                        console.log('✅ Service Worker registrado:', registration.scope);
+
+                        // Detectar actualizaciones
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                                    // Hay una nueva versión activa — notificar al usuario
+                                    if (window.Notification && typeof window.Notification.info === 'function') {
+                                        window.Notification.info('🔄 Nueva versión disponible. Recarga para actualizar.', 0);
+                                    }
+                                }
+                            });
+                        });
+                    })
+                    .catch((error) => {
+                        console.warn('⚠️ Service Worker no registrado:', error);
+                    });
+            });
+        }
+    </script>
 </body>
 
 </html>

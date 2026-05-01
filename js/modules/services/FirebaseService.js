@@ -256,10 +256,15 @@ class FirebaseService {
             if (querySnapshot.docs.length > 0 && onInitialLoad && !this._attendanceInitialized) {
                 const allAttendance = {};
                 querySnapshot.forEach(doc => {
+                    const dateKey = doc.id;
                     const records = doc.data().records || {};
-                    // Inyectar timestamp de acceso para LRU
-                    Object.values(records).forEach(r => r.lastAccessed = Date.now());
-                    Object.assign(allAttendance, records);
+                    // Inyectar timestamp de acceso para LRU y normalizar llaves
+                    Object.entries(records).forEach(([key, r]) => {
+                        r.lastAccessed = Date.now();
+                        // ⚡ FIX: Asegurar clave canónica (id-fecha)
+                        const canonicalKey = `${r.employeeId}-${dateKey}`;
+                        allAttendance[canonicalKey] = r;
+                    });
                 });
                 this._attendanceInitialized = true;
                 onInitialLoad(allAttendance);
@@ -278,9 +283,15 @@ class FirebaseService {
                 const records = data.records || {};
 
                 if (change.type === "added" || change.type === "modified") {
-                    // Inyectar timestamp de acceso para LRU
-                    Object.values(records).forEach(r => r.lastAccessed = Date.now());
-                    if (onModified) onModified(dateKey, records);
+                    const normalizedRecords = {};
+                    // Inyectar timestamp de acceso para LRU y normalizar llaves
+                    Object.entries(records).forEach(([key, r]) => {
+                        r.lastAccessed = Date.now();
+                        // ⚡ FIX: Asegurar clave canónica (id-fecha)
+                        const canonicalKey = `${r.employeeId}-${dateKey}`;
+                        normalizedRecords[canonicalKey] = r;
+                    });
+                    if (onModified) onModified(dateKey, normalizedRecords);
                 }
                 if (change.type === "removed") {
                     if (onRemoved) onRemoved(dateKey);
@@ -391,10 +402,14 @@ class FirebaseService {
             
             const allAttendance = {};
             querySnapshot.forEach(doc => {
+                const dateKey = doc.id;
                 const dayData = doc.data().records || {};
-                // Inyectar timestamp de acceso para LRU
-                Object.values(dayData).forEach(r => r.lastAccessed = Date.now());
-                Object.assign(allAttendance, dayData);
+                // Inyectar timestamp de acceso para LRU y normalizar llaves
+                Object.entries(dayData).forEach(([key, r]) => {
+                    r.lastAccessed = Date.now();
+                    const canonicalKey = `${r.employeeId}-${dateKey}`;
+                    allAttendance[canonicalKey] = r;
+                });
             });
             
             return allAttendance;

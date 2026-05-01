@@ -1,0 +1,61 @@
+=====================================
+DESCRIPCIÓN CORTA (máximo 80 caracteres)
+=====================================
+Usa: 76 caracteres
+
+Registra asistencia, gestiona empleados y consulta reportes sin conexión.
+
+
+=====================================
+DESCRIPCIÓN LARGA (máximo 4000 caracteres)
+=====================================
+Usa: ~2800 caracteres
+
+Control de Asistencia es una herramienta diseñada para supervisores, maestros de obra y encargados de proyectos de construcción que necesitan llevar el registro diario de sus trabajadores de forma rápida, visual y sin complicaciones.
+
+📋 REGISTRO DE ASISTENCIA
+Marca la asistencia de tu equipo con un solo toque. Vista por día o por semana completa. Configura las horas de trabajo para cada día, registra ausencias, medios días y horas extras. Todo se guarda automáticamente en tu dispositivo.
+
+👷 GESTIÓN DE EMPLEADOS
+Organiza a tus trabajadores por posiciones (albañil, plomero, electricista, etc.) y asígnalos a líderes de equipo. Cada empleado tiene su perfil individual con historial completo de asistencia, resumen de horas trabajadas y documentos.
+
+📊 REPORTES Y ESTADÍSTICAS
+Visualiza el rendimiento de tu equipo con gráficos claros. Dashboard con estadísticas generales, reportes individuales por empleado, comparativas por posición y tendencias de asistencia en el tiempo.
+
+💰 ESTIMADO DE NÓMINA
+Consulta un estimado rápido del pago de cada trabajador basado en las horas registradas. Incluye cálculo de horas normales, extras y días festivos. Nota: esta función es una guía de referencia visual, no un sistema contable ni financiero.
+
+📅 CALENDARIO Y FESTIVOS
+Configura los días festivos de tu país para que se reflejen automáticamente en el registro de asistencia y en los cálculos de horas.
+
+📤 EXPORTACIÓN
+Genera reportes en Excel y PDF para compartir con tu equipo o archivar. Exporta la nómina estimada, listas de asistencia y reportes individuales.
+
+☁️ SINCRONIZACIÓN (OPCIONAL)
+Inicia sesión con tu cuenta de Google para sincronizar tus datos entre dispositivos. Crea respaldos automáticos en la nube. Toda la sincronización es opcional: la app funciona 100% sin internet.
+
+📱 FUNCIONA SIN INTERNET
+Toda la información se almacena en tu dispositivo. No necesitas conexión para registrar asistencia, consultar reportes ni gestionar empleados. Ideal para obras donde la señal es limitada.
+
+🔒 TUS DATOS SON TUYOS
+No vendemos ni compartimos información. Los datos se guardan en tu dispositivo y, si activas la sincronización, en tu propia cuenta de Google Firebase protegida con reglas de seguridad.
+
+✨ CARACTERÍSTICAS ADICIONALES
+• Modo oscuro profesional
+• Interfaz optimizada para celular
+• Sistema de búsqueda y filtros rápidos
+• Gestión de múltiples posiciones por empleado
+• Historial completo con sistema de deshacer cambios
+• Onboarding guiado para nuevos usuarios
+• Respaldos automáticos y manuales
+
+Diseñado para el mundo real de la construcción, donde cada minuto cuenta.
+
+
+=====================================
+NOTAS PARA LA FICHA DE PLAY STORE
+=====================================
+
+Categoría sugerida: Negocios (Business) o Productividad (Productivity)
+Clasificación de contenido: Para todos (Everyone)
+Etiquetas sugeridas: asistencia, empleados, construcción, nómina, offline, control

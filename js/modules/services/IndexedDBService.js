@@ -356,9 +356,10 @@ export class IndexedDBService {
 
             let attToSave = [];
             if (isGranular) {
-                const suffix = `-${options.dateKey}`;
+                // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para mayor robustez
+                const dateKey = options.dateKey;
                 attToSave = Object.entries(state.attendance || {})
-                    .filter(([key]) => key.endsWith(suffix))
+                    .filter(([key]) => key.endsWith(`-${dateKey}`) || key.endsWith(`_${dateKey}`))
                     .map(([key, value]) => ({ key, ...value }));
             } else {
                 attToSave = Object.entries(state.attendance || {}).map(([key, value]) => ({
@@ -371,7 +372,8 @@ export class IndexedDBService {
             // Asegura que no rompa el Unique Index (employeeDate) si el JS state se desincronizó o corrompió.
             const seenAttendance = new Set();
             attToSave = attToSave.filter(record => {
-                const empDateKey = `${record.employeeId}_${record.date}`;
+                // Usar formato canónico (guion) para la clave de deduplicación interna
+                const empDateKey = `${record.employeeId}-${record.date}`;
                 if (seenAttendance.has(empDateKey)) {
                     console.warn(`🛡️ Purgado registro IDB huérfano para evitar ConstraintError: ${empDateKey}`);
                     return false;

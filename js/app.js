@@ -6571,6 +6571,17 @@ window.addEventListener('scroll', () => {
                         endDate,
                         onInitialLoad: (allAttendance) => {
                             window._isApplyingRemoteData = true;
+                            
+                            // 🛡️ LIMPIEZA DE ESTADO: Eliminar claves "cortas" (solo id) o inconsistentes
+                            // Solo deben quedar claves con formato: employeeId-dateKey
+                            const entries = Object.entries(allAttendance);
+                            entries.forEach(([key, record]) => {
+                                const shortKey = record.employeeId;
+                                if (state.attendance[shortKey]) {
+                                    delete state.attendance[shortKey];
+                                }
+                            });
+
                             state.attendance = { ...state.attendance, ...allAttendance };
                             // ⚡ FIX: Persistir asistencia remota en IndexedDB
                             setTimeout(() => {
@@ -6581,6 +6592,15 @@ window.addEventListener('scroll', () => {
                         },
                         onModified: (dateKey, records) => {
                             window._isApplyingRemoteData = true;
+                            
+                            // 🛡️ LIMPIEZA DE ESTADO: Evitar duplicidad si Firebase envía claves incoherentes
+                            Object.values(records).forEach(record => {
+                                const shortKey = record.employeeId;
+                                if (state.attendance[shortKey]) {
+                                    delete state.attendance[shortKey];
+                                }
+                            });
+
                             state.attendance = { ...state.attendance, ...records };
                             // ⚡ FIX: Persistir asistencia remota en IndexedDB para sobrevivir F5
                             setTimeout(() => {
@@ -6590,12 +6610,19 @@ window.addEventListener('scroll', () => {
 
                             // Actualización Zonal
                             const selectedDateKey = getDateKey(state.selectedDate);
+                            const recordList = Object.values(records);
+
                             if (dateKey === selectedDateKey && state.activeTab === 'attendance' && state.viewMode === 'day') {
-                                Object.keys(records).forEach(empId => window.updateEmployeeRow?.(empId));
+                                recordList.forEach(record => {
+                                    if (record.employeeId) window.updateEmployeeRow?.(record.employeeId);
+                                });
                             } else if (state.activeTab === 'attendance' && state.viewMode === 'week') {
                                 const week = getWeekDates(new Date(state.selectedDate));
                                 if (week.some(d => getDateKey(d) === dateKey)) {
-                                    Object.keys(records).forEach(empId => window.updateWeekRow?.(empId));
+                                    recordList.forEach(record => {
+                                        if (record.employeeId) window.updateWeekRow?.(record.employeeId);
+                                    });
+                                    window.updateWeekTotals?.();
                                 }
                             } else {
                                 render();
