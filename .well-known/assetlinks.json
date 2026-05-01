@@ -3,9 +3,9 @@
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.erlincamilo.asistencia",
+      "package_name": "io.github.ercamilo.twa",
       "sha256_cert_fingerprints": [
-        "REEMPLAZAR_CON_EL_FINGERPRINT_DE_PWABUILDER"
+        "2B:F1:1E:ED:53:A5:8C:EC:AB:6B:6B:5C:F7:27:81:61:83:23:14:75:8F:1B:70:FC:E9:F1:EE:18:F8:B9:53:59"
       ]
     }
   }
