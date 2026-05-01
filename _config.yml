@@ -1,0 +1,3 @@
+# Jekyll config para GitHub Pages
+# Necesario para que la carpeta .well-known sea servida (Jekyll ignora carpetas con punto por defecto)
+include: [".well-known"]

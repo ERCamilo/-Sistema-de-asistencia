@@ -1,6 +1,7 @@
 {
     "name": "Sistema de Control de Asistencia",
     "short_name": "Asistencia",
+    "id": "/index.html",
     "description": "Sistema completo de control de asistencia para construcción con funcionalidad offline",
     "start_url": "./index.html",
     "display": "standalone",
