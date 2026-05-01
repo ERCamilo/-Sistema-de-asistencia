@@ -6,7 +6,7 @@
  * para forzar actualización de assets cacheados.
  */
 
-const CACHE_VERSION = '1.0.1';
+const CACHE_VERSION = '1.0.2';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -131,7 +131,14 @@ const APP_SHELL = [
 
     // Data
     './js/modules/data/DemoSeed.js',
-    './js/modules/data/firebase.js'
+    './js/modules/data/firebase.js',
+
+    // Screenshots (manifest)
+    './screenshots/screenshot_1_attendance.png',
+    './screenshots/screenshot_2_personal.png',
+    './screenshots/screenshot_3_reportes.png',
+    './screenshots/screenshot_4_nomina.png',
+    './screenshots/screenshot_5_weekly.png'
 ];
 
 // CDNs externos (se cachean en runtime, no en precache)
