@@ -1,335 +1,145 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Política de Privacidad — Control de Asistencia</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg-primary: #0f172a;
-            --bg-card: #1e293b;
-            --text-primary: #f1f5f9;
-            --text-secondary: #94a3b8;
-            --accent: #06b6d4;
-            --accent-soft: rgba(6, 182, 212, 0.1);
-            --border: #334155;
-            --radius: 12px;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
             line-height: 1.7;
-            padding: 0;
+            padding: 40px 20px;
         }
-
-        .privacy-header {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            border-bottom: 1px solid var(--border);
-            padding: 2rem 1.5rem;
-            text-align: center;
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
         }
-
-        .privacy-header h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, var(--accent), #22d3ee);
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #06b6d4, #10b981);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
-
-        .privacy-header .subtitle {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
+        .updated {
+            color: #64748b;
+            font-size: 0.875rem;
+            margin-bottom: 32px;
         }
-
-        .privacy-container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem 1.5rem 4rem;
+        h2 {
+            color: #06b6d4;
+            font-size: 1.25rem;
+            margin: 32px 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #1e293b;
         }
-
-        .privacy-section {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 1.5rem;
-            margin-bottom: 1.25rem;
+        p, li {
+            color: #94a3b8;
+            margin-bottom: 12px;
         }
-
-        .privacy-section h2 {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--accent);
-            margin-bottom: 0.75rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
+        ul {
+            padding-left: 24px;
+            margin-bottom: 16px;
         }
-
-        .privacy-section p,
-        .privacy-section li {
-            color: var(--text-secondary);
-            font-size: 0.92rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .privacy-section ul {
-            padding-left: 1.25rem;
-            margin-top: 0.5rem;
-        }
-
-        .privacy-section li {
-            margin-bottom: 0.4rem;
-        }
-
-        .highlight-box {
-            background: var(--accent-soft);
-            border-left: 3px solid var(--accent);
-            padding: 1rem 1.25rem;
-            border-radius: 0 8px 8px 0;
-            margin: 1rem 0;
-        }
-
-        .highlight-box p {
-            color: var(--text-primary) !important;
-            font-size: 0.9rem;
-            margin: 0;
-        }
-
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--accent);
+        li { margin-bottom: 6px; }
+        strong { color: #e2e8f0; }
+        a {
+            color: #06b6d4;
             text-decoration: none;
-            font-weight: 500;
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-            transition: opacity 0.2s;
         }
-
-        .back-link:hover {
-            opacity: 0.8;
+        a:hover { text-decoration: underline; }
+        .highlight {
+            background: rgba(6, 182, 212, 0.1);
+            border-left: 3px solid #06b6d4;
+            padding: 16px;
+            border-radius: 0 8px 8px 0;
+            margin: 16px 0;
         }
-
-        .footer-info {
-            text-align: center;
-            color: var(--text-secondary);
+        footer {
+            margin-top: 48px;
+            padding-top: 24px;
+            border-top: 1px solid #1e293b;
+            color: #475569;
             font-size: 0.8rem;
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid var(--border);
-        }
-
-        @media (max-width: 600px) {
-            .privacy-header h1 { font-size: 1.35rem; }
-            .privacy-section { padding: 1.25rem; }
-            .privacy-container { padding: 1.25rem 1rem 3rem; }
+            text-align: center;
         }
     </style>
 </head>
-
 <body>
-    <div class="privacy-header">
-        <h1>🔒 Política de Privacidad</h1>
-        <p class="subtitle">Control de Asistencia — Sistema de gestión para construcción</p>
-    </div>
+    <div class="container">
+        <h1>Política de Privacidad</h1>
+        <p class="updated">Última actualización: 1 de mayo de 2026</p>
 
-    <div class="privacy-container">
-        <a href="./index.html" class="back-link">← Volver a la aplicación</a>
+        <p>Esta política de privacidad describe cómo <strong>Control de Asistencia</strong> ("la aplicación", "nosotros") recopila, usa y protege la información proporcionada por los usuarios.</p>
 
-        <!-- SECCIÓN 1 -->
-        <div class="privacy-section">
-            <h2>📋 Información General</h2>
-            <p>
-                <strong>Control de Asistencia</strong> es una aplicación web progresiva (PWA) 
-                diseñada para gestionar la asistencia de empleados en proyectos de construcción. 
-                Esta política describe qué información recopilamos, cómo la usamos y cómo la protegemos.
-            </p>
-            <p>
-                <strong>Desarrollador:</strong> Erlin Camilo<br>
-                <strong>Contacto:</strong> erlin.camilo03@gmail.com<br>
-                <strong>Última actualización:</strong> 27 de abril de 2026
-            </p>
+        <h2>1. Información que recopilamos</h2>
+        <p>La aplicación almacena los siguientes datos <strong>localmente en su dispositivo</strong>:</p>
+        <ul>
+            <li>Nombres y números de ficha de empleados</li>
+            <li>Posiciones y líderes de equipo</li>
+            <li>Registros de asistencia diaria y horas trabajadas</li>
+            <li>Configuración de la empresa (nombre, horas regulares)</li>
+            <li>Datos de nómina (salarios, deducciones, bonificaciones)</li>
+        </ul>
+
+        <div class="highlight">
+            <p><strong>Importante:</strong> Todos los datos se almacenan en su dispositivo usando IndexedDB. La aplicación funciona completamente sin conexión a internet.</p>
         </div>
 
-        <!-- SECCIÓN 2 -->
-        <div class="privacy-section">
-            <h2>📊 Datos que recopilamos</h2>
-            <p>La aplicación puede recopilar los siguientes tipos de datos:</p>
-            
-            <p><strong>Datos proporcionados por el usuario:</strong></p>
-            <ul>
-                <li>Nombres de empleados, posiciones y líderes de equipo</li>
-                <li>Registros de asistencia (fechas, horas trabajadas, ausencias)</li>
-                <li>Configuraciones de nómina y adelantos salariales</li>
-                <li>Notas y observaciones sobre días laborales</li>
-            </ul>
+        <h2>2. Sincronización en la nube (opcional)</h2>
+        <p>Si el usuario decide activar la sincronización con Firebase (servicio de Google):</p>
+        <ul>
+            <li>Los datos de asistencia se sincronizan con servidores de Google Firebase</li>
+            <li>Se utiliza autenticación de Google para identificar la cuenta</li>
+            <li>Los datos sincronizados incluyen: empleados, posiciones, asistencia y configuración</li>
+        </ul>
+        <p>Esta función es <strong>completamente opcional</strong>. La aplicación funciona sin ella.</p>
 
-            <p><strong>Datos de autenticación (opcional):</strong></p>
-            <ul>
-                <li>Si el usuario inicia sesión con Google: nombre, correo electrónico y foto de perfil proporcionados por Google</li>
-                <li>El inicio de sesión es opcional y se usa únicamente para sincronizar datos entre dispositivos</li>
-            </ul>
+        <h2>3. Cómo usamos la información</h2>
+        <p>La información se utiliza exclusivamente para:</p>
+        <ul>
+            <li>Registrar y mostrar la asistencia de los empleados</li>
+            <li>Generar reportes y archivos de nómina</li>
+            <li>Sincronizar datos entre dispositivos del mismo usuario (si se activa)</li>
+        </ul>
 
-            <div class="highlight-box">
-                <p>
-                    <strong>Importante:</strong> La aplicación funciona completamente sin inicio de sesión. 
-                    Los datos se almacenan localmente en el dispositivo del usuario por defecto.
-                </p>
-            </div>
-        </div>
+        <h2>4. Compartición de datos</h2>
+        <p><strong>No compartimos, vendemos ni transferimos</strong> sus datos a terceros. Los datos permanecen en su dispositivo o, si activa la sincronización, en su cuenta personal de Firebase.</p>
 
-        <!-- SECCIÓN 3 -->
-        <div class="privacy-section">
-            <h2>💾 Almacenamiento de datos</h2>
-            <p><strong>Almacenamiento local (predeterminado):</strong></p>
-            <ul>
-                <li>Los datos se guardan en el navegador del usuario mediante IndexedDB y LocalStorage</li>
-                <li>Estos datos permanecen en el dispositivo y no se envían a ningún servidor sin el consentimiento del usuario</li>
-            </ul>
+        <h2>5. Seguridad</h2>
+        <ul>
+            <li>Los datos locales están protegidos por los mecanismos de seguridad del navegador y el sistema operativo</li>
+            <li>La comunicación con Firebase se realiza mediante <strong>HTTPS (cifrado en tránsito)</strong></li>
+            <li>La autenticación se gestiona mediante Google Sign-In</li>
+        </ul>
 
-            <p><strong>Almacenamiento en la nube (opcional):</strong></p>
-            <ul>
-                <li>Si el usuario inicia sesión y elige sincronizar, los datos se almacenan en Google Firebase (Firestore)</li>
-                <li>Los datos en Firebase están protegidos por reglas de seguridad que solo permiten acceso al propietario de la cuenta</li>
-                <li>Firebase cumple con los estándares de seguridad de Google Cloud Platform</li>
-            </ul>
-        </div>
+        <h2>6. Eliminación de datos</h2>
+        <p>El usuario puede eliminar todos sus datos en cualquier momento desde:</p>
+        <ul>
+            <li><strong>Dentro de la app:</strong> Ajustes → Almacenamiento → Borrado Total Local</li>
+            <li><strong>Manualmente:</strong> Desinstalando la aplicación o borrando los datos del navegador</li>
+        </ul>
 
-        <!-- SECCIÓN 4 -->
-        <div class="privacy-section">
-            <h2>🎯 Uso de los datos</h2>
-            <p>Los datos recopilados se utilizan exclusivamente para:</p>
-            <ul>
-                <li>Registrar y gestionar la asistencia de empleados</li>
-                <li>Generar reportes y estadísticas de asistencia</li>
-                <li>Calcular nómina y adelantos salariales</li>
-                <li>Sincronizar datos entre dispositivos del mismo usuario</li>
-                <li>Crear respaldos automáticos y manuales</li>
-            </ul>
+        <h2>7. Permisos</h2>
+        <p>La aplicación no solicita acceso a:</p>
+        <ul>
+            <li>Cámara, micrófono o ubicación</li>
+            <li>Contactos, calendario o archivos del dispositivo</li>
+            <li>Notificaciones push</li>
+        </ul>
 
-            <div class="highlight-box">
-                <p>
-                    <strong>No vendemos, compartimos ni transferimos datos personales a terceros.</strong> 
-                    Los datos son exclusivamente del usuario que los creó.
-                </p>
-            </div>
-        </div>
+        <h2>8. Cambios en esta política</h2>
+        <p>Nos reservamos el derecho de actualizar esta política. Los cambios se publicarán en esta misma página con la fecha de actualización.</p>
 
-        <!-- SECCIÓN 5 -->
-        <div class="privacy-section">
-            <h2>🔐 Seguridad</h2>
-            <ul>
-                <li>La comunicación se realiza mediante HTTPS (conexión cifrada)</li>
-                <li>La autenticación se maneja mediante Firebase Authentication de Google</li>
-                <li>Los datos en Firestore están protegidos por reglas de seguridad que restringen el acceso exclusivamente al usuario autenticado</li>
-                <li>Los datos locales están protegidos por las políticas de seguridad del navegador (same-origin policy)</li>
-            </ul>
-        </div>
+        <h2>9. Contacto</h2>
+        <p>Si tienes preguntas sobre esta política de privacidad, puedes contactarnos a través del repositorio del proyecto en GitHub.</p>
 
-        <!-- SECCIÓN 6 -->
-        <div class="privacy-section">
-            <h2>🌐 Servicios de terceros</h2>
-            <p>La aplicación utiliza los siguientes servicios de terceros:</p>
-            <ul>
-                <li>
-                    <strong>Google Firebase</strong> (Authentication y Firestore) — para autenticación 
-                    opcional y almacenamiento en la nube. 
-                    <a href="https://firebase.google.com/support/privacy" 
-                       style="color: var(--accent);" target="_blank" rel="noopener">
-                        Política de privacidad de Firebase
-                    </a>
-                </li>
-                <li>
-                    <strong>Google Fonts</strong> — para tipografía (Inter). No recopila datos personales 
-                    identificables. 
-                    <a href="https://developers.google.com/fonts/faq/privacy" 
-                       style="color: var(--accent);" target="_blank" rel="noopener">
-                        Política de Google Fonts
-                    </a>
-                </li>
-                <li>
-                    <strong>CDNs</strong> (jsDelivr, cdnjs) — para bibliotecas de código abierto 
-                    (Chart.js, jsPDF, ExcelJS). Estos servicios pueden registrar direcciones IP 
-                    en sus logs de servidor.
-                </li>
-            </ul>
-        </div>
-
-        <!-- SECCIÓN 7 -->
-        <div class="privacy-section">
-            <h2>🗑️ Eliminación de datos</h2>
-            <p>El usuario tiene control total sobre sus datos:</p>
-            <ul>
-                <li><strong>Datos locales:</strong> Pueden eliminarse borrando los datos del sitio 
-                    desde la configuración del navegador, o usando la función de mantenimiento 
-                    dentro de la aplicación</li>
-                <li><strong>Datos en la nube:</strong> Pueden eliminarse usando la opción 
-                    "Borrar datos de la nube" en la sección de Ajustes de la aplicación</li>
-                <li><strong>Cuenta de Google:</strong> La aplicación no crea cuentas propias. 
-                    El acceso mediante Google puede revocarse desde la 
-                    <a href="https://myaccount.google.com/permissions" 
-                       style="color: var(--accent);" target="_blank" rel="noopener">
-                        configuración de permisos de Google
-                    </a>
-                </li>
-            </ul>
-        </div>
-
-        <!-- SECCIÓN 8 -->
-        <div class="privacy-section">
-            <h2>👶 Menores de edad</h2>
-            <p>
-                Esta aplicación está diseñada para uso profesional en la gestión de 
-                empleados y no está dirigida a menores de 13 años. No recopilamos 
-                intencionalmente información de menores de edad.
-            </p>
-        </div>
-
-        <!-- SECCIÓN 9 -->
-        <div class="privacy-section">
-            <h2>📝 Cambios en esta política</h2>
-            <p>
-                Nos reservamos el derecho de actualizar esta política de privacidad 
-                en cualquier momento. Los cambios se publicarán en esta misma página 
-                con la fecha de actualización correspondiente. El uso continuado de 
-                la aplicación después de los cambios constituye la aceptación de la 
-                política actualizada.
-            </p>
-        </div>
-
-        <!-- SECCIÓN 10 -->
-        <div class="privacy-section">
-            <h2>📬 Contacto</h2>
-            <p>
-                Si tienes preguntas sobre esta política de privacidad o sobre el 
-                manejo de tus datos, puedes contactarnos en:
-            </p>
-            <ul>
-                <li><strong>Email:</strong> erlin.camilo03@gmail.com</li>
-                <li><strong>Repositorio:</strong> <a href="https://github.com/ERCamilo/-Sistema-de-asistencia" 
-                    style="color: var(--accent);" target="_blank" rel="noopener">GitHub</a></li>
-            </ul>
-        </div>
-
-        <div class="footer-info">
-            <p>© 2026 Control de Asistencia. Todos los derechos reservados.</p>
-            <p>Última actualización: 27 de abril de 2026</p>
-        </div>
+        <footer>
+            &copy; 2026 Control de Asistencia. Todos los derechos reservados.
+        </footer>
     </div>
 </body>
-
 </html>
