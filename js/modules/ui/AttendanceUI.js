@@ -416,6 +416,10 @@ export function EmployeeRow(emp) {
 }
 
 function _buildEmployeeRow(emp, dateKey, key, att) {
+    // Defensa: empleados con formato viejo (positionId sin positions[])
+    if (!emp.positions) {
+        emp.positions = emp.positionId ? [emp.positionId] : [];
+    }
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
     const selPos = att?.selectedPosition || emp.positions?.[0] || null;
@@ -524,6 +528,10 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
  * 👤 Fila de Empleado (Vista Diaria / Compacta)
  */
 export function EmployeeRowCompact(emp) {
+    // Defensa: empleados con formato viejo (positionId sin positions[])
+    if (!emp.positions) {
+        emp.positions = emp.positionId ? [emp.positionId] : [];
+    }
     const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
     const att = state.attendance[key];
     const checkColor = getCheckColor(att, state.selectedDate);

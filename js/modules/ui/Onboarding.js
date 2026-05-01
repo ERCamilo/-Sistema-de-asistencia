@@ -186,15 +186,33 @@ class OnboardingWizard {
     async selectMode(mode) {
         state.onboardingMode = mode;
         if (mode === 'demo') {
-            const confirmed = window.confirm(
-                '¿Cargar datos de prueba avanzados?\n\nEsto reemplazará cualquier dato actual con un escenario de 30 días, incluyendo feriados, horas extras y contrataciones tardías.'
-            );
-            
-            if (confirmed) {
+            // Mostrar indicador de carga en el onboarding
+            const container = document.getElementById('onboarding-container') || document.getElementById('app');
+            if (container) {
+                container.innerHTML = `
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 80vh; gap: 24px;">
+                        <div style="font-size: 4rem; animation: bounce 1s ease-in-out infinite;">📊</div>
+                        <h2 style="color: #f1f5f9; font-size: 1.5rem;">Cargando datos de prueba...</h2>
+                        <p style="color: #94a3b8;">Esto tomará un momento</p>
+                        <div style="width: 200px; height: 4px; background: #1e293b; border-radius: 4px; overflow: hidden;">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(90deg, #06b6d4, #10b981); animation: loading-bar 1.5s ease-in-out infinite;"></div>
+                        </div>
+                    </div>
+                    <style>
+                        @keyframes loading-bar {
+                            0% { transform: translateX(-100%); }
+                            100% { transform: translateX(100%); }
+                        }
+                    </style>
+                `;
+            }
+
+            try {
                 await this.loadDemoData();
                 state.onboardingStep = this.steps.indexOf('done');
-            } else {
-                return; // Volver a selección
+            } catch (error) {
+                console.error('❌ Error cargando modo demo:', error);
+                Notification.error('Error al cargar datos de prueba');
             }
         } else if (mode === 'scratch') {
             this.clearAllData();
@@ -544,9 +562,12 @@ window.addOnboardingEmployee = function (event) {
     const newEmployee = {
         id: generateUUID(),
         name: name,
+        number: String(state.employees.length + 1).padStart(3, '0'),
         positionId: positionId,
+        positions: [positionId],
         active: true,
-        joinedAt: Date.now()
+        joinedAt: Date.now(),
+        updatedAt: Date.now()
     };
 
     state.employees.push(newEmployee);

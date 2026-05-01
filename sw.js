@@ -6,7 +6,7 @@
  * para forzar actualización de assets cacheados.
  */
 
-const CACHE_VERSION = '1.0.0';
+const CACHE_VERSION = '1.0.1';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -309,13 +309,13 @@ async function staleWhileRevalidate(request) {
             }
             return response;
         })
-        .catch(() => null); // Si falla la red, no pasa nada
+        .catch(() => new Response('Recurso no disponible offline', {
+            status: 503,
+            statusText: 'Service Unavailable'
+        }));
 
     // Si hay cache, devolver inmediatamente. Si no, esperar la red.
-    return cached || fetchPromise || new Response('Recurso no disponible', {
-        status: 503,
-        statusText: 'Service Unavailable'
-    });
+    return cached || fetchPromise;
 }
 
 // ─────────────────────────────────────────────
