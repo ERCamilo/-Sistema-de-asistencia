@@ -1,10 +1,13 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.erlincamilo.asistencia",
       "sha256_cert_fingerprints": [
+        "44:C0:C3:4A:08:0D:5F:E1:25:15:A1:5B:F1:44:9A:F3:86:59:7B:31:9C:40:70:05:71:31:53:5C:8C:AD:38:1F",
         "2B:F1:1E:ED:53:A5:8C:EC:AB:6B:6B:5C:F7:27:81:61:83:23:14:75:8F:1B:70:FC:E9:F1:EE:18:F8:B9:53:59"
       ]
     }
