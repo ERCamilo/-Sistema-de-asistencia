@@ -2,6 +2,7 @@ import icons from '../../ui/IconSystem.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { slugify } from '../../utils/Helpers.js';
 import { Modal } from '../../components/Modal.js';
+import { EmptyState } from '../../components/EmptyState.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
@@ -9,8 +10,39 @@ import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.j
 
 export let context = null;
 
+// Mapa de acciones para event delegation (data-action)
+// Las funciones se resuelven en runtime contra window.* para mantener compat con código legacy
+const _ACTION_MAP = {
+    'open-employee-profile': (id) => window.openEmployeeProfile?.(id),
+    'open-employee-form': (id) => window.openEmployeeForm?.(id),
+    'toggle-employee-status': (id) => window.toggleEmployeeStatus?.(id),
+    'open-leader-form': (id) => window.openLeaderForm?.(id),
+    'toggle-leader-status': (id) => window.toggleLeaderStatus?.(id),
+    'open-position-form': (id) => window.openPositionForm?.(id),
+    'toggle-position-status': (id) => window.togglePositionStatus?.(id),
+    'delete-position': (id) => window.deletePosition?.(id),
+    'reset-employee-filters': () => window.resetEmployeeFilters?.(),
+    'change-view-mode': (mode) => window.changeEmployeeViewMode?.(mode)
+};
+
+function _handleDelegatedClick(e) {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.dataset.action;
+    const handler = _ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id || target.dataset.value || null;
+    handler(arg);
+}
+
+let _delegationAttached = false;
+
 export function init(ctx) {
     context = ctx;
+    if (!_delegationAttached) {
+        document.addEventListener('click', _handleDelegatedClick);
+        _delegationAttached = true;
+    }
 }
 
 // Helper to access state easier
@@ -39,19 +71,22 @@ export function EmployeesTab() {
     const subTabsHTML = `
                 <div class="date-controls">
                     <div class="view-controls">
-                        <button class="view-btn ${isEmployees ? 'active' : ''}" 
-                                onclick="changeEmployeeViewMode('employees')"
-                                title="Ver empleados">
+                        <button class="view-btn ${isEmployees ? 'active' : ''}"
+                                type="button"
+                                data-action="change-view-mode" data-value="employees"
+                                aria-label="Ver empleados">
                             ${icons.get('personnel')} Empleados
                         </button>
-                        <button class="view-btn ${isLeaders ? 'active' : ''}" 
-                                onclick="changeEmployeeViewMode('leaders')"
-                                title="Ver líderes">
+                        <button class="view-btn ${isLeaders ? 'active' : ''}"
+                                type="button"
+                                data-action="change-view-mode" data-value="leaders"
+                                aria-label="Ver líderes">
                             ${icons.get('key')} Líderes
                         </button>
-                        <button class="view-btn ${isPositions ? 'active' : ''}" 
-                                onclick="changeEmployeeViewMode('positions')"
-                                title="Ver posiciones">
+                        <button class="view-btn ${isPositions ? 'active' : ''}"
+                                type="button"
+                                data-action="change-view-mode" data-value="positions"
+                                aria-label="Ver posiciones">
                             ${icons.get('briefcase')} Puestos
                         </button>
                     </div>
@@ -106,7 +141,7 @@ export function EmployeesTab() {
                                 <button class="employee-search-btn"
                                         type="button"
                                         onclick="const w=this.closest('.employee-search'); w.classList.add('open'); const i=w.querySelector('input'); if(i) i.focus();"
-                                        title="Buscar">
+                                        aria-label="Buscar">
                                     ${icons.get('search')}
                                 </button>
                                 <input type="text"
@@ -119,7 +154,7 @@ export function EmployeesTab() {
                                 ${positionFilters.search ? `
                                     <button onclick="setPositionSearchFilter(''); const w=this.closest('.employee-search'); w.classList.remove('open');"
                                             class="employee-search-clear"
-                                            title="Limpiar búsqueda">
+                                            aria-label="Limpiar búsqueda">
                                         ${icons.get('close')}
                                     </button>
                                 ` : ''}
@@ -175,12 +210,12 @@ export function EmployeesTab() {
                         </button>
                     </div>
                     
-                    ${filteredPositions.length === 0 ? `
-                        <div style="text-align:center;padding:60px 20px;color:#64748b;">
-                            <div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">${icons.get('edit')}</div>
-                            <div style="font-size:1.125rem;">No hay posiciones ${statusFilter === 'active' ? 'activas' : statusFilter === 'inactive' ? 'inactivas' : ''}</div>
-                        </div>
-                    ` : filteredPositions.map(PositionCard).join('')}
+                    ${filteredPositions.length === 0 ? EmptyState.render({
+                        icon: 'briefcase',
+                        title: `No hay posiciones ${statusFilter === 'active' ? 'activas' : statusFilter === 'inactive' ? 'inactivas' : ''}`.trim(),
+                        description: statusFilter === 'active' ? 'Crea una posición o cambia el filtro para ver otras.' : 'Cambia el filtro para ver las posiciones disponibles.',
+                        size: 'large'
+                    }) : filteredPositions.map(PositionCard).join('')}
                 `;
     }
 
@@ -197,7 +232,7 @@ export function EmployeesTab() {
                                 <button class="employee-search-btn"
                                         type="button"
                                         onclick="const w=this.closest('.employee-search'); w.classList.add('open'); const i=w.querySelector('input'); if(i) i.focus();"
-                                        title="Buscar">
+                                        aria-label="Buscar">
                                     ${icons.get('search')}
                                 </button>
                                 <input type="text"
@@ -210,7 +245,7 @@ export function EmployeesTab() {
                                 ${employeeFilters.search ? `
                                     <button onclick="setEmployeeSearchFilter(''); const w=this.closest('.employee-search'); w.classList.remove('open');"
                                             class="employee-search-clear"
-                                            title="Limpiar búsqueda">
+                                            aria-label="Limpiar búsqueda">
                                         ${icons.get('close')}
                                     </button>
                                 ` : ''}
@@ -271,7 +306,7 @@ export function EmployeesTab() {
                                 </select>
                             </div>
 
-                            <button class="view-btn" onclick="resetEmployeeFilters()" style="height: 40px; padding: 0 12px;" title="Reiniciar filtros">
+                            <button class="view-btn" type="button" data-action="reset-employee-filters" style="height: 40px; padding: 0 12px;" aria-label="Reiniciar filtros">
                                 ${icons.get('refresh')} Reiniciar
                             </button>
                         </div>
@@ -294,7 +329,7 @@ export function EmployeesTab() {
                     </button>
                 </div>
                 
-                <div id="employees-list">
+                <div id="employees-list" data-preserve-scroll="employees-list">
                     ${buildEmployeesListHTML()}
                 </div>
             `;
@@ -384,12 +419,14 @@ function buildEmployeesListHTML() {
     const { filteredItems, statusFilter } = getFilteredEmployeesOrLeaders();
 
     if (filteredItems.length === 0) {
-        return `
-            <div style="text-align:center;padding:60px 20px;color:#64748b;">
-                <div style="font-size:4rem;margin-bottom:16px;opacity:0.3;">${isEmployees ? `${icons.get('personnel')}` : `${icons.get('key')}`}</div>
-                <div style="font-size:1.125rem;">No hay ${isEmployees ? 'empleados' : 'líderes'} ${statusFilter === 'active' ? 'activos' : statusFilter === 'inactive' ? 'inactivos' : ''}</div>
-            </div>
-        `;
+        const noun = isEmployees ? 'empleados' : 'líderes';
+        const statusSuffix = statusFilter === 'active' ? 'activos' : statusFilter === 'inactive' ? 'inactivos' : '';
+        return EmptyState.render({
+            icon: isEmployees ? 'personnel' : 'key',
+            title: `No hay ${noun} ${statusSuffix}`.trim(),
+            description: 'Ajusta los filtros o agrega un nuevo registro.',
+            size: 'large'
+        });
     }
 
     return filteredItems.map(item => isEmployees ? EmployeeCard(item) : LeaderCard(item)).join('');
@@ -456,16 +493,16 @@ export function EmployeeCard(emp) {
                         ${emp.notes && emp.notes.trim() ? `
                             <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
                                  title="${emp.notes.replace(/"/g, '&quot;')}">
-                                <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem;">
-                                    📝 ${emp.notes}
+                                <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;">
+                                    ${icons.get('file', { size: 12 })} ${emp.notes}
                                 </div>
                             </div>
                         ` : ''}
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <button class="view-btn" onclick="openEmployeeProfile('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" title="Ver perfil completo">${icons.get('user')}</button>
-                        <button class="view-btn" onclick="openEmployeeForm('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar empleado">${icons.get('edit')}</button>
-                        <button class="view-btn ${emp.active ? '' : 'active'}" onclick="toggleEmployeeStatus('${emp.key || emp.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
+                        <button class="view-btn" type="button" data-action="open-employee-profile" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" aria-label="Ver perfil completo">${icons.get('user')}</button>
+                        <button class="view-btn" type="button" data-action="open-employee-form" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="Editar empleado">${icons.get('edit')}</button>
+                        <button class="view-btn ${emp.active ? '' : 'active'}" type="button" data-action="toggle-employee-status" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
                             ${emp.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
                         </button>
                     </div>
@@ -529,8 +566,8 @@ export function LeaderCard(ldr) {
                         ` : ''}
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
-                         <button class="view-btn" onclick="openLeaderForm('${ldr.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="Editar lider">${icons.get('edit')}</button>
-                         <button class="view-btn ${ldr.active ? '' : 'active'}" onclick="toggleLeaderStatus('${ldr.id}')" style="padding: 8px 16px; font-size: 0.875rem;" title="${ldr.active ? 'Desactivar líder' : 'Activar líder'}">
+                         <button class="view-btn" type="button" data-action="open-leader-form" data-id="${ldr.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="Editar líder">${icons.get('edit')}</button>
+                         <button class="view-btn ${ldr.active ? '' : 'active'}" type="button" data-action="toggle-leader-status" data-id="${ldr.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="${ldr.active ? 'Desactivar líder' : 'Activar líder'}">
                             ${ldr.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
                         </button>
                     </div>
@@ -625,14 +662,14 @@ export function PositionCard(pos) {
                         ` : ''}
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <button class="view-btn" onclick="openPositionForm('${pos.id}')" style="padding: 8px;" title="Editar posicion">${icons.get('edit')}</button>
-                        <button class="view-btn ${pos.active ? '' : 'active'}" onclick="togglePositionStatus('${pos.id}')" style="padding: 8px;" title="${pos.active ? 'Desactivar posición' : 'Activar posición'}">
+                        <button class="view-btn" type="button" data-action="open-position-form" data-id="${pos.id}" style="padding: 8px;" aria-label="Editar posición">${icons.get('edit')}</button>
+                        <button class="view-btn ${pos.active ? '' : 'active'}" type="button" data-action="toggle-position-status" data-id="${pos.id}" style="padding: 8px;" aria-label="${pos.active ? 'Desactivar posición' : 'Activar posición'}">
                             ${pos.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
                         </button>
                         
                         ${pos.active ? "" :
-            `<button class="view-btn" onclick="${canDelete ? `deletePosition('${pos.id}')` : ''}" style="padding: 8px; ${canDelete ? '' : 'opacity: 0.4; cursor: allowed;'}" title="${canDelete ? 'Eliminar posición' : 'No se puede eliminar: hay empleados asignados o la posición está activa'}">
-                            ${icons.get('delete')} 
+            `<button class="view-btn" type="button" ${canDelete ? `data-action="delete-position" data-id="${pos.id}"` : 'disabled'} style="padding: 8px; ${canDelete ? '' : 'opacity: 0.4; cursor: not-allowed;'}" aria-label="${canDelete ? 'Eliminar posición' : 'No se puede eliminar: hay empleados asignados o la posición está activa'}">
+                            ${icons.get('delete')}
                             </button>`}
 
 

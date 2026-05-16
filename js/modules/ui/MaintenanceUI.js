@@ -77,7 +77,12 @@ export class MaintenanceUI {
     async handleAutoChoice() {
         this.modal.close();
         
-        const confirm = window.confirm('¿Deseas proceder con la resolución automática de los ' + this.conflicts.length + ' conflictos? Se realizará un respaldo previo.');
+        const confirm = await Modal.confirm({
+            title: 'Resolución automática',
+            message: `¿Deseas proceder con la resolución automática de los ${this.conflicts.length} conflictos? Se realizará un respaldo previo.`,
+            confirmText: 'Sí, resolver',
+            cancelText: 'Cancelar'
+        });
         if (!confirm) return;
 
         try {

@@ -81,7 +81,7 @@ import {
     EmployeeReportDateManagerV2,
     AttendanceDateManager
 } from './modules/utils/DateManagers.js';
-import { render, setRootComponent } from './modules/core/RenderManager.js';
+import { render, setRootComponent, saveScrollPosition, restoreScrollPosition } from './modules/core/RenderManager.js';
 import lazyLoader from './modules/utils/LazyLoader.js';
 import syncManager from './modules/services/SyncManager.js';
 import offlineManager from './modules/services/OfflineManager.js';
@@ -325,7 +325,13 @@ window.App.Sync = {
     },
 
     downloadFromCloud: async () => {
-        const confirmed = confirm('⚠️ ¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE?\n\nEsto borrará tus datos actuales y cargará los de Google Drive/Firebase.');
+        const confirmed = await Modal.confirm({
+            title: '⚠️ Sobrescribir datos locales',
+            message: '¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE? Esto borrará tus datos actuales y cargará los de Google Drive/Firebase.',
+            confirmText: 'Sí, sobrescribir',
+            cancelText: 'Cancelar',
+            type: 'danger'
+        });
         if (!confirmed) return;
         const loader = showNotification('📥 Conectando a la nube...', 'loading');
         try {
@@ -350,7 +356,13 @@ window.App.Sync = {
     },
 
     uploadToCloud: async () => {
-        const confirmed = confirm('⚠️ ¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES?\n\nEsto reemplazará tus archivos en la nube con lo que tienes actualmente.');
+        const confirmed = await Modal.confirm({
+            title: '⚠️ Sobrescribir nube',
+            message: '¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES? Esto reemplazará tus archivos en la nube con lo que tienes actualmente.',
+            confirmText: 'Sí, subir',
+            cancelText: 'Cancelar',
+            type: 'danger'
+        });
         if (!confirmed) return;
         const loader = showNotification('📤 Iniciando subida...', 'loading');
         try {
@@ -367,9 +379,21 @@ window.App.Sync = {
     },
 
     deleteCloudData: async () => {
-        const confirm1 = confirm('🚨 ADVERTENCIA CRÍTICA: BORRAR NUBE\n\n¿Estás seguro de eliminar TODOS tus datos en la nube?');
+        const confirm1 = await Modal.confirm({
+            title: '🚨 Advertencia crítica',
+            message: 'BORRAR NUBE: ¿Estás seguro de eliminar TODOS tus datos en la nube?',
+            confirmText: 'Continuar',
+            cancelText: 'Cancelar',
+            type: 'danger'
+        });
         if (!confirm1) return;
-        const confirm2 = prompt('Para confirmar escriba: BORRAR NUBE');
+        const confirm2 = await Modal.prompt({
+            title: 'Confirmación final',
+            message: 'Para confirmar escriba exactamente: BORRAR NUBE',
+            placeholder: 'BORRAR NUBE',
+            confirmText: 'Borrar nube',
+            cancelText: 'Cancelar'
+        });
         if (confirm2 !== 'BORRAR NUBE') return showNotification('❌ Cancelado', 'error');
         const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
         try {
@@ -397,7 +421,13 @@ window.deleteCloudDataNow = window.App.Sync.deleteCloudData;
 window.deleteSnapshotHandler = async (snapshotId) => {
     if (!window.currentUser) return;
     
-    const isConfirmed = confirm('¿Estás seguro de que deseas eliminar permanentemente esta versión? Esta acción no se puede deshacer.');
+    const isConfirmed = await Modal.confirm({
+        title: '¿Eliminar versión?',
+        message: '¿Estás seguro de que deseas eliminar permanentemente esta versión? Esta acción no se puede deshacer.',
+        confirmText: 'Eliminar',
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
     if (!isConfirmed) return;
 
     const loader = showNotification('🗑️ Eliminando versión...', 'loading');
@@ -421,7 +451,13 @@ window.bulkDeleteSnapshotsHandler = async (type) => {
     if (!window.currentUser) return;
     
     const typeLabel = type === 'auto' ? 'AUTOMÁTICAS' : 'MANUALES';
-    const isConfirmed = confirm(`¿Estás seguro de que deseas eliminar TODAS las versiones ${typeLabel}? Esta acción es permanente.`);
+    const isConfirmed = await Modal.confirm({
+        title: `¿Eliminar todas las versiones ${typeLabel}?`,
+        message: `¿Estás seguro de que deseas eliminar TODAS las versiones ${typeLabel}? Esta acción es permanente.`,
+        confirmText: 'Eliminar todas',
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
     if (!isConfirmed) return;
 
     const loader = showNotification(`🗑️ Limpiando versiones ${typeLabel.toLowerCase()}...`, 'loading');
@@ -524,37 +560,10 @@ function generateUUID() {
 
 // Helper Functions
 // Movido a js/modules/utils/DateUtils.js y js/modules/utils/Formatters.js
-// - saveScrollPosition y restoreScrollPosition se mantienen aquí o mueven a UIHelpers
+// - saveScrollPosition / restoreScrollPosition movidas a modules/core/RenderManager.js
+//   (importadas arriba) — ahora soportan [data-preserve-scroll] genérico
 // - formatCurrency -> Formatters.js
 // - DateUtils y funciones de fecha -> DateUtils.js
-
-function saveScrollPosition() {
-    const container = document.querySelector('.week-table-container');
-    if (container) {
-        state.scrollPosition = {
-            x: container.scrollLeft,
-            y: container.scrollTop
-        };
-    } else {
-        state.scrollPosition = {
-            x: window.scrollX,
-            y: window.scrollY
-        };
-    }
-}
-
-function restoreScrollPosition() {
-    // Restaurar en el próximo frame para asegurar que el DOM esté listo
-    requestAnimationFrame(() => {
-        const container = document.querySelector('.week-table-container');
-        if (container && (state.scrollPosition.x > 0 || state.scrollPosition.y > 0)) {
-            container.scrollLeft = state.scrollPosition.x;
-            container.scrollTop = state.scrollPosition.y;
-        } else if (state.scrollPosition.y > 0) {
-            window.scrollTo(state.scrollPosition.x, state.scrollPosition.y);
-        }
-    });
-}
 
 // Obtener horas configuradas para un día específico
 // getDayHours movido a AttendanceUI.js
@@ -563,7 +572,7 @@ window.setDayHours = window.App.setDayHours;
 // ✅ NUEVO: Configurar horas rápidas para vista semanal
 window.App.setQuickWeekHours = function (hours) {
     const h = parseFloat(hours);
-    if (isNaN(h) || h < 0.5 || h > 24) { alert('❌ Las horas deben estar entre 0.5 y 24'); return; }
+    if (isNaN(h) || h < 0.5 || h > 24) { Notification.error('Las horas deben estar entre 0.5 y 24'); return; }
     state.quickWeekHours = h;
     saveApplicationData();
     render();
@@ -993,7 +1002,7 @@ window.saveMultiPosition = function () {
         const totalOvertime = att.positionHours.reduce((sum, ph) => sum + (parseFloat(ph.overtimeHours) || 0), 0);
 
         if (totalHours === 0) {
-            alert('❌ Debes asignar al menos 1 hora');
+            Notification.error('Debes asignar al menos 1 hora');
             return;
         }
 
@@ -1014,7 +1023,7 @@ window.saveMultiPosition = function () {
         const overtime = parseFloat(simpleOvertimeInput?.value) || 0;
 
         if (hours === 0) {
-            alert('❌ Debes asignar al menos 1 hora');
+            Notification.error('Debes asignar al menos 1 hora');
             return;
         }
 
@@ -1079,7 +1088,7 @@ window.deleteCurrentAttendance = function () {
 };
 
 // Remover posición del modal
-window.removePositionHours = function (index) {
+window.removePositionHours = async function (index) {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
@@ -1091,7 +1100,13 @@ window.removePositionHours = function (index) {
 
         // Si no quedan posiciones, eliminar toda la asistencia
         if (att.positionHours.length === 0) {
-            const confirmDelete = confirm('No quedan posiciones asignadas. ¿Eliminar la asistencia completa?');
+            const confirmDelete = await Modal.confirm({
+                title: 'Eliminar asistencia',
+                message: 'No quedan posiciones asignadas. ¿Eliminar la asistencia completa?',
+                confirmText: 'Eliminar',
+                cancelText: 'Cancelar',
+                type: 'danger'
+            });
             if (confirmDelete) {
                 delete state.attendance[key];
                 closeModal();
@@ -1804,7 +1819,7 @@ function updateCheckboxOnly(empId) {
                                 style="width: 40px; height: 40px; border-radius: 8px; background: #1e293b; border: 2px solid #334155; color: #06b6d4; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;"
                                 onmouseover="this.style.borderColor='#06b6d4'; this.style.background='rgba(6, 182, 212, 0.1)'"
                                 onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'"
-                                title="Agregar otra posición o modificar horas">
+                                aria-label="Agregar otra posición o modificar horas">
                             +
                         </button>
                     `;
@@ -2283,7 +2298,7 @@ function generateDeductionsHTML(payroll) {
                             
                             <!-- Input de valor -->
                             <div style="flex: 1;">
-                                <input type="number" 
+                                <input type="number" inputmode="decimal" 
                                        class="form-input" 
                                        value="${ded.value.toFixed(2)}" 
                                        onchange="updateDeductionValue(${index}, this.value)"
@@ -2355,7 +2370,7 @@ function generateBonusesHTML(payroll) {
                                 </label>
                             </div>
                             <div style="flex: 1;">
-                                <input type="number" class="form-input" value="${parseFloat(bon.value).toFixed(2)}" onchange="updateBonusValue(${index}, this.value)" style="width: 100%; font-size: 0.875rem; padding: 8px;">
+                                <input type="number" inputmode="decimal" class="form-input" value="${parseFloat(bon.value).toFixed(2)}" onchange="updateBonusValue(${index}, this.value)" style="width: 100%; font-size: 0.875rem; padding: 8px;">
                             </div>
                             <button onclick="removeBonus(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">🗑️</button>
                         </div>
@@ -2429,12 +2444,12 @@ function generateAdvancesHTML(payroll) {
                                     <span class="advance-reduced-interest">(${interest}%)</span>
                                 </div>
                                 <div class="advance-actions">
-                                    <button onclick="event.stopPropagation(); editAdvance(${index})" 
-                                            class="btn-edit-advance" title="Editar">
+                                    <button onclick="event.stopPropagation(); editAdvance(${index})"
+                                            class="btn-edit-advance" aria-label="Editar adelanto">
                                         ${icons.get('edit', { size: 14 })}
                                     </button>
-                                    <button onclick="event.stopPropagation(); removeAdvance(${index})" 
-                                            class="btn-delete-advance" style="width: 28px; height: 28px;" title="Eliminar">
+                                    <button onclick="event.stopPropagation(); removeAdvance(${index})"
+                                            class="btn-delete-advance" style="width: 28px; height: 28px;" aria-label="Eliminar adelanto">
                                         ${icons.get('delete', { size: 14 })}
                                     </button>
                                 </div>
@@ -2452,13 +2467,13 @@ function generateAdvancesHTML(payroll) {
                         <div class="advance-row-inputs">
                             <div class="advance-input-group">
                                 <label>Monto Capital</label>
-                                <input type="number" value="${adv.amount}" 
+                                <input type="number" inputmode="decimal" value="${adv.amount}" 
                                        onchange="updateAdvanceValue(${index}, this.value)" 
                                        placeholder="0.00">
                             </div>
                             <div class="advance-input-group">
                                 <label>Interés (%)</label>
-                                <input type="number" value="${adv.interest || 0}" 
+                                <input type="number" inputmode="decimal" value="${adv.interest || 0}" 
                                        onchange="updateAdvanceInterest(${index}, this.value)" 
                                        placeholder="0%">
                             </div>
@@ -2486,14 +2501,14 @@ function generateAdvancesHTML(payroll) {
                                 <strong class="advance-math-total">${formatCurrency(total)}</strong>
                             </div>
                             <div class="advance-actions">
-                                <button onclick="saveAdvance(${index})" 
-                                        class="btn-save-advance" 
-                                        title="Guardar cambios">
+                                <button onclick="saveAdvance(${index})"
+                                        class="btn-save-advance"
+                                        aria-label="Guardar cambios">
                                     ${icons.get('check', { size: 16 })}
                                 </button>
-                                <button onclick="removeAdvance(${index})" 
-                                        class="btn-delete-advance" 
-                                        title="Eliminar registro">
+                                <button onclick="removeAdvance(${index})"
+                                        class="btn-delete-advance"
+                                        aria-label="Eliminar registro">
                                     ${icons.get('delete', { size: 16 })}
                                 </button>
                             </div>
@@ -2989,7 +3004,12 @@ window.uploadToCloud = async function () {
 };
 
 window.downloadFromCloud = async function () {
-    const confirm = window.confirm('¿Descargar datos de la nube? Esto fusionará los datos remotos con los locales.');
+    const confirm = await Modal.confirm({
+        title: 'Descargar de la nube',
+        message: '¿Descargar datos de la nube? Esto fusionará los datos remotos con los locales.',
+        confirmText: 'Descargar',
+        cancelText: 'Cancelar'
+    });
     if (!confirm) return;
 
     const loading = showNotification('📥 Descargando datos...', 'loading');
@@ -3021,7 +3041,13 @@ window.downloadFromCloud = async function () {
 };
 
 window.deleteCloudDataNow = async function () {
-    const confirm = window.confirm('⚠️ ¿ELIMINAR TODOS los datos de la nube? Esta acción no se puede deshacer y NO afectará tus datos locales.');
+    const confirm = await Modal.confirm({
+        title: '⚠️ Eliminar datos de la nube',
+        message: '¿ELIMINAR TODOS los datos de la nube? Esta acción no se puede deshacer y NO afectará tus datos locales.',
+        confirmText: 'Eliminar nube',
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
     if (!confirm) return;
 
     const loading = showNotification('🗑️ Eliminando datos remotos...', 'loading');
@@ -4060,10 +4086,10 @@ function ProfileTabNomina(emp) {
                 
                 <!-- Acciones -->
                 <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-                    <button onclick="alert('📄 Generar PDF próximamente')" style="flex: 1; min-width: 200px; padding: 12px 16px; background: #1e293b; border: 1px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
+                    <button onclick="Notification.info('📄 Generar PDF próximamente')" style="flex: 1; min-width: 200px; padding: 12px 16px; background: #1e293b; border: 1px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
                         📄 Generar Recibo PDF
                     </button>
-                    <button onclick="alert('💬 Envío por WhatsApp próximamente')" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #25D366, #128C7E); border: none; border-radius: 8px; color: #fff; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
+                    <button onclick="Notification.info('💬 Envío por WhatsApp próximamente')" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #25D366, #128C7E); border: none; border-radius: 8px; color: #fff; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
                         💬 Enviar por WhatsApp
                     </button>
                     <button onclick="markAsPaid()" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
@@ -4463,13 +4489,13 @@ window.handleStorageTypeChange = async function (storageType) {
 
         } else {
             // Cambiar a localStorage
-            const confirmed = confirm(
-                '⚠️ ¿Cambiar a localStorage?\n\n' +
-                'IndexedDB tiene más capacidad y es más persistente.\n' +
-                'localStorage tiene límite de 5-10MB.\n\n' +
-                'Los datos actuales se mantendrán en IndexedDB como backup.\n\n' +
-                '¿Continuar?'
-            );
+            const confirmed = await Modal.confirm({
+                title: '⚠️ Cambiar a localStorage',
+                message: 'IndexedDB tiene más capacidad y es más persistente. localStorage tiene límite de 5-10MB. Los datos actuales se mantendrán en IndexedDB como backup. ¿Continuar?',
+                confirmText: 'Cambiar',
+                cancelText: 'Cancelar',
+                type: 'danger'
+            });
 
             if (confirmed) {
                 state.useIndexedDB = false;
@@ -4656,7 +4682,7 @@ window.loadBackupFile = function (event) {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = function (e) {
+    reader.onload = async function (e) {
         try {
             const backup = JSON.parse(e.target.result);
 
@@ -4664,14 +4690,13 @@ window.loadBackupFile = function (event) {
                 throw new Error('Formato de backup inválido');
             }
 
-            const confirmed = confirm(
-                `⚠️ ¿Cargar backup?\n\n` +
-                `Archivo: ${file.name}\n` +
-                `Fecha: ${new Date(backup.timestamp).toLocaleString()}\n` +
-                `Empresa: ${backup.appName || 'N/A'}\n\n` +
-                `Esto reemplazará los datos actuales.\n\n` +
-                `¿Continuar?`
-            );
+            const confirmed = await Modal.confirm({
+                title: '⚠️ ¿Cargar backup?',
+                message: `Archivo: ${file.name} — Fecha: ${new Date(backup.timestamp).toLocaleString()} — Empresa: ${backup.appName || 'N/A'}. Esto reemplazará los datos actuales. ¿Continuar?`,
+                confirmText: 'Cargar backup',
+                cancelText: 'Cancelar',
+                type: 'danger'
+            });
 
             if (!confirmed) {
                 event.target.value = ''; // Reset input
@@ -5135,13 +5160,13 @@ function MultiPositionModal() {
                                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                                                     <div>
                                                         <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">⏱️ Horas Regulares</label>
-                                                        <input type="number" value="${ph.hours}" min="0" max="24" step="0.5"
+                                                        <input type="number" inputmode="decimal" value="${ph.hours}" min="0" max="24" step="0.5"
                                                                oninput="updatePositionHours(${idx}, 'hours', this.value)"
                                                                style="width: 100%; background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px; border-radius: 6px; font-size: 1rem;">
                                                     </div>
                                                     <div>
                                                         <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">⚡ Horas Extras</label>
-                                                        <input type="number" value="${ph.overtimeHours}" min="0" max="12" step="0.5"
+                                                        <input type="number" inputmode="decimal" value="${ph.overtimeHours}" min="0" max="12" step="0.5"
                                                                oninput="updatePositionHours(${idx}, 'overtimeHours', this.value)"
                                                                style="width: 100%; background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px; border-radius: 6px; font-size: 1rem;">
                                                     </div>
@@ -5168,13 +5193,13 @@ function MultiPositionModal() {
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                                     <div class="form-group">
                                         <label class="form-label">⏱️ Horas Trabajadas</label>
-                                        <input type="number" id="simpleHours" class="form-input" 
+                                        <input type="number" inputmode="decimal" id="simpleHours" class="form-input" 
                                                value="${att.hoursWorked || getDayHours(state.selectedDate)}" 
                                                min="0" max="24" step="0.5">
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">⚡ Horas Extras</label>
-                                        <input type="number" id="simpleOvertimeHours" class="form-input" 
+                                        <input type="number" inputmode="decimal" id="simpleOvertimeHours" class="form-input" 
                                                value="${att.overtimeHours || 0}" 
                                                min="0" max="12" step="0.5">
                                     </div>
@@ -6097,7 +6122,7 @@ function NotesCenterModal() {
                     <div style="position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b1220;">
                         <div style="display:flex; align-items:center; gap:12px; padding: 14px 16px; border-bottom: 1px solid #1f2a44; background: #0f172a;">
                             ${selectedEmp ? `
-                                <button onclick="backToNotesList()" title="Volver"
+                                <button onclick="backToNotesList()" aria-label="Volver"
                                         style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid #334155; background: transparent; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">
                                     ←
                                 </button>
@@ -6112,7 +6137,7 @@ function NotesCenterModal() {
                                     ${selectedEmp ? `#${selectedEmp.number || ''}` : 'Solo empleados con notas'}
                                 </div>
                             </div>
-                            <button onclick="closeNotesCenter()" title="Cerrar"
+                            <button onclick="closeNotesCenter()" aria-label="Cerrar"
                                     style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid #334155; background: transparent; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">
                                 ✕
                             </button>

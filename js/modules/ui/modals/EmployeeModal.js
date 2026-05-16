@@ -72,7 +72,7 @@ export class EmployeeModal {
                                         </label>
                                         <div style="position: relative;">
                                             <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.8rem;">$</span>
-                                            <input type="number" 
+                                            <input type="number" inputmode="decimal" 
                                                    class="form-input custom-salary-input" 
                                                    style="font-size: 0.8rem; padding: 6px 10px 6px 22px; background: #0f172a;"
                                                    data-pos-id="${pos.id}"

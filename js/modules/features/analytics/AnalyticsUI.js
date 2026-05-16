@@ -1,4 +1,5 @@
 import icons from '../../ui/IconSystem.js';
+import { EmptyState } from '../../components/EmptyState.js';
 
 import { memoCache } from '../../utils/MemoCache.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
@@ -114,7 +115,7 @@ function DashboardControls() {
                 <button onclick="AnalyticsUI.setDashboardThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Esta Semana</button>
                 <button onclick="AnalyticsUI.setDashboardThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Este Mes</button>
                 <button onclick="AnalyticsUI.setDashboardLast30Days()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Últimos 30</button>
-                <button onclick="AnalyticsUI.setDashboardPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; font-weight: 700;">🗓️ Período Actual</button>
+                <button onclick="AnalyticsUI.setDashboardPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; font-weight: 700;">${icons.get('calendar', { size: 14 })} Período Actual</button>
             </div>
         </div>
     </div>
@@ -526,7 +527,7 @@ function EmployeeReportControls() {
                  <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 200px;">
                     <button onclick="AnalyticsUI.setEmployeeReportThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Esta Semana</button>
                     <button onclick="AnalyticsUI.setEmployeeReportThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Este Mes</button>
-                    <button onclick="AnalyticsUI.setEmployeeReportPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;">🗓️ Período Actual</button>
+                    <button onclick="AnalyticsUI.setEmployeeReportPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;">${icons.get('calendar', { size: 14 })} Período Actual</button>
                  </div>
              </div>
         </div>`;
@@ -535,10 +536,12 @@ function EmployeeReportControls() {
 function EmployeeReportContent() {
     const reportData = calculateEmployeeReportData();
     if (reportData.positions.length === 0) {
-        return `<div style="text-align: center; padding: 60px 20px; color: #64748b;">
-                    <div style="font-size: 3rem; margin-bottom: 12px; opacity: 0.3;">${icons.get('edit')}</div>
-                    <div style="font-size: 1.125rem; margin-bottom: 8px;">No hay datos para mostrar</div>
-                </div>`;
+        return EmptyState.render({
+            icon: 'analytics',
+            title: 'No hay datos para mostrar',
+            description: 'Ajusta el período o registra asistencia para ver el reporte.',
+            size: 'large'
+        });
     }
     return `<div>
         ${ EmployeeReportGeneralSection(reportData) }
@@ -580,12 +583,12 @@ return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; mar
                     <h3 style="margin: 0; color: #f1f5f9;">${icons.get('info')} Resumen General (${allEmployees.length})</h3>
                     <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
                 </div>
-    ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll">${EmployeeReportGeneralTable(allEmployees, reportData.days)}</div>` }
+    ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll" data-preserve-scroll="analytics-general-table">${EmployeeReportGeneralTable(allEmployees, reportData.days)}</div>` }
             </div>`;
 }
 
 function EmployeeReportGeneralTable(employees, days) {
-    return `<table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
+    return `<div class="responsive-table-wrapper" role="region" aria-label="Reporte general de empleados" tabindex="0"><table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>
                         <th class="sticky-column" style="padding: 12px 8px; color: #94a3b8; text-align: left; width: 32px; min-width: 32px;">#</th>
@@ -618,7 +621,7 @@ function EmployeeReportGeneralTable(employees, days) {
                         </tr>
                     `).join('')}
                 </tbody>
-            </table>`;
+            </table></div>`;
 }
 
 function EmployeeReportPositionSection(posData, days) {
@@ -633,7 +636,7 @@ function EmployeeReportPositionSection(posData, days) {
         </div>
         <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
     </div>
-                ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll">${EmployeeReportTable(posData, days)}</div>` }
+                ${ isCollapsed ? '' : `<div class="sticky-table-container modern-scroll" data-preserve-scroll="analytics-pos-${posData.position.id}">${EmployeeReportTable(posData, days)}</div>` }
             </div>`;
 }
 

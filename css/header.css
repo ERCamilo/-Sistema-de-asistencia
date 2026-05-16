@@ -64,6 +64,8 @@
     color: #94a3b8;
     cursor: pointer;
     padding: 8px;
+    min-width: 44px;
+    min-height: 44px;
     border-radius: 8px;
     display: flex;
     align-items: center;

@@ -1,4 +1,5 @@
 import { ComponentBase } from './ComponentBase.js';
+import { EmptyState } from './EmptyState.js';
 
 export class TableComponent extends ComponentBase {
     constructor(props) {
@@ -34,11 +35,14 @@ export class TableComponent extends ComponentBase {
         const { columns, data, onRowClick, emptyMessage } = this.props;
 
         if (!data || data.length === 0) {
+            const emptyHTML = typeof emptyMessage === 'string'
+                ? EmptyState.render({ icon: 'inbox', title: emptyMessage, size: 'medium' })
+                : EmptyState.render({ icon: 'inbox', title: 'No hay datos disponibles', size: 'medium' });
             return `
                         <tbody>
                             <tr>
-                                <td colspan="${columns.length}" class="empty-message">
-                                    ${emptyMessage || 'No hay datos disponibles'}
+                                <td colspan="${columns.length}" class="empty-message" style="padding: 0;">
+                                    ${emptyHTML}
                                 </td>
                             </tr>
                         </tbody>
@@ -69,7 +73,7 @@ export class TableComponent extends ComponentBase {
         ].filter(Boolean).join(' ');
 
         return `
-                    <div class="table-wrapper">
+                    <div class="table-wrapper responsive-table-wrapper" role="region" aria-label="Tabla de datos" tabindex="0">
                         <table class="${classes}">
                             ${this.renderHeader()}
                             ${this.renderBody()}

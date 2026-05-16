@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/c/Users/the_b/OneDrive - Universidad Autonoma de Santo Domingo/Educacion/Independiente/control de asistencia mini/aplicacionFull/.claude/worktrees/trusting-heisenberg-9d03bd\" && grep -n \"render\\(\" js/app.js | wc -l && echo && echo \"Llamadas a render:\" && grep -n \"render\\(\" js/app.js | head -30)",
+      "Bash(cd \"/c/Users/the_b/OneDrive - Universidad Autonoma de Santo Domingo/Educacion/Independiente/control de asistencia mini/aplicacionFull/.claude/worktrees/trusting-heisenberg-9d03bd\" && grep -r \"apiKey\\\\|databaseURL\\\\|projectId\\\\|storageBucket\" . --include=\"*.js\" --exclude-dir=node_modules | head -20)",
+      "Bash(grep -n \"innerHTML = \\\\`\" js/app.js)",
+      "Bash(python3)",
+      "Bash(grep -n \"\\\\${.*\\\\.name\" js/modules/features/employees/EmployeesUI.js)",
+      "Bash(grep -n 'title=\"${.*\\\\.\\\\w\\\\*}\"' js/app.js)"
+    ]
+  }
+}

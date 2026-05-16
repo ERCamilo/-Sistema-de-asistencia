@@ -141,7 +141,7 @@ export class AdvancedAttendanceModal {
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                 <div>
                                     <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Horas:</label>
-                                    <input type="number" 
+                                    <input type="number" inputmode="decimal" 
                                            id="posHours_${pid}" 
                                            class="form-input pos-hour-input" 
                                            min="0" 
@@ -153,7 +153,7 @@ export class AdvancedAttendanceModal {
                                 </div>
                                 <div>
                                     <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Extras:</label>
-                                    <input type="number" 
+                                    <input type="number" inputmode="decimal" 
                                            id="posOvertime_${pid}" 
                                            class="form-input" 
                                            min="0" 

@@ -157,23 +157,53 @@ export function render() {
 
 /**
  * ⚡ UTILIDADES DE SCROLL
+ *
+ * Soporta dos mecanismos:
+ *  1. Scroll de window (siempre se preserva)
+ *  2. Scroll de cualquier contenedor con [data-preserve-scroll="<id>"]
+ *     Esto permite preservar scroll en listas anidadas (empleados, asistencia, etc.)
+ *     sin hardcodear selectores específicos.
  */
 export function saveScrollPosition() {
-    const container = document.querySelector('.week-table-container');
-    if (container) {
-        state.scrollPosition = { x: container.scrollLeft, y: container.scrollTop };
-    } else {
-        state.scrollPosition = { x: window.scrollX, y: window.scrollY };
+    // Window scroll (siempre)
+    state.scrollPosition = { x: window.scrollX, y: window.scrollY };
+
+    // Contenedores opt-in con data-preserve-scroll
+    const containers = document.querySelectorAll('[data-preserve-scroll]');
+    state._scrollContainers = {};
+    containers.forEach(el => {
+        const id = el.dataset.preserveScroll;
+        if (id) {
+            state._scrollContainers[id] = { x: el.scrollLeft, y: el.scrollTop };
+        }
+    });
+
+    // Compatibilidad: legacy .week-table-container también se preserva
+    const weekTable = document.querySelector('.week-table-container');
+    if (weekTable && !weekTable.dataset.preserveScroll) {
+        state._scrollContainers['__weekTable'] = { x: weekTable.scrollLeft, y: weekTable.scrollTop };
     }
 }
 
 export function restoreScrollPosition() {
     requestAnimationFrame(() => {
-        const container = document.querySelector('.week-table-container');
-        if (container && (state.scrollPosition.x > 0 || state.scrollPosition.y > 0)) {
-            container.scrollLeft = state.scrollPosition.x;
-            container.scrollTop = state.scrollPosition.y;
-        } else if (state.scrollPosition.y > 0) {
+        // Contenedores con data-preserve-scroll
+        const saved = state._scrollContainers || {};
+        Object.entries(saved).forEach(([id, pos]) => {
+            let el;
+            if (id === '__weekTable') {
+                el = document.querySelector('.week-table-container');
+            } else {
+                el = document.querySelector(`[data-preserve-scroll="${id}"]`);
+            }
+            if (el && (pos.x > 0 || pos.y > 0)) {
+                el.scrollLeft = pos.x;
+                el.scrollTop = pos.y;
+            }
+        });
+
+        // Window scroll
+        if (state.scrollPosition && state.scrollPosition.y > 0) {
             window.scrollTo(state.scrollPosition.x, state.scrollPosition.y);
         }
     });

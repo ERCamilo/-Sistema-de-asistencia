@@ -115,7 +115,7 @@ export function App() {
             <div class="container">${content}</div>
         </main>
         ${state.settings.legacyNavigation ? '' : MainComponents.BottomNavigation()}
-        ${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}
+        ${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}
         ${MainComponents.FloatingCard()}
         ${MainComponents.EmployeeProfileModal()}
         ${modal}

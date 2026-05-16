@@ -3,16 +3,33 @@ import icons from '../ui/IconSystem.js';
 export class Notification {
     static activeNotifications = [];
     static MAX_STACK = 3;
+    // Tope absoluto para errores: aunque sean sticky se cierran después de este tiempo
+    // (evita acumulación en pantalla si el usuario no las descarta)
+    static ERROR_MAX_DURATION = 15000;
 
     constructor(options = {}) {
         this.message = options.message || '';
         this.type = options.type || 'info'; // 'success', 'error', 'warning', 'info', 'loading'
-        
-        // Duration logic: errors and loading are sticky (0) by default
-        const isSticky = this.type === 'error' || this.type === 'loading';
-        const defaultDuration = isSticky ? 0 : 4000;
-        
+
+        // Duration por defecto: loading es sticky (0), error tiene tope de 15s, resto 4s
+        let defaultDuration;
+        if (this.type === 'loading') {
+            defaultDuration = 0;
+        } else if (this.type === 'error') {
+            defaultDuration = Notification.ERROR_MAX_DURATION;
+        } else {
+            defaultDuration = 4000;
+        }
+
         this.duration = options.duration !== undefined ? options.duration : defaultDuration;
+
+        // Aunque el caller pida sticky (0) para un error, aplicamos un tope máximo
+        // para evitar acumulación. Loading sí puede ser sticky indefinidamente
+        // (es controlado por el caller con .close() cuando termina).
+        if (this.type === 'error' && this.duration === 0) {
+            this.duration = Notification.ERROR_MAX_DURATION;
+        }
+
         this.position = options.position || 'top-center';
         this.closable = options.closable !== undefined ? options.closable : (this.type !== 'loading');
         this.element = null;
@@ -220,6 +237,11 @@ export class Notification {
                 el.style.transform = `translateY(${multiplier * 40}px) scale(0.8)`;
                 el.style.opacity = '0';
                 el.style.pointerEvents = 'none';
+                // Descartar las muy desplazadas para que no se acumulen en el DOM
+                // (mantiene MAX_STACK visibles + 2 de buffer)
+                if (index >= Notification.MAX_STACK + 2) {
+                    setTimeout(() => notification.dismiss(), 100);
+                }
             }
         });
     }

@@ -40,7 +40,7 @@ export class PositionModal {
                             <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
                                   title="Esta es la base para todos los cálculos">ⓘ</span>
                         </label>
-                        <input type="number" 
+                        <input type="number" inputmode="decimal" 
                                id="posHourlyRate" 
                                class="form-input" 
                                value="${hourlyRate}" 

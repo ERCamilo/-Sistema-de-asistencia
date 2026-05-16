@@ -11,6 +11,7 @@ import { saveApplicationData } from '../services/PersistenceService.js';
 import { buildAttendanceIndex } from '../core/AppState.js';
 import { perfMonitor } from '../core/Performance.js';
 import { Notification } from '../components/Notification.js';
+import { Modal } from '../components/Modal.js';
 import { UndoManager } from '../utils/UndoManager.js';
 import { 
     getDateKey, parseDate, isDayHoliday, getDayHours 
@@ -221,7 +222,13 @@ window.toggleSidebar = () => {
 window.deleteSnapshotHandler = async (snapshotId) => {
     if (!window.currentUser) return;
     
-    const isConfirmed = confirm('¿Estás seguro de que deseas eliminar permanentemente esta versión? Esta acción no se puede deshacer.');
+    const isConfirmed = await Modal.confirm({
+        title: '¿Eliminar versión?',
+        message: '¿Estás seguro de que deseas eliminar permanentemente esta versión? Esta acción no se puede deshacer.',
+        confirmText: 'Eliminar',
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
     if (!isConfirmed) return;
 
     const loading = Notification.loading('🗑️ Eliminando versión...');
@@ -244,7 +251,13 @@ window.bulkDeleteSnapshotsHandler = async (type) => {
     if (!window.currentUser) return;
     
     const typeLabel = type === 'auto' ? 'AUTOMÁTICAS' : 'MANUALES';
-    const isConfirmed = confirm(`¿Estás seguro de que deseas eliminar TODAS las versiones ${typeLabel}? Esta acción es permanente.`);
+    const isConfirmed = await Modal.confirm({
+        title: `¿Eliminar todas las versiones ${typeLabel}?`,
+        message: `¿Estás seguro de que deseas eliminar TODAS las versiones ${typeLabel}? Esta acción es permanente.`,
+        confirmText: 'Eliminar todas',
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
     if (!isConfirmed) return;
 
     const loading = Notification.loading(`🗑️ Limpiando versiones ${typeLabel.toLowerCase()}...`);

@@ -44,7 +44,7 @@ export class SystemAlertsManager {
         if (!this.shouldShowDuplicateAlert()) return '';
 
         return `
-            <button class="header-icon-btn warning-alert heartbeat" onclick="window._systemAlerts.showResolutionDialog()" title="Alertas del Sistema: Tienes duplicados">
+            <button class="header-icon-btn warning-alert heartbeat" onclick="window._systemAlerts.showResolutionDialog()" aria-label="Alertas del Sistema: Tienes duplicados">
                 ${icons.get('alert', { size: 20 }) || '⚠️'}
                 <span class="alert-badge">${this.currentConflicts}</span>
             </button>

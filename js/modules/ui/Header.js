@@ -26,11 +26,11 @@ export const Header = ({
                         
                         ${window._systemAlerts ? window._systemAlerts.renderAlertButton() : ''}
                         
-                        <button class="header-icon-btn" onclick="openNotesCenter()" title="Notas">
+                        <button class="header-icon-btn" onclick="openNotesCenter()" aria-label="Notas">
                             ${icons.get('mail', { size: 20 })}
                         </button>
-                        
-                        <button class="header-icon-btn primary" onclick="exportData()" title="Exportar Backup">
+
+                        <button class="header-icon-btn primary" onclick="exportData()" aria-label="Exportar Backup">
                             ${icons.get('download', { size: 20 })}
                         </button>
                     </div>

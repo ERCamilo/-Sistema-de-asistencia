@@ -8,6 +8,7 @@ import icons from './IconSystem.js';
 import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
+import { EmptyState } from '../components/EmptyState.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -288,8 +289,8 @@ export function StatsGrid() {
 
 
             </div>${f ? `<div class="filter-status-notification">
-                <span class="filter-status-text">🔍 ${filterNames[f]}</span>
-                <button onclick="setEmployeeFilter(null)" class="view-btn" style="padding: 4px 12px; font-size: 0.75rem;">✕ Limpiar</button>
+                <span class="filter-status-text" style="display: inline-flex; align-items: center; gap: 6px;">${icons.get('filter', { size: 14 })} ${filterNames[f]}</span>
+                <button onclick="setEmployeeFilter(null)" class="view-btn" style="padding: 4px 12px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;" aria-label="Limpiar filtro">${icons.get('close', { size: 12 })} Limpiar</button>
             </div>` : ''}</div>`;
 }
 
@@ -501,9 +502,9 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     })()}
                         ${isChecked && att.notes && att.notes.trim() ? `
                             <div class="employee-meta-divider"></div>
-                            <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1;" 
+                            <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1; display: inline-flex; align-items: center; gap: 4px;"
                                  onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')">
-                                📝 ${att.notes}
+                                ${icons.get('file', { size: 12 })} ${att.notes}
                             </div>
                         ` : '<div style="height: 20px;"></div>'}
                     </div>
@@ -567,7 +568,12 @@ export function DayView() {
     const filtered = getFilteredEmployeesForDay();
     const listHTML = filtered.length > 0
         ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
-        : '<div class="empty-state">No hay resultados</div>';
+        : EmptyState.render({
+            icon: 'personnel',
+            title: 'No hay resultados',
+            description: 'No hay empleados que coincidan con los filtros actuales.',
+            size: 'medium'
+        });
 
     return `
         <div class="day-view-page-mode ${isHoliday ? 'holiday-theme' : ''}">
@@ -580,7 +586,7 @@ export function DayView() {
             </div>
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
-                <div id="day-view-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
+                <div id="day-view-list" data-preserve-scroll="attendance-day-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
                     ${listHTML}
                 </div>
                 ${ScrollService.renderIndicators(filtered, true)}
@@ -655,13 +661,13 @@ export function WeekView() {
     
     const tbodyHTML = filtered.length > 0
         ? filtered.map(emp => WeekRow(emp, week, positionMap)).join('')
-        : '<tr><td colspan="8"><div class="empty-state">No hay empleados registrados para este periodo</div></td></tr>';
+        : `<tr><td colspan="8">${EmptyState.render({ icon: 'personnel', title: 'No hay empleados', description: 'Sin registros para este periodo.', size: 'medium' })}</td></tr>`;
 
     return `
         <div class="sticky-controls-wrapper" style="margin: 8px 0 16px 0;">
             ${SearchBar()}
         </div>
-        <div id="week-view-list" class="sticky-table-container modern-scroll">
+        <div id="week-view-list" data-preserve-scroll="attendance-week-list" class="sticky-table-container modern-scroll">
             <table class="week-view-table" style="margin-bottom: 100px;">
                 <thead class="sticky-header">
                     <tr>

@@ -1,4 +1,49 @@
         /* ==========================================================================
+   📊 TABLAS RESPONSIVAS - Scroll horizontal con indicador visual
+   ========================================================================== */
+.responsive-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Sombras laterales que indican que hay más contenido al lado */
+    background:
+        linear-gradient(to right, #0f172a 30%, rgba(15, 23, 42, 0)) left center / 24px 100% no-repeat,
+        linear-gradient(to left, #0f172a 30%, rgba(15, 23, 42, 0)) right center / 24px 100% no-repeat,
+        radial-gradient(ellipse at left, rgba(6, 182, 212, 0.18), transparent 70%) left center / 24px 100% no-repeat,
+        radial-gradient(ellipse at right, rgba(6, 182, 212, 0.18), transparent 70%) right center / 24px 100% no-repeat;
+    background-attachment: local, local, scroll, scroll;
+    border-radius: 8px;
+}
+.responsive-table-wrapper table {
+    min-width: 600px;
+}
+@media (max-width: 640px) {
+    .responsive-table-wrapper table {
+        font-size: 0.8rem;
+    }
+    .responsive-table-wrapper th,
+    .responsive-table-wrapper td {
+        padding: 8px !important;
+    }
+}
+
+        /* ==========================================================================
+   ♿ ACCESIBILIDAD - Touch targets mínimos (WCAG 2.5.5 Target Size AAA)
+   En dispositivos táctiles, todo botón debe ser ≥ 44×44px
+   ========================================================================== */
+@media (pointer: coarse) {
+    button:not(.modal-close):not(.notif-close):not(.filter-pill-btn):not([data-no-min-target]),
+    [role="button"]:not([data-no-min-target]),
+    a.btn,
+    .view-btn,
+    .header-icon-btn,
+    .modal-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+        /* ==========================================================================
    🚀 P4-OPT: PANTALLA DE CARGA (MODERN DESIGN)
    ========================================================================== */
 #app-loader {
@@ -590,6 +635,7 @@
 
         .view-btn {
             padding: 10px 12px;
+            min-height: 44px;
             border-radius: 8px;
             background: #1e293b;
             border: 2px solid #334155;

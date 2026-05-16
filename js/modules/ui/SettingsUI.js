@@ -448,7 +448,7 @@ function SettingsTabCalendar() {
                                 </div>
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label class="form-label" style="font-size: 0.8rem;">Duración (Días)</label>
-                                    <input type="number" 
+                                    <input type="number" inputmode="decimal" 
                                            value="${state.settings.payPeriod?.periodLength || 21}" 
                                            min="1" max="60"
                                            class="form-input"
@@ -631,7 +631,7 @@ function SettingsForm() {
                                   title="Define cuántas horas se consideran como jornada normal">ⓘ</span>
                         </label>
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
+                            <input type="number" inputmode="decimal" 
                                    id="regularHoursPerDay" 
                                    value="${state.settings.regularHoursPerDay}" 
                                    min="1" 
@@ -654,7 +654,7 @@ function SettingsForm() {
                                   title="Multiplicador para calcular el pago de horas extras">ⓘ</span>
                         </label>
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
+                            <input type="number" inputmode="decimal" 
                                    id="overtimeFactor" 
                                    value="${state.settings.overtimeFactor || 1}" 
                                    min="1" 
@@ -677,7 +677,7 @@ function SettingsForm() {
                                   title="Multiplicador para calcular el pago en días festivos">ⓘ</span>
                         </label>
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
+                            <input type="number" inputmode="decimal" 
                                    id="holidayFactor" 
                                    value="${state.settings.holidayFactor}" 
                                    min="1" 
@@ -707,7 +707,7 @@ function SettingsForm() {
                                   title="Este porcentaje se aplicará automáticamente al agregar deducciones">ⓘ</span>
                         </label>
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="number" 
+                            <input type="number" inputmode="decimal" 
                                    id="defaultDeductionPercentage" 
                                    value="${state.settings.defaultDeductionPercentage || 2}" 
                                    min="0" 

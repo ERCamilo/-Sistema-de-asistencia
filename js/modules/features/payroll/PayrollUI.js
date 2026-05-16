@@ -130,7 +130,7 @@ export function PayrollTab() {
                     </button>
                     <button onclick="PayrollUI.setExportPreset('payPeriod')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
-                        🗓️ Período Actual
+                        ${icons.get('calendar', { size: 14 })} Período Actual
                     </button>
                     <button onclick="PayrollUI.setExportPreset('sinceLastPay')" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'sinceLastPay' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.exportConfig.activePreset === 'sinceLastPay' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'sinceLastPay' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
@@ -189,7 +189,7 @@ export function PayrollTab() {
                             <option value="fixed">Monto</option>
                             <option value="percentage">Porcentaje</option>
                         </select>
-                        <input id="payroll-emp-deduction-value" type="number" class="form-input" placeholder="0.00" min="0" step="0.01">
+                        <input id="payroll-emp-deduction-value" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
                         <input id="payroll-emp-deduction-name" type="text" class="form-input" placeholder="Nombre del cargo">
                         <button onclick="PayrollUI.addEmployeeDeductionFromForm()"
                                 style="padding: 8px 12px; background: #06b6d4; border: none; border-radius: 6px; color: #000; font-weight: 700; cursor: pointer;">
@@ -207,7 +207,7 @@ export function PayrollTab() {
                 <div onclick="PayrollUI.toggleStep('step2b')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2b') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
-                        🎁 Paso 2B: Bonificaciones Globales
+                        ${icons.get('star', { size: 18 })} Paso 2B: Bonificaciones Globales
                     </h3>
                 </div>
                 
@@ -230,7 +230,7 @@ export function PayrollTab() {
                         <div style="display: flex; align-items: center; gap: 8px; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 8px; color: ${employeeBonusesAdded ? '#86efac' : '#fcd34d'}; font-size: 0.875rem;">
                                 <span style="width: 8px; height: 8px; border-radius: 999px; background: ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; display: inline-block; ${employeeBonusesAdded ? '' : 'animation: pulse 1.5s infinite;'}"></span>
-                                <span>${employeeBonusesAdded ? `${icons.get('check')} Bonos individuales agregados` : `🎁 Hay ${employeesWithBonuses.length} empleados con bonos programados`}</span>
+                                <span>${employeeBonusesAdded ? `${icons.get('check')} Bonos individuales agregados` : `${icons.get('star', { size: 14 })} Hay ${employeesWithBonuses.length} empleados con bonos programados`}</span>
                             </div>
                             <button onclick="PayrollUI.addEmployeeBonusesToExport()"
                                     style="padding: 6px 12px; background: ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; border: none; border-radius: 6px; color: #fff; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
@@ -251,7 +251,7 @@ export function PayrollTab() {
                             <option value="fixed">Monto</option>
                             <option value="percentage">Porcentaje</option>
                         </select>
-                        <input id="payroll-emp-bonus-value" type="number" class="form-input" placeholder="0.00" min="0" step="0.01">
+                        <input id="payroll-emp-bonus-value" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
                         <input id="payroll-emp-bonus-name" type="text" class="form-input" placeholder="Nombre del bono">
                         <button onclick="PayrollUI.addEmployeeBonusFromForm()"
                                 style="padding: 8px 12px; background: #10b981; border: none; border-radius: 6px; color: #fff; font-weight: 700; cursor: pointer;">
@@ -287,7 +287,7 @@ export function PayrollTab() {
                     </div>
                 </div>
 
-                <div style="overflow-x: auto;">
+                <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina" tabindex="0">
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: #0f172a; border-bottom: 2px solid #334155;">
@@ -419,7 +419,7 @@ function generateExportDeductionsHTML() {
                     </label>
                 </div>
                 <div style="flex: 1;">
-                    <input type="number" class="form-input" 
+                    <input type="number" inputmode="decimal" class="form-input" 
                         value="${ded.value || 0}" 
                         oninput="PayrollUI.updateExportDeductionValue(${index}, this.value)" 
                         placeholder="0.00" min="0" step="${ded.type === 'fixed' ? '0.01' : '0.1'}" 
@@ -606,7 +606,7 @@ function generateExportBonusesHTML() {
                     </label>
                 </div>
                 <div style="flex: 1;">
-                    <input type="number" class="form-input" 
+                    <input type="number" inputmode="decimal" class="form-input" 
                         value="${bon.value || 0}" 
                         oninput="PayrollUI.updateExportBonusValue(${index}, this.value)" 
                         placeholder="0.00" min="0" step="${bon.type === 'fixed' ? '0.01' : '0.1'}" 
@@ -625,7 +625,7 @@ function generateExportBonusesHTML() {
     };
 
     const globalHTML = globalBonuses.length > 0
-        ? `<div style="margin-bottom: 12px; color: #10b981; font-size: 0.75rem; font-weight: 700;">🎁 Bonos generales</div>
+        ? `<div style="margin-bottom: 12px; color: #10b981; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 6px;">${icons.get('star', { size: 12 })} Bonos generales</div>
            ${globalBonuses.map(item => renderBonusRow(item, globalBonuses)).join('')}`
         : '';
 
