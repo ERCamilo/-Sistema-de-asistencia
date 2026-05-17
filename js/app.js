@@ -4383,7 +4383,7 @@ function ProfileTabResumen(emp) {
         if (!b.hourlyRate || b.hourlyRate <= 0) {
             return `<div style="margin-bottom:3px; color:#f59e0b;">• ${b.position}: ⚠️ Tarifa por hora no configurada</div>`;
         }
-        return `<div style="margin-bottom:3px;">• ${b.position}: ${formatCurrency(b.hourlyRate)}/h × ${b.daysPerWeek} días → ${formatCurrency(b.monthly)}</div>`;
+        return `<div style="margin-bottom:3px;">• ${b.position}: ${formatCurrency(b.hourlyRate)}/h × ${b.daysPerWeek} días/sem → ${formatCurrency(b.monthly)}</div>`;
     }).join('')}
                     </div>
                     <div style="font-size: 0.68rem; color: #64748b; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(100,116,139,0.2);">
