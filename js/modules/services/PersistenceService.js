@@ -10,6 +10,7 @@ import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
+import { debug } from '../utils/Debug.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -55,7 +56,7 @@ export const syncFirebaseMirrorDebounced = (function() {
 export async function saveToIndexedDB(options = {}) {
     try {
         await indexedDBService.saveState(state, options);
-        console.log('💾 Datos guardados en IndexedDB');
+        debug.log('💾 Datos guardados en IndexedDB');
         return true;
     } catch (error) {
         console.error('❌ Error guardando en IndexedDB:', error);
@@ -179,13 +180,13 @@ async function _executeSave(options = {}) {
  */
 export async function loadApplicationData() {
     try {
-        console.log('📂 PersistenceService: Iniciando carga de datos...');
+        debug.log('📂 PersistenceService: Iniciando carga de datos...');
         
         // 1. Intentar cargar desde IndexedDB (Fase 2+)
         const idbData = await indexedDBService.loadFullState();
         
         if (idbData && (idbData.employees?.length > 0 || idbData.positions?.length > 0)) {
-            console.log('✅ Datos cargados desde IndexedDB');
+            debug.log('✅ Datos cargados desde IndexedDB');
             
             // Inflar datos (convertir a instancias de clase)
             const inflatedData = {
@@ -216,7 +217,7 @@ export async function loadApplicationData() {
         const hasDataInLS = dataService.loadAll();
         
         if (hasDataInLS) {
-            console.log('✅ Datos cargados desde LocalStorage');
+            debug.log('✅ Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
             
             // Si el navegador soporta IndexedDB, migramos de inmediato
@@ -493,7 +494,7 @@ export async function testConflictedRestore() {
 export function sanitizePositions(state) {
     if (!state.positions || state.positions.length === 0) return false;
 
-    console.log('🧹 Iniciando sanitización de posiciones...');
+    debug.log('🧹 Iniciando sanitización de posiciones...');
     const idMap = new Map(); // Mapa de ID_Viejo -> ID_Nuevo (Slug)
     const uniquePositions = [];
     const positionsBySlug = new Map();
@@ -521,7 +522,7 @@ export function sanitizePositions(state) {
     });
 
     if (!hasChanges) {
-        console.log('✨ No se encontraron duplicados ni IDs desactualizados.');
+        debug.log('✨ No se encontraron duplicados ni IDs desactualizados.');
         return false;
     }
 

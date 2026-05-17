@@ -2,15 +2,10 @@ import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
 import { BatchedSaver } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
+import { debug } from './modules/utils/Debug.js';
 
-// 🔧 DEBUG UTILITY (controla console logs en producción)
-const DEBUG_MODE = false; // Cambiar a true para ver logs en desarrollo
-const debug = {
-    log: (...args) => { if (DEBUG_MODE) console.log(...args); },
-    error: (...args) => console.error(...args),
-    warn: (...args) => { if (DEBUG_MODE) console.warn(...args); }
-};
-window.debug = debug;
+// debug está disponible globalmente (window.debug) — usar `debug.enable()` desde
+// la consola del navegador para activar logs verbosos durante desarrollo.
 
 // 📦 IMPORTACIÓN DEL ESTADO CENTRAL (Fase 4 - Modularización)
 import {
@@ -6510,10 +6505,11 @@ window.addEventListener('scroll', () => {
 // ============================================
 
 (async function initializeApp() {
-    console.log('🚀 ========================================');
-    console.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
-    console.log('🚀 Versión: 6.6 (Sync Optimized)');
-    console.log('🚀 ========================================');
+    // Banner de versión solo en debug mode (window.debug.enable() para activar)
+    debug.log('🚀 ========================================');
+    debug.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
+    debug.log('🚀 Versión: 6.6 (Sync Optimized)');
+    debug.log('🚀 ========================================');
 
     const loader = document.getElementById('app-loader');
     let isInitialLoad = true;
@@ -6541,7 +6537,7 @@ window.addEventListener('scroll', () => {
 
             // Solo actuar y loguear si estaba visible
             if (!loader.classList.contains('hidden')) {
-                console.log('✨ Ocultando Loader...');
+                debug.log('✨ Ocultando Loader...');
                 loader.classList.add('hidden');
                 setTimeout(() => {
                     if (loader.classList.contains('hidden')) {
@@ -6579,7 +6575,7 @@ window.addEventListener('scroll', () => {
 
     try {
         // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
-        console.log('📂 Cargando datos...');
+        debug.log('📂 Cargando datos...');
         await loadApplicationData();
 
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
@@ -6821,10 +6817,10 @@ window.addEventListener('scroll', () => {
         window.toggleBottomNav = () => { state.bottomNavHidden = !state.bottomNavHidden; };
 
         // 6. Renderizado Inicial
-        console.log('🎨 Renderizando interfaz...');
+        debug.log('🎨 Renderizando interfaz...');
         render();
 
-        console.log('✅ Aplicación iniciada correctamente');
+        debug.log('✅ Aplicación iniciada correctamente');
         hideLoader(); // 🚀 Ocultar el loader al completar el primer render
     } catch (error) {
         console.error('❌ Error fatal durante la inicialización:', error);
@@ -6835,7 +6831,7 @@ window.addEventListener('scroll', () => {
     // 📂 PWA FILE HANDLING (API launchQueue)
     // Permite que la app sea sugerida para abrir archivos .json (backups)
     if ('launchQueue' in window) {
-        console.log('📬 Launch Queue detectado. Esperando archivos...');
+        debug.log('📬 Launch Queue detectado. Esperando archivos...');
         window.launchQueue.setConsumer(async (launchParams) => {
             if (launchParams.files && launchParams.files.length > 0) {
                 console.log('📂 Archivo recibido vía PWA Launch Handler');

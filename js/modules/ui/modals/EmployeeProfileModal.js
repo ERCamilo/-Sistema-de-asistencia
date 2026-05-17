@@ -3,6 +3,7 @@ import { payrollService } from '../../services/index.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import icons from '../IconSystem.js';
 import { CalendarView } from '../components/CalendarView.js';
+import { escapeHTML } from '../../utils/Sanitize.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-profile-action)
@@ -93,7 +94,7 @@ export function EmployeeProfileModal() {
                                     </span>
                                 </div>
                                 <h2 style="font-size: 1.8rem; font-weight: 900; color: #f1f5f9; margin: 0; line-height: 1.2; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px;">
-                                    <span style="font-size: 1.6rem;">👤</span> ${emp.name}
+                                    <span style="font-size: 1.6rem;">👤</span> ${escapeHTML(emp.name)}
                                 </h2>
                                 
                                 <div style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
@@ -488,7 +489,7 @@ function ProfileTabResumen(emp) {
                         📝 NOTAS
                     </div>
                     <div style="font-size: 0.875rem; color: #f1f5f9; white-space: pre-wrap;">
-                        ${emp.notes}
+                        ${escapeHTML(emp.notes)}
                     </div>
                 </div>` : ''}
             </div>`;
@@ -528,7 +529,7 @@ function ProfileTabDocumentos(emp) {
                         📝 NOTAS Y OBSERVACIONES
                     </div>
                     <div style="font-size: 0.875rem; color: #f1f5f9; white-space: pre-wrap;">
-                        ${emp.notes}
+                        ${escapeHTML(emp.notes)}
                     </div>
                 </div>` : ''}
                 

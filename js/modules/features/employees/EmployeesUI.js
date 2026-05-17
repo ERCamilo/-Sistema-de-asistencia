@@ -3,6 +3,7 @@ import { getDateKey } from '../../utils/DateUtils.js';
 import { slugify } from '../../utils/Helpers.js';
 import { Modal } from '../../components/Modal.js';
 import { EmptyState } from '../../components/EmptyState.js';
+import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
@@ -506,14 +507,14 @@ export function EmployeeCard(emp) {
                     <div class="employee-info" style="flex: 1;">
                         <div class="employee-header">
                             <div class="employee-number">${emp.number}</div>
-                            <div class="employee-name" role="button" tabindex="0" data-action="open-employee-floating" data-id="${emp.key || emp.id}" title="${emp.name}">${emp.name}</div>
+                            <div class="employee-name" role="button" tabindex="0" data-action="open-employee-floating" data-id="${emp.key || emp.id}" title="${escapeAttr(emp.name)}">${escapeHTML(emp.name)}</div>
                             ${statusBadge}
                         </div>
                         <div class="position-toggles">
                             ${(emp.positions || []).map(posId => {
         const pos = state.positions.find(p => p.id === posId);
         if (!pos) return `<span class="position-toggle" style="opacity:0.4;cursor:default;border-color:#475569;"><span class="pos-dot" style="background:#475569;"></span>⚠️ Eliminada</span>`;
-        return `<span class="position-toggle" style="opacity:0.8;cursor:default;border-color:${pos.color};"><span class="pos-dot" style="background:${pos.color};"></span>${pos.name}</span>`;
+        return `<span class="position-toggle" style="opacity:0.8;cursor:default;border-color:${pos.color};"><span class="pos-dot" style="background:${pos.color};"></span>${escapeHTML(pos.name)}</span>`;
     }).join('')}
                         </div>
                         <div class="employee-meta">
@@ -533,7 +534,7 @@ export function EmployeeCard(emp) {
                             <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
                                  title="${emp.notes.replace(/"/g, '&quot;')}">
                                 <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;">
-                                    ${icons.get('file', { size: 12 })} ${emp.notes}
+                                    ${icons.get('file', { size: 12 })} ${escapeHTML(emp.notes)}
                                 </div>
                             </div>
                         ` : ''}
@@ -565,11 +566,11 @@ export function LeaderCard(ldr) {
         if (emps.length === 0) return '';
         return `
             <div style="margin-top: 8px;">
-                <div style="font-size: 0.75rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px;">${pos.name}</div>
+                <div style="font-size: 0.75rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px;">${escapeHTML(pos.name)}</div>
                 ${emps.map(emp => `
                     <div style="display:flex; gap:8px; color:#f1f5f9; font-size:0.8rem; padding:2px 0;">
                         <span>${emp.number || ''}-</span>
-                        <span role="button" tabindex="0" style="cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${emp.name}</span>
+                        <span role="button" tabindex="0" style="cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${escapeHTML(emp.name)}</span>
                     </div>
                 `).join('')}
             </div>
@@ -586,7 +587,7 @@ export function LeaderCard(ldr) {
                     <div class="employee-info" style="flex: 1;">
                         <div class="employee-header">
                             <div class="employee-number" style="background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000;">${ldr.number}</div>
-                            <div class="employee-name">${ldr.name}</div>
+                            <div class="employee-name">${escapeHTML(ldr.name)}</div>
                             <span style="font-size: 1.25rem; margin-left: 8px;">${icons.get('key')}</span>
                             ${statusBadge}
                         </div>
@@ -626,14 +627,14 @@ export function PositionCard(pos) {
                 <div class="employee-row" style="border-left: 4px solid ${pos.color}; ${!pos.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
                     <div class="employee-info" style="flex: 1;">
                         <div class="employee-header">
-                            <div class="employee-name" style="color: ${pos.color};">${pos.name}</div>
+                            <div class="employee-name" style="color: ${pos.color};">${escapeHTML(pos.name)}</div>
                             ${!pos.active ? '<span style="background: #475569; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">INACTIVA</span>' : ''}
                         </div>
                         <div class="employee-meta">
                             <div class="employee-meta-item">${icons.get('payroll')} Tarifa: $${pos.hourlyRate}/hr</div>
                             <div class="employee-meta-divider"></div>
                              <div class="employee-meta-item">${icons.get('personnel')} ${empCount} empleados</div>
-                            ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${ldr.name}</div>` : ''}
+                            ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${escapeHTML(ldr.name)}</div>` : ''}
                         </div>
                         <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
                             <div class="employee-meta-item" style="color: #64748b;">
@@ -687,7 +688,7 @@ export function PositionCard(pos) {
                                         <div style="padding: 4px 0; color: #f1f5f9; ${idx < employeesInPosition.length - 1 ? 'border-bottom: 1px solid #334155;' : ''}">
                                             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                                                 <div style="min-width:40px; color:#94a3b8; font-weight:700;">${emp.number || ''}</div>
-                                                <div role="button" tabindex="0" style="flex:1; cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${emp.name}</div>
+                                                <div role="button" tabindex="0" style="flex:1; cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${escapeHTML(emp.name)}</div>
                                                 <div style="display:flex; align-items:center; gap:8px; justify-content:flex-end; min-width:140px;">
                                                     ${showCustomRate ? `<span style="color:#38bdf8; font-weight:700;">$${customRate}/hr</span>` : ''}
                                                     ${deductionText ? `<span style="color:#f87171; font-weight:700;">${deductionText}</span>` : ''}

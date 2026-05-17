@@ -2,8 +2,6 @@
  * 🚀 ONBOARDING WIZARD (Fase 3 - Modularización)
  * Gestiona el flujo de bienvenida y configuración inicial del sistema.
  */
-console.log('🔍 DEBUG: Onboarding.js cargado');
-
 import { state } from '../core/AppState.js';
 import { render } from '../core/RenderManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';

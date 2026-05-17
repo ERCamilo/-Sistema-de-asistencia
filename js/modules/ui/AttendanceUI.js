@@ -9,6 +9,7 @@ import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiv
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
 import { EmptyState } from '../components/EmptyState.js';
+import { escapeHTML } from '../utils/Sanitize.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -507,7 +508,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-number">${emp.number}</div>
-                        <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${emp.name}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
+                        <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
                     </div>
                     <div class="position-toggles" style="margin-top: 8px;">
                         ${emp.positions.map(pid => {
@@ -560,7 +561,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                             <div class="employee-meta-divider"></div>
                             <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1; display: inline-flex; align-items: center; gap: 4px;"
                                  data-att-action="open-advanced-attendance" data-id="${emp.id}">
-                                ${icons.get('file', { size: 12 })} ${att.notes}
+                                ${icons.get('file', { size: 12 })} ${escapeHTML(att.notes)}
                             </div>
                         ` : '<div style="height: 20px;"></div>'}
                     </div>
@@ -600,7 +601,7 @@ export function EmployeeRowCompact(emp) {
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${emp.name}</div>
+                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>
                     <div style="font-size: 0.7rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         ${emp.positions.map(pid => state.positions.find(p => p.id === pid)?.name).join(', ')}
                     </div>
@@ -773,7 +774,7 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
                 <div class="week-employee-cell">
                     <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
-                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${emp.name}</div>
+                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
                             ${emp.positions?.map(pid => positionMap.get(pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>

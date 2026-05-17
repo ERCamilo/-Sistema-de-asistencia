@@ -2,8 +2,6 @@
  * 🎨 MOTOR DE RENDERIZADO (Fase 3 - Modularización)
  * Este módulo contiene la lógica para actualizar el DOM de forma eficiente.
  */
-console.log('🔍 DEBUG: RenderManager.js cargado');
-
 import { state, renderOptimizer } from './AppState.js';
 import { DOMDiff } from '../utils/DOMDiff.js';
 import { perfMonitor } from './Performance.js';
