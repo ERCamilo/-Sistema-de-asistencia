@@ -140,12 +140,6 @@ export const RestoreUI = {
             }
         };
 
-        // Botones de cerrar (X y Cancelar)
-        const closeBtn = document.getElementById(`restore-modal-close-${modalId}`);
-        const cancelBtn = document.getElementById(`restore-modal-cancel-${modalId}`);
-        if (closeBtn) closeBtn.addEventListener('click', closeModal);
-        if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-
         // Manejo de tecla Escape para cerrar
         const handleEscape = (e) => {
             if (e.key === 'Escape') closeModal();

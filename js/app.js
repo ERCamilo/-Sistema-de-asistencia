@@ -1,5 +1,6 @@
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
+import { BatchedSaver } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
 
 // 🔧 DEBUG UTILITY (controla console logs en producción)
@@ -104,6 +105,26 @@ import { SystemAlertsManager } from './modules/components/SystemAlertsManager.js
 // Inicializar SystemAlertsManager globalmente
 window._systemAlerts = new SystemAlertsManager();
 window._maintenanceUI = new MaintenanceUI();
+
+// 💾 BatchedSaver compartido para escrituras de IndexedDB desde Firebase
+// Acumula dateKeys que llegan en ráfaga y los persiste con una sola escritura
+// cuando el navegador está ocioso (o como máximo tras 1 segundo).
+// Reduce de N escrituras (una por día) a 1 escritura completa.
+window._attendanceBatchedSaver = new BatchedSaver({
+    flush: async (dateKeys, _meta) => {
+        try {
+            await saveToIndexedDB({ skipValidation: true });
+            if (window.debug?.log) {
+                window.debug.log(`💾 IndexedDB: batch de ${dateKeys.length} día(s) guardado en una sola escritura`);
+            }
+        } finally {
+            // Liberar el flag tras persistir (estaba bloqueando el ciclo de save)
+            window._isApplyingRemoteData = false;
+        }
+    },
+    maxWaitMs: 1000,
+    onError: (err) => console.warn('⚠️ Error persistiendo batch de asistencia remota:', err)
+});
 
 // ============================================
 // 🎯 EVENT DELEGATION MAESTRO (app.js)
@@ -6695,11 +6716,16 @@ window.addEventListener('scroll', () => {
                             });
 
                             state.attendance = { ...state.attendance, ...allAttendance };
-                            // ⚡ FIX: Persistir asistencia remota en IndexedDB
-                            setTimeout(() => {
+                            // ⚡ Persistir asistencia remota usando BatchedSaver
+                            // (acumula con onModified si llegan también en ráfaga)
+                            Object.keys(allAttendance).forEach(key => {
+                                const dateKey = key.split('-').slice(-3).join('-'); // YYYY-MM-DD
+                                window._attendanceBatchedSaver.add(dateKey);
+                            });
+                            // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
+                            if (!window._attendanceBatchedSaver.hasScheduledFlush) {
                                 window._isApplyingRemoteData = false;
-                                saveToIndexedDB({ skipValidation: true }).catch(e => console.warn('⚠️ Error persistiendo asistencia inicial remota:', e));
-                            }, 500);
+                            }
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
@@ -6714,11 +6740,9 @@ window.addEventListener('scroll', () => {
                             });
 
                             state.attendance = { ...state.attendance, ...records };
-                            // ⚡ FIX: Persistir asistencia remota en IndexedDB para sobrevivir F5
-                            setTimeout(() => {
-                                window._isApplyingRemoteData = false;
-                                saveToIndexedDB({ dateKey, skipValidation: true }).catch(e => console.warn('⚠️ Error persistiendo asistencia remota:', e));
-                            }, 500);
+                            // ⚡ Persistir vía BatchedSaver: si llegan N dateKeys en ráfaga
+                            // (típico al arrancar), todos se persisten con una sola escritura.
+                            window._attendanceBatchedSaver.add(dateKey);
 
                             // Actualización Zonal
                             const selectedDateKey = getDateKey(state.selectedDate);
