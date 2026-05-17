@@ -4275,29 +4275,41 @@ function ProfileEndDatePicker() {
 // ============================================
 // 💰 CÁLCULO DE SALARIO MENSUAL ESTIMADO
 // ============================================
+// 🐛 FIX: Alinear con PayrollService.calculateEmployeePayroll para evitar
+// que el campo legacy `baseSalary` (que podía contener valores mensuales/diarios)
+// se interprete erróneamente como tarifa por hora.
 function calculateMonthlyEstimate(emp) {
     let totalMonthly = 0;
     const breakdown = [];
+    const hoursPerDay = state.settings.regularHoursPerDay || 8;
+    const WEEKS_PER_MONTH = 52 / 12; // 4.333...
 
     emp.positions.forEach(posId => {
         const pos = state.positions.find(p => p.id === posId);
         if (!pos) return;
 
-        // Obtener sueldo (personalizado o estándar)
-        const hourlySalary = emp.positionSalaries?.[posId] || pos.baseSalary || 0;
+        // 1. Resolver tarifa por hora — misma lógica que PayrollService
+        //    Prioridad: override del empleado → hourlyRate de la posición → legacy salaryConfig
+        let hourlyRate = emp.positionSalaries?.[posId] || pos.hourlyRate || 0;
 
-        // Obtener días laborales (personalizados o estándar)
+        // 2. Migración legacy: si no hay hourlyRate pero existe salaryConfig.amount
+        //    (asumimos mensual, convertimos a tarifa por hora)
+        if (!hourlyRate && pos.salaryConfig?.amount) {
+            hourlyRate = pos.salaryConfig.amount / 30 / hoursPerDay;
+        }
+
+        // 3. Obtener días laborales
         const workingDays = emp.customWorkingDays?.[posId] || pos.workingDays || [1, 2, 3, 4, 5];
-
-        // Calcular: días/semana * 4.33 semanas/mes * horas/día * $/hora
         const daysPerWeek = workingDays.length;
-        const hoursPerDay = state.settings.regularHoursPerDay || 8;
-        const monthlyForPosition = daysPerWeek * 4.33 * hoursPerDay * hourlySalary;
+
+        // 4. Calcular: días/semana × 4.33 semanas/mes × horas/día × $/hora
+        const monthlyForPosition = hourlyRate * hoursPerDay * (daysPerWeek * WEEKS_PER_MONTH);
 
         totalMonthly += monthlyForPosition;
         breakdown.push({
             position: pos.name,
             daysPerWeek: daysPerWeek,
+            hourlyRate: hourlyRate,
             monthly: monthlyForPosition
         });
     });
@@ -4365,9 +4377,12 @@ function ProfileTabResumen(emp) {
                         ${formatCurrency(monthlyEst.total)}
                     </div>
                     <div style="font-size: 0.72rem; color: #8fa3c3; line-height: 1.6;">
-                        ${monthlyEst.breakdown.map(b =>
-        `<div style="margin-bottom:3px;">• ${b.position}: ${b.daysPerWeek} días/sem → ${formatCurrency(b.monthly)}</div>`
-    ).join('')}
+                        ${monthlyEst.breakdown.map(b => {
+        if (!b.hourlyRate || b.hourlyRate <= 0) {
+            return `<div style="margin-bottom:3px; color:#f59e0b;">• ${b.position}: ⚠️ Tarifa por hora no configurada</div>`;
+        }
+        return `<div style="margin-bottom:3px;">• ${b.position}: ${formatCurrency(b.hourlyRate)}/h × ${b.daysPerWeek} días → ${formatCurrency(b.monthly)}</div>`;
+    }).join('')}
                     </div>
                     <div style="font-size: 0.68rem; color: #64748b; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(100,116,139,0.2);">
                         📊 Basado en ${state.settings.regularHoursPerDay}h/día × 4.33 semanas/mes
