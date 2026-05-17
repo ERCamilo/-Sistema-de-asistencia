@@ -3664,7 +3664,14 @@ window.showAlert = (message, type = 'info') => {
 
 
 document.addEventListener('click', (e) => {
-    if (state.contextMenu && !e.target.closest('.context-menu')) {
+    // Cerrar context menu si clic fuera, PERO no si el clic fue sobre el checkbox
+    // que lo abre (el handler del checkbox necesita poder establecer state.contextMenu
+    // sin que este listener lo cierre inmediatamente — antes del refactor a event
+    // delegation, esto se evitaba con stopPropagation en el onclick inline).
+    if (state.contextMenu
+        && !e.target.closest('.context-menu')
+        && !e.target.closest('.check-container')
+        && !e.target.closest('.week-check-wrapper')) {
         state.contextMenu = null;
         render();
     }
