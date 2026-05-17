@@ -5,9 +5,53 @@ import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 let context = null;
 let payrollService = null;
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-payroll-action)
+// ============================================
+const _ACTION_MAP = {
+    'toggle-step': (step) => window.PayrollUI?.toggleStep?.(step),
+    'set-export-preset': (preset) => window.PayrollUI?.setExportPreset?.(preset),
+    'add-export-deduction': () => window.PayrollUI?.addExportDeduction?.(),
+    'remove-export-deduction': (idx) => window.PayrollUI?.removeExportDeduction?.(parseInt(idx, 10)),
+    'add-employee-deductions-to-export': () => window.PayrollUI?.addEmployeeDeductionsToExport?.(),
+    'add-employee-deduction-from-form': () => window.PayrollUI?.addEmployeeDeductionFromForm?.(),
+    'add-export-bonus': () => window.PayrollUI?.addExportBonus?.(),
+    'remove-export-bonus': (idx) => window.PayrollUI?.removeExportBonus?.(parseInt(idx, 10)),
+    'add-employee-bonuses-to-export': () => window.PayrollUI?.addEmployeeBonusesToExport?.(),
+    'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
+    'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
+    'download-export-json': () => window.PayrollUI?.downloadExportJSON?.()
+};
+
+function _handlePayrollClick(e) {
+    const target = e.target.closest('[data-payroll-action]');
+    if (!target) return;
+    const action = target.dataset.payrollAction;
+    const handler = _ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handlePayrollKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-payroll-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handlePayrollClick(e);
+}
+
+let _payrollDelegationAttached = false;
+
 export function init(ctx) {
     context = ctx;
     payrollService = ctx.services.payroll;
+    if (!_payrollDelegationAttached) {
+        document.addEventListener('click', _handlePayrollClick);
+        document.addEventListener('keydown', _handlePayrollKeydown);
+        _payrollDelegationAttached = true;
+    }
 }
 
 function getState() {
@@ -89,7 +133,7 @@ export function PayrollTab() {
             
             <!-- Paso 1: Período -->
             <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step1') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
-                <div onclick="PayrollUI.toggleStep('step1')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step1" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step1') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 1: Período de Pago
@@ -116,23 +160,23 @@ export function PayrollTab() {
                     </div>
                 
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button onclick="PayrollUI.setExportPreset('thisMonth')" 
+                    <button type="button" data-payroll-action="set-export-preset" data-value="thisMonth" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'thisMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Este mes
                     </button>
-                    <button onclick="PayrollUI.setExportPreset('lastMonth')" 
+                    <button type="button" data-payroll-action="set-export-preset" data-value="lastMonth" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'lastMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Mes anterior
                     </button>
-                    <button onclick="PayrollUI.setExportPreset('last15')" 
+                    <button type="button" data-payroll-action="set-export-preset" data-value="last15" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'last15' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Últimos 15 días
                     </button>
-                    <button onclick="PayrollUI.setExportPreset('payPeriod')" 
+                    <button type="button" data-payroll-action="set-export-preset" data-value="payPeriod" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                         ${icons.get('calendar', { size: 14 })} Período Actual
                     </button>
-                    <button onclick="PayrollUI.setExportPreset('sinceLastPay')" 
+                    <button type="button" data-payroll-action="set-export-preset" data-value="sinceLastPay" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'sinceLastPay' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.exportConfig.activePreset === 'sinceLastPay' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'sinceLastPay' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                         Desde Último Pago + 1
                     </button>
@@ -142,7 +186,7 @@ export function PayrollTab() {
             
             <!-- Paso 2: Deducciones Globales -->
             <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
-                <div onclick="PayrollUI.toggleStep('step2')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         ${icons.get('payroll')} Paso 2: Deducciones Globales
@@ -151,7 +195,7 @@ export function PayrollTab() {
                 
                 <div style="display: ${isStepCollapsed('step2') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <button onclick="PayrollUI.addExportDeduction()" 
+                        <button type="button" data-payroll-action="add-export-deduction" 
                                 style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                                 onmouseover="this.style.transform='scale(1.05)'"
                                 onmouseout="this.style.transform='scale(1)'">
@@ -170,7 +214,7 @@ export function PayrollTab() {
                                 <span style="width: 8px; height: 8px; border-radius: 999px; background: ${employeeDeductionsAdded ? '#10b981' : '#ef4444'}; display: inline-block; ${employeeDeductionsAdded ? '' : 'animation: pulse 1.5s infinite;'}"></span>
                                 <span>${employeeDeductionsAdded ? `${icons.get('check')} Descuentos individuales agregados` : `${icons.get('alert')} Hay ${employeesWithDeductions.length} empleados con descuentos programados`}</span>
                             </div>
-                            <button onclick="PayrollUI.addEmployeeDeductionsToExport()"
+                            <button type="button" data-payroll-action="add-employee-deductions-to-export"
                                     style="padding: 6px 12px; background: ${employeeDeductionsAdded ? '#10b981' : '#ef4444'}; border: none; border-radius: 6px; color: #fff; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
                                 ${employeeDeductionsAdded ? 'Actualizar lista' : 'Agregar a nómina'}
                             </button>
@@ -191,7 +235,7 @@ export function PayrollTab() {
                         </select>
                         <input id="payroll-emp-deduction-value" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
                         <input id="payroll-emp-deduction-name" type="text" class="form-input" placeholder="Nombre del cargo">
-                        <button onclick="PayrollUI.addEmployeeDeductionFromForm()"
+                        <button type="button" data-payroll-action="add-employee-deduction-from-form"
                                 style="padding: 8px 12px; background: #06b6d4; border: none; border-radius: 6px; color: #000; font-weight: 700; cursor: pointer;">
                             Agregar cargo
                         </button>
@@ -204,7 +248,7 @@ export function PayrollTab() {
             
             <!-- Paso 2B: Bonificaciones Globales -->
             <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
-                <div onclick="PayrollUI.toggleStep('step2b')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2b" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2b') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         ${icons.get('star', { size: 18 })} Paso 2B: Bonificaciones Globales
@@ -213,7 +257,7 @@ export function PayrollTab() {
                 
                 <div style="display: ${isStepCollapsed('step2b') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <button onclick="PayrollUI.addExportBonus()" 
+                        <button type="button" data-payroll-action="add-export-bonus" 
                                 style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                                 onmouseover="this.style.transform='scale(1.05)'"
                                 onmouseout="this.style.transform='scale(1)'">
@@ -232,7 +276,7 @@ export function PayrollTab() {
                                 <span style="width: 8px; height: 8px; border-radius: 999px; background: ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; display: inline-block; ${employeeBonusesAdded ? '' : 'animation: pulse 1.5s infinite;'}"></span>
                                 <span>${employeeBonusesAdded ? `${icons.get('check')} Bonos individuales agregados` : `${icons.get('star', { size: 14 })} Hay ${employeesWithBonuses.length} empleados con bonos programados`}</span>
                             </div>
-                            <button onclick="PayrollUI.addEmployeeBonusesToExport()"
+                            <button type="button" data-payroll-action="add-employee-bonuses-to-export"
                                     style="padding: 6px 12px; background: ${employeeBonusesAdded ? '#10b981' : '#f59e0b'}; border: none; border-radius: 6px; color: #fff; font-size: 0.75rem; font-weight: 700; cursor: pointer;">
                                 ${employeeBonusesAdded ? 'Actualizar lista' : 'Agregar a nómina'}
                             </button>
@@ -253,7 +297,7 @@ export function PayrollTab() {
                         </select>
                         <input id="payroll-emp-bonus-value" type="number" inputmode="decimal" class="form-input" placeholder="0.00" min="0" step="0.01">
                         <input id="payroll-emp-bonus-name" type="text" class="form-input" placeholder="Nombre del bono">
-                        <button onclick="PayrollUI.addEmployeeBonusFromForm()"
+                        <button type="button" data-payroll-action="add-employee-bonus-from-form"
                                 style="padding: 8px 12px; background: #10b981; border: none; border-radius: 6px; color: #fff; font-weight: 700; cursor: pointer;">
                             Agregar bono
                         </button>
@@ -266,7 +310,7 @@ export function PayrollTab() {
             
             <!-- Paso 3: Vista Previa -->
             <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
-                <div onclick="PayrollUI.toggleStep('step3')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step3" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step3') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 3: Vista Previa (${exportData.length} empleados)
@@ -326,13 +370,13 @@ export function PayrollTab() {
             
             <!-- Paso 4: Exportar -->
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button onclick="PayrollUI.copyExportJSON()" 
+                <button type="button" data-payroll-action="copy-export-json" 
                         style="flex: 1; min-width: 200px; padding: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(6, 182, 212, 0.3)'"
                         onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
                     Copiar JSON al Portapapeles
                 </button>
-                <button onclick="PayrollUI.downloadExportJSON()" 
+                <button type="button" data-payroll-action="download-export-json" 
                         style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
                         onmouseover="this.style.background='rgba(6, 182, 212, 0.1)'"
                         onmouseout="this.style.background='#1e293b'">
@@ -431,7 +475,7 @@ function generateExportDeductionsHTML() {
                         style="width: 100%; font-size: 0.75rem; padding: 6px;">
                     ${ded.employeeId ? `<div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px;">Empleado: ${ded.employeeName || (state.employees.find(e => e.id === ded.employeeId)?.name || 'N/A')}</div>` : ''}
                 </div>
-                ${allItems.length > 0 ? `<button onclick="PayrollUI.removeExportDeduction(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
+                ${allItems.length > 0 ? `<button type="button" data-payroll-action="remove-export-deduction" data-value="${index}" aria-label="Eliminar deducción" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
             </div>
         </div>
     `;
@@ -618,7 +662,7 @@ function generateExportBonusesHTML() {
                         style="width: 100%; font-size: 0.75rem; padding: 6px; border-color: rgba(16, 185, 129, 0.3);">
                     ${bon.employeeId ? `<div style="font-size: 0.7rem; color: #10b981; margin-top: 6px;">Empleado: ${bon.employeeName || (state.employees.find(e => e.id === bon.employeeId)?.name || 'N/A')}</div>` : ''}
                 </div>
-                ${allItems.length > 0 ? `<button onclick="PayrollUI.removeExportBonus(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
+                ${allItems.length > 0 ? `<button type="button" data-payroll-action="remove-export-bonus" data-value="${index}" aria-label="Eliminar bono" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
             </div>
         </div>
     `;

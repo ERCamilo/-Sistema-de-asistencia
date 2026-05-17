@@ -1,5 +1,36 @@
 import icons from '../ui/IconSystem.js';
 
+// Delegación para botones de acción en empty states.
+// `actionOnClick` puede ser:
+//   - "fnName"           → llama a window.fnName()
+//   - "fnName(arg)"      → llama a window.fnName(arg) (compat con código viejo)
+let _emptyStateDelegationAttached = false;
+if (!_emptyStateDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-empty-action]');
+        if (!btn) return;
+        const expr = btn.dataset.emptyAction;
+        if (!expr) return;
+        // Si es una llamada con paréntesis, ejecutar como expresión simple
+        const callMatch = expr.match(/^([a-zA-Z_$][\w$]*)\((.*)\)$/);
+        if (callMatch) {
+            const fn = window[callMatch[1]];
+            if (typeof fn === 'function') {
+                const arg = callMatch[2].trim();
+                // Argumento entre comillas → string; sin comillas → sin argumento o número
+                if (arg === '') fn();
+                else if (/^['"].*['"]$/.test(arg)) fn(arg.slice(1, -1));
+                else if (!isNaN(parseFloat(arg))) fn(parseFloat(arg));
+                else fn(arg);
+            }
+        } else {
+            const fn = window[expr];
+            if (typeof fn === 'function') fn();
+        }
+    });
+    _emptyStateDelegationAttached = true;
+}
+
 /**
  * Componente EmptyState — estado vacío reutilizable y consistente.
  *
@@ -23,8 +54,9 @@ export class EmptyState {
         const s = sizeMap[size] || sizeMap.medium;
 
         const iconHTML = icons.get(icon, { size: s.iconSize }) || '';
+        const actionAttr = actionOnClick ? `data-empty-action="${String(actionOnClick).replace(/"/g, '&quot;')}"` : '';
         const action = actionLabel
-            ? `<button class="empty-state-action btn-primary" ${actionOnClick ? `onclick="${actionOnClick}"` : ''} style="margin-top: 16px; padding: 10px 20px; min-height: 44px; border-radius: 8px; background: #06b6d4; color: #000; border: none; font-weight: 700; cursor: pointer;">${actionLabel}</button>`
+            ? `<button type="button" class="empty-state-action btn-primary" ${actionAttr} style="margin-top: 16px; padding: 10px 20px; min-height: 44px; border-radius: 8px; background: #06b6d4; color: #000; border: none; font-weight: 700; cursor: pointer;">${actionLabel}</button>`
             : '';
 
         return `

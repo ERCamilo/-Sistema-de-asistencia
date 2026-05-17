@@ -1,6 +1,60 @@
 import icons from '../../ui/IconSystem.js';
 import { EmptyState } from '../../components/EmptyState.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-analytics-action)
+// ============================================
+const _ANALYTICS_ACTION_MAP = {
+    'set-dashboard-chart': (chart) => window.AnalyticsUI?.setDashboardChart?.(chart),
+    'toggle-start-date-picker': () => window.AnalyticsUI?.toggleStartDatePicker?.(),
+    'toggle-end-date-picker': () => window.AnalyticsUI?.toggleEndDatePicker?.(),
+    'set-dashboard-this-week': () => window.AnalyticsUI?.setDashboardThisWeek?.(),
+    'set-dashboard-this-month': () => window.AnalyticsUI?.setDashboardThisMonth?.(),
+    'set-dashboard-last-30-days': () => window.AnalyticsUI?.setDashboardLast30Days?.(),
+    'set-dashboard-pay-period': () => window.AnalyticsUI?.setDashboardPayPeriod?.(),
+    'change-report-view-mode': (mode) => window.AnalyticsUI?.changeReportViewMode?.(mode),
+    'export-employee-report-excel': () => window.AnalyticsUI?.exportEmployeeReportExcel?.(),
+    'toggle-employee-report-start-picker': () => window.AnalyticsUI?.toggleEmployeeReportStartPicker?.(),
+    'toggle-employee-report-end-picker': () => window.AnalyticsUI?.toggleEmployeeReportEndPicker?.(),
+    'set-employee-report-this-week': () => window.AnalyticsUI?.setEmployeeReportThisWeek?.(),
+    'set-employee-report-this-month': () => window.AnalyticsUI?.setEmployeeReportThisMonth?.(),
+    'set-employee-report-pay-period': () => window.AnalyticsUI?.setEmployeeReportPayPeriod?.(),
+    'toggle-position-collapse': (id) => window.AnalyticsUI?.togglePositionCollapse?.(id),
+    // DatePicker dinámico — el nombre de la fn viene en data-fn
+    'date-picker-prev': (_, el, e) => { e?.stopPropagation(); const fn = window[el.dataset.fn]; if (typeof fn === 'function') fn(-1); },
+    'date-picker-next': (_, el, e) => { e?.stopPropagation(); const fn = window[el.dataset.fn]; if (typeof fn === 'function') fn(1); },
+    'date-picker-select': (_, el, e) => { e?.stopPropagation(); const fn = window[el.dataset.fn]; if (typeof fn === 'function') fn(el.dataset.date); },
+    'stop-propagation': (_, _el, e) => { e?.stopPropagation(); }
+};
+
+function _handleAnalyticsClick(e) {
+    const target = e.target.closest('[data-analytics-action]');
+    if (!target) return;
+    const action = target.dataset.analyticsAction;
+    const handler = _ANALYTICS_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handleAnalyticsKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-analytics-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleAnalyticsClick(e);
+}
+
+let _analyticsDelegationAttached = false;
+function _attachAnalyticsDelegation() {
+    if (_analyticsDelegationAttached) return;
+    document.addEventListener('click', _handleAnalyticsClick);
+    document.addEventListener('keydown', _handleAnalyticsKeydown);
+    _analyticsDelegationAttached = true;
+}
+_attachAnalyticsDelegation();
+
 import { memoCache } from '../../utils/MemoCache.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
@@ -81,11 +135,11 @@ function DashboardControls() {
                     TIPO DE VISUALIZACIÓN
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px;">
-                    <button onclick="AnalyticsUI.setDashboardChart('attendance')" class="dashboard-chart-btn ${state.dashboardChart === 'attendance' ? 'active' : ''}">${icons.get('reports')} Asistencia</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('hours')" class="dashboard-chart-btn ${state.dashboardChart === 'hours' ? 'active' : ''}">${icons.get('info')} Horas</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('positions')" class="dashboard-chart-btn ${state.dashboardChart === 'positions' ? 'active' : ''}">${icons.get('palette')} Posiciones</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('top10')" class="dashboard-chart-btn ${state.dashboardChart === 'top10' ? 'active' : ''}">${icons.get('rocket')} Top 10</button>
-                    <button onclick="AnalyticsUI.setDashboardChart('heatmap')" class="dashboard-chart-btn ${state.dashboardChart === 'heatmap' ? 'active' : ''}">${icons.get('zap')} Mapa Calor</button>
+                    <button type="button" data-analytics-action="set-dashboard-chart" data-value="attendance" class="dashboard-chart-btn ${state.dashboardChart === 'attendance' ? 'active' : ''}">${icons.get('reports')} Asistencia</button>
+                    <button type="button" data-analytics-action="set-dashboard-chart" data-value="hours" class="dashboard-chart-btn ${state.dashboardChart === 'hours' ? 'active' : ''}">${icons.get('info')} Horas</button>
+                    <button type="button" data-analytics-action="set-dashboard-chart" data-value="positions" class="dashboard-chart-btn ${state.dashboardChart === 'positions' ? 'active' : ''}">${icons.get('palette')} Posiciones</button>
+                    <button type="button" data-analytics-action="set-dashboard-chart" data-value="top10" class="dashboard-chart-btn ${state.dashboardChart === 'top10' ? 'active' : ''}">${icons.get('rocket')} Top 10</button>
+                    <button type="button" data-analytics-action="set-dashboard-chart" data-value="heatmap" class="dashboard-chart-btn ${state.dashboardChart === 'heatmap' ? 'active' : ''}">${icons.get('zap')} Mapa Calor</button>
                 </div>
             </div>
             
@@ -97,7 +151,7 @@ function DashboardControls() {
         <div style="display: flex; flex-wrap: wrap; gap: 12px;">
             <div style="flex: 1; min-width: 140px; position: relative;">
                 <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Desde:</label>
-                <div class="date-display" onclick="AnalyticsUI.toggleStartDatePicker()"
+                <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-start-date-picker"
                     style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
                     ${formatDateShort(startDate)}
                 </div>
@@ -105,17 +159,17 @@ function DashboardControls() {
             </div>
             <div style="flex: 1; min-width: 140px; position: relative;">
                 <label style="font-size: 0.75rem; color: #64748b; display: block; margin-bottom: 4px;">Hasta:</label>
-                <div class="date-display" onclick="AnalyticsUI.toggleEndDatePicker()"
+                <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-end-date-picker"
                     style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer;">
                     ${formatDateShort(endDate)}
                 </div>
                 ${state.showEndDatePicker ? DashboardEndDatePicker() : ''}
             </div>
             <div style="display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 4px;">
-                <button onclick="AnalyticsUI.setDashboardThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Esta Semana</button>
-                <button onclick="AnalyticsUI.setDashboardThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Este Mes</button>
-                <button onclick="AnalyticsUI.setDashboardLast30Days()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Últimos 30</button>
-                <button onclick="AnalyticsUI.setDashboardPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; font-weight: 700;">${icons.get('calendar', { size: 14 })} Período Actual</button>
+                <button type="button" data-analytics-action="set-dashboard-this-week" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Esta Semana</button>
+                <button type="button" data-analytics-action="set-dashboard-this-month" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Este Mes</button>
+                <button type="button" data-analytics-action="set-dashboard-last-30-days" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #06b6d4; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap;">Últimos 30</button>
+                <button type="button" data-analytics-action="set-dashboard-pay-period" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 8px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; font-weight: 700;">${icons.get('calendar', { size: 14 })} Período Actual</button>
             </div>
         </div>
     </div>
@@ -470,8 +524,8 @@ export function ReportsTab() {
         <div>
             <div class="date-controls">
                 <div class="view-controls">
-                    <button class="view-btn ${!isDashboard ? 'active' : ''}" onclick="AnalyticsUI.changeReportViewMode('employee-report')">${icons.get('info')} Reporte Personal</button>
-                    <button class="view-btn ${isDashboard ? 'active' : ''}" onclick="AnalyticsUI.changeReportViewMode('dashboard')">${icons.get('chevron-right')} Gráficas</button>
+                    <button type="button" class="view-btn ${!isDashboard ? 'active' : ''}" data-analytics-action="change-report-view-mode" data-value="employee-report">${icons.get('info')} Reporte Personal</button>
+                    <button type="button" class="view-btn ${isDashboard ? 'active' : ''}" data-analytics-action="change-report-view-mode" data-value="dashboard">${icons.get('chevron-right')} Gráficas</button>
                 </div>
             </div>
             ${isDashboard ? DashboardTab() : EmployeeReportTab()}
@@ -497,7 +551,7 @@ function EmployeeReportControls() {
                     </div>
                     <h2 style="color: #f1f5f9; margin: 0; font-size: 1.25rem; font-weight: 600;">Reporte de Empleados</h2>
                 </div>
-                <button onclick="AnalyticsUI.exportEmployeeReportExcel()" 
+                <button type="button" data-analytics-action="export-employee-report-excel" 
                     style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 10px 18px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.875rem; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
                     ${icons.get('export', { size: 18 })} Exportar Excel
                 </button>
@@ -506,7 +560,7 @@ function EmployeeReportControls() {
              <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
                  <div style="flex: 1; min-width: 140px; position: relative;">
                     <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Desde:</label>
-                    <div class="date-display" onclick="AnalyticsUI.toggleEmployeeReportStartPicker()" 
+                    <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-employee-report-start-picker" 
                         style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
                         ${icons.get('calendar', { size: 14, class: 'text-cyan-500' })}
                         ${formatDateShort(startDate)}
@@ -516,7 +570,7 @@ function EmployeeReportControls() {
 
                  <div style="flex: 1; min-width: 140px; position: relative;">
                     <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.025em;">Hasta:</label>
-                    <div class="date-display" onclick="AnalyticsUI.toggleEmployeeReportEndPicker()" 
+                    <div class="date-display" role="button" tabindex="0" data-analytics-action="toggle-employee-report-end-picker" 
                         style="background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;">
                         ${icons.get('calendar', { size: 14, class: 'text-cyan-500' })}
                         ${formatDateShort(endDate)}
@@ -525,9 +579,9 @@ function EmployeeReportControls() {
                  </div>
 
                  <div style="display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 200px;">
-                    <button onclick="AnalyticsUI.setEmployeeReportThisWeek()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Esta Semana</button>
-                    <button onclick="AnalyticsUI.setEmployeeReportThisMonth()" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Este Mes</button>
-                    <button onclick="AnalyticsUI.setEmployeeReportPayPeriod()" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;">${icons.get('calendar', { size: 14 })} Período Actual</button>
+                    <button type="button" data-analytics-action="set-employee-report-this-week" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Esta Semana</button>
+                    <button type="button" data-analytics-action="set-employee-report-this-month" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; cursor: pointer; white-space: nowrap;">Este Mes</button>
+                    <button type="button" data-analytics-action="set-employee-report-pay-period" style="flex: 1; min-width: 120px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; cursor: pointer; white-space: nowrap;">${icons.get('calendar', { size: 14 })} Período Actual</button>
                  </div>
              </div>
         </div>`;
@@ -579,7 +633,7 @@ return emp;
     allEmployees.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
 return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
-                <div onclick="AnalyticsUI.togglePositionCollapse('general')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
+                <div role="button" tabindex="0" data-analytics-action="toggle-position-collapse" data-value="general" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
                     <h3 style="margin: 0; color: #f1f5f9;">${icons.get('info')} Resumen General (${allEmployees.length})</h3>
                     <div style="color: #64748b;">${isCollapsed ? '▼' : '▲'}</div>
                 </div>
@@ -629,7 +683,7 @@ function EmployeeReportPositionSection(posData, days) {
     const collapses = state.collapsedPositions || {};
     const isCollapsed = collapses[posData.position.id] !== false; // Colapsado por defecto si es undefined o true
     return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #334155;">
-    <div onclick="AnalyticsUI.togglePositionCollapse('${posData.position.id}')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
+    <div role="button" tabindex="0" data-analytics-action="toggle-position-collapse" data-value="${posData.position.id}" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; border-bottom: ${isCollapsed ? 'none' : '1px solid #334155'}; padding-bottom: ${isCollapsed ? '0' : '16px'};">
         <div style="display: flex; align-items: center; gap: 12px;">
             <div style="width: 12px; height: 12px; border-radius: 50%; background: ${posData.position.color};"></div>
             <h3 style="margin: 0; color: #f1f5f9;">${posData.position.name} (${posData.employees.length})</h3>
@@ -754,11 +808,11 @@ function generateDatePicker(month, selectedDate, selectFunc, changeMonthFunc) {
     const todayKey = getDateKey(new Date());
     const payPeriod = state.settings?.payPeriod;
 
-    return `<div class="date-picker" onclick="event.stopPropagation()">
+    return `<div class="date-picker" data-analytics-action="stop-propagation">
         <div class="date-picker-header">
-            <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); ${changeMonthFunc}(-1)">${icons.get('chevron-left')}</button>
+            <button type="button" class="date-btn" style="width:32px;height:32px;font-size:1rem;" data-analytics-action="date-picker-prev" data-fn="${changeMonthFunc}" aria-label="Mes anterior">${icons.get('chevron-left')}</button>
             <div class="date-picker-month">${formatMonthYear(month)}</div>
-            <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); ${changeMonthFunc}(1)">${icons.get('chevron-right')}</button>
+            <button type="button" class="date-btn" style="width:32px;height:32px;font-size:1rem;" data-analytics-action="date-picker-next" data-fn="${changeMonthFunc}" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>
         </div>
         <div class="date-picker-grid">
             ${['D', 'L', 'M', 'X', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
@@ -777,9 +831,9 @@ function generateDatePicker(month, selectedDate, selectFunc, changeMonthFunc) {
         if (isInPayPeriod) cls.push('date-picker-day-pay-period');
         if (isWorkPayday) cls.push('date-picker-day-payday');
 
-        const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" style="top:2px; right:2px;">💰</span>` : '';
+        const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" style="top:2px; right:2px;" aria-label="Día de pago">${icons.get('dollar', { size: 10 }) || '·'}</span>` : '';
 
-        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); ${selectFunc}('${dateKey}')">
+        return `<div role="button" tabindex="0" class="${cls.join(' ')}" data-analytics-action="date-picker-select" data-fn="${selectFunc}" data-date="${dateKey}" aria-label="${dateKey}">
                     ${d.date.getDate()}
                     ${paydayIconHTML}
                 </div>`;

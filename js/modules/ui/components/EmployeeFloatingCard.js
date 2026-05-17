@@ -7,6 +7,32 @@ import { state } from '../../core/AppState.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { CalendarView } from './CalendarView.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-fc-action)
+// ============================================
+const _FC_ACTION_MAP = {
+    'open-employee-profile': (id) => window.openEmployeeProfile?.(id),
+    'close-floating-card': () => window.closeFloatingCard?.(),
+    'toggle-position': (_, el) => window.togglePosition?.(el.dataset.posId, el.dataset.empId),
+    'stop-propagation': (_, _el, e) => { e?.stopPropagation(); }
+};
+
+function _handleFcClick(e) {
+    const target = e.target.closest('[data-fc-action]');
+    if (!target) return;
+    const action = target.dataset.fcAction;
+    const handler = _FC_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+let _fcDelegationAttached = false;
+if (!_fcDelegationAttached) {
+    document.addEventListener('click', _handleFcClick);
+    _fcDelegationAttached = true;
+}
+
 export class EmployeeFloatingCard {
     constructor(statsService) {
         this.statsService = statsService;
@@ -35,7 +61,7 @@ export class EmployeeFloatingCard {
         // 🟢 NUEVO: Caching de botones o estilos para mayor limpieza
         const btnPerfilHTML = `
             <div style="padding: 16px; border-top: 1px solid #334155;">
-                <button onclick="openEmployeeProfile('${emp.id}')" 
+                <button type="button" data-fc-action="open-employee-profile" data-id="${emp.id}"
                         style="width: 100%; padding: 12px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem; transition: all 0.2s;">
                     👤 Ver Perfil Completo
                 </button>
@@ -51,8 +77,8 @@ export class EmployeeFloatingCard {
             </div>` : '';
 
         return `
-            <div class="overlay" onclick="closeFloatingCard()"></div>
-            <div class="floating-card" onclick="event.stopPropagation()">
+            <div class="overlay" data-fc-action="close-floating-card"></div>
+            <div class="floating-card" data-fc-action="stop-propagation">
                 <div class="floating-card-header">
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <div class="floating-card-title">👤 ${emp.name}</div>
@@ -70,7 +96,7 @@ export class EmployeeFloatingCard {
                                         if (!pos) return '';
                                         const isActive = att.selectedPosition === pid || (!att.selectedPosition && emp.positions[0] === pid);
                                         return `
-                                            <span onclick="window.togglePosition('${pid}', '${emp.id}')" 
+                                            <span role="button" tabindex="0" data-fc-action="toggle-position" data-pos-id="${pid}" data-emp-id="${emp.id}"
                                                   style="font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; cursor: pointer; border: 1px solid ${isActive ? '#ec4899' : '#334155'}; 
                                                          background: ${isActive ? 'rgba(236, 72, 153, 0.2)' : 'transparent'}; 
                                                          color: ${isActive ? '#f472b6' : '#94a3b8'}; transition: all 0.2s;">
@@ -82,7 +108,7 @@ export class EmployeeFloatingCard {
                             `;
                         })()}
                     </div>
-                    <button class="floating-card-close" onclick="closeFloatingCard()">✕</button>
+                    <button class="floating-card-close" type="button" data-fc-action="close-floating-card" aria-label="Cerrar">✕</button>
                 </div>
                 
                 <div class="stats-compact-grid">

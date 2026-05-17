@@ -1,6 +1,23 @@
 import { ComponentBase } from './ComponentBase.js';
 import { EmptyState } from './EmptyState.js';
 
+// Delegación genérica para onRowClick (resuelve window[fnName] dinámicamente)
+let _tableDelegationAttached = false;
+if (!_tableDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        const tr = e.target.closest('[data-table-row-click]');
+        if (!tr) return;
+        const fnName = tr.dataset.tableRowClick;
+        const fn = window[fnName];
+        if (typeof fn !== 'function') return;
+        try {
+            const row = JSON.parse(tr.dataset.tableRowPayload || 'null');
+            fn(row);
+        } catch (_) { fn(); }
+    });
+    _tableDelegationAttached = true;
+}
+
 export class TableComponent extends ComponentBase {
     constructor(props) {
         super(props);
@@ -56,7 +73,9 @@ export class TableComponent extends ComponentBase {
                 return `<td>${rendered}</td>`;
             }).join('');
 
-            const clickHandler = onRowClick ? `onclick="${onRowClick}(${JSON.stringify(row).replace(/"/g, '&quot;')})"` : '';
+            const clickHandler = onRowClick
+                ? `data-table-row-click="${onRowClick}" data-table-row-payload="${JSON.stringify(row).replace(/"/g, '&quot;')}" role="button" tabindex="0"`
+                : '';
 
             return `<tr ${clickHandler}>${cells}</tr>`;
         }).join('');

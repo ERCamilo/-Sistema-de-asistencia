@@ -13,6 +13,47 @@ import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNu
 import { state } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-maint-action)
+// ============================================
+const _MAINT_ACTION_MAP = {
+    'auto-choice': () => window._maintenanceUI?.handleAutoChoice(),
+    'manual-choice': () => window._maintenanceUI?.handleManualChoice(),
+    'skip-step': () => window._maintenanceUI?.skipStep(),
+    'resolve-conflict': (id) => window._maintenanceUI?.resolveConflict(id),
+    'skip-reassignment': () => window._maintenanceUI?.skipReassignment(),
+    'force-comparison': () => window._maintenanceUI?.forceComparison(),
+    'apply-reassignment': () => window._maintenanceUI?.applyReassignment()
+};
+
+function _handleMaintClick(e) {
+    const target = e.target.closest('[data-maint-action]');
+    if (!target) return;
+    const action = target.dataset.maintAction;
+    const handler = _MAINT_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handleMaintKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-maint-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleMaintClick(e);
+}
+
+let _maintDelegationAttached = false;
+function _attachMaintDelegation() {
+    if (_maintDelegationAttached) return;
+    document.addEventListener('click', _handleMaintClick);
+    document.addEventListener('keydown', _handleMaintKeydown);
+    _maintDelegationAttached = true;
+}
+_attachMaintDelegation();
+
 export class MaintenanceUI {
     constructor() {
         this.conflicts = [];
@@ -43,7 +84,7 @@ export class MaintenanceUI {
             <div class="maintenance-selection" style="display: flex; flex-direction: column; gap: 20px; padding: 10px;">
                 <p style="color: #94a3b8; margin-bottom: 5px;">Se han detectado <strong>${this.conflicts.length} grupos</strong> de empleados con números de ficha duplicados.</p>
                 
-                <div class="choice-card auto-choice" onclick="window._maintenanceUI.handleAutoChoice()" 
+                <div class="choice-card auto-choice" role="button" tabindex="0" data-maint-action="auto-choice"
                      style="padding: 20px; border: 1px solid #1e293b; border-radius: 12px; cursor: pointer; background: #0f172a; transition: all 0.2s;">
                     <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 8px;">
                         <span style="font-size: 1.5rem;">⚡</span>
@@ -52,7 +93,7 @@ export class MaintenanceUI {
                     <p style="font-size: 0.85rem; color: #64748b; margin: 0;">El sistema elegirá automáticamente el mejor registro basado en el historial de asistencia y completitud del perfil. Si detecta personas distintas, te pedirá reasignar fichas. (Recomendado)</p>
                 </div>
 
-                <div class="choice-card manual-choice" onclick="window._maintenanceUI.handleManualChoice()"
+                <div class="choice-card manual-choice" role="button" tabindex="0" data-maint-action="manual-choice"
                      style="padding: 20px; border: 1px solid #1e293b; border-radius: 12px; cursor: pointer; background: #0f172a; transition: all 0.2s;">
                     <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 8px;">
                         <span style="font-size: 1.5rem;">🔍</span>
@@ -146,7 +187,7 @@ export class MaintenanceUI {
                 </div>
                 
                 <div style="display: flex; justify-content: center; margin-top: 10px;">
-                    <button class="btn-ghost" onclick="window._maintenanceUI.skipStep()" style="color: #64748b;">Son personas distintas (Reasignar ficha)</button>
+                    <button class="btn-ghost" type="button" data-maint-action="skip-step" style="color: #64748b;">Son personas distintas (Reasignar ficha)</button>
                 </div>
             </div>
         `;
@@ -183,7 +224,7 @@ export class MaintenanceUI {
                 </div>
 
                 <div class="emp-actions" style="margin-top: auto; padding-top: 10px;">
-                    <button class="btn-primary" onclick="window._maintenanceUI.resolveConflict('${emp.id}')" style="width: 100%; padding: 10px; font-size: 0.8rem;">
+                    <button class="btn-primary" type="button" data-maint-action="resolve-conflict" data-id="${emp.id}" style="width: 100%; padding: 10px; font-size: 0.8rem;">
                         CONSERVAR ESTE
                     </button>
                 </div>
@@ -281,9 +322,9 @@ export class MaintenanceUI {
                 <div id="reassign-error" style="display: none; color: #f43f5e; font-size: 0.8rem; text-align: center; padding: 8px;"></div>
 
                 <div style="display: flex; justify-content: center; gap: 12px; margin-top: 10px; flex-wrap: wrap;">
-                    <button class="btn-ghost" onclick="window._maintenanceUI.skipReassignment()" style="color: #64748b; padding: 10px;">Omitir sin cambios</button>
-                    <button class="btn-ghost" onclick="window._maintenanceUI.forceComparison()" style="color: #3b82f6; padding: 10px;">Son la misma persona (Comparar)</button>
-                    <button class="btn-primary" id="btn-apply-reassign" onclick="window._maintenanceUI.applyReassignment()" style="padding: 10px 24px;" disabled>
+                    <button class="btn-ghost" type="button" data-maint-action="skip-reassignment" style="color: #64748b; padding: 10px;">Omitir sin cambios</button>
+                    <button class="btn-ghost" type="button" data-maint-action="force-comparison" style="color: #3b82f6; padding: 10px;">Son la misma persona (Comparar)</button>
+                    <button class="btn-primary" id="btn-apply-reassign" type="button" data-maint-action="apply-reassignment" style="padding: 10px 24px;" disabled>
                         💾 Aplicar Cambios
                     </button>
                 </div>

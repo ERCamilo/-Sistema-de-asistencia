@@ -1,9 +1,23 @@
 import { ComponentBase } from './ComponentBase.js';
 
+// Delegación genérica para onTabChange (resuelve window[fnName])
+let _tabDelegationAttached = false;
+if (!_tabDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-tab-change]');
+        if (!btn) return;
+        const fnName = btn.dataset.tabChange;
+        const tabId = btn.dataset.tab;
+        const fn = window[fnName];
+        if (typeof fn === 'function') fn(tabId);
+    });
+    _tabDelegationAttached = true;
+}
+
 export class TabComponent extends ComponentBase {
     constructor(props) {
         super(props);
-        // props: { tabs: [], activeTab: string, onTabChange: function }
+        // props: { tabs: [], activeTab: string, onTabChange: string (window fn name) }
     }
 
     render() {
@@ -14,10 +28,12 @@ export class TabComponent extends ComponentBase {
             const activeClass = isActive ? 'tab-active' : '';
 
             return `
-                        <button 
-                            class="tab ${activeClass}" 
-                            onclick="${onTabChange}('${tab.id}')"
-                            data-tab="${tab.id}">
+                        <button
+                            type="button"
+                            class="tab ${activeClass}"
+                            data-tab-change="${onTabChange}"
+                            data-tab="${tab.id}"
+                            aria-selected="${isActive}">
                             <span class="tab-icon">${tab.icon}</span>
                             <span class="tab-label">${tab.label}</span>
                         </button>

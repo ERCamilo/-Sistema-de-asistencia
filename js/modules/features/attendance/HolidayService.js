@@ -6,6 +6,31 @@
 
 import { getDateKey, isDayHoliday, formatMonthYear } from '../../utils/DateUtils.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-holiday-action)
+// ============================================
+const _HOLIDAY_ACTION_MAP = {
+    'change-settings-calendar-month': (delta) => window.changeSettingsCalendarMonth?.(parseInt(delta, 10)),
+    'change-settings-calendar-mode': (mode) => window.changeSettingsCalendarMode?.(mode),
+    'handle-calendar-day-click': (dateKey) => window.handleCalendarDayClick?.(dateKey)
+};
+
+function _handleHolidayClick(e) {
+    const target = e.target.closest('[data-holiday-action]');
+    if (!target) return;
+    const action = target.dataset.holidayAction;
+    const handler = _HOLIDAY_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.value ?? target.dataset.id ?? null;
+    handler(arg, target, e);
+}
+
+let _holidayDelegationAttached = false;
+if (!_holidayDelegationAttached) {
+    document.addEventListener('click', _handleHolidayClick);
+    _holidayDelegationAttached = true;
+}
+
 export class HolidayService {
     constructor(state) {
         this.state = state;
@@ -129,8 +154,9 @@ export class HolidayService {
                 <div style="background: #0f172a; border-radius: 8px; padding: 16px;">
                     <!-- Header del calendario -->
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                        <button type="button" 
-                                onclick="changeSettingsCalendarMonth(-1)" 
+                        <button type="button"
+                                data-holiday-action="change-settings-calendar-month" data-value="-1"
+                                aria-label="Mes anterior"
                                 style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
                                 onmouseover="this.style.borderColor='#06b6d4'; this.style.background='#334155'"
                                 onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
@@ -139,8 +165,9 @@ export class HolidayService {
                         <div style="font-size: 1rem; font-weight: 700; color: #f1f5f9;">
                             ${formatMonthYear(month)}
                         </div>
-                        <button type="button" 
-                                onclick="changeSettingsCalendarMonth(1)" 
+                        <button type="button"
+                                data-holiday-action="change-settings-calendar-month" data-value="1"
+                                aria-label="Mes siguiente"
                                 style="background: #1e293b; border: 1px solid #334155; color: #06b6d4; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
                                 onmouseover="this.style.borderColor='#06b6d4'; this.style.background='#334155'"
                                 onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
@@ -157,8 +184,8 @@ export class HolidayService {
                                 payDay: '💰 Día de Pago'
                             };
                             return `
-                                <button type="button" 
-                                        onclick="changeSettingsCalendarMode('${mode}')" 
+                                <button type="button"
+                                        data-holiday-action="change-settings-calendar-mode" data-value="${mode}"
                                         style="flex: 1; padding: 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none;
                                                background: ${isSelected ? '#3b82f6' : 'transparent'}; 
                                                color: ${isSelected ? '#ffffff' : '#94a3b8'};">
@@ -219,7 +246,7 @@ export class HolidayService {
         const isClickable = currentMonth;
 
         return `
-                                <div onclick="${isClickable ? `handleCalendarDayClick('${dateKey}')` : ''}"
+                                <div ${isClickable ? `role="button" tabindex="0" data-holiday-action="handle-calendar-day-click" data-value="${dateKey}"` : ''}
                                      style="
                                         background: ${bgColor};
                                         border: 2px solid ${borderColor};

@@ -14,6 +14,51 @@ import { debug } from '../utils/Debug.js';
 import { loadDemoDataIntoDB } from '../services/PersistenceService.js';
 import icons from './IconSystem.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-onb-action)
+// ============================================
+const _ONB_ACTION_MAP = {
+    'next': () => window.onboardingWizard?.next(),
+    'prev': () => window.onboardingWizard?.prev(),
+    'skip-to-cloud-login': () => window.onboardingWizard?.skipToCloudLogin(),
+    'skip-to-restore-backup': () => window.onboardingWizard?.skipToRestoreBackup(),
+    'select-mode': (mode) => window.onboardingWizard?.selectMode(mode),
+    'save-company-and-next': () => window.onboardingWizard?.saveCompanyAndNext(),
+    'complete': () => window.onboardingWizard?.complete(),
+    'select-hours': (h) => window.selectHours?.(parseFloat(h)),
+    'quick-add-position': (name) => window.quickAddPosition?.(name),
+    'remove-position': (id) => window.removePosition?.(id),
+    'remove-employee-onboarding': (id) => window.removeEmployeeOnboarding?.(id)
+};
+
+function _handleOnbClick(e) {
+    const target = e.target.closest('[data-onb-action]');
+    if (!target) return;
+    const action = target.dataset.onbAction;
+    const handler = _ONB_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handleOnbKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-onb-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleOnbClick(e);
+}
+
+let _onbDelegationAttached = false;
+function _attachOnbDelegation() {
+    if (_onbDelegationAttached) return;
+    document.addEventListener('click', _handleOnbClick);
+    document.addEventListener('keydown', _handleOnbKeydown);
+    _onbDelegationAttached = true;
+}
+_attachOnbDelegation();
+
 class OnboardingWizard {
     constructor() {
         this.steps = [
@@ -85,15 +130,15 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="display: flex; flex-direction: column; gap: 16px; max-width: 400px; margin: 0 auto;">
-                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="padding: 18px 48px; font-size: 1.25rem; font-weight: 700; box-shadow: 0 10px 30px rgba(6, 182, 212, 0.3);">
+                    <button type="button" data-onb-action="next" class="btn btn-primary" style="padding: 18px 48px; font-size: 1.25rem; font-weight: 700; box-shadow: 0 10px 30px rgba(6, 182, 212, 0.3);">
                         🚀 Comenzar desde Cero
                     </button>
                     
-                    <button onclick="onboardingWizard.skipToCloudLogin()" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1rem; font-weight: 600; background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2)); border: 2px solid #10b981;">
+                    <button type="button" data-onb-action="skip-to-cloud-login" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1rem; font-weight: 600; background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2)); border: 2px solid #10b981;">
                         ☁️ Ya tengo cuenta en la nube
                     </button>
                     
-                    <button onclick="onboardingWizard.skipToRestoreBackup()" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1rem; font-weight: 600; background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.2)); border: 2px solid #8b5cf6;">
+                    <button type="button" data-onb-action="skip-to-restore-backup" class="btn btn-secondary" style="padding: 14px 36px; font-size: 1rem; font-weight: 600; background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.2)); border: 2px solid #8b5cf6;">
                         💾 Restaurar desde Backup
                     </button>
                 </div>
@@ -112,7 +157,7 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 24px;">
-                    <div onclick="onboardingWizard.selectMode('demo')" 
+                    <div role="button" tabindex="0" data-onb-action="select-mode" data-value="demo"
                          style="background: linear-gradient(135deg, #1e293b, #0f172a); 
                                 border: 2px solid #06b6d4; 
                                 border-radius: 16px; 
@@ -148,7 +193,7 @@ class OnboardingWizard {
                         </div>
                     </div>
                     
-                    <div onclick="onboardingWizard.selectMode('scratch')" 
+                    <div role="button" tabindex="0" data-onb-action="select-mode" data-value="scratch"
                          style="background: linear-gradient(135deg, #1e293b, #0f172a); 
                                 border: 2px solid #334155; 
                                 border-radius: 16px; 
@@ -174,7 +219,7 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="text-align: center;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="padding: 12px 32px;">
+                    <button type="button" data-onb-action="prev" class="btn btn-secondary" style="padding: 12px 32px;">
                         ← Atrás
                     </button>
                 </div>
@@ -268,8 +313,8 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="display: flex; gap: 12px; justify-content: space-between;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">← Atrás</button>
-                    <button onclick="onboardingWizard.saveCompanyAndNext()" class="btn btn-primary" style="flex: 2;">Siguiente →</button>
+                    <button type="button" data-onb-action="prev" class="btn btn-secondary" style="flex: 1;">← Atrás</button>
+                    <button type="button" data-onb-action="save-company-and-next" class="btn btn-primary" style="flex: 2;">Siguiente →</button>
                 </div>
                 ${this.renderProgress()}
             </div>
@@ -286,7 +331,7 @@ class OnboardingWizard {
                 
                 <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 40px;">
                     ${[6, 8, 9, 10].map(h => `
-                        <button onclick="window.selectHours(${h})" style="padding: 32px 16px; border-radius: 16px; border: 3px solid ${state.settings.regularHoursPerDay === h ? '#06b6d4' : '#334155'}; background: #1e293b; color: #f1f5f9; cursor: pointer;">
+                        <button type="button" data-onb-action="select-hours" data-value="${h}" style="padding: 32px 16px; border-radius: 16px; border: 3px solid ${state.settings.regularHoursPerDay === h ? '#06b6d4' : '#334155'}; background: #1e293b; color: #f1f5f9; cursor: pointer;">
                             <div style="font-size: 2.5rem; font-weight: 900;">${h}</div>
                             <div style="font-size: 0.875rem; color: #94a3b8;">horas</div>
                         </button>
@@ -294,8 +339,8 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="display: flex; gap: 12px;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1;">← Atrás</button>
-                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2;">Siguiente →</button>
+                    <button type="button" data-onb-action="prev" class="btn btn-secondary" style="flex: 1;">← Atrás</button>
+                    <button type="button" data-onb-action="next" class="btn btn-primary" style="flex: 2;">Siguiente →</button>
                 </div>
                 ${this.renderProgress()}
             </div>
@@ -318,7 +363,7 @@ class OnboardingWizard {
                     <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; text-transform: uppercase; font-weight: 700;">Sugerencias rápidas:</div>
                     <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px;">
                         ${['Maestro', 'Albañil', 'Carpintero', 'Varillero', 'Ayudante', 'Sereno'].map(name => `
-                            <button onclick="window.quickAddPosition('${name}')" 
+                            <button type="button" data-onb-action="quick-add-position" data-value="${name}"
                                     class="btn-tag" 
                                     style="padding: 8px 16px; background: #0f172a; border: 1px solid #1e293b; color: #94a3b8; border-radius: 20px; cursor: pointer; transition: all 0.2s;">
                                 + ${name}
@@ -334,7 +379,7 @@ class OnboardingWizard {
                                         <div style="font-weight: 700; color: #f1f5f9;">${pos.name}</div>
                                         <div style="font-size: 0.75rem; color: #64748b;">$${pos.salaryConfig.amount.toLocaleString()}/${pos.salaryConfig.period === 'month' ? 'mes' : 'día'}</div>
                                     </div>
-                                    <button onclick="window.removePosition('${pos.id}')" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.25rem;">&times;</button>
+                                    <button type="button" data-onb-action="remove-position" data-id="${pos.id}" aria-label="Eliminar posición" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.25rem;">&times;</button>
                                 </div>
                             `).join('')}
                         </div>
@@ -346,8 +391,8 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="display: flex; gap: 12px;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1; padding: 14px;">← Atrás</button>
-                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2; padding: 14px;" ${activePositions.length === 0 ? 'disabled' : ''}>Siguiente →</button>
+                    <button type="button" data-onb-action="prev" class="btn btn-secondary" style="flex: 1; padding: 14px;">← Atrás</button>
+                    <button type="button" data-onb-action="next" class="btn btn-primary" style="flex: 2; padding: 14px;" ${activePositions.length === 0 ? 'disabled' : ''}>Siguiente →</button>
                 </div>
                 ${this.renderProgress()}
             </div>
@@ -390,7 +435,7 @@ class OnboardingWizard {
                                             <div style="font-weight: 700; color: #f1f5f9;">${emp.name}</div>
                                             <div style="font-size: 0.75rem; color: #64748b;">${pos ? pos.name : 'Sin cargo'}</div>
                                         </div>
-                                        <button onclick="window.removeEmployeeOnboarding('${emp.id}')" style="background: none; border: none; color: #ef4444; cursor: pointer;">Borrar</button>
+                                        <button type="button" data-onb-action="remove-employee-onboarding" data-id="${emp.id}" style="background: none; border: none; color: #ef4444; cursor: pointer;">Borrar</button>
                                     </div>
                                 `;
                             }).join('')}
@@ -399,8 +444,8 @@ class OnboardingWizard {
                 </div>
                 
                 <div style="display: flex; gap: 12px;">
-                    <button onclick="onboardingWizard.prev()" class="btn btn-secondary" style="flex: 1; padding: 14px;">← Atrás</button>
-                    <button onclick="onboardingWizard.next()" class="btn btn-primary" style="flex: 2; padding: 14px;" ${activeEmployees.length === 0 ? 'disabled' : ''}>Finalizar Configuración →</button>
+                    <button type="button" data-onb-action="prev" class="btn btn-secondary" style="flex: 1; padding: 14px;">← Atrás</button>
+                    <button type="button" data-onb-action="next" class="btn btn-primary" style="flex: 2; padding: 14px;" ${activeEmployees.length === 0 ? 'disabled' : ''}>Finalizar Configuración →</button>
                 </div>
                 ${this.renderProgress()}
             </div>
@@ -415,7 +460,7 @@ class OnboardingWizard {
                 <h1 style="font-size: 2.5rem; margin-bottom: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900;">
                     ${isDemo ? '¡Modo Exploración!' : '¡Todo Listo!'}
                 </h1>
-                <button onclick="onboardingWizard.complete()" class="btn btn-primary" style="padding: 20px 64px; font-size: 1.25rem;">
+                <button type="button" data-onb-action="complete" class="btn btn-primary" style="padding: 20px 64px; font-size: 1.25rem;">
                     🚀 Empezar →
                 </button>
                 ${this.renderProgress()}

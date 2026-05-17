@@ -40,7 +40,7 @@ export const RestoreUI = {
         const modalHTML = `
             <div id="${modalId}" class="modal-overlay" style="display: flex; align-items: center; justify-content: center; z-index: 10001; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px); position: fixed; top: 0; left: 0; width: 100%; height: 100%;">
                 <div class="modal-content glass" style="max-width: 600px; width: 90%; padding: 24px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); background: #1e293b; color: #f1f5f9; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); position: relative;">
-                    <button class="modal-close" onclick="const m=document.getElementById('${modalId}'); if(m) m.remove();" style="position: absolute; top: 16px; right: 16px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1.5rem;">&times;</button>
+                    <button class="modal-close" id="restore-modal-close-${modalId}" type="button" aria-label="Cerrar" style="position: absolute; top: 16px; right: 16px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1.5rem;">&times;</button>
                     
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
                         <h2 style="margin: 0; font-size: 1.5rem; display: flex; align-items: center; gap: 12px;">
@@ -122,7 +122,7 @@ export const RestoreUI = {
                                 <span style="font-size: 0.7rem; opacity: 0.8;">(Espejo total)</span>
                             </button>
                         `}
-                        <button onclick="document.getElementById('${modalId}').remove()" class="btn-cancel" style="padding: 10px; background: none; border: none; color: #64748b; cursor: pointer; font-size: 0.9rem;">
+                        <button id="restore-modal-cancel-${modalId}" type="button" class="btn-cancel" style="padding: 10px; background: none; border: none; color: #64748b; cursor: pointer; font-size: 0.9rem;">
                             Cancelar
                         </button>
                     </div>
@@ -139,6 +139,12 @@ export const RestoreUI = {
                 document.removeEventListener('keydown', handleEscape);
             }
         };
+
+        // Botones de cerrar (X y Cancelar)
+        const closeBtn = document.getElementById(`restore-modal-close-${modalId}`);
+        const cancelBtn = document.getElementById(`restore-modal-cancel-${modalId}`);
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
 
         // Manejo de tecla Escape para cerrar
         const handleEscape = (e) => {

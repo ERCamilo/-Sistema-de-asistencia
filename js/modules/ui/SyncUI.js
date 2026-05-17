@@ -2,8 +2,36 @@ import icons from './IconSystem.js';
 
 let context = null;
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-sync-action)
+// ============================================
+const _SYNC_ACTION_MAP = {
+    'login-with-google': () => window.loginWithGoogle?.(),
+    'change-tab': (tab) => window.changeTab?.(tab),
+    'close-modal': () => window.closeModal?.(),
+    'upload-to-cloud': () => window.uploadToCloud?.(),
+    'download-from-cloud': () => window.downloadFromCloud?.(),
+    'close-overlay': (_, el, e) => { if (e.target === el) window.closeModal?.(); }
+};
+
+function _handleSyncClick(e) {
+    const target = e.target.closest('[data-sync-action]');
+    if (!target) return;
+    const action = target.dataset.syncAction;
+    const handler = _SYNC_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+let _syncDelegationAttached = false;
+
 export function initSyncUI(ctx) {
     context = ctx;
+    if (!_syncDelegationAttached) {
+        document.addEventListener('click', _handleSyncClick);
+        _syncDelegationAttached = true;
+    }
 }
 
 // Helper para acceder a dependencias globales si no fueron inyectadas directas
@@ -23,7 +51,7 @@ export function SyncIndicator() {
                 class="settings-btn" 
                 style="color: #94a3b8; font-size: 1.25rem;"
                 title="Iniciar sesión con Google"
-                onclick="loginWithGoogle()"
+                type="button" data-sync-action="login-with-google"
             >
                 ${icons.get('user')}
             </button>
@@ -88,7 +116,7 @@ export function SyncIndicator() {
                         ${config.animate ? 'animation: spin 2s linear infinite;' : ''}
                     "
                     title="${config.title}"
-                    onclick="changeTab('settings')"
+                    type="button" data-sync-action="change-tab" data-value="settings"
                 >
                     ${config.icon}
                 </button>
@@ -141,11 +169,11 @@ export function getSyncSummaryHTML(local, remote) {
 
 export function buildUploadConfirmModalHTML(local) {
     return `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); }">
+                <div class="modal-overlay" data-sync-action="close-overlay">
                     <div class="modal-content" style="max-width: 480px;">
                         <div class="modal-header">
                             <h2 class="modal-title">📤 Subir datos a la nube</h2>
-                            <button class="modal-close" onclick="closeModal()">✕</button>
+                            <button class="modal-close" type="button" data-sync-action="close-modal" aria-label="Cerrar">✕</button>
                         </div>
                         <div class="modal-body">
                             <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
@@ -159,10 +187,10 @@ export function buildUploadConfirmModalHTML(local) {
                             </p>
                             
                             <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                <button onclick="uploadToCloud()" class="btn-primary" style="flex: 1;">
+                                <button type="button" data-sync-action="upload-to-cloud" class="btn-primary" style="flex: 1;">
                                     📤 Sí, subir datos
                                 </button>
-                                <button onclick="closeModal()" class="btn-secondary" style="flex: 1;">
+                                <button type="button" data-sync-action="close-modal" class="btn-secondary" style="flex: 1;">
                                     Ahora no
                                 </button>
                             </div>
@@ -174,11 +202,11 @@ export function buildUploadConfirmModalHTML(local) {
 
 export function buildDownloadConfirmModalHTML(remote) {
     return `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); }">
+                <div class="modal-overlay" data-sync-action="close-overlay">
                     <div class="modal-content" style="max-width: 480px;">
                         <div class="modal-header">
                             <h2 class="modal-title">☁️ Descargar desde la nube</h2>
-                            <button class="modal-close" onclick="closeModal()">✕</button>
+                            <button class="modal-close" type="button" data-sync-action="close-modal" aria-label="Cerrar">✕</button>
                         </div>
                         <div class="modal-body">
                             <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
@@ -192,10 +220,10 @@ export function buildDownloadConfirmModalHTML(remote) {
                             </p>
                             
                             <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                <button onclick="downloadFromCloud()" class="btn-primary" style="flex: 1;">
+                                <button type="button" data-sync-action="download-from-cloud" class="btn-primary" style="flex: 1;">
                                     ☁️ Sí, descargar
                                 </button>
-                                <button onclick="closeModal()" class="btn-secondary" style="flex: 1;">
+                                <button type="button" data-sync-action="close-modal" class="btn-secondary" style="flex: 1;">
                                     Ahora no
                                 </button>
                             </div>
@@ -207,11 +235,11 @@ export function buildDownloadConfirmModalHTML(remote) {
 
 export function buildFullSyncModalHTML(local, remote) {
     return `
-                <div class="modal-overlay" onclick="if(event.target === this) { closeModal(); }">
+                <div class="modal-overlay" data-sync-action="close-overlay">
                     <div class="modal-content" style="max-width: 600px;">
                         <div class="modal-header">
                             <h2 class="modal-title">🔄 Sincronización Inicial</h2>
-                            <button class="modal-close" onclick="closeModal()">✕</button>
+                            <button class="modal-close" type="button" data-sync-action="close-modal" aria-label="Cerrar">✕</button>
                         </div>
                         <div class="modal-body">
                             <p style="color: #cbd5e1; margin-bottom: 15px; line-height: 1.6;">
@@ -221,7 +249,7 @@ export function buildFullSyncModalHTML(local, remote) {
                             ${getSyncSummaryHTML(local, remote)}
                             
                             <div style="display: flex; flex-direction: column; gap: 12px;">
-                                <button onclick="uploadToCloud()" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
+                                <button type="button" data-sync-action="upload-to-cloud" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
                                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
                                         <span style="font-size: 1.5rem;">📤</span>
                                         <span style="font-weight: 700; font-size: 1.05rem;">Subir mis datos locales</span>
@@ -231,7 +259,7 @@ export function buildFullSyncModalHTML(local, remote) {
                                     </div>
                                 </button>
                                 
-                                <button onclick="downloadFromCloud()" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #06b6d4, #0891b2);">
+                                <button type="button" data-sync-action="download-from-cloud" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #06b6d4, #0891b2);">
                                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
                                         <span style="font-size: 1.5rem;">☁️</span>
                                         <span style="font-weight: 700; font-size: 1.05rem;">Descargar desde la nube</span>
@@ -241,7 +269,7 @@ export function buildFullSyncModalHTML(local, remote) {
                                     </div>
                                 </button>
                                 
-                                <button onclick="closeModal()" class="btn-secondary" style="margin-top: 8px;">
+                                <button type="button" data-sync-action="close-modal" class="btn-secondary" style="margin-top: 8px;">
                                     ❌ Cancelar (no hacer nada ahora)
                                 </button>
                             </div>

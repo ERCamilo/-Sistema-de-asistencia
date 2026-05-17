@@ -2,6 +2,47 @@ import { ComponentBase } from './ComponentBase.js';
 import { parseDate, getDateKey, isDateInPayPeriod, isPayday } from '../utils/DateUtils.js';
 import icons from '../ui/IconSystem.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-cal-action)
+// ============================================
+const _CAL_ACTION_MAP = {
+    'switch-view': (view) => window.calendarPicker?.switchView(view),
+    'prev': () => window.calendarPicker?.prev(),
+    'next': () => window.calendarPicker?.next(),
+    'select-month': (m) => window.calendarPicker?.selectMonth(parseInt(m, 10)),
+    'select-year': (y) => window.calendarPicker?.selectYear(parseInt(y, 10)),
+    'handle-date-click': (dateKey) => window.calendarPicker?.handleDateClick(dateKey),
+    'stop-propagation': (_, _el, e) => { e?.stopPropagation(); }
+};
+
+function _handleCalClick(e) {
+    const target = e.target.closest('[data-cal-action]');
+    if (!target) return;
+    const action = target.dataset.calAction;
+    const handler = _CAL_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handleCalKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-cal-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleCalClick(e);
+}
+
+let _calDelegationAttached = false;
+function _attachCalDelegation() {
+    if (_calDelegationAttached) return;
+    document.addEventListener('click', _handleCalClick);
+    document.addEventListener('keydown', _handleCalKeydown);
+    _calDelegationAttached = true;
+}
+_attachCalDelegation();
+
 /**
  * Componente de Selector de Calendario Premium.
  * Soporta navegación de mes/año, indicadores visuales, y feriados.
@@ -118,10 +159,10 @@ export class CalendarPickerComponent extends ComponentBase {
 
         let title = '';
         if (currentView === 'calendar') {
-            title = `<span onclick="calendarPicker.switchView('months')" style="cursor:pointer">${monthNames[viewDate.getMonth()]}</span> 
-                     <span onclick="calendarPicker.switchView('years')" style="cursor:pointer">${viewDate.getFullYear()}</span>`;
+            title = `<span role="button" tabindex="0" data-cal-action="switch-view" data-value="months" style="cursor:pointer">${monthNames[viewDate.getMonth()]}</span>
+                     <span role="button" tabindex="0" data-cal-action="switch-view" data-value="years" style="cursor:pointer">${viewDate.getFullYear()}</span>`;
         } else if (currentView === 'months') {
-            title = `<span onclick="calendarPicker.switchView('years')" style="cursor:pointer">${viewDate.getFullYear()}</span>`;
+            title = `<span role="button" tabindex="0" data-cal-action="switch-view" data-value="years" style="cursor:pointer">${viewDate.getFullYear()}</span>`;
         } else {
             title = `${yearPage - 5} - ${yearPage + 6}`;
         }
@@ -130,9 +171,9 @@ export class CalendarPickerComponent extends ComponentBase {
 
         return `
             <div class="calendar-header">
-                ${showNav ? `<button type="button" class="calendar-nav" onclick="calendarPicker.prev()">${icons.get('chevron-left')}</button>` : '<div></div>'}
+                ${showNav ? `<button type="button" class="calendar-nav" data-cal-action="prev" aria-label="Anterior">${icons.get('chevron-left')}</button>` : '<div></div>'}
                 <div class="calendar-title">${title}</div>
-                ${showNav ? `<button type="button" class="calendar-nav" onclick="calendarPicker.next()">${icons.get('chevron-right')}</button>` : '<div></div>'}
+                ${showNav ? `<button type="button" class="calendar-nav" data-cal-action="next" aria-label="Siguiente">${icons.get('chevron-right')}</button>` : '<div></div>'}
             </div>
         `;
     }
@@ -144,7 +185,7 @@ export class CalendarPickerComponent extends ComponentBase {
         return `
             <div class="calendar-grid-jumper">
                 ${monthNames.map((name, i) => `
-                    <div class="jumper-item ${i === currentMonth ? 'active' : ''}" onclick="calendarPicker.selectMonth(${i})">
+                    <div role="button" tabindex="0" class="jumper-item ${i === currentMonth ? 'active' : ''}" data-cal-action="select-month" data-value="${i}">
                         ${name}
                     </div>
                 `).join('')}
@@ -163,7 +204,7 @@ export class CalendarPickerComponent extends ComponentBase {
         return `
             <div class="calendar-grid-jumper">
                 ${years.map(y => `
-                    <div class="jumper-item ${y === currentYear ? 'active' : ''}" onclick="calendarPicker.selectYear(${y})">
+                    <div role="button" tabindex="0" class="jumper-item ${y === currentYear ? 'active' : ''}" data-cal-action="select-year" data-value="${y}">
                         ${y}
                     </div>
                 `).join('')}
@@ -228,7 +269,7 @@ export class CalendarPickerComponent extends ComponentBase {
             const paydayIconHTML = isWorkPayday ? `<span class="payday-icon" title="Día de Pago">💰</span>` : '';
 
             daysHTML += `
-                <div class="${classes}" onclick="calendarPicker.handleDateClick('${dateKey}')">
+                <div role="button" tabindex="0" class="${classes}" data-cal-action="handle-date-click" data-value="${dateKey}" aria-label="${dateKey}">
                     ${day}
                     ${paydayIconHTML}
                     ${indicatorsHTML}
@@ -284,7 +325,7 @@ export class CalendarPickerComponent extends ComponentBase {
         else if (currentView === 'years') content = this.renderYears();
 
         return `
-            <div class="calendar-picker" onclick="event.stopPropagation()">
+            <div class="calendar-picker" data-cal-action="stop-propagation">
                 ${this.renderHeader()}
                 ${content}
             </div>

@@ -11,18 +11,46 @@ import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.j
 export let context = null;
 
 // Mapa de acciones para event delegation (data-action)
-// Las funciones se resuelven en runtime contra window.* para mantener compat con código legacy
+// Las funciones se resuelven en runtime contra window.* para mantener compat con código legacy.
+// Los handlers reciben (arg, targetEl, event) para soportar acciones con DOM closures.
 const _ACTION_MAP = {
     'open-employee-profile': (id) => window.openEmployeeProfile?.(id),
-    'open-employee-form': (id) => window.openEmployeeForm?.(id),
+    'open-employee-form': (id) => window.openEmployeeForm?.(id || undefined),
+    'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
     'toggle-employee-status': (id) => window.toggleEmployeeStatus?.(id),
-    'open-leader-form': (id) => window.openLeaderForm?.(id),
+    'open-leader-form': (id) => window.openLeaderForm?.(id || undefined),
     'toggle-leader-status': (id) => window.toggleLeaderStatus?.(id),
-    'open-position-form': (id) => window.openPositionForm?.(id),
+    'toggle-leader-employees': (id) => window.toggleLeaderEmployees?.(id),
+    'open-position-form': (id) => window.openPositionForm?.(id || undefined),
     'toggle-position-status': (id) => window.togglePositionStatus?.(id),
+    'toggle-position-employees': (id) => window.togglePositionEmployees?.(id),
     'delete-position': (id) => window.deletePosition?.(id),
     'reset-employee-filters': () => window.resetEmployeeFilters?.(),
-    'change-view-mode': (mode) => window.changeEmployeeViewMode?.(mode)
+    'change-view-mode': (mode) => window.changeEmployeeViewMode?.(mode),
+    'set-position-sort-by': (mode) => window.setPositionSortBy?.(mode),
+    'set-employee-status-filter': (status) => window.setEmployeeStatusFilter?.(status),
+    // DOM closures (no necesitan llamar a window): manipulación local
+    'open-search': (_, el) => {
+        const w = el.closest('.employee-search');
+        if (!w) return;
+        w.classList.add('open');
+        const i = w.querySelector('input');
+        if (i) i.focus();
+    },
+    'clear-search-position': (_, el) => {
+        window.setPositionSearchFilter?.('');
+        const w = el.closest('.employee-search');
+        if (w) w.classList.remove('open');
+    },
+    'clear-search-employee': (_, el) => {
+        window.setEmployeeSearchFilter?.('');
+        const w = el.closest('.employee-search');
+        if (w) w.classList.remove('open');
+    },
+    'open-filter-pill': (_, el) => {
+        const pill = el.closest('.filter-pill');
+        if (pill) pill.classList.add('open');
+    }
 };
 
 function _handleDelegatedClick(e) {
@@ -32,7 +60,17 @@ function _handleDelegatedClick(e) {
     const handler = _ACTION_MAP[action];
     if (!handler) return;
     const arg = target.dataset.id || target.dataset.value || null;
-    handler(arg);
+    handler(arg, target, e);
+}
+
+// Soporte de teclado para role="button" con data-action (Enter/Space)
+function _handleDelegatedKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleDelegatedClick(e);
 }
 
 let _delegationAttached = false;
@@ -41,6 +79,7 @@ export function init(ctx) {
     context = ctx;
     if (!_delegationAttached) {
         document.addEventListener('click', _handleDelegatedClick);
+        document.addEventListener('keydown', _handleDelegatedKeydown);
         _delegationAttached = true;
     }
 }
@@ -140,7 +179,7 @@ export function EmployeesTab() {
                             <div class="employee-search${positionFilters.search ? ' open' : ''}">
                                 <button class="employee-search-btn"
                                         type="button"
-                                        onclick="const w=this.closest('.employee-search'); w.classList.add('open'); const i=w.querySelector('input'); if(i) i.focus();"
+                                        data-action="open-search" type="button"
                                         aria-label="Buscar">
                                     ${icons.get('search')}
                                 </button>
@@ -152,7 +191,7 @@ export function EmployeesTab() {
                                        placeholder="Buscar posición o líder..."
                                        class="employee-search-input">
                                 ${positionFilters.search ? `
-                                    <button onclick="setPositionSearchFilter(''); const w=this.closest('.employee-search'); w.classList.remove('open');"
+                                    <button type="button" data-action="clear-search-position"
                                             class="employee-search-clear"
                                             aria-label="Limpiar búsqueda">
                                         ${icons.get('close')}
@@ -161,7 +200,7 @@ export function EmployeesTab() {
                             </div>
 
                             <div class="filter-pill ${positionFilters.leaderId !== 'all' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" onclick="this.closest('.filter-pill').classList.add('open')">
+                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
                                     ${icons.get('key')}
                                 </button>
                                 <span class="filter-pill-label">
@@ -181,7 +220,7 @@ export function EmployeesTab() {
                             </div>
 
                             <div class="filter-pill ${statusFilter !== 'active' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" onclick="this.closest('.filter-pill').classList.add('open')">
+                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
                                     ${icons.get('check')}
                                 </button>
                                 <span class="filter-pill-label">${statusLabel}</span>
@@ -197,15 +236,15 @@ export function EmployeesTab() {
                         </div>
 
                         <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                            <button class="view-btn ${sortBy === 'name' ? 'active' : ''}" onclick="setPositionSortBy('name')" style="flex: 1;">
+                            <button class="view-btn ${sortBy === 'name' ? 'active' : ''}" type="button" data-action="set-position-sort-by" data-value="name" style="flex: 1;">
                                 ${icons.get('search')} Por Nombre
                             </button>
-                            <button class="view-btn ${sortBy === 'salary' ? 'active' : ''}" onclick="setPositionSortBy('salary')" style="flex: 1;">
+                            <button class="view-btn ${sortBy === 'salary' ? 'active' : ''}" type="button" data-action="set-position-sort-by" data-value="salary" style="flex: 1;">
                                 ${icons.get('payroll')} Por Sueldo
                             </button>
                         </div>
                         
-                        <button class="view-btn" onclick="openPositionForm()" style="width: 100%; background: #06b6d4; color: #000; border-color: #06b6d4;">
+                        <button class="view-btn" type="button" data-action="open-position-form" style="width: 100%; background: #06b6d4; color: #000; border-color: #06b6d4;">
                             ${icons.get('add')} Nueva Posicion
                         </button>
                     </div>
@@ -231,7 +270,7 @@ export function EmployeesTab() {
                             <div class="employee-search${employeeFilters.search ? ' open' : ''}">
                                 <button class="employee-search-btn"
                                         type="button"
-                                        onclick="const w=this.closest('.employee-search'); w.classList.add('open'); const i=w.querySelector('input'); if(i) i.focus();"
+                                        data-action="open-search" type="button"
                                         aria-label="Buscar">
                                     ${icons.get('search')}
                                 </button>
@@ -243,7 +282,7 @@ export function EmployeesTab() {
                                        placeholder="Buscar por nombre, número o posición..."
                                        class="employee-search-input">
                                 ${employeeFilters.search ? `
-                                    <button onclick="setEmployeeSearchFilter(''); const w=this.closest('.employee-search'); w.classList.remove('open');"
+                                    <button type="button" data-action="clear-search-employee"
                                             class="employee-search-clear"
                                             aria-label="Limpiar búsqueda">
                                         ${icons.get('close')}
@@ -252,7 +291,7 @@ export function EmployeesTab() {
                             </div>
 
                             <div class="filter-pill ${positionFilter !== 'all' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" onclick="this.closest('.filter-pill').classList.add('open')">
+                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
                                     ${icons.get('briefcase')}
                                 </button>
                                 <span class="filter-pill-label">
@@ -272,7 +311,7 @@ export function EmployeesTab() {
                             </div>
 
                             <div class="filter-pill ${leaderFilter !== 'all' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" onclick="this.closest('.filter-pill').classList.add('open')">
+                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
                                     ${icons.get('key')}
                                 </button>
                                 <span class="filter-pill-label">
@@ -292,7 +331,7 @@ export function EmployeesTab() {
                             </div>
 
                             <div class="filter-pill ${statusFilter !== 'active' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" onclick="this.closest('.filter-pill').classList.add('open')">
+                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
                                     ${icons.get('check')}
                                 </button>
                                 <span class="filter-pill-label">${statusLabel}</span>
@@ -312,19 +351,19 @@ export function EmployeesTab() {
                         </div>
                     ` : `
                         <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                            <button class="view-btn ${statusFilter === 'active' ? 'active' : ''}" onclick="setEmployeeStatusFilter('active')" style="flex: 1;">
+                            <button class="view-btn ${statusFilter === 'active' ? 'active' : ''}" type="button" data-action="set-employee-status-filter" data-value="active" style="flex: 1;">
                                 Activos
                             </button>
-                            <button class="view-btn ${statusFilter === 'inactive' ? 'active' : ''}" onclick="setEmployeeStatusFilter('inactive')" style="flex: 1;">
+                            <button class="view-btn ${statusFilter === 'inactive' ? 'active' : ''}" type="button" data-action="set-employee-status-filter" data-value="inactive" style="flex: 1;">
                                 Inactivos
                             </button>
-                            <button class="view-btn ${statusFilter === 'all' ? 'active' : ''}" onclick="setEmployeeStatusFilter('all')" style="flex: 1;">
+                            <button class="view-btn ${statusFilter === 'all' ? 'active' : ''}" type="button" data-action="set-employee-status-filter" data-value="all" style="flex: 1;">
                                 Todos
                             </button>
                         </div>
                     `}
 
-                    <button class="view-btn" onclick="${isEmployees ? 'openEmployeeForm()' : 'openLeaderForm()'}" style="width: 100%; margin-top: 12px; background: #06b6d4; color: #000; border-color: #06b6d4;">
+                    <button class="view-btn" type="button" data-action="${isEmployees ? 'open-employee-form' : 'open-leader-form'}" style="width: 100%; margin-top: 12px; background: #06b6d4; color: #000; border-color: #06b6d4;">
                         ${icons.get('add')} Nuevo ${isEmployees ? 'Empleado' : 'Lider'}
                     </button>
                 </div>
@@ -467,7 +506,7 @@ export function EmployeeCard(emp) {
                     <div class="employee-info" style="flex: 1;">
                         <div class="employee-header">
                             <div class="employee-number">${emp.number}</div>
-                            <div class="employee-name" onclick="openEmployeeFloating('${emp.key || emp.id}')" title="${emp.name}">${emp.name}</div>
+                            <div class="employee-name" role="button" tabindex="0" data-action="open-employee-floating" data-id="${emp.key || emp.id}" title="${emp.name}">${emp.name}</div>
                             ${statusBadge}
                         </div>
                         <div class="position-toggles">
@@ -530,7 +569,7 @@ export function LeaderCard(ldr) {
                 ${emps.map(emp => `
                     <div style="display:flex; gap:8px; color:#f1f5f9; font-size:0.8rem; padding:2px 0;">
                         <span>${emp.number || ''}-</span>
-                        <span style="cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" onclick="openEmployeeFloating('${emp.key || emp.id}')">${emp.name}</span>
+                        <span role="button" tabindex="0" style="cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${emp.name}</span>
                     </div>
                 `).join('')}
             </div>
@@ -556,7 +595,7 @@ export function LeaderCard(ldr) {
                         </div>
                         ${positionsSections ? `
                             <div style="margin-top: 8px;">
-                                <button class="view-btn" onclick="toggleLeaderEmployees('${ldr.id}')" style="padding: 6px 12px; font-size: 0.75rem; width: 100%;">
+                                <button class="view-btn" type="button" data-action="toggle-leader-employees" data-id="${ldr.id}" style="padding: 6px 12px; font-size: 0.75rem; width: 100%;">
                                     ${icons.get('eye')} Ver Empleados
                                 </button>
                                 <div id="leader-employees-${ldr.id}" style="display: none; margin-top: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px;">
@@ -603,7 +642,7 @@ export function PositionCard(pos) {
                         </div>
                         ${employeesInPosition.length > 0 ? `
                             <div style="margin-top: 8px;">
-                                <button class="view-btn" onclick="togglePositionEmployees('${pos.id}')" style="padding: 6px 12px; font-size: 0.75rem; width: 100%;">
+                                <button class="view-btn" type="button" data-action="toggle-position-employees" data-id="${pos.id}" style="padding: 6px 12px; font-size: 0.75rem; width: 100%;">
                                     ${icons.get('eye')} Ver Empleados (${employeesInPosition.length})
                                 </button>
                                 <div id="pos-employees-${pos.id}" style="display: none; margin-top: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px;">
@@ -648,7 +687,7 @@ export function PositionCard(pos) {
                                         <div style="padding: 4px 0; color: #f1f5f9; ${idx < employeesInPosition.length - 1 ? 'border-bottom: 1px solid #334155;' : ''}">
                                             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                                                 <div style="min-width:40px; color:#94a3b8; font-weight:700;">${emp.number || ''}</div>
-                                                <div style="flex:1; cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" onclick="openEmployeeFloating('${emp.key || emp.id}')">${emp.name}</div>
+                                                <div role="button" tabindex="0" style="flex:1; cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${emp.name}</div>
                                                 <div style="display:flex; align-items:center; gap:8px; justify-content:flex-end; min-width:140px;">
                                                     ${showCustomRate ? `<span style="color:#38bdf8; font-weight:700;">$${customRate}/hr</span>` : ''}
                                                     ${deductionText ? `<span style="color:#f87171; font-weight:700;">${deductionText}</span>` : ''}

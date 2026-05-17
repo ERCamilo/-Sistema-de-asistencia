@@ -8,6 +8,19 @@ import { getDateKey, getDaysInMonth, formatMonthYear, isDateInPayPeriod, isPayda
 import { getCheckColor } from '../AttendanceUI.js';
 import icons from '../IconSystem.js';
 
+// Delegación: los botones de CalendarView usan data-cv-nav-action + data-cv-delta
+// para resolver dinámicamente la función global a llamar (preserva la API original).
+let _cvDelegationAttached = false;
+if (!_cvDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        const t = e.target.closest('[data-cv-nav-action]');
+        if (!t) return;
+        const fn = window[t.dataset.cvNavAction];
+        if (typeof fn === 'function') fn(parseInt(t.dataset.cvDelta || '0', 10));
+    });
+    _cvDelegationAttached = true;
+}
+
 /**
  * Renderiza un calendario mensual para un empleado específico.
  * @param {Object} options - Configuración del calendario
@@ -71,11 +84,11 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
     return `
         <div class="calendar-container premium-calendar">
             <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <button class="nav-btn" onclick="${navAction}(-1)">${icons.get('chevron-left')}</button>
+                <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior">${icons.get('chevron-left')}</button>
                 <div class="calendar-month-title" style="font-weight: 700; color: #f1f5f9; font-size: 0.9rem;">
                     ${formatMonthYear(month)}
                 </div>
-                <button class="nav-btn" onclick="${navAction}(1)">${icons.get('chevron-right')}</button>
+                <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>
             </div>
             
             <div class="calendar-grid">

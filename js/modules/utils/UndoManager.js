@@ -18,7 +18,7 @@ export const UndoManager = {
         this._dependencies.renderFn = renderFn;
         this._dependencies.showNotificationFn = showNotificationFn;
 
-        // Exponer globalmente para que funcione el onclick="UndoManager.undo()"
+        // Expuesto globalmente para acceso desde otros módulos legacy
         window.UndoManager = this;
     },
 
@@ -73,10 +73,16 @@ export const UndoManager = {
         el.innerHTML = `
             <div class="undo-toast-inner">
                 <span class="undo-toast-icon">↩️</span>
-                <button class="undo-toast-btn" onclick="UndoManager.undo()">DESHACER</button>
-                <button class="undo-toast-close" onclick="UndoManager._dismiss()">${icons.get('close')}</button>
+                <button class="undo-toast-btn" type="button">DESHACER</button>
+                <button class="undo-toast-close" type="button" aria-label="Descartar">${icons.get('close')}</button>
             </div>
         `;
+
+        // Listeners directos (no inline onclick)
+        const undoBtn = el.querySelector('.undo-toast-btn');
+        const closeBtn = el.querySelector('.undo-toast-close');
+        if (undoBtn) undoBtn.addEventListener('click', () => this.undo());
+        if (closeBtn) closeBtn.addEventListener('click', () => this._dismiss());
 
         document.body.appendChild(el);
         this._element = el;

@@ -3,6 +3,33 @@ import { state } from '../core/AppState.js';
 import { Modal } from './Modal.js';
 import icons from '../ui/IconSystem.js';
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-alerts-action)
+// ============================================
+const _ALERTS_ACTION_MAP = {
+    'show-resolution-dialog': () => window._systemAlerts?.showResolutionDialog(),
+    'start-maintenance-from-alert': () => {
+        if (window._systemAlerts?.currentModal) window._systemAlerts.currentModal.close();
+        window._maintenanceUI?.start();
+    },
+    'ignore-temporarily': () => window._systemAlerts?.ignoreTemporarily(),
+    'ignore-permanently': () => window._systemAlerts?.ignorePermanently()
+};
+
+function _handleAlertsClick(e) {
+    const target = e.target.closest('[data-alerts-action]');
+    if (!target) return;
+    const action = target.dataset.alertsAction;
+    const handler = _ALERTS_ACTION_MAP[action];
+    if (handler) handler();
+}
+
+let _alertsDelegationAttached = false;
+if (!_alertsDelegationAttached) {
+    document.addEventListener('click', _handleAlertsClick);
+    _alertsDelegationAttached = true;
+}
+
 export class SystemAlertsManager {
     constructor() {
         this.sessionIgnored = false;
@@ -44,7 +71,7 @@ export class SystemAlertsManager {
         if (!this.shouldShowDuplicateAlert()) return '';
 
         return `
-            <button class="header-icon-btn warning-alert heartbeat" onclick="window._systemAlerts.showResolutionDialog()" aria-label="Alertas del Sistema: Tienes duplicados">
+            <button class="header-icon-btn warning-alert heartbeat" type="button" data-alerts-action="show-resolution-dialog" aria-label="Alertas del Sistema: Tienes duplicados">
                 ${icons.get('alert', { size: 20 }) || '⚠️'}
                 <span class="alert-badge">${this.currentConflicts}</span>
             </button>
@@ -116,15 +143,15 @@ export class SystemAlertsManager {
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 10px;">
-                    <button class="btn primary" onclick="if(window._systemAlerts.currentModal) window._systemAlerts.currentModal.close(); if(window._maintenanceUI) window._maintenanceUI.start();" style="width: 100%; justify-content: center; padding: 12px; font-size: 1rem;">
+                    <button class="btn primary" type="button" data-alerts-action="start-maintenance-from-alert" style="width: 100%; justify-content: center; padding: 12px; font-size: 1rem;">
                         ✨ Iniciar Asistente de Solución Rápida
                     </button>
                     
                     <div style="display: flex; gap: 10px; margin-top: 5px;">
-                        <button class="btn secondary" onclick="window._systemAlerts.ignoreTemporarily()" style="flex: 1; justify-content: center; background: transparent; border: 1px solid #475569;">
+                        <button class="btn secondary" type="button" data-alerts-action="ignore-temporarily" style="flex: 1; justify-content: center; background: transparent; border: 1px solid #475569;">
                             Ignorar hasta reiniciar
                         </button>
-                        <button class="btn secondary" onclick="window._systemAlerts.ignorePermanently()" style="flex: 1; justify-content: center; background: transparent; border: 1px solid #475569; color: #94a3b8;">
+                        <button class="btn secondary" type="button" data-alerts-action="ignore-permanently" style="flex: 1; justify-content: center; background: transparent; border: 1px solid #475569; color: #94a3b8;">
                             Nunca mostrar
                         </button>
                     </div>

@@ -13,6 +13,58 @@ import { EmptyState } from '../components/EmptyState.js';
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
 
+// ============================================
+// 🎯 EVENT DELEGATION (data-action)
+// ============================================
+const _ACTION_MAP = {
+    'change-date': (delta) => window.changeDate?.(parseFloat(delta)),
+    'change-view-mode': (mode) => window.changeViewMode?.(mode),
+    'go-to-today': () => window.goToToday?.(),
+    'toggle-date-picker': (mode, _el, e) => { e?.stopPropagation(); window.toggleDatePicker?.(mode); },
+    'toggle-holiday': () => window.toggleHoliday?.(),
+    'change-base-hours': (delta) => window.changeBaseHours?.(parseFloat(delta)),
+    'set-employee-filter': (val) => window.setEmployeeFilter?.(val === 'null' ? null : val),
+    'set-position-filter': (id) => window.setPositionFilter?.(id),
+    'toggle-filters': () => window.toggleFilters?.(),
+    'clear-search-filter': () => window.setSearchFilter?.(''),
+    'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
+    'open-advanced-attendance': (id, _el, e) => { e?.stopPropagation(); window.openAdvancedAttendance?.(id); },
+    'handle-week-check': (_, el, e) => { e?.stopPropagation(); window.handleWeekCheck?.(el.dataset.empId, el.dataset.dateKey); },
+    'toggle-week-position': (_, el, e) => { e?.stopPropagation(); window.toggleWeekPosition?.(el.dataset.empId, el.dataset.posId, el.dataset.dateKey); },
+    'toggle-legend': () => window.toggleLegend?.(),
+    'toggle-position': (_, el) => window.togglePosition?.(el.dataset.empId, el.dataset.posId),
+    'select-temp-position': (_, el, e) => { e?.stopPropagation(); window.selectTempPosition?.(el.dataset.empId, el.dataset.posId); },
+    'handle-checkbox-click': (_, el, e) => window.handleCheckboxClick?.(e, el.dataset.empId)
+};
+
+function _handleAttendanceClick(e) {
+    const target = e.target.closest('[data-att-action]');
+    if (!target) return;
+    const action = target.dataset.attAction;
+    const handler = _ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handleAttendanceKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-att-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleAttendanceClick(e);
+}
+
+let _attendanceDelegationAttached = false;
+export function attachAttendanceDelegation() {
+    if (_attendanceDelegationAttached) return;
+    document.addEventListener('click', _handleAttendanceClick);
+    document.addEventListener('keydown', _handleAttendanceKeydown);
+    _attendanceDelegationAttached = true;
+}
+attachAttendanceDelegation();
+
 // --------------------------------------------------------------------------
 // 📅 COMPONENTE: DateControlsCompact
 // --------------------------------------------------------------------------
@@ -46,17 +98,17 @@ export function DateControlsCompact() {
     return `
             <div class="${classes}">
                 <div class="pill-nav">
-                    <button class="pill-btn" onclick="window.changeDate(-1)">
+                    <button class="pill-btn" type="button" data-att-action="change-date" data-value="-1">
                         ${icons.get('chevron-left', { size: 18 })}
                     </button>
                     
-                    <div class="pill-display" onclick="window.toggleDatePicker('compact'); event.stopPropagation();" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
+                    <div class="pill-display" role="button" tabindex="0" data-att-action="toggle-date-picker" data-value="compact" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
                         ${icons.get('calendar', { size: 14, color: isToday ? '#06b6d4' : undefined })}
                         <span style="${isToday ? 'color: #06b6d4;' : ''}">${dateText}</span>
                         ${datePickerHTML}
                     </div>
                     
-                    <button class="pill-btn" onclick="window.changeDate(1)">
+                    <button class="pill-btn" type="button" data-att-action="change-date" data-value="1">
                         ${icons.get('chevron-right', { size: 18 })}
                     </button>
                 </div>
@@ -100,8 +152,8 @@ function ViewModeSelector() {
 
             <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
                 <div class="segmented-control" style="width: 200px;">
-                    <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="window.changeViewMode('day')">${dayLabel}</button>
-                    <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="window.changeViewMode('week')">${weekLabel}</button>
+                    <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" type="button" data-att-action="change-view-mode" data-value="day">${dayLabel}</button>
+                    <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" type="button" data-att-action="change-view-mode" data-value="week">${weekLabel}</button>
                 </div>
             </div>
         `;
@@ -116,13 +168,13 @@ function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
 
 
     return `<div class="pill-nav" style="margin-bottom: 20px;">
-                <button class="pill-btn" onclick="window.changeDate(-1)">${flechaIzquierda}</button>
-                <div class="pill-display" onclick="window.toggleDatePicker('full'); event.stopPropagation();" style="position: relative; ${colorBorde}">
+                <button class="pill-btn" type="button" data-att-action="change-date" data-value="-1">${flechaIzquierda}</button>
+                <div class="pill-display" role="button" tabindex="0" data-att-action="toggle-date-picker" data-value="full" style="position: relative; ${colorBorde}">
                     ${iconoCalendario}
                     <span style="${colorTexto}">${displayText}</span>
                     ${datePickerHTML}
                 </div>
-                <button class="pill-btn" onclick="window.changeDate(1)">${flechaDerecha}</button>
+                <button class="pill-btn" type="button" data-att-action="change-date" data-value="1">${flechaDerecha}</button>
             </div>`
 }
 //            <!-- 3. NIVEL INFERIOR: Controles Equilibrados -->
@@ -144,7 +196,7 @@ function ControlesAsistenciaFeriado(isHoliday) {
              <div class="view-controls-row">
                 <div class="control-section side-control">
                     <div class="control-section-label">Feriado</div>
-                    <div class="holiday-control ${clase}" onclick="window.toggleHoliday()" title="${title}">
+                    <div class="holiday-control ${clase}" role="button" tabindex="0" data-att-action="toggle-holiday" title="${title}">
                         <div class="holiday-icon-box">
                             ${icons.get(icono, { size: 20 })}
                         </div>
@@ -160,9 +212,9 @@ function ControlesAsistenciaHorasBase(hourColor, dayHours) {
                 <div class="control-section center-control">
                     <div class="control-section-label">Horas a Asignar</div>
                     <div class="stepper-container" title="Horas a asignar para este día">
-                        <button class="stepper-btn" onclick="window.changeBaseHours(-0.5)">-</button>
+                        <button class="stepper-btn" type="button" data-att-action="change-base-hours" data-value="-0.5" aria-label="Reducir horas">-</button>
                         <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
-                        <button class="stepper-btn" onclick="window.changeBaseHours(0.5)">+</button>
+                        <button class="stepper-btn" type="button" data-att-action="change-base-hours" data-value="0.5" aria-label="Aumentar horas">+</button>
                     </div>
                 </div>`
 }
@@ -172,7 +224,7 @@ function ControlesAsistenciaHoy(isToday, todayBtnStyle, todayIconColor) {
 
     return ` <div class="control-section side-control">
                  <div class="control-section-label">Navegación</div>
-                <button class="btn-today-nav" onclick="window.goToToday()" title="Ir a hoy" style="${todayBtnStyle}">
+                <button class="btn-today-nav" type="button" data-att-action="go-to-today" title="Ir a hoy" aria-label="Ir a hoy" style="${todayBtnStyle}">
                      ${icons.get('target', { size: 18, color: todayIconColor })}
                       <span style="${color}">Hoy</span>
                 </button>
@@ -221,8 +273,8 @@ export function DateControls() {
             <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
             <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
                 <div class="segmented-control" style="width: 200px;">
-                    <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" onclick="window.changeViewMode('day')">${dayLabel}</button>
-                    <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" onclick="window.changeViewMode('week')">${weekLabel}</button>
+                    <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" type="button" data-att-action="change-view-mode" data-value="day">${dayLabel}</button>
+                    <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" type="button" data-att-action="change-view-mode" data-value="week">${weekLabel}</button>
                 </div>
             </div>
 
@@ -257,14 +309,16 @@ export function renderSkeleton(count = 5) {
  */
 
 function statCard(f, nombreID, nombre, icon, stats, filtro) {
-    return `<div class="stat-item ${f === nombreID ? 'active' : ''}" onclick="setEmployeeFilter(${filtro})">
+    const filterVal = filtro || 'null';
+    return `<div class="stat-item ${f === nombreID ? 'active' : ''}" role="button" tabindex="0" data-att-action="set-employee-filter" data-value="${filterVal}">
         <div class="stat-icon">${icon}</div>
         <div class="stat-value">${stats}</div>
         <div class="stat-label">${nombre}</div>
     </div>`
 }
 function statCard_clock(f, nombreID, nombre, icon, stats, filtro) {
-    return `<div class="stat-item ${f === nombreID ? 'active' : ''}" onclick="setEmployeeFilter(${filtro})">
+    const filterVal = filtro || 'null';
+    return `<div class="stat-item ${f === nombreID ? 'active' : ''}" role="button" tabindex="0" data-att-action="set-employee-filter" data-value="${filterVal}">
         <div class="stat-icon">${icon}</div>
         <div class="stat-value-clock">${stats}</div>
         <div class="stat-label">${nombre}</div>
@@ -282,15 +336,15 @@ export function StatsGrid() {
     };
     return `<div id="day-stats" class="stats-combined"><div class="stats-row">
     
-             ${statCard(f, 'present', 'Presente', '✅', stats.present, `'present'`)}
-             ${statCard(f, 'absent', 'Ausentes', '❌', stats.absent, `'absent'`)}
-             ${statCard_clock(f, 'time', 'Horas', '⏱️', stats.totalHours, `''`)}
-             ${statCard(f, 'overtime', 'Extras', '⚡', stats.overtimeHours, `'overtime'`)}
+             ${statCard(f, 'present', 'Presente', '✅', stats.present, 'present')}
+             ${statCard(f, 'absent', 'Ausentes', '❌', stats.absent, 'absent')}
+             ${statCard_clock(f, 'time', 'Horas', '⏱️', stats.totalHours, '')}
+             ${statCard(f, 'overtime', 'Extras', '⚡', stats.overtimeHours, 'overtime')}
 
 
             </div>${f ? `<div class="filter-status-notification">
                 <span class="filter-status-text" style="display: inline-flex; align-items: center; gap: 6px;">${icons.get('filter', { size: 14 })} ${filterNames[f]}</span>
-                <button onclick="setEmployeeFilter(null)" class="view-btn" style="padding: 4px 12px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;" aria-label="Limpiar filtro">${icons.get('close', { size: 12 })} Limpiar</button>
+                <button type="button" data-att-action="set-employee-filter" data-value="null" class="view-btn" style="padding: 4px 12px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;" aria-label="Limpiar filtro">${icons.get('close', { size: 12 })} Limpiar</button>
             </div>` : ''}</div>`;
 }
 
@@ -298,7 +352,7 @@ export function StatsGrid() {
  * 🎨 Leyenda de colores explicativa
  */
 export function Legend() {
-    return `<div class="legend"><div class="legend-header" onclick="toggleLegend()"><div class="legend-title">🎨 Leyenda de Colores</div><div style="color:#64748b;font-size:1.25rem;">${state.showLegend ? '▼' : '▶'}</div></div>${state.showLegend ? '<div class="legend-items"><div class="legend-item"><div class="legend-color check-regular"></div><span class="legend-text">Regular</span></div><div class="legend-item"><div class="legend-color check-multiposition"></div><span class="legend-text">Multi-Pos</span></div><div class="legend-item"><div class="legend-color check-holiday"></div><span class="legend-text">Festivo</span></div><div class="legend-item"><div class="legend-color check-overtime"></div><span class="legend-text">Extras</span></div><div class="legend-item"><div class="legend-color check-undertime"></div><span class="legend-text">Menos</span></div></div>' : ''}</div>`;
+    return `<div class="legend"><div class="legend-header" role="button" tabindex="0" data-att-action="toggle-legend"><div class="legend-title">Leyenda de Colores</div><div style="color:#64748b;font-size:1.25rem;">${state.showLegend ? '▼' : '▶'}</div></div>${state.showLegend ? '<div class="legend-items"><div class="legend-item"><div class="legend-color check-regular"></div><span class="legend-text">Regular</span></div><div class="legend-item"><div class="legend-color check-multiposition"></div><span class="legend-text">Multi-Pos</span></div><div class="legend-item"><div class="legend-color check-holiday"></div><span class="legend-text">Festivo</span></div><div class="legend-item"><div class="legend-color check-overtime"></div><span class="legend-text">Extras</span></div><div class="legend-item"><div class="legend-color check-undertime"></div><span class="legend-text">Menos</span></div></div>' : ''}</div>`;
 }
 
 /**
@@ -327,22 +381,22 @@ export function PositionFilters() {
 
     return `
         <div class="position-filters-container" style="margin-top: 16px;">
-            <button class="filters-toggle view-btn" onclick="toggleFilters()" style="width: 100%; justify-content: space-between;">
+            <button class="filters-toggle view-btn" type="button" data-att-action="toggle-filters" style="width: 100%; justify-content: space-between;">
                 <span style="color: #f1f5f9; font-weight: 600; font-size: 0.875rem;">🎯 Filtrar Posición</span>
                 <span style="font-size: 1.25rem; color: #94a3b8;">${state.showFilters ? '▼' : '▶'}</span>
             </button>
             ${state.showFilters ? `
                 <div class="filters-content position-filters-grid">
-                    <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" 
-                            onclick="setPositionFilter('all')"
+                    <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}"
+                            type="button" data-att-action="set-position-filter" data-id="all"
                             style="background: ${currentFilter === 'all' ? 'linear-gradient(135deg, #06b6d4, #10b981)' : '#1e293b'}; border: 2px solid ${currentFilter === 'all' ? '#06b6d4' : '#334155'}; 
                             padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
                         <span style="font-size: 0.875rem; font-weight: 600; color: #f1f5f9;">Todos</span>
                         <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === 'all' ? '#fff' : '#06b6d4'};">${totalCount}</span>
                     </button>
                     ${activePositions.map(pos => `
-                        <button class="filter-btn ${currentFilter === pos.id ? 'active' : ''}" 
-                                onclick="setPositionFilter('${pos.id}')"
+                        <button class="filter-btn ${currentFilter === pos.id ? 'active' : ''}"
+                                type="button" data-att-action="set-position-filter" data-id="${pos.id}"
                                 style="background: ${currentFilter === pos.id ? pos.color : '#1e293b'}; border: 2px solid ${currentFilter === pos.id ? pos.color : '#334155'}; padding: 10px; border-radius: 
                                 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
                             <span style="font-size: 0.875rem; font-weight: 600; color: ${currentFilter === pos.id ? '#fff' : '#f1f5f9'};">${pos.name}</span>
@@ -369,7 +423,7 @@ export function SearchBar() {
                        placeholder="Buscar por nombre, número o posición..."
                        class="search-input-field">
                 <span class="search-icon-fixed">🔍</span>
-                ${searchValue ? `<button onclick="setSearchFilter('');" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">✕</button>` : ''}
+                ${searchValue ? `<button type="button" data-att-action="clear-search-filter" aria-label="Limpiar búsqueda" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">${icons.get('close', { size: 12 })}</button>` : ''}
             </div>
             <div class="search-input-group" style="flex: 2;">
                 <div class="search-icon-fixed">
@@ -453,7 +507,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-number">${emp.number}</div>
-                        <div class="employee-name" onclick="openEmployeeFloating('${emp.id}')">${emp.name}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
+                        <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${emp.name}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
                     </div>
                     <div class="position-toggles" style="margin-top: 8px;">
                         ${emp.positions.map(pid => {
@@ -465,9 +519,11 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         const posColor = pos.color || "#64748b";
         const neonStyle = isWorked ? `border-color: ${posColor}; box-shadow: 0 0 10px ${posColor}66; background: ${posColor}15; color: #fff;` : '';
 
-        return `<button class="position-toggle ${isActive ? 'active' : ''} ${isWorked ? 'worked-today' : ''}" 
+        const posAction = isChecked ? 'toggle-position' : 'select-temp-position';
+        return `<button class="position-toggle ${isActive ? 'active' : ''} ${isWorked ? 'worked-today' : ''}"
+                                                   type="button"
                                                    style="${neonStyle}"
-                                                   onclick="${isChecked ? `togglePosition('${emp.id}', '${pid}')` : `event.stopPropagation(); selectTempPosition('${emp.id}', '${pid}')`}">
+                                                   data-att-action="${posAction}" data-emp-id="${emp.id}" data-pos-id="${pid}">
                                         <span class="pos-dot" style="background:${posColor};"></span>${pos.name || "Posición"}
                                       </button>`;
     }).join('')}
@@ -503,7 +559,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                         ${isChecked && att.notes && att.notes.trim() ? `
                             <div class="employee-meta-divider"></div>
                             <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1; display: inline-flex; align-items: center; gap: 4px;"
-                                 onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')">
+                                 data-att-action="open-advanced-attendance" data-id="${emp.id}">
                                 ${icons.get('file', { size: 12 })} ${att.notes}
                             </div>
                         ` : '<div style="height: 20px;"></div>'}
@@ -511,12 +567,12 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: flex-start; min-width: 80px; width: 80px; flex-shrink: 0;">
                     <label class="check-container" style="position: relative;">
-                        <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} onclick="handleCheckboxClick(event, '${emp.id}')">
+                        <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} data-att-action="handle-checkbox-click" data-emp-id="${emp.id}">
                         <div class="check-box ${checkColor}">${isChecked ? '✓' : ''}</div>
                         ${hoursBadgeHTML}
                     </label>
                     ${isChecked && hasMultiplePositions ? `
-                        <button onclick="event.stopPropagation(); openAdvancedAttendance('${emp.id}')" 
+                        <button data-att-action="open-advanced-attendance" data-id="${emp.id}" 
                                 style="width: 40px; height: 40px; border-radius: 8px; background: #1e293b; border: 2px solid #334155; color: #06b6d4; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;">
                             +
                         </button>
@@ -544,7 +600,7 @@ export function EmployeeRowCompact(emp) {
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" onclick="openEmployeeFloating('${emp.id}')">${emp.name}</div>
+                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${emp.name}</div>
                     <div style="font-size: 0.7rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         ${emp.positions.map(pid => state.positions.find(p => p.id === pid)?.name).join(', ')}
                     </div>
@@ -552,7 +608,7 @@ export function EmployeeRowCompact(emp) {
                 <div style="display: flex; align-items: center; gap: 12px;">
                     ${isChecked ? `<div style="color: #10b981; font-weight: 700; font-size: 0.875rem;">${att.hoursWorked}h</div>` : ''}
                     <label class="check-container" style="margin: 0;">
-                        <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} onclick="handleCheckboxClick(event, '${emp.id}')">
+                        <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} data-att-action="handle-checkbox-click" data-emp-id="${emp.id}">
                         <div class="check-box ${checkColor}" style="width: 32px; height: 32px; font-size: 0.875rem;">${isChecked ? '✓' : ''}</div>
                     </label>
                 </div>
@@ -717,7 +773,7 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
                 <div class="week-employee-cell">
                     <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
-                        <div class="week-employee-name" style="cursor: pointer;" onclick="openEmployeeFloating('${emp.id}')">${emp.name}</div>
+                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${emp.name}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
                             ${emp.positions?.map(pid => positionMap.get(pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>
@@ -740,7 +796,7 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
         return `
                     <td>
                         <div class="day-cell">
-                            <div class="week-check-wrapper" onclick="event.stopPropagation(); handleWeekCheck('${emp.id}', '${dKey}')">
+                            <div class="week-check-wrapper" role="button" tabindex="0" data-att-action="handle-week-check" data-emp-id="${emp.id}" data-date-key="${dKey}">
                                 <div class="check-box week-check-box ${cColor}">${isCh ? '✓' : ''}</div>
                                 ${isCh ? `<div class="hours-badge">${att.hoursWorked}h</div>` : ''}
                             </div>
@@ -751,7 +807,7 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
             if (!pos) return '';
             const isSel = selP === pid;
             return `<button class="week-position-toggle ${isSel ? 'active' : ''}" 
-                                                        onclick="event.stopPropagation(); toggleWeekPosition('${emp.id}', '${pid}', '${dKey}')">
+                                                        data-att-action="toggle-week-position" data-emp-id="${emp.id}" data-pos-id="${pid}" data-date-key="${dKey}">
                                                     ${pos.name.substring(0, 3)}
                                                 </button>`;
         }).filter(Boolean).join('')}

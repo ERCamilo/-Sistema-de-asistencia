@@ -104,6 +104,92 @@ import { SystemAlertsManager } from './modules/components/SystemAlertsManager.js
 // Inicializar SystemAlertsManager globalmente
 window._systemAlerts = new SystemAlertsManager();
 window._maintenanceUI = new MaintenanceUI();
+
+// ============================================
+// 🎯 EVENT DELEGATION MAESTRO (app.js)
+// Resolver genérico: data-app-fn="fnName" + opcional data-arg / data-arg2
+// Flags adicionales: data-app-stop="1" (stopPropagation), data-app-close-on-self
+// ============================================
+const _APP_SPECIAL_ACTIONS = {
+    'close-employee-profile': () => window.closeEmployeeProfile?.(),
+    'close-modal': () => window.closeModal?.(),
+    'close-export-menu': () => window.closeExportMenu?.(),
+    'close-import-full': () => window.closeImportFullModal?.(),
+    'close-note-modal': () => window.closeNoteModal?.(),
+    'close-notes-center': () => window.closeNotesCenter?.(),
+    'close-start-picker': (_, _el, e) => { e?.stopPropagation(); if (state.employeeProfile) state.employeeProfile.showStartPicker = false; window.render?.(); },
+    'close-end-picker': (_, _el, e) => { e?.stopPropagation(); if (state.employeeProfile) state.employeeProfile.showEndPicker = false; window.render?.(); },
+    'toggle-profile-hire-date-picker': () => { state.showProfileHireDatePicker = !state.showProfileHireDatePicker; window.render?.(); },
+    'pdf-soon': () => window.Notification?.info?.('📄 Generar PDF próximamente'),
+    'wa-soon': () => window.Notification?.info?.('💬 Envío por WhatsApp próximamente'),
+    'demo-reset': () => window.showConfirm?.({
+        title: '🔄 Reiniciar Sistema',
+        message: '¿Estás seguro de reiniciar el sistema? Podrás configurarlo desde cero.',
+        confirmText: 'Sí, reiniciar',
+        cancelText: 'Cancelar',
+        type: 'warning',
+        onConfirm: () => location.reload()
+    })
+};
+
+function _coerceArg(s) {
+    if (s === undefined || s === null) return s;
+    // Si parece número (incluyendo negativos y decimales), convertir
+    if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+    return s;
+}
+
+function _appResolveAndCall(fnName, args, target, event) {
+    if (!fnName) return;
+    // Acción especial
+    if (_APP_SPECIAL_ACTIONS[fnName]) {
+        _APP_SPECIAL_ACTIONS[fnName](args[0], target, event);
+        return;
+    }
+    // Función global
+    const fn = window[fnName];
+    if (typeof fn !== 'function') return;
+    fn(...args.map(_coerceArg));
+}
+
+function _handleAppClick(e) {
+    // 1. stopPropagation puro (sin handler asociado)
+    const stopOnly = e.target.closest('[data-app-stop-only]');
+    if (stopOnly) e.stopPropagation();
+
+    // 2. Close-on-self: el clic debe haber sido directamente sobre este elemento
+    const closeOnSelf = e.target.closest('[data-app-close-on-self]');
+    if (closeOnSelf && e.target === closeOnSelf) {
+        const fnName = closeOnSelf.dataset.appCloseOnSelf;
+        _appResolveAndCall(fnName, [], closeOnSelf, e);
+        return;
+    }
+
+    // 3. Botón normal con data-app-fn
+    const target = e.target.closest('[data-app-fn]');
+    if (!target) return;
+
+    if (target.dataset.appStop === '1') e.stopPropagation();
+
+    const fnName = target.dataset.appFn;
+    const args = [];
+    if (target.dataset.arg !== undefined) args.push(target.dataset.arg);
+    if (target.dataset.arg2 !== undefined) args.push(target.dataset.arg2);
+
+    _appResolveAndCall(fnName, args, target, e);
+}
+
+function _handleAppKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-app-fn]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleAppClick(e);
+}
+
+document.addEventListener('click', _handleAppClick);
+document.addEventListener('keydown', _handleAppKeydown);
 import { EmployeeStatsService } from './modules/features/stats/EmployeeStatsService.js';
 import { EmployeeFloatingCard } from './modules/ui/components/EmployeeFloatingCard.js';
 import { InstallPromptManager } from './modules/services/InstallPromptManager.js';
@@ -1795,7 +1881,7 @@ function updateCheckboxOnly(empId) {
         // Actualizar contenido del badge
         let badgeContent = `${att.hoursWorked}h${isMultiPosition ? ' 🔄' : ''}`;
         if (att.notes && att.notes.trim()) {
-            badgeContent += `<span style="margin-left: 4px;" title="${att.notes.replace(/"/g, '&quot;')}">📝</span>`;
+            badgeContent += `<span style="margin-left: 4px; display: inline-flex; vertical-align: middle;" aria-label="Tiene nota" title="${att.notes.replace(/"/g, '&quot;')}">${icons.get('file', { size: 12 })}</span>`;
         }
         hoursBadge.innerHTML = badgeContent;
     } else {
@@ -1815,7 +1901,7 @@ function updateCheckboxOnly(empId) {
         if (!addButton && spacer) {
             // Reemplazar spacer con botón
             spacer.outerHTML = `
-                        <button onclick="event.stopPropagation(); openAdvancedAttendance('${empId}')" 
+                        <button type="button" data-app-fn="openAdvancedAttendance" data-arg="${empId}" data-app-stop="1"
                                 style="width: 40px; height: 40px; border-radius: 8px; background: #1e293b; border: 2px solid #334155; color: #06b6d4; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;"
                                 onmouseover="this.style.borderColor='#06b6d4'; this.style.background='rgba(6, 182, 212, 0.1)'"
                                 onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'"
@@ -2263,7 +2349,7 @@ function generateDeductionsHTML(payroll) {
                     <div style="font-size: 0.875rem; font-weight: 700; color: #06b6d4;">
                         💸 DEDUCCIONES
                     </div>
-                    <button onclick="addDeduction()" 
+                    <button type="button" data-app-fn="addDeduction" 
                             style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                             onmouseover="this.style.transform='scale(1.05)'"
                             onmouseout="this.style.transform='scale(1)'">
@@ -2309,7 +2395,7 @@ function generateDeductionsHTML(payroll) {
                             </div>
                             
                             <!-- Botón eliminar (siempre visible ahora) -->
-                            <button onclick="removeDeduction(${index})" 
+                            <button type="button" data-app-fn="removeDeduction" data-arg="${index}" aria-label="Eliminar deducción"
                                     style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;"
                                     onmouseover="this.style.background='#dc2626'"
                                     onmouseout="this.style.background='#ef4444'">
@@ -2345,10 +2431,10 @@ function generateDeductionsHTML(payroll) {
 function generateBonusesHTML(payroll) {
     return `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <div style="font-size: 0.875rem; font-weight: 700; color: #10b981;">
-                        🎁 PAGOS / BONIFICACIONES
+                    <div style="font-size: 0.875rem; font-weight: 700; color: #10b981; display: inline-flex; align-items: center; gap: 6px;">
+                        ${icons.get('star', { size: 14 })} PAGOS / BONIFICACIONES
                     </div>
-                    <button onclick="addBonus()" 
+                    <button type="button" data-app-fn="addBonus"
                             style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                             onmouseover="this.style.transform='scale(1.05)'"
                             onmouseout="this.style.transform='scale(1)'">
@@ -2372,7 +2458,7 @@ function generateBonusesHTML(payroll) {
                             <div style="flex: 1;">
                                 <input type="number" inputmode="decimal" class="form-input" value="${parseFloat(bon.value).toFixed(2)}" onchange="updateBonusValue(${index}, this.value)" style="width: 100%; font-size: 0.875rem; padding: 8px;">
                             </div>
-                            <button onclick="removeBonus(${index})" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">🗑️</button>
+                            <button type="button" data-app-fn="removeBonus" data-arg="${index}" aria-label="Eliminar bono" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">${icons.get('delete', { size: 14 })}</button>
                         </div>
                     </div>
                 `).join('') : '<div style="text-align: center; color: #64748b; padding: 20px;">No hay bonificaciones</div>'}
@@ -2411,7 +2497,7 @@ function generateAdvancesHTML(payroll) {
                         </div>
                     </div>
                 </div>
-                <button onclick="addAdvance()" 
+                <button type="button" data-app-fn="addAdvance"
                         class="btn-add-advance"
                         style="background: #f59e0b; color: #0f172a; border: none; padding: 10px 18px; border-radius: 10px; font-weight: 900; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s;"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(245, 158, 11, 0.3)'"
@@ -2436,7 +2522,7 @@ function generateAdvancesHTML(payroll) {
                         const dateLabel = `${day}-${month.charAt(0).toUpperCase() + month.slice(1)}`;
 
                         return `
-                        <div class="advance-row-reduced" onclick="editAdvance(${index})">
+                        <div class="advance-row-reduced" role="button" tabindex="0" data-app-fn="editAdvance" data-arg="${index}">
                             <div class="advance-reduced-main">
                                 <div class="advance-reduced-data">
                                     <span class="advance-reduced-date">${dateLabel}</span>
@@ -2444,11 +2530,11 @@ function generateAdvancesHTML(payroll) {
                                     <span class="advance-reduced-interest">(${interest}%)</span>
                                 </div>
                                 <div class="advance-actions">
-                                    <button onclick="event.stopPropagation(); editAdvance(${index})"
+                                    <button type="button" data-app-fn="editAdvance" data-arg="${index}" data-app-stop="1" aria-label="Editar adelanto"
                                             class="btn-edit-advance" aria-label="Editar adelanto">
                                         ${icons.get('edit', { size: 14 })}
                                     </button>
-                                    <button onclick="event.stopPropagation(); removeAdvance(${index})"
+                                    <button type="button" data-app-fn="removeAdvance" data-arg="${index}" data-app-stop="1" aria-label="Eliminar adelanto"
                                             class="btn-delete-advance" style="width: 28px; height: 28px;" aria-label="Eliminar adelanto">
                                         ${icons.get('delete', { size: 14 })}
                                     </button>
@@ -2501,12 +2587,12 @@ function generateAdvancesHTML(payroll) {
                                 <strong class="advance-math-total">${formatCurrency(total)}</strong>
                             </div>
                             <div class="advance-actions">
-                                <button onclick="saveAdvance(${index})"
+                                <button type="button" data-app-fn="saveAdvance" data-arg="${index}" aria-label="Guardar adelanto"
                                         class="btn-save-advance"
                                         aria-label="Guardar cambios">
                                     ${icons.get('check', { size: 16 })}
                                 </button>
-                                <button onclick="removeAdvance(${index})"
+                                <button type="button" data-app-fn="removeAdvance" data-arg="${index}" aria-label="Eliminar adelanto"
                                         class="btn-delete-advance"
                                         aria-label="Eliminar registro">
                                     ${icons.get('delete', { size: 16 })}
@@ -2633,7 +2719,7 @@ function updateExportDeductionsSection() {
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
                         💸 Paso 2: Deducciones Globales
                     </h3>
-                    <button onclick="addExportDeduction()" 
+                    <button type="button" data-app-fn="addExportDeduction"
                             style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                             onmouseover="this.style.transform='scale(1.05)'"
                             onmouseout="this.style.transform='scale(1)'">
@@ -3587,31 +3673,31 @@ function SyncIndicator() {
 function BottomNavigation() {
     return `<nav class="bottom-nav glass-effect">
                 <button class="bottom-nav-tab ${state.activeTab === 'attendance' ? 'active' : ''}" 
-                        onclick="changeTab('attendance')"
+                        type="button" data-app-fn="changeTab" data-arg="attendance"
                         title="Registrar asistencia diaria">
                     <span class="bottom-nav-icon">${icons.get('attendance')}</span>
                     <span class="bottom-nav-text">Asistencia</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
-                        onclick="changeTab('employees')"
+                        type="button" data-app-fn="changeTab" data-arg="employees"
                         title="Gestionar empleados y posiciones">
                     <span class="bottom-nav-icon">${icons.get('personnel')}</span>
                     <span class="bottom-nav-text">Personal</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'employee-report' || state.activeTab === 'dashboard' ? 'active' : ''}" 
-                        onclick="changeTab('employee-report')"
+                        type="button" data-app-fn="changeTab" data-arg="employee-report"
                         title="Ver reportes y estadísticas">
                     <span class="bottom-nav-icon">${icons.get('reports')}</span>
                     <span class="bottom-nav-text">Reportes</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
-                        onclick="changeTab('export')"
+                        type="button" data-app-fn="changeTab" data-arg="export"
                         title="Nómina">
                     <span class="bottom-nav-icon">${icons.get('payroll')}</span>
                     <span class="bottom-nav-text">Nómina</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
-                        onclick="changeTab('settings')"
+                        type="button" data-app-fn="changeTab" data-arg="settings"
                         title="Configuración del sistema">
                     <span class="bottom-nav-icon">${icons.get('settings')}</span>
                     <span class="bottom-nav-text">Ajustes</span>
@@ -3734,9 +3820,10 @@ function DisplayModeFloatingToggle() {
     if (state.activeTab !== 'attendance') return '';
 
     return `
-        <div class="floating-display-toggle glass-effect" 
-             onclick="toggleListDisplayMode()"
-             title="Cambiar densidad de lista (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})">
+        <div class="floating-display-toggle glass-effect"
+             role="button" tabindex="0"
+             data-app-fn="toggleListDisplayMode"
+             aria-label="Cambiar densidad de lista (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})">
             ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
         </div>
     `;
@@ -3785,9 +3872,9 @@ function getDateMarker(emp, dateKey) {
                 <div class="chart-compact-header">
                     <div class="chart-compact-title">📈 ${state.chartPeriod === 'all' ? 'Historial por Meses' : 'Asistencia y Horas'}</div>
                     <div class="chart-filter">
-                        <button class="chart-filter-btn ${state.chartPeriod === 'week' ? 'active' : ''}" onclick="changeChartPeriod('week')">7D</button>
-                        <button class="chart-filter-btn ${state.chartPeriod === 'month' ? 'active' : ''}" onclick="changeChartPeriod('month')">Mes</button>
-                        <button class="chart-filter-btn ${state.chartPeriod === 'all' ? 'active' : ''}" onclick="changeChartPeriod('all')">Todo</button>
+                        <button type="button" class="chart-filter-btn ${state.chartPeriod === 'week' ? 'active' : ''}" data-app-fn="changeChartPeriod" data-arg="week">7D</button>
+                        <button type="button" class="chart-filter-btn ${state.chartPeriod === 'month' ? 'active' : ''}" data-app-fn="changeChartPeriod" data-arg="month">Mes</button>
+                        <button type="button" class="chart-filter-btn ${state.chartPeriod === 'all' ? 'active' : ''}" data-app-fn="changeChartPeriod" data-arg="all">Todo</button>
                     </div>
                 </div>
                 <div class="chart-bars">
@@ -3827,34 +3914,34 @@ function EmployeeProfileModal() {
 
     const activeTab = state.employeeProfile.activeTab;
 
-    return `<div class="modal-overlay" onclick="if(event.target === this) closeEmployeeProfile()" style="z-index: 2500;">
+    return `<div class="modal-overlay" data-app-close-on-self="close-employee-profile" style="z-index: 2500;">
                 <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
                     <!-- Header -->
                     <div class="modal-header" style="flex-shrink: 0;">
-                        <button onclick="closeEmployeeProfile()" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 1.25rem; padding: 4px 8px;">
+                        <button type="button" data-app-fn="close-employee-profile" aria-label="Cerrar" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 1.25rem; padding: 4px 8px;">
                             ← Volver
                         </button>
                         <h2 class="modal-title" style="font-size: 1.25rem;">👤 ${emp.name}</h2>
                         <div style="display: flex; gap: 8px;">
-                            <button onclick="openEmployeeForm('${emp.id}')" style="width: 32px; height: 32px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #06b6d4;">
+                            <button type="button" data-app-fn="openEmployeeForm" data-arg="${emp.id}" aria-label="Editar empleado" style="width: 32px; height: 32px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #06b6d4;">
                                 ✏️
                             </button>
-                            <button class="modal-close" onclick="closeEmployeeProfile()">✕</button>
+                            <button type="button" class="modal-close" data-app-fn="close-employee-profile" aria-label="Cerrar">✕</button>
                         </div>
                     </div>
                     
                     <!-- Tabs -->
                     <div style="display: flex; gap: 4px; padding: 0 20px; border-bottom: 1px solid #334155; flex-shrink: 0; overflow-x: auto;">
-                        <button onclick="changeProfileTab('resumen')" style="padding: 12px 16px; background: ${activeTab === 'resumen' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'resumen' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'resumen' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
+                        <button type="button" data-app-fn="changeProfileTab" data-arg="resumen" style="padding: 12px 16px; background: ${activeTab === 'resumen' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'resumen' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'resumen' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
                             📊 Resumen
                         </button>
-                        <button onclick="changeProfileTab('nomina')" style="padding: 12px 16px; background: ${activeTab === 'nomina' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'nomina' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'nomina' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
+                        <button type="button" data-app-fn="changeProfileTab" data-arg="nomina" style="padding: 12px 16px; background: ${activeTab === 'nomina' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'nomina' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'nomina' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
                             💰 Nómina
                         </button>
-                        <button onclick="changeProfileTab('asistencia')" style="padding: 12px 16px; background: ${activeTab === 'asistencia' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'asistencia' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'asistencia' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
+                        <button type="button" data-app-fn="changeProfileTab" data-arg="asistencia" style="padding: 12px 16px; background: ${activeTab === 'asistencia' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'asistencia' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'asistencia' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
                             📅 Asistencia
                         </button>
-                        <button onclick="changeProfileTab('documentos')" style="padding: 12px 16px; background: ${activeTab === 'documentos' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'documentos' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'documentos' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
+                        <button type="button" data-app-fn="changeProfileTab" data-arg="documentos" style="padding: 12px 16px; background: ${activeTab === 'documentos' ? '#1e293b' : 'transparent'}; border: none; border-bottom: 2px solid ${activeTab === 'documentos' ? '#06b6d4' : 'transparent'}; color: ${activeTab === 'documentos' ? '#06b6d4' : '#94a3b8'}; cursor: pointer; font-size: 0.875rem; font-weight: 600; white-space: nowrap;">
                             📄 Documentos
                         </button>
                     </div>
@@ -3910,7 +3997,7 @@ function ProfileTabNomina(emp) {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px;">
                         <div style="position: relative;">
                             <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">Desde:</label>
-                            <div onclick="toggleProfileStartPicker()" style="padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                            <div role="button" tabindex="0" data-app-fn="toggleProfileStartPicker" style="padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
                                 <span style="color: #f1f5f9; font-size: 0.875rem;">${startFormatted}</span>
                                 <span style="color: #06b6d4;">📅</span>
                             </div>
@@ -3919,7 +4006,7 @@ function ProfileTabNomina(emp) {
                         
                         <div style="position: relative;">
                             <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">Hasta:</label>
-                            <div onclick="toggleProfileEndPicker()" style="padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                            <div role="button" tabindex="0" data-app-fn="toggleProfileEndPicker" style="padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
                                 <span style="color: #f1f5f9; font-size: 0.875rem;">${endFormatted}</span>
                                 <span style="color: #06b6d4;">📅</span>
                             </div>
@@ -3928,19 +4015,19 @@ function ProfileTabNomina(emp) {
                     </div>
                     
                     <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                        <button onclick="setProfilePeriod('7days')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === '7days' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === '7days' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === '7days' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                        <button type="button" data-app-fn="setProfilePeriod" data-arg="7days" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === '7days' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === '7days' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === '7days' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                             7 Días
                         </button>
-                        <button onclick="setProfilePeriod('15days')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === '15days' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === '15days' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === '15days' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                        <button type="button" data-app-fn="setProfilePeriod" data-arg="15days" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === '15days' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === '15days' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === '15days' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                             15 Días
                         </button>
-                        <button onclick="setProfilePeriod('month')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'month' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === 'month' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'month' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
+                        <button type="button" data-app-fn="setProfilePeriod" data-arg="month" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'month' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === 'month' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'month' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                             Este Mes
                         </button>
-                        <button onclick="setProfilePeriod('payPeriod')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'payPeriod' ? '#fff' : '#8b5cf6'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
+                        <button type="button" data-app-fn="setProfilePeriod" data-arg="payPeriod" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.employeeProfile.activePeriod === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'payPeriod' ? '#fff' : '#8b5cf6'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                             🗓️ Período Actual
                         </button>
-                        <button onclick="setProfilePeriod('lastPayment')" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'lastPayment' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.employeeProfile.activePeriod === 'lastPayment' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'lastPayment' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
+                        <button type="button" data-app-fn="setProfilePeriod" data-arg="lastPayment" style="padding: 6px 12px; background: ${state.employeeProfile.activePeriod === 'lastPayment' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.employeeProfile.activePeriod === 'lastPayment' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.employeeProfile.activePeriod === 'lastPayment' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                             💰 Desde Último Pago
                         </button>
                     </div>
@@ -3989,7 +4076,7 @@ function ProfileTabNomina(emp) {
 
         return `<div data-position-id="${b.positionId}" 
                                      style="background: #0f172a; padding: 12px; border-radius: 8px; border-left: 4px solid ${b.positionColor}; margin-bottom: 12px; cursor: pointer; transition: all 0.2s;" 
-                                     onclick="togglePositionBreakdown('${b.positionId}')"
+                                     role="button" tabindex="0" data-app-fn="togglePositionBreakdown" data-arg="${b.positionId}"
                                      onmouseover="this.style.background='#1a2332'" 
                                      onmouseout="this.style.background='#0f172a'">
                             
@@ -4086,13 +4173,13 @@ function ProfileTabNomina(emp) {
                 
                 <!-- Acciones -->
                 <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-                    <button onclick="Notification.info('📄 Generar PDF próximamente')" style="flex: 1; min-width: 200px; padding: 12px 16px; background: #1e293b; border: 1px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
+                    <button type="button" data-app-fn="pdf-soon" style="flex: 1; min-width: 200px; padding: 12px 16px; background: #1e293b; border: 1px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
                         📄 Generar Recibo PDF
                     </button>
-                    <button onclick="Notification.info('💬 Envío por WhatsApp próximamente')" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #25D366, #128C7E); border: none; border-radius: 8px; color: #fff; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
+                    <button type="button" data-app-fn="wa-soon" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #25D366, #128C7E); border: none; border-radius: 8px; color: #fff; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
                         💬 Enviar por WhatsApp
                     </button>
-                    <button onclick="markAsPaid()" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
+                    <button type="button" data-app-fn="markAsPaid" style="flex: 1; min-width: 200px; padding: 12px 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); border: none; border-radius: 8px; color: #000; font-weight: 700; cursor: pointer; font-size: 0.875rem;">
                         ✅ Marcar como Pagado
                     </button>
                 </div>
@@ -4106,9 +4193,9 @@ function ProfileStartDatePicker() {
 
     return `<div class="date-picker-popup" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; margin-top: 4px;">
                 <div class="date-picker-header">
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); changeProfileStartMonth(-1)">◀</button>
+                    <button type="button" class="date-btn" style="width:32px;height:32px;font-size:1rem;" data-app-fn="changeProfileStartMonth" data-arg="-1" data-app-stop="1" aria-label="Mes anterior">◀</button>
                     <div class="date-picker-month">${formatMonthYear(state.employeeProfile.startPickerMonth)}</div>
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); changeProfileStartMonth(1)">▶</button>
+                    <button type="button" class="date-btn" style="width:32px;height:32px;font-size:1rem;" data-app-fn="changeProfileStartMonth" data-arg="1" data-app-stop="1" aria-label="Mes siguiente">▶</button>
                 </div>
                 <div class="date-picker-grid">
                     ${['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
@@ -4118,11 +4205,11 @@ function ProfileStartDatePicker() {
         if (!currentMonth) cls.push('other-month');
         if (dKey === today) cls.push('today');
         if (dKey === selected) cls.push('selected');
-        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectProfileStartDate('${dKey}')">${date.getDate()}</div>`;
+        return `<div role="button" tabindex="0" class="${cls.join(' ')}" data-app-fn="selectProfileStartDate" data-arg="${dKey}" data-app-stop="1" aria-label="${dKey}">${date.getDate()}</div>`;
     }).join('')}
                 </div>
                 <div style="padding: 8px; border-top: 1px solid #334155;">
-                    <button onclick="event.stopPropagation(); state.employeeProfile.showStartPicker = false; render();" 
+                    <button type="button" data-app-fn="close-start-picker"
                             style="width: 100%; padding: 6px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #94a3b8; font-size: 0.75rem; cursor: pointer;">
                         Cerrar
                     </button>
@@ -4137,9 +4224,9 @@ function ProfileEndDatePicker() {
 
     return `<div class="date-picker-popup" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 100; margin-top: 4px;">
                 <div class="date-picker-header">
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); changeProfileEndMonth(-1)">◀</button>
+                    <button type="button" class="date-btn" style="width:32px;height:32px;font-size:1rem;" data-app-fn="changeProfileEndMonth" data-arg="-1" data-app-stop="1" aria-label="Mes anterior">◀</button>
                     <div class="date-picker-month">${formatMonthYear(state.employeeProfile.endPickerMonth)}</div>
-                    <button class="date-btn" style="width:32px;height:32px;font-size:1rem;" onclick="event.stopPropagation(); changeProfileEndMonth(1)">▶</button>
+                    <button type="button" class="date-btn" style="width:32px;height:32px;font-size:1rem;" data-app-fn="changeProfileEndMonth" data-arg="1" data-app-stop="1" aria-label="Mes siguiente">▶</button>
                 </div>
                 <div class="date-picker-grid">
                     ${['D', 'L', 'M', 'M', 'J', 'V', 'S'].map(d => `<div class="date-picker-day-label">${d}</div>`).join('')}
@@ -4149,11 +4236,11 @@ function ProfileEndDatePicker() {
         if (!currentMonth) cls.push('other-month');
         if (dKey === today) cls.push('today');
         if (dKey === selected) cls.push('selected');
-        return `<div class="${cls.join(' ')}" onclick="event.stopPropagation(); selectProfileEndDate('${dKey}')">${date.getDate()}</div>`;
+        return `<div role="button" tabindex="0" class="${cls.join(' ')}" data-app-fn="selectProfileEndDate" data-arg="${dKey}" data-app-stop="1" aria-label="${dKey}">${date.getDate()}</div>`;
     }).join('')}
                 </div>
                 <div style="padding: 8px; border-top: 1px solid #334155;">
-                    <button onclick="event.stopPropagation(); state.employeeProfile.showEndPicker = false; render();" 
+                    <button type="button" data-app-fn="close-end-picker"
                             style="width: 100%; padding: 6px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #94a3b8; font-size: 0.75rem; cursor: pointer;">
                         Cerrar
                     </button>
@@ -4208,15 +4295,15 @@ function ProfileHireDatePicker(emp) {
     return `<div style="position:relative; margin-top:8px;">
                 <div style="background:#0f172a; border:1px solid #334155; border-radius:8px; padding:12px; position:absolute; z-index:100; width:280px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <button onclick="changeProfileHireDateMonth(-1)" style="background:none; border:none; color:#06b6d4; cursor:pointer; font-size:1rem; padding:4px 8px;">◀</button>
+                        <button type="button" data-app-fn="changeProfileHireDateMonth" data-arg="-1" style="background:none; border:none; color:#06b6d4; cursor:pointer; font-size:1rem; padding:4px 8px;" aria-label="Mes anterior">◀</button>
                         <span style="font-size:0.75rem; color:#f1f5f9; font-weight:600; text-transform:capitalize;">${monthName}</span>
-                        <button onclick="changeProfileHireDateMonth(1)" style="background:none; border:none; color:#06b6d4; cursor:pointer; font-size:1rem; padding:4px 8px;">▶</button>
+                        <button type="button" data-app-fn="changeProfileHireDateMonth" data-arg="1" style="background:none; border:none; color:#06b6d4; cursor:pointer; font-size:1rem; padding:4px 8px;" aria-label="Mes siguiente">▶</button>
                     </div>
                     <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:2px;">
                         ${days.map(({ date, currentMonth }) => {
         const dKey = getDateKey(date);
         const isSelected = dKey === emp.hireDate;
-        return `<div onclick="selectProfileHireDate('${emp.id}', '${dKey}')" 
+        return `<div role="button" tabindex="0" data-app-fn="selectProfileHireDate" data-arg="${emp.id}" data-arg2="${dKey}" aria-label="${dKey}"
                                          style="padding:6px; text-align:center; cursor:pointer; border-radius:4px; font-size:0.7rem; transition:all 0.15s; ${isSelected ? 'background:#06b6d4; color:#000; font-weight:700;' : currentMonth ? 'color:#94a3b8; hover:background:rgba(6,182,212,0.1);' : 'color:#4b5563; opacity:0.4;'}">
                                 ${date.getDate()}
                             </div>`;
@@ -4275,7 +4362,7 @@ function ProfileTabResumen(emp) {
                         <div style="display:flex; align-items:center; justify-content:space-between;">
                             <span style="color: #94a3b8;">Contratado:</span> 
                             <span style="color: #f1f5f9; font-weight: 600; cursor:pointer; padding:4px 10px; border-radius:6px; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.2); transition:all 0.2s;" 
-                                  onclick="state.showProfileHireDatePicker = !state.showProfileHireDatePicker; render();"
+                                  role="button" tabindex="0" data-app-fn="toggle-profile-hire-date-picker"
                                   onmouseover="this.style.background='rgba(6,182,212,0.15)'; this.style.borderColor='rgba(6,182,212,0.3)';"
                                   onmouseout="this.style.background='rgba(6,182,212,0.1)'; this.style.borderColor='rgba(6,182,212,0.2)';">
                                 ${hireDate} 📅
@@ -5109,11 +5196,11 @@ function MultiPositionModal() {
     const usedPositions = att.positionHours.map(ph => ph.positionId);
     const availablePositions = emp.positions.filter(pid => !usedPositions.includes(pid));
 
-    return `<div class="modal-overlay" onclick="if(event.target === this) closeModal()">
+    return `<div class="modal-overlay" data-app-close-on-self="close-modal">
                 <div class="modal-content" style="max-width: 600px;">
                     <div class="modal-header">
                         <h2 class="modal-title">⚙️ Detalles de Asistencia</h2>
-                        <button class="modal-close" onclick="closeModal()">✕</button>
+                        <button type="button" class="modal-close" data-app-fn="close-modal" aria-label="Cerrar">✕</button>
                     </div>
                     <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
                         <!-- Información del empleado -->
@@ -5150,7 +5237,7 @@ function MultiPositionModal() {
                                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
                                                     <div style="width: 16px; height: 16px; border-radius: 50%; background: ${pos?.color || '#64748b'};"></div>
                                                     <div style="flex: 1; font-weight: 600; color: #f1f5f9;">${pos?.name || 'Posición desconocida'}</div>
-                                                    <button onclick="removePositionHours(${idx})" 
+                                                    <button type="button" data-app-fn="removePositionHours" data-arg="${idx}" aria-label="Quitar posición"
                                                             style="background: transparent; border: 1px solid #ef4444; color: #ef4444; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;"
                                                             onmouseover="this.style.background='#ef4444'; this.style.color='#fff'"
                                                             onmouseout="this.style.background='transparent'; this.style.color='#ef4444'">
@@ -5177,7 +5264,7 @@ function MultiPositionModal() {
                                 </div>
                                 
                                 ${availablePositions.length > 0 ? `
-                                    <button onclick="addPositionHours()" 
+                                    <button type="button" data-app-fn="addPositionHours"
                                             style="width: 100%; background: #1e293b; border: 2px dashed #334155; color: #06b6d4; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s;"
                                             onmouseover="this.style.borderColor='#06b6d4'; this.style.background='rgba(6, 182, 212, 0.1)'" 
                                             onmouseout="this.style.borderColor='#334155'; this.style.background='#1e293b'">
@@ -5234,14 +5321,14 @@ function MultiPositionModal() {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-                        <button type="button" onclick="deleteCurrentAttendance()" 
+                        <button type="button" class="btn btn-secondary" data-app-fn="close-modal">Cancelar</button>
+                        <button type="button" data-app-fn="deleteCurrentAttendance"
                                 style="background: transparent; border: 2px solid #ef4444; color: #ef4444; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s;"
                                 onmouseover="this.style.background='#ef4444'; this.style.color='#fff'"
                                 onmouseout="this.style.background='transparent'; this.style.color='#ef4444'">
                             🗑️ Eliminar Asistencia
                         </button>
-                        <button type="button" class="btn btn-primary" onclick="saveMultiPosition()">💾 Guardar</button>
+                        <button type="button" class="btn btn-primary" data-app-fn="saveMultiPosition">${icons.get('save', { size: 14 }) || ''} Guardar</button>
                     </div>
                 </div>
             </div>`;
@@ -5255,11 +5342,11 @@ function ContextMenu() {
     // ✅ Menú para vista semanal
     if (type === 'week') {
         return `<div class="context-menu" style="left:${x}px;top:${y}px;">
-                    <div class="context-menu-item" onclick="openMultiPositionModalFromContext()">
+                    <div class="context-menu-item" role="button" tabindex="0" data-app-fn="openMultiPositionModalFromContext">
                         <span class="context-menu-icon">⚙️</span>
                         <span>Ver Detalles</span>
                     </div>
-                    <div class="context-menu-item danger" onclick="removeAttendance('${employeeId}', '${date}')">
+                    <div class="context-menu-item danger" role="button" tabindex="0" data-app-fn="removeAttendance" data-arg="${employeeId}" data-arg2="${date}">
                         <span class="context-menu-icon">🗑️</span>
                         <span>Eliminar Check</span>
                     </div>
@@ -5269,11 +5356,11 @@ function ContextMenu() {
     // Globo contextual para check activo (Vista Día)
     if (type === 'check-options') {
         return `<div class="context-menu" style="left:${x}px;top:${y}px;">
-                    <div class="context-menu-item" onclick="openMultiPositionModalFromContext()">
+                    <div class="context-menu-item" role="button" tabindex="0" data-app-fn="openMultiPositionModalFromContext">
                         <span class="context-menu-icon">⚙️</span>
                         <span>Ver Detalles</span>
                     </div>
-                    <div class="context-menu-item danger" onclick="removeAttendance('${employeeId}', '${date}')">
+                    <div class="context-menu-item danger" role="button" tabindex="0" data-app-fn="removeAttendance" data-arg="${employeeId}" data-arg2="${date}">
                         <span class="context-menu-icon">🗑️</span>
                         <span>Eliminar</span>
                     </div>
@@ -5282,11 +5369,11 @@ function ContextMenu() {
 
     if (type === 'check') {
         return `<div class="context-menu" style="left:${x}px;top:${y}px;">
-                    <div class="context-menu-item" onclick="openQuickEdit('${employeeId}', '${date}')">
+                    <div class="context-menu-item" role="button" tabindex="0" data-app-fn="openQuickEdit" data-arg="${employeeId}" data-arg2="${date}">
                         <span class="context-menu-icon">⏱️</span>
                         <span>Editar Horas</span>
                     </div>
-                    <div class="context-menu-item danger" onclick="removeAttendance('${employeeId}', '${date}')">
+                    <div class="context-menu-item danger" role="button" tabindex="0" data-app-fn="removeAttendance" data-arg="${employeeId}" data-arg2="${date}">
                         <span class="context-menu-icon">🗑️</span>
                         <span>Eliminar Check</span>
                     </div>
@@ -5295,11 +5382,11 @@ function ContextMenu() {
 
     // Default: menú genérico
     return `<div class="context-menu" style="left:${x}px;top:${y}px;">
-                <div class="context-menu-item" onclick="openAdvancedModalFromContext()">
+                <div class="context-menu-item" role="button" tabindex="0" data-app-fn="openAdvancedModalFromContext">
                     <span class="context-menu-icon">⚙️</span>
                     <span>Ver Detalles</span>
                 </div>
-                <div class="context-menu-item danger" onclick="removeAttendance('${employeeId}', '${date}')">
+                <div class="context-menu-item danger" role="button" tabindex="0" data-app-fn="removeAttendance" data-arg="${employeeId}" data-arg2="${date}">
                     <span class="context-menu-icon">🗑️</span>
                     <span>Eliminar Check</span>
                 </div>
@@ -5701,9 +5788,9 @@ function ExportMenu() {
     const showShareOptions = !!state.showShareOptions;
 
     return `
-                <div class="modal-overlay animate-fade-in" onclick="${isLoading ? '' : 'closeExportMenu()'}" style="background: rgba(0,0,0,0.3);">
-                    <div class="export-menu animate-slide-up" 
-                         onclick="event.stopPropagation()"
+                <div class="modal-overlay animate-fade-in" ${isLoading ? '' : 'data-app-close-on-self="close-export-menu"'} style="background: rgba(0,0,0,0.3);">
+                    <div class="export-menu animate-slide-up"
+                         data-app-stop-only="1"
                          style="position: fixed; 
                                 left: 50%; 
                                 bottom: 20px; 
@@ -5737,7 +5824,7 @@ function ExportMenu() {
                             <!-- Opciones -->
                             <div style="padding: 4px;">
                                 ${canShare ? `
-                                    <button onclick="toggleShareOptions()" 
+                                    <button type="button" data-app-fn="toggleShareOptions"
                                             class="export-menu-option"
                                             style="width: 100%; 
                                                    display: flex; 
@@ -5773,7 +5860,7 @@ function ExportMenu() {
 
                                     ${showShareOptions ? `
                                         <div style="padding: 6px 8px 10px 60px; display: grid; gap: 6px;">
-                                            <button onclick="shareExportFull()" 
+                                            <button type="button" data-app-fn="shareExportFull"
                                                     style="width: 100%; 
                                                            display: flex; 
                                                            align-items: center; 
@@ -5792,7 +5879,7 @@ function ExportMenu() {
                                                 <span style="color:#06b6d4; font-weight:700;">FULL</span>
                                                 <span style="font-size:0.75rem;color:#94a3b8;">Respaldo completo</span>
                                             </button>
-                                            <button onclick="shareExportMini()" 
+                                            <button type="button" data-app-fn="shareExportMini"
                                                     style="width: 100%; 
                                                            display: flex; 
                                                            align-items: center; 
@@ -5815,7 +5902,7 @@ function ExportMenu() {
                                     ` : ''}
                                 ` : ''}
 
-                                <button onclick="openImportFullModal()" 
+                                <button type="button" data-app-fn="openImportFullModal"
                                         class="export-menu-option"
                                         style="width: 100%; 
                                                display: flex; 
@@ -5849,7 +5936,7 @@ function ExportMenu() {
                                     </div>
                                 </button>
                                 
-                                <button onclick="performDownload()" 
+                                <button type="button" data-app-fn="performDownload"
                                         class="export-menu-option"
                                         style="width: 100%; 
                                                display: flex; 
@@ -5886,7 +5973,7 @@ function ExportMenu() {
                             
                             <!-- Botón Cancelar -->
                             <div style="padding: 8px 12px; border-top: 1px solid #334155; margin-top: 4px;">
-                                <button onclick="closeExportMenu()" 
+                                <button type="button" data-app-fn="closeExportMenu"
                                         style="width: 100%; 
                                                padding: 10px; 
                                                background: transparent; 
@@ -5911,9 +5998,9 @@ function ImportFullModal() {
     if (!state.showImportFullModal) return '';
 
     return `
-                <div class="modal-overlay animate-fade-in" onclick="closeImportFullModal()" style="background: rgba(0,0,0,0.45); z-index: 10002;">
+                <div class="modal-overlay animate-fade-in" data-app-close-on-self="close-import-full" style="background: rgba(0,0,0,0.45); z-index: 10002;">
                     <div class="export-menu animate-slide-up"
-                         onclick="event.stopPropagation()"
+                         data-app-stop-only="1"
                          style="position: fixed;
                                 left: 50%;
                                 top: 50%;
@@ -5948,7 +6035,7 @@ function ImportFullModal() {
                         >${state.importFullText || ''}</textarea>
 
                         <div style="display: flex; gap: 8px; margin-top: 12px;">
-                            <button onclick="confirmImportFull()"
+                            <button type="button" data-app-fn="confirmImportFull"
                                     style="flex: 1;
                                            padding: 10px 12px;
                                            background: linear-gradient(135deg, #06b6d4, #3b82f6);
@@ -5959,7 +6046,7 @@ function ImportFullModal() {
                                            cursor: pointer;">
                                 Aceptar
                             </button>
-                            <button onclick="closeImportFullModal()"
+                            <button type="button" data-app-fn="closeImportFullModal"
                                     style="flex: 1;
                                            padding: 10px 12px;
                                            background: transparent;
@@ -5983,9 +6070,9 @@ function NoteModal() {
     const empName = emp ? `${emp.number || ''} - ${emp.name}` : 'Empleado';
 
     return `
-                <div class="modal-overlay animate-fade-in" onclick="closeNoteModal()" style="background: rgba(0,0,0,0.45); z-index: 10002;">
+                <div class="modal-overlay animate-fade-in" data-app-close-on-self="close-note-modal" style="background: rgba(0,0,0,0.45); z-index: 10002;">
                     <div class="export-menu animate-slide-up"
-                         onclick="event.stopPropagation()"
+                         data-app-stop-only="1"
                          style="position: fixed;
                                 left: 50%;
                                 top: 50%;
@@ -6039,7 +6126,7 @@ function NoteModal() {
                         </div>
 
                         <div style="display: flex; gap: 8px;">
-                            <button onclick="saveNoteModal()"
+                            <button type="button" data-app-fn="saveNoteModal"
                                     style="flex: 1;
                                            padding: 10px 12px;
                                            background: linear-gradient(135deg, #06b6d4, #3b82f6);
@@ -6050,7 +6137,7 @@ function NoteModal() {
                                            cursor: pointer;">
                                 Guardar
                             </button>
-                            <button onclick="deleteNoteModal()"
+                            <button type="button" data-app-fn="deleteNoteModal"
                                     style="padding: 10px 12px;
                                            background: #1e293b;
                                            border: 1px solid #ef4444;
@@ -6060,7 +6147,7 @@ function NoteModal() {
                                            cursor: pointer;">
                                 Eliminar
                             </button>
-                            <button onclick="closeNoteModal()"
+                            <button type="button" data-app-fn="closeNoteModal"
                                     style="flex: 1;
                                            padding: 10px 12px;
                                            background: transparent;
@@ -6122,7 +6209,7 @@ function NotesCenterModal() {
                     <div style="position: fixed; inset: 0; display: flex; flex-direction: column; background: #0b1220;">
                         <div style="display:flex; align-items:center; gap:12px; padding: 14px 16px; border-bottom: 1px solid #1f2a44; background: #0f172a;">
                             ${selectedEmp ? `
-                                <button onclick="backToNotesList()" aria-label="Volver"
+                                <button type="button" data-app-fn="backToNotesList" aria-label="Volver"
                                         style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid #334155; background: transparent; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">
                                     ←
                                 </button>
@@ -6137,7 +6224,7 @@ function NotesCenterModal() {
                                     ${selectedEmp ? `#${selectedEmp.number || ''}` : 'Solo empleados con notas'}
                                 </div>
                             </div>
-                            <button onclick="closeNotesCenter()" aria-label="Cerrar"
+                            <button type="button" data-app-fn="closeNotesCenter" aria-label="Cerrar"
                                     style="width: 36px; height: 36px; border-radius: 10px; border: 1px solid #334155; background: transparent; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">
                                 ✕
                             </button>
@@ -6154,7 +6241,7 @@ function NotesCenterModal() {
         const lastNote = (notesByEmployee.get(emp.id) || [])[0];
         const preview = lastNote ? (lastNote.note.length > 60 ? `${lastNote.note.slice(0, 60)}...` : lastNote.note) : '';
         return `
-                                        <button onclick="selectNotesEmployee('${emp.id}')"
+                                        <button type="button" data-app-fn="selectNotesEmployee" data-arg="${emp.id}"
                                                 style="width: 100%;
                                                        text-align: left;
                                                        padding: 12px 14px;
@@ -6189,7 +6276,7 @@ function NotesCenterModal() {
                                     <div style="text-align:center; color:#64748b; font-size:0.75rem; margin: 10px 0;">
                                         ${formatDateShort(note.date)}
                                     </div>
-                                    <div onclick="openNoteEditor('${selectedEmp.id}', '${note.date}')"
+                                    <div role="button" tabindex="0" data-app-fn="openNoteEditor" data-arg="${selectedEmp.id}" data-arg2="${note.date}"
                                          style="max-width: 90%;
                                                 background: #111827;
                                                 border: 1px solid #1f2a44;
@@ -6207,7 +6294,7 @@ function NotesCenterModal() {
 
                         ${selectedEmp ? `
                             <div style="padding: 14px 16px; border-top: 1px solid #1f2a44; background: #0f172a;">
-                                <button onclick="openNewNote('${selectedEmp.id}')"
+                                <button type="button" data-app-fn="openNewNote" data-arg="${selectedEmp.id}"
                                         style="width: 100%;
                                                padding: 12px 14px;
                                                background: linear-gradient(135deg, #06b6d4, #10b981);
@@ -6250,7 +6337,7 @@ function App() {
                 <div style="background: linear-gradient(90deg, #f59e0b, #fbbf24); color: #000; padding: 12px 20px; text-align: center; font-weight: 700; font-size: 0.875rem; position: sticky; top: 0; z-index: 999; display: flex; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     <span>⚠️ MODO DEMO ACTIVO</span>
                     <span style="opacity: 0.8;">Los cambios NO se guardarán</span>
-                    <button onclick="showConfirm({ title: '🔄 Reiniciar Sistema', message: '¿Estás seguro de reiniciar el sistema?\\nPodrás configurarlo desde cero.', confirmText: 'Sí, reiniciar', cancelText: 'Cancelar', type: 'warning', onConfirm: () => location.reload() })" style="background: rgba(0,0,0,0.2); border: none; padding: 6px 16px; border-radius: 6px; color: white; cursor: pointer; font-weight: 700; transition: all 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.4)'" onmouseout="this.style.background='rgba(0,0,0,0.2)'">
+                    <button type="button" data-app-fn="demo-reset" style="background: rgba(0,0,0,0.2); border: none; padding: 6px 16px; border-radius: 6px; color: white; cursor: pointer; font-weight: 700; transition: all 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.4)'" onmouseout="this.style.background='rgba(0,0,0,0.2)'">
                         🔄 Reiniciar
                     </button>
                 </div>
@@ -6300,7 +6387,7 @@ function App() {
         activeTab: state.activeTab,
         changeTab: (tab) => window.changeTab(tab),
         legacyNavigation: state.settings.legacyNavigation
-    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" title="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
+    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenterModal()}${NoteModal()}`;
 }
 
 // 🎯 Registrar el componente raíz para el motor modular
@@ -6671,7 +6758,7 @@ window.addEventListener('scroll', () => {
         initBackToTop();
 
         // ⚡ Refactorización Alpha: Exponer manejadores de EmployeesUI al scope global
-        // Esto permite que los onclick="openEmployeeForm()" en los templates sigan funcionando
+        // Compat legacy: expone funciones globales para templates antiguos
         window.openEmployeeForm = EmployeesUI.openEmployeeForm;
         window.openLeaderForm = EmployeesUI.openLeaderForm;
         window.openPositionForm = EmployeesUI.openPositionForm;

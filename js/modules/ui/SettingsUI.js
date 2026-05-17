@@ -1,4 +1,58 @@
 import { DateUtils } from '../utils/DateUtils.js';
+import icons from './IconSystem.js';
+
+// ============================================
+// 🎯 EVENT DELEGATION (data-settings-action)
+// ============================================
+const _SETTINGS_ACTION_MAP = {
+    'change-settings-tab': (tab) => window.changeSettingsTab?.(tab),
+    'save-settings': () => window.saveSettings?.(),
+    'login-with-google': () => window.loginWithGoogle?.(),
+    'logout-firebase': () => window.logoutFirebase?.(),
+    'sync-firebase-now': () => window.syncFirebaseNow?.(),
+    'sync-history-now': () => window.syncHistoryNow?.(),
+    'create-firebase-snapshot': () => window.createFirebaseSnapshot?.(),
+    'start-maintenance-wizard': () => window.startMaintenanceWizard?.(),
+    'export-data': () => window.exportData?.(),
+    'open-import-input': () => document.getElementById('import-file-input')?.click(),
+    'delete-all-data': () => window.deleteAllData?.(),
+    'download-from-cloud': () => window.downloadFromCloudNow?.(),
+    'upload-to-cloud': () => window.uploadToCloudNow?.(),
+    'delete-cloud-data': () => window.deleteCloudDataNow?.(),
+    'bulk-delete-snapshots': (type) => window.bulkDeleteSnapshotsHandler?.(type),
+    'advance-pay-period': () => window.advancePayPeriod?.(),
+    'install-pwa': () => window.handleInstallPWA?.(),
+    'delete-snapshot': (id) => window.deleteSnapshotHandler?.(id),
+    'restore-snapshot': (id) => window.restoreSnapshot?.(id)
+};
+
+function _handleSettingsClick(e) {
+    const target = e.target.closest('[data-settings-action]');
+    if (!target) return;
+    const action = target.dataset.settingsAction;
+    const handler = _SETTINGS_ACTION_MAP[action];
+    if (!handler) return;
+    const arg = target.dataset.id ?? target.dataset.value ?? null;
+    handler(arg, target, e);
+}
+
+function _handleSettingsKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-settings-action]');
+    if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
+    if (target.getAttribute('role') !== 'button') return;
+    e.preventDefault();
+    _handleSettingsClick(e);
+}
+
+let _settingsDelegationAttached = false;
+function _attachSettingsDelegation() {
+    if (_settingsDelegationAttached) return;
+    document.addEventListener('click', _handleSettingsClick);
+    document.addEventListener('keydown', _handleSettingsKeydown);
+    _settingsDelegationAttached = true;
+}
+_attachSettingsDelegation();
 
 let context = {};
 
@@ -21,7 +75,7 @@ export function SettingsTab() {
                 <div style="max-width: 900px; margin: 0 auto;">
                     <div style="margin-bottom: 24px;">
                         <h2 style="margin: 0 0 8px 0; font-size: 1.75rem; display: flex; align-items: center; gap: 12px;">
-                            <span>⚙️</span>
+                            <span>${icons.get('settings', { size: 24 })}</span>
                             <span class="gradient-text">Configuración del Sistema</span>
                         </h2>
                         <p style="margin: 0; color: #94a3b8; font-size: 0.875rem;">
@@ -36,17 +90,17 @@ export function SettingsTab() {
                     <div class="nav-tabs" style="margin-bottom: 32px;">
 
                         <button class="nav-tab ${state.settingsActiveTab === 'data' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('data')">
+                                type="button" data-settings-action="change-settings-tab" data-value="data">
                             <span>${icons.get('save')}</span><span class="tab-text"> Datos</span>
                         </button>
 
                         <button class="nav-tab ${state.settingsActiveTab === 'general' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('general')">
+                                type="button" data-settings-action="change-settings-tab" data-value="general">
                             <span>${icons.get('settings')}</span><span class="tab-text"> General</span>
                         </button>
 
                         <button class="nav-tab ${state.settingsActiveTab === 'calendar' ? 'active' : ''}" 
-                                onclick="changeSettingsTab('calendar')">
+                                type="button" data-settings-action="change-settings-tab" data-value="calendar">
                             <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
                         </button>
                     </div>
@@ -57,7 +111,7 @@ export function SettingsTab() {
                     ${state.settingsActiveTab === 'calendar' ? SettingsTabCalendar() : ''}
                     
                     <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                        <button onclick="saveSettings()" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">
+                        <button type="button" data-settings-action="save-settings" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">
                             💾 Guardar Configuración
                         </button>
                     </div>
@@ -88,7 +142,7 @@ function SettingsDashboard() {
                 <details style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; margin-bottom: 24px; border: 1px solid #334155; overflow: hidden;">
                     <summary style="padding: 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; list-style: none; user-select: none;">
                         <h3 style="margin: 0; color: #06b6d4; font-size: 1rem; display: flex; align-items: center; gap: 6px;">
-                            <span>📊</span>
+                            <span>${icons.get('analytics', { size: 16 })}</span>
                             <span>Resumen del Sistema</span>
                         </h3>
                         
@@ -242,7 +296,7 @@ function SettingsTabData() {
                                 Conecta tu cuenta de Google para respaldar tus datos y acceder desde cualquier dispositivo.
                             </div>
                             
-                            <button onclick="loginWithGoogle()" class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; background: white; color: #374151; font-weight: 600; border: 1px solid #d1d5db; transition: all 0.2s;">
+                            <button type="button" data-settings-action="login-with-google" class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 14px; background: white; color: #374151; font-weight: 600; border: 1px solid #d1d5db; transition: all 0.2s;">
                                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="20" height="20">
                                 Continuar con Google
                             </button>
@@ -253,7 +307,7 @@ function SettingsTabData() {
                                     <div style="color: #f1f5f9; font-weight: 600; font-size: 0.95rem;">${currentUser.displayName || 'Usuario'}</div>
                                     <div style="color: #94a3b8; font-size: 0.8rem;">${currentUser.email}</div>
                                 </div>
-                                <button onclick="logoutFirebase()" style="padding: 6px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
+                                <button type="button" data-settings-action="logout-firebase" style="padding: 6px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
                                     Salir
                                 </button>
                             </div>
@@ -262,13 +316,13 @@ function SettingsTabData() {
                             <div style="margin-bottom: 20px;">
                                 <div style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Backup y Snapshots</div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
-                                    <button onclick="syncFirebaseNow()" class="btn-secondary" style="background: rgba(66, 133, 244, 0.1); color: #4285F4; border: 1px solid rgba(66, 133, 244, 0.2); padding: 12px; font-size: 0.85rem;">
+                                    <button type="button" data-settings-action="sync-firebase-now" class="btn-secondary" style="background: rgba(66, 133, 244, 0.1); color: #4285F4; border: 1px solid rgba(66, 133, 244, 0.2); padding: 12px; font-size: 0.85rem;">
                                        🔄 Sync Actual
                                     </button>
-                                    <button onclick="syncHistoryNow()" class="btn-secondary" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); padding: 12px; font-size: 0.85rem;">
+                                    <button type="button" data-settings-action="sync-history-now" class="btn-secondary" style="background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); padding: 12px; font-size: 0.85rem;">
                                        📅 Sync Historial
                                     </button>
-                                    <button onclick="createFirebaseSnapshot()" class="btn-secondary" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px; font-size: 0.85rem; grid-column: span 2;">
+                                    <button type="button" data-settings-action="create-firebase-snapshot" class="btn-secondary" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); padding: 12px; font-size: 0.85rem; grid-column: span 2;">
                                        📸 Crear Snapshot Manual
                                     </button>
                                 </div>
@@ -297,7 +351,7 @@ function SettingsTabData() {
                         <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; line-height: 1.6;">
                             Busca y resuelve inconsistencias, como empleados con números de ficha duplicados. Esto asegura que la nómina y las asistencias sean precisas.
                         </p>
-                        <button onclick="startMaintenanceWizard()" class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; background: #0891b2; border: none;">
+                        <button type="button" data-settings-action="start-maintenance-wizard" class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px; background: #0891b2; border: none;">
                             🧹 Iniciar Asistente de Saneamiento
                         </button>
                     </div>
@@ -335,8 +389,8 @@ function SettingsTabData() {
                                 <!-- Backups Manuales -->
                                 <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 10px;">
                                     <div style="font-weight: 600; color: #94a3b8; margin-bottom: 2px; font-size: 0.85rem; text-transform: uppercase;">Archivo Backup (.json)</div>
-                                    <button onclick="exportData()" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px;">📥 Descargar Backup</button>
-                                    <button onclick="document.getElementById('import-file-input').click()" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px;">📤 Cargar Backup</button>
+                                    <button type="button" data-settings-action="export-data" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px;">📥 Descargar Backup</button>
+                                    <button type="button" data-settings-action="open-import-input" class="btn-secondary" style="width: 100%; justify-content: center; padding: 10px;">📤 Cargar Backup</button>
                                     <input type="file" id="import-file-input" accept=".json" style="display: none;" onchange="importData(event)">
                                 </div>
                             </div>
@@ -348,7 +402,7 @@ function SettingsTabData() {
                                         <div style="color: #ef4444; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px;">BORRADO LOCAL TOTAL</div>
                                         <div style="font-size: 0.75rem; color: #94a3b8;">Limpia este teléfono por completo. Los datos en la nube NO se borrarán.</div>
                                     </div>
-                                    <button onclick="deleteAllData()" class="btn-danger" style="white-space: nowrap; padding: 10px 20px;">🗑️ Borrar Local</button>
+                                    <button type="button" data-settings-action="delete-all-data" class="btn-danger" style="white-space: nowrap; padding: 10px 20px;">🗑️ Borrar Local</button>
                                 </div>
                             </div>
                         </div>
@@ -365,14 +419,14 @@ function SettingsTabData() {
                                 <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155;">
                                     <div style="color: #4285F4; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">DESCARGAR DE LA NUBE</div>
                                     <p style="font-size: 0.75rem; color: #94a3b8; margin: 0 0 12px 0;">Reemplaza todos los datos de este teléfono con lo que hay en la nube.</p>
-                                    <button onclick="downloadFromCloudNow()" class="btn-secondary" style="width: 100%; border-color: rgba(66, 133, 244, 0.4); color: #4285F4;">📥 Sobrescribir Local</button>
+                                    <button type="button" data-settings-action="download-from-cloud" class="btn-secondary" style="width: 100%; border-color: rgba(66, 133, 244, 0.4); color: #4285F4;">📥 Sobrescribir Local</button>
                                 </div>
 
                                 <!-- Override: Upload -->
                                 <div style="background: #0f172a; border-radius: 10px; padding: 16px; border: 1px solid #334155;">
                                     <div style="color: #10b981; font-weight: 700; font-size: 0.85rem; margin-bottom: 8px;">SUBIR A LA NUBE</div>
                                     <p style="font-size: 0.75rem; color: #94a3b8; margin: 0 0 12px 0;">Fuerza que la nube guarde exactamente lo que tienes en este teléfono.</p>
-                                    <button onclick="uploadToCloudNow()" class="btn-secondary" style="width: 100%; border-color: rgba(16, 185, 129, 0.4); color: #10b981;">📤 Sobrescribir Nube</button>
+                                    <button type="button" data-settings-action="upload-to-cloud" class="btn-secondary" style="width: 100%; border-color: rgba(16, 185, 129, 0.4); color: #10b981;">📤 Sobrescribir Nube</button>
                                 </div>
                             </div>
 
@@ -383,7 +437,7 @@ function SettingsTabData() {
                                         <div style="color: #ef4444; font-weight: 700; font-size: 0.9rem; margin-bottom: 4px;">ELIMINAR DATOS DE LA NUBE</div>
                                         <div style="font-size: 0.75rem; color: #94a3b8;">Borra permanentemente tu respaldo en Google/Firebase. El teléfono no se verá afectado.</div>
                                     </div>
-                                    <button onclick="deleteCloudDataNow()" class="btn-danger" style="white-space: nowrap; padding: 10px 20px; background: none; border: 1px solid #ef4444; color: #ef4444;">🗑️ Borrar Nube</button>
+                                    <button type="button" data-settings-action="delete-cloud-data" class="btn-danger" style="white-space: nowrap; padding: 10px 20px; background: none; border: 1px solid #ef4444; color: #ef4444;">🗑️ Borrar Nube</button>
                                 </div>
                             </div>
                             
@@ -393,10 +447,10 @@ function SettingsTabData() {
                                     <span>🧹</span> Limpieza de Historial (Snapshots)
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                    <button onclick="bulkDeleteSnapshotsHandler('auto')" class="btn-secondary" style="font-size: 0.75rem; padding: 8px; border-color: rgba(239, 68, 68, 0.3); color: #94a3b8;">
+                                    <button type="button" data-settings-action="bulk-delete-snapshots" data-value="auto" class="btn-secondary" style="font-size: 0.75rem; padding: 8px; border-color: rgba(239, 68, 68, 0.3); color: #94a3b8;">
                                         Borrar Todos los Autos
                                     </button>
-                                    <button onclick="bulkDeleteSnapshotsHandler('manual')" class="btn-secondary" style="font-size: 0.75rem; padding: 8px; border-color: rgba(239, 68, 68, 0.3); color: #94a3b8;">
+                                    <button type="button" data-settings-action="bulk-delete-snapshots" data-value="manual" class="btn-secondary" style="font-size: 0.75rem; padding: 8px; border-color: rgba(239, 68, 68, 0.3); color: #94a3b8;">
                                         Borrar Todos los Manuales
                                     </button>
                                 </div>
@@ -421,14 +475,14 @@ function SettingsTabCalendar() {
                     <!-- Cabecera Integrada -->
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #334155;">
                         <div>
-                            <h3 style="margin: 0 0 4px 0; font-size: 1.25rem; color: #06b6d4; font-weight: 700;">
-                                🗓️ Control de Calendario y Pagos
+                            <h3 style="margin: 0 0 4px 0; font-size: 1.25rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                                ${icons.get('calendar', { size: 20 })} Control de Calendario y Pagos
                             </h3>
                             <div style="font-size: 0.85rem; color: #94a3b8;">
                                 Configura tus cortes de pago y administra días festivos.
                             </div>
                         </div>
-                        <button onclick="advancePayPeriod()" class="btn btn-primary" style="font-size: 0.85rem; padding: 8px 16px; display: flex; align-items: center; gap: 8px;">
+                        <button type="button" data-settings-action="advance-pay-period" class="btn btn-primary" style="font-size: 0.85rem; padding: 8px 16px; display: flex; align-items: center; gap: 8px;">
                             <span>⏭️</span> Avanzar Período
                         </button>
                     </div>
@@ -589,7 +643,7 @@ function SettingsForm() {
                         <div id="install-pwa-status"></div>
                         
                         <button id="install-pwa-button" 
-                                onclick="handleInstallPWA()" 
+                                type="button" data-settings-action="install-pwa" 
                                 class="btn btn-primary" 
                                 style="width: 100%; padding: 12px; font-size: 1rem; background: linear-gradient(135deg, #10b981, #059669); border: none;">
                             📱 Instalar Aplicación
@@ -619,8 +673,8 @@ function SettingsForm() {
                 
                 <!-- Jornada Laboral -->
                 <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        ⏰ Jornada Laboral
+                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        ${icons.get('clock', { size: 18 })} Jornada Laboral
                     </h3>
                     
                     <!-- Horas Regulares -->
@@ -695,8 +749,8 @@ function SettingsForm() {
                 
                 <!-- Configuración de Nómina -->
                 <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
-                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">
-                        💰 Configuración de Nómina
+                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        ${icons.get('dollar', { size: 18 }) || icons.get('payroll', { size: 18 })} Configuración de Nómina
                     </h3>
                     
                     <!-- Porcentaje de deducción por defecto -->
@@ -772,17 +826,17 @@ function SnapshotHistory() {
                                     </span>
 
                                 </div>
-                                <div style="color: #94a3b8; font-size: 0.75rem;">
-                                    👥 ${snap.employeeCount} empleados | 📝 ${snap.attendanceCount} registros
+                                <div style="color: #94a3b8; font-size: 0.75rem; display: flex; align-items: center; gap: 4px;">
+                                    ${icons.get('personnel', { size: 12 })} ${snap.employeeCount} empleados <span style="opacity: 0.4;">|</span> ${icons.get('file', { size: 12 })} ${snap.attendanceCount} registros
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px;">
-                                <button onclick="deleteSnapshotHandler('${snap.id}')" 
+                                <button type="button" data-settings-action="delete-snapshot" data-id="${snap.id}" aria-label="Eliminar snapshot"
                                         style="padding: 8px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;"
                                         title="Eliminar permanentemente">
                                     🗑️
                                 </button>
-                                <button onclick="restoreSnapshot('${snap.id}')" 
+                                <button type="button" data-settings-action="restore-snapshot" data-id="${snap.id}" aria-label="Restaurar snapshot" 
                                         style="padding: 8px 16px; background: rgba(6, 182, 212, 0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 6px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;">
                                     ⏪ Restaurar
                                 </button>

@@ -5,6 +5,19 @@
 
 import { state } from '../core/AppState.js';
 import * as MainComponents from '../ui/QuickViewComponents.js';
+
+// Delegación pequeña para botones globales del componente raíz
+let _appDelegationAttached = false;
+if (!_appDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        const t = e.target.closest('[data-app-action]');
+        if (!t) return;
+        const action = t.dataset.appAction;
+        if (action === 'show-confirm-reset') window.showConfirmReset?.();
+        else if (action === 'toggle-bottom-nav') window.toggleBottomNav?.();
+    });
+    _appDelegationAttached = true;
+}
 import * as SyncUI from '../ui/SyncUI.js';
 import * as EmployeesUI from '../features/employees/EmployeesUI.js';
 import * as AnalyticsUI from '../features/analytics/AnalyticsUI.js';
@@ -60,7 +73,7 @@ export function App() {
         <div class="demo-mode-banner">
             <span>⚠️ MODO DEMO ACTIVO</span>
             <span style="opacity: 0.8;">Los cambios NO se guardarán</span>
-            <button onclick="window.showConfirmReset()" class="btn-demo-reset">🔄 Reiniciar</button>
+            <button type="button" data-app-action="show-confirm-reset" class="btn-demo-reset">🔄 Reiniciar</button>
         </div>
     ` : '';
 
@@ -115,7 +128,7 @@ export function App() {
             <div class="container">${content}</div>
         </main>
         ${state.settings.legacyNavigation ? '' : MainComponents.BottomNavigation()}
-        ${!state.settings.legacyNavigation ? '<button class="landscape-toggle-btn" onclick="window.toggleBottomNav()" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}
+        ${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-action="toggle-bottom-nav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}
         ${MainComponents.FloatingCard()}
         ${MainComponents.EmployeeProfileModal()}
         ${modal}
