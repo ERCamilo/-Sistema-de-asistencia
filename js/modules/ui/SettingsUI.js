@@ -1,5 +1,6 @@
 import { DateUtils } from '../utils/DateUtils.js';
 import icons from './IconSystem.js';
+import { state } from '../core/AppState.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-settings-action)
@@ -23,7 +24,21 @@ const _SETTINGS_ACTION_MAP = {
     'advance-pay-period': () => window.advancePayPeriod?.(),
     'install-pwa': () => window.handleInstallPWA?.(),
     'delete-snapshot': (id) => window.deleteSnapshotHandler?.(id),
-    'restore-snapshot': (id) => window.restoreSnapshot?.(id)
+    'restore-snapshot': (id) => window.restoreSnapshot?.(id),
+    // 💡 Ayuda contextual
+    'set-help-mode': (_, el) => {
+        const newMode = el.value;
+        if (window.helpController) {
+            window.helpController.setMode(newMode);
+            window.showNotification?.(`💡 Modo de ayuda: ${newMode}`, 'info');
+        }
+    },
+    'reset-help-seen': () => {
+        if (window.helpController) {
+            window.helpController.resetAllSeen();
+            window.showNotification?.('🔄 Tooltips restablecidos. Aparecerán de nuevo al usar la app.', 'success');
+        }
+    }
 };
 
 function _handleSettingsClick(e) {
@@ -611,7 +626,37 @@ function SettingsForm() {
                         </div>
                     </div>
                 </div>
-                
+
+                <!-- 💡 Ayuda contextual -->
+                <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
+                    <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        💡 Ayuda contextual
+                    </h3>
+                    <div class="form-group">
+                        <label class="form-label">¿Cuándo mostrar los tooltips de ayuda?</label>
+                        <select id="helpMode" class="form-input" data-settings-action="set-help-mode">
+                            <option value="first-time" ${(state.settings.helpMode || 'first-time') === 'first-time' ? 'selected' : ''}>
+                                Solo la primera vez (recomendado)
+                            </option>
+                            <option value="always" ${state.settings.helpMode === 'always' ? 'selected' : ''}>
+                                Siempre (modo capacitación)
+                            </option>
+                            <option value="off" ${state.settings.helpMode === 'off' ? 'selected' : ''}>
+                                Solo al pulsar el botón (?)
+                            </option>
+                        </select>
+                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px; line-height: 1.6;">
+                            Los tooltips muestran explicaciones cortas al lado de los campos.
+                            Puedes pulsar el botón <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1px solid #475569; background: rgba(100, 116, 139, 0.15); color: #94a3b8; font-size: 0.65rem; font-weight: 700;">?</span>
+                            en cualquier momento para verlos.
+                        </div>
+                    </div>
+                    <button type="button" data-settings-action="reset-help-seen"
+                        style="margin-top: 12px; padding: 8px 16px; background: #334155; border: 1px solid #475569; color: #e2e8f0; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                        🔄 Volver a mostrar todos los tooltips
+                    </button>
+                </div>
+
                 <!-- Instalación como App (PWA) -->
                 <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #334155;">
                     <h3 style="margin: 0 0 16px 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700;">

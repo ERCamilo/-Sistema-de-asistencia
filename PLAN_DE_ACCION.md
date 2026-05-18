@@ -2,7 +2,7 @@
 
 > **Documento vivo** — se actualiza con cada sprint. Sirve como hoja de ruta, checklist de progreso y registro histórico de decisiones tomadas.
 
-**Última actualización:** 2026-05-17
+**Última actualización:** 2026-05-17 (Sprint 1 completado)
 **Estado general:** 🟢 Activo
 
 ---
@@ -38,17 +38,19 @@ Reglas que guían cada cambio (no negociables):
 | Métrica | Valor inicial | Actual | Meta |
 |---|---|---|---|
 | Líneas en `app.js` | 6,840 | **6,840** | < 3,000 |
-| Líneas en `EmployeesUI.js` | 1,068 | **1,068** | < 600 |
+| Líneas en `EmployeesUI.js` | 1,068 | **1,112** ⚠️ +44 | < 600 |
 | Líneas en `AttendanceUI.js` | 871 | **871** | < 600 |
-| Tests pasando | 36 | **36** | 100+ |
-| Cobertura estimada | ~20% | **~20%** | > 60% |
+| Tests pasando | 36 | **57** ✅ +21 | 100+ |
+| Cobertura estimada | ~20% | **~28%** | > 60% |
 | Onclicks inline | 0 ✅ | **0** | 0 ✅ |
+
+> ⚠️ EmployeesUI subió 44 líneas: +44 por `cleanupPositionReferences`. Se compensará en Sprint 7 (extracción).
 
 ### Progreso global
 
 ```
-Sprints completados:  0 / 8 ─────────────────────  0%
-Tests escritos:      36 /100 ███████░░░░░░░░░░░  36%
+Sprints completados:  1 / 8 ███░░░░░░░░░░░░░░░░  12%
+Tests escritos:      57 /100 ███████████░░░░░░░░  57%
 Líneas reducidas:     0 /3000 ░░░░░░░░░░░░░░░░░░   0%
 ```
 
@@ -67,44 +69,67 @@ Cada sprint muestra `(completadas/total)` y porcentaje.
 
 ---
 
-### 🏃 Sprint 1: Quick Wins + Investigación  **(0/4 — 0%)**
+### 🏃 Sprint 1: Quick Wins + Investigación + Tooltips  **(8/8 — 100%)** ✅
 
 **Objetivo:** victorias rápidas, datos limpios, validar que todo sigue funcionando.
-**Esfuerzo estimado:** medio día
-**Estado:** ⏳ Pendiente
+**Esfuerzo real:** ~1 día
+**Estado:** ✅ Completado (2026-05-17)
 
-#### Tareas
+#### Tareas originales
 
-- [ ] **Investigar "51 referencias huérfanas"**
-  - Identificar qué entidades generan huérfanas (posiciones eliminadas, líderes, etc.)
-  - Reproducir el caso (crear → eliminar → verificar)
-  - Decidir: ¿prevenir creación o limpiar al borrar?
-  - Test: verificar que crear + eliminar entidad no deja huérfanas
-  - **Esfuerzo:** ~3h
+- [x] **Investigar "51 referencias huérfanas"** ✅
+  - Causa: `deletePosition` no limpiaba asistencias históricas
+  - Fix preventivo: `cleanupPositionReferences(positionId)` antes de eliminar
+  - Fix curativo: persistir correcciones tras `validateDataIntegrity()` en load
+  - 7 tests añadidos en `DataIntegrityTests.js`
 
-- [ ] **Touch targets ≥44px en header**
-  - Aumentar padding de `.header-icon-btn` en `css/header.css`
-  - Aumentar logo 32×32 → 44×44
-  - Aumentar botón `+` en PayrollUI
-  - Verificar en móvil real (no solo DevTools)
-  - **Esfuerzo:** ~1h
+- [x] **Touch targets ≥44px en header** ✅
+  - Logo: 32×32 → 44×44
+  - `.sync-indicator-btn`: añadido min-width/min-height 44px
+  - Botón `+` en PayrollUI: 28×28 → 44×44
 
-- [ ] **Decidir sobre Google Analytics**
-  - ¿Lo usamos? Si no → eliminarlo del bundle
-  - Si sí → considerar self-hosted o aceptar los warnings
-  - **Esfuerzo:** ~30 min decisión + tiempo de implementación
+- [x] **Decidir sobre Google Analytics** ✅
+  - Decisión: **eliminar**. La variable `analytics` nunca se usaba.
+  - Comentado (no borrado) para reactivación trivial si se quiere
+  - Ahorro: ~70-100ms al arranque, consola limpia
 
-- [ ] **Verificación completa post-sprint**
-  - Ejecutar `testRunner.runAll()` → todos pasan
-  - Reload de la app y arranque limpio
-  - Commit con mensaje descriptivo
+#### Tareas añadidas durante el sprint (Tooltips)
+
+- [x] **Sistema de tooltips de ayuda** ✅
+  - `HelpController` con 3 modos: off / first-time / always
+  - `HelpTooltip` botón `(?)` + auto-show on focus
+  - `helpTexts.js` con 14 conceptos documentados
+  - Configuración en Ajustes (selector + botón "volver a mostrar todos")
+  - Aplicado en PositionModal (3 campos)
+  - 14 tests añadidos en `HelpTooltipTests.js`
+
+- [x] **Verificación post-sprint** ✅
+  - Tests pasando: 36 → 57 (+21)
+  - Arranque más rápido (sin GA)
+  - Service Worker actualizado (CACHE_VERSION 1.0.3 → 1.0.5)
 
 #### Bitácora
 
-> _Espacio para anotar hallazgos, decisiones o cambios de plan durante el sprint._
-
 ```
-(vacío hasta empezar)
+2026-05-17 — Sprint 1 completado en una sesión.
+
+Descubrimientos importantes:
+1. Las 51 huérfanas venían SOLO de posiciones eliminadas. Empleados y
+   líderes solo se desactivan (no se borran), así que no generan huérfanas.
+2. Firebase sync reescribe el state después de validateDataIntegrity, por
+   eso las huérfanas reaparecían en cada arranque. Fix: save inmediato
+   tras detectar correcciones.
+3. El componente TooltipComponent existía pero era solo esqueleto.
+   Decidimos hacer uno nuevo (HelpTooltip) en lugar de extender el viejo.
+4. La idea del modo "first-time" del usuario fue clave para que el sistema
+   no sea molesto. Default recomendado.
+
+Cambios no planificados:
+- Sistema completo de tooltips de ayuda (sugerido por el usuario, B/E muy alto)
+- Refactor del CSS de header para WCAG 2.5.5
+
+Tests añadidos: 21 (7 data integrity + 14 help tooltips)
+Total tests pasando: 57
 ```
 
 ---
@@ -349,7 +374,7 @@ Items que no entran en sprints concretos pero quedan documentados:
 | Fecha | Sprint | Líneas app.js | Líneas EmployeesUI | Tests | Notas |
 |---|---|---|---|---|---|
 | 2026-05-17 | (inicio) | 6,840 | 1,068 | 36 | Punto de partida |
-| _pendiente_ | S1 | — | — | — | — |
+| 2026-05-17 | S1 ✅ | 6,840 | 1,112 (+44) | 57 (+21) | Quick wins, fix huérfanas, tooltips, sin GA |
 | _pendiente_ | S2 | — | — | — | — |
 | ... | ... | ... | ... | ... | ... |
 

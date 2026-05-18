@@ -3,6 +3,7 @@ import { COLOR_PALETTE } from '../../utils/Constants.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import icons from '../../ui/IconSystem.js';
 import { slugify } from '../../utils/Helpers.js';
+import { HelpTooltip } from '../../components/HelpTooltip.js';
 
 export class PositionModal {
     static open(positionId = null) {
@@ -37,16 +38,16 @@ export class PositionModal {
                     <div class="form-group">
                         <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
                             ⏱️ Tarifa por Hora *
-                            <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
-                                  title="Esta es la base para todos los cálculos">ⓘ</span>
+                            ${HelpTooltip.render('position.hourlyRate')}
                         </label>
-                        <input type="number" inputmode="decimal" 
-                               id="posHourlyRate" 
-                               class="form-input" 
-                               value="${hourlyRate}" 
-                               placeholder="150" 
-                               min="1" 
+                        <input type="number" inputmode="decimal"
+                               id="posHourlyRate"
+                               class="form-input"
+                               value="${hourlyRate}"
+                               placeholder="150"
+                               min="1"
                                step="1"
+                               data-help-on-focus="position.hourlyRate"
                                required>
                         <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">
                             💡 Ingresa cuánto cobra por cada hora trabajada
@@ -63,6 +64,7 @@ export class PositionModal {
                 <div style="background: #1e293b; padding: 16px; border-radius: 12px; margin: 16px 0; border: 1px solid #334155;">
                     <h3 style="font-size: 1rem; color: #06b6d4; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                         📅 Días Laborales
+                        ${HelpTooltip.render('position.workingDays')}
                     </h3>
                     <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 12px;">
                         Selecciona qué días de la semana trabaja esta posición por defecto
@@ -88,7 +90,10 @@ export class PositionModal {
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label">👑 Líder/Encargado (Opcional)</label>
+                    <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
+                        👑 Líder/Encargado (Opcional)
+                        ${HelpTooltip.render('position.leader')}
+                    </label>
                     <select id="posLeader" class="form-select">
                         <option value="">Sin líder asignado</option>
                         ${activeLeaders.map(ldr => `

@@ -196,7 +196,7 @@ export function PayrollTab() {
                 <div style="display: ${isStepCollapsed('step2') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                         <button type="button" data-payroll-action="add-export-deduction" 
-                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; min-width: 44px; min-height: 44px; padding: 10px 16px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                                 onmouseover="this.style.transform='scale(1.05)'"
                                 onmouseout="this.style.transform='scale(1)'">
                             +
@@ -258,7 +258,7 @@ export function PayrollTab() {
                 <div style="display: ${isStepCollapsed('step2b') ? 'none' : 'block'}; margin-top: 20px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                         <button type="button" data-payroll-action="add-export-bonus" 
-                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
+                                style="background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; min-width: 44px; min-height: 44px; padding: 10px 16px; border-radius: 6px; font-size: 1.25rem; font-weight: 700; cursor: pointer; transition: all 0.2s;"
                                 onmouseover="this.style.transform='scale(1.05)'"
                                 onmouseout="this.style.transform='scale(1)'">
                             +
