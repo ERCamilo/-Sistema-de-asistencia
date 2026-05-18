@@ -1030,6 +1030,49 @@ export function togglePositionStatus(positionId) {
     });
 }
 
+/**
+ * 🛡️ Limpia todas las referencias a una posición del state.
+ * Evita generar huérfanas en asistencias históricas y en empleados.
+ *
+ * Llamarla SIEMPRE antes de eliminar definitivamente una posición.
+ *
+ * @param {string} positionId — ID de la posición a limpiar
+ * @returns {number} cantidad de referencias limpiadas (para tests/logging)
+ */
+export function cleanupPositionReferences(positionId) {
+    const state = getState();
+    let cleaned = 0;
+
+    // 1. Limpiar en empleados (positions array + positionSalaries map)
+    state.employees.forEach(emp => {
+        if (emp.positions && emp.positions.includes(positionId)) {
+            emp.positions = emp.positions.filter(pid => pid !== positionId);
+            cleaned++;
+        }
+        if (emp.positionSalaries && emp.positionSalaries[positionId] !== undefined) {
+            delete emp.positionSalaries[positionId];
+            cleaned++;
+        }
+    });
+
+    // 2. Limpiar en asistencias históricas
+    Object.values(state.attendance || {}).forEach(att => {
+        if (att.selectedPosition === positionId) {
+            att.selectedPosition = null;
+            cleaned++;
+        }
+        if (att.positionHours && att.positionHours.length > 0) {
+            const filtered = att.positionHours.filter(ph => ph.positionId !== positionId);
+            if (filtered.length !== att.positionHours.length) {
+                att.positionHours = filtered;
+                cleaned++;
+            }
+        }
+    });
+
+    return cleaned;
+}
+
 export function deletePosition(positionId) {
     const state = getState();
     const pos = state.positions.find(p => p.id === positionId);
@@ -1067,6 +1110,13 @@ export function deletePosition(positionId) {
         cancelText: 'Cancelar',
         type: 'danger',
         onConfirm: () => {
+            // 🛡️ Limpiar referencias en asistencias históricas ANTES de eliminar
+            // (previene huérfanas detectadas por validateDataIntegrity)
+            const cleaned = cleanupPositionReferences(pos.id);
+            if (cleaned > 0) {
+                console.log(`🛡️ Limpiadas ${cleaned} referencia(s) histórica(s) de "${pos.name}" antes de eliminar`);
+            }
+
             state.positions = state.positions.filter(p => p.id !== pos.id);
             context.saveToLocalStorage();
             context.render();

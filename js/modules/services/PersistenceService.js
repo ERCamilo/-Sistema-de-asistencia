@@ -206,8 +206,16 @@ export async function loadApplicationData() {
             Object.assign(state, inflatedData);
             state.isDataLoaded = true;
             state.useIndexedDB = true;
-            
-            validateDataIntegrity();
+
+            // 🛡️ Validar integridad. Si hubo correcciones, persistir inmediatamente
+            // para evitar que Firebase reescriba el state con datos sucios después.
+            const fixesOnLoad = validateDataIntegrity();
+            if (fixesOnLoad > 0) {
+                debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad...`);
+                // Guardado full (no granular) → también dispara sync con Firebase
+                saveApplicationData({ force: true });
+            }
+
             stateManager.markAttendanceDirty(); // Asegurar reconstrucción total tras carga masiva
             return true;
         }
