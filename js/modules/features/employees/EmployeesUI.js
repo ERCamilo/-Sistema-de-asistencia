@@ -8,6 +8,7 @@ import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
+import { state as _appState } from '../../core/AppState.js';
 
 export let context = null;
 
@@ -85,9 +86,9 @@ export function init(ctx) {
     }
 }
 
-// Helper to access state easier
+// Helper to access state easier — falls back to global AppState when context is not yet initialized (e.g. in tests)
 export function getState() {
-    return context.state;
+    return context ? context.state : _appState;
 }
 
 function getServices() {
