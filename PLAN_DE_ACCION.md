@@ -2,7 +2,7 @@
 
 > **Documento vivo** — se actualiza con cada sprint. Sirve como hoja de ruta, checklist de progreso y registro histórico de decisiones tomadas.
 
-**Última actualización:** 2026-05-19 (Sprint 2 completado)
+**Última actualización:** 2026-05-19 (Sprint 3 completado)
 **Estado general:** 🟢 Activo
 
 ---
@@ -37,20 +37,20 @@ Reglas que guían cada cambio (no negociables):
 
 | Métrica | Valor inicial | Actual | Meta |
 |---|---|---|---|
-| Líneas en `app.js` | 6,840 | **6,874** | < 3,000 |
+| Líneas en `app.js` | 6,840 | **6,488** ✅ -352 | < 3,000 |
 | Líneas en `EmployeesUI.js` | 1,068 | **1,196** | < 600 |
 | Líneas en `AttendanceUI.js` | 871 | **871** | < 600 |
 | Tests pasando | 36 | **105** ✅ +69 | 100+ ✅ |
-| Cobertura estimada | ~20% | **~42%** | > 60% |
+| Cobertura estimada | ~20% | **~45%** | > 60% |
 | Tests automáticos (CLI) | 0 ❌ | **105 ✅** | ≥ tests pasando |
 | Onclicks inline | 0 ✅ | **0** | 0 ✅ |
 
 ### Progreso global
 
 ```
-Sprints completados:  2 / 8 ███████░░░░░░░░░░░░  25%
+Sprints completados:  3 / 8 ██████████░░░░░░░░░  38%
 Tests escritos:     105 /100 ████████████████████ 105% 🎯
-Líneas reducidas:     0 /3000 ░░░░░░░░░░░░░░░░░░   0%
+Líneas reducidas:   352 /3000 ██░░░░░░░░░░░░░░░░  12%
 ```
 
 ---
@@ -209,48 +209,81 @@ Cobertura estimada saltó de ~28% a ~42%.
 
 ---
 
-### 🏃 Sprint 3: Extracción de Notes Center  **(0/5 — 0%)**
+### 🏃 Sprint 3: Extracción de Notes Center  **(5/5 — 100%)** ✅
 
 **Objetivo:** Definir el patrón de extracción que repetiremos. Notes es ideal por ser una feature aislada.
-**Esfuerzo estimado:** 1-2 días
-**Estado:** ⏳ Pendiente
-**Prerequisito:** Tests de Notes Center del Sprint 2
+**Esfuerzo real:** ~½ día (mismo día que Sprint 2)
+**Estado:** ✅ Completado (2026-05-19)
+**Prerequisito:** Tests de Notes Center del Sprint 2 ✓
 
 #### Tareas
 
-- [ ] **Crear estructura `js/modules/features/notes/`**
-  - `NotesService.js` (lógica de negocio)
-  - `NotesCenter.js` (modal principal)
-  - `NoteEditorModal.js` (edición individual)
-  - `index.js` (export público)
+- [x] **Crear estructura `js/modules/features/notes/`**
+  - `NotesService.js` (data layer puro — creado en Sprint 2)
+  - `NotesController.js` (handlers que mutan state y llaman render)
+  - `NotesCenter.js` (template del modal full-screen)
+  - `NoteEditorModal.js` (template del editor individual)
+  - `index.js` (exports públicos)
+  - `README.md` (patrón documentado para Sprints 4/6/7)
 
-- [ ] **Migrar código desde app.js**
-  - Funciones: `openNotesCenter`, `closeNotesCenter`, `selectNotesEmployee`, `openNoteEditor`, `openNewNote`, `saveNoteModal`, `deleteNoteModal`, `closeNoteModal`
-  - Templates: `NotesCenterModal()`, `NoteModal()`
-  - Estado relacionado a notas
+- [x] **Migrar código desde app.js**
+  - 11 handlers `window.*` movidos a `NotesController.js`
+  - Templates `NotesCenterModal()` y `NoteModal()` movidos a sus respectivos archivos
+  - `registerLegacyGlobals()` re-expone los handlers en `window.*`
 
-- [ ] **Reconectar con event delegation**
-  - Mantener `data-app-fn` o crear `data-notes-action` local
-  - Verificar que los botones siguen funcionando
+- [x] **Reconectar con event delegation**
+  - `data-app-fn` sigue funcionando sin cambios (los handlers viven en `window.*` igual que antes)
+  - Bridge limpio: `registerNotesGlobals()` al boot
 
-- [ ] **Documentar el patrón**
-  - `js/modules/features/notes/README.md` con:
-    - Estructura interna
-    - Cómo se conecta con el resto
-    - Cómo añadir nuevas features siguiendo este patrón
+- [x] **Documentar el patrón** → [`js/modules/features/notes/README.md`](js/modules/features/notes/README.md)
 
-- [ ] **Verificación**
-  - Tests del Sprint 2 siguen pasando ✓
-  - Tests específicos del módulo siguen pasando ✓
-  - Líneas en app.js: medir reducción
-  - Commit con mensaje claro
+- [x] **Verificación**
+  - 105/105 tests pasan ✓
+  - `node --check js/app.js` → syntax válida ✓
+  - `app.js`: 6,874 → 6,488 líneas (-386, superado el estimado de ~250)
 
-**Resultado esperado:** `app.js` reduce ~250 líneas
+**Resultado real:** -386 líneas en app.js (estimado -250). El patrón quedó claro y replicable.
 
 #### Bitácora
 
 ```
-(vacío hasta empezar)
+2026-05-19 — Sprint 3 completado en una sesión, ~½ día.
+
+Decisiones clave:
+1. División en 4 archivos en lugar de 3:
+   - NotesService = data puro (ya existía de Sprint 2)
+   - NotesController = handlers con efectos (mutar state, render, save)
+   - NotesCenter = template grande
+   - NoteEditorModal = template chico
+   Razón: separar "data sin efectos" de "handlers con efectos" facilita
+   el testing y deja los templates como pura presentación.
+
+2. Mantener window.* via registerLegacyGlobals():
+   El dispatcher data-app-fn (líneas ~120-200 de app.js) busca handlers
+   en window.*. Cambiarlo TODO ahora sería tocar demasiada superficie.
+   La función registerLegacyGlobals() ata los exports del módulo a
+   window.* — un solo punto que se puede quitar cuando hagamos un
+   dispatcher basado en módulos importados.
+
+3. Renombré los templates:
+   - NotesCenterModal() → NotesCenter()
+   - NoteModal()         → NoteEditorModal()
+   Razón: "Modal" sufijo era redundante (todos los templates de overlay
+   son modales). Los nombres nuevos son más descriptivos.
+
+4. Sintaxis check con `node --check`:
+   Jest no carga app.js (solo carga los archivos .test.js), así que un
+   error de sintaxis en app.js pasaría desapercibido. node --check lo
+   verifica sin ejecutar. Estándar en CI futuro.
+
+Pendiente para Sprint 4:
+- Replicar este patrón para Export Menu (ExportMenuService ya existe).
+- En este sprint se acomodaron ~10 funciones; Export Menu tiene ~6,
+  debería ser más rápido.
+
+Líneas reducidas en app.js: 386 (estimado 250, superado ~54%).
+Líneas totales del módulo notes: 559 distribuidas en 5 archivos
+(en lugar de 250+ líneas mezcladas dentro de app.js).
 ```
 
 ---
@@ -400,7 +433,8 @@ Items que no entran en sprints concretos pero quedan documentados:
 | 2026-05-17 | (inicio) | 6,840 | 1,068 | 36 | Punto de partida |
 | 2026-05-17 | S1 ✅ | 6,840 | 1,112 (+44) | 57 (+21) | Quick wins, fix huérfanas, tooltips, sin GA |
 | 2026-05-19 | S2 ✅ | 6,874 | 1,196 | 105 (+48) | Migración a Jest + 48 tests; NotesService y ExportMenuService extraídos |
-| _pendiente_ | S3 | — | — | — | — |
+| 2026-05-19 | S3 ✅ | 6,488 (-386) | 1,196 | 105 | Notes Center extraído (Controller + 2 templates + index + README) |
+| _pendiente_ | S4 | — | — | — | — |
 
 ---
 
