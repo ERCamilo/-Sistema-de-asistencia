@@ -12,7 +12,7 @@
  * globals. registerLegacyGlobals() re-binds them for the data-app-fn dispatcher.
  */
 
-import { state } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, sanitizePositions } from '../../services/PersistenceService.js';
 import { openExportMenu, closeExportMenu } from './ExportMenuService.js';
@@ -45,19 +45,23 @@ function notify(message, type = 'info') {
 // ─── Popover open/close (thin wrappers over ExportMenuService) ────────────────
 
 export function showExportMenuHandler(options) {
-    openExportMenu(state, options || {});
+    stateManager.batchSetState(() => {
+        openExportMenu(state, options || {});
+    });
     render();
 }
 
 export function closeExportMenuHandler() {
-    closeExportMenu(state);
-    // The legacy app.js closeExportMenu also dismissed sibling popovers.
-    // Replicate that here so the data-app-fn buttons keep the same UX.
-    state.showImportFullModal = false;
-    state.importFullText = '';
-    state.showNotesCenter = false;
-    state.notesCenterEmployeeId = null;
-    state.showNoteModal = false;
+    stateManager.batchSetState(() => {
+        closeExportMenu(state);
+        // The legacy app.js closeExportMenu also dismissed sibling popovers.
+        // Replicate that here so the data-app-fn buttons keep the same UX.
+        state.showImportFullModal = false;
+        state.importFullText = '';
+        state.showNotesCenter = false;
+        state.notesCenterEmployeeId = null;
+        state.showNoteModal = false;
+    });
     render();
 }
 
@@ -211,13 +215,17 @@ export function setImportFullText(value) {
 }
 
 function applyFullImport(importedData) {
-    state.settings = importedData.data.settings || state.settings;
-    state.positions = importedData.data.positions || [];
-    state.employees = importedData.data.employees || [];
-    state.leaders = importedData.data.leaders || [];
-    state.attendance = importedData.data.attendance || {};
-    state.tempAssignments = importedData.data.tempAssignments || [];
-    state.dayHoursConfig = importedData.data.dayHoursConfig || {};
+    // Batch 7 large state replacements — without this, each one would trigger
+    // a render + buildAttendanceIndex run (attendance) + statsCache invalidation.
+    stateManager.batchSetState(() => {
+        state.settings = importedData.data.settings || state.settings;
+        state.positions = importedData.data.positions || [];
+        state.employees = importedData.data.employees || [];
+        state.leaders = importedData.data.leaders || [];
+        state.attendance = importedData.data.attendance || {};
+        state.tempAssignments = importedData.data.tempAssignments || [];
+        state.dayHoursConfig = importedData.data.dayHoursConfig || {};
+    });
 
     // Defensive sanitization before persisting
     if (typeof sanitizePositions === 'function') {

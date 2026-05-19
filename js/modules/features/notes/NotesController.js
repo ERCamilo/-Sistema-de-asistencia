@@ -10,7 +10,7 @@
  * for backwards-compat with the data-app-fn event delegation system.
  */
 
-import { state } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { render } from '../../core/RenderManager.js';
@@ -19,18 +19,22 @@ import { upsertNote, clearNote } from './NotesService.js';
 // ─── Open / close the Notes Center ───────────────────────────────────────────
 
 export function openNotesCenter() {
-    state.showNotesCenter = true;
-    if (!state.notesCenterEmployeeId) {
-        state.notesCenterEmployeeId = null;
-    }
-    state.showNoteModal = false;
+    stateManager.batchSetState(() => {
+        state.showNotesCenter = true;
+        if (!state.notesCenterEmployeeId) {
+            state.notesCenterEmployeeId = null;
+        }
+        state.showNoteModal = false;
+    });
     render();
 }
 
 export function closeNotesCenter() {
-    state.showNotesCenter = false;
-    state.notesCenterEmployeeId = null;
-    state.showNoteModal = false;
+    stateManager.batchSetState(() => {
+        state.showNotesCenter = false;
+        state.notesCenterEmployeeId = null;
+        state.showNoteModal = false;
+    });
     render();
 }
 
@@ -51,11 +55,13 @@ export function openNoteEditor(employeeId, dateKey) {
     const att = state.attendance[key];
     if (!att || !att.notes) return;
 
-    state.showNotesCenter = true;
-    state.showNoteModal = true;
-    state.noteModalEmployeeId = employeeId;
-    state.noteModalDate = dateKey;
-    state.noteModalText = att.notes || '';
+    stateManager.batchSetState(() => {
+        state.showNotesCenter = true;
+        state.showNoteModal = true;
+        state.noteModalEmployeeId = employeeId;
+        state.noteModalDate = dateKey;
+        state.noteModalText = att.notes || '';
+    });
     render();
 }
 
@@ -66,21 +72,25 @@ export function openNewNote(employeeId) {
         }
         return;
     }
-    state.showNotesCenter = true;
-    state.showNoteModal = true;
-    state.noteModalEmployeeId = employeeId;
-    state.noteModalDate = getDateKey(new Date());
-    state.noteModalText = '';
-    state.notesCenterEmployeeId = employeeId;
+    stateManager.batchSetState(() => {
+        state.showNotesCenter = true;
+        state.showNoteModal = true;
+        state.noteModalEmployeeId = employeeId;
+        state.noteModalDate = getDateKey(new Date());
+        state.noteModalText = '';
+        state.notesCenterEmployeeId = employeeId;
+    });
     render();
 }
 
 export function closeNoteModal() {
-    state.showNoteModal = false;
-    state.noteModalEmployeeId = null;
-    state.noteModalDate = '';
-    state.noteModalText = '';
-    state.showNotesCenter = true;
+    stateManager.batchSetState(() => {
+        state.showNoteModal = false;
+        state.noteModalEmployeeId = null;
+        state.noteModalDate = '';
+        state.noteModalText = '';
+        state.showNotesCenter = true;
+    });
     render();
 }
 

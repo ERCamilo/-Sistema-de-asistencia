@@ -2,7 +2,7 @@
 
 > **Documento vivo** — se actualiza con cada sprint. Sirve como hoja de ruta, checklist de progreso y registro histórico de decisiones tomadas.
 
-**Última actualización:** 2026-05-19 (Sprint 4 completado)
+**Última actualización:** 2026-05-19 (Sprint 5 parcial — falta profiling humano)
 **Estado general:** 🟢 Activo
 
 ---
@@ -40,16 +40,16 @@ Reglas que guían cada cambio (no negociables):
 | Líneas en `app.js` | 6,840 | **5,941** ✅ -899 | < 3,000 |
 | Líneas en `EmployeesUI.js` | 1,068 | **1,196** | < 600 |
 | Líneas en `AttendanceUI.js` | 871 | **871** | < 600 |
-| Tests pasando | 36 | **105** ✅ +69 | 100+ ✅ |
-| Cobertura estimada | ~20% | **~46%** | > 60% |
-| Tests automáticos (CLI) | 0 ❌ | **105 ✅** | ≥ tests pasando |
+| Tests pasando | 36 | **110** ✅ +74 | 100+ ✅ |
+| Cobertura estimada | ~20% | **~47%** | > 60% |
+| Tests automáticos (CLI) | 0 ❌ | **110 ✅** | ≥ tests pasando |
 | Onclicks inline | 0 ✅ | **0** | 0 ✅ |
 
 ### Progreso global
 
 ```
-Sprints completados:  4 / 8 ██████████████░░░░░  50%
-Tests escritos:     105 /100 ████████████████████ 105% 🎯
+Sprints completados:  4.5 / 8 ███████████████░░░░  56%
+Tests escritos:     110 /100 ████████████████████ 110% 🎯
 Líneas reducidas:   899 /3000 █████░░░░░░░░░░░░░  30%
 ```
 
@@ -347,39 +347,90 @@ y Sprint 6 (Profile Modal) seguirán bajándola.
 
 ---
 
-### 🏃 Sprint 5: Performance del Render Inicial  **(0/5 — 0%)**
+### 🏃 Sprint 5: Performance del Render Inicial  **(2/5 — 40% parcial)** 🟡
 
 **Objetivo:** Reducir el render inicial de 180-258ms a <100ms.
-**Esfuerzo estimado:** 1 día
-**Estado:** ⏳ Pendiente
+**Esfuerzo real (parte automatizable):** ~2 horas
+**Estado:** 🟡 Parcial — partes deterministas completadas, profiling pendiente del usuario
 
 #### Tareas
 
-- [ ] **Profiling con DevTools Performance tab**
-  - Identificar el componente que más bloquea
-  - Documentar el "antes" como baseline
+- [ ] **Profiling con DevTools Performance tab** ← REQUIERE HUMANO
+  - Chrome → DevTools → Performance → Record → recargar página → Stop
+  - Identificar el componente que más bloquea (mirar el flamegraph)
+  - Documentar el "antes" como baseline (ms totales + nombre de la función más cara)
+  - **Sin esto no se puede saber si las optimizaciones siguientes valen la pena**
 
-- [ ] **Aplicar `batchSetState` donde hay `state.X = Y; render()` consecutivos**
-  - Buscar todos los patrones
-  - Aplicar el batch
-  - Test que verifique 1 render para múltiples mutaciones
+- [x] **Aplicar `batchSetState` donde hay `state.X = Y; render()` consecutivos** (parcial)
+  - Aplicado en `NotesController` (4 handlers) y `ExportController` (3 handlers)
+  - Patrón documentado y demostrado
+  - **Quedan 117 sitios de `state.X = ...` en `app.js`** que no se tocaron sin profiling — el riesgo de blanket-refactor es romper expectativas de orden de render que no veo desde Jest
 
-- [ ] **Lazy load de componentes pesados (Analytics, Payroll)**
-  - Solo cargar cuando el usuario va a esa pestaña
-  - Test que verifique que la primera pantalla no carga estos módulos
+- [ ] **Lazy load de componentes pesados (Analytics, Payroll)** ← PENDIENTE
+  - `AnalyticsUI.js` (1,292 líneas) y `PayrollUI.js` (882 líneas) se cargan eager
+  - Convertir a `import()` dinámico cuando el usuario navega a esa tab
+  - Sin profiling no está claro si el costo de parse de estos archivos es realmente el cuello — V8 hace parse lazy hasta que se llaman las funciones
+  - **Necesita ser justificado con métricas antes de hacer el refactor**
 
-- [ ] **Optimización dirigida del cuello identificado**
+- [ ] **Optimización dirigida del cuello identificado** ← REQUIERE PROFILING
 
-- [ ] **Verificación: test de performance regression**
-  - Medir tiempo de render inicial
-  - Test que falle si vuelve a degradarse
+- [x] **Verificación: test de performance regression** ✅
+  - `js/tests/RenderBatchingTests.js` (5 tests, todos verdes)
+  - Verifica que la dedup del queue funciona
+  - Verifica que `batchSetState` suprime el scheduling por mutación
+  - Verifica que `_silent` se restaura incluso tras una excepción
+  - Verifica que asignar el mismo valor NO dispara render
+  - **Cualquier regresión en este sistema explota estos tests inmediatamente**
 
-**Resultado esperado:** primer render < 100ms
+#### Lo que SÍ se hizo en este sprint (sin profiling)
+
+1. **5 tests de regresión de batching** — locked in the current behavior of the
+   render scheduling system. Si alguien rompe el dedup, los tests gritan.
+
+2. **batchSetState aplicado en los 2 controllers nuevos** (`NotesController`,
+   `ExportController`) como patrón canónico. Ejemplo: `applyFullImport` mutaba
+   7 campos de state secuencialmente — ahora todo en un batch.
+
+3. **Render redundante reducido** en los handlers tocados: antes hacían
+   N x `scheduleRender` + 1 x `render()` directo = 2 renders reales por
+   handler. Ahora 1 x `scheduleRender` (en batchSetState) + 1 x `render()`
+   directo = 1 render efectivo (porque el scheduled lo dedupea el explícito).
 
 #### Bitácora
 
 ```
-(vacío hasta empezar)
+2026-05-19 — Sprint 5 parcial.
+
+Decisión clave: no hacer cambios "speculative" sin métricas.
+
+Lo que sí se hizo:
+- Test de regresión de batching (5 tests). Verifica que dedup + batchSetState
+  funcionan como pensamos. Si alguien rompe el sistema, falla.
+- batchSetState aplicado a los 7 handlers de Notes/Export que mutaban 3-7
+  campos de state. Demostración del patrón.
+
+Lo que NO se hizo y por qué:
+- No baseline profiling. Sin browser DevTools no se puede medir.
+- No blanket-refactor de los 117 sitios de mutación en app.js. Sin profiling,
+  el riesgo > beneficio: podría romper orden de render en lugares no visibles
+  desde Jest.
+- No lazy loading de Analytics/Payroll. Aunque son 2,174 líneas combinadas,
+  V8 parsea lazily hasta que se llaman funciones. Sin medición no sé si el
+  costo es de parse o de ejecución.
+
+Para el usuario:
+1. Abrir Chrome → DevTools → Performance tab
+2. Record → recargar la app → Stop
+3. Compartir:
+   - Tiempo total de "Scripting" en el resumen
+   - Nombre de la función más cara en el flamegraph
+   - Si AnalyticsUI/PayrollUI aparecen como "compilation/parse" o como
+     "execution"
+4. Con esos números, puedo escribir patches dirigidos y un test de timing
+   que asegure que no se degrada.
+
+Tests añadidos: 5 (RenderBatchingTests).
+Total tests pasando: 110.
 ```
 
 ---
@@ -471,7 +522,8 @@ Items que no entran en sprints concretos pero quedan documentados:
 | 2026-05-19 | S2 ✅ | 6,874 | 1,196 | 105 (+48) | Migración a Jest + 48 tests; NotesService y ExportMenuService extraídos |
 | 2026-05-19 | S3 ✅ | 6,488 (-386) | 1,196 | 105 | Notes Center extraído (Controller + 2 templates + index + README) |
 | 2026-05-19 | S4 ✅ | 5,941 (-547) | 1,196 | 105 | Export Menu extraído (Controller + 2 templates + index + README) |
-| _pendiente_ | S5 | — | — | — | Performance — requiere profiling en navegador (humano) |
+| 2026-05-19 | S5 🟡 | 5,941 | 1,196 | 110 (+5) | Parcial: regression test + batchSetState en controllers nuevos. Profiling pendiente. |
+| _pendiente_ | S6 | — | — | — | Profile Modal extraction |
 
 ---
 

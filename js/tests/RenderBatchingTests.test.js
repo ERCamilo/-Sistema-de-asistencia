@@ -1,0 +1,1 @@
+import './RenderBatchingTests.js';
