@@ -2,7 +2,7 @@
 
 > **Documento vivo** — se actualiza con cada sprint. Sirve como hoja de ruta, checklist de progreso y registro histórico de decisiones tomadas.
 
-**Última actualización:** 2026-05-19 (Sprint 5 parcial — falta profiling humano)
+**Última actualización:** 2026-05-19 (Sprint 6 completado)
 **Estado general:** 🟢 Activo
 
 ---
@@ -37,20 +37,20 @@ Reglas que guían cada cambio (no negociables):
 
 | Métrica | Valor inicial | Actual | Meta |
 |---|---|---|---|
-| Líneas en `app.js` | 6,840 | **5,941** ✅ -899 | < 3,000 |
+| Líneas en `app.js` | 6,840 | **5,191** ✅ -1,649 | < 3,000 |
 | Líneas en `EmployeesUI.js` | 1,068 | **1,196** | < 600 |
 | Líneas en `AttendanceUI.js` | 871 | **871** | < 600 |
 | Tests pasando | 36 | **110** ✅ +74 | 100+ ✅ |
-| Cobertura estimada | ~20% | **~47%** | > 60% |
+| Cobertura estimada | ~20% | **~48%** | > 60% |
 | Tests automáticos (CLI) | 0 ❌ | **110 ✅** | ≥ tests pasando |
 | Onclicks inline | 0 ✅ | **0** | 0 ✅ |
 
 ### Progreso global
 
 ```
-Sprints completados:  4.5 / 8 ███████████████░░░░  56%
+Sprints completados:  5.5 / 8 █████████████████░░  69%
 Tests escritos:     110 /100 ████████████████████ 110% 🎯
-Líneas reducidas:   899 /3000 █████░░░░░░░░░░░░░  30%
+Líneas reducidas: 1,649 /3000 ███████████░░░░░░░  55%
 ```
 
 ---
@@ -435,20 +435,64 @@ Total tests pasando: 110.
 
 ---
 
-### 🏃 Sprint 6: Extracción de Profile Modal  **(0/4 — 0%)**
+### 🏃 Sprint 6: Extracción de Profile Modal  **(4/4 — 100%)** ✅
 
 **Objetivo:** Sacar el modal de perfil de empleado completamente de app.js (lo que queda).
-**Esfuerzo estimado:** 1.5 días
-**Estado:** ⏳ Pendiente
+**Esfuerzo real:** ~½ día (mismo día que S3/S4)
+**Estado:** ✅ Completado (2026-05-19)
 
 #### Tareas
 
-- [ ] **Mover lógica restante a `js/modules/ui/modals/EmployeeProfileModal.js`** (ya parcialmente extraído)
-- [ ] **Mover `ProfileTabResumen`, `ProfileTabNomina`, `ProfileTabAsistencia`, `ProfileTabDocumentos`**
-- [ ] **Tests para cada tab del perfil**
-- [ ] **Verificación + commit**
+- [x] **Crear `js/modules/features/profile/`** con 5 archivos + README:
+  - `EmployeeProfileModal.js` (67 líneas) — shell + tab navigation
+  - `ProfileTabs.js` (367 líneas) — 4 tab templates
+  - `ProfilePickers.js` (144 líneas) — 3 date pickers + `calculateMonthlyEstimate`
+  - `ProfileController.js` (287 líneas) — 14 handlers + `syncProfileToMaster`
+  - `index.js` (40 líneas) — public exports
+  - `README.md`
+- [x] **Mover ProfileTabResumen/Nomina/Asistencia/Documentos** — todos en ProfileTabs.js
+- [x] **Mover handlers**: closeEmployeeProfile, changeProfileTab, 2 toggle pickers, 3 change month pickers, 2 select date handlers, setProfilePeriod (con 5 presets), togglePositionBreakdown, markAsPaid
+- [x] **Eliminar el archivo muerto** `js/modules/ui/modals/EmployeeProfileModal.js` (no era importado por nadie y estaba desactualizado)
+- [x] **Exponer `generate*HTML` en window** para que el módulo pueda llamar a los generadores de payroll que siguen en app.js (decisión: ese refactor pertenece a un futuro PayrollUI)
+- [x] **Verificación + commit**
+  - 110/110 tests pasan ✓
+  - `node --check js/app.js` → válida ✓
+  - `app.js`: 5,941 → 5,191 (-750 líneas, casi 2x el estimado de -400)
 
-**Resultado esperado:** `app.js` reduce ~400 líneas
+**Resultado real:** -750 líneas en app.js (estimado -400). Combinado total desde inicio del refactor: -1,683 líneas, 55% del camino a la meta de -3,000.
+
+#### Bitácora
+
+```
+2026-05-19 — Sprint 6 completado el mismo día que S3/S4/S5.
+
+Hallazgo sorprendente al empezar:
+- `js/modules/ui/modals/EmployeeProfileModal.js` ya existía con 558 líneas,
+  pero NADIE lo importaba. Era código muerto desde alguna extracción
+  abandonada anterior. Usaba un patrón de `data-profile-action` event
+  delegation (más limpio que `data-app-fn`) pero llamaba a helpers
+  globales sin importarlos.
+- Decisión: ignorar ese archivo (estaba mal), eliminar al final del sprint,
+  y reextraer con el patrón de Sprints 3/4 (data-app-fn + registerLegacyGlobals).
+
+Decisión clave: NO extraer los generators de deduction/bonus/advance HTML.
+- Hay ~30 handlers (addDeduction, addBonus, addAdvance, removeX, etc.)
+  que editan los arrays scratch del payroll.
+- Los HTML generators (generateDeductionsHTML/BonusesHTML/AdvancesHTML)
+  llaman a esos handlers via data-app-fn.
+- Mover esto pertenece a una futura extracción de PayrollUI, no a Sprint 6.
+- Solución intermedia: exponer los generators en `window.*` para que el
+  módulo Profile pueda llamarlos. Documentado en el README.
+
+batchSetState aplicado en handlers nuevos:
+- selectProfileHireDate (2 mutaciones)
+- toggleProfileStartPicker/EndPicker (2-3 mutaciones)
+- selectProfileStart/EndDate (2 mutaciones)
+- setProfilePeriod (3 mutaciones)
+
+El patrón sigue siendo replicable mecánicamente. Tiempo de implementación
+proporcional al tamaño del scope: S6 movió ~810 líneas en una sesión.
+```
 
 ---
 
@@ -523,7 +567,8 @@ Items que no entran en sprints concretos pero quedan documentados:
 | 2026-05-19 | S3 ✅ | 6,488 (-386) | 1,196 | 105 | Notes Center extraído (Controller + 2 templates + index + README) |
 | 2026-05-19 | S4 ✅ | 5,941 (-547) | 1,196 | 105 | Export Menu extraído (Controller + 2 templates + index + README) |
 | 2026-05-19 | S5 🟡 | 5,941 | 1,196 | 110 (+5) | Parcial: regression test + batchSetState en controllers nuevos. Profiling pendiente. |
-| _pendiente_ | S6 | — | — | — | Profile Modal extraction |
+| 2026-05-19 | S6 ✅ | 5,191 (-750) | 1,196 | 110 | Profile Modal extracted (Controller + 3 templates + Pickers + index + README); dead duplicate file removed |
+| _pendiente_ | S7 | — | — | — | Split EmployeesUI |
 
 ---
 

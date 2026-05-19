@@ -1,0 +1,287 @@
+/**
+ * 👤 ProfileController — Handlers for the Employee Profile modal.
+ *
+ * Sprint 6 extraction. These handlers used to live in app.js as window.*
+ * globals between lines 2005-2140 (core profile handlers), and at lines
+ * 2845 (togglePositionBreakdown) and 2874 (markAsPaid).
+ *
+ * `registerLegacyGlobals()` re-binds them to window.* so the data-app-fn
+ * dispatcher in app.js keeps resolving them.
+ */
+
+import { state, stateManager } from '../../core/AppState.js';
+import { render } from '../../core/RenderManager.js';
+import { getDateKey } from '../../utils/DateUtils.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
+import { payrollService } from '../../services/index.js';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function notify(message, type = 'info') {
+    if (typeof window !== 'undefined' && window.showNotification) {
+        window.showNotification(message, type);
+    }
+}
+
+function alertMsg(message, type = 'info') {
+    if (typeof window !== 'undefined' && window.showAlert) {
+        window.showAlert(message, type);
+    } else {
+        notify(message, type);
+    }
+}
+
+/**
+ * 🔄 Sync the edit-time scratch data (deductions/bonuses/advances) into the
+ * persistent employee record. Called on close and after every payroll edit.
+ */
+export function syncProfileToMaster(empId) {
+    if (!empId) return false;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp || !state.employeeProfile) return false;
+
+    if (state.employeeProfile.deductions) emp.deductions = [...state.employeeProfile.deductions];
+    if (state.employeeProfile.bonuses) emp.bonuses = [...state.employeeProfile.bonuses];
+    if (state.employeeProfile.advances) emp.advances = [...state.employeeProfile.advances];
+
+    saveApplicationData();
+    return true;
+}
+
+// ─── Open / close ────────────────────────────────────────────────────────────
+
+export function closeEmployeeProfile() {
+    // Final sync before close — avoids losing edits to deductions/bonuses
+    syncProfileToMaster(state.employeeProfile?.employeeId);
+    state.showEmployeeProfile = false;
+    render();
+}
+
+export function changeProfileTab(tabName) {
+    state.employeeProfile.activeTab = tabName;
+    render();
+}
+
+// ─── Hire-date picker ────────────────────────────────────────────────────────
+
+export function changeProfileHireDateMonth(delta) {
+    if (!state.profileHireDatePickerMonth) {
+        state.profileHireDatePickerMonth = new Date();
+    }
+    state.profileHireDatePickerMonth.setMonth(
+        state.profileHireDatePickerMonth.getMonth() + parseInt(delta, 10)
+    );
+    state.profileHireDatePickerMonth = new Date(state.profileHireDatePickerMonth);
+    render();
+}
+
+export function selectProfileHireDate(empId, dateKey) {
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    stateManager.batchSetState(() => {
+        emp.hireDate = dateKey;
+        state.showProfileHireDatePicker = false;
+    });
+    saveApplicationData();
+    notify(`📅 Fecha de contratación actualizada a ${dateKey}`, 'success');
+    render();
+}
+
+// ─── Period pickers (start / end) ────────────────────────────────────────────
+
+export function toggleProfileStartPicker() {
+    stateManager.batchSetState(() => {
+        state.employeeProfile.showStartPicker = !state.employeeProfile.showStartPicker;
+        state.employeeProfile.showEndPicker = false;
+        if (state.employeeProfile.showStartPicker) {
+            state.employeeProfile.startPickerMonth =
+                new Date(state.employeeProfile.periodStart + 'T00:00:00');
+        }
+    });
+    render();
+}
+
+export function toggleProfileEndPicker() {
+    stateManager.batchSetState(() => {
+        state.employeeProfile.showEndPicker = !state.employeeProfile.showEndPicker;
+        state.employeeProfile.showStartPicker = false;
+        if (state.employeeProfile.showEndPicker) {
+            state.employeeProfile.endPickerMonth =
+                new Date(state.employeeProfile.periodEnd + 'T00:00:00');
+        }
+    });
+    render();
+}
+
+export function changeProfileStartMonth(delta) {
+    state.employeeProfile.startPickerMonth.setMonth(
+        state.employeeProfile.startPickerMonth.getMonth() + parseInt(delta, 10)
+    );
+    state.employeeProfile.startPickerMonth = new Date(state.employeeProfile.startPickerMonth);
+    render();
+}
+
+export function changeProfileEndMonth(delta) {
+    state.employeeProfile.endPickerMonth.setMonth(
+        state.employeeProfile.endPickerMonth.getMonth() + parseInt(delta, 10)
+    );
+    state.employeeProfile.endPickerMonth = new Date(state.employeeProfile.endPickerMonth);
+    render();
+}
+
+export function changeProfileAsistenciaMonth(delta) {
+    if (!state.employeeProfile.assistanceMonth) {
+        state.employeeProfile.assistanceMonth = new Date();
+    }
+    state.employeeProfile.assistanceMonth.setMonth(
+        state.employeeProfile.assistanceMonth.getMonth() + parseInt(delta, 10)
+    );
+    state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
+    render();
+}
+
+export function selectProfileStartDate(dateKey) {
+    stateManager.batchSetState(() => {
+        state.employeeProfile.periodStart = dateKey;
+        state.employeeProfile.showStartPicker = false;
+    });
+    render();
+}
+
+export function selectProfileEndDate(dateKey) {
+    stateManager.batchSetState(() => {
+        state.employeeProfile.periodEnd = dateKey;
+        state.employeeProfile.showEndPicker = false;
+    });
+    render();
+}
+
+// ─── Period presets ──────────────────────────────────────────────────────────
+
+export function setProfilePeriod(preset) {
+    const today = new Date();
+    let start, end;
+
+    switch (preset) {
+        case '7days':
+            start = new Date(today);
+            start.setDate(start.getDate() - 6);
+            end = today;
+            break;
+        case '15days':
+            start = new Date(today);
+            start.setDate(start.getDate() - 14);
+            end = today;
+            break;
+        case 'month':
+            start = new Date(today.getFullYear(), today.getMonth(), 1);
+            end = today;
+            break;
+        case 'payPeriod': {
+            const pp = state.settings.payPeriod;
+            if (pp?.periodStart) {
+                start = new Date(pp.periodStart + 'T00:00:00');
+                const len = pp.periodLength || 15;
+                end = new Date(start);
+                end.setDate(end.getDate() + len - 1);
+            } else {
+                alertMsg('❌ No hay período configurado. Ve a Ajustes > Calendario para configurarlo.', 'warning');
+                return;
+            }
+            break;
+        }
+        case 'lastPayment': {
+            const pp = state.settings.payPeriod;
+            if (pp?.periodStart) {
+                start = new Date(pp.periodStart + 'T00:00:00');
+                end = today;
+            } else {
+                alertMsg('❌ No hay período configurado. Ve a Ajustes > Calendario para configurarlo.', 'warning');
+                return;
+            }
+            break;
+        }
+        default:
+            return;
+    }
+
+    stateManager.batchSetState(() => {
+        state.employeeProfile.periodStart = getDateKey(start);
+        state.employeeProfile.periodEnd = getDateKey(end);
+        state.employeeProfile.activePeriod = preset;
+    });
+    render();
+}
+
+// ─── Position breakdown toggle (per-card) ────────────────────────────────────
+
+export function togglePositionBreakdown(positionId) {
+    if (!state.employeeProfile.expandedPositions) {
+        state.employeeProfile.expandedPositions = {};
+    }
+    const isExpanded = !state.employeeProfile.expandedPositions[positionId];
+    state.employeeProfile.expandedPositions[positionId] = isExpanded;
+
+    // Optimization: only mutate the specific element instead of a full render
+    const positionCard = document.querySelector(`[data-position-id="${positionId}"]`);
+    if (!positionCard) {
+        render();
+        return;
+    }
+    const arrow = positionCard.querySelector('.position-arrow');
+    if (arrow) arrow.style.transform = isExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+    const details = positionCard.querySelector('.position-details');
+    if (details) details.style.display = isExpanded ? 'block' : 'none';
+}
+
+// ─── Mark as paid ────────────────────────────────────────────────────────────
+
+export function markAsPaid() {
+    const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
+    if (!emp) return;
+
+    const today = getDateKey(new Date());
+    if (!emp.paymentHistory) emp.paymentHistory = [];
+
+    const period = `${state.employeeProfile.periodStart} to ${state.employeeProfile.periodEnd}`;
+    const { neto } = payrollService.calculateEmployeePayroll(
+        emp.id,
+        state.employeeProfile.periodStart,
+        state.employeeProfile.periodEnd,
+        state.employeeProfile.deductions
+    );
+
+    emp.paymentHistory.push({
+        date: today,
+        amount: neto,
+        period,
+        deductionType: state.employeeProfile.deductionType,
+        deductionValue: state.employeeProfile.deductionValue
+    });
+
+    saveApplicationData();
+    alertMsg('✅ Marcado como pagado', 'success');
+    render();
+}
+
+/**
+ * Bind handlers to window.* for the legacy data-app-fn event delegation.
+ */
+export function registerLegacyGlobals() {
+    if (typeof window === 'undefined') return;
+    window.closeEmployeeProfile = closeEmployeeProfile;
+    window.changeProfileTab = changeProfileTab;
+    window.changeProfileHireDateMonth = changeProfileHireDateMonth;
+    window.selectProfileHireDate = selectProfileHireDate;
+    window.toggleProfileStartPicker = toggleProfileStartPicker;
+    window.toggleProfileEndPicker = toggleProfileEndPicker;
+    window.changeProfileStartMonth = changeProfileStartMonth;
+    window.changeProfileEndMonth = changeProfileEndMonth;
+    window.changeProfileAsistenciaMonth = changeProfileAsistenciaMonth;
+    window.selectProfileStartDate = selectProfileStartDate;
+    window.selectProfileEndDate = selectProfileEndDate;
+    window.setProfilePeriod = setProfilePeriod;
+    window.togglePositionBreakdown = togglePositionBreakdown;
+    window.markAsPaid = markAsPaid;
+}
