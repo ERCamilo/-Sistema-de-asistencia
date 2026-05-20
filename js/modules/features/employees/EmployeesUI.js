@@ -876,8 +876,8 @@ export function deletePosition(positionId) {
             // 🛡️ Limpiar referencias en asistencias históricas ANTES de eliminar
             // (previene huérfanas detectadas por validateDataIntegrity)
             const cleaned = cleanupPositionReferences(pos.id);
-            if (cleaned > 0) {
-                console.log(`🛡️ Limpiadas ${cleaned} referencia(s) histórica(s) de "${pos.name}" antes de eliminar`);
+            if (cleaned > 0 && window.debug) {
+                window.debug.log(`🛡️ Limpiadas ${cleaned} referencia(s) histórica(s) de "${pos.name}" antes de eliminar`);
             }
 
             state.positions = state.positions.filter(p => p.id !== pos.id);

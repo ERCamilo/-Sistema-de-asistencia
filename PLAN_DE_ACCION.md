@@ -2,7 +2,7 @@
 
 > **Documento vivo** — se actualiza con cada sprint. Sirve como hoja de ruta, checklist de progreso y registro histórico de decisiones tomadas.
 
-**Última actualización:** 2026-05-19 (Sprint 7 parcial — cards extraídos, handlers pendientes)
+**Última actualización:** 2026-05-19 (Sprint 8 parcial — logs + autocomplete; emojis y breakpoints pendientes)
 **Estado general:** 🟢 Activo
 
 ---
@@ -48,7 +48,7 @@ Reglas que guían cada cambio (no negociables):
 ### Progreso global
 
 ```
-Sprints completados:  6.0 / 8 ███████████████░░░░  75%
+Sprints completados:  6.5 / 8 ████████████████░░░  81%
 Tests escritos:     110 /100 ████████████████████ 110% 🎯
 Líneas reducidas: 1,649 /3000 ███████████░░░░░░░  55%
 ```
@@ -561,18 +561,61 @@ Pendiente para Sprint 7b:
 
 ---
 
-### 🏃 Sprint 8: Limpieza Final  **(0/4 — 0%)**
+### 🏃 Sprint 8: Limpieza Final  **(2/4 — 50% parcial)** 🟡
 
 **Objetivo:** Cerrar deuda menor acumulada.
-**Esfuerzo estimado:** 1-2 días
-**Estado:** ⏳ Pendiente
+**Esfuerzo real:** ~15 minutos para las partes automatizables
+**Estado:** 🟡 Parcial — logs y autocomplete hechos; emojis y breakpoints pendientes (scope grande)
 
 #### Tareas
 
-- [ ] **Migrar emojis restantes a iconos en `app.js` y archivos secundarios**
-- [ ] **Estandarizar breakpoints CSS**
-- [ ] **Inputs sin `autocomplete=` lo reciben**
-- [ ] **Cleanup de logs verbose restantes (`debug.log` donde corresponda)**
+- [ ] **Migrar emojis restantes a iconos** ← PENDIENTE
+  - Hay cientos de emojis distribuidos en templates HTML a lo largo de app.js y módulos
+  - Reemplazo masivo es arriesgado sin pruebas visuales — cada emoji aparece en contexto distinto (header, botón, mensaje toast, etc.)
+  - Recomendación: hacer pase manual feature-por-feature mientras se trabaja en ese código
+
+- [ ] **Estandarizar breakpoints CSS** ← PENDIENTE
+  - Trabajo en archivos CSS, fuera del scope de esta sesión enfocada en JS
+  - Necesita auditoría completa de los media queries del proyecto
+
+- [x] **Inputs sin `autocomplete=` lo reciben** (parcial)
+  - 8 inputs numéricos en app.js ahora tienen `autocomplete="off"` (campos de horas, montos, deducciones, bonos, adelantos)
+  - Quedan ~66 inputs en módulos secundarios sin autocomplete — refactor menor que se puede hacer cuando se toquen esos módulos
+
+- [x] **Cleanup de logs verbose restantes (`debug.log` donde corresponda)** ✅
+  - 18 `console.log` en `app.js` → `debug.log` (silenciosos en producción)
+  - 1 `console.log` en `EmployeesUI.js` → `window.debug?.log?.()`
+  - Patrón: `console.error/warn` se mantienen (siempre visibles). Solo `console.log` informativo se silencia en prod.
+
+#### Bitácora
+
+```
+2026-05-19 — Sprint 8 parcial.
+
+Scope realista bajo restricción de tiempo en una sesión:
+
+✅ HECHO (mecánico y seguro):
+  - 18 console.log → debug.log en app.js (regex global)
+  - 1 console.log → window.debug.log en EmployeesUI.js
+  - autocomplete="off" añadido a 8 inputs numéricos en app.js
+
+⏸️  POSPUESTO (scope grande o necesita criterio manual):
+  - Emojis a íconos: cientos de ocurrencias en HTML templates, cada una
+    en contexto distinto. Riesgo de "reemplazo masivo malo" demasiado alto.
+    Mejor convertir mientras se toca cada template.
+  - Breakpoints CSS: trabajo en archivos .css que no se tocaron en esta
+    sesión. Necesita auditoría dedicada.
+  - Autocomplete en otros módulos: ~66 inputs sin atributo. Cada módulo
+    podría tomar 2-3 min, total ~30 min de trabajo cuidadoso.
+
+Verificación:
+  - 110/110 tests pasan
+  - `node --check` en app.js y EmployeesUI.js: válida
+
+Resultado: la consola en producción será silenciosa por default (debug
+mode off), y los campos financieros no muestran sugerencias del autofill
+del navegador.
+```
 
 ---
 
@@ -613,7 +656,7 @@ Items que no entran en sprints concretos pero quedan documentados:
 | 2026-05-19 | S5 🟡 | 5,941 | 1,196 | 110 (+5) | Parcial: regression test + batchSetState en controllers nuevos. Profiling pendiente. |
 | 2026-05-19 | S6 ✅ | 5,191 (-750) | 1,196 | 110 | Profile Modal extracted (Controller + 3 templates + Pickers + index + README); dead duplicate file removed |
 | 2026-05-19 | S7 🟡 | 5,191 | 958 (-238) | 110 | Parcial: 3 card templates extraídos a sub-módulos. Handlers pendientes (Sprint 7b). |
-| _pendiente_ | S8 | — | — | — | Limpieza final (emojis, breakpoints, autocompletes, logs verbose) |
+| 2026-05-19 | S8 🟡 | 5,191 | 958 | 110 | Parcial: 19 console.log → debug.log; autocomplete="off" en 8 inputs financieros. Emojis y breakpoints pendientes. |
 
 ---
 

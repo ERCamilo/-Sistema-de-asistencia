@@ -1275,7 +1275,7 @@ async function saveApplicationData(options = {}) {
         window._isSavingData = false;
         return;
     }
-    console.log('🔵 saveApplicationData() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
+    debug.log('🔵 saveApplicationData() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ☁️ Sincronización con Firebase (Fase 3 - Granular & Mirror Sync)
     // 🛡️ GUARD: Si estamos aplicando datos remotos, NO re-subir a Firebase (evita loop infinito)
@@ -1319,7 +1319,7 @@ async function saveApplicationData(options = {}) {
     }
 
     if (state.useIndexedDB) {
-        console.log('💾 Guardando en IndexedDB...');
+        debug.log('💾 Guardando en IndexedDB...');
         try {
             await saveToIndexedDB(options);
         } catch (error) {
@@ -1331,7 +1331,7 @@ async function saveApplicationData(options = {}) {
                 new SyncConflictModal({
                     error: error.message,
                     onResolved: (type) => {
-                        console.log(`✅ Conflicto resuelto via: ${type}`);
+                        debug.log(`✅ Conflicto resuelto via: ${type}`);
                         showNotification('✅ Sincronización re-establecida', 'success');
                         render();
                     }
@@ -1431,7 +1431,7 @@ function exportDataToJSON() {
     link.download = `asistencia-backup-${getDateKey(new Date())}.json`;
     link.click();
 
-    console.log('📥 Datos exportados');
+    debug.log('📥 Datos exportados');
 }
 
 function clearAllData() {
@@ -1665,7 +1665,7 @@ window.changeViewMode = (mode) => {
 
     // Mayor delay para asegurar persistencia visual antes del bloqueo
     setTimeout(() => {
-        console.log('⚡ Iniciando cambio de vista pesado...');
+        debug.log('⚡ Iniciando cambio de vista pesado...');
         state.viewMode = mode;
         state.isScrolled = false; // Resetear scroll al cambiar de vista
 
@@ -1845,7 +1845,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         }
 
         perfMonitor.end('toggleAttendance');
-        console.log('⚡⚡⚡ Ultra-selective render: checkbox only');
+        debug.log('⚡⚡⚡ Ultra-selective render: checkbox only');
     } else {
         // Fallback: Render completo (vista semana)
         perfMonitor.end('toggleAttendance');
@@ -2256,7 +2256,7 @@ function generateDeductionsHTML(payroll) {
                             
                             <!-- Input de valor -->
                             <div style="flex: 1;">
-                                <input type="number" inputmode="decimal" 
+                                <input type="number" inputmode="decimal" autocomplete="off" 
                                        class="form-input" 
                                        value="${ded.value.toFixed(2)}" 
                                        onchange="updateDeductionValue(${index}, this.value)"
@@ -2328,7 +2328,7 @@ function generateBonusesHTML(payroll) {
                                 </label>
                             </div>
                             <div style="flex: 1;">
-                                <input type="number" inputmode="decimal" class="form-input" value="${parseFloat(bon.value).toFixed(2)}" onchange="updateBonusValue(${index}, this.value)" style="width: 100%; font-size: 0.875rem; padding: 8px;">
+                                <input type="number" inputmode="decimal" autocomplete="off" class="form-input" value="${parseFloat(bon.value).toFixed(2)}" onchange="updateBonusValue(${index}, this.value)" style="width: 100%; font-size: 0.875rem; padding: 8px;">
                             </div>
                             <button type="button" data-app-fn="removeBonus" data-arg="${index}" aria-label="Eliminar bono" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer;">${icons.get('delete', { size: 14 })}</button>
                         </div>
@@ -2425,13 +2425,13 @@ function generateAdvancesHTML(payroll) {
                         <div class="advance-row-inputs">
                             <div class="advance-input-group">
                                 <label>Monto Capital</label>
-                                <input type="number" inputmode="decimal" value="${adv.amount}" 
+                                <input type="number" inputmode="decimal" autocomplete="off" value="${adv.amount}" 
                                        onchange="updateAdvanceValue(${index}, this.value)" 
                                        placeholder="0.00">
                             </div>
                             <div class="advance-input-group">
                                 <label>Interés (%)</label>
-                                <input type="number" inputmode="decimal" value="${adv.interest || 0}" 
+                                <input type="number" inputmode="decimal" autocomplete="off" value="${adv.interest || 0}" 
                                        onchange="updateAdvanceInterest(${index}, this.value)" 
                                        placeholder="0%">
                             </div>
@@ -2809,7 +2809,7 @@ window.handleWeekCheck = (empId, dateStr) => {
             updatedAt: Date.now()
         };
 
-        console.log('⚡ Asistencia creada con', hours, 'horas (vista semanal)');
+        debug.log('⚡ Asistencia creada con', hours, 'horas (vista semanal)');
 
         // ─── SNAPSHOT antes de mutar (para undo) ───
         const prevWeekAtt = state.attendance[key]
@@ -4012,7 +4012,7 @@ window.loadBackupFromFile = function (file) {
 
                     // 3. Limpieza profunda y subida (Modo Espejo)
                     try {
-                        console.log('☁️ Iniciando limpieza espejo en la nube...');
+                        debug.log('☁️ Iniciando limpieza espejo en la nube...');
                         await FirebaseService.deleteCloudData();
                         await FirebaseService.saveFullState(state);
                         await FirebaseService.syncHistory(state.attendance);
@@ -4133,13 +4133,13 @@ function MultiPositionModal() {
                                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                                                     <div>
                                                         <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">⏱️ Horas Regulares</label>
-                                                        <input type="number" inputmode="decimal" value="${ph.hours}" min="0" max="24" step="0.5"
+                                                        <input type="number" inputmode="decimal" autocomplete="off" value="${ph.hours}" min="0" max="24" step="0.5"
                                                                oninput="updatePositionHours(${idx}, 'hours', this.value)"
                                                                style="width: 100%; background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px; border-radius: 6px; font-size: 1rem;">
                                                     </div>
                                                     <div>
                                                         <label style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 4px;">⚡ Horas Extras</label>
-                                                        <input type="number" inputmode="decimal" value="${ph.overtimeHours}" min="0" max="12" step="0.5"
+                                                        <input type="number" inputmode="decimal" autocomplete="off" value="${ph.overtimeHours}" min="0" max="12" step="0.5"
                                                                oninput="updatePositionHours(${idx}, 'overtimeHours', this.value)"
                                                                style="width: 100%; background: #0f172a; border: 1px solid #334155; color: #f1f5f9; padding: 8px; border-radius: 6px; font-size: 1rem;">
                                                     </div>
@@ -4166,13 +4166,13 @@ function MultiPositionModal() {
                                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                                     <div class="form-group">
                                         <label class="form-label">⏱️ Horas Trabajadas</label>
-                                        <input type="number" inputmode="decimal" id="simpleHours" class="form-input" 
+                                        <input type="number" inputmode="decimal" autocomplete="off" id="simpleHours" class="form-input" 
                                                value="${att.hoursWorked || getDayHours(state.selectedDate)}" 
                                                min="0" max="24" step="0.5">
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label">⚡ Horas Extras</label>
-                                        <input type="number" inputmode="decimal" id="simpleOvertimeHours" class="form-input" 
+                                        <input type="number" inputmode="decimal" autocomplete="off" id="simpleOvertimeHours" class="form-input" 
                                                value="${att.overtimeHours || 0}" 
                                                min="0" max="12" step="0.5">
                                     </div>
@@ -4844,7 +4844,7 @@ window.addEventListener('scroll', () => {
             
             // Solo actuar y loguear si no estaba ya visible
             if (loader.classList.contains('hidden') || loader.style.display === 'none') {
-                console.log(`🔄 Mostrando Loader... ${isNavigation ? '(Bloqueo de Navegación ACTIVO)' : ''}`);
+                debug.log(`🔄 Mostrando Loader... ${isNavigation ? '(Bloqueo de Navegación ACTIVO)' : ''}`);
                 loader.style.display = 'flex';
                 void loader.offsetWidth;
                 loader.classList.remove('hidden');
@@ -4883,7 +4883,7 @@ window.addEventListener('scroll', () => {
         if (!isInitialLoad) {
             const wasHidden = hideLoader();
             if (wasHidden) {
-                console.log('🎯 Render finalizado, loader ocultado.');
+                debug.log('🎯 Render finalizado, loader ocultado.');
             }
         }
     });
@@ -4904,7 +4904,7 @@ window.addEventListener('scroll', () => {
 
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
-            console.log('💾 Guardando cambios de sanitización inicial...');
+            debug.log('💾 Guardando cambios de sanitización inicial...');
             await saveApplicationData({ force: true });
             render();
         }
@@ -4914,7 +4914,7 @@ window.addEventListener('scroll', () => {
 
         // 3. Intentar restaurar auto-backup (solo si la carga falló completamente)
         if (state.employees.length === 0) {
-            console.log('🔄 Intentando restaurar auto-backup...');
+            debug.log('🔄 Intentando restaurar auto-backup...');
             restoreAutoBackup();
         }
 
@@ -4936,7 +4936,7 @@ window.addEventListener('scroll', () => {
                         const cloudData = await FirebaseService.getFullState();
                         // Si no hay datos en la nube pero sí locales, migramos de inmediato
                         if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
-                            console.log('🚀 Migrando datos locales a la nube (Primera vez)...');
+                            debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
                             await FirebaseService.saveFullState(state);
                             if (Object.keys(state.attendance).length > 0) {
                                 await FirebaseService.syncHistory(state.attendance);
@@ -4950,7 +4950,7 @@ window.addEventListener('scroll', () => {
 
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges((remoteData) => {
-                    console.log('📡 Cambio detectado en la nube...');
+                    debug.log('📡 Cambio detectado en la nube...');
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
@@ -4958,7 +4958,7 @@ window.addEventListener('scroll', () => {
                     const localTime = state.settings?.localUpdatedAt || 0;
                     
                     if (localTime > remoteTime) {
-                        console.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
+                        debug.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
                         // Si F5 frenó la sincronización, forzamos un save ahora que reinició
                         if (!window._forceSyncTimer) {
                             window._forceSyncTimer = setTimeout(() => {
@@ -4989,12 +4989,12 @@ window.addEventListener('scroll', () => {
                     state.leaders = dedup(remoteData.leaders || state.leaders);
 
                     if (remoteData.attendance) {
-                        console.log('⚠️ Ignorando attendance de Mirror Sync (gestionado por Zonal Sync)');
+                        debug.log('⚠️ Ignorando attendance de Mirror Sync (gestionado por Zonal Sync)');
                     }
 
                     // 🛡️ Sanitización post-sincronización (Evita que la nube traiga basura vieja)
                     if (sanitizePositions(state)) {
-                        console.log('🧹 Datos de la nube sanitizados localmente.');
+                        debug.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta.
@@ -5158,7 +5158,7 @@ window.addEventListener('scroll', () => {
         debug.log('📬 Launch Queue detectado. Esperando archivos...');
         window.launchQueue.setConsumer(async (launchParams) => {
             if (launchParams.files && launchParams.files.length > 0) {
-                console.log('📂 Archivo recibido vía PWA Launch Handler');
+                debug.log('📂 Archivo recibido vía PWA Launch Handler');
                 for (const fileHandle of launchParams.files) {
                     const file = await fileHandle.getFile();
                     if (file.name.toLowerCase().endsWith('.json')) {
