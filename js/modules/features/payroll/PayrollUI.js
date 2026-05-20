@@ -1,6 +1,7 @@
 import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
+import { LoansLedger } from '../loans/LoansLedger.js';
 
 let context = null;
 let payrollService = null;
@@ -20,7 +21,8 @@ const _ACTION_MAP = {
     'add-employee-bonuses-to-export': () => window.PayrollUI?.addEmployeeBonusesToExport?.(),
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
-    'download-export-json': () => window.PayrollUI?.downloadExportJSON?.()
+    'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
+    'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
 };
 
 function _handlePayrollClick(e) {
@@ -80,9 +82,52 @@ function getLeaderFilteredEmployees(state) {
         .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
 }
 
+/**
+ * Top-level Nómina tab. Mirrors the Reports tab pattern: a header with two
+ * sub-tab buttons that switch the inner view between the existing payroll
+ * generator and the new Cuentas-por-Cobrar (loans ledger).
+ */
 export function PayrollTab() {
     const state = getState();
-    
+    const mode = state.payrollViewMode || 'generator';
+
+    return `
+        <div>
+            <div class="date-controls">
+                <div class="view-controls">
+                    <button type="button"
+                            class="view-btn ${mode === 'generator' ? 'active' : ''}"
+                            data-payroll-action="change-payroll-view-mode"
+                            data-value="generator">
+                        ${icons.get('payroll')} Generar Nómina
+                    </button>
+                    <button type="button"
+                            class="view-btn ${mode === 'ledger' ? 'active' : ''}"
+                            data-payroll-action="change-payroll-view-mode"
+                            data-value="ledger">
+                        ${icons.get('dollar')} Cuentas por Cobrar
+                    </button>
+                </div>
+            </div>
+            ${mode === 'ledger' ? LoansLedger() : PayrollGeneratorTab()}
+        </div>
+    `;
+}
+
+/** Setter wired through data-payroll-action="change-payroll-view-mode". */
+export function changePayrollViewMode(mode) {
+    if (mode !== 'generator' && mode !== 'ledger') return;
+    getState().payrollViewMode = mode;
+    context.render();
+}
+
+/**
+ * The existing payroll-generation view (previously the entire body of
+ * PayrollTab). Renamed to make room for the sub-tab dispatcher above.
+ */
+function PayrollGeneratorTab() {
+    const state = getState();
+
     // Inicializar secciones colapsadas por defecto
     if (state.exportConfig.collapsedSteps === undefined) {
         state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step3'];

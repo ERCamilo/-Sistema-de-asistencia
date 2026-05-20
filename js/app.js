@@ -90,6 +90,7 @@ import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
+import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } from './modules/features/loans/index.js';
 import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
 
 //agregado manualmente
@@ -3017,6 +3018,7 @@ window.setEmployeeLeaderFilter = (leaderId) => {
 registerNotesGlobals();
 registerExportGlobals();
 registerProfileGlobals();
+registerLoansGlobals();
 
 // Expose payroll-section HTML generators on window so the Profile module can
 // call into them without circular imports. These generators stay in app.js
@@ -4900,6 +4902,10 @@ window.addEventListener('scroll', () => {
             await saveApplicationData({ force: true });
             render();
         }
+
+        // 1.2 Migrar emp.advances[] (legacy) → emp.loans[] (Sprint loans, 2026-05-20).
+        // Idempotent. Only writes back to DB if at least one record was migrated.
+        migrateAllAdvances();
 
         // 2. Aplicar configuraciones de interfaz
         state.settings.iconSet = applyIconSet(state.settings.iconSet);
