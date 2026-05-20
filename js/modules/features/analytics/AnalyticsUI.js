@@ -59,6 +59,7 @@ import { memoCache } from '../../utils/MemoCache.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
+import { ensureChartJsLoaded } from '../../utils/LazyCDN.js';
 
 let context = null;
 let dashboardDateManagerV2 = null;
@@ -80,9 +81,23 @@ function getState() {
  * Inicializa un gráfico de forma segura, destruyendo cualquier instancia previa
  * vinculada a la misma 'key' lógica para evitar errores de canvas en uso.
  */
-function initChartSafely(canvasId, chartKey, config) {
+async function initChartSafely(canvasId, chartKey, config) {
     const ctx = document.getElementById(canvasId);
-    if (!ctx || !window.Chart) return;
+    if (!ctx) return;
+
+    // ⚡ Lazy-load Chart.js on first chart render (Sprint 5).
+    // After the first chart, the global is cached and subsequent calls are
+    // instant. If the user never opens the Analytics tab, Chart.js is never
+    // downloaded — saving ~200 KB of script parse on every page load.
+    if (!window.Chart) {
+        try {
+            await ensureChartJsLoaded();
+        } catch (err) {
+            console.error('Failed to load Chart.js:', err);
+            return;
+        }
+    }
+    if (!window.Chart) return; // Still not loaded somehow
 
     // 1. Limpieza: Si ya existe un gráfico para esta función, destruirlo
     if (activeCharts[chartKey]) {

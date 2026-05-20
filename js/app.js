@@ -90,6 +90,7 @@ import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
+import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
 
 //agregado manualmente
 import { eventBus } from './modules/core/Events.js';
@@ -4408,8 +4409,10 @@ window.exportExcel = async function () {
     }
 };
 
-window.exportPDF = function () {
+window.exportPDF = async function () {
     try {
+        // ⚡ Lazy-load jsPDF + auto-table plugin on first PDF export (Sprint 5).
+        await ensureJsPDFLoaded();
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
@@ -4618,7 +4621,7 @@ window.exportCSV = function () {
     }
 };
 
-window.exportImage = function () {
+window.exportImage = async function () {
     try {
         // Buscar el contenedor del gráfico actual
         const chartContainer = document.querySelector('.dashboard-container');
@@ -4630,7 +4633,9 @@ window.exportImage = function () {
 
         showNotification('📸 Generando imagen...', 'info');
 
-        html2canvas(chartContainer, {
+        // ⚡ Lazy-load html2canvas on first image export (Sprint 5).
+        await ensureHtml2CanvasLoaded();
+        window.html2canvas(chartContainer, {
             backgroundColor: '#0f172a',
             scale: 2, // Mayor calidad
             logging: false,
