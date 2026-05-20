@@ -427,6 +427,32 @@
     border-bottom: 1px solid #1e293b;
 }
 
+/*
+ * ⚡ PERF (Sprint 5 / 2026-05-20): browser-native virtualization.
+ *
+ * `content-visibility: auto` tells the browser it can skip rendering and
+ * layout work for elements that are outside the viewport. Combined with
+ * `contain-intrinsic-size` (which provides a placeholder size so scroll
+ * height stays stable), the browser only does layout for visible rows.
+ *
+ * Before this rule: 200/208 nodes laid out on first render → ~2s of work.
+ * Expected after:    ~30-60 visible rows → ~300-500ms of work.
+ *
+ * Trade-offs:
+ *  - Off-screen rows are not part of the accessibility tree until visible
+ *    (acceptable for an internal attendance app — they enter the tree as
+ *     they scroll in).
+ *  - In-page Find (Ctrl+F) doesn't search the contents of hidden rows.
+ *    If this matters, downgrade to `content-visibility: auto; contain: ...`
+ *    only for rows below a "fold" threshold.
+ */
+.employee-row,
+.week-view-table tbody tr {
+    content-visibility: auto;
+    /* Estimated height of one row — keeps scrollbar position stable. */
+    contain-intrinsic-size: auto 80px;
+}
+
 /* --- 📅 TABLA SEMANAL (STICKY) --- */
 .sticky-table-container {
     overflow: auto;
