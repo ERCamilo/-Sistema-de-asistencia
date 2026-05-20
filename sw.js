@@ -1,5 +1,5 @@
 /**
- * Service Worker — Control de Asistencia v6.7
+ * Service Worker — Control de Asistencia v1.6.7
  * Estrategia: App Shell + Stale While Revalidate
  *
  * CACHE_VERSION: Incrementar cada vez que se haga deploy

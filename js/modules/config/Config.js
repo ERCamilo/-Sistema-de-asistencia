@@ -14,7 +14,7 @@ export const firebaseConfig = {
 };
 
 export const APP_CONFIG = {
-    VERSION: "6.7 (Modular)",
+    VERSION: "1.6.7",
     LAST_UPDATED: "2026-05-19",
     DATABASE_NAME: "asistencia-db",
     STORAGE_KEY: "asistencia-data",
