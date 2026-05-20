@@ -1,0 +1,19 @@
+﻿# Dependencies
+node_modules/
+
+# Test artifacts
+coverage/
+
+# Tool / editor caches that should not be tracked
+.commit-msg.tmp
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE/editor — keep only intentionally tracked files inside .vscode/
+.vscode/*.tmp
+
+# Local worktrees (Claude Code creates them under .claude/worktrees/)
+.claude/worktrees/
