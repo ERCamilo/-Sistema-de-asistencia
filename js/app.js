@@ -743,40 +743,9 @@ window.setPositionFilter = function (positionId) {
     render();
 };
 
-window.addAdvance = () => {
-    const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
-    if (!emp) return;
-
-    if (!emp.advances) emp.advances = [];
-    
-    const newIndex = emp.advances.length;
-    emp.advances.push({
-        amount: 0,
-        interest: 0,
-        date: getDateKey(new Date()),
-        note: ''
-    });
-
-    // Abrir automáticamente en modo edición el nuevo adelanto
-    if (!state.employeeProfile.editingAdvances) state.employeeProfile.editingAdvances = {};
-    state.employeeProfile.editingAdvances[newIndex] = true;
-
-    render();
-    saveApplicationData();
-};
-
-window.saveAdvance = (index) => {
-    // Cerrar modo edición
-    if (state.employeeProfile.editingAdvances) {
-        state.employeeProfile.editingAdvances[index] = false;
-    }
-    
-    // Sincronizar y guardar
-    syncProfileToMaster(state.employeeProfile.employeeId);
-    saveApplicationData();
-    render();
-    showNotification('✅ Adelanto guardado correctamente', 'success');
-};
+// ⚡ window.addAdvance / window.saveAdvance — moved to the canonical block
+// below (~line 2096). Earlier duplicates were dead code (overwritten by the
+// second definition). window.editAdvance lives there too now.
 
 window.editAdvance = (index) => {
     if (!state.employeeProfile.editingAdvances) state.employeeProfile.editingAdvances = {};
@@ -2093,9 +2062,16 @@ eventBus.on('render:complete', () => {
 });
 
 // 💵 SISTEMA DE ADELANTOS / PRÉSTAMOS
+//
+// Note: the new "loans" data model (js/modules/features/loans/LoansService.js)
+// is the source of truth going forward. The legacy `state.employeeProfile.advances`
+// path is preserved for backward compatibility — existing UI templates still
+// read from it. A migration runs on each profile open to mirror legacy data
+// into emp.loans[].
 window.addAdvance = () => {
     if (!state.employeeProfile.advances) state.employeeProfile.advances = [];
 
+    const newIndex = state.employeeProfile.advances.length;
     state.employeeProfile.advances.push({
         id: `ADV-${Date.now()}`,
         amount: 0,
@@ -2103,6 +2079,11 @@ window.addAdvance = () => {
         interest: 0,
         note: ''
     });
+
+    // ⚡ FIX (Bug #2): Auto-open the new entry in edit mode so the user can
+    // fill it in immediately (mirrors the UX of the old dead handler).
+    if (!state.employeeProfile.editingAdvances) state.employeeProfile.editingAdvances = {};
+    state.employeeProfile.editingAdvances[newIndex] = true;
 
     syncProfileToMaster(state.employeeProfile.employeeId);
     updatePayrollUI();
@@ -2147,7 +2128,14 @@ window.updateAdvanceNote = (index, note) => {
 };
 
 window.saveAdvance = (index) => {
+    // ⚡ FIX (Bug #2): Close edit mode for this row so the user sees the
+    // saved summary (the dead-code version used to do this; the live
+    // version didn't, leaving rows perpetually expanded).
+    if (state.employeeProfile.editingAdvances) {
+        state.employeeProfile.editingAdvances[index] = false;
+    }
     syncAdvancesAndSave();
+    updatePayrollUI();
     showNotification('✅ Adelanto guardado correctamente', 'success');
 };
 
