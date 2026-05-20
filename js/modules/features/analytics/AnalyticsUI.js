@@ -58,6 +58,7 @@ _attachAnalyticsDelegation();
 import { memoCache } from '../../utils/MemoCache.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
+import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 
 let context = null;
 let dashboardDateManagerV2 = null;
@@ -891,6 +892,18 @@ export async function exportEmployeeReportExcel() {
         return;
     }
     if (window.showNotification) window.showNotification(`${ icons.get('info') } Generando Excel...`, 'info');
+
+    // ⚡ Lazy-load ExcelJS on demand (Sprint 5 — saves ~5s from initial page load).
+    // First call downloads & parses the ~2 MB UMD bundle; subsequent calls are instant.
+    try {
+        await ensureExcelJSLoaded();
+    } catch (err) {
+        console.error('Failed to load ExcelJS:', err);
+        if (window.showNotification) {
+            window.showNotification('Error: no se pudo cargar la librería de Excel. Verifica tu conexión.', 'error');
+        }
+        return;
+    }
 
     if (window.ExcelJS) {
         const workbook = new window.ExcelJS.Workbook();

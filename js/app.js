@@ -77,7 +77,7 @@ import {
     EmployeeReportDateManagerV2,
     AttendanceDateManager
 } from './modules/utils/DateManagers.js';
-import { render, setRootComponent, saveScrollPosition, restoreScrollPosition } from './modules/core/RenderManager.js';
+import { render, setRootComponent, saveScrollPosition, restoreScrollPosition, setupHeaderHeightObserver } from './modules/core/RenderManager.js';
 import lazyLoader from './modules/utils/LazyLoader.js';
 import syncManager from './modules/services/SyncManager.js';
 import offlineManager from './modules/services/OfflineManager.js';
@@ -4748,12 +4748,10 @@ function App() {
 // 🎯 Registrar el componente raíz para el motor modular
 setRootComponent(App);
 
-function updateHeaderOffset() {
-    const header = document.querySelector('.header');
-    if (header) {
-        document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
-    }
-}
+// ⚡ Header height tracking: read once + listen to resize (debounced) instead
+// of reading offsetHeight on every render. Old approach caused ~1.9s of forced
+// reflow during initial load (Sprint 5 profiling).
+setupHeaderHeightObserver();
 
 // El renderizado ahora se gestiona a través de modules/core/RenderManager.js
 // No es necesario definir render(), debouncedRender o throttledRender aquí.
@@ -4785,9 +4783,10 @@ document.addEventListener('click', function (e) {
     }
 });
 
-window.addEventListener('resize', () => {
-    updateHeaderOffset();
-});
+// ⚡ The window.resize listener for header offset is now installed by
+// setupHeaderHeightObserver() above (debounced, observes the header element
+// directly via ResizeObserver). Removed the unthrottled duplicate that used
+// to live here.
 
 // ⚡ NUEVO: Listener de scroll para controles flotantes
 let lastScrollTime = 0;

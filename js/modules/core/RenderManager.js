@@ -18,11 +18,62 @@ export function setRootComponent(component) {
 
 /**
  * ⚡ UTILERÍA: Actualizar el offset del header para variables CSS
+ *
+ * Lee `header.offsetHeight` which forces a synchronous layout (style + layout
+ * recalculation). When called from inside the render path, this caused
+ * ~1.9s of forced reflow during initial load (Sprint 5 profiling).
+ *
+ * Now the function is still exported for manual calls, but `render()` no
+ * longer invokes it. Instead, `setupHeaderHeightObserver()` (below) wires
+ * up a one-time read + a debounced window-resize listener.
  */
 export function updateHeaderOffset() {
     const header = document.querySelector('.header');
     if (header) {
         document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
+    }
+}
+
+/**
+ * 🪧 SETUP: Run once at boot. Reads the header height once, then re-reads
+ * only when the window is resized (debounced 150ms). Prevents the per-render
+ * forced reflow that ate ~1.9s of initial load time.
+ *
+ * Safe to call multiple times — guarded by `_headerObserverInstalled`.
+ */
+let _headerObserverInstalled = false;
+export function setupHeaderHeightObserver() {
+    if (_headerObserverInstalled || typeof window === 'undefined') return;
+    _headerObserverInstalled = true;
+
+    // Initial read after the first paint, so the .header element exists
+    requestAnimationFrame(() => updateHeaderOffset());
+
+    // Re-read on resize, debounced so a drag of the window edge does not
+    // fire dozens of forced reflows.
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => updateHeaderOffset(), 150);
+    });
+
+    // Also handle the case where the header itself changes size dynamically
+    // (e.g. sync indicator appearing/disappearing). ResizeObserver is supported
+    // by every browser the PWA targets.
+    if (typeof ResizeObserver !== 'undefined') {
+        const tryObserve = () => {
+            const header = document.querySelector('.header');
+            if (!header) {
+                requestAnimationFrame(tryObserve);
+                return;
+            }
+            const ro = new ResizeObserver(() => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => updateHeaderOffset(), 150);
+            });
+            ro.observe(header);
+        };
+        tryObserve();
     }
 }
 
@@ -113,7 +164,10 @@ export function render() {
         if (typeof window.clarifyDefaultHoursControl === 'function') {
             window.clarifyDefaultHoursControl();
         }
-        updateHeaderOffset();
+        // ⚡ updateHeaderOffset() removed from the render path — it was forcing
+        // a synchronous layout (~1.9s during initial load per Sprint 5 profile).
+        // The header offset is now seeded once on boot and re-read on window
+        // resize via setupHeaderHeightObserver().
 
         // Restaurar foco del buscador
         if (isSearchActive) {
