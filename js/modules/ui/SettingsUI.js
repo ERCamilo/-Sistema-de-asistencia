@@ -1,6 +1,7 @@
 import { DateUtils } from '../utils/DateUtils.js';
 import icons from './IconSystem.js';
 import { state } from '../core/AppState.js';
+import { APP_CONFIG } from '../config/Config.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-settings-action)
@@ -129,6 +130,16 @@ export function SettingsTab() {
                         <button type="button" data-settings-action="save-settings" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">
                             💾 Guardar Configuración
                         </button>
+                    </div>
+
+                    <!-- Versión y fecha de actualización -->
+                    <div style="margin-top: 32px; padding: 16px; border-top: 1px solid #1e293b; text-align: center; color: #64748b; font-size: 0.75rem;">
+                        <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
+                            <span>${icons.get('info', { size: 12 })}</span>
+                            <span><strong style="color: #94a3b8;">Versión ${APP_CONFIG.VERSION}</strong></span>
+                            <span style="opacity: 0.5;">·</span>
+                            <span>Actualizado: ${APP_CONFIG.LAST_UPDATED}</span>
+                        </div>
                     </div>
                 </div>
             `;

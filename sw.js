@@ -1,12 +1,12 @@
 /**
- * Service Worker — Control de Asistencia v6.5
+ * Service Worker — Control de Asistencia v6.7
  * Estrategia: App Shell + Stale While Revalidate
- * 
+ *
  * CACHE_VERSION: Incrementar cada vez que se haga deploy
  * para forzar actualización de assets cacheados.
  */
 
-const CACHE_VERSION = '1.0.5';
+const CACHE_VERSION = '1.0.6';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────

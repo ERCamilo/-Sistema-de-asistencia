@@ -14,7 +14,8 @@ export const firebaseConfig = {
 };
 
 export const APP_CONFIG = {
-    VERSION: "6.6 (Sync Optimized)",
+    VERSION: "6.7 (Modular)",
+    LAST_UPDATED: "2026-05-19",
     DATABASE_NAME: "asistencia-db",
     STORAGE_KEY: "asistencia-data",
     MAX_RECORDS_MEMORY: 2000,
