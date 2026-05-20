@@ -77,7 +77,9 @@ class IconSystem {
             'attendance': { unicode: '📋', lucide: 'clipboard-list', phosphor: 'clipboard-text', tabler: 'clipboard-list', bootstrap: 'clipboard-check' },
             'personnel': { unicode: '👥', lucide: 'users', phosphor: 'users', tabler: 'users', bootstrap: 'people' },
             'reports': { unicode: '📊', lucide: 'bar-chart-2', phosphor: 'chart-bar', tabler: 'chart-bar', bootstrap: 'bar-chart' },
+            'analytics': { unicode: '📈', lucide: 'line-chart', phosphor: 'chart-line-up', tabler: 'chart-arrows', bootstrap: 'graph-up-arrow' },
             'payroll': { unicode: '💰', lucide: 'dollar-sign', phosphor: 'currency-dollar', tabler: 'currency-dollar', bootstrap: 'currency-dollar' },
+            'dollar': { unicode: '💵', lucide: 'dollar-sign', phosphor: 'currency-dollar-simple', tabler: 'currency-dollar', bootstrap: 'currency-dollar' },
 
             // ── Estados y validaciones ────────────────────────────────
             'check': { unicode: '✅', lucide: 'check-circle', phosphor: 'check-circle', tabler: 'circle-check', bootstrap: 'check-circle' },

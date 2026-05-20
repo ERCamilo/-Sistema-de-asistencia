@@ -5005,6 +5005,19 @@ window.addEventListener('scroll', () => {
                             window._pendingRemoteSave = false;
                             saveToIndexedDB().catch(e => console.warn('⚠️ Error persistiendo datos remotos localmente:', e));
                         }
+
+                        // 🛡️ POST-SYNC INTEGRITY GUARD (2026-05-20)
+                        // The cloud copy may contain orphans (refs to deleted positions/leaders)
+                        // from before today's cleanup. Without this, every mirror-sync would
+                        // re-introduce the same orphans we just cleaned, causing the same 51
+                        // entries to be "corrected" repeatedly. Now we validate AFTER applying
+                        // remote data and push the cleaned state back up — within a few sync
+                        // cycles, both local and cloud converge to a clean state.
+                        const remoteFixes = validateDataIntegrity();
+                        if (remoteFixes > 0) {
+                            debug.log(`🛡️ Mirror sync: ${remoteFixes} orphan(s) sanitized after remote apply`);
+                            saveApplicationData({ force: true });
+                        }
                     }, 500);
 
                     if (isInitialLoad) {
@@ -5061,6 +5074,22 @@ window.addEventListener('scroll', () => {
                             if (!window._attendanceBatchedSaver.hasScheduledFlush) {
                                 window._isApplyingRemoteData = false;
                             }
+
+                            // 🛡️ POST-SYNC INTEGRITY GUARD (2026-05-20)
+                            // Attendance records may carry orphan positionHours / selectedPosition
+                            // from before the position was deleted. Clean them here so the next
+                            // mirror-sync save uploads a sanitized version to the cloud.
+                            const attendanceFixes = validateDataIntegrity();
+                            if (attendanceFixes > 0) {
+                                debug.log(`🛡️ Zonal initial load: ${attendanceFixes} orphan(s) sanitized in attendance`);
+                                // Use a one-tick delay so the flag clears first via BatchedSaver
+                                setTimeout(() => {
+                                    if (!window._isApplyingRemoteData) {
+                                        saveApplicationData({ force: true });
+                                    }
+                                }, 600);
+                            }
+
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
