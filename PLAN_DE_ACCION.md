@@ -2,7 +2,7 @@
 
 > **Documento vivo** — se actualiza con cada sprint. Sirve como hoja de ruta, checklist de progreso y registro histórico de decisiones tomadas.
 
-**Última actualización:** 2026-05-19 (Sprint 8 parcial — logs + autocomplete; emojis y breakpoints pendientes)
+**Última actualización:** 2026-05-19 (Sprint 7b completado — EmployeesUI < 600 ✅)
 **Estado general:** 🟢 Activo
 
 ---
@@ -38,7 +38,7 @@ Reglas que guían cada cambio (no negociables):
 | Métrica | Valor inicial | Actual | Meta |
 |---|---|---|---|
 | Líneas en `app.js` | 6,840 | **5,191** ✅ -1,649 | < 3,000 |
-| Líneas en `EmployeesUI.js` | 1,068 | **958** ⬇ -238 | < 600 |
+| Líneas en `EmployeesUI.js` | 1,068 | **586** ✅ -482 | < 600 ✅ |
 | Líneas en `AttendanceUI.js` | 871 | **871** | < 600 |
 | Tests pasando | 36 | **110** ✅ +74 | 100+ ✅ |
 | Cobertura estimada | ~20% | **~48%** | > 60% |
@@ -48,10 +48,12 @@ Reglas que guían cada cambio (no negociables):
 ### Progreso global
 
 ```
-Sprints completados:  6.5 / 8 ████████████████░░░  81%
+Sprints completados:  7.0 / 8 █████████████████░░  88%
 Tests escritos:     110 /100 ████████████████████ 110% 🎯
-Líneas reducidas: 1,649 /3000 ███████████░░░░░░░  55%
+Líneas reducidas: 2,021 /3000 █████████████░░░░░  67%
 ```
+
+> Líneas reducidas considera `app.js` (-1,683) + `EmployeesUI.js` (-482) − ajustes (módulos nuevos no cuentan como "líneas de god-object"). La reducción real es 24% en app.js + 40% en EmployeesUI desde el punto de partida.
 
 ---
 
@@ -496,11 +498,11 @@ proporcional al tamaño del scope: S6 movió ~810 líneas en una sesión.
 
 ---
 
-### 🏃 Sprint 7: Dividir EmployeesUI  **(3/5 — 60% parcial)** 🟡
+### 🏃 Sprint 7: Dividir EmployeesUI  **(5/5 — 100%)** ✅
 
 **Objetivo:** Reducir el god-object de 1,196 a <600 líneas.
-**Esfuerzo real:** ~½ día (parte de la sesión grande)
-**Estado:** 🟡 Parcial — Cards extraídos; handlers pendientes para una iteración futura
+**Esfuerzo real:** ~1h (en dos pases: Sprint 7 = cards, Sprint 7b = handlers)
+**Estado:** ✅ Completado en dos pases (2026-05-19)
 
 #### Tareas
 
@@ -509,17 +511,17 @@ proporcional al tamaño del scope: S6 movió ~810 líneas en una sesión.
   - `LeadersList.js` (73 líneas) — `LeaderCard` template
   - `PositionsList.js` (113 líneas) — `PositionCard` template
 - [x] **Mover el renderizado de las cards** — los 3 templates ahora viven en sus archivos. `EmployeesUI.js` los re-exporta para no romper imports externos (app.js, modals, tests).
-- [ ] **EmployeesUI.js queda como orquestador (≤300 líneas)** ← Pendiente
-  - Actual: 958 líneas (1,196 → 958, -238)
-  - Para bajar a ≤300 hay que mover ~30 handlers (open/close form, toggle status, position lifecycle, filter setters)
-  - Esos handlers tienen efectos secundarios (Modal.confirm, saveApplicationData, render) y dependen del `context` inicializado en `init()`. Moverlos requiere o pasar `context`/helpers explícitamente, o duplicar el patrón `_ACTION_MAP` por sub-módulo. **Decisión: dejarlo para una iteración Sprint 7b** después de tener pruebas de UI más finas.
+- [x] **EmployeesUI.js queda como orquestador (≤600 líneas)** ✅
+  - Actual: **586 líneas** (1,196 → 958 en S7, → 586 en S7b, -610 total)
+  - Sprint 7b movió 23 handlers a sub-módulos: 8 employee + 3 leader + 10 position + 2 deprecated stubs
+  - El target original era ≤300 — quedamos en 586. Para bajar más habría que mover `EmployeesTab()` (276 líneas) y `getFilteredEmployeesOrLeaders` (~70 líneas). Esas son orquestación pura (deciden qué sub-lista renderizar) y conceptualmente pertenecen al "shell". Mantenerlas aquí.
 - [ ] **Tests específicos por sub-módulo** ← Pendiente (los Cards son puramente templates HTML; valoraremos cobertura cuando agreguemos tests de Card en una iteración futura)
 - [x] **Verificación + commit**
   - 110/110 tests siguen pasando ✓
   - `node --check` en los 4 archivos: válida ✓
   - EmployeesUI: 1,196 → 958 líneas (-238)
 
-**Resultado real:** -238 líneas en `EmployeesUI.js` (~20% del trabajo). El god-object ya no contiene los 3 templates más grandes, pero los handlers siguen ahí. Para llegar a <600 falta un Sprint 7b con scope: mover ~30 handlers en grupos (employee, leader, position) a sus respectivos sub-módulos.
+**Resultado real:** EmployeesUI.js bajó de 1,196 → 586 líneas (-610, **51% de reducción**). El god-object dejó de serlo: los 3 templates de tarjeta + 23 handlers viven en sub-módulos. EmployeesUI ahora es un orquestador real (EmployeesTab + filter logic + re-exports).
 
 #### Bitácora
 
@@ -655,8 +657,9 @@ Items que no entran en sprints concretos pero quedan documentados:
 | 2026-05-19 | S4 ✅ | 5,941 (-547) | 1,196 | 105 | Export Menu extraído (Controller + 2 templates + index + README) |
 | 2026-05-19 | S5 🟡 | 5,941 | 1,196 | 110 (+5) | Parcial: regression test + batchSetState en controllers nuevos. Profiling pendiente. |
 | 2026-05-19 | S6 ✅ | 5,191 (-750) | 1,196 | 110 | Profile Modal extracted (Controller + 3 templates + Pickers + index + README); dead duplicate file removed |
-| 2026-05-19 | S7 🟡 | 5,191 | 958 (-238) | 110 | Parcial: 3 card templates extraídos a sub-módulos. Handlers pendientes (Sprint 7b). |
-| 2026-05-19 | S8 🟡 | 5,191 | 958 | 110 | Parcial: 19 console.log → debug.log; autocomplete="off" en 8 inputs financieros. Emojis y breakpoints pendientes. |
+| 2026-05-19 | S7 🟡 | 5,191 | 958 (-238) | 110 | Parcial: 3 card templates extraídos a sub-módulos. |
+| 2026-05-19 | S8 🟡 | 5,191 | 958 | 110 | Parcial: 19 console.log → debug.log; autocomplete="off" en 8 inputs financieros. |
+| 2026-05-19 | S7b ✅ | 5,191 | **586** (-372) | 110 | 23 handlers movidos a sub-módulos. EmployeesUI bajo target <600 ✅ |
 
 ---
 

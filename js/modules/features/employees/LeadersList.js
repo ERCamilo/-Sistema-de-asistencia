@@ -1,13 +1,17 @@
-/**
- * 🔑 LeadersList — Card template for one leader.
+﻿/**
+ * 🔑 LeadersList — Card template + handlers for leaders.
  *
- * Sprint 7 partial extraction. Template only; handlers stay in EmployeesUI.js
- * until a follow-up sprint moves them.
+ * Sprint 7b: handlers moved here from EmployeesUI.js.
  */
 
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { state } from '../../core/AppState.js';
+import { render } from '../../core/RenderManager.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
+import { getDateKey } from '../../utils/DateUtils.js';
+import { Modal } from '../../components/Modal.js';
+import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 
 export function LeaderCard(ldr) {
     const positionsLedList = state.positions.filter(p => p.leaderId === ldr.id && p.active);
@@ -70,4 +74,55 @@ export function LeaderCard(ldr) {
             </div>
         </div>
     `;
+}
+
+
+// ─── Handlers ────────────────────────────────────────────────────────────────
+
+export function openLeaderForm(leaderId = null) {
+    LeaderModal.open(leaderId);
+}
+
+export function toggleLeaderEmployees(leaderId) {
+    const elem = document.getElementById(`leader-employees-${leaderId}`);
+    if (elem) {
+        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+export function toggleLeaderStatus(leaderId) {
+    const ldr = state.leaders.find(l => l.id === leaderId);
+    if (!ldr) return;
+
+    const action = ldr.active ? 'desactivar' : 'activar';
+    const actionPast = ldr.active ? 'desactivado' : 'activado';
+
+    Modal.confirm({
+        title: ldr.active ? `${icons.get('x-circle')} Desactivar Lider` : `${icons.get('info')} Activar Lider`,
+        message: `¿Estás seguro de ${action} al líder ${ldr.name}?`,
+        confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
+        cancelText: 'Cancelar',
+        type: ldr.active ? 'warning' : 'info',
+        onConfirm: () => {
+            ldr.active = !ldr.active;
+            ldr.updatedAt = Date.now();
+            ldr._isDirty = true;
+            const changeDate = getDateKey(new Date());
+            ldr.lastStatusChange = changeDate;
+            ldr.updatedAt = Date.now();
+
+            if (!ldr.statusHistory) ldr.statusHistory = [];
+            ldr.statusHistory.push({
+                date: changeDate,
+                active: ldr.active,
+                timestamp: new Date().getTime()
+            });
+
+            saveApplicationData();
+            if (window.showAlert) {
+                window.showAlert(`${icons.get('zap')} Líder ${ldr.name} ${actionPast} correctamente`, 'success');
+            }
+            render();
+        }
+    });
 }

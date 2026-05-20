@@ -1,15 +1,18 @@
-/**
- * 👤 EmployeesList — Card template for one employee.
+﻿/**
+ * 👤 EmployeesList — Card template + handlers for employees.
  *
- * Sprint 7 partial extraction from EmployeesUI.js. Just the template; the
- * employee filter handlers and toggleEmployeeStatus stay in EmployeesUI for
- * now (their data-action map is still wired there).
+ * Sprint 7b: handlers moved here from EmployeesUI.js.
  */
 
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { state } from '../../core/AppState.js';
 import { payrollService as payroll } from '../../services/index.js';
+import { render } from '../../core/RenderManager.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
+import { getDateKey } from '../../utils/DateUtils.js';
+import { Modal } from '../../components/Modal.js';
+import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 
 export function EmployeeCard(emp) {
 
@@ -87,4 +90,118 @@ export function EmployeeCard(emp) {
             </div>
         </div>
     `;
+}
+
+
+// ─── Handlers ────────────────────────────────────────────────────────────────
+
+export function changeEmployeeViewMode(mode) {
+    state.employeeViewMode = mode;
+    render();
+}
+
+export function setEmployeeStatusFilter(filter) {
+    state.employeeStatusFilter = filter;
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.status = filter;
+    render();
+}
+
+export function setEmployeeSearchFilter(value) {
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.search = value;
+
+    // Surgical DOM update for search-as-you-type so the input keeps focus
+    const input = document.querySelector('.employee-search-input');
+    const keepFocus = input && document.activeElement === input;
+    const cursorPos = keepFocus ? input.selectionStart : null;
+
+    const list = document.getElementById('employees-list');
+    if (list && (state.employeeViewMode || 'employees') === 'employees') {
+        // We can't import buildEmployeesListHTML without a circular dep;
+        // fall back to window if app.js wired it, otherwise full render.
+        const builder = (typeof window !== 'undefined' && window.__buildEmployeesListHTML) || null;
+        if (builder) {
+            list.innerHTML = builder();
+            if (keepFocus) {
+                requestAnimationFrame(() => {
+                    const refocus = document.querySelector('.employee-search-input');
+                    if (refocus) {
+                        refocus.focus();
+                        const pos = cursorPos !== null ? cursorPos : refocus.value.length;
+                        refocus.setSelectionRange(pos, pos);
+                    }
+                });
+            }
+            return;
+        }
+    }
+    render();
+}
+
+export function setEmployeePositionFilter(positionId) {
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.positionId = positionId;
+    render();
+}
+
+export function setEmployeeLeaderFilter(leaderId) {
+    if (!state.employeeFilters) {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    }
+    state.employeeFilters.leaderId = leaderId;
+    render();
+}
+
+export function resetEmployeeFilters() {
+    state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    state.employeeStatusFilter = 'active';
+    render();
+}
+
+export function openEmployeeForm(employeeId = null) {
+    EmployeeModal.open(employeeId);
+}
+
+export function toggleEmployeeStatus(employeeId) {
+    const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
+    if (!emp) return;
+
+    const action = emp.active ? 'desactivar' : 'activar';
+    const actionPast = emp.active ? 'desactivado' : 'activado';
+
+    Modal.confirm({
+        title: emp.active ? `${icons.get('x-circle')} Desactivar Empleado` : `${icons.get('info')} Activar Empleado`,
+        message: `¿Estás seguro de ${action} a ${emp.name}?`,
+        confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
+        cancelText: 'Cancelar',
+        type: emp.active ? 'warning' : 'info',
+        onConfirm: () => {
+            emp.active = !emp.active;
+            const changeDate = getDateKey(new Date());
+            emp.lastStatusChange = changeDate;
+            emp.updatedAt = Date.now();
+            emp._isDirty = true;
+
+            // Keep a status-change history
+            if (!emp.statusHistory) emp.statusHistory = [];
+            emp.statusHistory.push({
+                date: changeDate,
+                active: emp.active,
+                timestamp: new Date().getTime()
+            });
+
+            saveApplicationData();
+            if (window.showAlert) {
+                window.showAlert(`${icons.get('info')} Empleado ${emp.name} ${actionPast} correctamente`, 'success');
+            }
+            render();
+        }
+    });
 }

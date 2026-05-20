@@ -1,14 +1,17 @@
-/**
- * 🏷️ PositionsList — Card template for one position.
+﻿/**
+ * 🏷️ PositionsList — Card template + handlers for positions.
  *
- * Sprint 7 partial extraction. Template only; the position handlers (open form,
- * toggle status, delete, cleanup references) stay in EmployeesUI.js until a
- * follow-up sprint moves them.
+ * Sprint 7b: handlers moved here from EmployeesUI.js. They no longer need
+ * the `context` indirection — they import what they need directly.
  */
 
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { state } from '../../core/AppState.js';
+import { render } from '../../core/RenderManager.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
+import { Modal } from '../../components/Modal.js';
+import { PositionModal } from '../../ui/modals/PositionModal.js';
 
 export function PositionCard(pos) {
     const ldr = pos.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
@@ -110,4 +113,166 @@ export function PositionCard(pos) {
             </div>
         </div>
     `;
+}
+
+
+// ─── Handlers ────────────────────────────────────────────────────────────────
+
+export function togglePositionEmployees(positionId) {
+    const elem = document.getElementById(`pos-employees-${positionId}`);
+    if (elem) {
+        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+export function setPositionStatusFilter(filter) {
+    state.positionStatusFilter = filter;
+    if (!state.positionFilters) {
+        state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
+    }
+    state.positionFilters.status = filter;
+    render();
+}
+
+export function setPositionSearchFilter(value) {
+    if (!state.positionFilters) {
+        state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
+    }
+    state.positionFilters.search = value;
+    render();
+}
+
+export function setPositionLeaderFilter(leaderId) {
+    if (!state.positionFilters) {
+        state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
+    }
+    state.positionFilters.leaderId = leaderId;
+    render();
+}
+
+export function setPositionSortBy(sortBy) {
+    state.positionSortBy = sortBy;
+    render();
+}
+
+export function openPositionForm(positionId = null) {
+    PositionModal.open(positionId);
+}
+
+export function togglePositionStatus(positionId) {
+    const pos = state.positions.find(p => p.id === positionId);
+    if (!pos) return;
+
+    const action = pos.active ? 'desactivar' : 'activar';
+    Modal.confirm({
+        title: pos.active ? `${icons.get('x-circle')} Desactivar Posición` : `${icons.get('info')} Activar Posición`,
+        message: `¿Estás seguro de ${action} la posición "${pos.name}"?`,
+        confirmText: pos.active ? 'Sí, desactivar' : 'Sí, activar',
+        cancelText: 'Cancelar',
+        type: pos.active ? 'warning' : 'info',
+        onConfirm: () => {
+            pos.active = !pos.active;
+            pos.updatedAt = Date.now();
+            pos._isDirty = true;
+            saveApplicationData();
+            render();
+        }
+    });
+}
+
+/**
+ * 🛡️ Clear all references to a position from the global state.
+ * Prevents orphaned references in historical attendance and on employees.
+ * Always call this BEFORE definitively deleting a position.
+ *
+ * @param {string} positionId — ID of the position to clean
+ * @returns {number} count of references cleaned (used by tests/logging)
+ */
+export function cleanupPositionReferences(positionId) {
+    let cleaned = 0;
+
+    // 1. Clean on employees (positions array + positionSalaries map)
+    state.employees.forEach(emp => {
+        if (emp.positions && emp.positions.includes(positionId)) {
+            emp.positions = emp.positions.filter(pid => pid !== positionId);
+            cleaned++;
+        }
+        if (emp.positionSalaries && emp.positionSalaries[positionId] !== undefined) {
+            delete emp.positionSalaries[positionId];
+            cleaned++;
+        }
+    });
+
+    // 2. Clean on historical attendance
+    Object.values(state.attendance || {}).forEach(att => {
+        if (att.selectedPosition === positionId) {
+            att.selectedPosition = null;
+            cleaned++;
+        }
+        if (att.positionHours && att.positionHours.length > 0) {
+            const filtered = att.positionHours.filter(ph => ph.positionId !== positionId);
+            if (filtered.length !== att.positionHours.length) {
+                att.positionHours = filtered;
+                cleaned++;
+            }
+        }
+    });
+
+    return cleaned;
+}
+
+export function deletePosition(positionId) {
+    const pos = state.positions.find(p => p.id === positionId);
+    if (!pos) return;
+
+    if (pos.active) {
+        Modal.confirm({
+            title: `${icons.get('alert')} No se puede eliminar`,
+            message: `La posición "${pos.name}" está activa. Desactívala primero para poder eliminarla.`,
+            confirmText: 'Aceptar',
+            cancelText: 'Cerrar',
+            type: 'warning',
+            onConfirm: () => {}
+        });
+        return;
+    }
+
+    const hasAssigned = state.employees.some(e => (e.positions || []).includes(pos.id));
+    if (hasAssigned) {
+        Modal.confirm({
+            title: `${icons.get('alert')} No se puede eliminar`,
+            message: `La posición "${pos.name}" tiene empleados asignados.`,
+            confirmText: 'Aceptar',
+            cancelText: 'Cerrar',
+            type: 'warning',
+            onConfirm: () => {}
+        });
+        return;
+    }
+
+    Modal.confirm({
+        title: `${icons.get('delete')} Eliminar Posición`,
+        message: `¿Seguro que deseas eliminar la posición "${pos.name}"? Esta acción no se puede deshacer.`,
+        confirmText: 'Sí, eliminar',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            // 🛡️ Clear references in historical attendance BEFORE deleting
+            // (prevents orphans flagged by validateDataIntegrity)
+            const cleaned = cleanupPositionReferences(pos.id);
+            if (cleaned > 0 && window.debug) {
+                window.debug.log(`🛡️ Limpiadas ${cleaned} referencia(s) histórica(s) de "${pos.name}" antes de eliminar`);
+            }
+
+            state.positions = state.positions.filter(p => p.id !== pos.id);
+            saveApplicationData();
+            render();
+        }
+    });
+}
+
+// Deprecated — kept as a stub for backwards-compat with app.js's
+// `window.savePosition = EmployeesUI.savePosition` assignment.
+export function savePosition() {
+    console.warn('savePosition is deprecated. Submit positions through PositionModal.');
 }
