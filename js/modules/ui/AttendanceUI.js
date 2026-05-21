@@ -167,8 +167,17 @@ function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
     let colorBorde = isToday ? 'rgba(6, 182, 212, 0.5)' : '';
     let colorTexto = isToday ? '#06b6d4' : '';
 
+    // 🌤️ Weather chip + floating panel anchored next to the date pill.
+    // Loaded lazily via window.* to keep this UI file from importing the
+    // feature module directly (preserves the current top-down import order).
+    const chipHTML = (typeof window !== 'undefined' && typeof window.WeatherChip === 'function')
+        ? window.WeatherChip()
+        : '';
+    const chipBlock = (chipHTML && typeof window.WeatherChipWithPanel === 'function')
+        ? window.WeatherChipWithPanel(chipHTML)
+        : '';
 
-    return `<div class="pill-nav" style="margin-bottom: 20px;">
+    return `<div class="pill-nav" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
                 <button class="pill-btn" type="button" data-att-action="change-date" data-value="-1">${flechaIzquierda}</button>
                 <div class="pill-display" role="button" tabindex="0" data-att-action="toggle-date-picker" data-value="full" style="position: relative; ${colorBorde}">
                     ${iconoCalendario}
@@ -176,6 +185,7 @@ function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
                     ${datePickerHTML}
                 </div>
                 <button class="pill-btn" type="button" data-att-action="change-date" data-value="1">${flechaDerecha}</button>
+                ${chipBlock}
             </div>`
 }
 //            <!-- 3. NIVEL INFERIOR: Controles Equilibrados -->

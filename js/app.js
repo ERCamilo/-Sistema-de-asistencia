@@ -91,6 +91,11 @@ import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlo
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
 import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } from './modules/features/loans/index.js';
+import {
+    WeatherChip,
+    WeatherChipWithPanel,
+    registerLegacyGlobals as registerWeatherGlobals
+} from './modules/features/weather/index.js';
 import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
 
 //agregado manualmente
@@ -3019,6 +3024,13 @@ registerNotesGlobals();
 registerExportGlobals();
 registerProfileGlobals();
 registerLoansGlobals();
+
+// 🌤️ Weather: chip + panel handlers, outside-click closer, initial refresh.
+//    AttendanceUI reads window.WeatherChip / WeatherChipWithPanel lazily, so
+//    we expose those here as well — keeps AttendanceUI free of the import.
+window.WeatherChip = WeatherChip;
+window.WeatherChipWithPanel = WeatherChipWithPanel;
+registerWeatherGlobals();
 
 // Expose payroll-section HTML generators on window so the Profile module can
 // call into them without circular imports. These generators stay in app.js
