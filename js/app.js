@@ -3807,6 +3807,8 @@ window.saveSettings = function () {
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
     const hideDuplicateAlertsElement = document.getElementById('hideDuplicateAlerts');
     const hideDuplicateAlerts = hideDuplicateAlertsElement ? hideDuplicateAlertsElement.checked : !!state.settings.hideDuplicateAlerts;
+    const weatherEnabledElement = document.getElementById('weatherEnabled');
+    const weatherEnabled = weatherEnabledElement ? weatherEnabledElement.checked : state.settings.weatherEnabled === true;
 
     // Validaciones
     if (!companyName) {
@@ -3846,6 +3848,7 @@ window.saveSettings = function () {
     state.settings.legacyNavigation = legacyNavigation;
     state.settings.scrollbarMode = scrollbarMode;
     state.settings.hideDuplicateAlerts = hideDuplicateAlerts;
+    state.settings.weatherEnabled = weatherEnabled;
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 

@@ -25,10 +25,13 @@ function resetWeatherState() {
     state.weather = null;
     state.weatherExpanded = false;
     if (state.settings) {
-        delete state.settings.weatherEnabled;
         delete state.settings.weatherProvider;
         delete state.settings.weatherLocation;
     }
+    // Force weather visible for tests that need to render UI. Individual
+    // tests can flip this off to exercise the kill-switch.
+    state.settings = state.settings || {};
+    state.settings.weatherEnabled = true;
 }
 
 testRunner.addSuite("WeatherChip — render", {
@@ -56,10 +59,16 @@ testRunner.addSuite("WeatherChip — render", {
 
     "settings.weatherEnabled=false hides the chip entirely"() {
         resetWeatherState();
-        state.settings = state.settings || {};
         state.settings.weatherEnabled = false;
         const html = WeatherChip();
         testRunner.assertEquals(html, '', 'Chip not rendered when disabled');
+    },
+
+    "weatherEnabled undefined (default) keeps the chip hidden"() {
+        resetWeatherState();
+        delete state.settings.weatherEnabled;
+        const html = WeatherChip();
+        testRunner.assertEquals(html, '', 'Chip hidden by default — must be opted in');
     }
 });
 
@@ -173,10 +182,16 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
 
     "settings.weatherEnabled=false hides the entire bar"() {
         resetWeatherState();
-        state.settings = state.settings || {};
         state.settings.weatherEnabled = false;
         const html = WeatherBar();
         testRunner.assertEquals(html, '', 'Bar renders empty when disabled');
+    },
+
+    "weatherEnabled undefined (default) keeps the bar hidden"() {
+        resetWeatherState();
+        delete state.settings.weatherEnabled;
+        const html = WeatherBar();
+        testRunner.assertEquals(html, '', 'Default-off: requires opt-in from Ajustes');
     },
 
     "expanded bar surfaces the configured location name"() {

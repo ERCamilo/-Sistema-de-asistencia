@@ -620,6 +620,16 @@ function SettingsForm() {
                             Si se activa, el triángulo ⚠️ no se mostrará en el menú principal aunque existan conflictos.
                         </div>
                     </div>
+
+                    <div class="form-group" style="margin-bottom: 0; padding-top: 16px; border-top: 1px solid #334155;">
+                        <label class="form-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; margin: 0;">
+                            <input type="checkbox" id="weatherEnabled" ${state.settings.weatherEnabled === true ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer;">
+                            <span style="font-weight: 600; font-size: 1rem; color: #f1f5f9;">🌤️ Mostrar Barra de Clima</span>
+                        </label>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px; margin-left: 32px; line-height: 1.5;">
+                            Muestra una barra con el pronóstico del clima encima de la lista de asistencia. Al desplegarla verás detalle del día y las próximas horas. Desactivado por defecto.
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Iconos -->

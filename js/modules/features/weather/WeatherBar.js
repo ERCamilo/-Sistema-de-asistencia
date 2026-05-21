@@ -42,7 +42,9 @@ function _shortDayLabel(dateKey, todayKey) {
 }
 
 function _isHidden() {
-    return state.settings && state.settings.weatherEnabled === false;
+    // Default OFF: the bar only renders when the admin opts in explicitly via
+    // Ajustes. Any other value (undefined, false, null) keeps it hidden.
+    return !(state.settings && state.settings.weatherEnabled === true);
 }
 
 export function WeatherBar() {

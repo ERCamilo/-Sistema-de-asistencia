@@ -15,8 +15,9 @@ import { readCachedCurrent } from './WeatherService.js';
 import { emojiFor, formatTemp } from './WeatherTypes.js';
 
 export function WeatherChip() {
-    // Optional kill-switch: settings.weatherEnabled === false hides the chip.
-    if (state.settings && state.settings.weatherEnabled === false) return '';
+    // Default OFF: chip only renders when the admin explicitly enables the
+    // weather feature in Ajustes. Mirrors WeatherBar's gate.
+    if (!(state.settings && state.settings.weatherEnabled === true)) return '';
 
     const snapshot = readCachedCurrent(state);
     const emoji = emojiFor(snapshot.icon);
