@@ -521,7 +521,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                         <div class="employee-number">${emp.number}</div>
                         <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
                     </div>
-                    <div class="position-toggles" style="margin-top: 8px;">
+                    <div class="position-toggles" style="margin-top: 2px;">
                         ${emp.positions.map(pid => {
         const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
         const isActive = isChecked ? (selPos === pid) : (selectedPosId === pid);
@@ -559,25 +559,28 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
                         <div class="employee-meta-item">⏱️ ${monthHours}h</div>
                         ${monthOvertimeHours > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="color:#06b6d4;">⚡ +${monthOvertimeHours}h extras mes</div>` : ''}
                     </div>
-                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; min-height: 24px; display: flex; align-items: center; overflow: hidden;">
-                        ${(() => {
+                    ${(() => {
+        // Solo renderizamos esta fila si hay algo útil que mostrar:
+        // horas extras del día, o una nota del día. Cuando no hay nada
+        // (caso típico: empleado aún sin marcar), evitamos los ~28px de
+        // alto vacío que antes existían con min-height + placeholder.
         if (!isChecked) return '';
         const threshold = state.settings?.regularHoursPerDay || 8;
         const overtime = att.overtimeHours || Math.max(0, att.hoursWorked - threshold);
-        return overtime > 0 ? `
-                            <div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${overtime.toFixed(1)}h extras</div>
-                        ` : '';
-    })()}
-                        ${isChecked && att.notes && att.notes.trim() ? `
-                            <div class="employee-meta-divider"></div>
-                            <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1; display: inline-flex; align-items: center; gap: 4px;"
+        const hasNote = att.notes && att.notes.trim();
+        if (overtime <= 0 && !hasNote) return '';
+        return `
+                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; display: flex; align-items: center; overflow: hidden;">
+                        ${overtime > 0 ? `<div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${overtime.toFixed(1)}h extras</div>` : ''}
+                        ${overtime > 0 && hasNote ? '<div class="employee-meta-divider"></div>' : ''}
+                        ${hasNote ? `<div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1; display: inline-flex; align-items: center; gap: 4px;"
                                  data-att-action="open-advanced-attendance" data-id="${emp.id}">
                                 ${icons.get('file', { size: 12 })} ${escapeHTML(att.notes)}
-                            </div>
-                        ` : '<div style="height: 20px;"></div>'}
-                    </div>
+                            </div>` : ''}
+                    </div>`;
+    })()}
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: flex-start; min-width: 80px; width: 80px; flex-shrink: 0;">
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; min-width: 60px; flex-shrink: 0;">
                     <label class="check-container" style="position: relative;">
                         <input type="checkbox" class="check-input" ${isChecked ? 'checked' : ''} data-att-action="handle-checkbox-click" data-emp-id="${emp.id}">
                         <div class="check-box ${checkColor}">${isChecked ? '✓' : ''}</div>
