@@ -12,15 +12,18 @@
 import { state } from '../modules/core/AppState.js';
 import { WeatherChip } from '../modules/features/weather/WeatherChip.js';
 import { WeatherPanel } from '../modules/features/weather/WeatherPanel.js';
+import { WeatherBar } from '../modules/features/weather/WeatherBar.js';
 import {
     toggleWeatherPanel,
     closeWeatherPanel,
+    toggleWeatherExpanded,
     refreshWeather
 } from '../modules/features/weather/WeatherController.js';
 import { fetchCurrent } from '../modules/features/weather/WeatherService.js';
 
 function resetWeatherState() {
     state.weather = null;
+    state.weatherExpanded = false;
     if (state.settings) {
         delete state.settings.weatherEnabled;
         delete state.settings.weatherProvider;
@@ -130,6 +133,59 @@ testRunner.addSuite("WeatherPanel — render", {
         testRunner.assert(html.includes('Ahora'), 'First hour labeled "Ahora"');
         // Should contain at least one HH:00 time label too
         testRunner.assert(/\d{2}:00/.test(html), 'At least one HH:00 label rendered');
+    }
+});
+
+testRunner.addSuite("WeatherBar — collapsed / expanded", {
+
+    "collapsed bar shows today's temp + 4-day preview by default"() {
+        resetWeatherState();
+        refreshWeather(); // populate cache without expanding
+        const html = WeatherBar();
+        testRunner.assert(html.includes('Hoy'), 'Today summary shown');
+        testRunner.assert(html.includes('toggle-weather'), 'Toggle action wired');
+        // Collapsed view should NOT contain the expanded-only labels.
+        testRunner.assert(!html.includes('Próximas 24 horas'), 'Hourly section hidden when collapsed');
+        testRunner.assert(!html.includes('Próximos días'), 'Daily section header hidden when collapsed');
+        // The preview row uses HH labels like ☀️ + temp, so we expect at least one ° symbol.
+        testRunner.assert(html.includes('°'), 'Some temperature displayed');
+    },
+
+    "expanded bar shows current detail + hourly + daily"() {
+        resetWeatherState();
+        toggleWeatherExpanded(); // populate cache + expand
+        const html = WeatherBar();
+        testRunner.assert(state.weatherExpanded === true, 'state flag set');
+        testRunner.assert(html.includes('Próximas 24 horas'), 'Hourly section shown');
+        testRunner.assert(html.includes('Próximos días'), 'Daily section shown');
+        testRunner.assert(html.includes('Ahora'), 'Now marker shown in hourly strip');
+        testRunner.assert(html.includes('Fuente:'), 'Provider footer shown');
+    },
+
+    "toggleWeatherExpanded twice returns to collapsed"() {
+        resetWeatherState();
+        toggleWeatherExpanded();
+        toggleWeatherExpanded();
+        testRunner.assertEquals(state.weatherExpanded, false, 'Collapsed again');
+        const html = WeatherBar();
+        testRunner.assert(!html.includes('Próximas 24 horas'), 'Detail no longer rendered');
+    },
+
+    "settings.weatherEnabled=false hides the entire bar"() {
+        resetWeatherState();
+        state.settings = state.settings || {};
+        state.settings.weatherEnabled = false;
+        const html = WeatherBar();
+        testRunner.assertEquals(html, '', 'Bar renders empty when disabled');
+    },
+
+    "expanded bar surfaces the configured location name"() {
+        resetWeatherState();
+        state.settings = state.settings || {};
+        state.settings.weatherLocation = { lat: 18.5, lon: -68.4, name: 'Punta Cana' };
+        toggleWeatherExpanded();
+        const html = WeatherBar();
+        testRunner.assert(html.includes('Punta Cana'), 'Custom location displayed');
     }
 });
 

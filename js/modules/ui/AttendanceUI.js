@@ -33,6 +33,7 @@ const _ACTION_MAP = {
     'handle-week-check': (_, el, e) => { e?.stopPropagation(); window.handleWeekCheck?.(el.dataset.empId, el.dataset.dateKey); },
     'toggle-week-position': (_, el, e) => { e?.stopPropagation(); window.toggleWeekPosition?.(el.dataset.empId, el.dataset.posId, el.dataset.dateKey); },
     'toggle-legend': () => window.toggleLegend?.(),
+    'toggle-weather': () => window.toggleWeatherExpanded?.(),
     'toggle-position': (_, el) => window.togglePosition?.(el.dataset.empId, el.dataset.posId),
     'select-temp-position': (_, el, e) => { e?.stopPropagation(); window.selectTempPosition?.(el.dataset.empId, el.dataset.posId); },
     'handle-checkbox-click': (_, el, e) => window.handleCheckboxClick?.(e, el.dataset.empId)
@@ -349,33 +350,21 @@ export function StatsGrid() {
 }
 
 /**
- * 🎨 Leyenda de colores + chip del clima centrado.
+ * 🌤️ Weather bar — replaces the legacy "Leyenda de Colores" surface.
  *
- * Layout del header (3 columnas): [toggle ▶/▼] [chip de clima centrado] [(reservado)].
- * El chip vive en su propio host (.weather-chip-host) para que el panel
- * flotante se ancle correctamente debajo del chip, no de la barra entera.
+ * Delegates to window.WeatherBar so this UI file stays decoupled from the
+ * weather feature module (the legacy bridge pattern used across the app).
+ * Returns an empty string if the weather module is not wired up — safe.
+ *
+ * The exported name is kept as Legend() because callers (e.g. app.js render
+ * pipeline) still import this symbol. Inside, what it produces is now a
+ * weather strip, not a color legend.
  */
 export function Legend() {
-    // Chip + panel flotante. Cargado vía window.* para no acoplar este archivo
-    // al módulo de clima (mantiene el orden top-down de imports actual).
-    const chipHTML = (typeof window !== 'undefined' && typeof window.WeatherChip === 'function')
-        ? window.WeatherChip()
-        : '';
-    const chipBlock = (chipHTML && typeof window.WeatherChipWithPanel === 'function')
-        ? window.WeatherChipWithPanel(chipHTML)
-        : '';
-
-    return `<div class="legend">
-        <div class="legend-header" style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;">
-            <div role="button" tabindex="0" data-att-action="toggle-legend" style="display: flex; align-items: center; gap: 8px; cursor: pointer; justify-self: start;">
-                <div class="legend-title">Leyenda de Colores</div>
-                <div style="color:#64748b;font-size:1.1rem;">${state.showLegend ? '▼' : '▶'}</div>
-            </div>
-            <div style="justify-self: center;">${chipBlock}</div>
-            <div></div>
-        </div>
-        ${state.showLegend ? '<div class="legend-items"><div class="legend-item"><div class="legend-color check-regular"></div><span class="legend-text">Regular</span></div><div class="legend-item"><div class="legend-color check-multiposition"></div><span class="legend-text">Multi-Pos</span></div><div class="legend-item"><div class="legend-color check-holiday"></div><span class="legend-text">Festivo</span></div><div class="legend-item"><div class="legend-color check-overtime"></div><span class="legend-text">Extras</span></div><div class="legend-item"><div class="legend-color check-undertime"></div><span class="legend-text">Menos</span></div></div>' : ''}
-    </div>`;
+    if (typeof window !== 'undefined' && typeof window.WeatherBar === 'function') {
+        return window.WeatherBar();
+    }
+    return '';
 }
 
 /**

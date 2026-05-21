@@ -94,6 +94,7 @@ import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } fro
 import {
     WeatherChip,
     WeatherChipWithPanel,
+    WeatherBar,
     registerLegacyGlobals as registerWeatherGlobals
 } from './modules/features/weather/index.js';
 import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
@@ -3030,6 +3031,7 @@ registerLoansGlobals();
 //    we expose those here as well — keeps AttendanceUI free of the import.
 window.WeatherChip = WeatherChip;
 window.WeatherChipWithPanel = WeatherChipWithPanel;
+window.WeatherBar = WeatherBar;
 registerWeatherGlobals();
 
 // Expose payroll-section HTML generators on window so the Profile module can

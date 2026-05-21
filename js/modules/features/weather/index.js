@@ -28,9 +28,11 @@ export {
 } from './WeatherService.js';
 export { WeatherChip } from './WeatherChip.js';
 export { WeatherPanel, WeatherChipWithPanel } from './WeatherPanel.js';
+export { WeatherBar } from './WeatherBar.js';
 export {
     refreshWeather,
     toggleWeatherPanel,
     closeWeatherPanel,
+    toggleWeatherExpanded,
     registerLegacyGlobals
 } from './WeatherController.js';

@@ -54,6 +54,17 @@ export function toggleWeatherPanel() {
     render();
 }
 
+/**
+ * Toggle the inline expanded view in WeatherBar (replaces the legacy
+ * color-legend bar). Distinct from panelOpen, which is for the floating
+ * chip-panel still available for other surfaces.
+ */
+export function toggleWeatherExpanded() {
+    state.weatherExpanded = !state.weatherExpanded;
+    if (state.weatherExpanded) refreshWeather();
+    render();
+}
+
 export function closeWeatherPanel() {
     ensureWeatherState();
     state.weather.panelOpen = false;
@@ -83,6 +94,7 @@ export function registerLegacyGlobals() {
     if (typeof window === 'undefined') return;
     window.toggleWeatherPanel = toggleWeatherPanel;
     window.closeWeatherPanel = closeWeatherPanel;
+    window.toggleWeatherExpanded = toggleWeatherExpanded;
     window.refreshWeather = refreshWeather;
     _installOutsideClickHandler();
     // Kick a refresh at boot so the chip has fresh data on first render

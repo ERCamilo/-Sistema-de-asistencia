@@ -6,7 +6,7 @@
  * para forzar actualización de assets cacheados.
  */
 
-const CACHE_VERSION = '1.0.18';
+const CACHE_VERSION = '1.0.19';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
