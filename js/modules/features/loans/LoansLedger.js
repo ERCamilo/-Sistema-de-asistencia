@@ -94,28 +94,24 @@ function LedgerOverview() {
             ` : filtered.map(emp => `
                 <div role="button" tabindex="0"
                      data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
-                     style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px 18px; margin-bottom: 10px; cursor: pointer; transition: all 0.15s;"
+                     style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;"
                      onmouseover="this.style.borderColor='#06b6d4'"
                      onmouseout="this.style.borderColor='#334155'">
-                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-                        <div style="display: flex; align-items: center; gap: 14px; flex: 1; min-width: 200px;">
-                            <div style="width: 44px; height: 44px; background: rgba(245,158,11,0.12); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #f59e0b; font-weight: 800;">
-                                ${emp.number || '?'}
-                            </div>
-                            <div>
-                                <div style="color: #f1f5f9; font-weight: 700; font-size: 0.95rem;">${escapeHTML(emp.name)}</div>
-                                <div style="color: #94a3b8; font-size: 0.75rem; margin-top: 2px;">
-                                    ${emp.loanCount} préstamo${emp.loanCount === 1 ? '' : 's'} activo${emp.loanCount === 1 ? '' : 's'}
-                                </div>
-                            </div>
+                    <!-- Number avatar -->
+                    <div style="width: 36px; height: 36px; background: rgba(245,158,11,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #f59e0b; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
+                        ${emp.number || '?'}
+                    </div>
+                    <!-- Name + sub-line, takes whatever space is left -->
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</div>
+                        <div style="color: #94a3b8; font-size: 0.7rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            ${emp.loanCount} préstamo${emp.loanCount === 1 ? '' : 's'} · Pagado ${formatCurrency(emp.totalPaid)}
                         </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo</div>
-                            <div style="font-size: 1.25rem; font-weight: 900; color: #f59e0b;">${formatCurrency(emp.totalBalance)}</div>
-                            <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">
-                                Total: ${formatCurrency(emp.totalDue)} · Pagado: ${formatCurrency(emp.totalPaid)}
-                            </div>
-                        </div>
+                    </div>
+                    <!-- Balance pinned to the right -->
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <div style="font-size: 1.05rem; font-weight: 900; color: #f59e0b; line-height: 1.1;">${formatCurrency(emp.totalBalance)}</div>
+                        <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(emp.totalDue)}</div>
                     </div>
                 </div>
             `).join('')}
