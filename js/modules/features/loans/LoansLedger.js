@@ -72,7 +72,7 @@ function LedgerOverview() {
                            style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
                 <button type="button" data-app-fn="openLoansEmployeePicker"
-                        style="padding: 10px 16px; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                        style="padding: 10px 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
                     ${icons.get('add', { size: 16 })} Agregar nuevo
                 </button>
                 <div style="font-size: 0.8rem; color: #94a3b8;">
@@ -175,7 +175,7 @@ function EmployeeLoansDetail(empId) {
             <!-- New loan button / form -->
             ${showAddForm ? NewLoanForm() : `
                 <button type="button" data-app-fn="toggleAddLoanForm"
-                        style="width: 100%; padding: 14px; margin-bottom: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                        style="width: 100%; padding: 14px; margin-bottom: 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 10px; font-weight: 800; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;">
                     ${icons.get('add')} Nuevo préstamo / adelanto
                 </button>
             `}
@@ -536,7 +536,7 @@ function NewLoanForm() {
             ` : ''}
 
             <button type="button" data-app-fn="submitNewLoan"
-                    style="width: 100%; margin-top: 12px; padding: 12px; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.95rem; cursor: pointer;">
+                    style="width: 100%; margin-top: 12px; padding: 12px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.95rem; cursor: pointer;">
                 ${icons.get('save', { size: 16 })} Registrar préstamo
             </button>
         </div>
