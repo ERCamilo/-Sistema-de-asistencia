@@ -99,7 +99,7 @@ export function migrateAllAdvances() {
     }
     if (total > 0) {
         if (window.debug) window.debug.log(`💵 Migrated ${total} legacy advances to loans across all employees`);
-        saveApplicationData();
+        saveApplicationData({ immediate: true });
     }
     return total;
 }
@@ -217,7 +217,7 @@ export function submitNewLoan() {
         const loan = createLoan(emp, draft);
         state.loansLedger.showAddForm = false;
         state.loansLedger.newLoanDraft = createEmptyLoanDraft();
-        saveApplicationData();
+        saveApplicationData({ immediate: true });
         notify(`✅ Préstamo registrado: ${loan.concept}`, 'success');
         render();
     } catch (err) {
@@ -262,7 +262,7 @@ export function submitPayment(loanId) {
     try {
         const payment = recordPayment(emp, loanId, state.loansLedger.paymentDraft);
         state.loansLedger.showPaymentFormForLoan = null;
-        saveApplicationData();
+        saveApplicationData({ immediate: true });
         notify(`✅ Abono registrado: ${payment.amount.toFixed(2)}`, 'success');
         render();
     } catch (err) {
@@ -288,7 +288,7 @@ export function settleLoanByFullPayment(loanId) {
     if (!window.showConfirm) {
         // Fallback if Modal.confirm shim is unavailable
         recordPayment(emp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' });
-        saveApplicationData();
+        saveApplicationData({ immediate: true });
         render();
         return;
     }
@@ -301,7 +301,7 @@ export function settleLoanByFullPayment(loanId) {
         onConfirm: () => {
             try {
                 recordPayment(emp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' });
-                saveApplicationData();
+                saveApplicationData({ immediate: true });
                 notify('✅ Préstamo saldado', 'success');
                 render();
             } catch (err) {
@@ -319,7 +319,7 @@ export function writeOffLoanWithConfirm(loanId) {
 
     if (!window.showConfirm) {
         writeOffLoan(emp, loanId);
-        saveApplicationData();
+        saveApplicationData({ immediate: true });
         render();
         return;
     }
@@ -331,7 +331,7 @@ export function writeOffLoanWithConfirm(loanId) {
         type: 'warning',
         onConfirm: () => {
             writeOffLoan(emp, loanId);
-            saveApplicationData();
+            saveApplicationData({ immediate: true });
             notify('Préstamo anulado', 'info');
             render();
         }
@@ -344,7 +344,7 @@ export function reopenLoanHandler(loanId) {
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
     reopenLoan(emp, loanId);
-    saveApplicationData();
+    saveApplicationData({ immediate: true });
     notify('Préstamo reactivado', 'info');
     render();
 }
@@ -357,7 +357,7 @@ export function voidPaymentHandler(loanId, paymentId) {
 
     if (!window.showConfirm) {
         voidPayment(emp, loanId, paymentId);
-        saveApplicationData();
+        saveApplicationData({ immediate: true });
         render();
         return;
     }
@@ -369,7 +369,7 @@ export function voidPaymentHandler(loanId, paymentId) {
         type: 'warning',
         onConfirm: () => {
             voidPayment(emp, loanId, paymentId);
-            saveApplicationData();
+            saveApplicationData({ immediate: true });
             notify('Abono anulado', 'info');
             render();
         }
@@ -399,4 +399,7 @@ export function registerLegacyGlobals() {
     window.closeLoansEmployeePicker = closeLoansEmployeePicker;
     window.setLoansPickerSearch = setLoansPickerSearch;
     window.openProfileForLoan = openProfileForLoan;
+    // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
+    // added legacy advances into emp.loans[] without an import cycle.
+    window.migrateAllAdvances = migrateAllAdvances;
 }

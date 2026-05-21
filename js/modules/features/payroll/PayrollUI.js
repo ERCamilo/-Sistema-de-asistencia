@@ -2,6 +2,7 @@ import icons from '../../ui/IconSystem.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
+import { migrateAllAdvances } from '../loans/LoansController.js';
 
 let context = null;
 let payrollService = null;
@@ -118,6 +119,13 @@ export function PayrollTab() {
 export function changePayrollViewMode(mode) {
     if (mode !== 'generator' && mode !== 'ledger') return;
     getState().payrollViewMode = mode;
+    // 🛡️ When entering the loans ledger, pull any legacy advances that the
+    // user just registered through the in-profile editor into emp.loans[] so
+    // they appear immediately (without forcing a page refresh). The migration
+    // is idempotent and free when nothing new exists.
+    if (mode === 'ledger') {
+        try { migrateAllAdvances(); } catch (_) { /* never block the view switch */ }
+    }
     context.render();
 }
 

@@ -75,12 +75,37 @@ export function saveApplicationData(options = {}) {
         _pendingSaveOptions = { ...options }; // Guardado completo o primer call
     }
 
+    // ⚡ Immediate-save mode: bypass the 300ms debounce for critical operations
+    // (e.g., creating a loan, recording a payment) where data loss on a fast F5
+    // would be unacceptable. Without this, a refresh within ~300ms can discard
+    // the pending save entirely.
+    if (options.immediate) {
+        clearTimeout(_saveDebounceTimer);
+        const opts = _pendingSaveOptions;
+        _pendingSaveOptions = {};
+        return _executeSave(opts);
+    }
+
     clearTimeout(_saveDebounceTimer);
     _saveDebounceTimer = setTimeout(() => {
         const opts = _pendingSaveOptions;
         _pendingSaveOptions = {};
         _executeSave(opts);
     }, 300);
+}
+
+/**
+ * 🚿 Flush any pending debounced save synchronously. Useful before navigation
+ * away (beforeunload) or after critical operations.
+ */
+export function flushPendingSave() {
+    if (!_saveDebounceTimer) return false;
+    clearTimeout(_saveDebounceTimer);
+    _saveDebounceTimer = null;
+    const opts = _pendingSaveOptions;
+    _pendingSaveOptions = {};
+    _executeSave(opts);
+    return true;
 }
 
 async function _executeSave(options = {}) {

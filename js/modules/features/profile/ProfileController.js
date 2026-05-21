@@ -44,7 +44,10 @@ export function syncProfileToMaster(empId) {
     if (state.employeeProfile.bonuses) emp.bonuses = [...state.employeeProfile.bonuses];
     if (state.employeeProfile.advances) emp.advances = [...state.employeeProfile.advances];
 
-    saveApplicationData();
+    // ⚡ Immediate save: a fast F5 immediately after editing was discarding the
+    // 300ms-debounced save. Critical financial edits (advances, deductions,
+    // bonuses) must persist before the tab can be reloaded.
+    saveApplicationData({ immediate: true });
     return true;
 }
 
@@ -53,6 +56,11 @@ export function syncProfileToMaster(empId) {
 export function closeEmployeeProfile() {
     // Final sync before close — avoids losing edits to deductions/bonuses
     syncProfileToMaster(state.employeeProfile?.employeeId);
+    // 🛡️ Migrate any newly-added legacy advances into emp.loans[] so they show
+    // up in the Cuentas-por-Cobrar ledger the next time the user opens it.
+    if (typeof window !== 'undefined' && typeof window.migrateAllAdvances === 'function') {
+        try { window.migrateAllAdvances(); } catch (_) { /* never block close */ }
+    }
     state.showEmployeeProfile = false;
     render();
 }

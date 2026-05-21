@@ -13,7 +13,7 @@
  *   - loadApplicationData() always sets state.isDataLoaded = true
  */
 
-import { saveApplicationData, loadApplicationData } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, loadApplicationData, flushPendingSave } from '../modules/services/PersistenceService.js';
 import { state, stateManager } from '../modules/core/AppState.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import dataService from '../modules/services/DataService.js';
@@ -284,6 +284,86 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
         } finally {
             restoreState(snap);
         }
+    }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Suite: immediate-save mode (bypass debounce on critical writes)
+// ─────────────────────────────────────────────────────────────
+
+testRunner.addSuite("PersistenceService — immediate save", {
+
+    async "immediate: true bypasses the 300ms debounce"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            saveApplicationData({ immediate: true, skipValidation: true });
+
+            // Should have fired synchronously (or within a microtask) — no waiting.
+            // We give one tick for the async chain inside _executeSave.
+            await sleep(10);
+
+            testRunner.assert(
+                indexedDBService.saveState.mock.calls.length >= 1,
+                "Immediate save should have called IndexedDB without waiting for debounce"
+            );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "immediate: true cancels a pending debounced save (no duplicate writes)"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            saveApplicationData({ skipValidation: true });   // debounced
+            saveApplicationData({ immediate: true, skipValidation: true });
+
+            await waitForSave();
+
+            // Exactly one save should have fired (the immediate one), not two.
+            testRunner.assertEquals(
+                indexedDBService.saveState.mock.calls.length,
+                1,
+                "Pending debounced save should have been canceled by the immediate save"
+            );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "flushPendingSave forces a pending debounced save to fire now"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            saveApplicationData({ skipValidation: true });
+            // Immediately flush — should fire before the 300ms timer would have.
+            const flushed = flushPendingSave();
+            await sleep(10);
+
+            testRunner.assertEquals(flushed, true, "flushPendingSave returns true when something was pending");
+            testRunner.assert(
+                indexedDBService.saveState.mock.calls.length >= 1,
+                "Flush should have triggered the save synchronously"
+            );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    "flushPendingSave returns false when nothing is pending"() {
+        // No pending save — must not throw and must return false.
+        const result = flushPendingSave();
+        testRunner.assertEquals(result, false, "Returns false when nothing to flush");
     }
 });
 
