@@ -577,14 +577,19 @@
             border-radius: 12px;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
+            /* Llenar el ancho de la sección (110px) para igualar visualmente
+               con la caja de Feriado, que también es width:100% de su padre. */
+            width: 100%;
+            box-sizing: border-box;
             font-size: 0.85rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            height: 40px;
-            /* Igual que los otros controles */
+            height: 44px;
+            /* Igual altura que .holiday-control y .stepper-container */
         }
 
         .btn-today-nav:hover {

@@ -231,10 +231,9 @@
 
 .view-controls-row {
     display: flex;
-    gap: 8px;
+    gap: 16px;
     align-items: flex-start;
-    justify-content: space-between;
-
+    justify-content: center;
 }
 
 .control-section {
@@ -244,24 +243,11 @@
     gap: 6px !important;
     margin: 0 !important;
     padding: 0 !important;
+    /* Todas las secciones (Feriado · Horas a Asignar · Hoy) usan el mismo ancho
+       para verse alineadas y simétricas. El control interno se estira al 100%
+       del padre, así Feriado y Hoy quedan visualmente del mismo tamaño. */
+    flex: 0 0 110px !important;
 }
-
-/* Anchos fijos para estabilidad */
-.control-section:nth-child(1) {
-    flex: 0 0 135px !important;
-}
-
-/* Vista */
-.control-section:nth-child(2) {
-    flex: 0 0 100px !important;
-}
-
-/* Horas Base */
-.control-section:nth-child(3) {
-    flex: 0 0 85px !important;
-}
-
-/* Feriado */
 
 .control-section-label {
     font-size: 0.65rem;
