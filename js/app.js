@@ -97,6 +97,7 @@ import {
     WeatherBar,
     registerLegacyGlobals as registerWeatherGlobals
 } from './modules/features/weather/index.js';
+import { monitorSWVersion } from './modules/utils/SWVersion.js';
 import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
 
 //agregado manualmente
@@ -3033,6 +3034,11 @@ window.WeatherChip = WeatherChip;
 window.WeatherChipWithPanel = WeatherChipWithPanel;
 window.WeatherBar = WeatherBar;
 registerWeatherGlobals();
+
+// 🛡️ Surface the active Service Worker's CACHE_VERSION in state so the
+//    Ajustes footer can show it next to the app version. Updates again
+//    whenever a new SW activates (deploy / cache bump).
+monitorSWVersion(state, render);
 
 // Expose payroll-section HTML generators on window so the Profile module can
 // call into them without circular imports. These generators stay in app.js

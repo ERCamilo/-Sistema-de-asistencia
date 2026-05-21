@@ -138,6 +138,10 @@ export function SettingsTab() {
                             <span>${icons.get('info', { size: 12 })}</span>
                             <span><strong style="color: #94a3b8;">Versión ${APP_CONFIG.VERSION}</strong></span>
                             <span style="opacity: 0.5;">·</span>
+                            <span title="Versión del Service Worker (caché PWA)">
+                                SW <strong style="color: #94a3b8;">${state.swVersion || '…'}</strong>
+                            </span>
+                            <span style="opacity: 0.5;">·</span>
                             <span>Actualizado: ${APP_CONFIG.LAST_UPDATED}</span>
                         </div>
                     </div>
