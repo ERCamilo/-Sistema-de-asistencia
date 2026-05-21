@@ -3074,11 +3074,12 @@ document.addEventListener('click', (e) => {
         state.contextMenu = null;
         render();
     }
-    if (state.showDatePicker && !e.target.closest('.date-display') && !e.target.closest('.date-picker-popup')) {
-        state.showDatePicker = false;
-        state.datePickerTarget = null;
-        render();
-    }
+    // 🛡️ NOTE: the date-picker outside-click handler lives at line ~351 and
+    // uses the current `.pill-display` / `.calendar-picker` / `.calendar-picker-popup`
+    // class names. A previous duplicate handler here referenced obsolete classes
+    // (`.date-display`, `.date-picker-popup`) that no longer exist, so it
+    // closed the picker on the same click that opened it. Removed in favor of
+    // the single canonical handler.
 });
 
 // ============================================
