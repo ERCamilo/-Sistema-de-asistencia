@@ -452,3 +452,17 @@ export function getTotalExposure(state) {
             .reduce((s, l) => s + getBalance(l), 0)
     );
 }
+
+/**
+ * Total amount paid (abonado) across all *active* loans org-wide. Excludes
+ * loans that are already saldados/anulados — that's a separate KPI ("totales
+ * recuperados") if we ever surface it.
+ */
+export function getTotalPaidActive(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .filter(l => l.status === LOAN_STATUS.ACTIVE)
+            .reduce((s, l) => s + getPaidAmount(l), 0)
+    );
+}

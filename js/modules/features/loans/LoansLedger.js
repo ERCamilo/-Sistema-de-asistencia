@@ -19,6 +19,7 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import {
     getEmployeesWithDebt,
     getTotalExposure,
+    getTotalPaidActive,
     getBalance,
     getTotalDue,
     getPaidAmount,
@@ -51,15 +52,17 @@ function LedgerOverview() {
         : allWithDebt;
 
     const totalExposure = getTotalExposure(state);
+    const totalPaid = getTotalPaidActive(state);
     const totalLoans = allWithDebt.reduce((s, e) => s + e.loanCount, 0);
 
     return `
         <div style="max-width: 1000px; margin: 0 auto;">
-            <!-- KPI cards -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px;">
-                ${kpiCard('Saldo total pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll')}
+            <!-- KPI cards: 2 cols on narrow screens (auto-fit grows on wide) -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
+                ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll')}
+                ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check')}
                 ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel')}
-                ${kpiCard('Préstamos activos', totalLoans.toString(), '#10b981', 'briefcase')}
+                ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase')}
             </div>
 
             <!-- Search + actions -->
@@ -122,12 +125,12 @@ function LedgerOverview() {
 
 function kpiCard(label, value, color, iconName) {
     return `
-        <div style="background: #1e293b; border-radius: 12px; padding: 16px; border: 1px solid #334155; border-left: 4px solid ${color};">
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                <div style="color: ${color};">${icons.get(iconName, { size: 18 })}</div>
-                <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em;">${label}</div>
+        <div style="background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #334155; border-left: 4px solid ${color}; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                <div style="color: ${color}; flex-shrink: 0;">${icons.get(iconName, { size: 16 })}</div>
+                <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; line-height: 1.2;">${label}</div>
             </div>
-            <div style="font-size: 1.5rem; font-weight: 900; color: #f1f5f9;">${value}</div>
+            <div style="font-size: 1.15rem; font-weight: 900; color: #f1f5f9; word-break: break-word;">${value}</div>
         </div>
     `;
 }

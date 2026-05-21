@@ -27,6 +27,7 @@ import {
     validatePaymentInput,
     getEmployeesWithDebt,
     getTotalExposure,
+    getTotalPaidActive,
     LOAN_STATUS,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
@@ -319,6 +320,32 @@ testRunner.addSuite("LoansService — aggregations", {
             ]
         };
         testRunner.assertEquals(getTotalExposure(state), 350, "Sum of active balances only");
+    },
+
+    "getTotalPaidActive sums payments only on active loans"() {
+        const state = {
+            employees: [
+                // Active loan with 100 paid out of 500
+                { id: 'e1', loans: [{
+                    id: 'L1', principal: 500, interestRate: 0, interestIncluded: false,
+                    status: LOAN_STATUS.ACTIVE,
+                    payments: [{ amount: 100, voided: false }]
+                }]},
+                // Active loan with 50 paid + 20 voided (voided excluded)
+                { id: 'e2', loans: [{
+                    id: 'L2', principal: 300, interestRate: 0, interestIncluded: false,
+                    status: LOAN_STATUS.ACTIVE,
+                    payments: [{ amount: 50, voided: false }, { amount: 20, voided: true }]
+                }]},
+                // Paid-off loan — should NOT be counted (it's no longer active)
+                { id: 'e3', loans: [{
+                    id: 'L3', principal: 200, interestRate: 0, interestIncluded: false,
+                    status: LOAN_STATUS.PAID,
+                    payments: [{ amount: 200, voided: false }]
+                }]}
+            ]
+        };
+        testRunner.assertEquals(getTotalPaidActive(state), 150, "100 + 50 across active loans (voided/paid excluded)");
     }
 });
 
