@@ -25,7 +25,11 @@ import {
     settleLoanByFullPayment,
     writeOffLoanWithConfirm,
     reopenLoanHandler,
-    voidPaymentHandler
+    voidPaymentHandler,
+    openLoansEmployeePicker,
+    closeLoansEmployeePicker,
+    setLoansPickerSearch,
+    openProfileForLoan
 } from '../modules/features/loans/LoansController.js';
 import { LOAN_STATUS, INSTALLMENT_MODE, getBalance } from '../modules/features/loans/LoansService.js';
 
@@ -333,6 +337,75 @@ testRunner.addSuite("LoansController — loan operations", {
         const emp = liveEmployee();
         testRunner.assertEquals(getBalance(emp.loans[0]), 500, "Post-void: balance restored to 500");
         testRunner.assert(emp.loans[0].payments[0].voided, "Payment marked voided");
+    }
+});
+
+// ─── Employee picker (Add new → choose employee → open profile) ──────────────
+
+testRunner.addSuite("LoansController — employee picker", {
+
+    "openLoansEmployeePicker turns the picker on and resets its search"() {
+        resetState();
+        state.loansLedger = {
+            selectedEmployeeId: null, search: '', showAddForm: false,
+            showEmployeePicker: false, pickerSearch: 'stale',
+            newLoanDraft: null, showPaymentFormForLoan: null, paymentDraft: null
+        };
+        openLoansEmployeePicker();
+        testRunner.assertEquals(state.loansLedger.showEmployeePicker, true, "picker is open");
+        testRunner.assertEquals(state.loansLedger.pickerSearch, '', "previous search cleared");
+    },
+
+    "closeLoansEmployeePicker turns it off"() {
+        resetState();
+        openLoansEmployeePicker();
+        closeLoansEmployeePicker();
+        testRunner.assertEquals(state.loansLedger.showEmployeePicker, false, "picker closed");
+    },
+
+    "setLoansPickerSearch stores the filter string"() {
+        resetState();
+        openLoansEmployeePicker();
+        setLoansPickerSearch('ada');
+        testRunner.assertEquals(state.loansLedger.pickerSearch, 'ada', "search recorded");
+    },
+
+    "openProfileForLoan calls window.openEmployeeProfile and lands on the Nómina tab"() {
+        resetState();
+        seedEmployee({ id: 'emp42', name: 'Grace Hopper' });
+
+        // Capture the call
+        const prevOpen = window.openEmployeeProfile;
+        let receivedId = null;
+        window.openEmployeeProfile = (id) => {
+            receivedId = id;
+            // Minimal stub of what real openEmployeeProfile does
+            state.employeeProfile = { employeeId: id, activeTab: 'resumen' };
+            state.showEmployeeProfile = true;
+        };
+        try {
+            openLoansEmployeePicker();
+            openProfileForLoan('emp42');
+            testRunner.assertEquals(receivedId, 'emp42', "openEmployeeProfile got the employee id");
+            testRunner.assertEquals(state.employeeProfile.activeTab, 'nomina', "Profile jumps to the Nómina tab");
+            testRunner.assertEquals(state.loansLedger.showEmployeePicker, false, "picker closed after navigation");
+        } finally {
+            window.openEmployeeProfile = prevOpen;
+        }
+    },
+
+    "openProfileForLoan is a no-op when openEmployeeProfile is unavailable"() {
+        resetState();
+        seedEmployee({ id: 'emp42' });
+        const prevOpen = window.openEmployeeProfile;
+        window.openEmployeeProfile = undefined;
+        try {
+            // Should not throw
+            openProfileForLoan('emp42');
+            testRunner.assert(true, "did not throw");
+        } finally {
+            window.openEmployeeProfile = prevOpen;
+        }
     }
 });
 

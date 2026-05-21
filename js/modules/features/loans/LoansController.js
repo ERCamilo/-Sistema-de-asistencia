@@ -43,8 +43,18 @@ function ensureLedgerState() {
             showAddForm: false,
             newLoanDraft: createEmptyLoanDraft(),
             showPaymentFormForLoan: null,
-            paymentDraft: { amount: 0, date: getDateKey(new Date()), note: '' }
+            paymentDraft: { amount: 0, date: getDateKey(new Date()), note: '' },
+            showEmployeePicker: false,
+            pickerSearch: ''
         };
+    } else {
+        // Backfill new fields on pre-existing ledger objects (older sessions)
+        if (typeof state.loansLedger.showEmployeePicker === 'undefined') {
+            state.loansLedger.showEmployeePicker = false;
+        }
+        if (typeof state.loansLedger.pickerSearch === 'undefined') {
+            state.loansLedger.pickerSearch = '';
+        }
     }
 }
 
@@ -115,6 +125,51 @@ export function clearLoansEmployee() {
 export function setLoansSearch(value) {
     ensureLedgerState();
     state.loansLedger.search = String(value || '');
+    render();
+}
+
+// ─── Employee picker (Add new → choose employee → open profile) ─────────────
+
+/**
+ * Open the employee picker shown over the Cuentas-por-Cobrar overview when
+ * the user hits "+ Nueva". From there a click on any employee row routes
+ * them into the employee profile modal on the Nómina tab so they can
+ * register a loan/advance through the existing in-profile UI.
+ */
+export function openLoansEmployeePicker() {
+    ensureLedgerState();
+    state.loansLedger.showEmployeePicker = true;
+    state.loansLedger.pickerSearch = '';
+    render();
+}
+
+export function closeLoansEmployeePicker() {
+    ensureLedgerState();
+    state.loansLedger.showEmployeePicker = false;
+    render();
+}
+
+export function setLoansPickerSearch(value) {
+    ensureLedgerState();
+    state.loansLedger.pickerSearch = String(value || '');
+    render();
+}
+
+/**
+ * Close the picker and open the employee profile modal on the Nómina tab,
+ * which hosts the legacy advances editor and (soon) a unified loans editor.
+ */
+export function openProfileForLoan(employeeId) {
+    ensureLedgerState();
+    state.loansLedger.showEmployeePicker = false;
+    if (typeof window === 'undefined' || typeof window.openEmployeeProfile !== 'function') {
+        return;
+    }
+    window.openEmployeeProfile(employeeId);
+    // Jump straight to the Nómina tab where loans are registered.
+    if (state.employeeProfile) {
+        state.employeeProfile.activeTab = 'nomina';
+    }
     render();
 }
 
@@ -340,4 +395,8 @@ export function registerLegacyGlobals() {
     window.writeOffLoanWithConfirm = writeOffLoanWithConfirm;
     window.reopenLoanHandler = reopenLoanHandler;
     window.voidPaymentHandler = voidPaymentHandler;
+    window.openLoansEmployeePicker = openLoansEmployeePicker;
+    window.closeLoansEmployeePicker = closeLoansEmployeePicker;
+    window.setLoansPickerSearch = setLoansPickerSearch;
+    window.openProfileForLoan = openProfileForLoan;
 }

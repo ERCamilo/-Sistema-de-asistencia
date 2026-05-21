@@ -26,5 +26,9 @@ export {
     writeOffLoanWithConfirm,
     reopenLoanHandler,
     voidPaymentHandler,
+    openLoansEmployeePicker,
+    closeLoansEmployeePicker,
+    setLoansPickerSearch,
+    openProfileForLoan,
     registerLegacyGlobals
 } from './LoansController.js';

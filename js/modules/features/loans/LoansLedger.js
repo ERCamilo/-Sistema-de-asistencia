@@ -30,9 +30,11 @@ import {
 
 export function LoansLedger() {
     const ledger = state.loansLedger || {};
-    return ledger.selectedEmployeeId
+    const body = ledger.selectedEmployeeId
         ? EmployeeLoansDetail(ledger.selectedEmployeeId)
         : LedgerOverview();
+    // The picker is an overlay that can appear over either mode.
+    return body + (ledger.showEmployeePicker ? EmployeePickerOverlay() : '');
 }
 
 // ─── LIST VIEW ───────────────────────────────────────────────────────────────
@@ -69,6 +71,10 @@ function LedgerOverview() {
                            oninput="setLoansSearch(this.value)"
                            style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
+                <button type="button" data-app-fn="openLoansEmployeePicker"
+                        style="padding: 10px 16px; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                    ${icons.get('add', { size: 16 })} Agregar nuevo
+                </button>
                 <div style="font-size: 0.8rem; color: #94a3b8;">
                     Mostrando ${filtered.length} de ${allWithDebt.length}
                 </div>
@@ -360,6 +366,70 @@ function PaymentForm(loan, balance) {
 }
 
 // ─── NEW LOAN FORM ───────────────────────────────────────────────────────────
+
+// ─── EMPLOYEE PICKER OVERLAY ─────────────────────────────────────────────────
+//
+// Shown when the user taps "+ Agregar nuevo" on the overview. Lists every
+// active employee with a quick filter; tapping a row closes the picker and
+// opens that employee's profile on the Nómina tab so the loan can be
+// registered through the in-profile editor.
+
+function EmployeePickerOverlay() {
+    const ledger = state.loansLedger || {};
+    const search = (ledger.pickerSearch || '').toLowerCase().trim();
+    const all = (state.employees || []).filter(e => e.active !== false);
+    const filtered = search
+        ? all.filter(e =>
+            (e.name || '').toLowerCase().includes(search) ||
+            (e.number || '').toLowerCase().includes(search))
+        : all;
+
+    return `
+        <div role="dialog" aria-modal="true"
+             style="position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 16px;"
+             onclick="if(event.target===this) closeLoansEmployeePicker()">
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 14px; width: 100%; max-width: 520px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="padding: 16px 18px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                    <div>
+                        <div style="color: #f1f5f9; font-weight: 800; font-size: 1rem;">Selecciona un empleado</div>
+                        <div style="color: #94a3b8; font-size: 0.78rem; margin-top: 2px;">Te llevaremos a su perfil para registrar el préstamo</div>
+                    </div>
+                    <button type="button" data-app-fn="closeLoansEmployeePicker" aria-label="Cerrar"
+                            style="width: 32px; height: 32px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 8px; cursor: pointer; font-size: 1rem;">✕</button>
+                </div>
+                <div style="padding: 12px 16px; border-bottom: 1px solid #334155;">
+                    <input type="text" autocomplete="off"
+                           placeholder="🔍 Buscar empleado..."
+                           value="${escapeAttr(ledger.pickerSearch || '')}"
+                           oninput="setLoansPickerSearch(this.value)"
+                           style="width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+                <div style="overflow-y: auto; padding: 8px;">
+                    ${filtered.length === 0 ? `
+                        <div style="text-align: center; padding: 40px 20px; color: #64748b; font-size: 0.9rem;">
+                            ${search ? 'No se encontraron empleados' : 'No hay empleados activos'}
+                        </div>
+                    ` : filtered.map(emp => `
+                        <div role="button" tabindex="0"
+                             data-app-fn="openProfileForLoan" data-arg="${emp.id}"
+                             style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background 0.12s;"
+                             onmouseover="this.style.background='#0f172a'"
+                             onmouseout="this.style.background='transparent'">
+                            <div style="width: 36px; height: 36px; background: rgba(6,182,212,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #06b6d4; font-weight: 800; font-size: 0.85rem;">
+                                ${emp.number || '?'}
+                            </div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</div>
+                                <div style="color: #94a3b8; font-size: 0.72rem;">${(emp.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length} préstamo(s) activo(s)</div>
+                            </div>
+                            <div style="color: #64748b; font-size: 1.1rem;">›</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+}
 
 function NewLoanForm() {
     const draft = (state.loansLedger || {}).newLoanDraft || {};
