@@ -9,7 +9,7 @@
 import { state } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
-import { fetchCurrent, fetchForecast } from './WeatherService.js';
+import { fetchCurrent, fetchForecast, fetchHourly } from './WeatherService.js';
 
 function ensureWeatherState() {
     if (!state.weather) state.weather = {};
@@ -34,6 +34,10 @@ export function refreshWeather() {
         const prevForecast = state.weather.cache?.forecast?.fetchedAt;
         fetchForecast(state, 5);
         if (state.weather.cache?.forecast?.fetchedAt !== prevForecast) changed = true;
+
+        const prevHourly = state.weather.cache?.hourly?.fetchedAt;
+        fetchHourly(state, 24, 3);
+        if (state.weather.cache?.hourly?.fetchedAt !== prevHourly) changed = true;
     } catch (err) {
         // Never let a weather error break the rest of the UI. Log and move on.
         if (window.debug) window.debug.log(`⚠️ refreshWeather error: ${err.message}`);

@@ -88,4 +88,43 @@ export function getAlerts(_lat, _lon) {
     return [];
 }
 
-export const MockAdapter = { getCurrent, getForecast, getAlerts, providerName: 'mock' };
+/**
+ * Hourly forecast — N hours starting from the current hour, in `stepHours`
+ * increments. Defaults: 24 hours forward in 3-hour steps → 9 entries
+ * (00, 03, 06, 09, 12, 15, 18, 21, 24h).
+ *
+ * Each entry is a normalized hour card the UI can render directly:
+ *   { isoHour, hourLabel, icon, temp, precipChance, windKph }
+ *
+ * The diurnal temp curve is built by adding a sinusoidal offset to the
+ * day's mean temperature, peaking around 15:00 and bottoming around 05:00
+ * — close enough to reality for a mock and predictable for tests.
+ */
+export function getHourly(_lat, _lon, hours = 24, stepHours = 3, now = new Date()) {
+    if (stepHours < 1) stepHours = 1;
+    const out = [];
+    for (let h = 0; h < hours; h += stepHours) {
+        const t = new Date(now.getTime() + h * 3600_000);
+        const key = _dateKey(t);
+        const c = _conditionForDate(key);
+        // Diurnal curve: amplitude = (max - min) / 2, peak at 15:00.
+        const amp = (c.tempMax - c.tempMin) / 2;
+        const mean = (c.tempMax + c.tempMin) / 2;
+        const hourOfDay = t.getHours() + t.getMinutes() / 60;
+        const phase = (hourOfDay - 15) * (Math.PI / 12); // 0 at 15h, π at 03h
+        const temp = Math.round(mean + amp * Math.cos(phase));
+        // Precip probability dips at night, peaks mid-afternoon. Bounded to base.
+        const precipBoost = Math.max(0, Math.cos(phase)) * 10;
+        out.push({
+            isoHour: t.toISOString(),
+            hourLabel: `${String(t.getHours()).padStart(2, '0')}:00`,
+            icon: c.icon,
+            temp,
+            precipChance: Math.min(100, Math.round(c.precip + precipBoost)),
+            windKph: c.wind
+        });
+    }
+    return out;
+}
+
+export const MockAdapter = { getCurrent, getForecast, getAlerts, getHourly, providerName: 'mock' };

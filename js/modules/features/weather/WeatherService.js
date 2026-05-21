@@ -113,6 +113,44 @@ export function fetchForecast(state, days = 5, opts = {}) {
     return data;
 }
 
+/**
+ * Hourly forecast for the next `hours` hours, in `stepHours` steps.
+ * Cached under the same TTL as the daily forecast (intra-day data goes
+ * stale at the same rate). Adapters that lack a getHourly method get a
+ * derived stub from the daily forecast so the UI degrades gracefully.
+ */
+export function fetchHourly(state, hours = 24, stepHours = 3, opts = {}) {
+    const cache = _ensureCacheShape(state);
+    if (!opts.force && isCacheFresh(cache.hourly, WEATHER_TTL.FORECAST_MS)) {
+        return cache.hourly.data || [];
+    }
+    const adapter = _activeAdapter(state);
+    const loc = getActiveLocation(state);
+    let data;
+    if (typeof adapter.getHourly === 'function') {
+        data = adapter.getHourly(loc.lat, loc.lon, hours, stepHours);
+    } else {
+        // Fallback: synthesize a single entry per day from the daily forecast
+        // so the panel always has *something* to render.
+        const daily = adapter.getForecast(loc.lat, loc.lon, Math.ceil(hours / 24));
+        data = daily.map(d => ({
+            isoHour: `${d.date}T12:00:00.000Z`,
+            hourLabel: '12:00',
+            icon: d.icon,
+            temp: Math.round((d.tempMax + d.tempMin) / 2),
+            precipChance: d.precipChance,
+            windKph: d.windKph
+        }));
+    }
+    cache.hourly = { data, fetchedAt: Date.now() };
+    cache.provider = adapter.providerName || 'unknown';
+    return data;
+}
+
+export function readCachedHourly(state) {
+    return state?.weather?.cache?.hourly?.data || [];
+}
+
 export function fetchAlerts(state, opts = {}) {
     const cache = _ensureCacheShape(state);
     if (!opts.force && isCacheFresh(cache.alerts, WEATHER_TTL.ALERTS_MS)) {

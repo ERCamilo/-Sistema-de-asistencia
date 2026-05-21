@@ -167,17 +167,7 @@ function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
     let colorBorde = isToday ? 'rgba(6, 182, 212, 0.5)' : '';
     let colorTexto = isToday ? '#06b6d4' : '';
 
-    // 🌤️ Weather chip + floating panel anchored next to the date pill.
-    // Loaded lazily via window.* to keep this UI file from importing the
-    // feature module directly (preserves the current top-down import order).
-    const chipHTML = (typeof window !== 'undefined' && typeof window.WeatherChip === 'function')
-        ? window.WeatherChip()
-        : '';
-    const chipBlock = (chipHTML && typeof window.WeatherChipWithPanel === 'function')
-        ? window.WeatherChipWithPanel(chipHTML)
-        : '';
-
-    return `<div class="pill-nav" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+    return `<div class="pill-nav" style="margin-bottom: 20px;">
                 <button class="pill-btn" type="button" data-att-action="change-date" data-value="-1">${flechaIzquierda}</button>
                 <div class="pill-display" role="button" tabindex="0" data-att-action="toggle-date-picker" data-value="full" style="position: relative; ${colorBorde}">
                     ${iconoCalendario}
@@ -185,7 +175,6 @@ function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
                     ${datePickerHTML}
                 </div>
                 <button class="pill-btn" type="button" data-att-action="change-date" data-value="1">${flechaDerecha}</button>
-                ${chipBlock}
             </div>`
 }
 //            <!-- 3. NIVEL INFERIOR: Controles Equilibrados -->
@@ -360,10 +349,33 @@ export function StatsGrid() {
 }
 
 /**
- * 🎨 Leyenda de colores explicativa
+ * 🎨 Leyenda de colores + chip del clima centrado.
+ *
+ * Layout del header (3 columnas): [toggle ▶/▼] [chip de clima centrado] [(reservado)].
+ * El chip vive en su propio host (.weather-chip-host) para que el panel
+ * flotante se ancle correctamente debajo del chip, no de la barra entera.
  */
 export function Legend() {
-    return `<div class="legend"><div class="legend-header" role="button" tabindex="0" data-att-action="toggle-legend"><div class="legend-title">Leyenda de Colores</div><div style="color:#64748b;font-size:1.25rem;">${state.showLegend ? '▼' : '▶'}</div></div>${state.showLegend ? '<div class="legend-items"><div class="legend-item"><div class="legend-color check-regular"></div><span class="legend-text">Regular</span></div><div class="legend-item"><div class="legend-color check-multiposition"></div><span class="legend-text">Multi-Pos</span></div><div class="legend-item"><div class="legend-color check-holiday"></div><span class="legend-text">Festivo</span></div><div class="legend-item"><div class="legend-color check-overtime"></div><span class="legend-text">Extras</span></div><div class="legend-item"><div class="legend-color check-undertime"></div><span class="legend-text">Menos</span></div></div>' : ''}</div>`;
+    // Chip + panel flotante. Cargado vía window.* para no acoplar este archivo
+    // al módulo de clima (mantiene el orden top-down de imports actual).
+    const chipHTML = (typeof window !== 'undefined' && typeof window.WeatherChip === 'function')
+        ? window.WeatherChip()
+        : '';
+    const chipBlock = (chipHTML && typeof window.WeatherChipWithPanel === 'function')
+        ? window.WeatherChipWithPanel(chipHTML)
+        : '';
+
+    return `<div class="legend">
+        <div class="legend-header" style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;">
+            <div role="button" tabindex="0" data-att-action="toggle-legend" style="display: flex; align-items: center; gap: 8px; cursor: pointer; justify-self: start;">
+                <div class="legend-title">Leyenda de Colores</div>
+                <div style="color:#64748b;font-size:1.1rem;">${state.showLegend ? '▼' : '▶'}</div>
+            </div>
+            <div style="justify-self: center;">${chipBlock}</div>
+            <div></div>
+        </div>
+        ${state.showLegend ? '<div class="legend-items"><div class="legend-item"><div class="legend-color check-regular"></div><span class="legend-text">Regular</span></div><div class="legend-item"><div class="legend-color check-multiposition"></div><span class="legend-text">Multi-Pos</span></div><div class="legend-item"><div class="legend-color check-holiday"></div><span class="legend-text">Festivo</span></div><div class="legend-item"><div class="legend-color check-overtime"></div><span class="legend-text">Extras</span></div><div class="legend-item"><div class="legend-color check-undertime"></div><span class="legend-text">Menos</span></div></div>' : ''}
+    </div>`;
 }
 
 /**

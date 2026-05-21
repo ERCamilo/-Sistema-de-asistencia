@@ -15,9 +15,11 @@ export * from './WeatherTypes.js';
 export {
     fetchCurrent,
     fetchForecast,
+    fetchHourly,
     fetchAlerts,
     readCachedCurrent,
     readCachedForecast,
+    readCachedHourly,
     getActiveLocation,
     isCacheFresh,
     registerAdapter,

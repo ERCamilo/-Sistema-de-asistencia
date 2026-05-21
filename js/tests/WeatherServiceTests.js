@@ -12,9 +12,11 @@
 import {
     fetchCurrent,
     fetchForecast,
+    fetchHourly,
     fetchAlerts,
     readCachedCurrent,
     readCachedForecast,
+    readCachedHourly,
     isCacheFresh,
     registerAdapter,
     setActiveProvider,
@@ -145,6 +147,52 @@ testRunner.addSuite("WeatherService — caching", {
         const forecast = fetchForecast(state, 3);
         testRunner.assertEquals(forecast.length, 3, '3 entries returned');
         testRunner.assert(state.weather.cache.forecast?.data, 'forecast cache populated');
+    },
+
+    "fetchHourly returns 24h at 3h steps by default (9 entries)"() {
+        const state = buildState();
+        const hourly = fetchHourly(state);
+        testRunner.assertEquals(hourly.length, 8, '24/3 = 8 entries (0, 3, 6, ..., 21h)');
+        testRunner.assert(typeof hourly[0].hourLabel === 'string', 'hourLabel present');
+        testRunner.assert(typeof hourly[0].temp === 'number', 'temp present');
+        testRunner.assert(hourly[0].precipChance >= 0 && hourly[0].precipChance <= 100, 'precip bounded');
+    },
+
+    "fetchHourly respects custom hours and step"() {
+        const state = buildState();
+        const hourly = fetchHourly(state, 12, 6);
+        testRunner.assertEquals(hourly.length, 2, '12/6 = 2 entries');
+    },
+
+    "fetchHourly caches under its own key"() {
+        const state = buildState();
+        fetchCurrent(state);
+        testRunner.assertEquals(state.weather.cache.hourly, undefined, 'hourly not pre-populated');
+        fetchHourly(state);
+        testRunner.assert(state.weather.cache.hourly?.data, 'hourly cache populated separately');
+    },
+
+    "fetchHourly falls back when adapter lacks getHourly"() {
+        const state = buildState();
+        const slim = {
+            providerName: 'slim',
+            getCurrent: () => ({ icon: 'sunny', temp: 28, precipChance: 5, windKph: 8 }),
+            getForecast: (lat, lon, days) => Array.from({length: days}, (_, i) => ({
+                date: `2026-05-${21 + i}`, icon: 'sunny', tempMax: 32, tempMin: 24, precipChance: 10, windKph: 6
+            })),
+            getAlerts: () => []
+            // intentionally no getHourly
+        };
+        registerAdapter('slim', slim);
+        setActiveProvider(state, 'slim');
+        const hourly = fetchHourly(state, 24);
+        testRunner.assert(hourly.length > 0, 'Synthetic hourly returned');
+        testRunner.assert(typeof hourly[0].hourLabel === 'string', 'hourLabel still present');
+    },
+
+    "readCachedHourly returns [] on empty state"() {
+        testRunner.assert(Array.isArray(readCachedHourly({})), 'Array returned');
+        testRunner.assertEquals(readCachedHourly({}).length, 0, 'Empty when nothing cached');
     }
 });
 

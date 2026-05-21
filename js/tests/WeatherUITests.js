@@ -120,6 +120,16 @@ testRunner.addSuite("WeatherPanel — render", {
         toggleWeatherPanel();
         const html = WeatherPanel();
         testRunner.assert(html.includes('Punta Cana'), 'Custom location name displayed');
+    },
+
+    "panel renders the hourly strip with 'Ahora' marker"() {
+        resetWeatherState();
+        toggleWeatherPanel(); // triggers refreshWeather → populates hourly cache
+        const html = WeatherPanel();
+        testRunner.assert(html.includes('Próximas 24 horas'), 'Hourly section header present');
+        testRunner.assert(html.includes('Ahora'), 'First hour labeled "Ahora"');
+        // Should contain at least one HH:00 time label too
+        testRunner.assert(/\d{2}:00/.test(html), 'At least one HH:00 label rendered');
     }
 });
 

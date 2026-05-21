@@ -11,7 +11,7 @@
  */
 
 import { state } from '../../core/AppState.js';
-import { readCachedCurrent, readCachedForecast, getActiveLocation } from './WeatherService.js';
+import { readCachedCurrent, readCachedForecast, readCachedHourly, getActiveLocation } from './WeatherService.js';
 import { emojiFor, labelFor, formatTemp } from './WeatherTypes.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 
@@ -26,6 +26,7 @@ export function WeatherPanel() {
 
     const current = readCachedCurrent(state);
     const forecast = readCachedForecast(state);
+    const hourly = readCachedHourly(state);
     const loc = getActiveLocation(state);
     const today = new Date().toISOString().slice(0, 10);
 
@@ -35,7 +36,7 @@ export function WeatherPanel() {
     return `
         <div role="dialog" aria-modal="false" class="weather-panel"
              onclick="event.stopPropagation()"
-             style="position: absolute; top: 100%; right: 0; margin-top: 8px; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px 16px; min-width: 280px; max-width: 360px; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+             style="position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 8px; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px 16px; width: max-content; min-width: 300px; max-width: min(420px, calc(100vw - 24px)); z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
 
             <!-- Header: icon + label + temp -->
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px;">
@@ -56,7 +57,25 @@ export function WeatherPanel() {
                 ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación ${formatTemp(current.feelsLike)}</span>` : ''}
             </div>
 
-            <!-- Forecast strip -->
+            <!-- Hourly strip (24h ahead, 3h steps) -->
+            ${hourly.length > 0 ? `
+                <div style="margin-bottom: 12px;">
+                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 6px;">Próximas 24 horas</div>
+                    <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin;">
+                        ${hourly.map((h, idx) => `
+                            <div style="flex: 0 0 auto; min-width: 54px; text-align: center; padding: 6px 4px; background: #0f172a; border-radius: 6px; border: 1px solid ${idx === 0 ? '#06b6d4' : 'transparent'};">
+                                <div style="font-size: 0.6rem; color: #94a3b8; font-weight: 700;">${idx === 0 ? 'Ahora' : h.hourLabel}</div>
+                                <div style="font-size: 1.2rem; line-height: 1.2;" aria-hidden="true">${emojiFor(h.icon)}</div>
+                                <div style="font-size: 0.7rem; color: #f1f5f9; font-weight: 700;">${formatTemp(h.temp)}</div>
+                                <div style="font-size: 0.55rem; color: #64748b; line-height: 1.1;">💧${h.precipChance ?? '—'}%</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 6px;">Próximos días</div>
+            ` : ''}
+
+            <!-- Daily forecast strip -->
             ${forecast.length === 0 ? `
                 <div style="text-align: center; color: #64748b; font-size: 0.8rem; padding: 8px;">Sin pronóstico disponible</div>
             ` : `
