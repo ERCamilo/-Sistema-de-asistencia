@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules/
 
 # Test artifacts
@@ -17,3 +17,5 @@ Thumbs.db
 
 # Local worktrees (Claude Code creates them under .claude/worktrees/)
 .claude/worktrees/
+
+Planeamiento y analisis/

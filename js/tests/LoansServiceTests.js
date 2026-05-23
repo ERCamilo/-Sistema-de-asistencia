@@ -31,6 +31,7 @@ import {
     LOAN_STATUS,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
+import { Employee } from '../modules/features/employees/Employee.js';
 
 function buildEmployee() {
     return { id: 'emp1', name: 'Test Employee', number: '001', loans: [] };
@@ -367,6 +368,42 @@ testRunner.addSuite("LoansService — validation helpers", {
         const loan = { principal: 100, interestRate: 0, interestIncluded: false, payments: [] };
         const r = validatePaymentInput(loan, { amount: -50, date: '2026-05-25' });
         testRunner.assertEquals(r.valid, false, "Negative amount rejected");
+    }
+});
+
+testRunner.addSuite("Employee — loans serialization regression", {
+    "constructor preserves loans list"() {
+        const mockData = {
+            id: 'emp_test_1',
+            name: 'Grace Hopper',
+            number: '42',
+            loans: [
+                { id: 'LOAN-1', principal: 1000, status: 'active', payments: [] }
+            ]
+        };
+        const emp = new Employee(mockData);
+        testRunner.assert(Array.isArray(emp.loans), "loans property should be an array");
+        testRunner.assertEquals(emp.loans.length, 1, "loans list should have 1 item");
+        testRunner.assertEquals(emp.loans[0].principal, 1000, "principal should be preserved");
+    },
+
+    "toJSON includes loans list"() {
+        const mockData = {
+            id: 'emp_test_2',
+            name: 'Ada Lovelace',
+            number: '43',
+            loans: [
+                { id: 'LOAN-2', principal: 5000, status: 'active', payments: [] }
+            ]
+        };
+        const emp = new Employee(mockData);
+        // Tweak manually since constructor is broken right now
+        emp.loans = mockData.loans;
+        
+        const serialized = emp.toJSON();
+        testRunner.assert(serialized.hasOwnProperty('loans'), "serialized object must have loans key");
+        testRunner.assert(Array.isArray(serialized.loans), "loans in serialized object must be an array");
+        testRunner.assertEquals(serialized.loans[0].id, 'LOAN-2', "loan data inside serialized object must match");
     }
 });
 

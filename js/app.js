@@ -1,4 +1,4 @@
-﻿import FirebaseService from './modules/services/FirebaseService.js';
+import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
 import { BatchedSaver } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -825,7 +825,6 @@ initSettingsUI({
     icons,
     holidayService,
     get currentUser() { return window.currentUser; },
-    get currentUser() { return currentUser; },
     get autoSyncEnabled() { return autoSyncEnabled; },
     calculateStorageStats: () => calculateStorageStats()
 });

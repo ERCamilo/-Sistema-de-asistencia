@@ -16,6 +16,7 @@ export class Employee {
         this.advances = data.advances || [];
         this.bonuses = data.bonuses || [];
         this.deductions = data.deductions || [];
+        this.loans = data.loans || [];
         this.createdDate = data.createdDate || new Date().toISOString();
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
@@ -83,6 +84,7 @@ export class Employee {
             advances: this.advances,
             bonuses: this.bonuses,
             deductions: this.deductions,
+            loans: this.loans,
             createdDate: this.createdDate,
             lastStatusChange: this.lastStatusChange,
             statusHistory: this.statusHistory,
