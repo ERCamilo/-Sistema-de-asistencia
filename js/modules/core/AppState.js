@@ -121,6 +121,7 @@ class StateManager {
 
 const initialState = {
     activeTab: 'attendance',
+    settingsActiveTab: 'general', // ⚡ Pestaña activa por defecto en Ajustes
     viewMode: 'day', 
     selectedDate: new Date(),
     employees: [],

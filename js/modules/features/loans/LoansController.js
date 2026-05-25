@@ -45,7 +45,8 @@ function ensureLedgerState() {
             showPaymentFormForLoan: null,
             paymentDraft: { amount: 0, date: getDateKey(new Date()), note: '' },
             showEmployeePicker: false,
-            pickerSearch: ''
+            pickerSearch: '',
+            showInactiveHistory: false
         };
     } else {
         // Backfill new fields on pre-existing ledger objects (older sessions)
@@ -54,6 +55,9 @@ function ensureLedgerState() {
         }
         if (typeof state.loansLedger.pickerSearch === 'undefined') {
             state.loansLedger.pickerSearch = '';
+        }
+        if (typeof state.loansLedger.showInactiveHistory === 'undefined') {
+            state.loansLedger.showInactiveHistory = false;
         }
     }
 }
@@ -376,6 +380,12 @@ export function voidPaymentHandler(loanId, paymentId) {
     });
 }
 
+export function toggleInactiveHistory() {
+    ensureLedgerState();
+    state.loansLedger.showInactiveHistory = !state.loansLedger.showInactiveHistory;
+    render();
+}
+
 /**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
@@ -399,6 +409,7 @@ export function registerLegacyGlobals() {
     window.closeLoansEmployeePicker = closeLoansEmployeePicker;
     window.setLoansPickerSearch = setLoansPickerSearch;
     window.openProfileForLoan = openProfileForLoan;
+    window.toggleInactiveHistory = toggleInactiveHistory;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

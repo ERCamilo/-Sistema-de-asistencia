@@ -473,3 +473,52 @@
 .header-content {
     align-items: center !important;
 }
+
+/* --- 📱 DISEÑO RESPONSIVO MÓVIL --- */
+@media (max-width: 480px) {
+    .attendance-toolbar {
+        padding: 12px 8px !important;
+    }
+    
+    .view-controls-row {
+        gap: 8px !important;
+    }
+    
+    .control-section.side-control {
+        flex: 1 1 85px !important;
+        min-width: 80px !important;
+        max-width: 105px !important;
+    }
+    
+    .control-section.center-control {
+        flex: 1.2 1 105px !important;
+        min-width: 95px !important;
+        max-width: 120px !important;
+    }
+    
+    .control-section-label {
+        font-size: 0.6rem !important;
+    }
+    
+    .stepper-value {
+        font-size: 0.95rem !important;
+        min-width: 28px !important;
+        padding: 0 2px !important;
+    }
+    
+    .stepper-btn {
+        width: 28px !important;
+        height: 28px !important;
+        font-size: 1rem !important;
+    }
+    
+    .holiday-control {
+        gap: 6px !important;
+    }
+    
+    .btn-today-nav {
+        padding: 8px 8px !important;
+        gap: 4px !important;
+        font-size: 0.75rem !important;
+    }
+}

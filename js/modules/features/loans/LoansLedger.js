@@ -20,6 +20,12 @@ import {
     getEmployeesWithDebt,
     getTotalExposure,
     getTotalPaidActive,
+    getEmployeesWithOnlyInactiveLoans,
+    getTotalActiveInterest,
+    getTotalHistoricalInterest,
+    getTotalHistoricalDue,
+    getTotalHistoricalPaid,
+    getClosedLoansCount,
     getBalance,
     getTotalDue,
     getPaidAmount,
@@ -51,18 +57,32 @@ function LedgerOverview() {
             (e.number || '').toLowerCase().includes(search))
         : allWithDebt;
 
+    const allInactive = getEmployeesWithOnlyInactiveLoans(state);
+    const filteredInactive = search
+        ? allInactive.filter(e =>
+            (e.name || '').toLowerCase().includes(search) ||
+            (e.number || '').toLowerCase().includes(search))
+        : allInactive;
+
     const totalExposure = getTotalExposure(state);
     const totalPaid = getTotalPaidActive(state);
     const totalLoans = allWithDebt.reduce((s, e) => s + e.loanCount, 0);
+
+    const totalActiveInterest = getTotalActiveInterest(state);
+    const totalHistoricalInterest = getTotalHistoricalInterest(state);
+    const totalHistoricalDue = getTotalHistoricalDue(state);
+    const totalHistoricalPaid = getTotalHistoricalPaid(state);
+    const closedLoansCount = getClosedLoansCount(state);
 
     return `
         <div style="max-width: 1000px; margin: 0 auto;">
             <!-- KPI cards: 2 cols on narrow screens (auto-fit grows on wide) -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
-                ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll')}
-                ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check')}
-                ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel')}
-                ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase')}
+                ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
+                ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
+                ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
+                ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
+                ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
             </div>
 
             <!-- Search + actions -->
@@ -115,18 +135,75 @@ function LedgerOverview() {
                     </div>
                 </div>
             `).join('')}
+
+            <!-- Apartado colapsable: Cuentas Saldadas (Inactivas) -->
+            ${allInactive.length > 0 ? `
+                <div style="margin-top: 30px; margin-bottom: 20px;">
+                    <button type="button" data-app-fn="toggleInactiveHistory"
+                            style="width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; color: #e2e8f0; font-weight: 700; font-size: 0.85rem; cursor: pointer; text-align: left; outline: none; transition: border-color 0.15s;"
+                            onmouseover="this.style.borderColor='#94a3b8'"
+                            onmouseout="this.style.borderColor='#334155'">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: #10b981; display: inline-flex; align-items: center;">${icons.get('check', { size: 16 })}</span>
+                            <span>Historial de cuentas saldadas (${allInactive.length})</span>
+                        </div>
+                        <span style="font-size: 0.75rem; color: #64748b;">
+                            ${ledger.showInactiveHistory ? 'Ocultar ▲' : 'Mostrar ▼'}
+                        </span>
+                    </button>
+                    
+                    ${ledger.showInactiveHistory ? `
+                        <div style="margin-top: 8px;">
+                            ${filteredInactive.length === 0 ? `
+                                <div style="text-align: center; padding: 20px; color: #64748b; font-size: 0.85rem;">
+                                    No se encontraron cuentas saldadas que coincidan
+                                </div>
+                            ` : filteredInactive.map(emp => `
+                                <div role="button" tabindex="0"
+                                     data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
+                                     style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px; opacity: 0.8;"
+                                     onmouseover="this.style.borderColor='#10b981'; this.style.opacity='1'"
+                                     onmouseout="this.style.borderColor='#334155'; this.style.opacity='0.8'">
+                                    <!-- Number avatar -->
+                                    <div style="width: 36px; height: 36px; background: rgba(16,185,129,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #10b981; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
+                                        ${emp.number || '?'}
+                                    </div>
+                                    <!-- Name + sub-line -->
+                                    <div style="flex: 1; min-width: 0;">
+                                        <div style="color: #e2e8f0; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</div>
+                                        <div style="color: #94a3b8; font-size: 0.7rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                            ${emp.loanCount} préstamo${emp.loanCount === 1 ? '' : 's'} · Totalmente pagado
+                                        </div>
+                                    </div>
+                                    <!-- Total paid/due pinned to the right -->
+                                    <div style="text-align: right; flex-shrink: 0;">
+                                        <div style="font-size: 0.95rem; font-weight: 800; color: #10b981; line-height: 1.1;">${formatCurrency(emp.totalPaid)}</div>
+                                        <div style="font-size: 0.6rem; color: #64748b; text-transform: uppercase;">recuperado</div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
         </div>
     `;
 }
 
-function kpiCard(label, value, color, iconName) {
+function kpiCard(label, value, color, iconName, subLabel = '', subValue = '') {
+    const subHTML = (subLabel && subValue)
+        ? `<div style="font-size: 0.65rem; color: #64748b; margin-top: 6px; border-top: 1px dashed #334155; padding-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeAttr(`${subLabel}: ${subValue}`)}">${subLabel}: <span style="font-weight: 700;">${subValue}</span></div>`
+        : '';
     return `
-        <div style="background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #334155; border-left: 4px solid ${color}; min-width: 0;">
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                <div style="color: ${color}; flex-shrink: 0;">${icons.get(iconName, { size: 16 })}</div>
-                <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; line-height: 1.2;">${label}</div>
+        <div style="background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #334155; border-left: 4px solid ${color}; min-width: 0; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                    <div style="color: ${color}; flex-shrink: 0;">${icons.get(iconName, { size: 16 })}</div>
+                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; line-height: 1.2;">${label}</div>
+                </div>
+                <div style="font-size: 1.15rem; font-weight: 900; color: #f1f5f9; word-break: break-word; line-height: 1.1;">${value}</div>
             </div>
-            <div style="font-size: 1.15rem; font-weight: 900; color: #f1f5f9; word-break: break-word;">${value}</div>
+            ${subHTML}
         </div>
     `;
 }

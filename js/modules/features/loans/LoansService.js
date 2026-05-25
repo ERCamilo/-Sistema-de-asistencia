@@ -466,3 +466,83 @@ export function getTotalPaidActive(state) {
             .reduce((s, l) => s + getPaidAmount(l), 0)
     );
 }
+
+/** Employees who had loans in the past, but none are active currently. */
+export function getEmployeesWithOnlyInactiveLoans(state) {
+    const result = [];
+    for (const emp of (state.employees || [])) {
+        const allLoans = emp.loans || [];
+        if (allLoans.length === 0) continue;
+        
+        const hasActive = allLoans.some(l => l.status === LOAN_STATUS.ACTIVE);
+        if (hasActive) continue;
+        
+        const totalDue = round2(allLoans.reduce((s, l) => s + getTotalDue(l), 0));
+        const totalPaid = round2(allLoans.reduce((s, l) => s + getPaidAmount(l), 0));
+        const totalBalance = round2(allLoans.reduce((s, l) => s + getBalance(l), 0));
+        
+        result.push({
+            employeeId: emp.id,
+            name: emp.name,
+            number: emp.number,
+            loanCount: allLoans.length,
+            totalDue,
+            totalPaid,
+            totalBalance
+        });
+    }
+    result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return result;
+}
+
+/** Get the interest amount of a single loan. */
+export function getInterestAmount(loan) {
+    const principal = Number(loan.principal || 0);
+    const rate = Number(loan.interestRate || 0);
+    return loan.interestIncluded ? 0 : round2(principal * rate / 100);
+}
+
+/** Sum of interest for all currently active loans. */
+export function getTotalActiveInterest(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .filter(l => l.status === LOAN_STATUS.ACTIVE)
+            .reduce((s, l) => s + getInterestAmount(l), 0)
+    );
+}
+
+/** Sum of interest for all historical loans (active, paid, written-off). */
+export function getTotalHistoricalInterest(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .reduce((s, l) => s + getInterestAmount(l), 0)
+    );
+}
+
+/** Sum of totalDue for all historical loans. */
+export function getTotalHistoricalDue(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .reduce((s, l) => s + getTotalDue(l), 0)
+    );
+}
+
+/** Sum of paidAmount for all historical loans. */
+export function getTotalHistoricalPaid(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .reduce((s, l) => s + getPaidAmount(l), 0)
+    );
+}
+
+/** Number of closed loans (paid or written-off). */
+export function getClosedLoansCount(state) {
+    return (state.employees || [])
+        .flatMap(e => e.loans || [])
+        .filter(l => l.status === LOAN_STATUS.PAID || l.status === LOAN_STATUS.WRITTEN_OFF)
+        .length;
+}

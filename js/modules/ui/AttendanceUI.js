@@ -243,9 +243,9 @@ export function DateControls() {
         ? getWeekRangeText(state.selectedDate)
         : formatDateShort(state.selectedDate);
 
-    // Lógica de etiquetas adaptativas para ahorrar espacio en móvil
-    const dayLabel = state.viewMode === 'day' ? 'Día' : 'D';
-    const weekLabel = state.viewMode === 'week' ? 'Semana' : 'S';
+    // Lógica de etiquetas consistentes para ahorrar espacio en móvil sin alternancia molesta
+    const dayLabel = 'Día';
+    const weekLabel = 'Semana';
 
     // Semántica de colores en horas (Refactorizado de operador ternario anidado)
     let hourColor = '#10b981'; // Verde (8h) - Default

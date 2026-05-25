@@ -657,7 +657,7 @@ return `<div style="background: #1e293b; border-radius: 12px; padding: 20px; mar
             </div>`;
 }
 
-function EmployeeReportGeneralTable(employees, days) {
+export function EmployeeReportGeneralTable(employees, days) {
     return `<div class="responsive-table-wrapper" role="region" aria-label="Reporte general de empleados" tabindex="0"><table style="width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem;">
                 <thead>
                     <tr>

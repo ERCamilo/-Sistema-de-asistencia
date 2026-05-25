@@ -96,16 +96,16 @@ class OnboardingWizard {
 
     renderWelcome() {
         return `
-            <div style="text-align: center; padding: 60px 40px;">
+            <div class="onboarding-step-container" style="text-align: center;">
                 <div style="font-size: 5rem; margin-bottom: 24px; animation: bounce 2s ease-in-out infinite;">👷‍♂️</div>
                 <h1 style="font-size: 2.5rem; margin-bottom: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900;">
                     ¡Bienvenido a Control de Asistencia!
                 </h1>
-                <p style="font-size: 1.25rem; color: #94a3b8; margin-bottom: 40px; max-width: 600px; margin-left: auto; margin-right: auto; line-height: 1.6;">
+                <p class="onboarding-spacing-y" style="font-size: 1.25rem; color: #94a3b8; max-width: 600px; margin-left: auto; margin-right: auto; line-height: 1.6;">
                     Sistema profesional para gestionar la asistencia de tu equipo de construcción
                 </p>
                 
-                <div style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-radius: 16px; padding: 32px; margin-bottom: 40px; max-width: 500px; margin-left: auto; margin-right: auto; border: 1px solid rgba(6, 182, 212, 0.2);">
+                <div class="onboarding-spacing-y" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-radius: 16px; padding: 32px; max-width: 500px; margin-left: auto; margin-right: auto; border: 1px solid rgba(6, 182, 212, 0.2);">
                     <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Lo que puedes hacer:</div>
                     <div style="display: grid; gap: 12px; text-align: left;">
                         <div style="display: flex; align-items: center; gap: 12px;">
@@ -148,7 +148,7 @@ class OnboardingWizard {
 
     renderModeSelection() {
         return `
-            <div style="padding: 20px; max-width: 900px; margin: 0 auto;">
+            <div class="onboarding-step-container" style="max-width: 900px;">
                 <div style="text-align: center; margin-bottom: 32px;">
                     <h2 style="font-size: 1.5rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">¿Cómo quieres comenzar?</h2>
                     <p style="color: #94a3b8; font-size: 1rem;">Elige la opción que mejor se adapte a ti</p>
@@ -291,14 +291,14 @@ class OnboardingWizard {
 
     renderCompany() {
         return `
-            <div style="padding: 60px 40px; max-width: 600px; margin: 0 auto;">
-                <div style="text-align: center; margin-bottom: 40px;">
+            <div class="onboarding-step-container">
+                <div class="onboarding-spacing-y" style="text-align: center;">
                     <div style="font-size: 4rem; margin-bottom: 20px;">🏗️</div>
                     <h2 style="font-size: 2rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">Paso 1: Tu Empresa</h2>
-                    <p style="color: #94a3b8; font-size: 1.125rem;">¿Cómo se llama tu constructora?</p>
+                    <p style="color: #94a3b8; font-size: 1.125rem; margin: 0;">¿Cómo se llama tu constructora?</p>
                 </div>
                 
-                <div style="margin-bottom: 40px;">
+                <div class="onboarding-spacing-y">
                     <input 
                         type="text" 
                         id="onboarding-company-name"
@@ -321,13 +321,13 @@ class OnboardingWizard {
 
     renderHours() {
         return `
-            <div style="padding: 60px 40px; max-width: 700px; margin: 0 auto;">
-                <div style="text-align: center; margin-bottom: 40px;">
+            <div class="onboarding-step-container" style="max-width: 700px;">
+                <div class="onboarding-spacing-y" style="text-align: center;">
                     <div style="font-size: 4rem; margin-bottom: 20px;">⏰</div>
-                    <h2 style="font-size: 2rem; margin-bottom: 12px; color: #f1f5f9; font-weight: 800;">Paso 2: Jornada Laboral</h2>
+                    <h2 style="font-size: 2rem; color: #f1f5f9; font-weight: 800; margin: 0;">Paso 2: Jornada Laboral</h2>
                 </div>
                 
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 40px;">
+                <div class="onboarding-spacing-y" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;">
                     ${[6, 8, 9, 10].map(h => `
                         <button type="button" data-onb-action="select-hours" data-value="${h}" style="padding: 32px 16px; border-radius: 16px; border: 3px solid ${state.settings.regularHoursPerDay === h ? '#06b6d4' : '#334155'}; background: #1e293b; color: #f1f5f9; cursor: pointer;">
                             <div style="font-size: 2.5rem; font-weight: 900;">${h}</div>
@@ -350,14 +350,14 @@ class OnboardingWizard {
         const activePositions = state.positions.filter(p => p.active);
 
         return `
-            <div style="padding: 40px 20px; max-width: 800px; margin: 0 auto;">
-                <div style="text-align: center; margin-bottom: 32px;">
+            <div class="onboarding-step-container" style="max-width: 800px;">
+                <div style="text-align: center; margin-bottom: 24px;">
                     <div style="font-size: 3.5rem; margin-bottom: 16px;">🎯</div>
                     <h2 style="font-size: 1.75rem; color: #f1f5f9; font-weight: 800; margin-bottom: 8px;">Paso 3: Cargos y Salarios</h2>
-                    <p style="color: #94a3b8;">Define los roles de tu equipo (se pueden editar luego)</p>
+                    <p style="color: #94a3b8; margin: 0;">Define los roles de tu equipo (se pueden editar luego)</p>
                 </div>
                 
-                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 16px; padding: 24px; border: 1px solid #334155; margin-bottom: 32px;">
+                <div class="onboarding-spacing-y" style="background: rgba(30, 41, 59, 0.5); border-radius: 16px; padding: 24px; border: 1px solid #334155;">
                     <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 16px; text-transform: uppercase; font-weight: 700;">Sugerencias rápidas:</div>
                     <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px;">
                         ${['Maestro', 'Albañil', 'Carpintero', 'Varillero', 'Ayudante', 'Sereno'].map(name => `
@@ -402,14 +402,14 @@ class OnboardingWizard {
         const activePositions = state.positions.filter(p => p.active);
 
         return `
-            <div style="padding: 40px 20px; max-width: 800px; margin: 0 auto;">
-                <div style="text-align: center; margin-bottom: 32px;">
+            <div class="onboarding-step-container" style="max-width: 800px;">
+                <div style="text-align: center; margin-bottom: 24px;">
                     <div style="font-size: 3.5rem; margin-bottom: 16px;">👥</div>
                     <h2 style="font-size: 1.75rem; color: #f1f5f9; font-weight: 800; margin-bottom: 8px;">Paso 4: Tu Equipo</h2>
-                    <p style="color: #94a3b8;">Agrega a los trabajadores actuales</p>
+                    <p style="color: #94a3b8; margin: 0;">Agrega a los trabajadores actuales</p>
                 </div>
 
-                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 16px; padding: 24px; border: 1px solid #334155; margin-bottom: 32px;">
+                <div class="onboarding-spacing-y" style="background: rgba(30, 41, 59, 0.5); border-radius: 16px; padding: 24px; border: 1px solid #334155;">
                     <form onsubmit="window.addOnboardingEmployee(event)" style="display: grid; gap: 12px; margin-bottom: 24px;">
                         <input type="text" id="onboarding-emp-name" placeholder="Nombre completo" required 
                                style="padding: 14px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; color: white;">
@@ -453,12 +453,12 @@ class OnboardingWizard {
     renderDone() {
         const isDemo = state.onboardingMode === 'demo';
         return `
-            <div style="text-align: center; padding: 60px 40px; max-width: 700px; margin: 0 auto;">
+            <div class="onboarding-step-container" style="text-align: center; max-width: 700px;">
                 <div style="font-size: 5rem; margin-bottom: 32px;">🎉</div>
-                <h1 style="font-size: 2.5rem; margin-bottom: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900;">
+                <h1 class="onboarding-spacing-y" style="font-size: 2.5rem; background: linear-gradient(135deg, #06b6d4, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900;">
                     ${isDemo ? '¡Modo Exploración!' : '¡Todo Listo!'}
                 </h1>
-                <button type="button" data-onb-action="complete" class="btn btn-primary" style="padding: 20px 64px; font-size: 1.25rem;">
+                <button type="button" data-onb-action="complete" class="btn btn-primary" style="padding: 20px 64px; font-size: 1.25rem; margin-bottom: 24px;">
                     🚀 Empezar →
                 </button>
                 ${this.renderProgress()}
