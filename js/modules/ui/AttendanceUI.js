@@ -119,6 +119,25 @@ export function DateControlsCompact() {
 }
 
 /**
+ * 👤 Divide el nombre completo del empleado en primer nombre y primer apellido
+ * para visualización vertical compacta en móviles.
+ */
+export function formatSplitName(fullName) {
+    if (!fullName) return '';
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length <= 1) return escapeHTML(fullName);
+
+    const first = escapeHTML(parts[0]);
+    const commonMiddleNames = ['jose', 'josé', 'maria', 'maría', 'carlos', 'luis', 'antonio', 'manuel', 'francisco', 'juan', 'altagracia', 'alexander', 'miguel', 'angel', 'ángel', 'david', 'eduardo', 'rafael', 'ramon', 'ramón', 'alberto', 'jesus', 'jesús'];
+
+    if (parts.length >= 3 && commonMiddleNames.includes(parts[1].toLowerCase())) {
+        return `<div class="name-line-1">${first}</div><div class="name-line-2">${escapeHTML(parts[2])}</div>`;
+    }
+
+    return `<div class="name-line-1">${first}</div><div class="name-line-2">${escapeHTML(parts[1])}</div>`;
+}
+
+/**
  * 🕒 Obtener horas configuradas para un día específico
  */
 export function getDayHours(date) {
@@ -518,8 +537,8 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     return `<div id="emp-row-${emp.id}" class="employee-row" data-memo-f="${fingerprint}">
                 <div class="employee-info">
                     <div class="employee-header">
-                        <div class="employee-number">${emp.number}</div>
                         <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
+                        <div class="employee-number">${emp.number}</div>
                     </div>
                     <div class="position-toggles" style="margin-top: 2px;">
                         ${emp.positions.map(pid => {
@@ -742,12 +761,14 @@ export function WeekView() {
             <table class="week-view-table" style="margin-bottom: 100px;">
                 <thead class="sticky-header">
                     <tr>
-                        <th class="sticky-column" style="min-width: 180px;">EMPLEADO</th>
-                        ${week.map(date => {
+                        <th class="sticky-column">EMPLEADO</th>
+                         ${week.map(date => {
         const dObj = parseDate(date);
         const isH = isDayHoliday(date, state.settings?.holidays);
         const isS = dObj.getDay() === 0;
-        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(dObj)}</th>`;
+        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        const dayLabel = `${dayNames[dObj.getDay()]} ${dObj.getDate()}`;
+        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${dayLabel}</th>`;
     }).join('')}
                     </tr>
                 </thead>
@@ -786,13 +807,13 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
         <tr id="week-row-${emp.id}" data-memo-f="${fingerprint}">
             <td class="sticky-column">
                 <div class="week-employee-cell">
-                    <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
-                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>
+                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${formatSplitName(emp.name)}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
                             ${emp.positions?.map(pid => positionMap.get(pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>
                     </div>
+                    <div class="employee-number">${emp.number}</div>
                 </div>
             </td>
             ${week.map(date => {
@@ -844,7 +865,7 @@ export function WeekViewTotalsRow() {
     const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
     return `
         <tr id="week-totals-row" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
-            <td style="padding: 12px 16px; position: sticky; left: 0; background: #0f172a; z-index: 5;">
+            <td class="sticky-column" style="padding: 12px 16px; background: #0f172a; z-index: 5;">
                 <div style="font-weight: 700; color: #06b6d4; font-size: 0.875rem;">TOTALES</div>
             </td>
             ${week.map(date => {

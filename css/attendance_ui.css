@@ -474,6 +474,23 @@
     align-items: center !important;
 }
 
+/* --- 📅 ESTILOS DE TABLA SEMANAL (STICKY COLUMNS & NOMBRES) --- */
+.week-view-table .sticky-column {
+    min-width: 180px;
+    width: 180px;
+}
+.name-line-1 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: #f1f5f9;
+}
+.name-line-2 {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 1px;
+}
+
 /* --- 📱 DISEÑO RESPONSIVO MÓVIL --- */
 @media (max-width: 480px) {
     .attendance-toolbar {
@@ -521,4 +538,163 @@
         gap: 4px !important;
         font-size: 0.75rem !important;
     }
-}
+    
+    /* Adaptabilidad de tabla semanal y buscador */
+    .search-wrapper {
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    .search-input-group {
+        width: 100% !important;
+        flex: none !important;
+    }
+    .week-view-table .sticky-column {
+        min-width: 90px !important;
+        width: 90px !important;
+    }
+    .week-employee-positions {
+        display: block !important;
+        font-size: 0.62rem !important;
+        color: #94a3b8 !important;
+        margin-top: 1px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 100% !important;
+    }
+    .week-employee-cell {
+        padding: 4px 2px !important;
+        min-width: 0 !important;
+        width: 100% !important;
+        overflow: hidden !important;
+    }
+    .name-line-1 {
+        font-size: 0.78rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        display: block !important;
+        max-width: 100% !important;
+    }
+    .name-line-2 {
+        font-size: 0.68rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        display: block !important;
+        max-width: 100% !important;
+    }
+}
+
+/* --- 📱 OPTIMIZACIÓN EN MODO HORIZONTAL (LANDSCAPE) MÓVIL --- */
+@media (max-height: 480px) and (orientation: landscape) {
+    /* Reducir alto de toolbar y controles para ganar espacio vertical */
+    .attendance-toolbar {
+        padding: 8px 12px !important;
+        margin-bottom: 8px !important;
+        border-radius: 12px !important;
+    }
+    .view-mode-container {
+        margin-bottom: 8px !important;
+    }
+    .pill-nav {
+        margin-bottom: 8px !important;
+    }
+    .view-controls-row {
+        gap: 6px !important;
+    }
+
+    /* Reducir padding de cabeceras y celdas para mayor densidad */
+    .week-view-table th, 
+    .week-view-table td {
+        padding: 3px 2px !important;
+    }
+    
+    /* Ensanchar la columna sticky en landscape para que el nombre quepa inline */
+    .week-view-table .sticky-column {
+        min-width: 125px !important;
+        width: 125px !important;
+    }
+    
+    .week-employee-cell {
+        padding: 2px !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 4px !important;
+        min-height: 0 !important;
+    }
+    
+    .employee-number {
+        font-size: 0.65rem !important;
+        margin-right: 2px !important;
+    }
+    
+    .week-employee-name-container {
+        display: flex !important;
+        flex-direction: column !important;
+        width: calc(100% - 24px) !important;
+    }
+    
+    /* Mostrar primer nombre y primer apellido lado a lado de forma horizontal */
+    .name-line-1, .name-line-2 {
+        display: inline !important;
+        font-size: 0.72rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: none !important;
+    }
+    
+    .name-line-1::after {
+        content: " " !important;
+        display: inline !important;
+    }
+    
+    .week-employee-positions {
+        display: block !important;
+        font-size: 0.58rem !important;
+        color: #94a3b8 !important;
+        margin-top: 0px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 100% !important;
+    }
+    
+    /* Reducir altura del checkbox semanal */
+    .week-check-wrapper, 
+    .week-check-container {
+        width: 32px !important;
+        height: 32px !important;
+    }
+    
+    .week-check-box {
+        border-radius: 6px !important;
+        font-size: 1.1rem !important;
+    }
+    
+    .hours-badge {
+        bottom: -3px !important;
+        right: -3px !important;
+        font-size: 0.55rem !important;
+        padding: 1px 3px !important;
+        border-radius: 3px !important;
+    }
+    
+    .week-position-toggles {
+        margin-top: 2px !important;
+        gap: 1px !important;
+    }
+    
+    .week-position-toggle {
+        padding: 1px 4px !important;
+        font-size: 0.52rem !important;
+        border-radius: 3px !important;
+    }
+    
+    /* Ajustar max-height para evitar scrolling excesivo en viewports cortos */
+    .sticky-table-container {
+        max-height: calc(100vh - 120px) !important;
+    }
+}
+

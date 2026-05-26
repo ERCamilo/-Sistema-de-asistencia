@@ -1183,7 +1183,7 @@
 
         .employee-header {
             display: flex;
-            align-items: center;
+            align-items: baseline;
             gap: 8px;
             margin-bottom: 0;
             flex-wrap: nowrap;
@@ -1191,6 +1191,17 @@
                encoja con ellipsis cuando el ancho del padre no alcanza,
                en lugar de empujarse a una segunda línea. */
             min-width: 0;
+        }
+        /* El nombre va primero y ocupa el espacio principal (truncando con …
+           si excede); el badge del número queda a su derecha. Ambos se
+           alinean por baseline para que visualmente queden sobre la misma
+           línea, sin importar la diferencia de tamaño de fuente. */
+        .employee-header .employee-name {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .employee-header .employee-number {
+            flex: 0 0 auto;
         }
 
         .employee-number {

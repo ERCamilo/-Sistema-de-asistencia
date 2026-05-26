@@ -47,8 +47,8 @@ export function LeaderCard(ldr) {
         <div class="employee-row" style="${!ldr.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
             <div class="employee-info" style="flex: 1;">
                 <div class="employee-header">
-                    <div class="employee-number" style="background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000;">${ldr.number}</div>
                     <div class="employee-name">${escapeHTML(ldr.name)}</div>
+                    <div class="employee-number" style="background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000;">${ldr.number}</div>
                     <span style="font-size: 1.25rem; margin-left: 8px;">${icons.get('key')}</span>
                     ${statusBadge}
                 </div>

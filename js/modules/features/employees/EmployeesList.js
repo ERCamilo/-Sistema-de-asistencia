@@ -48,8 +48,8 @@ export function EmployeeCard(emp) {
         <div class="employee-row" style="${!emp.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
             <div class="employee-info" style="flex: 1;">
                 <div class="employee-header">
-                    <div class="employee-number">${emp.number}</div>
                     <div class="employee-name" role="button" tabindex="0" data-action="open-employee-floating" data-id="${emp.key || emp.id}" title="${escapeAttr(emp.name)}">${escapeHTML(emp.name)}</div>
+                    <div class="employee-number">${emp.number}</div>
                     ${statusBadge}
                 </div>
                 <div class="position-toggles">
