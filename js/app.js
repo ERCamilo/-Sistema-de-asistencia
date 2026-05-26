@@ -3277,6 +3277,17 @@ function AttendancePageTitle() {
  * (first render), defaults to the first ACTIVE employee.
  */
 function AttendanceDetailPanel() {
+    try { return _AttendanceDetailPanelInner(); }
+    catch (err) {
+        // Defensive: if the detail panel throws, return an empty aside instead of
+        // taking down the entire Asistencia render. The error is still logged so
+        // the team can see it.
+        console.error('❌ AttendanceDetailPanel falló:', err);
+        return `<aside class="attendance-detail" data-error="1"></aside>`;
+    }
+}
+
+function _AttendanceDetailPanelInner() {
     if (!state.employees || state.employees.length === 0) {
         return `<aside class="attendance-detail empty">
             <div class="detail-empty-state">
