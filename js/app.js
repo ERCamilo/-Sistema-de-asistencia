@@ -3461,7 +3461,7 @@ function AttendanceDetailPanel() {
             </div>
 
             <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
-                <span>Nota rápida (${escapeHTML(date.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
+                <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
                 ${(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
             </div>
             <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
