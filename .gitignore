@@ -19,3 +19,10 @@ Thumbs.db
 .claude/worktrees/
 
 Planeamiento y analisis/
+
+# Screenshots
+screenshots/
+
+# Previews
+_desktop_preview.html
+_mobile_preview.html

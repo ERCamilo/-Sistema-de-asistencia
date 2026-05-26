@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const puppeteer = require('c:\\Users\\the_b\\OneDrive - Universidad Autonoma de Santo Domingo\\Educacion\\Independiente\\control de asistencia mini\\aplicacionFull\\node_modules\\puppeteer-core');
 
-const PORT = 5500;
+const PORT = 5502;
 const PUBLIC_DIR = 'c:\\Users\\the_b\\OneDrive - Universidad Autonoma de Santo Domingo\\Educacion\\Independiente\\control de asistencia mini\\aplicacionFull';
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const SCREENSHOT_DIR = path.join(__dirname, 'screenshots');
@@ -226,6 +226,16 @@ server.listen(PORT, async () => {
     });
     await delay(2000);
     await mobileDashboardPage.screenshot({ path: path.join(SCREENSHOT_DIR, 'dashboard_week_mobile.png') });
+
+    // Capturar Vista Semanal en Landscape Móvil
+    console.log('Switching to Week View Landscape (Mobile)...');
+    await mobileDashboardPage.setViewport({ width: 812, height: 375, isMobile: true, hasTouch: true, isLandscape: true });
+    await delay(2000);
+    await mobileDashboardPage.screenshot({ path: path.join(SCREENSHOT_DIR, 'dashboard_week_mobile_landscape.png') });
+
+    // Restaurar viewport portrait
+    await mobileDashboardPage.setViewport({ width: 375, height: 812, isMobile: true, hasTouch: true });
+    await delay(1000);
 
     // Abrir Perfil Empleado (Mobile)
     if (empId) {
