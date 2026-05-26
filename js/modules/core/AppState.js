@@ -163,6 +163,7 @@ const initialState = {
     syncStatus: 'idle',
     showFloatingCard: false,
     bottomNavHidden: false, // ⚡ Control de visibilidad de la barra inferior
+    selectedDetailEmployeeId: null, // 🏠 Empleado mostrado en el panel lateral derecho del split-view (desktop ≥1024px)
     floatingCardEmployee: null,
     floatingCardMonth: new Date(),
     chartPeriod: 'week',

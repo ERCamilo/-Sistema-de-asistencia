@@ -31,35 +31,75 @@ _attachHeaderDelegation();
  * Componente Header - Rediseñado según referencia visual
  * Proporciona el encabezado principal con logo, sincronización y acciones.
  */
-export const Header = ({ 
-    companyName, 
-    SyncIndicator, 
-    openNotesCenter, 
-    exportData, 
-    activeTab, 
-    changeTab, 
-    legacyNavigation 
+// Map of tab id → subtitle shown below the company name. Helps the user
+// always know where they are in the app, especially with the sidebar
+// active. Falls back to '' for unknown tabs.
+const _HEADER_SUBTITLE = {
+    'attendance': 'Asistencia',
+    'employees': 'Personal',
+    'positions': 'Personal · Puestos',
+    'employee-report': 'Reportes',
+    'dashboard': 'Reportes',
+    'export': 'Nómina',
+    'settings': 'Ajustes'
+};
+
+// Build the small "Erlin C." pill on the right, based on the Firebase user.
+// Falls back to empty markup if no one is signed in.
+function _renderUserPill() {
+    const u = (typeof window !== 'undefined') ? window.currentUser : null;
+    if (!u) return '';
+    const displayName = u.displayName || u.email || 'Usuario';
+    // Compact name: "Erlin C." from "Erlin Camilo"
+    const parts = displayName.split(/\s+/).filter(Boolean);
+    const compact = parts.length >= 2
+        ? `${parts[0]} ${parts[1][0]}.`
+        : parts[0] || 'Usuario';
+    const initials = (parts[0]?.[0] || 'U').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
+    const avatar = u.photoURL
+        ? `<img src="${u.photoURL}" alt="" class="header-user-avatar-img" onerror="this.style.display='none'">`
+        : `<span class="header-user-avatar">${initials}</span>`;
+    return `<div class="header-user-pill" title="${displayName}">
+                ${avatar}
+                <span class="header-user-name">${compact}</span>
+            </div>`;
+}
+
+export const Header = ({
+    companyName,
+    SyncIndicator,
+    openNotesCenter,
+    exportData,
+    activeTab,
+    changeTab,
+    legacyNavigation
 }) => {
+    const subtitle = _HEADER_SUBTITLE[activeTab] || '';
     return `
         <header class="header glass-effect">
             <div class="container">
                 <div class="header-content">
                     <div class="header-left">
                         <div class="header-logo">C</div>
-                        <h1 class="company-name">${companyName || 'Contrutek'}</h1>
+                        <div class="header-brand-block">
+                            <h1 class="company-name">${companyName || 'Contrutek'}</h1>
+                            ${subtitle ? `<div class="header-context-sub">${subtitle}</div>` : ''}
+                        </div>
                     </div>
                     <div class="header-right">
                         ${SyncIndicator ? SyncIndicator() : ''}
-                        
+
                         ${window._systemAlerts ? window._systemAlerts.renderAlertButton() : ''}
-                        
-                        <button class="header-icon-btn" type="button" data-header-action="open-notes-center" aria-label="Notas">
-                            ${icons.get('mail', { size: 20 })}
+
+                        <button class="header-icon-btn" type="button" data-header-action="open-notes-center" aria-label="Notas" title="Notas">
+                            <span class="header-icon-emoji">📝</span>
                         </button>
 
-                        <button class="header-icon-btn primary" type="button" data-header-action="export-data" aria-label="Exportar Backup">
+                        <button class="header-icon-btn primary" type="button" data-header-action="export-data" aria-label="Exportar Backup" title="Exportar Backup">
                             ${icons.get('download', { size: 20 })}
                         </button>
+
+                        ${_renderUserPill()}
                     </div>
                 </div>
 

@@ -1,0 +1,583 @@
+/* =================================================================
+   🏠 SIDEBAR SHELL (Desktop ≥1024px)
+   -----------------------------------------------------------------
+   - Renders a left-side navigation column at ≥1024px when the
+     <body> has the `.has-sidebar` class (set by RenderManager
+     when `legacyNavigation` is OFF — the default).
+   - Below 1024px the sidebar is hidden and the existing bottom-nav
+     stays in place, but the body now also receives the
+     `padding-bottom` it needed (fixes audit finding C1: the
+     fixed bottom-nav was covering the last ~70px of every page).
+   - Header stays sticky/full-width at the top; the sidebar starts
+     just below it.
+   ================================================================= */
+
+.app-sidebar { display: none; }
+
+/* Mobile / tablet: reserve space under content so the fixed
+   bottom-nav (70px + 10px gap) does not cover the last rows. */
+body.has-sidebar {
+    padding-bottom: 80px;
+}
+
+@media (min-width: 1024px) {
+    /* The "Mostrar/Ocultar Menú" toggle is only useful while the
+       bottom-nav is shown; on desktop the sidebar replaces it. */
+    body.has-sidebar .landscape-toggle-btn { display: none !important; }
+
+    body.has-sidebar {
+        padding-bottom: 0;
+        padding-left: 240px;
+    }
+
+    body.has-sidebar .app-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        position: fixed;
+        left: 0;
+        top: var(--header-height, 60px);
+        bottom: 0;
+        width: 240px;
+        padding: 16px 12px 16px;
+        background: #0f172a;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        z-index: 50;
+        overflow-y: auto;
+    }
+
+    /* Hide the mobile bottom nav at desktop width */
+    body.has-sidebar .bottom-nav { display: none !important; }
+
+    /* Allow content to use a bit more horizontal space now that
+       the sidebar covers 240px on the left. */
+    body.has-sidebar .container { max-width: 1480px; }
+}
+
+/* ----- Sidebar items ----- */
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: #94a3b8;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    line-height: 1;
+    min-height: 40px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: background 0.12s, color 0.12s;
+    position: relative;
+    width: 100%;
+}
+
+.sidebar-item:hover {
+    background: #1e293b;
+    color: #f1f5f9;
+}
+
+.sidebar-item:focus-visible {
+    outline: 2px solid #06b6d4;
+    outline-offset: 2px;
+}
+
+.sidebar-item.active {
+    background: rgba(6, 182, 212, 0.10);
+    color: #06b6d4;
+    font-weight: 600;
+}
+
+.sidebar-item.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    background: #06b6d4;
+    border-radius: 0 3px 3px 0;
+}
+
+.sidebar-icon {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex: none;
+}
+
+.sidebar-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-badge {
+    margin-left: auto;
+    background: #243049;
+    color: #94a3b8;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.sidebar-item.active .sidebar-badge {
+    background: #06b6d4;
+    color: #0f172a;
+}
+
+.sidebar-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 8px 4px;
+}
+
+.sidebar-section {
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    padding: 12px 12px 4px;
+    font-weight: 700;
+}
+
+.sidebar-foot {
+    margin-top: auto;
+    padding: 12px;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.sidebar-foot-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+    flex: none;
+}
+
+.sidebar-foot-title {
+    color: #f1f5f9;
+    font-weight: 600;
+}
+
+.sidebar-foot-sub {
+    color: #64748b;
+    margin-top: 2px;
+    font-size: 11px;
+}
+
+/* =================================================================
+   🧭 ATTENDANCE PAGE TITLE (desktop ≥768px)
+   Hidden on phones to keep the existing compact header.
+   ================================================================= */
+.page-title-row { display: none; }
+
+@media (min-width: 768px) {
+    .page-title-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 4px 0 16px;
+    }
+    .page-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        color: #f1f5f9;
+        line-height: 1.2;
+    }
+    .page-title-accent { color: #06b6d4; }
+    .page-title-sub {
+        color: #94a3b8;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+    .page-title-sub b { color: #f1f5f9; font-weight: 700; }
+}
+
+/* =================================================================
+   🪟 ATTENDANCE SPLIT VIEW (Desktop ≥1024px)
+   -----------------------------------------------------------------
+   - At ≥1024px the Asistencia screen renders the existing day view
+     on the left and a new sticky detail panel on the right (6fr/4fr).
+   - Below 1024px the detail panel is hidden and the day view returns
+     to its original full-width layout — zero impact on mobile.
+   ================================================================= */
+
+/* Default (mobile/tablet): no split, hide the detail panel. */
+.attendance-split { display: contents; }
+.attendance-detail { display: none; }
+
+@media (min-width: 1024px) {
+    .attendance-split {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+        gap: 20px;
+        align-items: start;
+    }
+    .attendance-main { min-width: 0; }
+
+    .attendance-detail {
+        display: block;
+        position: sticky;
+        top: calc(var(--header-height, 60px) + 12px);
+        max-height: calc(100vh - var(--header-height, 60px) - 24px);
+        overflow-y: auto;
+    }
+}
+
+/* ----- Selected row indicator ----- */
+.employee-row.is-detail-selected {
+    box-shadow: inset 3px 0 0 #06b6d4;
+    background: rgba(6, 182, 212, 0.04);
+}
+
+/* ----- Detail panel card ----- */
+.detail-card {
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.detail-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.detail-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    flex: none;
+    background: linear-gradient(135deg, #06b6d4, #a855f7);
+    color: #0f172a;
+    font-weight: 800;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: -0.5px;
+}
+
+.detail-head-meta { flex: 1; min-width: 0; }
+
+.detail-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: #f1f5f9;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.detail-sub {
+    color: #94a3b8;
+    font-size: 12px;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.detail-pos-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.detail-pos-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.detail-status-pill {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+}
+.detail-status-pill.ok  { background: rgba(16,185,129,0.15); color: #10b981; }
+.detail-status-pill.off { background: rgba(239,68,68,0.15);  color: #ef4444; }
+.detail-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* ----- Stats grid ----- */
+.detail-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.detail-stat {
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+.detail-stat-label {
+    font-size: 10px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+
+.detail-stat-value {
+    font-size: 18px;
+    font-weight: 800;
+    margin-top: 4px;
+    color: #f1f5f9;
+    font-variant-numeric: tabular-nums;
+}
+.detail-stat-value.primary { color: #06b6d4; }
+.detail-stat-value.ok      { color: #10b981; }
+.detail-stat-value.warn    { color: #f59e0b; }
+.detail-stat-value.muted   { color: #64748b; }
+
+/* ----- Range note below the stat grid ----- */
+.detail-range-note {
+    margin-top: -4px;
+    font-size: 11px;
+    color: #64748b;
+    text-align: center;
+    padding: 4px 0 2px;
+}
+
+/* ----- Section title ----- */
+.detail-section-title {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    margin-top: 2px;
+}
+
+/* ----- Timeline ----- */
+.detail-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.detail-timeline-row {
+    display: grid;
+    grid-template-columns: 110px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.detail-tl-date {
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+    text-transform: capitalize;
+}
+
+.detail-tl-label { color: #94a3b8; }
+
+.detail-tl-hours {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: #f1f5f9;
+    min-width: 36px;
+    text-align: right;
+}
+
+.detail-timeline-row.present  .detail-tl-label { color: #10b981; }
+.detail-timeline-row.holiday  .detail-tl-label { color: #a855f7; }
+.detail-timeline-row.absent   .detail-tl-label { color: #ef4444; }
+.detail-timeline-row.extra    .detail-tl-hours { color: #f59e0b; }
+
+/* ----- Quick note textarea ----- */
+.detail-quick-note {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #f1f5f9;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+    outline: none;
+    transition: border-color 0.12s, background 0.12s;
+}
+.detail-quick-note::placeholder {
+    color: #64748b;
+}
+.detail-quick-note:focus {
+    border-color: #06b6d4;
+    background: #243049;
+}
+
+/* ----- Actions ----- */
+.detail-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.detail-btn {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 13px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.detail-btn.primary {
+    background: #06b6d4;
+    color: #0f172a;
+}
+.detail-btn.primary:hover { background: #0891b2; }
+
+.detail-btn.ghost {
+    background: #1e293b;
+    color: #f1f5f9;
+    border-color: rgba(255, 255, 255, 0.06);
+}
+.detail-btn.ghost:hover { background: #243049; }
+
+/* =================================================================
+   🪪 HEADER ADDITIONS — subtitle + user pill + emoji button
+   ================================================================= */
+
+.header-brand-block {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    line-height: 1.15;
+}
+
+.header-context-sub {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 1px;
+}
+
+.header-icon-emoji {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.header-user-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 4px 4px;
+    border-radius: 999px;
+    background: #1e293b;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    margin-left: 4px;
+    cursor: default;
+}
+.header-user-pill .header-user-avatar,
+.header-user-pill .header-user-avatar-img {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #475569;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 11px;
+    flex: none;
+}
+.header-user-pill .header-user-avatar-img {
+    object-fit: cover;
+    background: #475569;
+}
+.header-user-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #f1f5f9;
+    white-space: nowrap;
+}
+
+/* Hide the user pill on small screens to save header room */
+@media (max-width: 640px) {
+    .header-user-pill .header-user-name { display: none; }
+    .header-user-pill { padding: 2px; }
+    .header-context-sub { display: none; }
+}
+
+/* ----- Empty state ----- */
+.attendance-detail.empty .detail-empty-state {
+    background: #0f172a;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 32px 18px;
+    text-align: center;
+    color: #64748b;
+}
+.attendance-detail.empty .detail-empty-icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+.attendance-detail.empty .detail-empty-title {
+    color: #f1f5f9;
+    font-weight: 700;
+    font-size: 14px;
+}
+.attendance-detail.empty .detail-empty-sub {
+    font-size: 12px;
+    margin-top: 4px;
+}
+

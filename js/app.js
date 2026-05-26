@@ -42,6 +42,10 @@ import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange } from './modules/utils/DateUtils.js';
+import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
+// Local alias so the detail panel can use escapeHTML(...) without colliding
+// with any other escapeHTML helper defined later in this file.
+const escapeHTML = _escapeHTML_split;
 import { formatCurrency } from './modules/utils/Formatters.js';
 
 // 🛡️ SISTEMA DE REPORTE DE ERRORES: Manejado globalmente por index.html (Alpha Refactorizer)
@@ -3147,6 +3151,402 @@ function BottomNavigation() {
             </nav>`;
 }
 
+/**
+ * 🏠 SIDEBAR NAVIGATION (desktop ≥1024px)
+ *
+ * Mirrors `BottomNavigation()` but rendered as a left-side rail. Uses the
+ * same `data-app-fn="changeTab"` delegation, so every existing handler
+ * (tab switching, scroll preservation, etc.) works without changes.
+ *
+ * Visibility is controlled entirely by CSS in `css/sidebar-shell.css`:
+ *   - `body.has-sidebar` (already toggled by RenderManager)
+ *   - hidden below 1024px
+ *
+ * Audit references: replaces the bottom-nav at desktop widths (audit
+ * opportunity O1) and fixes the wasted horizontal space that the original
+ * audit flagged on Asistencia.
+ */
+// Shortcut helpers that switch the main tab AND set the appropriate sub-tab
+// in one go, so the sidebar can "deep link" into Cuentas por Cobrar /
+// Calendario without the user needing two clicks.
+window.openCuentasPorCobrar = () => {
+    if (state) state.payrollViewMode = 'ledger';
+    if (typeof window.changeTab === 'function') window.changeTab('export');
+};
+window.openCalendarioAjustes = () => {
+    if (state) state.settingsActiveTab = 'calendar';
+    if (typeof window.changeTab === 'function') window.changeTab('settings');
+};
+
+function SidebarNavigation() {
+    const t = state.activeTab;
+    const cls = (...tabs) => tabs.includes(t) ? 'sidebar-item active' : 'sidebar-item';
+
+    // Live counts for badges
+    const activeEmployees = (state.employees || []).filter(e => e.active !== false).length;
+    let activeLoans = 0;
+    try {
+        (state.employees || []).forEach(e => {
+            (e.loans || []).forEach(l => { if (l.status === 'active') activeLoans++; });
+        });
+    } catch (_) { activeLoans = 0; }
+
+    // "Cuentas por Cobrar" is active when on Nómina screen with the ledger sub-view
+    const isCuentas = state.activeTab === 'export' && state.payrollViewMode === 'ledger';
+    const cuentasCls = isCuentas ? 'sidebar-item active' : 'sidebar-item';
+
+    // "Calendario" is active when on Ajustes with the calendar sub-tab
+    const isCal = state.activeTab === 'settings' && state.settingsActiveTab === 'calendar';
+    const calCls = isCal ? 'sidebar-item active' : 'sidebar-item';
+
+    const badge = (n) => n > 0 ? `<span class="sidebar-badge">${n}</span>` : '';
+
+    return `<aside class="app-sidebar" aria-label="Navegación principal">
+                <button class="${cls('attendance')}" type="button" data-app-fn="changeTab" data-arg="attendance" aria-label="Asistencia" title="Asistencia">
+                    <span class="sidebar-icon">${icons.get('attendance')}</span>
+                    <span class="sidebar-label">Asistencia</span>
+                    ${badge(activeEmployees)}
+                </button>
+                <button class="${cls('employees','positions')}" type="button" data-app-fn="changeTab" data-arg="employees" aria-label="Personal" title="Personal">
+                    <span class="sidebar-icon">${icons.get('personnel')}</span>
+                    <span class="sidebar-label">Personal</span>
+                </button>
+                <button class="${cls('employee-report','dashboard')}" type="button" data-app-fn="changeTab" data-arg="employee-report" aria-label="Reportes" title="Reportes">
+                    <span class="sidebar-icon">${icons.get('reports')}</span>
+                    <span class="sidebar-label">Reportes</span>
+                </button>
+                <button class="${state.activeTab === 'export' && !isCuentas ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="export" aria-label="Nómina" title="Nómina">
+                    <span class="sidebar-icon">${icons.get('payroll')}</span>
+                    <span class="sidebar-label">Nómina</span>
+                </button>
+                <button class="${cuentasCls}" type="button" data-app-fn="openCuentasPorCobrar" aria-label="Cuentas por Cobrar" title="Cuentas por Cobrar">
+                    <span class="sidebar-icon">💳</span>
+                    <span class="sidebar-label">Cuentas por Cobrar</span>
+                    ${badge(activeLoans)}
+                </button>
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-section">Sistema</div>
+                <button class="${state.activeTab === 'settings' && !isCal ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="settings" aria-label="Ajustes" title="Ajustes">
+                    <span class="sidebar-icon">${icons.get('settings')}</span>
+                    <span class="sidebar-label">Ajustes</span>
+                </button>
+                <button class="${calCls}" type="button" data-app-fn="openCalendarioAjustes" aria-label="Calendario" title="Calendario">
+                    <span class="sidebar-icon">📅</span>
+                    <span class="sidebar-label">Calendario</span>
+                </button>
+                <div class="sidebar-foot">
+                    <span class="sidebar-foot-dot"></span>
+                    <div>
+                        <div class="sidebar-foot-title">Sincronizado</div>
+                        <div class="sidebar-foot-sub">v1.6.7 · Firebase</div>
+                    </div>
+                </div>
+            </aside>`;
+}
+
+/**
+ * 🧭 ATTENDANCE PAGE TITLE — compact contextual header above the day view.
+ *
+ * Renders the big "Asistencia diaria · <fecha>" h1 plus a sub-line showing
+ * how many active employees there are and the default-hours setting. Hidden
+ * on small screens via CSS to keep the mobile experience unchanged.
+ */
+function AttendancePageTitle() {
+    const date = state.selectedDate instanceof Date ? state.selectedDate : new Date(state.selectedDate);
+    const dateLabel = date.toLocaleDateString('es', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+    const dateLabelCap = dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1);
+    const activeCount = (state.employees || []).filter(e => e.active !== false).length;
+    const defaultHours = state.settings?.regularHoursPerDay || 8;
+    const modeLabel = state.viewMode === 'week' ? 'Semanal' : 'Diaria';
+    return `<div class="page-title-row">
+                <div>
+                    <h1 class="page-title">Asistencia ${modeLabel.toLowerCase()} · <span class="page-title-accent">${escapeHTML(dateLabelCap)}</span></h1>
+                    <div class="page-title-sub">${activeCount} trabajadores activos · Horas por defecto: <b>${defaultHours}h</b></div>
+                </div>
+            </div>`;
+}
+
+/**
+ * 🪟 ATTENDANCE DETAIL PANEL (right column of the desktop split view)
+ *
+ * Phase-2 of the desktop redesign: renders a sticky right-side panel
+ * with the currently-selected employee's at-a-glance info. Hidden on
+ * <1024px via CSS. Used only on the Asistencia screen.
+ *
+ * Selection state lives in `state.selectedDetailEmployeeId`. If null
+ * (first render), defaults to the first ACTIVE employee.
+ */
+function AttendanceDetailPanel() {
+    if (!state.employees || state.employees.length === 0) {
+        return `<aside class="attendance-detail empty">
+            <div class="detail-empty-state">
+                <div class="detail-empty-icon">👥</div>
+                <div class="detail-empty-title">Aún no hay empleados</div>
+                <div class="detail-empty-sub">Crea uno desde la pestaña Personal para ver su detalle aquí.</div>
+            </div>
+        </aside>`;
+    }
+
+    // Resolve the selected employee — fall back to first active, then first.
+    const selId = state.selectedDetailEmployeeId;
+    let emp = selId ? state.employees.find(e => e.id === selId) : null;
+    if (!emp) emp = state.employees.find(e => e.active !== false) || state.employees[0];
+
+    // Normalise positions array (older records may only have positionId)
+    if (!emp.positions) emp.positions = emp.positionId ? [emp.positionId] : [];
+
+    // ----- Build position chips -----
+    const positionChips = (emp.positions || []).map(pid => {
+        const pos = state.positions.find(p => p.id === pid);
+        if (!pos) return '';
+        const color = pos.color || '#64748b';
+        return `<span class="detail-pos-chip" style="color:${color};border-color:${color};">
+            <span class="detail-pos-dot" style="background:${color};"></span>${escapeHTML(pos.name || 'Posición')}
+        </span>`;
+    }).join('');
+
+    // ----- Compute stats over the CURRENT PAY PERIOD -----
+    // Source: state.settings.payPeriod (configured in Ajustes → Calendario).
+    // Range: [periodStart, periodStart + periodLength - 1]. We cap iteration
+    // at the selected date so future days of the period don't pre-count.
+    // If no period is configured, fall back to month-to-date silently and
+    // surface a hint at the bottom of the stat grid.
+    const today = state.selectedDate instanceof Date ? state.selectedDate : new Date(state.selectedDate);
+    const pp = state.settings && state.settings.payPeriod;
+    let rangeStart, rangeEnd, rangeMode;
+    if (pp && pp.periodStart) {
+        rangeStart = parseDate(pp.periodStart);
+        rangeEnd = new Date(rangeStart);
+        rangeEnd.setDate(rangeStart.getDate() + ((pp.periodLength || 15) - 1));
+        rangeMode = 'period';
+    } else {
+        rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        rangeEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        rangeMode = 'month';
+    }
+    // Iterate up to the earlier of (rangeEnd, today) so future days are excluded
+    const iterEnd = rangeEnd < today ? rangeEnd : today;
+
+    let periodHours = 0;
+    let periodDays = 0;
+    let overtimeHours = 0;
+    try {
+        for (let d = new Date(rangeStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
+            const dk = getDateKey(new Date(d));
+            const att = state.attendance[`${emp.id}-${dk}`];
+            if (att && att.present) {
+                periodDays++;
+                periodHours += (att.hoursWorked || 0);
+                const reg = state.settings?.regularHoursPerDay || 8;
+                if ((att.hoursWorked || 0) > reg) overtimeHours += (att.hoursWorked - reg);
+            }
+        }
+    } catch (e) { /* defensive */ }
+
+    // Approx salary based on first position tarifa × period hours.
+    // TODO: if the employee worked under multiple positions in the period,
+    // sum each position's rate × its own hours (per-position breakdown).
+    const firstPos = state.positions.find(p => p.id === emp.positions[0]);
+    const hourlyRate = (firstPos && firstPos.hourlyRate) || 0;
+    const salaryEstimate = periodHours * hourlyRate;
+
+    // Pending loan balance — sum across the employee's ACTIVE loans.
+    // Inlined to avoid an import cycle; mirrors LoansService.getBalance().
+    let pendingLoanBalance = 0;
+    let activeLoanCount = 0;
+    try {
+        (emp.loans || []).forEach(loan => {
+            if (loan.status !== 'active') return;
+            activeLoanCount++;
+            const principal = Number(loan.principal || 0);
+            const rate = Number(loan.interestRate || 0);
+            const interest = loan.interestIncluded ? 0 : (principal * rate / 100);
+            const due = principal + interest;
+            const paid = (loan.payments || [])
+                .filter(p => !p.voided)
+                .reduce((s, p) => s + Number(p.amount || 0), 0);
+            pendingLoanBalance += Math.max(0, due - paid);
+        });
+        pendingLoanBalance = Math.round(pendingLoanBalance * 100) / 100;
+    } catch (_) { pendingLoanBalance = 0; }
+
+    // Format the range for display (e.g. "1 may – 21 may 2026")
+    const rangeLabel = (() => {
+        const optsShort = { day: 'numeric', month: 'short' };
+        const optsFull = { day: 'numeric', month: 'short', year: 'numeric' };
+        const sameYear = rangeStart.getFullYear() === rangeEnd.getFullYear();
+        return `${rangeStart.toLocaleDateString('es', sameYear ? optsShort : optsFull)} – ${rangeEnd.toLocaleDateString('es', optsFull)}`;
+    })();
+    const rangeNote = rangeMode === 'period'
+        ? `Período actual · ${escapeHTML(rangeLabel)}`
+        : `Mes en curso · ${escapeHTML(rangeLabel)} <span style="color:#f59e0b;font-weight:600;">(configura el período en Ajustes → Calendario)</span>`;
+
+    // ----- Recent history (last 7 days ending at selectedDate) -----
+    const historyRows = [];
+    const cursor = new Date(today);
+    for (let i = 0; i < 7; i++) {
+        const dk = getDateKey(new Date(cursor));
+        const att = state.attendance[`${emp.id}-${dk}`];
+        const isHoliday = (state.settings?.holidays || []).includes(dk);
+        const dayLabel = cursor.toLocaleDateString('es', { weekday: 'short', day: '2-digit', month: 'short' });
+        let labelTxt, cls, hours;
+        if (isHoliday) {
+            labelTxt = 'Feriado';
+            cls = 'holiday';
+            hours = (att && att.present) ? `${att.hoursWorked || 0}h` : '0h';
+        } else if (att && att.present) {
+            labelTxt = (att.hoursWorked || 0) > (state.settings?.regularHoursPerDay || 8)
+                ? 'Presente · extras' : 'Presente';
+            cls = (att.hoursWorked || 0) > (state.settings?.regularHoursPerDay || 8) ? 'present extra' : 'present';
+            hours = `${att.hoursWorked || 0}h`;
+        } else {
+            labelTxt = 'Ausente';
+            cls = 'absent';
+            hours = '0h';
+        }
+        historyRows.push(`<div class="detail-timeline-row ${cls}">
+            <span class="detail-tl-date">${escapeHTML(dayLabel)}</span>
+            <span class="detail-tl-label">${labelTxt}</span>
+            <span class="detail-tl-hours">${hours}</span>
+        </div>`);
+        cursor.setDate(cursor.getDate() - 1);
+    }
+
+    // ----- Compose initials for avatar -----
+    const initials = (emp.name || '?').split(/\s+/).map(s => s[0] || '').slice(0, 2).join('').toUpperCase();
+
+    // ----- Status pill -----
+    const isActive = emp.active !== false;
+    const statusPill = isActive
+        ? `<span class="detail-status-pill ok"><span class="detail-status-dot"></span>Activo</span>`
+        : `<span class="detail-status-pill off"><span class="detail-status-dot"></span>Inactivo</span>`;
+
+    // ----- Format money -----
+    const money = (n) => '$' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    return `<aside class="attendance-detail" data-emp-id="${emp.id}">
+        <div class="detail-card">
+            <div class="detail-head">
+                <div class="detail-avatar">${escapeHTML(initials)}</div>
+                <div class="detail-head-meta">
+                    <div class="detail-name">${escapeHTML(emp.name || 'Sin nombre')}</div>
+                    <div class="detail-sub">#${escapeHTML(String(emp.number || '—'))}${positionChips ? ' · ' + positionChips : ''}</div>
+                </div>
+                ${statusPill}
+            </div>
+
+            <div class="detail-stat-grid">
+                <div class="detail-stat">
+                    <div class="detail-stat-label">Horas (período)</div>
+                    <div class="detail-stat-value primary">${periodHours}h</div>
+                </div>
+                <div class="detail-stat">
+                    <div class="detail-stat-label">Días trabajados</div>
+                    <div class="detail-stat-value">${periodDays}</div>
+                </div>
+                <div class="detail-stat">
+                    <div class="detail-stat-label">Salario (período)</div>
+                    <div class="detail-stat-value ok">${money(salaryEstimate)}</div>
+                </div>
+                <div class="detail-stat">
+                    <div class="detail-stat-label">Préstamo pendiente${activeLoanCount > 1 ? ` (${activeLoanCount})` : ''}</div>
+                    <div class="detail-stat-value ${pendingLoanBalance > 0 ? 'warn' : 'muted'}">${money(pendingLoanBalance)}</div>
+                </div>
+            </div>
+            <div class="detail-range-note">${rangeNote}${overtimeHours > 0 ? ` · <span style="color:#f59e0b;">⚡ ${overtimeHours}h extras</span>` : ''}</div>
+
+            <div class="detail-section-title">Últimos 7 días</div>
+            <div class="detail-timeline">
+                ${historyRows.join('')}
+            </div>
+
+            <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>Nota rápida (${escapeHTML(date.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
+                ${(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
+            </div>
+            <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
+                placeholder="Anota algo sobre ${escapeHTML(emp.name.split(/\s+/)[0] || 'el empleado')} (ej. salió temprano por cita médica)…"
+                data-emp-id="${emp.id}">${escapeHTML(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes || '')}</textarea>
+
+            <div class="detail-actions">
+                <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
+                    📋 Ver perfil completo
+                </button>
+                <button class="detail-btn primary" type="button" data-app-fn="saveQuickNoteFromDetail" data-arg="${emp.id}">
+                    💾 Guardar nota
+                </button>
+            </div>
+        </div>
+    </aside>`;
+}
+
+// Save handler for the quick-note textarea inside the AttendanceDetailPanel.
+// Reads the textarea by id, upserts the note onto the attendance record for
+// the currently-selected date, and persists. Reuses the existing notes
+// data model so the note shows up in the rest of the app (Notes Center,
+// employee profile, etc.) without any extra wiring.
+window.saveQuickNoteFromDetail = (empId) => {
+    if (!empId || !state) return;
+    const ta = document.getElementById(`detail-quick-note-${empId}`);
+    if (!ta) return;
+    const text = (ta.value || '').trim();
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${empId}-${dateKey}`;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    if (!text) {
+        // Empty textarea = clear the note (if any existed).
+        if (state.attendance[key]) {
+            state.attendance[key].notes = '';
+            state.attendance[key].updatedAt = Date.now();
+            state.attendance[key]._isDirty = true;
+        }
+    } else {
+        const existing = state.attendance[key] || {
+            employeeId: empId,
+            date: dateKey,
+            present: false,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            isHoliday: false,
+            selectedPosition: emp.positions?.[0] || null,
+            multiPosition: false,
+            positionHours: [],
+            notes: ''
+        };
+        existing.notes = text;
+        existing.updatedAt = Date.now();
+        existing._isDirty = true;
+        state.attendance[key] = existing;
+    }
+
+    if (typeof saveApplicationData === 'function') saveApplicationData();
+    if (window.showNotification) {
+        window.showNotification(text ? '✅ Nota guardada' : '🗑️ Nota eliminada', 'success');
+    }
+    if (typeof window.render === 'function') window.render();
+};
+
+// ⚡ Click delegation: select an employee for the right detail panel when the
+// user clicks on a row body (not on any interactive child). Selection updates
+// `state.selectedDetailEmployeeId` and triggers a re-render. Cheap because
+// DOMDiff only patches the changed parts.
+if (!window._detailSelectionDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        // Skip if the click was on something interactive — let that handler run.
+        if (e.target.closest('button, input, a, select, textarea, [data-att-action], [data-app-fn], [data-app-action]')) return;
+        const row = e.target.closest('.employee-row');
+        if (!row) return;
+        const m = row.id && row.id.match(/^emp-row-(.+)$/);
+        if (!m) return;
+        if (state.selectedDetailEmployeeId === m[1]) return; // no-op
+        state.selectedDetailEmployeeId = m[1];
+        window.render?.();
+    });
+    window._detailSelectionDelegationAttached = true;
+}
+
 // ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
 // han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
 
@@ -4719,7 +5119,14 @@ function App() {
     // ⚡ OPTIMIZACIÓN: Lazy loading con mapeo de tabs
     // ⚡ OPTIMIZACIÓN: Lazy loading con mapeo de tabs
     const tabMap = {
-        'attendance': () => AttendanceTab(),
+        'attendance': () => {
+            // Split view (day view only — week view already uses full width).
+            // CSS in sidebar-shell.css makes this a 6fr/4fr grid at ≥1024px
+            // and stacks vertically (with the detail panel hidden) below.
+            const pageHeader = AttendancePageTitle();
+            if (state.viewMode === 'week') return `${pageHeader}${AttendanceTab()}`;
+            return `${pageHeader}<div class="attendance-split"><div class="attendance-main">${AttendanceTab()}</div>${AttendanceDetailPanel()}</div>`;
+        },
         'employees': () => EmployeesUI.EmployeesTab(),
         'positions': () => {
             state.employeeViewMode = 'positions';
@@ -4760,7 +5167,7 @@ function App() {
         activeTab: state.activeTab,
         changeTab: (tab) => window.changeTab(tab),
         legacyNavigation: state.settings.legacyNavigation
-    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenter()}${NoteEditorModal()}`;
+    })}${state.settings.legacyNavigation ? '' : SidebarNavigation()}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenter()}${NoteEditorModal()}`;
 }
 
 // 🎯 Registrar el componente raíz para el motor modular
