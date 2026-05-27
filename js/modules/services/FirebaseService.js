@@ -11,6 +11,7 @@ import { notifySnapshotCreated } from './SnapshotNotifier.js';
 import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
 import { Notification } from '../components/Notification.js';
+import { SyncStatus } from './SyncStatus.js';
 
 class FirebaseService {
     constructor() {
@@ -113,6 +114,7 @@ class FirebaseService {
                 lastChangedBy: getDeviceId()
             }, { merge: true });
             console.log(`☁️ Estado sincronizado en Firebase (schemaVersion=${schemaVersion || 'legacy'})`);
+            SyncStatus.markSynced();
         } catch (error) {
             console.error('❌ Error sincronizando estado:', error);
             throw error;

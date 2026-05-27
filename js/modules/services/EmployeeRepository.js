@@ -17,6 +17,7 @@ import {
     doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, getDoc
 } from '../data/firebase.js';
 import { mergeEmployees } from './EmployeeMerge.js';
+import { SyncStatus } from './SyncStatus.js';
 
 const COLLECTION = 'employees';
 
@@ -111,6 +112,7 @@ export const EmployeeRepository = {
 
         try {
             await setDoc(ref, payload, { merge: true });
+            SyncStatus.markSynced();
         } catch (e) {
             console.error(`❌ EmployeeRepository.saveOne(${id}) error:`, e);
             throw e;

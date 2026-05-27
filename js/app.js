@@ -24,6 +24,8 @@ import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { generateLoansReadonlySection } from './modules/features/profile/LoansReadonlySection.js';
+import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusBadge.js';
+import { SyncStatus } from './modules/services/SyncStatus.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
@@ -3210,6 +3212,34 @@ window.openCuentasPorCobrar = () => {
     if (state) state.payrollViewMode = 'ledger';
     if (typeof window.changeTab === 'function') window.changeTab('export');
 };
+
+// 🟢 Badge de sincronización (Fase 3.2) — invocado desde el Header.
+// Lee de SyncStatus + currentUser + navigator.onLine para producir el HTML.
+window.renderSyncStatusBadgeForHeader = () => {
+    return renderSyncStatusBadge({
+        lastSyncedAt: SyncStatus.getLastSyncedAt(),
+        isAuthenticated: !!window.currentUser,
+        isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true
+    });
+};
+
+// Conectar el live updater una sola vez al cargar app.js.
+// Re-renderiza el badge cada 5s y en cada cambio de SyncStatus (sin trigger
+// de render() global, que sería costoso).
+if (typeof window !== 'undefined') {
+    attachLiveBadge({
+        getAuth:   () => !!window.currentUser,
+        getOnline: () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true
+    });
+    // Cuando cambia el estado de conexión, refrescar inmediatamente.
+    window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
+    window.addEventListener('offline', () => {
+        // Forzar refresh visual sin tocar el ts real (lo dispara internalmente
+        // notificando con el mismo timestamp existente).
+        const ts = SyncStatus.getLastSyncedAt();
+        if (ts !== null) SyncStatus.markSynced(ts);
+    });
+}
 window.openCalendarioAjustes = () => {
     if (state) state.settingsActiveTab = 'calendar';
     if (typeof window.changeTab === 'function') window.changeTab('settings');
