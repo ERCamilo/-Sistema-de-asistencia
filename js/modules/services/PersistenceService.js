@@ -8,6 +8,7 @@ import { buildAttendanceIndex } from '../core/AppState.js';
 import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
+import { EmployeeRepository } from './EmployeeRepository.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { debug } from '../utils/Debug.js';
@@ -22,6 +23,60 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 // ⚡ Debounce de guardado: colapsa llamadas rápidas en un solo guardado
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
+
+// 🗑️ Cola de ids de empleados a borrar de la subcolección de Firebase
+// la próxima vez que saveApplicationData drene (Tarea #18).
+// Usada por el wizard de duplicados cuando consume un duplicado cloud-only:
+// el state local ya no lo tiene, pero su doc remoto sigue en
+// users/{uid}/employees/{id} y hay que limpiarlo.
+const _pendingCloudDeletes = new Set();
+
+/**
+ * Encolar un id de empleado para borrar del cloud en el próximo save.
+ * Defensivo: ignora ids falsy.
+ */
+export function enqueueCloudEmployeeDelete(id) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    _pendingCloudDeletes.add(key);
+}
+
+/** Snapshot de la cola actual (copia). */
+export function getPendingCloudDeletes() {
+    return [..._pendingCloudDeletes];
+}
+
+/** Vacía la cola. Llamado tras drenar exitosamente o desde tests. */
+export function clearPendingCloudDeletes() {
+    _pendingCloudDeletes.clear();
+}
+
+/**
+ * Drena la cola borrando los docs remotos correspondientes.
+ * Solo opera cuando schemaVersion >= 2 (cuentas migradas al modelo
+ * per-doc). En cuentas legacy es noop — no hay subcolección que limpiar.
+ * Reintentable: ids que fallen quedan re-encolados.
+ */
+async function _drainPendingCloudDeletes() {
+    if (_pendingCloudDeletes.size === 0) return;
+    const v = state?.settings?.schemaVersion;
+    if (typeof v !== 'number' || v < 2) return;
+    if (!globalThis.currentUser) return;
+
+    const ids = [..._pendingCloudDeletes];
+    _pendingCloudDeletes.clear();
+    const failed = [];
+    for (const id of ids) {
+        try {
+            await EmployeeRepository.deleteOne(id);
+        } catch (e) {
+            console.error(`⚠️ Error borrando doc cloud ${id}, re-encolando:`, e);
+            failed.push(id);
+        }
+    }
+    failed.forEach(id => _pendingCloudDeletes.add(id));
+}
 
 /**
  * ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
@@ -142,6 +197,14 @@ async function _executeSave(options = {}) {
 
         // 2. Sincronización Espejo (Full State) - DEBOUNCED
         syncFirebaseMirrorDebounced(state);
+
+        // 2.b Drenar la cola de borrados pendientes en la nube.
+        // Ocurre solo si schemaVersion >= 2 (cuentas migradas). Es seguro
+        // hacerlo en paralelo con el mirror debounced — operan sobre rutas
+        // distintas (data/current vs employees/{id}).
+        _drainPendingCloudDeletes().catch(e =>
+            console.warn('⚠️ Error drenando cola de cloud deletes (no crítico):', e)
+        );
 
         // 3. Backup Automático (Snapshots)
         const freq = state.settings?.backupFrequency || 'none';
