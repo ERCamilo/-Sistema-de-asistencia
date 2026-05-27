@@ -12,6 +12,7 @@ import { Modal } from '../components/Modal.js';
 import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNumber, saveApplicationData } from '../services/PersistenceService.js';
 import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner.js';
 import { EmployeeRepository } from '../services/EmployeeRepository.js';
+import { validateManualGroup } from '../services/ManualGroupValidator.js';
 import { state } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 
@@ -27,7 +28,12 @@ const _MAINT_ACTION_MAP = {
     'force-comparison': () => window._maintenanceUI?.forceComparison(),
     'apply-reassignment': () => window._maintenanceUI?.applyReassignment(),
     'apply-plan': () => window._maintenanceUI?.handleApplyPlan(),
-    'cancel-plan': () => window._maintenanceUI?.cancelPlan()
+    'cancel-plan': () => window._maintenanceUI?.cancelPlan(),
+    'set-member-role': (memberId, target) => {
+        const role = target?.dataset?.role || null;
+        window._maintenanceUI?.setMemberRole(memberId, role);
+    },
+    'apply-manual-group': () => window._maintenanceUI?.applyManualGroup()
 };
 
 function _handleMaintClick(e) {
@@ -353,16 +359,41 @@ export class MaintenanceUI {
     }
 
     renderWizardContent(group) {
+        // Validación en vivo del estado actual del grupo.
+        const validation = validateManualGroup(group.members);
+
+        const validationBanner = validation.ok
+            ? `<div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;">
+                  ✅ Decisiones consistentes. ${validation.absorbIds.length} se fusionará${validation.absorbIds.length === 1 ? '' : 'n'}, ${validation.separateIds.length} se reasignará${validation.separateIds.length === 1 ? '' : 'n'}.
+               </div>`
+            : validation.errors.length > 0
+                ? `<div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;">
+                      ⚠️ ${validation.errors.join(' ')}
+                   </div>`
+                : '';
+
+        const colsCount = Math.min(group.members.length, 3);
+
         return `
-            <div class="wizard-container" style="display: flex; flex-direction: column; gap: 20px;">
-                <p style="color: #94a3b8; text-align: center;">Elige el perfil que deseas conservar como <strong>Maestro</strong>. El historial del resto se fusionará en él.</p>
-                
-                <div class="comparison-grid" style="display: grid; grid-template-columns: repeat(${Math.min(group.members.length, 3)}, 1fr); gap: 15px;">
+            <div class="wizard-container" style="display: flex; flex-direction: column; gap: 16px;">
+                <p style="color: #94a3b8; text-align: center; margin: 0;">
+                    Decide para cada miembro: <strong style="color:#fbbf24;">Maestro</strong> (uno solo),
+                    <strong style="color:#34d399;">Fusionar aquí</strong> en el maestro, o
+                    <strong style="color:#f97316;">Otra persona</strong> (se reasignará a otra ficha).
+                </p>
+
+                ${validationBanner}
+
+                <div class="comparison-grid" style="display: grid; grid-template-columns: repeat(${colsCount}, 1fr); gap: 12px;">
                     ${group.members.map(emp => this.renderEmployeeCard(emp, group.number)).join('')}
                 </div>
-                
-                <div style="display: flex; justify-content: center; margin-top: 10px;">
-                    <button class="btn-ghost" type="button" data-maint-action="skip-step" style="color: #64748b;">Son personas distintas (Reasignar ficha)</button>
+
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                    <button type="button" data-maint-action="apply-manual-group"
+                            ${validation.ok ? '' : 'disabled'}
+                            style="padding: 12px; background: ${validation.ok ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155'}; color: ${validation.ok ? 'white' : '#64748b'}; border: none; border-radius: 10px; font-weight: 800; cursor: ${validation.ok ? 'pointer' : 'not-allowed'};">
+                        ${validation.ok ? '✨ Aplicar resolución' : '✋ Completa las decisiones para continuar'}
+                    </button>
                 </div>
             </div>
         `;
@@ -370,41 +401,171 @@ export class MaintenanceUI {
 
     renderEmployeeCard(emp, groupNumber) {
         const group = this.conflicts[this.currentConflictIndex];
-        const isMostComplete = emp.completeness === Math.max(...group.members.map(m => m.completeness));
-        const hasMoreAttendance = emp.attendanceCount === Math.max(...group.members.map(m => m.attendanceCount));
+        const role = emp.role || null;
+
+        // Bordes/colores por rol seleccionado.
+        const ROLE_STYLES = {
+            master:   { border: '#fbbf24', bg: 'rgba(251, 191, 36, 0.08)', badge: '👑 MAESTRO',         badgeColor: '#fbbf24' },
+            absorb:   { border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)', badge: '📥 SE FUSIONA',      badgeColor: '#10b981' },
+            separate: { border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)', badge: '🔀 OTRA PERSONA',    badgeColor: '#f97316' }
+        };
+        const style = ROLE_STYLES[role] || { border: '#1e293b', bg: '#0f172a', badge: '', badgeColor: '' };
+
+        const isMostComplete = emp.completeness === Math.max(...group.members.map(m => m.completeness || 0));
+        const hasMoreAttendance = emp.attendanceCount === Math.max(...group.members.map(m => m.attendanceCount || 0));
+
+        // Si el rol es separate, mostrar la ficha destino si ya se eligió.
+        const reassignHint = (role === 'separate' && emp._reassignTo)
+            ? `<div style="font-size: 0.7rem; color: #fb923c; margin-top: 4px;">→ ficha ${emp._reassignTo}</div>`
+            : '';
+
+        const btn = (action, label, dataRole, color) => `
+            <button type="button" data-maint-action="${action}"
+                    data-id="${emp.id}" data-role="${dataRole}"
+                    style="flex: 1; padding: 8px 4px; background: ${role === dataRole ? color : 'transparent'};
+                           color: ${role === dataRole ? '#0f172a' : color};
+                           border: 1px solid ${color}; border-radius: 6px;
+                           font-size: 0.7rem; font-weight: 700; cursor: pointer;">
+                ${label}
+            </button>
+        `;
+
+        // Tag de origen (local/cloud/both)
+        const srcTag = emp._source
+            ? `<span style="font-size: 0.6rem; padding: 1px 5px; border-radius: 3px; background: ${emp._source === 'cloud' ? 'rgba(168,85,247,0.15)' : 'rgba(148,163,184,0.15)'}; color: ${emp._source === 'cloud' ? '#a855f7' : '#94a3b8'};">${emp._source === 'cloud' ? '📡 nube' : emp._source === 'both' ? '🔁 ambos' : '💾 local'}</span>`
+            : '';
 
         return `
-            <div class="emp-compare-card" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px;">
+            <div class="emp-compare-card" style="background: ${style.bg}; border: 2px solid ${style.border}; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; transition: all .2s;">
+                ${style.badge ? `<div style="position:absolute; transform: translate(-4px,-18px); background: ${style.badgeColor}; color: #0f172a; font-size: 0.6rem; font-weight: 800; padding: 2px 6px; border-radius: 4px;">${style.badge}</div>` : ''}
+
                 <div style="text-align: center;">
-                    <div style="width: 50px; height: 50px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; color: #f8fafc; font-weight: bold;">
-                        ${emp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                    <div style="width: 42px; height: 42px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; color: #f8fafc; font-weight: bold; font-size: 0.9rem;">
+                        ${(emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
                     </div>
-                    <h4 style="margin: 0; color: #f8fafc; font-size: 1rem;">${emp.name}</h4>
-                    <span style="font-size: 0.75rem; color: #64748b; font-family: monospace;">ID: ${emp.id.substring(0, 8)}...</span>
+                    <h4 style="margin: 0 0 2px; color: #f8fafc; font-size: 0.9rem; word-break: break-word;">${emp.name || '(sin nombre)'}</h4>
+                    <div style="display: flex; gap: 4px; justify-content: center; align-items: center; flex-wrap: wrap;">
+                        <span style="font-size: 0.65rem; color: #64748b; font-family: monospace;">${(emp.id || '').substring(0, 8)}</span>
+                        ${srcTag}
+                    </div>
+                    ${reassignHint}
                 </div>
 
-                <div class="emp-stats" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; padding: 10px; background: #020617; border-radius: 8px;">
+                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; padding: 8px; background: #020617; border-radius: 6px;">
                     <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #64748b;">📍 Asistencias:</span>
-                        <span style="color: ${hasMoreAttendance ? '#22c55e' : '#f8fafc'}; font-weight: bold;">${emp.attendanceCount}</span>
+                        <span style="color: #64748b;">📍 Asist.:</span>
+                        <span style="color: ${hasMoreAttendance ? '#22c55e' : '#f8fafc'}; font-weight: bold;">${emp.attendanceCount || 0}</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #64748b;">📅 Última:</span>
-                        <span style="color: #f8fafc;">${emp.lastAttendance}</span>
+                        <span style="color: #64748b;">💵 Préstamos:</span>
+                        <span style="color: #f8fafc;">${(emp.loans || []).length}</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
                         <span style="color: #64748b;">📊 Datos:</span>
-                        <span style="color: ${isMostComplete ? '#3b82f6' : '#f8fafc'}; font-weight: bold;">${emp.completeness}%</span>
+                        <span style="color: ${isMostComplete ? '#3b82f6' : '#f8fafc'};">${emp.completeness || 0}%</span>
                     </div>
                 </div>
 
-                <div class="emp-actions" style="margin-top: auto; padding-top: 10px;">
-                    <button class="btn-primary" type="button" data-maint-action="resolve-conflict" data-id="${emp.id}" style="width: 100%; padding: 10px; font-size: 0.8rem;">
-                        CONSERVAR ESTE
-                    </button>
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                    ${btn('set-member-role', '👑 Maestro',       'master',   '#fbbf24')}
+                    ${btn('set-member-role', '📥 Fusionar aquí', 'absorb',   '#10b981')}
+                    ${btn('set-member-role', '🔀 Otra persona',  'separate', '#f97316')}
                 </div>
             </div>
         `;
+    }
+
+    /**
+     * Asigna un rol a un miembro del grupo actual. Si el rol es 'master',
+     * desmarca cualquier otro master del mismo grupo. Si es 'separate',
+     * abre un sub-modal para pedir el nuevo número de ficha (Tarea #23).
+     */
+    setMemberRole(memberId, role) {
+        const group = this.conflicts[this.currentConflictIndex];
+        if (!group) return;
+        const member = group.members.find(m => m.id === memberId);
+        if (!member) return;
+
+        // Toggle: clic en el mismo rol que ya tenía lo des-asigna.
+        if (member.role === role) {
+            member.role = null;
+            member._reassignTo = null;
+        } else {
+            // Si pasa a master, los demás masters quedan sin rol.
+            if (role === 'master') {
+                group.members.forEach(m => {
+                    if (m.id !== memberId && m.role === 'master') m.role = null;
+                });
+            }
+            member.role = role;
+            if (role !== 'separate') member._reassignTo = null;
+        }
+
+        // Re-render. El sub-modal de reasignación lo abre #23 cuando role==='separate'.
+        if (role === 'separate' && member.role === 'separate') {
+            this.promptReassignFicha(memberId);
+        } else {
+            this.showWizardStep();
+        }
+    }
+
+    /**
+     * Sub-modal: pide el nuevo número de ficha para un miembro 'separate'.
+     * Validaciones:
+     *   - No vacío.
+     *   - No igual al número actual del grupo.
+     *   - No igual a otro miembro 'separate' del mismo grupo (consistencia).
+     */
+    promptReassignFicha(memberId) {
+        const group = this.conflicts[this.currentConflictIndex];
+        const member = group.members.find(m => m.id === memberId);
+        if (!member) return;
+
+        const used = new Set(
+            group.members
+                .filter(m => m.id !== memberId && m.role === 'separate' && m._reassignTo)
+                .map(m => m._reassignTo)
+        );
+        used.add(group.number); // No puede ser el mismo que el grupo actual
+
+        const newNumber = (typeof window !== 'undefined' && window.prompt)
+            ? window.prompt(`Reasignar "${member.name}" — ¿a qué número de ficha pertenece?`, member._reassignTo || '')
+            : null;
+
+        if (newNumber === null || newNumber === undefined || String(newNumber).trim() === '') {
+            // Usuario canceló: revertimos el rol.
+            member.role = null;
+            this.showWizardStep();
+            return;
+        }
+        const clean = String(newNumber).trim();
+        if (used.has(clean)) {
+            NotificationSystem.error(`La ficha ${clean} ya está siendo usada en este grupo. Elige otra.`);
+            member.role = null;
+            this.showWizardStep();
+            return;
+        }
+        member._reassignTo = clean;
+        this.showWizardStep();
+    }
+
+    /**
+     * Stub para #24: aplica el grupo manual actual.
+     * Por ahora valida y avanza al siguiente. La ejecución real (merge +
+     * reasignaciones + re-análisis) se implementa en la próxima tarea.
+     */
+    async applyManualGroup() {
+        const group = this.conflicts[this.currentConflictIndex];
+        if (!group) return;
+        const validation = validateManualGroup(group.members);
+        if (!validation.ok) {
+            NotificationSystem.error('Faltan decisiones: ' + validation.errors.join(' '));
+            return;
+        }
+        // Marcador temporal — la implementación real va en Tarea #24.
+        NotificationSystem.info('Plan de grupo registrado (ejecución real pendiente — Tarea #24).');
+        this.currentConflictIndex++;
+        this.showWizardStep();
     }
 
     /**
