@@ -625,9 +625,13 @@ export function sanitizePositions(state) {
 // de cambio a otra app sin cerrar.
 if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', () => { flushPendingSave(); });
-    window.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') flushPendingSave();
-    });
+    // visibilitychange se dispara en `document` por spec — escucharlo ahí
+    // (en window solo llega por burbujeo, y no es fiable en todos los entornos).
+    if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flushPendingSave();
+        });
+    }
 }
 
 // Inicializar alias globales (Legacy compatibility)

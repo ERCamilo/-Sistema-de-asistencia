@@ -367,4 +367,110 @@ testRunner.addSuite("PersistenceService — immediate save", {
     }
 });
 
+// ─────────────────────────────────────────────────────────────
+// Suite: lifecycle events (Fase 1.3) — pagehide / visibilitychange
+// ─────────────────────────────────────────────────────────────
+// Pending debounced saves used to die silently if the user closed the tab,
+// refreshed, or backgrounded the PWA within the 300 ms window. PersistenceService
+// now wires `flushPendingSave` to `pagehide` and `visibilitychange` (hidden) so
+// the save is forced out before the page is discarded. These tests guard that
+// wiring against regression.
+
+testRunner.addSuite("PersistenceService — Lifecycle flush (Fase 1.3)", {
+
+    async "pagehide event forces a pending save to fire immediately"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            // Queue a save — would normally wait 300 ms to fire.
+            saveApplicationData({ skipValidation: true });
+
+            // Fire pagehide. The listener registered by PersistenceService should
+            // call flushPendingSave, which forces _executeSave to run now.
+            window.dispatchEvent(new Event('pagehide'));
+            await sleep(10);
+
+            testRunner.assert(
+                indexedDBService.saveState.mock.calls.length >= 1,
+                "pagehide should have flushed the pending save before the 300ms timer"
+            );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "visibilitychange to hidden flushes a pending save"() {
+        const snap = snapshotState();
+        const originalVisibility = document.visibilityState;
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            saveApplicationData({ skipValidation: true });
+
+            // jsdom: visibilityState is read-only, so we redefine it.
+            Object.defineProperty(document, 'visibilityState', {
+                configurable: true,
+                get: () => 'hidden'
+            });
+            document.dispatchEvent(new Event('visibilitychange'));
+            await sleep(10);
+
+            testRunner.assert(
+                indexedDBService.saveState.mock.calls.length >= 1,
+                "visibilitychange→hidden should have flushed the pending save"
+            );
+        } finally {
+            // Restore visibilityState getter
+            Object.defineProperty(document, 'visibilityState', {
+                configurable: true,
+                get: () => originalVisibility || 'visible'
+            });
+            restoreState(snap);
+        }
+    },
+
+    async "visibilitychange to visible does NOT trigger a flush"() {
+        const snap = snapshotState();
+        const originalVisibility = document.visibilityState;
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            saveApplicationData({ skipValidation: true });
+
+            Object.defineProperty(document, 'visibilityState', {
+                configurable: true,
+                get: () => 'visible'
+            });
+            document.dispatchEvent(new Event('visibilitychange'));
+            await sleep(10);
+
+            // The 300ms debounce hasn't elapsed yet and visibility is NOT hidden,
+            // so the save should still be pending (not yet executed).
+            testRunner.assertEquals(
+                indexedDBService.saveState.mock.calls.length,
+                0,
+                "visibilitychange→visible must NOT force the save"
+            );
+
+            // Cleanup: flush so the debounced timer doesn't fire after the test.
+            flushPendingSave();
+            await sleep(10);
+        } finally {
+            Object.defineProperty(document, 'visibilityState', {
+                configurable: true,
+                get: () => originalVisibility || 'visible'
+            });
+            restoreState(snap);
+        }
+    }
+
+});
+
 console.log('🧪 PersistenceService tests cargados.');
