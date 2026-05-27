@@ -120,6 +120,39 @@ const csMatch = fbSource.match(/async\s+createSnapshot[\s\S]*?(?=\n\s{4}(?:async
 
 });
 
+testRunner.addSuite("FirebaseService — Integración con SnapshotNotifier (H)", {
+
+    "createSnapshot llama a notifySnapshotCreated tras éxito"() {
+        const csMatch = fbSource.match(/async\s+createSnapshot[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        testRunner.assert(!!csMatch, "Debe existir createSnapshot");
+        const block = csMatch[0];
+        testRunner.assert(
+            /notifySnapshotCreated\s*\(/.test(block),
+            "createSnapshot debe llamar a notifySnapshotCreated tras crear el snapshot"
+        );
+    },
+
+    "FirebaseService importa SnapshotNotifier"() {
+        testRunner.assert(
+            /from\s+['"]\.\/SnapshotNotifier\.js['"]/.test(fbSource),
+            "FirebaseService debe importar de SnapshotNotifier"
+        );
+    },
+
+    "la llamada a notifySnapshotCreated está DESPUÉS del setDoc del snapshot"() {
+        const csMatch = fbSource.match(/async\s+createSnapshot[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const block = csMatch[0];
+        const setDocIdx = block.indexOf('setDoc(');
+        const notifyIdx = block.indexOf('notifySnapshotCreated');
+        testRunner.assert(setDocIdx >= 0 && notifyIdx >= 0, "Ambas llamadas deben existir");
+        testRunner.assert(
+            notifyIdx > setDocIdx,
+            "notifySnapshotCreated debe invocarse DESPUÉS del setDoc para no notificar fallos como éxitos"
+        );
+    }
+
+});
+
 testRunner.addSuite("FirebaseService — Integración con catálogo SnapshotReasons", {
 
     "todas las razones usadas en código tienen entrada en el catálogo"() {

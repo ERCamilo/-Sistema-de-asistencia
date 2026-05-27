@@ -7,6 +7,7 @@ import {
 } from '../data/firebase.js';
 import { getDeviceId } from '../config/Config.js';
 import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
+import { notifySnapshotCreated } from './SnapshotNotifier.js';
 
 class FirebaseService {
     constructor() {
@@ -159,6 +160,16 @@ class FirebaseService {
                 }
             });
             console.log(`📸 Snapshot (${type}/${resolvedReason}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
+
+            // 📣 Notificar al usuario (solo snapshots automáticos/del sistema;
+            // los manuales ya muestran su propio toast desde el botón).
+            notifySnapshotCreated({
+                reason: resolvedReason,
+                reasonLabel,
+                type,
+                isProtected: type === 'pre-restore' || !!reasonInfo?.protected
+            });
+
             return docRef.id;
         } catch (error) {
             console.error('❌ Error creando snapshot:', error);
