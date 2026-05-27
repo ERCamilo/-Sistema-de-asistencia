@@ -67,6 +67,13 @@ export const SNAPSHOT_REASONS = {
         type: 'pre-restore',
         color: '#10b981',
         protected: true
+    },
+    'pre-cloud-dedup': {
+        label: 'Antes de fusionar duplicados (local + nube)',
+        icon: '🧹',
+        type: 'pre-restore',
+        color: '#a855f7',
+        protected: true
     }
 };
 

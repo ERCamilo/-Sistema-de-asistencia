@@ -10,6 +10,8 @@
 
 import { Modal } from '../components/Modal.js';
 import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNumber, saveApplicationData } from '../services/PersistenceService.js';
+import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner.js';
+import { EmployeeRepository } from '../services/EmployeeRepository.js';
 import { state } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 
@@ -23,7 +25,9 @@ const _MAINT_ACTION_MAP = {
     'resolve-conflict': (id) => window._maintenanceUI?.resolveConflict(id),
     'skip-reassignment': () => window._maintenanceUI?.skipReassignment(),
     'force-comparison': () => window._maintenanceUI?.forceComparison(),
-    'apply-reassignment': () => window._maintenanceUI?.applyReassignment()
+    'apply-reassignment': () => window._maintenanceUI?.applyReassignment(),
+    'apply-plan': () => window._maintenanceUI?.handleApplyPlan(),
+    'cancel-plan': () => window._maintenanceUI?.cancelPlan()
 };
 
 function _handleMaintClick(e) {
@@ -63,17 +67,188 @@ export class MaintenanceUI {
     }
 
     /**
-     * Inicia el proceso de mantenimiento buscando conflictos
+     * Inicia el proceso de mantenimiento.
+     *
+     * Si la cuenta ya migró (schemaVersion >= 2) y hay sesión, precarga
+     * la subcolección de empleados de Firebase para detectar también
+     * duplicados cloud-only. Luego construye un plan clasificado por
+     * exactitud de nombre (opción B) y muestra un preview.
      */
     async start() {
-        this.conflicts = analyzeConflicts();
-        
+        // 1. Cargar la subcolección remota si aplica (puede tardar).
+        let cloudEmployees = [];
+        const isMigrated = (typeof state.settings?.schemaVersion === 'number') && state.settings.schemaVersion >= 2;
+        const hasUser = typeof globalThis !== 'undefined' && !!globalThis.currentUser;
+        if (isMigrated && hasUser) {
+            try {
+                cloudEmployees = await EmployeeRepository.loadAll();
+            } catch (e) {
+                console.warn('⚠️ No se pudo leer la subcolección de empleados:', e);
+                cloudEmployees = [];
+            }
+        }
+
+        // 2. Detectar conflictos local + cloud.
+        this.conflicts = analyzeConflicts({ cloudEmployees });
+
         if (this.conflicts.length === 0) {
             NotificationSystem.info('✨ No se encontraron duplicados que requieran atención.');
             return;
         }
 
-        this.showSelectionModal();
+        // 3. Construir el plan clasificado por exactitud de nombre (opción B).
+        this.plan = buildConflictPlan(this.conflicts);
+
+        // 4. Mostrar preview con auto-merges y pendings manuales separados.
+        this.showPlanPreview();
+    }
+
+    /**
+     * Modal de preview: muestra el plan completo antes de aplicar nada.
+     * Separa los auto-merges (nombres idénticos, seguros) de los que
+     * requieren revisión manual (nombres con cualquier diferencia).
+     */
+    showPlanPreview() {
+        const plan = this.plan || [];
+        const autoMerges  = plan.filter(p => p.action === 'auto-merge');
+        const needsManual = plan.filter(p => p.action === 'needs-manual');
+
+        const autoBlock = autoMerges.length === 0 ? '' : `
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #34d399; margin-bottom: 8px;">
+                    ⚡ Fusión automática (${autoMerges.length})
+                </div>
+                <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 10px;">
+                    Nombres idénticos. Se fusionarán preservando todos los préstamos y la asistencia.
+                </div>
+                <ul style="margin: 0; padding-left: 20px; font-size: 0.78rem; color: #94a3b8; max-height: 180px; overflow-y: auto;">
+                    ${autoMerges.map(p => {
+                        const masterName = (p.members.find(m => m.id === p.proposedMasterId) || {}).name || '?';
+                        const cloudTag = p.hasCloudLosers ? ' <span style="color:#a855f7;">📡 incluye limpieza de nube</span>' : '';
+                        return `<li>Ficha ${p.number} · <strong>${masterName}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
+                    }).join('')}
+                </ul>
+            </div>
+        `;
+
+        const manualBlock = needsManual.length === 0 ? '' : `
+            <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #fbbf24; margin-bottom: 8px;">
+                    ⚠️ Requieren revisión manual (${needsManual.length})
+                </div>
+                <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 10px;">
+                    Los nombres tienen diferencias (mayúsculas, acentos, orden, etc.).
+                    Decidirás caso por caso si son la misma persona.
+                </div>
+                <ul style="margin: 0; padding-left: 20px; font-size: 0.78rem; color: #94a3b8; max-height: 180px; overflow-y: auto;">
+                    ${needsManual.map(p => {
+                        const names = p.members.map(m => `"${m.name}"`).join(' vs ');
+                        return `<li>Ficha ${p.number} · ${names}</li>`;
+                    }).join('')}
+                </ul>
+            </div>
+        `;
+
+        const content = `
+            <div style="display: flex; flex-direction: column; gap: 4px; padding: 6px;">
+                <p style="color: #94a3b8; margin: 0 0 14px 0;">
+                    Se detectaron <strong>${plan.length} grupos</strong> de empleados con número de ficha duplicado.
+                    Se creará un snapshot de seguridad <strong>antes</strong> de aplicar.
+                </p>
+                ${autoBlock}
+                ${manualBlock}
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
+                    ${autoMerges.length > 0 ? `
+                        <button type="button" data-maint-action="apply-plan"
+                                style="padding: 12px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 10px; font-weight: 800; cursor: pointer;">
+                            ✨ Aplicar ${autoMerges.length} fusión${autoMerges.length === 1 ? '' : 'es'} automática${autoMerges.length === 1 ? '' : 's'}${needsManual.length > 0 ? ` y revisar ${needsManual.length} manualmente` : ''}
+                        </button>
+                    ` : `
+                        <button type="button" data-maint-action="manual-choice"
+                                style="padding: 12px; background: #f59e0b; color: #0f172a; border: none; border-radius: 10px; font-weight: 800; cursor: pointer;">
+                            🔍 Revisar manualmente (${needsManual.length})
+                        </button>
+                    `}
+                    <button type="button" data-maint-action="cancel-plan"
+                            style="padding: 10px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 10px; cursor: pointer;">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        `;
+
+        if (this.modal && this.modal.isOpen) {
+            this.modal.updateContent(content);
+            this.modal.title = 'Saneamiento de Datos';
+        } else {
+            this.modal = new Modal({
+                title: 'Saneamiento de Datos',
+                subtitle: 'Plan de resolución de conflictos',
+                content,
+                size: 'medium'
+            }).open();
+        }
+        window._maintenanceUI = this;
+    }
+
+    /**
+     * Aplica el plan: snapshot pre-cloud-dedup → executeMergePlan
+     * → saveApplicationData → si hay pendings manuales, abrir wizard.
+     */
+    async handleApplyPlan() {
+        const plan = this.plan || [];
+        if (plan.length === 0) return;
+
+        // 1. Snapshot de seguridad. Si falla, abortamos (preservar invariante
+        //    "nunca destruimos sin red de seguridad").
+        try {
+            if (globalThis.createFirebaseSnapshot) {
+                await globalThis.createFirebaseSnapshot('pre-restore', 'pre-cloud-dedup');
+            }
+        } catch (e) {
+            console.error('No se pudo crear el snapshot pre-cloud-dedup:', e);
+            NotificationSystem.error('No se pudo crear el snapshot de seguridad. Cancelando.');
+            return;
+        }
+
+        // 2. Ejecutar el plan (solo auto-merges; los manuales se separan).
+        let result;
+        try {
+            result = executeMergePlan(plan);
+        } catch (e) {
+            console.error('Error al ejecutar el plan:', e);
+            NotificationSystem.error('Error durante la fusión. Revisa el snapshot.');
+            return;
+        }
+
+        // 3. Guardar. saveApplicationData también drena _pendingCloudDeletes
+        //    (Tarea #18) para limpiar los docs huérfanos en la subcolección.
+        await saveApplicationData({ skipValidation: false, clearAttendance: true });
+
+        // 4. Pasar a manual si quedaron conflictos por revisar.
+        const manuals = plan.filter(p => p.action === 'needs-manual');
+        if (manuals.length > 0) {
+            this.conflicts = manuals.map(p => ({
+                number: p.number,
+                members: p.members
+            }));
+            this.currentConflictIndex = 0;
+            this.mergeCount = result.merged || 0;
+            this.showWizardStep();
+            return;
+        }
+
+        // 5. Cerrar modal con resumen.
+        if (this.modal) this.modal.close();
+        NotificationSystem.success(`✅ Plan aplicado: ${result.merged} fusión${result.merged === 1 ? '' : 'es'} completada${result.merged === 1 ? '' : 's'}.`);
+        if (globalThis.render) globalThis.render();
+    }
+
+    /**
+     * Cancelar el plan: cierra el modal sin tocar nada.
+     */
+    cancelPlan() {
+        if (this.modal) this.modal.close();
     }
 
     /**
