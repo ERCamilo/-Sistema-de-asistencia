@@ -3180,7 +3180,7 @@ function BottomNavigation() {
                     <span class="bottom-nav-text">Asistencia</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="employees"
+                        type="button" data-app-fn="openEmpleadosPersonal"
                         title="Gestionar empleados y posiciones">
                     <span class="bottom-nav-icon">${icons.get('personnel')}</span>
                     <span class="bottom-nav-text">Personal</span>
@@ -3192,13 +3192,13 @@ function BottomNavigation() {
                     <span class="bottom-nav-text">Reportes</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="export"
+                        type="button" data-app-fn="openNomina"
                         title="Nómina">
                     <span class="bottom-nav-icon">${icons.get('payroll')}</span>
                     <span class="bottom-nav-text">Nómina</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="settings"
+                        type="button" data-app-fn="openAjustesGenerales"
                         title="Configuración del sistema">
                     <span class="bottom-nav-icon">${icons.get('settings')}</span>
                     <span class="bottom-nav-text">Ajustes</span>
@@ -3229,13 +3229,21 @@ window.openCuentasPorCobrar = () => {
     if (typeof window.changeTab === 'function') window.changeTab('export');
 };
 
-// 🟢 Badge de sincronización (Fase 3.2) — invocado desde el Header.
-// Lee de SyncStatus + currentUser + navigator.onLine para producir el HTML.
+// 🟢 Badge de sincronización (Fase 3.2 + ajuste UX consolidado) —
+// invocado desde el Header. Modo compacto: SOLO el icono, el texto va
+// al tooltip (title). El estado se comunica enteramente por el icono y
+// el color:
+//   ✅ verde   = totalmente sincronizado.
+//   🕒 ámbar  = aún sincronizando o desactualizado.
+//   ❌ rojo   = error.
+//   🔌 rojo   = sin conexión a Internet.
+//   👤 gris   = sin sesión.
 window.renderSyncStatusBadgeForHeader = () => {
     return renderSyncStatusBadge({
         lastSyncedAt: SyncStatus.getLastSyncedAt(),
         isAuthenticated: !!window.currentUser,
-        isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true
+        isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
+        compact: true
     });
 };
 
@@ -3245,7 +3253,8 @@ window.renderSyncStatusBadgeForHeader = () => {
 if (typeof window !== 'undefined') {
     attachLiveBadge({
         getAuth:   () => !!window.currentUser,
-        getOnline: () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true
+        getOnline: () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
+        compact:   true   // El header usa modo icono-solo
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
     window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
@@ -3259,6 +3268,55 @@ if (typeof window !== 'undefined') {
 window.openCalendarioAjustes = () => {
     if (state) state.settingsActiveTab = 'calendar';
     if (typeof window.changeTab === 'function') window.changeTab('settings');
+};
+
+window.openDatosAjustes = () => {
+    if (state) state.settingsActiveTab = 'data';
+    if (typeof window.changeTab === 'function') {
+        window.changeTab('settings');
+    }
+    // Si hay un usuario logueado en Firebase, cargar las snapshots de forma asíncrona
+    if (window.currentUser && typeof FirebaseService !== 'undefined') {
+        setTimeout(async () => {
+            try {
+                state.isLoadingSnapshots = true;
+                if (typeof render === 'function') render();
+                const snaps = await FirebaseService.listSnapshots();
+                state.snapshots = snaps;
+                state.isLoadingSnapshots = false;
+                if (typeof render === 'function') render();
+            } catch (e) {
+                console.error('Error cargando snapshots en openDatosAjustes:', e);
+                state.isLoadingSnapshots = false;
+                if (typeof render === 'function') render();
+            }
+        }, 100);
+    }
+};
+
+window.openNomina = () => {
+    if (state) state.payrollViewMode = 'generator';
+    if (typeof window.changeTab === 'function') window.changeTab('export');
+};
+
+window.openAjustesGenerales = () => {
+    if (state) state.settingsActiveTab = 'general';
+    if (typeof window.changeTab === 'function') window.changeTab('settings');
+};
+
+window.openEmpleadosPersonal = () => {
+    if (state) state.employeeViewMode = 'employees';
+    if (typeof window.changeTab === 'function') window.changeTab('employees');
+};
+
+window.openLideresPersonal = () => {
+    if (state) state.employeeViewMode = 'leaders';
+    if (typeof window.changeTab === 'function') window.changeTab('employees');
+};
+
+window.openPuestosPersonal = () => {
+    if (state) state.employeeViewMode = 'positions';
+    if (typeof window.changeTab === 'function') window.changeTab('employees');
 };
 
 function SidebarNavigation() {
@@ -3278,27 +3336,57 @@ function SidebarNavigation() {
     const isCuentas = state.activeTab === 'export' && state.payrollViewMode === 'ledger';
     const cuentasCls = isCuentas ? 'sidebar-item active' : 'sidebar-item';
 
+    // "Datos" is active when on Ajustes with the data sub-tab
+    const isData = state.activeTab === 'settings' && state.settingsActiveTab === 'data';
+    const dataCls = isData ? 'sidebar-item active' : 'sidebar-item';
+
     // "Calendario" is active when on Ajustes with the calendar sub-tab
     const isCal = state.activeTab === 'settings' && state.settingsActiveTab === 'calendar';
     const calCls = isCal ? 'sidebar-item active' : 'sidebar-item';
 
+    // "Ajustes" (General) is active when on settings but not calendar or data
+    const isAjustes = state.activeTab === 'settings' && !isCal && !isData;
+    const ajustesCls = isAjustes ? 'sidebar-item active' : 'sidebar-item';
+
+    const isPersonalActive = state.activeTab === 'employees' || state.activeTab === 'positions';
+
     const badge = (n) => n > 0 ? `<span class="sidebar-badge">${n}</span>` : '';
 
     return `<aside class="app-sidebar" aria-label="Navegación principal">
+                <!-- Logo/Branding Box -->
+                <div class="sidebar-brand-box" style="margin-bottom: 16px; padding: 10px; border-radius: 12px; background: #020617; border: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; height: 72px; overflow: hidden; flex-shrink: 0;">
+                    <img src="feature_graphic (Custom) (1).jpeg" alt="Logo" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 6px;">
+                </div>
                 <button class="${cls('attendance')}" type="button" data-app-fn="changeTab" data-arg="attendance" aria-label="Asistencia" title="Asistencia">
                     <span class="sidebar-icon">${icons.get('attendance')}</span>
                     <span class="sidebar-label">Asistencia</span>
                     ${badge(activeEmployees)}
                 </button>
-                <button class="${cls('employees','positions')}" type="button" data-app-fn="changeTab" data-arg="employees" aria-label="Personal" title="Personal">
+                <button class="${isPersonalActive ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="openEmpleadosPersonal" aria-label="Personal" title="Personal">
                     <span class="sidebar-icon">${icons.get('personnel')}</span>
                     <span class="sidebar-label">Personal</span>
                 </button>
+                ${isPersonalActive ? `
+                <div class="sidebar-subitems" style="padding-left: 20px; display: flex; flex-direction: column; gap: 2px; margin-top: 2px; margin-bottom: 4px;">
+                    <button class="sidebar-item ${state.employeeViewMode === 'employees' || !state.employeeViewMode ? 'active' : ''}" type="button" data-app-fn="openEmpleadosPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Empleados" title="Empleados">
+                        <span class="sidebar-icon" style="font-size: 14px;">👥</span>
+                        <span class="sidebar-label">Empleados</span>
+                    </button>
+                    <button class="sidebar-item ${state.employeeViewMode === 'leaders' ? 'active' : ''}" type="button" data-app-fn="openLideresPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Líderes" title="Líderes">
+                        <span class="sidebar-icon" style="font-size: 14px;">🔑</span>
+                        <span class="sidebar-label">Líderes</span>
+                    </button>
+                    <button class="sidebar-item ${state.employeeViewMode === 'positions' ? 'active' : ''}" type="button" data-app-fn="openPuestosPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Puestos" title="Puestos">
+                        <span class="sidebar-icon" style="font-size: 14px;">💼</span>
+                        <span class="sidebar-label">Puestos</span>
+                    </button>
+                </div>
+                ` : ''}
                 <button class="${cls('employee-report','dashboard')}" type="button" data-app-fn="changeTab" data-arg="employee-report" aria-label="Reportes" title="Reportes">
                     <span class="sidebar-icon">${icons.get('reports')}</span>
                     <span class="sidebar-label">Reportes</span>
                 </button>
-                <button class="${state.activeTab === 'export' && !isCuentas ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="export" aria-label="Nómina" title="Nómina">
+                <button class="${state.activeTab === 'export' && !isCuentas ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="openNomina" aria-label="Nómina" title="Nómina">
                     <span class="sidebar-icon">${icons.get('payroll')}</span>
                     <span class="sidebar-label">Nómina</span>
                 </button>
@@ -3309,13 +3397,17 @@ function SidebarNavigation() {
                 </button>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-section">Sistema</div>
-                <button class="${state.activeTab === 'settings' && !isCal ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="settings" aria-label="Ajustes" title="Ajustes">
+                <button class="${ajustesCls}" type="button" data-app-fn="openAjustesGenerales" aria-label="Ajustes" title="Ajustes">
                     <span class="sidebar-icon">${icons.get('settings')}</span>
                     <span class="sidebar-label">Ajustes</span>
                 </button>
                 <button class="${calCls}" type="button" data-app-fn="openCalendarioAjustes" aria-label="Calendario" title="Calendario">
                     <span class="sidebar-icon">📅</span>
                     <span class="sidebar-label">Calendario</span>
+                </button>
+                <button class="${dataCls}" type="button" data-app-fn="openDatosAjustes" aria-label="Datos" title="Datos">
+                    <span class="sidebar-icon">${icons.get('save')}</span>
+                    <span class="sidebar-label">Datos</span>
                 </button>
                 <div class="sidebar-foot">
                     <span class="sidebar-foot-dot"></span>

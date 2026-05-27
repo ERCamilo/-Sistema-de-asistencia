@@ -146,6 +146,93 @@ testRunner.addSuite("SyncStatusBadge — renderSyncStatusBadge (Fase 3.2)", {
 });
 
 // ─────────────────────────────────────────────────────────────
+// Modo compacto: solo icono, texto en title (tooltip)
+// ─────────────────────────────────────────────────────────────
+
+testRunner.addSuite("SyncStatusBadge — modo compacto (icono solo)", {
+
+    "compact:true → no incluye el texto visible 'Sincronizado'"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true,
+            compact: true
+        });
+        // El texto va al title (tooltip), no al body visible.
+        testRunner.assert(!/>Sincronizado/i.test(html),
+            'En modo compacto el texto "Sincronizado" NO debe estar en el body. HTML: ' + html.slice(0, 300));
+    },
+
+    "compact:true incluye un title con el texto completo (tooltip accesible)"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true,
+            compact: true
+        });
+        testRunner.assert(/title=["'][^"']*[Ss]incronizado/.test(html),
+            'Debe haber un title con la palabra Sincronizado para accesibilidad');
+    },
+
+    "compact:false (default) sigue funcionando con texto visible"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true
+        });
+        testRunner.assert(/>.*[Ss]incronizado/.test(html),
+            'Sin compact, debe haber texto visible (regression check)');
+    },
+
+    "compact estado 'pending' usa icono de reloj 🕒"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: null,
+            isAuthenticated: true,
+            isOnline: true,
+            compact: true
+        });
+        testRunner.assert(/🕒|⏳/.test(html),
+            'Pending/no-aún-sincronizado debe mostrar un reloj. HTML: ' + html.slice(0, 200));
+    },
+
+    "compact estado 'warning' (stale, >30s) también usa reloj"() {
+        const now = 1000000;
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: now - 5 * 60 * 1000,
+            isAuthenticated: true,
+            isOnline: true,
+            compact: true,
+            now
+        });
+        testRunner.assert(/🕒|⏳/.test(html),
+            'Warning (sincronización vieja) también muestra reloj');
+    },
+
+    "compact estado 'synced' usa checkmark ✅"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true,
+            compact: true
+        });
+        testRunner.assert(/✅|✔/.test(html),
+            'Sincronizado debe mostrar checkmark');
+    },
+
+    "compact estado 'offline' usa ❌ o 🔌"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: false,
+            compact: true
+        });
+        testRunner.assert(/❌|🔌/.test(html),
+            'Offline debe ser claro: ❌ o 🔌');
+    }
+
+});
+
+// ─────────────────────────────────────────────────────────────
 // Suite: attachLiveBadge — auto-update sin trigger render() global
 // ─────────────────────────────────────────────────────────────
 
