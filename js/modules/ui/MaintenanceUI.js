@@ -550,20 +550,96 @@ export class MaintenanceUI {
     }
 
     /**
-     * Stub para #24: aplica el grupo manual actual.
-     * Por ahora valida y avanza al siguiente. La ejecución real (merge +
-     * reasignaciones + re-análisis) se implementa en la próxima tarea.
+     * Aplica las decisiones del grupo manual actual: fusiona los
+     * 'absorb' en el master, reasigna las fichas de los 'separate',
+     * guarda, y re-analiza por si las reasignaciones generaron nuevos
+     * conflictos en otras fichas (cascada).
+     *
+     * Caso real: ficha 501 con Hector + Héctor + Jean. Resuelves
+     * fusionando los dos Hector y reasignando Jean a la ficha 500.
+     * Si en la 500 ya había otro Jean, aparece un nuevo grupo al
+     * final de la cola para resolver a continuación.
      */
     async applyManualGroup() {
         const group = this.conflicts[this.currentConflictIndex];
         if (!group) return;
+
         const validation = validateManualGroup(group.members);
         if (!validation.ok) {
             NotificationSystem.error('Faltan decisiones: ' + validation.errors.join(' '));
             return;
         }
-        // Marcador temporal — la implementación real va en Tarea #24.
-        NotificationSystem.info('Plan de grupo registrado (ejecución real pendiente — Tarea #24).');
+
+        const { masterId, absorbIds, separateIds } = validation;
+
+        // 1. Fusionar absorbs en el master usando executeMergePlan (que ya
+        //    sabe manejar cloud-only y encolar borrados remotos).
+        if (masterId && absorbIds.length > 0) {
+            const planItem = {
+                number: group.number,
+                action: 'auto-merge',
+                members: group.members,
+                proposedMasterId: masterId,
+                loserIds: absorbIds,
+                totalLoansAfterMerge: 0,
+                hasCloudLosers: group.members.some(m =>
+                    absorbIds.includes(m.id) && (m._source === 'cloud' || m._source === 'both')
+                )
+            };
+            const r = executeMergePlan([planItem]);
+            this.mergeCount += (r.merged || 0);
+        }
+
+        // 2. Reasignar separates. Materializar miembros cloud-only antes.
+        for (const sepId of separateIds) {
+            const member = group.members.find(m => m.id === sepId);
+            if (!member || !member._reassignTo) continue;
+
+            const inState = state.employees.find(e => e.id === sepId);
+            if (!inState) {
+                const copy = { ...member };
+                delete copy._source;
+                delete copy._reassignTo;
+                delete copy.role;
+                state.employees.push(copy);
+            }
+            reassignEmployeeNumber(sepId, member._reassignTo);
+        }
+
+        // 3. Guardar. saveApplicationData también drena _pendingCloudDeletes
+        //    (Tarea #18) y sube los empleados cuyo número cambió.
+        await saveApplicationData({ skipValidation: false, clearAttendance: true });
+
+        // 4. Re-analizar: cargar cloud para ver si las reasignaciones
+        //    crearon conflictos nuevos en otras fichas.
+        let cloudEmployees = [];
+        const isMigrated = (typeof state.settings?.schemaVersion === 'number') && state.settings.schemaVersion >= 2;
+        const hasUser = typeof globalThis !== 'undefined' && !!globalThis.currentUser;
+        if (isMigrated && hasUser) {
+            try {
+                cloudEmployees = await EmployeeRepository.loadAll();
+            } catch (e) {
+                console.warn('⚠️ Re-análisis: no se pudo leer cloud:', e);
+            }
+        }
+        const fresh = analyzeConflicts({ cloudEmployees });
+
+        // 5. Reconstruir la cola: mantener los grupos ya procesados,
+        //    descartar los que reaparecen ya resueltos, y añadir los
+        //    nuevos (probablemente generados por las reasignaciones).
+        const processedNumbers = new Set(
+            this.conflicts
+                .slice(0, this.currentConflictIndex + 1)
+                .map(c => String(c.number))
+        );
+        const remaining = fresh.filter(c => !processedNumbers.has(String(c.number)));
+
+        this.conflicts = [
+            ...this.conflicts.slice(0, this.currentConflictIndex + 1),
+            ...remaining
+        ];
+
+        // 6. Avanzar al siguiente grupo del wizard.
         this.currentConflictIndex++;
         this.showWizardStep();
     }
