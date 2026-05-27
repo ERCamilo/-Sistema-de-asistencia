@@ -99,4 +99,29 @@ testRunner.addSuite("MaintenanceUI — cableado cloud-aware (Tarea #20)", {
 
 });
 
+testRunner.addSuite("MaintenanceUI — opción 'Revisar TODO manualmente' (Tarea #25)", {
+
+    "el preview modal incluye un botón data-maint-action='review-all-manually'"() {
+        testRunner.assert(
+            /data-maint-action=["']review-all-manually["']/.test(SRC),
+            'Debe existir botón con la acción review-all-manually'
+        );
+    },
+
+    "review-all-manually está registrado en el delegation map"() {
+        testRunner.assert(
+            /'review-all-manually':/.test(SRC),
+            'Acción debe estar en el delegation map'
+        );
+    },
+
+    "existe el método reviewAllManually() en la clase"() {
+        testRunner.assert(
+            /reviewAllManually\s*\(/.test(SRC),
+            'Método reviewAllManually debe existir en la clase'
+        );
+    }
+
+});
+
 console.log('🧪 MaintenanceUI cloud-aware tests cargados.');

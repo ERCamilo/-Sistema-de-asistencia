@@ -29,6 +29,7 @@ const _MAINT_ACTION_MAP = {
     'apply-reassignment': () => window._maintenanceUI?.applyReassignment(),
     'apply-plan': () => window._maintenanceUI?.handleApplyPlan(),
     'cancel-plan': () => window._maintenanceUI?.cancelPlan(),
+    'review-all-manually': () => window._maintenanceUI?.reviewAllManually(),
     'set-member-role': (memberId, target) => {
         const role = target?.dataset?.role || null;
         window._maintenanceUI?.setMemberRole(memberId, role);
@@ -175,6 +176,11 @@ export class MaintenanceUI {
                             🔍 Revisar manualmente (${needsManual.length})
                         </button>
                     `}
+                    <button type="button" data-maint-action="review-all-manually"
+                            style="padding: 11px; background: transparent; color: #94a3b8; border: 1px solid #475569; border-radius: 10px; font-weight: 600; cursor: pointer;"
+                            title="Forzar revisión manual de TODOS los conflictos, incluyendo los que el sistema clasificó como seguros para auto-fusión.">
+                        🔍 Revisar TODO manualmente (${plan.length})
+                    </button>
                     <button type="button" data-maint-action="cancel-plan"
                             style="padding: 10px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 10px; cursor: pointer;">
                         Cancelar
@@ -255,6 +261,22 @@ export class MaintenanceUI {
      */
     cancelPlan() {
         if (this.modal) this.modal.close();
+    }
+
+    /**
+     * (Tarea #25) Forzar todos los conflictos a revisión manual,
+     * incluso los que el sistema clasificó como auto-mergeables.
+     *
+     * Útil cuando el usuario quiere control total sobre cada fusión,
+     * por ejemplo después de notar un caso en que la auto-detección
+     * eligió un master que él prefiere cambiar.
+     */
+    reviewAllManually() {
+        // Conservamos las conflicts originales pero las pasamos todas al
+        // wizard manual. No tocamos auto-merges (no las hemos ejecutado).
+        this.currentConflictIndex = 0;
+        this.mergeCount = 0;
+        this.showWizardStep();
     }
 
     /**
