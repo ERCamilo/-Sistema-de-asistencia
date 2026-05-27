@@ -745,7 +745,10 @@ export class MaintenanceUI {
                 delete copy.role;
                 state.employees.push(copy);
             }
-            reassignEmployeeNumber(sepId, member._reassignTo);
+            // allowCollision:true — si el destino ya está ocupado, dejamos el
+            // conflicto temporal en pie y la re-detección de abajo lo añadirá
+            // como un nuevo grupo manual a la cola del wizard.
+            reassignEmployeeNumber(sepId, member._reassignTo, { allowCollision: true });
         }
 
         // 3. Guardar. saveApplicationData también drena _pendingCloudDeletes

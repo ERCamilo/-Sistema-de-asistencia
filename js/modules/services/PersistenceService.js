@@ -953,17 +953,32 @@ export async function executeAutoRepair() {
 /**
  * 🔄 reassignEmployeeNumber() - Cambia el número de ficha de un empleado
  * También actualiza las claves de asistencia para mantener coherencia.
+ *
+ * Por defecto rechaza la reasignación si el nuevo número ya está en uso
+ * por otro empleado (comportamiento clásico, seguro para llamadas desde
+ * UI ad-hoc).
+ *
+ * Con `opts.allowCollision === true` aplica la reasignación aunque deje
+ * dos (o más) empleados con el mismo número, creando un conflicto
+ * temporal. Usado por el wizard manual de saneamiento: la cascada de
+ * re-análisis (applyManualGroup paso 4) detectará el nuevo grupo y
+ * lo añadirá a la cola para que el usuario lo resuelva a continuación.
+ * Sin este opt, el wizard se quedaba atascado en cascadas tipo
+ * "ficha 501 con 3 personas, una va a ficha 500 ya ocupada".
+ *
  * ⚠️ NO guarda automáticamente. El caller debe llamar saveApplicationData().
  */
-export function reassignEmployeeNumber(employeeId, newNumber) {
+export function reassignEmployeeNumber(employeeId, newNumber, opts = {}) {
     const emp = state.employees.find(e => e.id === employeeId);
     if (!emp) return false;
 
-    // Verificar que el nuevo número no esté en uso
-    const conflict = state.employees.find(e => e.number === newNumber && e.id !== employeeId);
-    if (conflict) {
-        console.warn(`⚠️ Número ${newNumber} ya en uso por ${conflict.name}`);
-        return false;
+    if (!opts.allowCollision) {
+        // Verificar que el nuevo número no esté en uso
+        const conflict = state.employees.find(e => e.number === newNumber && e.id !== employeeId);
+        if (conflict) {
+            console.warn(`⚠️ Número ${newNumber} ya en uso por ${conflict.name}`);
+            return false;
+        }
     }
 
     const oldNumber = emp.number;
@@ -971,7 +986,10 @@ export function reassignEmployeeNumber(employeeId, newNumber) {
     emp.updatedAt = Date.now();
     emp._isDirty = true;
 
-    console.log(`🔄 Ficha reasignada: ${emp.name} (${oldNumber} → ${newNumber})`);
+    const tail = opts.allowCollision && state.employees.some(e => e.number === newNumber && e.id !== employeeId)
+        ? ' [conflicto temporal — el wizard lo resolverá en el siguiente paso]'
+        : '';
+    console.log(`🔄 Ficha reasignada: ${emp.name} (${oldNumber} → ${newNumber})${tail}`);
     return true;
 }
 
