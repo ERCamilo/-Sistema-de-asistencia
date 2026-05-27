@@ -378,6 +378,7 @@
     display: flex;
     gap: 12px;
     width: 100%;
+    align-items: stretch;
 }
 
 .search-input-group {
@@ -402,6 +403,169 @@
     top: 50%;
     transform: translateY(-50%);
     opacity: 0.5;
+}
+
+.attendance-layout-btn {
+    width: 44px;
+    min-width: 44px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.attendance-layout-btn:hover,
+.attendance-layout-btn:focus-visible {
+    color: #06b6d4;
+    border-color: rgba(6, 182, 212, 0.7);
+    background: rgba(6, 182, 212, 0.08);
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.12);
+    outline: none;
+}
+
+.employee-list {
+    display: grid;
+    gap: 6px;
+}
+
+.employee-list .employee-row {
+    margin-bottom: 0;
+}
+
+@media (min-width: 1024px) {
+    .employee-list.employee-list-cols-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+    }
+}
+
+.attendance-layout-overlay {
+    background: rgba(2, 6, 23, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 10020;
+}
+
+.attendance-layout-modal {
+    width: min(520px, 100%);
+    background: #0f172a;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 14px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    padding: 18px;
+}
+
+.attendance-layout-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.attendance-layout-header h2 {
+    margin: 0;
+    font-size: 1rem;
+    color: #f8fafc;
+    letter-spacing: 0;
+}
+
+.attendance-layout-header p {
+    margin: 4px 0 0;
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+
+.attendance-layout-close {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.attendance-layout-close:hover,
+.attendance-layout-close:focus-visible {
+    color: #f8fafc;
+    border-color: #64748b;
+    outline: none;
+}
+
+.attendance-layout-options {
+    display: grid;
+    gap: 10px;
+}
+
+.attendance-layout-option {
+    width: 100%;
+    border: 1px solid #334155;
+    background: #111827;
+    color: #e2e8f0;
+    border-radius: 10px;
+    padding: 14px;
+    display: grid;
+    grid-template-columns: 42px 1fr 24px;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.attendance-layout-option:hover,
+.attendance-layout-option:focus-visible,
+.attendance-layout-option.active {
+    border-color: #06b6d4;
+    background: rgba(6, 182, 212, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(6, 182, 212, 0.15);
+    outline: none;
+}
+
+.attendance-layout-option-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 182, 212, 0.12);
+    color: #06b6d4;
+    font-size: 1.25rem;
+}
+
+.attendance-layout-option-text {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.attendance-layout-option-text strong {
+    color: #f8fafc;
+    font-size: 0.95rem;
+}
+
+.attendance-layout-option-text small {
+    color: #94a3b8;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.attendance-layout-option-check {
+    color: #10b981;
+    font-weight: 800;
+    text-align: center;
 }
 
 /* --- 👤 FILAS DE EMPLEADO --- */
@@ -543,6 +707,11 @@
     .search-wrapper {
         flex-direction: column !important;
         gap: 8px !important;
+    }
+    .attendance-layout-btn {
+        width: 100%;
+        min-width: 0;
+        height: 42px;
     }
     .search-input-group {
         width: 100% !important;
@@ -697,4 +866,4 @@
         max-height: calc(100vh - 120px) !important;
     }
 }
-
+

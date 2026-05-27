@@ -27,30 +27,49 @@ function ensureWeatherState() {
  *
  * @returns {boolean} true if anything changed (cache miss + new data)
  */
-export async function refreshWeather() {
+export async function refreshWeather(opts = {}) {
     ensureWeatherState();
     let changed = false;
     try {
         const prevCurrent = state.weather.cache?.current?.fetchedAt;
-        await fetchCurrent(state);
+        await fetchCurrent(state, { force: !!opts.force });
         if (state.weather.cache?.current?.fetchedAt !== prevCurrent) changed = true;
 
         const prevForecast = state.weather.cache?.forecast?.fetchedAt;
-        await fetchForecast(state, 5);
+        await fetchForecast(state, 5, { force: !!opts.force });
         if (state.weather.cache?.forecast?.fetchedAt !== prevForecast) changed = true;
 
         const prevHourly = state.weather.cache?.hourly?.fetchedAt;
-        await fetchHourly(state, 24, 3);
+        await fetchHourly(state, 24, 3, { force: !!opts.force });
         if (state.weather.cache?.hourly?.fetchedAt !== prevHourly) changed = true;
     } catch (err) {
         // Never let a weather error break the rest of the UI. Log and move on.
         if (window.debug) window.debug.log(`refreshWeather error: ${err.message}`);
     }
-    if (changed) {
+    if (changed || opts.force) {
         saveApplicationData();
         render();
     }
     return changed;
+}
+
+/**
+ * Triggered by the reload button. Bypasses the cache and refreshes the UI
+ * with loading feedback.
+ */
+export async function forceRefreshWeather() {
+    ensureWeatherState();
+    if (state.weather.isRefreshing) return;
+    
+    state.weather.isRefreshing = true;
+    render();
+    
+    try {
+        await refreshWeather({ force: true });
+    } finally {
+        state.weather.isRefreshing = false;
+        render();
+    }
 }
 
 export function toggleWeatherPanel() {
@@ -106,6 +125,7 @@ export function registerLegacyGlobals() {
     window.closeWeatherPanel = closeWeatherPanel;
     window.toggleWeatherExpanded = toggleWeatherExpanded;
     window.refreshWeather = refreshWeather;
+    window.forceRefreshWeather = forceRefreshWeather;
     _installOutsideClickHandler();
     // Kick a refresh at boot so the chip has fresh data on first render.
     // Fire-and-forget: don't block module initialization on network.

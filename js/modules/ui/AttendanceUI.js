@@ -26,6 +26,8 @@ const _ACTION_MAP = {
     'change-base-hours': (delta) => window.changeBaseHours?.(parseFloat(delta)),
     'set-employee-filter': (val) => window.setEmployeeFilter?.(val === 'null' ? null : val),
     'set-position-filter': (id) => window.setPositionFilter?.(id),
+    'set-search-filter': (_, el) => window.setSearchFilter?.(el.value),
+    'set-leader-filter': (_, el) => window.setLeaderFilter?.(el.value),
     'toggle-filters': () => window.toggleFilters?.(),
     'clear-search-filter': () => window.setSearchFilter?.(''),
     'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
@@ -43,10 +45,23 @@ function _handleAttendanceClick(e) {
     const target = e.target.closest('[data-att-action]');
     if (!target) return;
     const action = target.dataset.attAction;
+    if (action === 'set-search-filter' || action === 'set-leader-filter') return;
     const handler = _ACTION_MAP[action];
     if (!handler) return;
     const arg = target.dataset.id ?? target.dataset.value ?? null;
     handler(arg, target, e);
+}
+
+function _handleAttendanceInput(e) {
+    const target = e.target.closest('[data-att-action]');
+    if (!target || target.dataset.attAction !== 'set-search-filter') return;
+    _ACTION_MAP['set-search-filter']?.(null, target, e);
+}
+
+function _handleAttendanceChange(e) {
+    const target = e.target.closest('[data-att-action]');
+    if (!target || target.dataset.attAction !== 'set-leader-filter') return;
+    _ACTION_MAP['set-leader-filter']?.(null, target, e);
 }
 
 function _handleAttendanceKeydown(e) {
@@ -62,6 +77,8 @@ let _attendanceDelegationAttached = false;
 export function attachAttendanceDelegation() {
     if (_attendanceDelegationAttached) return;
     document.addEventListener('click', _handleAttendanceClick);
+    document.addEventListener('input', _handleAttendanceInput);
+    document.addEventListener('change', _handleAttendanceChange);
     document.addEventListener('keydown', _handleAttendanceKeydown);
     _attendanceDelegationAttached = true;
 }
@@ -450,9 +467,10 @@ export function SearchBar() {
     return `
         <div class="search-wrapper">
             <div class="search-input-group">
-                <input type="text" id="search-input" value="${searchValue}" oninput="setSearchFilter(this.value)"
+                <input type="text" id="search-input" value="${escapeHTML(searchValue)}"
+                       data-att-action="set-search-filter"
                        placeholder="Buscar por nombre, número o posición..."
-                       class="search-input-field">
+                       class="search-input-field employee-search-input">
                 <span class="search-icon-fixed">🔍</span>
                 ${searchValue ? `<button type="button" data-att-action="clear-search-filter" aria-label="Limpiar búsqueda" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">${icons.get('close', { size: 12 })}</button>` : ''}
             </div>
@@ -460,13 +478,20 @@ export function SearchBar() {
                 <div class="search-icon-fixed">
                     ${icons.get('key')}
                 </div>
-                <select onchange="setLeaderFilter(this.value)" 
+                <select data-att-action="set-leader-filter"
                         class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
                     ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
                 </select>
                 <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; font-size: 0.75rem;">▼</div>
             </div>
+            <button type="button"
+                    class="attendance-layout-btn"
+                    data-app-fn="openAttendanceLayoutModal"
+                    aria-label="Opciones de distribución de la lista"
+                    title="Opciones de distribución">
+                ${icons.get('settings', { size: 18 })}
+            </button>
         </div>
     `;
 }
@@ -656,6 +681,7 @@ export function EmployeeRowCompact(emp) {
 export function DayView() {
     const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const filtered = getFilteredEmployeesForDay();
+    const columns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
     const listHTML = filtered.length > 0
         ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
         : EmptyState.render({
@@ -676,7 +702,7 @@ export function DayView() {
             </div>
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
-                <div id="day-view-list" data-preserve-scroll="attendance-day-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
+                <div id="day-view-list" data-preserve-scroll="attendance-day-list" class="employee-list employee-list-cols-${columns} ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
                     ${listHTML}
                 </div>
                 ${ScrollService.renderIndicators(filtered, true)}

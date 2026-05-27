@@ -113,13 +113,20 @@ export function WeatherPanel() {
                 </div>
             `}
 
-            <!-- Footer: data source + close -->
+            <!-- Footer: data source + action buttons -->
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px solid #334155;">
                 <span style="font-size: 0.65rem; color: #64748b;">Fuente: ${state.weather?.cache?.provider || 'mock'}</span>
-                <button type="button" data-app-fn="closeWeatherPanel"
-                        style="background: transparent; color: #94a3b8; border: none; cursor: pointer; font-size: 0.75rem; padding: 4px 8px;">
-                    Cerrar
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button type="button" data-app-fn="forceRefreshWeather"
+                            ${state.weather?.isRefreshing ? 'disabled' : ''}
+                            style="background: transparent; color: #06b6d4; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; font-size: 0.65rem; font-weight: 700; cursor: pointer;">
+                        ${state.weather?.isRefreshing ? 'Actualizando...' : '🔄 Actualizar'}
+                    </button>
+                    <button type="button" data-app-fn="closeWeatherPanel"
+                            style="background: transparent; color: #94a3b8; border: none; cursor: pointer; font-size: 0.75rem; padding: 4px 8px;">
+                        Cerrar
+                    </button>
+                </div>
             </div>
         </div>
     `;

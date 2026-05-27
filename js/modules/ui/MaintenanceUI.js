@@ -121,17 +121,17 @@ export class MaintenanceUI {
         const needsManual = plan.filter(p => p.action === 'needs-manual');
 
         const autoBlock = autoMerges.length === 0 ? '' : `
-            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
-                <div style="font-weight: 700; color: #34d399; margin-bottom: 8px;">
-                    ⚡ Fusión automática (${autoMerges.length})
+            <div class="maintenance-plan-card is-auto">
+                <div class="maintenance-plan-title">
+                    Fusiones seguras (${autoMerges.length})
                 </div>
-                <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 10px;">
-                    Nombres idénticos. Se fusionarán preservando todos los préstamos y la asistencia.
+                <div class="maintenance-plan-copy">
+                    Estos nombres coinciden. El sistema puede unirlos conservando asistencia, préstamos e historial.
                 </div>
-                <ul style="margin: 0; padding-left: 20px; font-size: 0.78rem; color: #94a3b8; max-height: 180px; overflow-y: auto;">
+                <ul class="maintenance-plan-list">
                     ${autoMerges.map(p => {
                         const masterName = (p.members.find(m => m.id === p.proposedMasterId) || {}).name || '?';
-                        const cloudTag = p.hasCloudLosers ? ' <span style="color:#a855f7;">📡 incluye limpieza de nube</span>' : '';
+                        const cloudTag = p.hasCloudLosers ? ' <span>Incluye nube</span>' : '';
                         return `<li>Ficha ${p.number} · <strong>${masterName}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
                     }).join('')}
                 </ul>
@@ -139,15 +139,14 @@ export class MaintenanceUI {
         `;
 
         const manualBlock = needsManual.length === 0 ? '' : `
-            <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 10px; padding: 14px; margin-bottom: 12px;">
-                <div style="font-weight: 700; color: #fbbf24; margin-bottom: 8px;">
-                    ⚠️ Requieren revisión manual (${needsManual.length})
+            <div class="maintenance-plan-card is-manual">
+                <div class="maintenance-plan-title">
+                    Revisar contigo (${needsManual.length})
                 </div>
-                <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 10px;">
-                    Los nombres tienen diferencias (mayúsculas, acentos, orden, etc.).
-                    Decidirás caso por caso si son la misma persona.
+                <div class="maintenance-plan-copy">
+                    Hay diferencias en los nombres. La app te preguntará caso por caso antes de tocar esos registros.
                 </div>
-                <ul style="margin: 0; padding-left: 20px; font-size: 0.78rem; color: #94a3b8; max-height: 180px; overflow-y: auto;">
+                <ul class="maintenance-plan-list">
                     ${needsManual.map(p => {
                         const names = p.members.map(m => `"${m.name}"`).join(' vs ');
                         return `<li>Ficha ${p.number} · ${names}</li>`;
@@ -157,32 +156,28 @@ export class MaintenanceUI {
         `;
 
         const content = `
-            <div style="display: flex; flex-direction: column; gap: 4px; padding: 6px;">
-                <p style="color: #94a3b8; margin: 0 0 14px 0;">
+            <div class="maintenance-plan-preview">
+                <p class="maintenance-plan-intro">
                     Se detectaron <strong>${plan.length} grupos</strong> de empleados con número de ficha duplicado.
-                    Se creará un snapshot de seguridad <strong>antes</strong> de aplicar.
+                    Antes de aplicar cambios se crea una copia de seguridad.
                 </p>
                 ${autoBlock}
                 ${manualBlock}
-                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 8px;">
+                <div class="maintenance-actions">
                     ${autoMerges.length > 0 ? `
-                        <button type="button" data-maint-action="apply-plan"
-                                style="padding: 12px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 10px; font-weight: 800; cursor: pointer;">
-                            ✨ Aplicar ${autoMerges.length} fusión${autoMerges.length === 1 ? '' : 'es'} automática${autoMerges.length === 1 ? '' : 's'}${needsManual.length > 0 ? ` y revisar ${needsManual.length} manualmente` : ''}
+                        <button type="button" class="maintenance-apply-btn" data-maint-action="apply-plan">
+                            Aplicar ${autoMerges.length} fusión${autoMerges.length === 1 ? '' : 'es'} segura${autoMerges.length === 1 ? '' : 's'}${needsManual.length > 0 ? ` y revisar ${needsManual.length}` : ''}
                         </button>
                     ` : `
-                        <button type="button" data-maint-action="manual-choice"
-                                style="padding: 12px; background: #f59e0b; color: #0f172a; border: none; border-radius: 10px; font-weight: 800; cursor: pointer;">
-                            🔍 Revisar manualmente (${needsManual.length})
+                        <button type="button" class="maintenance-apply-btn" data-maint-action="manual-choice">
+                            Revisar manualmente (${needsManual.length})
                         </button>
                     `}
-                    <button type="button" data-maint-action="review-all-manually"
-                            style="padding: 11px; background: transparent; color: #94a3b8; border: 1px solid #475569; border-radius: 10px; font-weight: 600; cursor: pointer;"
+                    <button type="button" class="maintenance-secondary-btn" data-maint-action="review-all-manually"
                             title="Forzar revisión manual de TODOS los conflictos, incluyendo los que el sistema clasificó como seguros para auto-fusión.">
-                        🔍 Revisar TODO manualmente (${plan.length})
+                        Revisar todo manualmente (${plan.length})
                     </button>
-                    <button type="button" data-maint-action="cancel-plan"
-                            style="padding: 10px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 10px; cursor: pointer;">
+                    <button type="button" class="maintenance-ghost-btn" data-maint-action="cancel-plan">
                         Cancelar
                     </button>
                 </div>
@@ -284,25 +279,26 @@ export class MaintenanceUI {
      */
     showSelectionModal() {
         const content = `
-            <div class="maintenance-selection" style="display: flex; flex-direction: column; gap: 20px; padding: 10px;">
-                <p style="color: #94a3b8; margin-bottom: 5px;">Se han detectado <strong>${this.conflicts.length} grupos</strong> de empleados con números de ficha duplicados.</p>
+            <div class="maintenance-selection">
+                <p class="maintenance-plan-intro">Se han detectado <strong>${this.conflicts.length} grupos</strong> de empleados con números de ficha duplicados.</p>
                 
                 <div class="choice-card auto-choice" role="button" tabindex="0" data-maint-action="auto-choice"
-                     style="padding: 20px; border: 1px solid #1e293b; border-radius: 12px; cursor: pointer; background: #0f172a; transition: all 0.2s;">
-                    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 8px;">
-                        <span style="font-size: 1.5rem;">⚡</span>
-                        <h3 style="margin: 0; color: #f8fafc;">Resolución Automática</h3>
+                     aria-label="Resolver automaticamente">
+                    <div class="maintenance-choice-head">
+                        <span class="maintenance-choice-icon">A</span>
+                        <h3>Resolver lo seguro primero</h3>
                     </div>
-                    <p style="font-size: 0.85rem; color: #64748b; margin: 0;">El sistema elegirá automáticamente el mejor registro basado en el historial de asistencia y completitud del perfil. Si detecta personas distintas, te pedirá reasignar fichas. (Recomendado)</p>
+                    <p>La app une solo los casos claros y te deja revisar los dudosos antes de cambiar algo.</p>
+                    <strong>Recomendado</strong>
                 </div>
 
                 <div class="choice-card manual-choice" role="button" tabindex="0" data-maint-action="manual-choice"
-                     style="padding: 20px; border: 1px solid #1e293b; border-radius: 12px; cursor: pointer; background: #0f172a; transition: all 0.2s;">
-                    <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 8px;">
-                        <span style="font-size: 1.5rem;">🔍</span>
-                        <h3 style="margin: 0; color: #f8fafc;">Resolución Manual</h3>
+                     aria-label="Revisar manualmente">
+                    <div class="maintenance-choice-head">
+                        <span class="maintenance-choice-icon">M</span>
+                        <h3>Revisar uno por uno</h3>
                     </div>
-                    <p style="font-size: 0.85rem; color: #64748b; margin: 0;">Tú comparas los perfiles y eliges qué registro conservar para cada caso. Ideal para casos ambiguos.</p>
+                    <p>Tú decides en cada ficha cuál perfil se conserva, cuáles se unen y cuáles cambian de número.</p>
                 </div>
             </div>
         `;
@@ -385,36 +381,61 @@ export class MaintenanceUI {
         const validation = validateManualGroup(group.members);
 
         const validationBanner = validation.ok
-            ? `<div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); color: #34d399; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;">
-                  ✅ Decisiones consistentes. ${validation.absorbIds.length} se fusionará${validation.absorbIds.length === 1 ? '' : 'n'}, ${validation.separateIds.length} se reasignará${validation.separateIds.length === 1 ? '' : 'n'}.
+            ? `<div class="maintenance-feedback maintenance-feedback-ok">
+                  Listo para aplicar: ${validation.absorbIds.length} registro${validation.absorbIds.length === 1 ? '' : 's'} se unir${validation.absorbIds.length === 1 ? 'á' : 'án'} al perfil principal y ${validation.separateIds.length} persona${validation.separateIds.length === 1 ? '' : 's'} cambiar${validation.separateIds.length === 1 ? 'á' : 'án'} de ficha.
                </div>`
             : validation.errors.length > 0
-                ? `<div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;">
-                      ⚠️ ${validation.errors.join(' ')}
+                ? `<div class="maintenance-feedback maintenance-feedback-warn">
+                      ${validation.errors.join(' ')}
                    </div>`
                 : '';
 
         const colsCount = Math.min(group.members.length, 3);
 
         return `
-            <div class="wizard-container" style="display: flex; flex-direction: column; gap: 16px;">
-                <p style="color: #94a3b8; text-align: center; margin: 0;">
-                    Decide para cada miembro: <strong style="color:#fbbf24;">Maestro</strong> (uno solo),
-                    <strong style="color:#34d399;">Fusionar aquí</strong> en el maestro, o
-                    <strong style="color:#f97316;">Otra persona</strong> (se reasignará a otra ficha).
-                </p>
+            <div class="wizard-container maintenance-wizard">
+                <section class="maintenance-guide" aria-label="Guía de decisiones">
+                    <div class="maintenance-guide-header">
+                        <span class="maintenance-kicker">Ficha repetida ${group.number}</span>
+                        <h3>Decide qué hacer con cada registro</h3>
+                        <p>Elige una acción para cada tarjeta. Si dos tarjetas son la misma persona, conserva una y une las demás. Si una tarjeta pertenece a otra persona, cámbiale la ficha.</p>
+                    </div>
+                    <div class="maintenance-decision-grid">
+                        <div class="maintenance-decision-item">
+                            <span class="maintenance-decision-mark master">1</span>
+                            <div>
+                                <strong>Conservar este perfil</strong>
+                                <span>El perfil principal que queda al final.</span>
+                            </div>
+                        </div>
+                        <div class="maintenance-decision-item">
+                            <span class="maintenance-decision-mark absorb">2</span>
+                            <div>
+                                <strong>Unir con el principal</strong>
+                                <span>Para duplicados de la misma persona.</span>
+                            </div>
+                        </div>
+                        <div class="maintenance-decision-item">
+                            <span class="maintenance-decision-mark separate">3</span>
+                            <div>
+                                <strong>Cambiar ficha</strong>
+                                <span>Para alguien distinto que comparte el número por error.</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
                 ${validationBanner}
 
-                <div class="comparison-grid" style="display: grid; grid-template-columns: repeat(${colsCount}, 1fr); gap: 12px;">
+                <div class="comparison-grid maintenance-compare-grid" style="grid-template-columns: repeat(${colsCount}, minmax(0, 1fr));">
                     ${group.members.map(emp => this.renderEmployeeCard(emp, group.number)).join('')}
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
-                    <button type="button" data-maint-action="apply-manual-group"
+                <div class="maintenance-actions">
+                    <button type="button" class="maintenance-apply-btn" data-maint-action="apply-manual-group"
                             ${validation.ok ? '' : 'disabled'}
-                            style="padding: 12px; background: ${validation.ok ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155'}; color: ${validation.ok ? 'white' : '#64748b'}; border: none; border-radius: 10px; font-weight: 800; cursor: ${validation.ok ? 'pointer' : 'not-allowed'};">
-                        ${validation.ok ? '✨ Aplicar resolución' : '✋ Completa las decisiones para continuar'}
+                            aria-disabled="${validation.ok ? 'false' : 'true'}">
+                        ${validation.ok ? 'Aplicar estas decisiones' : 'Selecciona una acción en cada tarjeta'}
                     </button>
                 </div>
             </div>
@@ -425,73 +446,75 @@ export class MaintenanceUI {
         const group = this.conflicts[this.currentConflictIndex];
         const role = emp.role || null;
 
-        // Bordes/colores por rol seleccionado.
+        // Estados visuales por rol seleccionado.
         const ROLE_STYLES = {
-            master:   { border: '#fbbf24', bg: 'rgba(251, 191, 36, 0.08)', badge: '👑 MAESTRO',         badgeColor: '#fbbf24' },
-            absorb:   { border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)', badge: '📥 SE FUSIONA',      badgeColor: '#10b981' },
-            separate: { border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)', badge: '🔀 OTRA PERSONA',    badgeColor: '#f97316' }
+            master:   { label: 'Perfil principal', description: 'Se conserva', className: 'is-master' },
+            absorb:   { label: 'Se unirá', description: 'Misma persona', className: 'is-absorb' },
+            separate: { label: 'Cambiar ficha', description: 'Otra persona', className: 'is-separate' }
         };
-        const style = ROLE_STYLES[role] || { border: '#1e293b', bg: '#0f172a', badge: '', badgeColor: '' };
+        const style = ROLE_STYLES[role] || { label: 'Sin decidir', description: 'Elige una acción', className: '' };
 
         const isMostComplete = emp.completeness === Math.max(...group.members.map(m => m.completeness || 0));
         const hasMoreAttendance = emp.attendanceCount === Math.max(...group.members.map(m => m.attendanceCount || 0));
 
         // Si el rol es separate, mostrar la ficha destino si ya se eligió.
         const reassignHint = (role === 'separate' && emp._reassignTo)
-            ? `<div style="font-size: 0.7rem; color: #fb923c; margin-top: 4px;">→ ficha ${emp._reassignTo}</div>`
+            ? `<div class="maintenance-reassign-hint">Nueva ficha: ${emp._reassignTo}</div>`
             : '';
 
-        const btn = (action, label, dataRole, color) => `
-            <button type="button" data-maint-action="${action}"
+        const btn = (action, label, helper, dataRole) => `
+            <button type="button" class="maintenance-role-btn ${role === dataRole ? 'is-selected' : ''}" data-maint-action="${action}"
                     data-id="${emp.id}" data-role="${dataRole}"
-                    style="flex: 1; padding: 8px 4px; background: ${role === dataRole ? color : 'transparent'};
-                           color: ${role === dataRole ? '#0f172a' : color};
-                           border: 1px solid ${color}; border-radius: 6px;
-                           font-size: 0.7rem; font-weight: 700; cursor: pointer;">
-                ${label}
+                    data-role-choice="${dataRole}"
+                    aria-pressed="${role === dataRole ? 'true' : 'false'}">
+                <span>${label}</span>
+                <small>${helper}</small>
             </button>
         `;
 
         // Tag de origen (local/cloud/both)
         const srcTag = emp._source
-            ? `<span style="font-size: 0.6rem; padding: 1px 5px; border-radius: 3px; background: ${emp._source === 'cloud' ? 'rgba(168,85,247,0.15)' : 'rgba(148,163,184,0.15)'}; color: ${emp._source === 'cloud' ? '#a855f7' : '#94a3b8'};">${emp._source === 'cloud' ? '📡 nube' : emp._source === 'both' ? '🔁 ambos' : '💾 local'}</span>`
+            ? `<span class="maintenance-source-tag ${emp._source === 'cloud' ? 'is-cloud' : emp._source === 'both' ? 'is-both' : 'is-local'}">${emp._source === 'cloud' ? 'Nube' : emp._source === 'both' ? 'Local y nube' : 'Local'}</span>`
             : '';
 
         return `
-            <div class="emp-compare-card" style="background: ${style.bg}; border: 2px solid ${style.border}; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; transition: all .2s;">
-                ${style.badge ? `<div style="position:absolute; transform: translate(-4px,-18px); background: ${style.badgeColor}; color: #0f172a; font-size: 0.6rem; font-weight: 800; padding: 2px 6px; border-radius: 4px;">${style.badge}</div>` : ''}
+            <div class="emp-compare-card maintenance-employee-card ${style.className}">
+                <div class="maintenance-role-status">
+                    <strong>${style.label}</strong>
+                    <span>${style.description}</span>
+                </div>
 
-                <div style="text-align: center;">
-                    <div style="width: 42px; height: 42px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; color: #f8fafc; font-weight: bold; font-size: 0.9rem;">
+                <div class="maintenance-employee-head">
+                    <div class="maintenance-avatar">
                         ${(emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
                     </div>
-                    <h4 style="margin: 0 0 2px; color: #f8fafc; font-size: 0.9rem; word-break: break-word;">${emp.name || '(sin nombre)'}</h4>
-                    <div style="display: flex; gap: 4px; justify-content: center; align-items: center; flex-wrap: wrap;">
-                        <span style="font-size: 0.65rem; color: #64748b; font-family: monospace;">${(emp.id || '').substring(0, 8)}</span>
+                    <h4>${emp.name || '(sin nombre)'}</h4>
+                    <div class="maintenance-meta-row">
+                        <span class="maintenance-id-tag">ID ${(emp.id || '').substring(0, 8)}</span>
                         ${srcTag}
                     </div>
                     ${reassignHint}
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; padding: 8px; background: #020617; border-radius: 6px;">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #64748b;">📍 Asist.:</span>
-                        <span style="color: ${hasMoreAttendance ? '#22c55e' : '#f8fafc'}; font-weight: bold;">${emp.attendanceCount || 0}</span>
+                <div class="maintenance-stats">
+                    <div>
+                        <span>Asistencias</span>
+                        <strong class="${hasMoreAttendance ? 'is-highlight' : ''}">${emp.attendanceCount || 0}</strong>
                     </div>
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #64748b;">💵 Préstamos:</span>
-                        <span style="color: #f8fafc;">${(emp.loans || []).length}</span>
+                    <div>
+                        <span>Préstamos</span>
+                        <strong>${(emp.loans || []).length}</strong>
                     </div>
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #64748b;">📊 Datos:</span>
-                        <span style="color: ${isMostComplete ? '#3b82f6' : '#f8fafc'};">${emp.completeness || 0}%</span>
+                    <div>
+                        <span>Datos del perfil</span>
+                        <strong class="${isMostComplete ? 'is-highlight' : ''}">${emp.completeness || 0}%</strong>
                     </div>
                 </div>
 
-                <div style="display: flex; flex-direction: column; gap: 5px;">
-                    ${btn('set-member-role', '👑 Maestro',       'master',   '#fbbf24')}
-                    ${btn('set-member-role', '📥 Fusionar aquí', 'absorb',   '#10b981')}
-                    ${btn('set-member-role', '🔀 Otra persona',  'separate', '#f97316')}
+                <div class="maintenance-role-actions">
+                    ${btn('set-member-role', 'Conservar', 'perfil principal', 'master')}
+                    ${btn('set-member-role', 'Unir con este', 'es la misma persona', 'absorb')}
+                    ${btn('set-member-role', 'Cambiar ficha', 'es otra persona', 'separate')}
                 </div>
             </div>
         `;

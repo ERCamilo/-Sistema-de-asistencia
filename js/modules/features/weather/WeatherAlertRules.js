@@ -72,13 +72,13 @@ export function getPrecipAlert(precipMm) {
     if (!Number.isFinite(mm)) {
         return { level: ALERT_LEVEL.NORMAL, color: ALERT_COLOR.normal, label: 'Normal' };
     }
-    if (mm >= 25.0) {
+    if (mm >= 50.0) {
         return { level: ALERT_LEVEL.DANGER, color: ALERT_COLOR.danger, label: 'Torrencial' };
     }
-    if (mm >= 10.1) {
+    if (mm >= 30.0) {
         return { level: ALERT_LEVEL.WARNING_HIGH, color: ALERT_COLOR.warning_high, label: 'Fuerte' };
     }
-    if (mm >= 2.0) {
+    if (mm >= 15.0) {
         return { level: ALERT_LEVEL.WARNING_MODERATE, color: ALERT_COLOR.warning_moderate, label: 'Moderada' };
     }
     return { level: ALERT_LEVEL.NORMAL, color: ALERT_COLOR.normal, label: 'Normal' };

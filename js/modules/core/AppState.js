@@ -159,6 +159,7 @@ const initialState = {
     isScrolled: false,
     tempPositionSelection: {},
     listDisplayMode: 'relaxed',
+    attendanceListColumns: 1,
     isDataLoaded: false,
     syncStatus: 'idle',
     showFloatingCard: false,

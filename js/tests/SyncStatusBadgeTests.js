@@ -174,6 +174,19 @@ testRunner.addSuite("SyncStatusBadge — modo compacto (icono solo)", {
             'Debe haber un title con la palabra Sincronizado para accesibilidad');
     },
 
+    "compact:true usa icono lineal sin círculo de fondo"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true,
+            compact: true
+        });
+        testRunner.assert(/sync-badge-lucide/.test(html),
+            'Debe renderizar un icono Lucide/SVG lineal');
+        testRunner.assert(!/border-radius:\s*50%|background:|border:\s*1px/.test(html),
+            'En modo compacto no debe dibujar círculo, fondo ni borde; cambia de color el icono');
+    },
+
     "compact:false (default) sigue funcionando con texto visible"() {
         const html = renderSyncStatusBadge({
             lastSyncedAt: Date.now(),
@@ -184,18 +197,18 @@ testRunner.addSuite("SyncStatusBadge — modo compacto (icono solo)", {
             'Sin compact, debe haber texto visible (regression check)');
     },
 
-    "compact estado 'pending' usa icono de reloj 🕒"() {
+    "compact estado 'pending' usa icono Lucide de reloj"() {
         const html = renderSyncStatusBadge({
             lastSyncedAt: null,
             isAuthenticated: true,
             isOnline: true,
             compact: true
         });
-        testRunner.assert(/🕒|⏳/.test(html),
-            'Pending/no-aún-sincronizado debe mostrar un reloj. HTML: ' + html.slice(0, 200));
+        testRunner.assert(/data-lucide=["']clock["']/.test(html),
+            'Pending/no-aún-sincronizado debe mostrar un icono Lucide de reloj. HTML: ' + html.slice(0, 200));
     },
 
-    "compact estado 'warning' (stale, >30s) también usa reloj"() {
+    "compact estado 'warning' (stale, >30s) también usa icono Lucide de reloj"() {
         const now = 1000000;
         const html = renderSyncStatusBadge({
             lastSyncedAt: now - 5 * 60 * 1000,
@@ -204,30 +217,30 @@ testRunner.addSuite("SyncStatusBadge — modo compacto (icono solo)", {
             compact: true,
             now
         });
-        testRunner.assert(/🕒|⏳/.test(html),
-            'Warning (sincronización vieja) también muestra reloj');
+        testRunner.assert(/data-lucide=["']clock["']/.test(html),
+            'Warning (sincronización vieja) también muestra icono Lucide de reloj');
     },
 
-    "compact estado 'synced' usa checkmark ✅"() {
+    "compact estado 'synced' usa icono Lucide check-circle"() {
         const html = renderSyncStatusBadge({
             lastSyncedAt: Date.now(),
             isAuthenticated: true,
             isOnline: true,
             compact: true
         });
-        testRunner.assert(/✅|✔/.test(html),
-            'Sincronizado debe mostrar checkmark');
+        testRunner.assert(/data-lucide=["']check-circle["']/.test(html),
+            'Sincronizado debe mostrar icono Lucide check-circle');
     },
 
-    "compact estado 'offline' usa ❌ o 🔌"() {
+    "compact estado 'offline' usa icono Lucide wifi-off"() {
         const html = renderSyncStatusBadge({
             lastSyncedAt: Date.now(),
             isAuthenticated: true,
             isOnline: false,
             compact: true
         });
-        testRunner.assert(/❌|🔌/.test(html),
-            'Offline debe ser claro: ❌ o 🔌');
+        testRunner.assert(/data-lucide=["']wifi-off["']/.test(html),
+            'Offline debe ser claro con icono Lucide wifi-off');
     }
 
 });

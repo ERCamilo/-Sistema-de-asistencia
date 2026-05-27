@@ -58,23 +58,23 @@ testRunner.addSuite("WeatherAlertRules — classification and coloring", {
     },
 
     "getPrecipAlert returns correct alert levels and colors"() {
-        // Normal/light
-        let res = getPrecipAlert(1.5);
+        // Normal/light (3.0 mm should be normal/white now)
+        let res = getPrecipAlert(3.0);
         testRunner.assertEquals(res.level, ALERT_LEVEL.NORMAL);
         testRunner.assertEquals(res.color, ALERT_COLOR.normal);
 
-        // Warning/moderate
-        res = getPrecipAlert(5.0);
+        // Warning/moderate (15.0 mm or above)
+        res = getPrecipAlert(20.0);
         testRunner.assertEquals(res.level, ALERT_LEVEL.WARNING_MODERATE);
         testRunner.assertEquals(res.color, ALERT_COLOR.warning_moderate);
 
-        // Warning/high
-        res = getPrecipAlert(15.0);
+        // Warning/high (30.0 mm or above)
+        res = getPrecipAlert(35.0);
         testRunner.assertEquals(res.level, ALERT_LEVEL.WARNING_HIGH);
         testRunner.assertEquals(res.color, ALERT_COLOR.warning_high);
 
-        // Danger/torrencial
-        res = getPrecipAlert(30.0);
+        // Danger/torrencial (50.0 mm or above)
+        res = getPrecipAlert(60.0);
         testRunner.assertEquals(res.level, ALERT_LEVEL.DANGER);
         testRunner.assertEquals(res.color, ALERT_COLOR.danger);
     },
@@ -186,14 +186,14 @@ testRunner.addSuite("WeatherAlertRules — classification and coloring", {
         testRunner.assert(res.label.includes('Viento') && res.label.includes('Moderado'));
 
         // Warning precip (high) overriding warning wind (moderate)
-        current = { temp: 25, feelsLike: 26, windKph: 30, precipMm: 12.0, uv: 1, windGustKph: 20, pressureMb: 1013, visKm: 10 };
+        current = { temp: 25, feelsLike: 26, windKph: 30, precipMm: 35.0, uv: 1, windGustKph: 20, pressureMb: 1013, visKm: 10 };
         res = getAggregatedAlert(current);
         testRunner.assertEquals(res.active, true);
         testRunner.assertEquals(res.level, ALERT_LEVEL.WARNING_HIGH);
         testRunner.assert(res.label.includes('Lluvia') && res.label.includes('Riesgo Alto'));
 
         // Danger rain overriding warning precip (high)
-        current = { temp: 25, feelsLike: 26, windKph: 30, precipMm: 30.0, uv: 1, windGustKph: 20, pressureMb: 1013, visKm: 10 };
+        current = { temp: 25, feelsLike: 26, windKph: 30, precipMm: 60.0, uv: 1, windGustKph: 20, pressureMb: 1013, visKm: 10 };
         res = getAggregatedAlert(current);
         testRunner.assertEquals(res.active, true);
         testRunner.assertEquals(res.level, ALERT_LEVEL.DANGER);

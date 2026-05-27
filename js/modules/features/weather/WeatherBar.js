@@ -205,9 +205,14 @@ function _expandedBody(current, hourly, forecast, today) {
                 </div>
             ` : ''}
 
-            <!-- Footer: provider tag -->
-            <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #334155; font-size: 0.6rem; color: #64748b; text-align: right;">
-                Fuente: ${state.weather?.cache?.provider || 'mock'}
+            <!-- Footer: provider tag + refresh button -->
+            <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #334155; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" data-app-fn="forceRefreshWeather"
+                        ${state.weather?.isRefreshing ? 'disabled' : ''}
+                        style="background: transparent; color: #06b6d4; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; font-size: 0.65rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    ${state.weather?.isRefreshing ? 'Actualizando...' : '🔄 Actualizar clima'}
+                </button>
+                <span style="font-size: 0.6rem; color: #64748b;">Fuente: ${state.weather?.cache?.provider || 'mock'}</span>
             </div>
         </div>
     `;

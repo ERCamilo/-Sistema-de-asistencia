@@ -104,6 +104,21 @@ testRunner.addSuite("WeatherController — open/close flow", {
         // Immediately calling refreshWeather again must hit the cache (no change).
         await refreshWeather();
         testRunner.assertEquals(state.weather.cache.current.fetchedAt, firstFetchedAt, 'fetchedAt unchanged');
+    },
+
+    async "forceRefreshWeather bypasses cache and updates fetchedAt"() {
+        resetWeatherState();
+        await refreshWeather();
+        const firstFetchedAt = state.weather.cache.current.fetchedAt;
+        
+        // Bounded delay to guarantee clock ticks for timestamp difference check
+        await new Promise(resolve => setTimeout(resolve, 5));
+        
+        const forceRefreshModule = await import('../modules/features/weather/WeatherController.js');
+        await forceRefreshModule.forceRefreshWeather();
+        
+        testRunner.assert(state.weather.cache.current.fetchedAt > firstFetchedAt, 'fetchedAt updated indicating cache bypass');
+        testRunner.assertEquals(state.weather.isRefreshing, false, 'isRefreshing state is reset to false');
     }
 });
 
@@ -122,6 +137,8 @@ testRunner.addSuite("WeatherPanel — render", {
         const html = WeatherPanel();
         testRunner.assert(html.includes('role="dialog"'), 'Dialog rendered');
         testRunner.assert(html.includes('Cerrar'), 'Close button rendered');
+        testRunner.assert(html.includes('data-app-fn="forceRefreshWeather"'), 'Refresh button rendered with dispatcher action');
+        testRunner.assert(html.includes('Actualizar'), 'Refresh button label rendered');
         testRunner.assert(html.includes('°'), 'Temperature displayed');
         // 5-day forecast strip uses "Hoy" as the first label
         testRunner.assert(html.includes('Hoy'), 'Today label');
@@ -184,6 +201,8 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         testRunner.assert(html.includes('Próximas 24 horas'), 'Hourly section shown');
         testRunner.assert(html.includes('Próximos días'), 'Daily section shown');
         testRunner.assert(html.includes('Ahora'), 'Now marker shown in hourly strip');
+        testRunner.assert(html.includes('data-app-fn="forceRefreshWeather"'), 'Refresh button rendered in bar');
+        testRunner.assert(html.includes('Actualizar clima'), 'Refresh button label rendered in bar');
         testRunner.assert(html.includes('Fuente:'), 'Provider footer shown');
     },
 

@@ -90,7 +90,6 @@ export const Header = ({
                         ${(typeof window !== 'undefined' && typeof window.renderSyncStatusBadgeForHeader === 'function')
                             ? window.renderSyncStatusBadgeForHeader()
                             : ''}
-                        ${SyncIndicator ? SyncIndicator() : ''}
 
                         ${window._systemAlerts ? window._systemAlerts.renderAlertButton() : ''}
 
