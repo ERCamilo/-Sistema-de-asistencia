@@ -22,6 +22,8 @@ import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
+import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { generateLoansReadonlySection } from './modules/features/profile/LoansReadonlySection.js';
 import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusBadge.js';
@@ -3239,12 +3241,21 @@ window.openCuentasPorCobrar = () => {
 //   🔌 rojo   = sin conexión a Internet.
 //   👤 gris   = sin sesión.
 window.renderSyncStatusBadgeForHeader = () => {
-    return renderSyncStatusBadge({
+    const badge = renderSyncStatusBadge({
         lastSyncedAt: SyncStatus.getLastSyncedAt(),
         isAuthenticated: !!window.currentUser,
         isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
         compact: true
     });
+    return `
+        <button type="button"
+                class="header-sync-center-btn"
+                data-app-fn="openSyncCenterModal"
+                aria-label="Abrir centro de sincronización"
+                title="Abrir centro de sincronización">
+            ${badge}
+        </button>
+    `;
 };
 
 // Conectar el live updater una sola vez al cargar app.js.
@@ -3529,6 +3540,52 @@ function _AttendanceDetailPanelInner() {
         }
     } catch (e) { /* defensive */ }
 
+    // ----- Visual summary cards: current week + period hours progress -----
+    const regularHours = state.settings?.regularHoursPerDay || 8;
+    const holidays = state.settings?.holidays || [];
+    const firstWorkPosId = emp.positions?.[0];
+    const firstWorkPos = state.positions.find(p => p.id === firstWorkPosId);
+    const employeeWorkingDays = (
+        emp.customWorkingDays?.[firstWorkPosId]
+        || firstWorkPos?.workingDays
+        || [1, 2, 3, 4, 5, 6]
+    );
+    const worksOnDay = (date) => {
+        if (!Array.isArray(employeeWorkingDays) || employeeWorkingDays.length === 0) return true;
+        return employeeWorkingDays.includes(date.getDay());
+    };
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7)); // Monday
+    let weekPresentDays = 0;
+    let weekWorkDays = 0;
+    const weekLabels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    const weekDots = [];
+    for (let i = 0; i < 7; i++) {
+        const day = new Date(weekStart);
+        day.setDate(weekStart.getDate() + i);
+        const dk = getDateKey(day);
+        const isWorkDay = worksOnDay(day) && !holidays.includes(dk);
+        const att = state.attendance[`${emp.id}-${dk}`];
+        if (isWorkDay) weekWorkDays++;
+        if (isWorkDay && att?.present) weekPresentDays++;
+        weekDots.push(`
+            <div class="detail-week-day ${att?.present ? 'present' : ''} ${!isWorkDay ? 'rest' : ''}">
+                <span>${weekLabels[i]}</span>
+                <i aria-hidden="true"></i>
+            </div>
+        `);
+    }
+    const weekAttendancePct = weekWorkDays > 0 ? Math.round((weekPresentDays / weekWorkDays) * 100) : 0;
+
+    let periodTargetHours = 0;
+    for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
+        const dk = getDateKey(new Date(d));
+        if (worksOnDay(d) && !holidays.includes(dk)) periodTargetHours += regularHours;
+    }
+    const periodHoursPct = periodTargetHours > 0
+        ? Math.min(100, Math.round((periodHours / periodTargetHours) * 100))
+        : 0;
+
     // Approx salary based on first position tarifa × period hours.
     // TODO: if the employee worked under multiple positions in the period,
     // sum each position's rate × its own hours (per-position breakdown).
@@ -3540,6 +3597,7 @@ function _AttendanceDetailPanelInner() {
     // Inlined to avoid an import cycle; mirrors LoansService.getBalance().
     let pendingLoanBalance = 0;
     let activeLoanCount = 0;
+    let nextLoanDueDate = null;
     try {
         (emp.loans || []).forEach(loan => {
             if (loan.status !== 'active') return;
@@ -3552,9 +3610,26 @@ function _AttendanceDetailPanelInner() {
                 .filter(p => !p.voided)
                 .reduce((s, p) => s + Number(p.amount || 0), 0);
             pendingLoanBalance += Math.max(0, due - paid);
+
+            let allocated = 0;
+            for (const inst of (loan.installments || [])) {
+                const scheduled = Number(inst.scheduledAmount || 0);
+                const upperBound = allocated + scheduled;
+                if (paid >= upperBound) {
+                    allocated = upperBound;
+                    continue;
+                }
+                if (inst.dueDate && (!nextLoanDueDate || inst.dueDate < nextLoanDueDate)) {
+                    nextLoanDueDate = inst.dueDate;
+                }
+                break;
+            }
         });
         pendingLoanBalance = Math.round(pendingLoanBalance * 100) / 100;
     } catch (_) { pendingLoanBalance = 0; }
+    const nextLoanDueLabel = nextLoanDueDate
+        ? parseDate(nextLoanDueDate).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'Sin cuota programada';
 
     // Format the range for display (e.g. "1 may – 21 may 2026")
     const rangeLabel = (() => {
@@ -3622,21 +3697,45 @@ function _AttendanceDetailPanelInner() {
             </div>
 
             <div class="detail-stat-grid">
-                <div class="detail-stat">
-                    <div class="detail-stat-label">Horas (período)</div>
-                    <div class="detail-stat-value primary">${periodHours}h</div>
+                <div class="detail-stat detail-week-stat">
+                    <div class="detail-progress-title">Asistencia esta semana</div>
+                    <div class="detail-week-days">
+                        ${weekDots.join('')}
+                    </div>
+                    <div class="detail-progress-footer">
+                        <span><strong>${weekPresentDays}</strong> / ${weekWorkDays} días asistidos</span>
+                        <strong>${weekAttendancePct}%</strong>
+                    </div>
                 </div>
-                <div class="detail-stat">
-                    <div class="detail-stat-label">Días trabajados</div>
-                    <div class="detail-stat-value">${periodDays}</div>
+                <div class="detail-stat detail-hours-progress-stat">
+                    <div class="detail-progress-head">
+                        <div class="detail-progress-title">Horas del período</div>
+                        <strong>${periodHoursPct}%</strong>
+                    </div>
+                    <div class="detail-hours-value">
+                        <strong>${periodHours}h</strong>
+                        <span>/ ${periodTargetHours}h</span>
+                    </div>
+                    <div class="detail-progress-track" aria-hidden="true">
+                        <span style="width:${periodHoursPct}%;"></span>
+                    </div>
+                    <div class="detail-progress-note">Meta del período: ${periodTargetHours}h</div>
                 </div>
-                <div class="detail-stat">
+                <div class="detail-stat detail-finance-stat salary">
+                    <div class="detail-finance-icon salary" aria-hidden="true">$</div>
+                    <div class="detail-finance-copy">
                     <div class="detail-stat-label">Salario (período)</div>
                     <div class="detail-stat-value ok">${money(salaryEstimate)}</div>
+                    <div class="detail-stat-sub">Estimado por horas</div>
+                    </div>
                 </div>
-                <div class="detail-stat">
+                <div class="detail-stat detail-finance-stat loan">
+                    <div class="detail-finance-icon loan" aria-hidden="true"><span></span></div>
+                    <div class="detail-finance-copy">
                     <div class="detail-stat-label">Préstamo pendiente${activeLoanCount > 1 ? ` (${activeLoanCount})` : ''}</div>
                     <div class="detail-stat-value ${pendingLoanBalance > 0 ? 'warn' : 'muted'}">${money(pendingLoanBalance)}</div>
+                    <div class="detail-stat-sub">Próx. cuota: ${escapeHTML(nextLoanDueLabel)}</div>
+                    </div>
                 </div>
             </div>
             <div class="detail-range-note">${rangeNote}${overtimeHours > 0 ? ` · <span style="color:#f59e0b;">⚡ ${overtimeHours}h extras</span>` : ''}</div>
@@ -3844,6 +3943,74 @@ window.toggleListDisplayMode = () => {
     render();
 };
 
+window.openAttendanceLayoutModal = () => {
+    state.modalType = 'attendance-layout';
+    state.showModal = true;
+    render();
+};
+
+window.setAttendanceListColumns = (columns) => {
+    const nextColumns = Number(columns) === 2 ? 2 : 1;
+    state.attendanceListColumns = nextColumns;
+    state.showModal = false;
+    state.modalType = null;
+    render();
+};
+
+window.openSyncCenterModal = () => {
+    state.modalType = 'sync-center';
+    state.showModal = true;
+    render();
+};
+
+window.syncCenterSyncNow = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.syncFirebaseNow?.();
+};
+
+window.syncCenterUploadToCloud = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.uploadToCloud?.();
+};
+
+window.syncCenterDownloadFromCloud = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.downloadFromCloud?.();
+};
+
+window.syncCenterCreateSnapshot = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.createFirebaseSnapshot?.('manual');
+};
+
+window.syncCenterOpenBackups = () => {
+    state.showModal = false;
+    state.modalType = null;
+    window.openDatosAjustes?.();
+};
+
+window.syncCenterResolveConflicts = () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    window.startMaintenanceWizard?.();
+};
+
+window.syncCenterOpenSettings = () => {
+    state.showModal = false;
+    state.modalType = null;
+    if (state) state.settingsActiveTab = 'data';
+    window.changeTab?.('settings');
+};
+
 function DisplayModeFloatingToggle() {
     if (state.activeTab !== 'attendance') return '';
 
@@ -3853,6 +4020,114 @@ function DisplayModeFloatingToggle() {
              data-app-fn="toggleListDisplayMode"
              aria-label="Cambiar densidad de lista (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})">
             ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
+        </div>
+    `;
+}
+
+function AttendanceLayoutModal() {
+    const currentColumns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
+    const option = (columns, title, description, icon) => `
+        <button type="button"
+                class="attendance-layout-option ${currentColumns === columns ? 'active' : ''}"
+                data-app-fn="setAttendanceListColumns"
+                data-arg="${columns}">
+            <span class="attendance-layout-option-icon">${icon}</span>
+            <span class="attendance-layout-option-text">
+                <strong>${title}</strong>
+                <small>${description}</small>
+            </span>
+            <span class="attendance-layout-option-check">${currentColumns === columns ? '✓' : ''}</span>
+        </button>
+    `;
+
+    return `
+        <div class="modal-overlay attendance-layout-overlay" data-app-close-on-self="close-modal">
+            <div class="attendance-layout-modal" role="dialog" aria-modal="true" aria-labelledby="attendance-layout-title">
+                <div class="attendance-layout-header">
+                    <div>
+                        <h2 id="attendance-layout-title">Distribución de empleados</h2>
+                        <p>Elige cómo quieres ver la lista diaria.</p>
+                    </div>
+                    <button type="button" class="attendance-layout-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
+                </div>
+                <div class="attendance-layout-options">
+                    ${option(1, 'Una columna', 'Formato actual, cómodo para revisar detalles.', '▤')}
+                    ${option(2, 'Dos columnas', 'Muestra más empleados a la vez en pantallas anchas.', '⊞')}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function SyncCenterModal() {
+    const lastSyncedAt = SyncStatus.getLastSyncedAt();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    const hasUser = !!window.currentUser;
+    const userLabel = window.currentUser?.displayName || window.currentUser?.email || 'Sin sesión';
+    const lastSyncLabel = lastSyncedAt
+        ? new Date(lastSyncedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+        : 'Aún no sincronizado';
+    const stateLabel = !isOnline
+        ? 'Sin conexión'
+        : !hasUser
+            ? 'Sin sesión'
+            : state.syncStatus === 'syncing'
+                ? 'Sincronizando'
+                : state.syncStatus === 'error'
+                    ? 'Error'
+                    : lastSyncedAt
+                        ? 'Sincronizado'
+                        : 'Pendiente';
+
+    const action = (fn, icon, title, description, extraClass = '') => `
+        <button type="button" class="sync-center-action ${extraClass}" data-app-fn="${fn}">
+            <span class="sync-center-action-icon">${icon}</span>
+            <span class="sync-center-action-copy">
+                <strong>${title}</strong>
+                <small>${description}</small>
+            </span>
+        </button>
+    `;
+
+    return `
+        <div class="modal-overlay sync-center-overlay" data-app-close-on-self="close-modal">
+            <div class="sync-center-modal" role="dialog" aria-modal="true" aria-labelledby="sync-center-title">
+                <div class="sync-center-header">
+                    <div>
+                        <h2 id="sync-center-title">Sincronización</h2>
+                        <p>Controla la nube, respaldos y conflictos desde un solo lugar.</p>
+                    </div>
+                    <button type="button" class="sync-center-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
+                </div>
+
+                <div class="sync-center-status">
+                    <div>
+                        <span>Estado</span>
+                        <strong>${escapeHTML(stateLabel)}</strong>
+                    </div>
+                    <div>
+                        <span>Última sincronización</span>
+                        <strong>${escapeHTML(lastSyncLabel)}</strong>
+                    </div>
+                    <div>
+                        <span>Cuenta</span>
+                        <strong>${escapeHTML(userLabel)}</strong>
+                    </div>
+                </div>
+
+                <div class="sync-center-actions primary">
+                    ${action('syncCenterSyncNow', '↻', 'Sincronizar ahora', 'Guarda y refresca los datos con la nube.')}
+                    ${action('syncCenterUploadToCloud', '↑', 'Subir a la nube', 'Usa este equipo como fuente principal.')}
+                    ${action('syncCenterDownloadFromCloud', '↓', 'Descargar de la nube', 'Trae la versión remota a este equipo.')}
+                    ${action('syncCenterCreateSnapshot', '●', 'Crear punto de respaldo', 'Guarda una copia manual del estado actual.')}
+                </div>
+
+                <div class="sync-center-actions secondary">
+                    ${action('syncCenterOpenBackups', '◷', 'Respaldos y restauración', 'Ver snapshots y recuperar versiones anteriores.', 'secondary')}
+                    ${action('syncCenterResolveConflicts', '≋', 'Resolver conflictos', 'Revisar duplicados y datos inconsistentes.', 'secondary')}
+                    ${action('syncCenterOpenSettings', '⚙', 'Configurar sincronización', 'Abrir los ajustes de datos y nube.', 'secondary')}
+                </div>
+            </div>
         </div>
     `;
 }
@@ -5392,7 +5667,9 @@ function App() {
         'employee-form': () => '',
         'leader-form': () => '',
         'position-form': () => '',
-        'multi-position': () => ''
+        'multi-position': () => '',
+        'attendance-layout': () => AttendanceLayoutModal(),
+        'sync-center': () => SyncCenterModal()
     };
 
     const modal = state.showModal && modalMap[state.modalType]
@@ -5637,6 +5914,54 @@ window.addEventListener('scroll', () => {
                         return; // Ignorar estos datos obsoletos para no destruir el state local
                     }
 
+                    // 🛡️ TRACK 2: Pre-apply hook. Si NO es la carga inicial y los
+                    // cambios entrantes son significant (borrados, divergencias
+                    // de campos críticos, caída de préstamos, schemaVersion
+                    // bajando), pausar y pedir confirmación al usuario en lugar
+                    // de aplicar a ciegas. Si los cambios son triviales (nuevos
+                    // empleados, email diff, schemaVersion subiendo) → aplica
+                    // silencioso como antes.
+                    if (!isInitialLoad
+                        && !window._isApplyingRemoteData
+                        && !window._pendingIncomingReview
+                    ) {
+                        try {
+                            const changes = detectIncomingChanges(state, remoteData);
+                            const hasSignificant = changes.some(c => c.severity === 'significant');
+                            if (hasSignificant) {
+                                window._pendingIncomingReview = true;
+                                IncomingChangeModal.show(changes, {
+                                    onApply: async () => {
+                                        window._pendingIncomingReview = false;
+                                        try { await applyRemoteData(); }
+                                        catch (e) { console.error('Error aplicando cambios entrantes:', e); }
+                                    },
+                                    onReject: () => {
+                                        window._pendingIncomingReview = false;
+                                        debug.log('🛡️ Cambios remotos rechazados por el usuario. Re-subiendo estado local.');
+                                        // Forzar re-subir local para que la nube quede como espejo del local.
+                                        if (typeof saveApplicationData === 'function') {
+                                            saveApplicationData({ force: true });
+                                        }
+                                    }
+                                });
+                                return;
+                            }
+                        } catch (e) {
+                            // Si la detección falla por cualquier razón, NO bloquear
+                            // la aplicación de cambios — caer al flujo legacy.
+                            console.warn('⚠️ Pre-apply hook falló, aplicando sin revisar:', e);
+                        }
+                    }
+
+                    // Sin cambios significativos (o es initial load) → aplicar
+                    // directo como siempre.
+                    await applyRemoteData();
+
+                    // Cuerpo del apply real, extraído como función local para que
+                    // tanto el flujo silencioso como el modal puedan invocarlo.
+                    async function applyRemoteData() {
+
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
@@ -5738,6 +6063,7 @@ window.addEventListener('scroll', () => {
                         // Forzar render inicial con datos de la nube
                         render();
                     }
+                    } // ← cierra applyRemoteData()
                 });
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango

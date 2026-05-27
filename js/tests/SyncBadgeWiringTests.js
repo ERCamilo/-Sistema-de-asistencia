@@ -27,6 +27,13 @@ testRunner.addSuite("SyncBadgeWiring — Header (Fase 3.2)", {
             /window\.renderSyncStatusBadgeForHeader/.test(HEADER),
             "Header.js debe llamar a window.renderSyncStatusBadgeForHeader"
         );
+    },
+
+    "Header no renderiza el indicador legacy duplicado"() {
+        testRunner.assert(
+            !/\$\{SyncIndicator\s*\?/.test(HEADER),
+            "Header.js no debe mostrar SyncIndicator junto al badge nuevo"
+        );
     }
 
 });
@@ -51,6 +58,10 @@ testRunner.addSuite("SyncBadgeWiring — app.js (Fase 3.2)", {
         testRunner.assert(
             /window\.renderSyncStatusBadgeForHeader\s*=/.test(APP),
             "Debe exponer el global que el Header invoca"
+        );
+        testRunner.assert(
+            /openSyncCenterModal/.test(APP),
+            "El badge del header debe abrir el centro de sincronización"
         );
     },
 
