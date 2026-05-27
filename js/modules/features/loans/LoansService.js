@@ -221,6 +221,7 @@ export function createLoan(emp, params) {
         closedBy: null
     };
     emp.loans.push(loan);
+    emp.updatedAt = Date.now();
     return loan;
 }
 
@@ -276,6 +277,7 @@ export function recordPayment(emp, loanId, params) {
     };
     loan.payments.push(payment);
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
 
     // Auto-close if fully paid (within 1 cent of zero)
     const remaining = getBalance(loan);
@@ -300,6 +302,7 @@ export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
     payment.voidedAt = Date.now();
     payment.voidedBy = voidedBy;
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
 
     // If voiding moves the loan back to having a balance, re-open it
     if (loan.status === LOAN_STATUS.PAID && getBalance(loan) > 0.01) {
@@ -318,6 +321,7 @@ export function writeOffLoan(emp, loanId, writtenOffBy = null) {
     loan.closedAt = Date.now();
     loan.closedBy = writtenOffBy;
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
     return loan;
 }
 
@@ -330,6 +334,7 @@ export function reopenLoan(emp, loanId) {
     loan.status = getBalance(loan) <= 0.01 ? LOAN_STATUS.PAID : LOAN_STATUS.ACTIVE;
     loan.closedAt = loan.status === LOAN_STATUS.PAID ? Date.now() : null;
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
     return loan;
 }
 
