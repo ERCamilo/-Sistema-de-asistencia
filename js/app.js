@@ -19,6 +19,7 @@ import {
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
+import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
@@ -1539,58 +1540,78 @@ window.changeSettingsTab = async (tab) => {
     }
 };
 
-// ⚡ NUEVO: Restaurar Snapshot desde Firebase (Fase 4)
+// ⚡ Restaurar Snapshot desde Firebase
+// Flujo (Snapshot UX B):
+//   1. Descargar el snapshot.
+//   2. Mostrar modal de diff (qué cambia, qué se perdería).
+//   3. Si confirma: crear snapshot "pre-restore" del estado actual (red de
+//      seguridad) y luego aplicar.
 window.restoreSnapshot = async (snapshotId) => {
     if (!window.currentUser) return;
 
-    // Confirmación brutalmente honesta como pide el usuario
-    const confirmed = await Modal.confirm({
-        title: '⚠️ Advertencia de Restauración',
-        message: '¿Estás REALMENTE seguro? Esta acción borrará TODO tu estado actual (empleados, posiciones y asistencia) para reemplazarlo por los datos de esta captura. No hay vuelta atrás.',
-        confirmText: 'Sí, Sobreiscribir Todo',
-        cancelText: 'Cancelar',
-        type: 'danger'
-    });
-
-    if (!confirmed) return;
-
+    let snapshot;
     try {
-        state.isLoadingSnapshots = true;
-        render();
-        Notification.info('⏳ Restaurando sistema...', 0);
-
-        const snapshot = await FirebaseService.getSnapshot(snapshotId);
-
-        if (!snapshot || !snapshot.state) {
-            throw new Error('El snapshot está vacío o corrupto');
-        }
-
-        // Aplicar datos al estado global
-        state.employees = snapshot.state.employees || [];
-        state.positions = snapshot.state.positions || [];
-        state.attendance = snapshot.state.attendance || {};
-
-        // Mezclar settings con precaución (mantener flags de sesión si existen)
-        if (snapshot.state.settings) {
-            state.settings = { ...state.settings, ...snapshot.state.settings };
-        }
-
-
-        // Persistencia crítica: IndexedDB y Mirror
-        await saveApplicationData();
-
+        Notification.info('⏳ Cargando snapshot para comparar...', 0);
+        snapshot = await FirebaseService.getSnapshot(snapshotId);
         Notification.clearAll();
-        Notification.success('✅ Sistema restaurado con éxito', 5000);
-
-        state.isLoadingSnapshots = false;
-        render();
-
     } catch (e) {
-        console.error('Error fatal en restauración:', e);
-        Notification.error('❌ Error al restaurar: ' + e.message);
-        state.isLoadingSnapshots = false;
-        render();
+        Notification.clearAll();
+        console.error('Error descargando snapshot:', e);
+        Notification.error('❌ No se pudo cargar el snapshot: ' + e.message);
+        return;
     }
+
+    if (!snapshot || !snapshot.state) {
+        Notification.error('❌ El snapshot está vacío o corrupto');
+        return;
+    }
+
+    // Mostrar modal de comparación. La restauración real ocurre en onRestore.
+    SnapshotDiffModal.show(snapshot.state, state, {
+        snapshotMeta: snapshot.metadata || {},
+        onRestore: async () => {
+            try {
+                state.isLoadingSnapshots = true;
+                render();
+                Notification.info('🛟 Creando red de seguridad...', 0);
+
+                // 1. Snapshot de seguridad ANTES de aplicar el cambio.
+                try {
+                    await FirebaseService.createSnapshot(state, 'pre-restore', 'pre-restore');
+                } catch (snapErr) {
+                    // No bloqueamos: mejor restaurar sin red que no restaurar.
+                    console.warn('⚠️ No se pudo crear el snapshot pre-restore:', snapErr);
+                }
+
+                Notification.clearAll();
+                Notification.info('⏳ Restaurando sistema...', 0);
+
+                // 2. Aplicar datos al estado global.
+                state.employees = snapshot.state.employees || [];
+                state.positions = snapshot.state.positions || [];
+                state.attendance = snapshot.state.attendance || {};
+
+                // Mezclar settings con precaución (mantener flags de sesión si existen)
+                if (snapshot.state.settings) {
+                    state.settings = { ...state.settings, ...snapshot.state.settings };
+                }
+
+                // 3. Persistencia: IndexedDB + mirror.
+                await saveApplicationData();
+
+                Notification.clearAll();
+                Notification.success('✅ Sistema restaurado con éxito', 5000);
+                state.isLoadingSnapshots = false;
+                render();
+            } catch (e) {
+                console.error('Error fatal en restauración:', e);
+                Notification.clearAll();
+                Notification.error('❌ Error al restaurar: ' + e.message);
+                state.isLoadingSnapshots = false;
+                render();
+            }
+        }
+    });
 };
 
 
