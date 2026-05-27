@@ -13,6 +13,7 @@ import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNu
 import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner.js';
 import { EmployeeRepository } from '../services/EmployeeRepository.js';
 import { validateManualGroup } from '../services/ManualGroupValidator.js';
+import { reconcileCloudFromLocal } from '../services/CloudReconcile.js';
 import { state } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 
@@ -34,7 +35,8 @@ const _MAINT_ACTION_MAP = {
         const role = target?.dataset?.role || null;
         window._maintenanceUI?.setMemberRole(memberId, role);
     },
-    'apply-manual-group': () => window._maintenanceUI?.applyManualGroup()
+    'apply-manual-group': () => window._maintenanceUI?.applyManualGroup(),
+    'cloud-reconcile': () => window._maintenanceUI?.handleCloudReconcile()
 };
 
 function _handleMaintClick(e) {
@@ -177,6 +179,10 @@ export class MaintenanceUI {
                             title="Forzar revisión manual de TODOS los conflictos, incluyendo los que el sistema clasificó como seguros para auto-fusión.">
                         Revisar todo manualmente (${plan.length})
                     </button>
+                    <button type="button" class="maintenance-secondary-btn" data-maint-action="cloud-reconcile"
+                            title="Toma los empleados locales como verdad y limpia la nube: borra los docs huérfanos que el wizard no eliminó y vuelve a empujar la versión local. Úsalo si ves préstamos o adelantos que aparecen y desaparecen tras la sincronización.">
+                        Forzar limpieza nube ↔ local
+                    </button>
                     <button type="button" class="maintenance-ghost-btn" data-maint-action="cancel-plan">
                         Cancelar
                     </button>
@@ -256,6 +262,97 @@ export class MaintenanceUI {
      */
     cancelPlan() {
         if (this.modal) this.modal.close();
+    }
+
+    /**
+     * Red de seguridad: cuando el wizard quedó a medias y la nube
+     * conserva docs huérfanos (los UUIDs absorbidos que nunca se
+     * borraron, normalmente por una cascada de reasignación que falló),
+     * este flujo toma el state local como verdad y limpia la nube:
+     *
+     *   - Borra de users/{uid}/employees/ todo doc cuyo id no esté en el
+     *     state local.
+     *   - Re-empuja los empleados locales con mergeRemote:true para
+     *     reflejar la versión saneada en cada doc.
+     *
+     * Requiere snapshot previo (red de seguridad estándar) y muestra
+     * preview con el conteo de huérfanos antes de aplicar.
+     */
+    async handleCloudReconcile() {
+        const isMigrated = (typeof state.settings?.schemaVersion === 'number') && state.settings.schemaVersion >= 2;
+        const hasUser = typeof globalThis !== 'undefined' && !!globalThis.currentUser;
+        if (!isMigrated || !hasUser) {
+            NotificationSystem.error('La reconciliación requiere sesión activa y cuenta migrada al modelo per-doc.');
+            return;
+        }
+
+        // 1. Leer nube y calcular preview
+        let cloud = [];
+        try {
+            cloud = await EmployeeRepository.loadAll();
+        } catch (e) {
+            console.error('No se pudo leer la subcolección de empleados:', e);
+            NotificationSystem.error('No se pudo leer la nube. Revisa tu conexión.');
+            return;
+        }
+        const localIds = new Set(state.employees.map(e => String(e.id)));
+        const orphans = cloud.filter(c => c && c.id && !localIds.has(String(c.id)));
+
+        if (orphans.length === 0) {
+            NotificationSystem.info('✨ La nube ya está alineada con local. Nada que reconciliar.');
+            return;
+        }
+
+        // 2. Confirmación con detalle
+        const orphanPreview = orphans.slice(0, 6)
+            .map(o => `<li><code>${o.id}</code> · ${o.name || '?'}</li>`)
+            .join('');
+        const more = orphans.length > 6 ? `<li>… y ${orphans.length - 6} más</li>` : '';
+        const confirm = await Modal.confirm({
+            title: 'Forzar limpieza nube ↔ local',
+            message: `
+                <p>Se detectaron <strong>${orphans.length} documentos huérfanos</strong> en la nube que no existen en local.</p>
+                <p>Esta acción los <strong>borrará</strong> de Firestore y re-empujará los ${state.employees.length} empleados locales como verdad.</p>
+                <p><strong>Huérfanos a eliminar:</strong></p>
+                <ul style="margin: 0 0 8px 18px; font-size: 0.9em;">${orphanPreview}${more}</ul>
+                <p style="font-size: 0.85em; opacity: 0.8;">Se crea snapshot de seguridad antes de empezar.</p>
+            `,
+            confirmText: `Sí, eliminar ${orphans.length} y reconciliar`,
+            cancelText: 'Cancelar'
+        });
+        if (!confirm) return;
+
+        // 3. Snapshot previo
+        try {
+            if (globalThis.createFirebaseSnapshot) {
+                await globalThis.createFirebaseSnapshot('pre-restore', 'pre-cloud-reconcile');
+            }
+        } catch (e) {
+            console.error('No se pudo crear snapshot pre-cloud-reconcile:', e);
+            NotificationSystem.error('No se pudo crear el snapshot de seguridad. Cancelando.');
+            return;
+        }
+
+        // 4. Ejecutar reconciliación
+        try {
+            const res = await reconcileCloudFromLocal(state.employees, {
+                repository: EmployeeRepository
+            });
+            const summary = `${res.deleted.length} huérfanos borrados · ${res.written} empleados re-empujados`;
+            if (res.errors.length > 0) {
+                console.warn('Reconciliación con errores parciales:', res.errors);
+                NotificationSystem.error(`Reconciliación parcial: ${summary}. ${res.errors.length} errores — revisa la consola.`);
+            } else {
+                NotificationSystem.success(`✅ Reconciliación completa: ${summary}.`);
+            }
+        } catch (e) {
+            console.error('Error en reconcileCloudFromLocal:', e);
+            NotificationSystem.error('Error durante la reconciliación. Revisa la consola.');
+            return;
+        }
+
+        if (this.modal) this.modal.close();
+        if (globalThis.render) globalThis.render();
     }
 
     /**
