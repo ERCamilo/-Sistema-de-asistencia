@@ -64,4 +64,59 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
 
 });
 
+testRunner.addSuite("app.js — Cableado de live sync de empleados (Fase 2.1)", {
+
+    "app.js importa EmployeesLiveSync"() {
+        testRunner.assert(
+            /from\s+['"]\.\/modules\/services\/EmployeesLiveSync\.js['"]/.test(appSource),
+            "app.js debe importar EmployeesLiveSync"
+        );
+    },
+
+    "app.js importa EmployeeRepository para usar subscribe"() {
+        testRunner.assert(
+            /from\s+['"]\.\/modules\/services\/EmployeeRepository\.js['"]/.test(appSource),
+            "app.js debe importar EmployeeRepository para conectar subscribe"
+        );
+    },
+
+    "app.js invoca EmployeesLiveSync.start"() {
+        testRunner.assert(
+            /EmployeesLiveSync\.start\s*\(/.test(appSource),
+            "Debe invocar EmployeesLiveSync.start en el flujo de carga"
+        );
+    },
+
+    "el subscribe inyectado proviene de EmployeeRepository"() {
+        // Verificamos que la llamada a start incluya EmployeeRepository.subscribe
+        // (puede usar .bind o una arrow function)
+        const match = appSource.match(/EmployeesLiveSync\.start\s*\(\s*\{[\s\S]*?\}\s*\)/);
+        testRunner.assert(!!match, "Debe localizarse la llamada");
+        testRunner.assert(
+            /EmployeeRepository\.subscribe/.test(match[0]),
+            "El subscribe inyectado debe ser EmployeeRepository.subscribe"
+        );
+    },
+
+    "el onApply actualiza state.employees"() {
+        const match = appSource.match(/EmployeesLiveSync\.start\s*\(\s*\{[\s\S]*?\}\s*\)/);
+        testRunner.assert(
+            /state\.employees\s*=/.test(match[0]) || /onApply[\s\S]*?state\.employees/.test(appSource),
+            "El onApply debe actualizar state.employees con la nueva lista"
+        );
+    },
+
+    "se inicia solo cuando schemaVersion >= 2 (no en cuentas legacy)"() {
+        // El start no debe ejecutarse sin haber migrado.
+        // Buscamos un guard cerca de la llamada.
+        const match = appSource.match(/[\s\S]{0,400}EmployeesLiveSync\.start/);
+        testRunner.assert(!!match, "Llamada localizable");
+        testRunner.assert(
+            /schemaVersion/.test(match[0]) || /migrated/.test(match[0]),
+            "Debe haber un guard de schemaVersion / migrated antes de start"
+        );
+    }
+
+});
+
 console.log('🧪 App wiring migration contract tests cargados.');

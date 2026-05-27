@@ -21,6 +21,8 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
+import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
@@ -5472,6 +5474,25 @@ window.addEventListener('scroll', () => {
                     state.employees = newEmployees;
                     state.positions = dedup(remoteData.positions || state.positions);
                     state.leaders = dedup(remoteData.leaders || state.leaders);
+
+                    // ⚡ FASE 2.1: si ya migramos al modelo per-doc, abrir el
+                    // listener en tiempo real sobre la subcolección de empleados
+                    // para que los cambios remotos lleguen sin recargar. La
+                    // suscripción es idempotente — el guard de schemaVersion + el
+                    // singleton interno garantizan una sola conexión activa.
+                    if (state.settings.schemaVersion >= 2) {
+                        EmployeesLiveSync.start({
+                            subscribe: (cb) => EmployeeRepository.subscribe(cb),
+                            onApply: (emps) => {
+                                const merged = dedup(emps || []);
+                                state.employees = (typeof Employee !== 'undefined')
+                                    ? merged.map(e => e instanceof Employee ? e : new Employee(e))
+                                    : merged;
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube`);
+                                if (typeof render === 'function') render();
+                            }
+                        });
+                    }
 
                     if (remoteData.attendance) {
                         debug.log('⚠️ Ignorando attendance de Mirror Sync (gestionado por Zonal Sync)');
