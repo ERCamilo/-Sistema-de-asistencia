@@ -8,6 +8,9 @@ import {
 import { getDeviceId } from '../config/Config.js';
 import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
 import { notifySnapshotCreated } from './SnapshotNotifier.js';
+import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
+import { EmployeeRepository } from './EmployeeRepository.js';
+import { Notification } from '../components/Notification.js';
 
 class FirebaseService {
     constructor() {
@@ -175,6 +178,60 @@ class FirebaseService {
             console.error('❌ Error creando snapshot:', error);
             throw error;
         }
+    }
+
+    /**
+     * 🔄 Migración v1→v2: Si el doc parent indica que aún no migró
+     * (schemaVersion < 2) y hay empleados en el arreglo legacy, ejecuta:
+     *   1. Snapshot pre-migration-v2 (red de seguridad)
+     *   2. Escritura granular: un doc por empleado en users/{uid}/employees/{id}
+     *   3. Marca schemaVersion: 2 en el parent (merge:true para no romper otros campos)
+     *   4. Toast de éxito al usuario
+     *
+     * Idempotente: si se interrumpe a medias, el próximo arranque lo retoma.
+     *
+     * @param {object|null} parentDoc El doc users/{uid}/data/current
+     * @param {object} [opts]         { isDemo?: boolean }
+     * @returns {Promise<{migrated: boolean, count?: number}>}
+     */
+    async migrateIfNeeded(parentDoc, opts = {}) {
+        if (!auth.currentUser) return { migrated: false };
+
+        return await runMigrationIfNeeded({
+            parentDoc,
+            isDemo: !!opts.isDemo,
+            createSnapshot: () =>
+                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v2'),
+            saveEmployees: (employees) =>
+                EmployeeRepository.saveMany(employees),
+            markSchemaVersion: async (version) => {
+                const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+                // lastChangedBy garantiza que el listener filtre este eco.
+                await setDoc(docRef, {
+                    schemaVersion: version,
+                    lastChangedBy: getDeviceId(),
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            },
+            notify: (msg) => Notification.success(msg, 5000)
+        });
+    }
+
+    /**
+     * 📥 Carga la lista actual de empleados aplicando el modelo correcto:
+     *   - Si schemaVersion >= 2: lee de users/{uid}/employees/* (per-doc).
+     *   - Si schemaVersion < 2 o ausente: usa el arreglo legacy del parent.
+     *
+     * @param {object|null} parentDoc El doc users/{uid}/data/current
+     * @returns {Promise<Array>}
+     */
+    async loadEmployeesIfMigrated(parentDoc) {
+        const version = parentDoc?.schemaVersion;
+        if (typeof version === 'number' && version >= 2) {
+            return await EmployeeRepository.loadAll();
+        }
+        // Modelo viejo: confiar en el arreglo legacy.
+        return Array.isArray(parentDoc?.employees) ? parentDoc.employees : [];
     }
 
     /**
