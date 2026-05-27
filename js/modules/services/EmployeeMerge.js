@@ -21,8 +21,15 @@
  * No muta los inputs. Útil para read-modify-write antes de saveOne.
  */
 
+import { generateUUID } from '../utils/Helpers.js';
+
 const ARRAY_FIELDS_BY_ID = ['loans', 'advances', 'bonuses', 'deductions'];
 const LOAN_NESTED_BY_ID  = ['payments', 'installments'];
+
+function hasUsableId(item, idKey) {
+    const k = item?.[idKey];
+    return k !== undefined && k !== null && k !== '';
+}
 
 function ts(x) {
     return typeof x?.updatedAt === 'number' ? x.updatedAt : null;
@@ -40,19 +47,28 @@ function pickNewerScalar(server, local) {
 /**
  * Une dos arreglos de objetos por id. En colisión gana el de mayor
  * updatedAt; en empate o ambos sin updatedAt, gana local. Items sin id
- * válido se descartan.
+ * usable reciben un id sintético (UUID) y se preservan — perder datos
+ * silenciosamente cuesta más que un duplicado eventual.
  */
 function unionById(serverArr, localArr, idKey = 'id', recurse = null) {
     const map = new Map();
+    const orphans = []; // items sin id de ambos lados; se incluyen tal cual con id sintético
+
     (Array.isArray(serverArr) ? serverArr : []).forEach(item => {
-        const key = item?.[idKey];
-        if (key === undefined || key === null || key === '') return;
-        map.set(String(key), { side: 'server', item });
+        if (!item || typeof item !== 'object') return;
+        if (!hasUsableId(item, idKey)) {
+            orphans.push({ ...item, [idKey]: generateUUID() });
+            return;
+        }
+        map.set(String(item[idKey]), { side: 'server', item });
     });
     (Array.isArray(localArr) ? localArr : []).forEach(item => {
-        const key = item?.[idKey];
-        if (key === undefined || key === null || key === '') return;
-        const k = String(key);
+        if (!item || typeof item !== 'object') return;
+        if (!hasUsableId(item, idKey)) {
+            orphans.push({ ...item, [idKey]: generateUUID() });
+            return;
+        }
+        const k = String(item[idKey]);
         const existing = map.get(k);
         if (!existing) {
             map.set(k, { side: 'local', item });
@@ -68,7 +84,8 @@ function unionById(serverArr, localArr, idKey = 'id', recurse = null) {
         }
         map.set(k, { side: winner, item: merged });
     });
-    return [...map.values()].map(v => v.item);
+
+    return [...[...map.values()].map(v => v.item), ...orphans];
 }
 
 /**

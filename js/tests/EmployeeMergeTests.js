@@ -105,13 +105,60 @@ testRunner.addSuite("EmployeeMerge — loans (Fase 2.2)", {
         testRunner.assertEquals(result.loans[0].amount, 4000);
     },
 
-    "loan sin id se descarta (no podemos hacer merge sin id)"() {
+    "loan sin id se preserva con id sintético (fix: ya no se descarta)"() {
+        // Bug histórico: items sin id se DESCARTABAN silenciosamente en cada
+        // merge, perdiendo datos en la nube. Ahora les asignamos un id y los
+        // conservamos (es mejor un duplicado eventual que pérdida garantizada).
         const server = { id: 'e1', loans: [{ amount: 5000 }] };
         const local  = { id: 'e1', loans: [loan('L1', 200)] };
         const result = mergeEmployees(server, local);
-        testRunner.assertEquals(result.loans.length, 1,
-            "El loan sin id se omite del resultado");
-        testRunner.assertEquals(result.loans[0].id, 'L1');
+        testRunner.assertEquals(result.loans.length, 2,
+            "Ambos loans deben preservarse, no descartarse");
+        const ids = result.loans.map(l => l.id).filter(Boolean);
+        testRunner.assertEquals(ids.length, 2,
+            "Todos los loans deben tener id (el sin-id recibe uno sintético)");
+        testRunner.assert(ids.includes('L1'), "L1 debe estar presente");
+    },
+
+    "loans sin id en ambos lados: todos se preservan con ids sintéticos"() {
+        // Caso pesado del bug: advances/loans viejos sin ids → unionById
+        // los descartaba todos. Ahora se preservan.
+        const server = { id: 'e1', advances: [{ amount: 100 }, { amount: 200 }] };
+        const local  = { id: 'e1', advances: [{ amount: 300 }] };
+        const result = mergeEmployees(server, local);
+        testRunner.assertEquals(result.advances.length, 3,
+            "Los 3 advances sin id deben preservarse");
+        const allHaveIds = result.advances.every(a => typeof a.id === 'string' && a.id.length > 0);
+        testRunner.assert(allHaveIds,
+            "Todos los advances deben terminar con id (backfill)");
+    },
+
+    "loan id falsy ('', null, undefined) → recibe id sintético"() {
+        const server = { id: 'e1', loans: [{ id: '', amount: 100 }, { id: null, amount: 200 }] };
+        const local  = { id: 'e1', loans: [{ id: undefined, amount: 300 }] };
+        const result = mergeEmployees(server, local);
+        testRunner.assertEquals(result.loans.length, 3);
+        result.loans.forEach(l => {
+            testRunner.assert(typeof l.id === 'string' && l.id.length > 0,
+                "id debe ser un string no vacío");
+        });
+    },
+
+    "payments anidados sin id también se preservan"() {
+        // Bug en cascada: si los payments perdían id, también desaparecían.
+        const server = {
+            id: 'e1',
+            loans: [{ id: 'L1', updatedAt: 200, payments: [{ amount: 100 }] }],
+            updatedAt: 200
+        };
+        const local = {
+            id: 'e1',
+            loans: [{ id: 'L1', updatedAt: 100, payments: [{ amount: 200 }] }],
+            updatedAt: 100
+        };
+        const result = mergeEmployees(server, local);
+        testRunner.assertEquals(result.loans[0].payments.length, 2,
+            "Ambos payments sin id deben preservarse");
     },
 
     "loans vacío en un lado → preserva todo el otro"() {
