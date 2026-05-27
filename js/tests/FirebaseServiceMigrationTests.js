@@ -144,4 +144,18 @@ testRunner.addSuite("FirebaseService — Contrato saveFullState con schemaVersio
 
 });
 
+testRunner.addSuite("FirebaseService — saveFullState pasa mergeRemote (Fase 2.2)", {
+
+    "saveFullState llama a saveMany con { mergeRemote: true }"() {
+        const block = fbSource.match(/async\s+saveFullState[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        testRunner.assert(!!block, "Método localizable");
+        const txt = block[0];
+        testRunner.assert(
+            /saveMany\([^)]*mergeRemote[\s\S]{0,80}true/.test(txt),
+            "saveFullState debe pasar mergeRemote:true a saveMany para que cada saveOne haga read-merge-write"
+        );
+    }
+
+});
+
 console.log('🧪 FirebaseService migration contract tests cargados.');

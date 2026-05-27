@@ -84,9 +84,13 @@ class FirebaseService {
 
             if (isMigrated) {
                 // Escribir empleados como docs individuales en paralelo.
+                // mergeRemote:true (Fase 2.2) hace read-merge-write para fusionar
+                // por id los arreglos del empleado (loans, advances, payments,
+                // etc.) — protege contra pérdida cuando dos dispositivos
+                // editaron el mismo empleado offline.
                 const emps = Array.isArray(state.employees) ? state.employees : [];
                 if (emps.length > 0) {
-                    await EmployeeRepository.saveMany(emps);
+                    await EmployeeRepository.saveMany(emps, { mergeRemote: true });
                 }
                 // Y eliminarlos del payload del mirror para no reescribir
                 // el arreglo legacy con datos que ya viven en su propia colección.

@@ -14,8 +14,9 @@
 
 import {
     auth, db,
-    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot
+    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, getDoc
 } from '../data/firebase.js';
+import { mergeEmployees } from './EmployeeMerge.js';
 
 const COLLECTION = 'employees';
 
@@ -65,10 +66,16 @@ export const EmployeeRepository = {
     /**
      * Guarda (upsert) un empleado en su propio documento.
      * No-op si no hay sesión o falta id.
+     *
      * @param {object} employee
+     * @param {object} [opts]
+     * @param {boolean} [opts.mergeRemote] (Fase 2.2) Lee primero la versión
+     *   remota y fusiona con la local antes de escribir, para no perder
+     *   préstamos / adelantos / etc. cuando ambos lados editaron offline.
+     *   Si el read falla, cae al fast-path (write directo).
      * @returns {Promise<void>}
      */
-    async saveOne(employee) {
+    async saveOne(employee, opts = {}) {
         if (!employee || typeof employee !== 'object') return;
         const id = String(employee.id || '').trim();
         if (!id) return;
@@ -78,9 +85,28 @@ export const EmployeeRepository = {
 
         // Garantizar updatedAt. Si el caller ya pasó uno (ej. en migración),
         // respetarlo.
-        const payload = { ...employee };
+        let payload = { ...employee };
         if (typeof payload.updatedAt !== 'number') {
             payload.updatedAt = Date.now();
+        }
+
+        // (Fase 2.2) Read-merge-write: si lo pidieron y hay versión remota,
+        // fusionamos por id en los arreglos para no perder préstamos / pagos
+        // que el otro dispositivo agregó offline.
+        if (opts.mergeRemote) {
+            try {
+                const snap = await getDoc(ref);
+                if (snap && typeof snap.exists === 'function' && snap.exists()) {
+                    const remote = typeof snap.data === 'function' ? snap.data() : null;
+                    if (remote && typeof remote === 'object') {
+                        payload = mergeEmployees(remote, payload);
+                    }
+                }
+            } catch (e) {
+                // Si el read falla (offline, permisos), fallback al fast-path.
+                // Mejor un save sin merge que perder el save del usuario.
+                console.warn(`⚠️ EmployeeRepository.saveOne(${id}): read remoto falló, escribiendo sin merge:`, e);
+            }
         }
 
         try {
@@ -94,17 +120,23 @@ export const EmployeeRepository = {
     /**
      * Guarda múltiples empleados en paralelo. Cuenta los efectivamente
      * escritos (los inválidos se saltan).
+     *
      * @param {Array<object>} employees
+     * @param {object} [opts]
+     * @param {boolean} [opts.mergeRemote] Propaga el merge-por-id a cada
+     *   saveOne. Útil para el camino de guardado normal (Fase 2.2).
+     *   Por defecto false porque saveMany se usa también en la
+     *   migración inicial donde no hay versión remota.
      * @returns {Promise<{written: number}>}
      */
-    async saveMany(employees) {
+    async saveMany(employees, opts = {}) {
         if (!Array.isArray(employees) || employees.length === 0) {
             return { written: 0 };
         }
         if (!auth.currentUser) return { written: 0 };
 
         const valid = employees.filter(e => e && typeof e === 'object' && String(e.id || '').trim());
-        await Promise.all(valid.map(e => this.saveOne(e)));
+        await Promise.all(valid.map(e => this.saveOne(e, opts)));
         return { written: valid.length };
     },
 

@@ -249,4 +249,92 @@ testRunner.addSuite("EmployeeRepository — subscribe (Fase 4.1)", {
 
 });
 
+// Importamos getDoc para verificar el read-merge-write en Fase 2.2
+import { getDoc } from '../modules/data/firebase.js';
+
+testRunner.addSuite("EmployeeRepository — saveOne con merge por ID (Fase 2.2)", {
+
+    async "saveOne con opts.mergeRemote=true hace getDoc antes de setDoc"() {
+        clearAllMocks();
+        getDoc.mockClear();
+        auth.currentUser = { uid: 'test-uid-merge-1' };
+
+        // Simular doc remoto existente con un préstamo viejo.
+        getDoc.mockResolvedValueOnce({
+            exists: () => true,
+            data: () => ({ id: 'e1', name: 'Ana', loans: [{ id: 'L_old', amount: 1000 }] })
+        });
+
+        await EmployeeRepository.saveOne(
+            { id: 'e1', name: 'Ana', loans: [{ id: 'L_new', amount: 5000 }] },
+            { mergeRemote: true }
+        );
+
+        testRunner.assert(getDoc.mock.calls.length >= 1,
+            "Con mergeRemote:true debe leer primero del servidor");
+        testRunner.assert(setDoc.mock.calls.length >= 1,
+            "Y después escribir");
+
+        // El payload escrito debe contener AMBOS préstamos (unión por id).
+        const written = setDoc.mock.calls[setDoc.mock.calls.length - 1][1];
+        testRunner.assert(Array.isArray(written.loans),
+            "El payload escrito debe tener un arreglo loans");
+        const ids = written.loans.map(l => l.id).sort();
+        testRunner.assertEquals(ids.join(','), 'L_new,L_old',
+            "Ambos préstamos deben preservarse tras el merge");
+
+        auth.currentUser = null;
+    },
+
+    async "saveOne sin mergeRemote NO llama a getDoc (fast path)"() {
+        clearAllMocks();
+        getDoc.mockClear();
+        auth.currentUser = { uid: 'test-uid-merge-2' };
+
+        await EmployeeRepository.saveOne({ id: 'e1', name: 'Ana' });
+
+        testRunner.assertEquals(getDoc.mock.calls.length, 0,
+            "Sin mergeRemote, debe ser una sola escritura sin lectura previa");
+        auth.currentUser = null;
+    },
+
+    async "saveOne con mergeRemote=true pero doc remoto no existe → escribe como nuevo"() {
+        clearAllMocks();
+        getDoc.mockClear();
+        auth.currentUser = { uid: 'test-uid-merge-3' };
+
+        getDoc.mockResolvedValueOnce({ exists: () => false, data: () => null });
+
+        await EmployeeRepository.saveOne(
+            { id: 'e1', name: 'Ana' },
+            { mergeRemote: true }
+        );
+
+        testRunner.assert(setDoc.mock.calls.length >= 1,
+            "Debe escribir aunque el doc remoto no exista");
+        const written = setDoc.mock.calls[setDoc.mock.calls.length - 1][1];
+        testRunner.assertEquals(written.name, 'Ana',
+            "Sin doc remoto, el payload local va tal cual");
+        auth.currentUser = null;
+    },
+
+    async "saveOne con mergeRemote y getDoc falla → fallback al write directo"() {
+        clearAllMocks();
+        getDoc.mockClear();
+        auth.currentUser = { uid: 'test-uid-merge-4' };
+
+        getDoc.mockRejectedValueOnce(new Error('network'));
+
+        await EmployeeRepository.saveOne(
+            { id: 'e1', name: 'Ana' },
+            { mergeRemote: true }
+        );
+
+        testRunner.assert(setDoc.mock.calls.length >= 1,
+            "Si el read falla, igual debe escribir (no perder el save del usuario)");
+        auth.currentUser = null;
+    }
+
+});
+
 console.log('🧪 EmployeeRepository tests cargados.');
