@@ -73,23 +73,42 @@ class FirebaseService {
             delete snapshotContext.currentUser;
             delete snapshotContext.attendance; // ⚡ OPT: La asistencia se guarda por separado en su propia colección
             delete snapshotContext.attendanceByDate; // ⚡ OPT: Índices locales no se suben
-            
+
+            // ⚡ FASE 4.1: Si la cuenta ya migró al modelo doc-por-empleado
+            // (schemaVersion >= 2), escribimos los empleados granular en
+            // users/{uid}/employees/{id} en lugar de aplastar el arreglo
+            // en el parent. Cada dispositivo solo toca los docs que cambia
+            // y deja de pisar lo que cambiaron otros dispositivos.
+            const schemaVersion = state?.settings?.schemaVersion;
+            const isMigrated = typeof schemaVersion === 'number' && schemaVersion >= 2;
+
+            if (isMigrated) {
+                // Escribir empleados como docs individuales en paralelo.
+                const emps = Array.isArray(state.employees) ? state.employees : [];
+                if (emps.length > 0) {
+                    await EmployeeRepository.saveMany(emps);
+                }
+                // Y eliminarlos del payload del mirror para no reescribir
+                // el arreglo legacy con datos que ya viven en su propia colección.
+                delete snapshotContext.employees;
+            }
+
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
 
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
             // 🛡️ merge: true evita que un guardado parcial borre campos top-level
-            // que este dispositivo no conoce (ej: una nueva configuración añadida
-            // por otro dispositivo). NOTA: arreglos como employees[] siguen siendo
-            // reemplazados completos por Firestore — eso lo resuelve la Fase 4.1
-            // (doc por empleado). Esto es la mitigación general previa.
+            // que este dispositivo no conoce. Combinado con el split de empleados
+            // arriba, esto cierra la ruta de pérdida de datos en multi-dispositivo
+            // para todo lo que vive en el empleado (préstamos, segundos empleos,
+            // adelantos, etc.).
             await setDoc(docRef, {
                 ...cleanState,
                 updatedAt: serverTimestamp(),
                 lastDevice: navigator.userAgent,
                 lastChangedBy: getDeviceId()
             }, { merge: true });
-            console.log('☁️ Estado sincronizado en Firebase');
+            console.log(`☁️ Estado sincronizado en Firebase (schemaVersion=${schemaVersion || 'legacy'})`);
         } catch (error) {
             console.error('❌ Error sincronizando estado:', error);
             throw error;

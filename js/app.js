@@ -20,6 +20,7 @@ import {
 import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
+import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
@@ -5409,14 +5410,14 @@ window.addEventListener('scroll', () => {
                 }
 
                 // Suscribirse a cambios en el estado (Mirror Sync)
-                FirebaseService.subscribeToChanges((remoteData) => {
+                FirebaseService.subscribeToChanges(async (remoteData) => {
                     debug.log('📡 Cambio detectado en la nube...');
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
                     const remoteTime = remoteData.settings?.localUpdatedAt || 0;
                     const localTime = state.settings?.localUpdatedAt || 0;
-                    
+
                     if (localTime > remoteTime) {
                         debug.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
                         // Si F5 frenó la sincronización, forzamos un save ahora que reinició
@@ -5436,14 +5437,38 @@ window.addEventListener('scroll', () => {
 
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
-                    
-                    // ⚡ FIX: Asegurar instancias correctas de clase al recibir de Firebase
-                    let newEmployees = dedup(remoteData.employees || state.employees);
+
+                    // ⚡ FASE 4.1: Migrar al modelo doc-por-empleado si aplica, y
+                    // cargar empleados desde la fuente correcta (subcolección si
+                    // ya migró, arreglo legacy si todavía no).
+                    const loaderResult = await loadAndMigrateEmployees({
+                        remoteData,
+                        isDemo: !!state.usingDemoData,
+                        migrate: (rd, opts) => FirebaseService.migrateIfNeeded(rd, opts),
+                        loadEmployees: (rd) => FirebaseService.loadEmployeesIfMigrated(rd)
+                    });
+                    if (loaderResult.migrated) {
+                        debug.log(`✅ Migración v2 completada: ${loaderResult.count} empleado(s)`);
+                    }
+                    if (loaderResult.error) {
+                        console.warn('⚠️ Migración/carga con error, usando fallback legacy:', loaderResult.error);
+                    }
+
+                    // ⚡ FIX: Asegurar instancias correctas de clase
+                    let newEmployees = dedup(loaderResult.employees || state.employees);
                     if (typeof Employee !== 'undefined') {
                         newEmployees = newEmployees.map(e => e instanceof Employee ? e : new Employee(e));
                     }
 
                     state.settings = { ...state.settings, ...remoteData.settings };
+                    // Propagar schemaVersion al state local para que las escrituras
+                    // (saveFullState) sepan tomar el camino granular.
+                    const effectiveSchemaVersion = loaderResult.migrated
+                        ? 2
+                        : (typeof remoteData.schemaVersion === 'number' ? remoteData.schemaVersion : state.settings.schemaVersion);
+                    if (typeof effectiveSchemaVersion === 'number') {
+                        state.settings.schemaVersion = effectiveSchemaVersion;
+                    }
                     state.employees = newEmployees;
                     state.positions = dedup(remoteData.positions || state.positions);
                     state.leaders = dedup(remoteData.leaders || state.leaders);

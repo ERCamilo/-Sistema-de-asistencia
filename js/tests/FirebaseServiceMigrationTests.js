@@ -110,4 +110,38 @@ testRunner.addSuite("FirebaseService — Contrato loadEmployeesIfMigrated (Fase 
 
 });
 
+testRunner.addSuite("FirebaseService — Contrato saveFullState con schemaVersion>=2 (Fase 4.1 paso 4)", {
+
+    "saveFullState comprueba schemaVersion antes de escribir el mirror"() {
+        const block = fbSource.match(/async\s+saveFullState[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        testRunner.assert(!!block, "Método localizable");
+        const txt = block[0];
+        testRunner.assert(
+            /schemaVersion/.test(txt),
+            "saveFullState debe consultar schemaVersion para decidir el camino de escritura"
+        );
+    },
+
+    "saveFullState invoca EmployeeRepository cuando schemaVersion>=2"() {
+        const block = fbSource.match(/async\s+saveFullState[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const txt = block[0];
+        testRunner.assert(
+            /EmployeeRepository\.saveMany/.test(txt) || /EmployeeRepository\.saveOne/.test(txt),
+            "Debe escribir empleados granular usando EmployeeRepository cuando ya migró"
+        );
+    },
+
+    "saveFullState elimina employees del payload del mirror tras migración"() {
+        const block = fbSource.match(/async\s+saveFullState[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const txt = block[0];
+        // Debe haber un delete del campo employees del snapshotContext o cleanState
+        // SOLO en el camino post-migración (no incondicional).
+        testRunner.assert(
+            /delete\s+\w+\.employees/.test(txt),
+            "Debe eliminar employees del payload del mirror cuando schemaVersion>=2"
+        );
+    }
+
+});
+
 console.log('🧪 FirebaseService migration contract tests cargados.');
