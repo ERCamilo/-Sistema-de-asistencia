@@ -424,10 +424,10 @@ window.App.Sync = {
         }
     },
 
-    createSnapshot: async (type = 'manual') => {
+    createSnapshot: async (type = 'manual', reason = null) => {
         try {
             showNotification('📸 Creando snapshot...', 'info');
-            await FirebaseService.createSnapshot(state, type);
+            await FirebaseService.createSnapshot(state, type, reason);
             if (state.settingsActiveTab === 'data') {
                 state.isLoadingSnapshots = true; render();
                 state.snapshots = await FirebaseService.listSnapshots();
@@ -1290,7 +1290,7 @@ async function saveApplicationData(options = {}) {
             };
 
             if (now - lastBackup > (intervals[freq] || Infinity)) {
-                FirebaseService.createSnapshot(state, 'auto').then(() => {
+                FirebaseService.createSnapshot(state, 'auto', 'daily-auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
                     // No llamamos a saveApplicationData aquí para evitar bucles,
                     // se guardará en el siguiente paso de IndexedDB.
@@ -4319,10 +4319,10 @@ window.exportData = async function () {
 /**
  * 📸 Creador de Snapshots accesible globalmente para RestoreUI
  */
-window.createFirebaseSnapshot = async function (type = 'auto') {
+window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
     if (!window.currentUser) return null;
     try {
-        const id = await FirebaseService.createSnapshot(state, type);
+        const id = await FirebaseService.createSnapshot(state, type, reason);
         return id;
     } catch (error) {
         console.error('Error creando snapshot:', error);

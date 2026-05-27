@@ -128,7 +128,7 @@ export class MaintenanceUI {
 
         try {
             // Backup previo (si hay Firebase)
-            if (globalThis.createFirebaseSnapshot) await globalThis.createFirebaseSnapshot('pre-mantenimiento-auto');
+            if (globalThis.createFirebaseSnapshot) await globalThis.createFirebaseSnapshot('pre-restore', 'pre-mantenimiento-auto');
             
             const result = await executeAutoRepair();
 

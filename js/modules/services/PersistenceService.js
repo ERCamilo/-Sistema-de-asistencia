@@ -156,7 +156,7 @@ async function _executeSave(options = {}) {
 
             if (now - lastBackup > (intervals[freq] || Infinity)) {
                 const rawState = stateManager.getState();
-                FirebaseService.createSnapshot(rawState, 'auto').then(() => {
+                FirebaseService.createSnapshot(rawState, 'auto', 'daily-auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
                 }).catch(e => console.error('Error en backup automático:', e));
             }

@@ -2,6 +2,7 @@
  * SettingsDataTab.js - Componente de la pestaña Datos, Sincronización y Backups
  */
 import { DateUtils } from '../../utils/DateUtils.js';
+import { getReasonInfo } from '../../services/SnapshotReasons.js';
 
 export function SettingsDataTab(context) {
     const state = context.state;
@@ -211,24 +212,37 @@ function SnapshotHistory(context) {
                 </div>
             ` : `
                 <div style="display: flex; flex-direction: column; gap: 8px;">
-                    ${snapshots.map(snap => `
+                    ${snapshots.map(snap => {
+                        const info = getReasonInfo(snap.reason, snap.type);
+                        const badgeLabel = snap.type === 'pre-restore'
+                            ? '🛡️ PROTEGIDO'
+                            : (snap.type === 'auto' ? 'AUTO' : 'MANUAL');
+                        const badgeColor = snap.type === 'pre-restore' ? '#10b981'
+                            : (snap.type === 'auto' ? '#10b981' : '#06b6d4');
+                        const badgeBg = snap.type === 'pre-restore'
+                            ? 'rgba(16, 185, 129, 0.2)'
+                            : (snap.type === 'auto' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(6, 182, 212, 0.1)');
+                        return `
                         <div style="background: #0f172a; padding: 12px; border-radius: 8px; border: 1px solid #334155; display: flex; align-items: center; justify-content: space-between;">
-                            <div style="flex: 1;">
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                                    ${snap.type === 'pre-restore' ? `
-                                        <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; font-weight: 700; display: flex; align-items: center; gap: 4px;">
-                                            🛡️ PROTEGIDO
-                                        </span>
-                                    ` : `
-                                        <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: ${snap.type === 'auto' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(6, 182, 212, 0.1)'}; color: ${snap.type === 'auto' ? '#10b981' : '#06b6d4'}; border: 1px solid currentColor;">
-                                            ${snap.type === 'auto' ? 'AUTO' : 'MANUAL'}
-                                        </span>
-                                    `}
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                                    <span style="font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeColor}; font-weight: ${snap.type === 'pre-restore' ? '700' : '600'};">
+                                        ${badgeLabel}
+                                    </span>
                                     <span style="color: #f1f5f9; font-weight: 600; font-size: 0.9rem;">
                                         ${DateUtils.formatDateTime(snap.createdAt)}
                                     </span>
-
                                 </div>
+                                <!-- 🆕 Razón legible del snapshot -->
+                                <div style="color: ${info.color || '#cbd5e1'}; font-size: 0.8rem; font-weight: 500; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                                    <span>${info.icon || '📸'}</span>
+                                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${info.label}</span>
+                                </div>
+                                ${snap.userNote ? `
+                                    <div style="color: #94a3b8; font-size: 0.75rem; font-style: italic; margin-bottom: 4px; padding-left: 4px; border-left: 2px solid #334155;">
+                                        "${snap.userNote}"
+                                    </div>
+                                ` : ''}
                                 <div style="color: #94a3b8; font-size: 0.75rem; display: flex; align-items: center; gap: 4px;">
                                     ${icons.get('personnel', { size: 12 })} ${snap.employeeCount} empleados <span style="opacity: 0.4;">|</span> ${icons.get('file', { size: 12 })} ${snap.attendanceCount} registros
                                 </div>
@@ -245,7 +259,8 @@ function SnapshotHistory(context) {
                                 </button>
                             </div>
                         </div>
-                    `).join('')}
+                    `;
+                    }).join('')}
                 </div>
             `}
             

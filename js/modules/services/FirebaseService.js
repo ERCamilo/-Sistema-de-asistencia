@@ -6,6 +6,7 @@ import {
     ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob, deleteObject
 } from '../data/firebase.js';
 import { getDeviceId } from '../config/Config.js';
+import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
 
 class FirebaseService {
     constructor() {
@@ -93,16 +94,36 @@ class FirebaseService {
 
     /**
      * Crea un punto de restauración (Snapshot) en la colección de backups
+     * @param {object} state Estado global a respaldar
+     * @param {string} type Tipo (auto/manual/pre-restore) — compat hacia atrás
+     * @param {string|object} [reasonOrOpts] Razón específica (código del catálogo
+     *   SnapshotReasons) o un objeto { reason, userNote } para snapshots manuales
+     *   con comentario libre del usuario.
      */
-    async createSnapshot(state, type = 'auto') {
+    async createSnapshot(state, type = 'auto', reasonOrOpts = null) {
         if (!auth.currentUser) return;
+
+        // Permitir tanto string (reason) como objeto { reason, userNote }
+        let reason = null;
+        let userNote = null;
+        if (typeof reasonOrOpts === 'string') {
+            reason = reasonOrOpts;
+        } else if (reasonOrOpts && typeof reasonOrOpts === 'object') {
+            reason = reasonOrOpts.reason || null;
+            userNote = reasonOrOpts.userNote || null;
+        }
+
+        // Resolver reason desde el type si no vino explícita
+        const resolvedReason = reason || defaultReasonForType(type);
+        const reasonInfo = SNAPSHOT_REASONS[resolvedReason] || null;
+        const reasonLabel = reasonInfo?.label || null;
 
         try {
             const snapshotContext = { ...state };
             delete snapshotContext.snapshots;
             delete snapshotContext.isLoadingSnapshots;
             delete snapshotContext.currentUser;
-            
+
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
             const timestamp = Date.now();
@@ -126,7 +147,10 @@ class FirebaseService {
                 metadata: {
                     timestamp,
                     type,
-                    isProtected: type === 'pre-restore',
+                    reason: resolvedReason,
+                    reasonLabel,
+                    userNote,
+                    isProtected: type === 'pre-restore' || !!reasonInfo?.protected,
                     size: stateString.length,
                     employeeCount: state.employees?.length || 0,
                     attendanceCount: Object.keys(state.attendance || {}).length,
@@ -134,7 +158,7 @@ class FirebaseService {
                     lastChangedBy: getDeviceId()
                 }
             });
-            console.log(`📸 Snapshot (${type}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
+            console.log(`📸 Snapshot (${type}/${resolvedReason}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
             return docRef.id;
         } catch (error) {
             console.error('❌ Error creando snapshot:', error);
