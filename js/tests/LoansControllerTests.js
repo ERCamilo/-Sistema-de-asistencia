@@ -409,4 +409,154 @@ testRunner.addSuite("LoansController — employee picker", {
     }
 });
 
+// ─────────────────────────────────────────────────────────────
+// Suite: openLoansLedgerFor — Perfil → Cuentas por Cobrar (Unificación)
+// ─────────────────────────────────────────────────────────────
+//
+// Sustituye el flujo dual de registro de préstamos. Antes: el perfil
+// tenía su propio formulario `addAdvance` que escribía a emp.advances[].
+// Ahora: el perfil es read-only para préstamos y ofrece este handler
+// para llevar al usuario al lugar canónico (Cuentas por Cobrar).
+//
+// El handler debe:
+//   1. Cerrar el modal del perfil.
+//   2. Seleccionar al empleado en el state del ledger.
+//   3. Navegar a la vista de Cuentas por Cobrar.
+//   4. Abrir el formulario de nuevo préstamo (el usuario vino a registrar).
+//   5. Funcionar tanto si el empleado tiene préstamos previos como si no.
+
+const { openLoansLedgerFor } = require('../modules/features/loans/LoansController.js');
+
+testRunner.addSuite("LoansController — openLoansLedgerFor (Unificación profile→ledger)", {
+
+    "cierra el modal del perfil"() {
+        resetState();
+        seedEmployee({ id: 'e1', name: 'Ana' });
+        state.showEmployeeProfile = true;
+        state.employeeProfile = { employeeId: 'e1', activeTab: 'nomina' };
+
+        const prevOpenCxC = window.openCuentasPorCobrar;
+        window.openCuentasPorCobrar = () => {};
+        try {
+            openLoansLedgerFor('e1');
+            testRunner.assertEquals(state.showEmployeeProfile, false,
+                "El perfil debe cerrarse al saltar al ledger");
+        } finally {
+            window.openCuentasPorCobrar = prevOpenCxC;
+        }
+    },
+
+    "selecciona el empleado en el ledger"() {
+        resetState();
+        seedEmployee({ id: 'e1', name: 'Ana' });
+        const prevOpenCxC = window.openCuentasPorCobrar;
+        window.openCuentasPorCobrar = () => {};
+        try {
+            openLoansLedgerFor('e1');
+            testRunner.assertEquals(state.loansLedger?.selectedEmployeeId, 'e1',
+                "El ledger debe quedar con el empleado preseleccionado");
+        } finally {
+            window.openCuentasPorCobrar = prevOpenCxC;
+        }
+    },
+
+    "navega a Cuentas por Cobrar"() {
+        resetState();
+        seedEmployee({ id: 'e1', name: 'Ana' });
+        let called = false;
+        const prevOpenCxC = window.openCuentasPorCobrar;
+        window.openCuentasPorCobrar = () => { called = true; };
+        try {
+            openLoansLedgerFor('e1');
+            testRunner.assertEquals(called, true,
+                "Debe invocar openCuentasPorCobrar para navegar");
+        } finally {
+            window.openCuentasPorCobrar = prevOpenCxC;
+        }
+    },
+
+    "abre el formulario de nuevo préstamo (el usuario vino a registrar)"() {
+        resetState();
+        seedEmployee({ id: 'e1', name: 'Ana' });
+        const prevOpenCxC = window.openCuentasPorCobrar;
+        window.openCuentasPorCobrar = () => {};
+        try {
+            openLoansLedgerFor('e1');
+            testRunner.assertEquals(state.loansLedger?.showAddForm, true,
+                "El form de alta debe abrirse para evitar 1 clic extra");
+        } finally {
+            window.openCuentasPorCobrar = prevOpenCxC;
+        }
+    },
+
+    "funciona si openCuentasPorCobrar no está definido (no rompe)"() {
+        resetState();
+        seedEmployee({ id: 'e1', name: 'Ana' });
+        const prevOpenCxC = window.openCuentasPorCobrar;
+        window.openCuentasPorCobrar = undefined;
+        try {
+            let threw = false;
+            try { openLoansLedgerFor('e1'); } catch (e) { threw = true; }
+            testRunner.assertEquals(threw, false,
+                "Debe ser defensivo si la función de navegación no existe");
+            // El estado del ledger igual debe haberse preparado.
+            testRunner.assertEquals(state.loansLedger?.selectedEmployeeId, 'e1');
+        } finally {
+            window.openCuentasPorCobrar = prevOpenCxC;
+        }
+    }
+
+});
+
+// ─────────────────────────────────────────────────────────────
+// Suite: createLoan funciona para empleados nuevos Y existentes
+// ─────────────────────────────────────────────────────────────
+
+const { createLoan } = require('../modules/features/loans/LoansService.js');
+
+testRunner.addSuite("LoansController — Alta funciona para empleado sin préstamos previos", {
+
+    "createLoan inicializa emp.loans si no existe (empleado completamente nuevo)"() {
+        // Empleado sin la propiedad loans (típico de empleado recién creado o
+        // venido de datos legacy donde la propiedad nunca se inicializó).
+        const emp = { id: 'eNew', name: 'Nuevo Empleado' };
+        testRunner.assertEquals(emp.loans, undefined, "Pre-condición: sin propiedad loans");
+
+        const loan = createLoan(emp, {
+            principal: 1000,
+            startDate: '2026-05-26',
+            concept: 'Primer préstamo'
+        });
+
+        testRunner.assert(Array.isArray(emp.loans),
+            "createLoan debe inicializar emp.loans como array");
+        testRunner.assertEquals(emp.loans.length, 1, "Debe haber 1 préstamo");
+        testRunner.assertEquals(emp.loans[0].id, loan.id, "El loan retornado coincide");
+    },
+
+    "createLoan trabaja correctamente con empleado que ya tiene préstamos"() {
+        const emp = {
+            id: 'eExisting',
+            name: 'Con Historial',
+            loans: [{ id: 'LOAN_OLD', principal: 500, status: 'active' }]
+        };
+        const loan = createLoan(emp, {
+            principal: 2000,
+            startDate: '2026-05-26',
+            concept: 'Segundo préstamo'
+        });
+        testRunner.assertEquals(emp.loans.length, 2, "Debe haber 2 préstamos (viejo + nuevo)");
+        testRunner.assertEquals(emp.loans[1].id, loan.id, "El nuevo se agrega al final");
+        testRunner.assertEquals(emp.loans[0].id, 'LOAN_OLD', "El viejo no se borra");
+    },
+
+    "createLoan con emp.loans=null lo trata como ausente"() {
+        const emp = { id: 'eNull', name: 'Con null', loans: null };
+        createLoan(emp, { principal: 100, startDate: '2026-05-26' });
+        testRunner.assert(Array.isArray(emp.loans), "Debe convertir null → array");
+        testRunner.assertEquals(emp.loans.length, 1);
+    }
+
+});
+
 console.log('🧪 LoansController tests cargados.');

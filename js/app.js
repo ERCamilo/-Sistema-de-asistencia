@@ -23,6 +23,7 @@ import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
+import { generateLoansReadonlySection } from './modules/features/profile/LoansReadonlySection.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
@@ -2368,7 +2369,19 @@ function generateBonusesHTML(payroll) {
     `;
 }
 
-function generateAdvancesHTML(payroll) {
+// 🔄 UNIFICACIÓN DE PRÉSTAMOS:
+// La sección "Adelantos y Préstamos" del perfil ahora es de SOLO LECTURA.
+// El único lugar para registrar/editar es Cuentas por Cobrar. La implementación
+// vive en LoansReadonlySection.js para que sea testeable en aislamiento.
+function generateAdvancesHTML(/* payroll (no longer used) */) {
+    const emp = state.employees?.find(e => e.id === state.employeeProfile?.employeeId);
+    if (!emp) return '';
+    return generateLoansReadonlySection(emp);
+}
+
+// Implementación vieja eliminada en la unificación de préstamos. Si necesitas
+// referencia histórica, ver git blame de este archivo en commits anteriores.
+function _legacyGenerateAdvancesHTML_REMOVED(payroll) {
     const advances = state.employeeProfile.advances || [];
     const totalAdvancesAccumulated = advances.reduce((sum, adv) => {
         const amount = parseFloat(adv.amount) || 0;

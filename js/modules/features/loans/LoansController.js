@@ -160,6 +160,47 @@ export function setLoansPickerSearch(value) {
 }
 
 /**
+ * 📊 Sentido inverso: del PERFIL al LEDGER.
+ * Cierra el modal del perfil del empleado, preselecciona al empleado en
+ * el ledger de Cuentas por Cobrar, navega a esa vista y abre el form
+ * de "Nuevo préstamo" (el usuario vino aquí justamente a registrar).
+ *
+ * Reemplaza el flujo dual viejo donde se podía registrar tanto desde el
+ * perfil (via emp.advances[]) como desde el ledger. Ahora el perfil es
+ * solo-lectura; este handler es el puente.
+ *
+ * Defensivo si window.openCuentasPorCobrar no está disponible: prepara
+ * el state del ledger igual para que la próxima navegación manual lo
+ * encuentre listo.
+ */
+export function openLoansLedgerFor(employeeId) {
+    if (!employeeId) return;
+    ensureLedgerState();
+
+    // 1. Cerrar el modal del perfil si estaba abierto.
+    if (typeof state !== 'undefined') {
+        state.showEmployeeProfile = false;
+    }
+
+    // 2. Preseleccionar al empleado en el ledger.
+    state.loansLedger.selectedEmployeeId = employeeId;
+    state.loansLedger.showPaymentFormForLoan = null;
+
+    // 3. Abrir el formulario de nuevo préstamo (el usuario vino a registrar).
+    state.loansLedger.showAddForm = true;
+    state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+
+    // 4. Navegar a la vista de Cuentas por Cobrar (defensivo).
+    if (typeof window !== 'undefined' && typeof window.openCuentasPorCobrar === 'function') {
+        window.openCuentasPorCobrar();
+    } else {
+        // Si la función de navegación no existe (tests, ruta no inicializada),
+        // al menos disparamos un render para que la UI refleje el cambio.
+        render();
+    }
+}
+
+/**
  * Close the picker and open the employee profile modal on the Nómina tab,
  * which hosts the legacy advances editor and (soon) a unified loans editor.
  */
@@ -409,6 +450,7 @@ export function registerLegacyGlobals() {
     window.closeLoansEmployeePicker = closeLoansEmployeePicker;
     window.setLoansPickerSearch = setLoansPickerSearch;
     window.openProfileForLoan = openProfileForLoan;
+    window.openLoansLedgerFor = openLoansLedgerFor;
     window.toggleInactiveHistory = toggleInactiveHistory;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
