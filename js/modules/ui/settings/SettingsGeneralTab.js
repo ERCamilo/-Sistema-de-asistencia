@@ -65,11 +65,60 @@ export function SettingsGeneralTab(context) {
                     <div class="form-group" style="margin-bottom: 0; padding-top: 16px; border-top: 1px solid #334155;">
                         <label class="form-label" style="display: flex; align-items: center; gap: 12px; cursor: pointer; margin: 0;">
                             <input type="checkbox" id="weatherEnabled" ${state.settings.weatherEnabled === true ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: #06b6d4; cursor: pointer;">
-                            <span style="font-weight: 600; font-size: 1rem; color: #f1f5f9;">🌤️ Mostrar Barra de Clima</span>
+                            <span style="font-weight: 600; font-size: 1rem; color: #f1f5f9;">Mostrar Barra de Clima</span>
                         </label>
                         <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px; margin-left: 32px; line-height: 1.5;">
-                            Muestra una barra con el pronóstico del clima encima de la lista de asistencia. Al desplegarla verás detalle del día y las próximas horas. Desactivado por defecto.
+                            Muestra una barra con el pronostico del clima encima de la lista de asistencia. Al desplegarla veras detalle del dia y las proximas horas. Desactivado por defecto.
                         </div>
+                        ${state.settings.weatherEnabled === true ? `
+                            <div style="margin-top: 12px; margin-left: 32px; padding: 12px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 16px;">
+                                <div>
+                                    <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block; color: #94a3b8;">
+                                        API Key de WeatherAPI.com
+                                    </label>
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <input type="password"
+                                               id="weatherApiKey"
+                                               value="${state.settings.weatherApiKey || ''}"
+                                               placeholder="Pega tu API key aqui"
+                                               class="form-input"
+                                               style="flex: 1; font-family: monospace; font-size: 0.85rem;"
+                                               autocomplete="off">
+                                        <button type="button"
+                                                onclick="const inp = document.getElementById('weatherApiKey'); inp.type = inp.type === 'password' ? 'text' : 'password';"
+                                                style="background: #334155; border: none; color: #94a3b8; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;">
+                                            Ver/Ocultar
+                                        </button>
+                                    </div>
+                                    <div style="font-size: 0.72rem; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                                        Sin API key se muestran datos de ejemplo (mock). Registrate gratis en
+                                        <a href="https://www.weatherapi.com/signup.aspx" target="_blank" rel="noopener" style="color: #06b6d4; text-decoration: underline;">weatherapi.com</a>
+                                        para obtener datos reales (1M llamadas/mes gratis, sin tarjeta).
+                                    </div>
+                                </div>
+
+                                <div style="border-top: 1px solid #334155; padding-top: 16px;">
+                                    <label class="form-label" style="font-size: 0.85rem; margin-bottom: 8px; display: block; color: #94a3b8;">
+                                        Ubicación de Referencia (Coordenadas de Google Maps)
+                                    </label>
+                                    <input type="text"
+                                           id="weatherLocationInput"
+                                           value="${state.settings.weatherLocationRaw || ''}"
+                                           placeholder="Ej: 18.4716, -69.8927 o @18.4716,-69.8927"
+                                           class="form-input"
+                                           style="width: 100%; font-size: 0.85rem; background: #0f172a; border-color: #334155; box-sizing: border-box;"
+                                           autocomplete="off">
+                                    <div style="font-size: 0.72rem; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                                        Puedes copiar y pegar coordenadas de Google Maps directamente haciendo clic derecho en el mapa o copiando el fragmento con <code>@</code> de la barra de direcciones. Por defecto usa Santo Domingo, RD.
+                                    </div>
+                                </div>
+                                ${state.settings.weatherApiKey ? `
+                                    <div style="font-size: 0.72rem; color: #10b981; border-top: 1px solid #334155; padding-top: 8px;">
+                                        Provider activo: ${state.settings.weatherProvider || 'weatherapi'}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
 

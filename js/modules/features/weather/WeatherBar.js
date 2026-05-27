@@ -30,6 +30,7 @@ import {
     getActiveLocation
 } from './WeatherService.js';
 import { emojiFor, labelFor, formatTemp } from './WeatherTypes.js';
+import { getWindAlert, getPrecipAlert, getTempAlert, getAggregatedAlert, getWindGustAlert, getPressureAlert, getVisAlert, getUvAlert, ALERT_LEVEL } from './WeatherAlertRules.js';
 
 /**
  * Spanish-locale weekday for a YYYY-MM-DD key. "Hoy" shortcut when the key
@@ -73,18 +74,26 @@ function _collapsedHeader(current, forecast, today) {
     const todayEmoji = emojiFor(current.icon);
     const todayTemp = formatTemp(current.temp);
     const previewDays = (forecast || []).slice(0, 5);
+    const alert = getAggregatedAlert(current);
 
     return `
         <div role="button" tabindex="0"
              data-att-action="toggle-weather"
              aria-expanded="false"
              aria-label="Ver detalle del clima"
-             style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; flex-wrap: nowrap; overflow-x: auto;">
-            <!-- Today summary (always pinned left) -->
-            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                <span style="font-size: 1.2rem; line-height: 1;" aria-hidden="true">${todayEmoji}</span>
-                <span style="font-size: 0.85rem; color: #f1f5f9; font-weight: 800;">Hoy ${todayTemp}</span>
-            </div>
+             style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; flex-wrap: nowrap; overflow-x: auto; ${alert.active ? `background: rgba(248, 113, 113, 0.08); border-left: 4px solid ${alert.color};` : ''}">
+            <!-- Today summary / Alert -->
+            ${alert.active ? `
+                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    <span style="font-size: 1.1rem; line-height: 1;" aria-hidden="true">⚠️</span>
+                    <span style="font-size: 0.8rem; color: ${alert.color}; font-weight: 800; text-transform: uppercase; white-space: nowrap;">${alert.label}</span>
+                </div>
+            ` : `
+                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    <span style="font-size: 1.2rem; line-height: 1;" aria-hidden="true">${todayEmoji}</span>
+                    <span style="font-size: 0.85rem; color: #f1f5f9; font-weight: 800;">Hoy ${todayTemp}</span>
+                </div>
+            `}
             <!-- Vertical divider -->
             <div style="width: 1px; height: 24px; background: #334155; flex-shrink: 0;"></div>
             <!-- Next-days strip -->
@@ -131,14 +140,35 @@ function _expandedHeader(current, loc) {
 }
 
 function _expandedBody(current, hourly, forecast, today) {
+    const windAlert = getWindAlert(current.windKph);
+    const precipAlert = getPrecipAlert(current.precipMm);
+    const tempAlert = getTempAlert(current.feelsLike !== null ? current.feelsLike : current.temp);
+    const uvAlert = getUvAlert(current.uv);
+
+    // Parámetros dinámicos (solo se muestran si hay alertas)
+    const gustAlert = getWindGustAlert(current.windGustKph);
+    const pressAlert = getPressureAlert(current.pressureMb);
+    const visAlert = getVisAlert(current.visKm);
+
+    const showGust = gustAlert.level !== ALERT_LEVEL.NORMAL;
+    const showPress = pressAlert.level !== ALERT_LEVEL.NORMAL;
+    const showVis = visAlert.level !== ALERT_LEVEL.NORMAL;
+
     return `
         <div style="padding: 12px 14px;">
             <!-- Vitals row -->
             <div style="display: flex; gap: 14px; font-size: 0.78rem; color: #94a3b8; margin-bottom: 14px; flex-wrap: wrap;">
-                <span title="Probabilidad de precipitación">💧 ${current.precipChance ?? '—'}%</span>
-                <span title="Viento">💨 ${current.windKph ?? '—'} km/h</span>
-                ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación ${formatTemp(current.feelsLike)}</span>` : ''}
-                ${current.humidity != null ? `<span title="Humedad">💦 ${current.humidity}%</span>` : ''}
+                <span title="Probabilidad de precipitación">💧 Probabilidad: <strong style="color: #f1f5f9;">${current.precipChance ?? '—'}%</strong></span>
+                <span title="Cantidad de lluvia acumulada">🧊 Lluvia: <strong style="color: ${precipAlert.color};">${current.precipMm ?? '0'} mm</strong></span>
+                <span title="Velocidad del viento">💨 Viento: <strong style="color: ${windAlert.color};">${current.windKph ?? '—'} km/h</strong></span>
+                ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación: <strong style="color: ${tempAlert.color};">${formatTemp(current.feelsLike)}</strong></span>` : ''}
+                ${current.humidity != null ? `<span title="Humedad">💦 Humedad: <strong style="color: #f1f5f9;">${current.humidity}%</strong></span>` : ''}
+                <span title="Índice UV">☀️ Índice UV: <strong style="color: ${uvAlert.color};">${current.uv ?? '—'} (${uvAlert.label})</strong></span>
+                
+                <!-- Campos dinámicos de alerta -->
+                ${showGust ? `<span title="Rachas de viento">💨 Ráfagas: <strong style="color: ${gustAlert.color};">${current.windGustKph} km/h</strong></span>` : ''}
+                ${showVis ? `<span title="Visibilidad">🌫️ Visibilidad: <strong style="color: ${visAlert.color};">${current.visKm} km</strong></span>` : ''}
+                ${showPress ? `<span title="Presión atmosférica">📉 Presión: <strong style="color: ${pressAlert.color};">${current.pressureMb} mb</strong></span>` : ''}
             </div>
 
             <!-- Hourly strip (24h ahead) -->

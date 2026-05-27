@@ -14,6 +14,7 @@ import { state } from '../../core/AppState.js';
 import { readCachedCurrent, readCachedForecast, readCachedHourly, getActiveLocation } from './WeatherService.js';
 import { emojiFor, labelFor, formatTemp } from './WeatherTypes.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
+import { getWindAlert, getPrecipAlert, getTempAlert, getWindGustAlert, getPressureAlert, getVisAlert, getUvAlert, ALERT_LEVEL } from './WeatherAlertRules.js';
 
 function _shortDayLabel(dateKey, todayKey) {
     if (dateKey === todayKey) return 'Hoy';
@@ -33,6 +34,19 @@ export function WeatherPanel() {
     const currentEmoji = emojiFor(current.icon);
     const currentLabel = labelFor(current.icon);
 
+    const windAlert = getWindAlert(current.windKph);
+    const precipAlert = getPrecipAlert(current.precipMm);
+    const tempAlert = getTempAlert(current.feelsLike !== null ? current.feelsLike : current.temp);
+    const uvAlert = getUvAlert(current.uv);
+
+    const gustAlert = getWindGustAlert(current.windGustKph);
+    const pressAlert = getPressureAlert(current.pressureMb);
+    const visAlert = getVisAlert(current.visKm);
+
+    const showGust = gustAlert.level !== ALERT_LEVEL.NORMAL;
+    const showPress = pressAlert.level !== ALERT_LEVEL.NORMAL;
+    const showVis = visAlert.level !== ALERT_LEVEL.NORMAL;
+
     return `
         <div role="dialog" aria-modal="false" class="weather-panel"
              onclick="event.stopPropagation()"
@@ -50,11 +64,19 @@ export function WeatherPanel() {
                 <div style="font-size: 1.4rem; font-weight: 900; color: #f1f5f9;">${formatTemp(current.temp)}</div>
             </div>
 
-            <!-- Subline: precip + wind -->
-            <div style="display: flex; gap: 14px; font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #334155;">
-                <span title="Probabilidad de precipitación">💧 ${current.precipChance ?? '—'}%</span>
-                <span title="Viento">💨 ${current.windKph ?? '—'} km/h</span>
-                ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación ${formatTemp(current.feelsLike)}</span>` : ''}
+            <!-- Subline: precip + wind + uv + conditional alerts -->
+            <div style="display: flex; gap: 14px; font-size: 0.75rem; color: #94a3b8; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #334155; flex-wrap: wrap;">
+                <span title="Probabilidad de precipitación">💧 Probabilidad: <strong style="color: #f1f5f9;">${current.precipChance ?? '—'}%</strong></span>
+                <span title="Cantidad de lluvia acumulada">🧊 Lluvia: <strong style="color: ${precipAlert.color};">${current.precipMm ?? '0'} mm</strong></span>
+                <span title="Velocidad del viento">💨 Viento: <strong style="color: ${windAlert.color};">${current.windKph ?? '—'} km/h</strong></span>
+                ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación: <strong style="color: ${tempAlert.color};">${formatTemp(current.feelsLike)}</strong></span>` : ''}
+                ${current.humidity != null ? `<span title="Humedad">💦 Humedad: <strong style="color: #f1f5f9;">${current.humidity}%</strong></span>` : ''}
+                <span title="Índice UV">☀️ Índice UV: <strong style="color: ${uvAlert.color};">${current.uv ?? '—'} (${uvAlert.label})</strong></span>
+                
+                <!-- Campos dinámicos de alerta -->
+                ${showGust ? `<span title="Rachas de viento">💨 Ráfagas: <strong style="color: ${gustAlert.color};">${current.windGustKph} km/h</strong></span>` : ''}
+                ${showVis ? `<span title="Visibilidad">🌫️ Visibilidad: <strong style="color: ${visAlert.color};">${current.visKm} km</strong></span>` : ''}
+                ${showPress ? `<span title="Presión atmosférica">📉 Presión: <strong style="color: ${pressAlert.color};">${current.pressureMb} mb</strong></span>` : ''}
             </div>
 
             <!-- Hourly strip (24h ahead, 3h steps) -->

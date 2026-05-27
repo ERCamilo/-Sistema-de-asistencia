@@ -106,8 +106,11 @@ import {
     WeatherChip,
     WeatherChipWithPanel,
     WeatherBar,
-    registerLegacyGlobals as registerWeatherGlobals
+    registerLegacyGlobals as registerWeatherGlobals,
+    registerAdapter as registerWeatherAdapter,
+    setActiveProvider as setWeatherProvider
 } from './modules/features/weather/index.js';
+import { WeatherApiAdapter } from './modules/features/weather/adapters/WeatherApiAdapter.js';
 import { monitorSWVersion } from './modules/utils/SWVersion.js';
 import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
 
@@ -3077,6 +3080,19 @@ window.WeatherChipWithPanel = WeatherChipWithPanel;
 window.WeatherBar = WeatherBar;
 registerWeatherGlobals();
 
+// Register the real WeatherAPI.com adapter and activate it if the admin
+// has configured an API key. Without a key, MockAdapter stays active.
+(function _wireWeatherAdapter() {
+    try {
+        registerWeatherAdapter('weatherapi', WeatherApiAdapter);
+        if (state.settings?.weatherApiKey) {
+            setWeatherProvider(state, 'weatherapi');
+        }
+    } catch (err) {
+        if (window.debug) window.debug.log(`Weather adapter registration: ${err.message}`);
+    }
+})();
+
 // 🛡️ Surface the active Service Worker's CACHE_VERSION in state so the
 //    Ajustes footer can show it next to the app version. Updates again
 //    whenever a new SW activates (deploy / cache bump).
@@ -4292,6 +4308,10 @@ window.saveSettings = function () {
     const hideDuplicateAlerts = hideDuplicateAlertsElement ? hideDuplicateAlertsElement.checked : !!state.settings.hideDuplicateAlerts;
     const weatherEnabledElement = document.getElementById('weatherEnabled');
     const weatherEnabled = weatherEnabledElement ? weatherEnabledElement.checked : state.settings.weatherEnabled === true;
+    const weatherApiKeyElement = document.getElementById('weatherApiKey');
+    const weatherApiKey = weatherApiKeyElement ? weatherApiKeyElement.value.trim() : (state.settings.weatherApiKey || '');
+    const weatherLocationInputElement = document.getElementById('weatherLocationInput');
+    const weatherLocationRaw = weatherLocationInputElement ? weatherLocationInputElement.value.trim() : (state.settings.weatherLocationRaw || '');
 
     // Validaciones
     if (!companyName) {
@@ -4319,6 +4339,27 @@ window.saveSettings = function () {
         return;
     }
 
+    let weatherLocation = null;
+    if (weatherEnabled && weatherLocationRaw) {
+        const cleanLoc = weatherLocationRaw.replace(/^@/, '');
+        const match = cleanLoc.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+        if (match) {
+            const lat = parseFloat(match[1]);
+            const lon = parseFloat(match[2]);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                    showNotification('❌ Coordenadas fuera de rango (Latitud: -90 a 90, Longitud: -180 a 180)', 'error');
+                    return;
+                }
+                weatherLocation = { lat, lon, name: 'Ubicación Personalizada' };
+            }
+        }
+        if (!weatherLocation) {
+            showNotification('❌ Formato de coordenadas inválido. Debe ser: Latitud, Longitud (ej: 18.47, -69.89)', 'error');
+            return;
+        }
+    }
+
     // Guardar configuración
     state.settings.companyName = companyName;
     state.settings.regularHoursPerDay = regularHoursPerDay;
@@ -4332,6 +4373,35 @@ window.saveSettings = function () {
     state.settings.scrollbarMode = scrollbarMode;
     state.settings.hideDuplicateAlerts = hideDuplicateAlerts;
     state.settings.weatherEnabled = weatherEnabled;
+
+    // Guardar ubicación y limpiar caché si cambia
+    const prevLocRaw = state.settings.weatherLocationRaw || '';
+    state.settings.weatherLocationRaw = weatherLocationRaw;
+    state.settings.weatherLocation = weatherLocation;
+
+    if (weatherLocationRaw !== prevLocRaw) {
+        if (state.weather?.cache) {
+            state.weather.cache.current = null;
+            state.weather.cache.forecast = null;
+            state.weather.cache.hourly = null;
+            state.weather.cache.alerts = null;
+        }
+    }
+
+    // Weather API key: cambiar provider segun presencia de key
+    const prevKey = state.settings.weatherApiKey || '';
+    state.settings.weatherApiKey = weatherApiKey;
+    if (weatherApiKey && weatherApiKey !== prevKey) {
+        // Key nueva o cambiada: activar adapter real e invalidar cache
+        try {
+            setWeatherProvider(state, 'weatherapi');
+        } catch (_e) { /* adapter no registrado — no deberia pasar */ }
+    } else if (!weatherApiKey && prevKey) {
+        // Key eliminada: volver a mock
+        try {
+            setWeatherProvider(state, 'mock');
+        } catch (_e) { /* siempre registrado */ }
+    }
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 

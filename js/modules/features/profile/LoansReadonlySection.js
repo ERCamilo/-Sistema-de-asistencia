@@ -16,6 +16,8 @@
  *     navega al ledger con el empleado preseleccionado.
  */
 
+import { formatTimeSince } from '../../utils/RelativeTime.js';
+
 function fmt(n) {
     const v = Number(n) || 0;
     return v.toLocaleString('es-DO', { style: 'currency', currency: 'DOP', maximumFractionDigits: 2 });
@@ -38,6 +40,7 @@ function loanRow(loan) {
         .filter(p => !p.voided)
         .reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const balance = Math.max(0, principal - paid);
+    const lastChange = formatTimeSince(loan?.updatedAt);
 
     return `
         <div style="background: rgba(15, 23, 42, 0.6); padding: 12px 14px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 8px;">
@@ -66,6 +69,11 @@ function loanRow(loan) {
                     <strong style="color: #f59e0b; margin-left: 4px;">${fmt(balance)}</strong>
                 </div>
             </div>
+            ${loan?.updatedAt ? `
+                <div style="margin-top: 6px; color: #64748b; font-size: 0.68rem; text-align: right;">
+                    ⏱️ Último cambio: ${lastChange}
+                </div>
+            ` : ''}
         </div>
     `;
 }
@@ -90,6 +98,8 @@ export function generateLoansReadonlySection(emp) {
             </div>
         `;
 
+    const empLastChange = formatTimeSince(emp?.updatedAt);
+
     return `
         <div style="background: #1e293b; padding: 20px; border-radius: 14px; border: 1px solid #334155;">
             <!-- Header -->
@@ -100,6 +110,7 @@ export function generateLoansReadonlySection(emp) {
                     </div>
                     <div style="font-size: 0.7rem; color: #64748b; font-weight: 500;">
                         ${loans.length === 0 ? 'Sin registros' : `${loans.length} ${loans.length === 1 ? 'préstamo' : 'préstamos'}`}
+                        ${emp?.updatedAt ? ` · ⏱️ Último cambio del empleado: ${empLastChange}` : ''}
                     </div>
                 </div>
                 <button type="button" data-app-fn="openLoansLedgerFor" data-arg="${empId}"

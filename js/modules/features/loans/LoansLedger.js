@@ -14,6 +14,7 @@
 import { state } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
+import { formatTimeSince } from '../../utils/RelativeTime.js';
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import {
@@ -319,6 +320,11 @@ function LoanCard(loan) {
                         ${formatDateShort(loan.startDate)} ·
                         ${loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `${(loan.installments || []).length} cuotas` : 'Pago único'}
                     </div>
+                    ${loan.updatedAt ? `
+                        <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">
+                            ⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}
+                        </div>
+                    ` : ''}
                 </div>
                 ${statusBadge}
             </div>

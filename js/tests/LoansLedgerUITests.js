@@ -155,4 +155,54 @@ testRunner.addSuite("LoansLedger UI — full flow", {
     }
 });
 
+// ─────────────────────────────────────────────────────────────
+// Suite: timestamps "último cambio" en el ledger (Tarea #16)
+// ─────────────────────────────────────────────────────────────
+// El usuario debe poder ver de un vistazo cuándo fue el último cambio
+// en cada préstamo (creación, abono, anulación, write-off, reopen).
+
+import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
+
+testRunner.addSuite("LoansLedger UI — Timestamps último cambio", {
+
+    "préstamo con updatedAt reciente muestra 'hace Xs'"() {
+        resetState();
+        state.employees = [{
+            id: 'eT1', name: 'Ts', number: '001', active: true,
+            loans: [{
+                id: 'L1', principal: 1000, interestRate: 0,
+                concept: 'Reciente', status: 'active',
+                installmentMode: 'lump',
+                installments: [], payments: [],
+                startDate: '2026-05-26',
+                updatedAt: Date.now() - 10000 // hace 10s
+            }]
+        }];
+        selectLoansEmployee('eT1');
+        const html = LoansLedger();
+        testRunner.assert(/hace 10s|último cambio/i.test(html),
+            `Debe mostrar el timestamp del préstamo. HTML excerpt: ${html.slice(0, 400)}`);
+    },
+
+    "préstamo sin updatedAt no rompe el render"() {
+        resetState();
+        state.employees = [{
+            id: 'eT2', name: 'Ts', number: '002', active: true,
+            loans: [{
+                id: 'L1', principal: 500, interestRate: 0,
+                concept: 'Sin TS', status: 'active',
+                installmentMode: 'lump',
+                installments: [], payments: [],
+                startDate: '2026-05-26'
+                // sin updatedAt
+            }]
+        }];
+        selectLoansEmployee('eT2');
+        let threw = false;
+        try { LoansLedger(); } catch (e) { threw = true; }
+        testRunner.assertEquals(threw, false, 'Defensivo ante loan sin updatedAt');
+    }
+
+});
+
 console.log('🧪 LoansLedger UI tests cargados.');

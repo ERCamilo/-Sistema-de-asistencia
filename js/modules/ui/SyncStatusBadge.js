@@ -17,23 +17,11 @@
 // Umbrales (ms)
 const WARN_THRESHOLD_MS = 30 * 1000; // >30s sin sync → warning
 
-/**
- * Formato relativo: "ahora", "hace 5s", "hace 2 min", "hace 1h", "hace 3d"
- * @param {number} elapsedMs Milisegundos transcurridos.
- */
-export function formatRelativeTime(elapsedMs) {
-    if (typeof elapsedMs !== 'number' || !Number.isFinite(elapsedMs) || elapsedMs < 5000) {
-        return 'ahora';
-    }
-    const s = Math.floor(elapsedMs / 1000);
-    if (s < 60)    return `hace ${s}s`;
-    const m = Math.floor(s / 60);
-    if (m < 60)    return `hace ${m} min`;
-    const h = Math.floor(m / 60);
-    if (h < 24)    return `hace ${h}h`;
-    const d = Math.floor(h / 24);
-    return `hace ${d}d`;
-}
+// Re-export para no romper imports existentes; la implementación canónica
+// vive en utils/RelativeTime.js para que pueda reusarse en el ledger y
+// en el perfil del empleado sin acoplarse a este componente.
+export { formatRelativeTime } from '../utils/RelativeTime.js';
+import { formatRelativeTime } from '../utils/RelativeTime.js';
 
 const STATES = {
     synced:    { color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)',  icon: '✅' },

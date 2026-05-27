@@ -91,6 +91,44 @@ testRunner.addSuite("Profile — Sección de préstamos read-only (Unificación)
         } catch (e) { threw = true; }
         testRunner.assertEquals(threw, false,
             'Defensivo: no debe romper si emp es null/undefined');
+    },
+
+    // ─── Timestamps "último cambio" (Tarea #16) ──────────────────────────
+
+    "muestra 'Último cambio' por cada préstamo cuando loan.updatedAt existe"() {
+        const recentTs = Date.now() - 8000; // hace 8 segundos
+        const emp = {
+            id: 'eTS1', name: 'TS',
+            loans: [{
+                id: 'L1', principal: 1000, concept: 'Test',
+                status: 'active', updatedAt: recentTs
+            }]
+        };
+        const html = generateLoansReadonlySection(emp);
+        testRunner.assert(/último cambio|last change|hace \d/i.test(html),
+            `Debe etiquetar el timestamp del préstamo. HTML: ${html.slice(0, 500)}`);
+    },
+
+    "muestra timestamp del EMPLEADO (último cambio en su perfil)"() {
+        const emp = {
+            id: 'eTS2', name: 'TS Emp',
+            updatedAt: Date.now() - 15000, // hace 15s
+            loans: []
+        };
+        const html = generateLoansReadonlySection(emp);
+        // Buscamos algún indicador del timestamp del empleado en el header de la sección
+        testRunner.assert(/hace \d|último/i.test(html),
+            `Debe mostrar el timestamp del empleado. HTML: ${html.slice(0, 500)}`);
+    },
+
+    "no rompe si loan.updatedAt no está"() {
+        const emp = {
+            id: 'eTS3', name: 'TS',
+            loans: [{ id: 'L1', principal: 1000, concept: 'Sin TS', status: 'active' }]
+        };
+        let threw = false;
+        try { generateLoansReadonlySection(emp); } catch (e) { threw = true; }
+        testRunner.assertEquals(threw, false, 'Defensivo ante loan sin updatedAt');
     }
 
 });
