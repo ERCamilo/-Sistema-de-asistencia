@@ -618,6 +618,18 @@ export function sanitizePositions(state) {
     return true;
 }
 
+// 🛟 Flush del guardado pendiente cuando la pestaña se oculta o se cierra.
+// Sin esto, un guardado en debounce (300 ms) muere silenciosamente si el usuario
+// cierra rápido la pestaña, manda la PWA a segundo plano o navega. `pagehide` es
+// más fiable que `beforeunload` en móvil y PWAs; `visibilitychange` cubre el caso
+// de cambio a otra app sin cerrar.
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => { flushPendingSave(); });
+    window.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') flushPendingSave();
+    });
+}
+
 // Inicializar alias globales (Legacy compatibility)
 globalThis.saveApplicationData = saveApplicationData;
 globalThis.loadApplicationData = loadApplicationData;
