@@ -648,22 +648,49 @@ globalThis.loadDemoDataIntoDB = loadDemoDataIntoDB;
 globalThis.testConflictedRestore = testConflictedRestore;
 
 /**
- * 🔍 analyzeConflicts() - Detecta empleados duplicados por número de ficha
+ * 🔍 analyzeConflicts() - Detecta empleados duplicados por número de ficha.
+ *
+ * Si se pasa opts.cloudEmployees (lista de docs de users/{uid}/employees/),
+ * los une con state.employees antes de agrupar, y marca cada miembro con
+ * _source: 'local' | 'cloud' | 'both' para que la UI sepa de dónde viene
+ * y la lógica de merge sepa si tiene que borrar el doc de la nube.
+ *
+ * Si un mismo id aparece en ambos lados, gana el de updatedAt mayor.
+ *
+ * @param {{cloudEmployees?: Array}} [opts]
  * @returns {Array} Lista de grupos de conflictos
  */
-export function analyzeConflicts() {
-    if (!state.employees || state.employees.length === 0) return [];
+export function analyzeConflicts(opts = {}) {
+    const localEmps = Array.isArray(state.employees) ? state.employees : [];
+    const cloudEmps = Array.isArray(opts.cloudEmployees) ? opts.cloudEmployees : [];
 
+    if (localEmps.length === 0 && cloudEmps.length === 0) return [];
+
+    // 1. Unir local + cloud, deduplicar por id. Si un id está en ambos,
+    //    gana el de mayor updatedAt y se marca _source: 'both'.
+    const byId = new Map();
+    localEmps.forEach(emp => {
+        if (!emp || !emp.id || !emp.number) return;
+        byId.set(String(emp.id), { ...emp, _source: 'local' });
+    });
+    cloudEmps.forEach(emp => {
+        if (!emp || !emp.id || !emp.number) return;
+        const key = String(emp.id);
+        const existing = byId.get(key);
+        if (!existing) {
+            byId.set(key, { ...emp, _source: 'cloud' });
+            return;
+        }
+        // Colisión por id: gana el de mayor updatedAt. _source pasa a 'both'.
+        const existingTs = typeof existing.updatedAt === 'number' ? existing.updatedAt : 0;
+        const incomingTs = typeof emp.updatedAt === 'number' ? emp.updatedAt : 0;
+        const winner = incomingTs > existingTs ? emp : existing;
+        byId.set(key, { ...winner, _source: 'both' });
+    });
+
+    // 2. Agrupar por número (igual que antes, pero sobre el set unido).
     const groups = new Map();
-    const processedIds = new Set();
-
-    state.employees.forEach(emp => {
-        if (!emp.number || !emp.id) return;
-        
-        // ⚡ FIX: Ignorar si ya procesamos este ID exacto en memoria (duplicado de referencia)
-        if (processedIds.has(emp.id)) return;
-        processedIds.add(emp.id);
-
+    byId.forEach((emp) => {
         if (!groups.has(emp.number)) groups.set(emp.number, []);
         groups.get(emp.number).push(emp);
     });
