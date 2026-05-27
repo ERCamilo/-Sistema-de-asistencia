@@ -201,21 +201,39 @@ export function openLoansLedgerFor(employeeId) {
 }
 
 /**
- * Close the picker and open the employee profile modal on the Nómina tab,
- * which hosts the legacy advances editor and (soon) a unified loans editor.
+ * 🎯 Tras elegir un empleado en el picker, lleva al usuario DIRECTO al
+ * formulario de nuevo préstamo, sin abrir el perfil. Es el flujo correcto
+ * desde que el perfil pasó a ser read-only para préstamos: el picker
+ * abría el perfil porque ahí estaba antes el form, pero ese paso intermedio
+ * ya no aporta nada — solo agrega clics.
+ *
+ * Funciona igual para empleados con o sin préstamos previos.
  */
-export function openProfileForLoan(employeeId) {
+export function pickEmployeeForNewLoan(employeeId) {
+    if (!employeeId) return;
     ensureLedgerState();
     state.loansLedger.showEmployeePicker = false;
-    if (typeof window === 'undefined' || typeof window.openEmployeeProfile !== 'function') {
-        return;
-    }
-    window.openEmployeeProfile(employeeId);
-    // Jump straight to the Nómina tab where loans are registered.
-    if (state.employeeProfile) {
-        state.employeeProfile.activeTab = 'nomina';
-    }
+    state.loansLedger.selectedEmployeeId = employeeId;
+    state.loansLedger.showPaymentFormForLoan = null;
+    state.loansLedger.showAddForm = true;
+    state.loansLedger.newLoanDraft = createEmptyLoanDraft();
     render();
+}
+
+/**
+ * ⚠️ DEPRECATED: alias hacia atrás de pickEmployeeForNewLoan.
+ *
+ * Antes esta función abría el perfil del empleado en la pestaña Nómina
+ * porque ahí estaba el editor de adelantos. Tras la unificación de
+ * préstamos (perfil read-only, registro solo desde Cuentas por Cobrar),
+ * el comportamiento correcto es ir directo al formulario en el ledger.
+ *
+ * Se conserva el nombre exportado para no romper imports externos
+ * mientras se hace el grep de callers. La UI ya no lo usa (LoansLedger
+ * apunta a pickEmployeeForNewLoan).
+ */
+export function openProfileForLoan(employeeId) {
+    return pickEmployeeForNewLoan(employeeId);
 }
 
 // ─── New loan form ───────────────────────────────────────────────────────────
@@ -450,6 +468,7 @@ export function registerLegacyGlobals() {
     window.closeLoansEmployeePicker = closeLoansEmployeePicker;
     window.setLoansPickerSearch = setLoansPickerSearch;
     window.openProfileForLoan = openProfileForLoan;
+    window.pickEmployeeForNewLoan = pickEmployeeForNewLoan;
     window.openLoansLedgerFor = openLoansLedgerFor;
     window.toggleInactiveHistory = toggleInactiveHistory;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-

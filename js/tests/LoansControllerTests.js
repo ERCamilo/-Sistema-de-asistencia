@@ -370,43 +370,136 @@ testRunner.addSuite("LoansController — employee picker", {
         testRunner.assertEquals(state.loansLedger.pickerSearch, 'ada', "search recorded");
     },
 
-    "openProfileForLoan calls window.openEmployeeProfile and lands on the Nómina tab"() {
+    // ⚠️ openProfileForLoan ya NO abre el perfil — ahora delega a
+    // pickEmployeeForNewLoan (queda como alias hacia atrás).
+    // Antes abría el perfil porque ahí estaba el formulario de alta;
+    // tras la unificación de préstamos, el perfil es read-only.
+    "openProfileForLoan ahora delega a pickEmployeeForNewLoan (no abre perfil)"() {
         resetState();
         seedEmployee({ id: 'emp42', name: 'Grace Hopper' });
 
-        // Capture the call
         const prevOpen = window.openEmployeeProfile;
-        let receivedId = null;
-        window.openEmployeeProfile = (id) => {
-            receivedId = id;
-            // Minimal stub of what real openEmployeeProfile does
-            state.employeeProfile = { employeeId: id, activeTab: 'resumen' };
-            state.showEmployeeProfile = true;
-        };
+        let profileOpened = false;
+        window.openEmployeeProfile = () => { profileOpened = true; };
         try {
             openLoansEmployeePicker();
             openProfileForLoan('emp42');
-            testRunner.assertEquals(receivedId, 'emp42', "openEmployeeProfile got the employee id");
-            testRunner.assertEquals(state.employeeProfile.activeTab, 'nomina', "Profile jumps to the Nómina tab");
-            testRunner.assertEquals(state.loansLedger.showEmployeePicker, false, "picker closed after navigation");
+
+            testRunner.assertEquals(profileOpened, false,
+                "Ya NO debe abrir el perfil (el perfil es read-only para préstamos)");
+            testRunner.assertEquals(state.loansLedger.selectedEmployeeId, 'emp42',
+                "Debe seleccionar al empleado en el ledger");
+            testRunner.assertEquals(state.loansLedger.showAddForm, true,
+                "Debe abrir el form de nuevo préstamo directo");
+            testRunner.assertEquals(state.loansLedger.showEmployeePicker, false,
+                "picker cerrado");
         } finally {
             window.openEmployeeProfile = prevOpen;
         }
     },
 
-    "openProfileForLoan is a no-op when openEmployeeProfile is unavailable"() {
+    "openProfileForLoan es seguro aunque openEmployeeProfile no exista"() {
         resetState();
         seedEmployee({ id: 'emp42' });
         const prevOpen = window.openEmployeeProfile;
         window.openEmployeeProfile = undefined;
         try {
-            // Should not throw
             openProfileForLoan('emp42');
             testRunner.assert(true, "did not throw");
         } finally {
             window.openEmployeeProfile = prevOpen;
         }
     }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Suite: pickEmployeeForNewLoan — picker → directo al form (Unificación)
+// ─────────────────────────────────────────────────────────────
+//
+// Antes (bug que el usuario reportó): "+ Nuevo préstamo" → picker →
+// elegir empleado → ABRÍA EL PERFIL (que ahora es read-only) → el
+// usuario quedaba varado y tenía que tocar "Gestionar en Cuentas por
+// Cobrar" para volver al ledger. Un paso totalmente innecesario.
+//
+// Después: elegir empleado en el picker → cierra picker → selecciona
+// empleado en el ledger → abre el formulario nuevo. UN solo paso, sin
+// salir del ledger.
+
+const { pickEmployeeForNewLoan } = require('../modules/features/loans/LoansController.js');
+
+testRunner.addSuite("LoansController — pickEmployeeForNewLoan (fix paso innecesario)", {
+
+    "cierra el picker"() {
+        resetState();
+        seedEmployee({ id: 'eX1', name: 'Ana' });
+        // Simular picker abierto
+        state.loansLedger = state.loansLedger || {};
+        state.loansLedger.showEmployeePicker = true;
+
+        pickEmployeeForNewLoan('eX1');
+
+        testRunner.assertEquals(state.loansLedger.showEmployeePicker, false,
+            'El picker debe cerrarse tras elegir');
+    },
+
+    "selecciona el empleado en el ledger"() {
+        resetState();
+        seedEmployee({ id: 'eX2', name: 'Bob' });
+        pickEmployeeForNewLoan('eX2');
+        testRunner.assertEquals(state.loansLedger.selectedEmployeeId, 'eX2',
+            'El empleado elegido debe quedar preseleccionado');
+    },
+
+    "abre el formulario de nuevo préstamo"() {
+        resetState();
+        seedEmployee({ id: 'eX3', name: 'Carlos' });
+        pickEmployeeForNewLoan('eX3');
+        testRunner.assertEquals(state.loansLedger.showAddForm, true,
+            'El form de alta debe abrirse directo, sin paso intermedio');
+    },
+
+    "NO abre el modal del perfil del empleado"() {
+        resetState();
+        seedEmployee({ id: 'eX4', name: 'Diana' });
+        state.showEmployeeProfile = false;
+
+        const prevOpen = window.openEmployeeProfile;
+        let profileOpened = false;
+        window.openEmployeeProfile = () => { profileOpened = true; };
+        try {
+            pickEmployeeForNewLoan('eX4');
+            testRunner.assertEquals(profileOpened, false,
+                'NO debe abrir el perfil — el usuario quiere registrar, no ver datos');
+            testRunner.assertEquals(state.showEmployeeProfile, false,
+                'state.showEmployeeProfile debe seguir false');
+        } finally {
+            window.openEmployeeProfile = prevOpen;
+        }
+    },
+
+    "sin empleado id es noop seguro"() {
+        resetState();
+        let threw = false;
+        try { pickEmployeeForNewLoan(''); pickEmployeeForNewLoan(null); pickEmployeeForNewLoan(undefined); }
+        catch (e) { threw = true; }
+        testRunner.assertEquals(threw, false, 'Defensivo ante id vacío');
+    },
+
+    "funciona para empleado SIN préstamos previos (cumple requisito explícito)"() {
+        resetState();
+        // Empleado sin la propiedad loans
+        seedEmployee({ id: 'eFresh', name: 'Recién contratado' });
+        const emp = state.employees.find(e => e.id === 'eFresh');
+        testRunner.assert(emp.loans === undefined || emp.loans.length === 0,
+            'Pre-condición: empleado sin préstamos');
+
+        pickEmployeeForNewLoan('eFresh');
+
+        testRunner.assertEquals(state.loansLedger.selectedEmployeeId, 'eFresh');
+        testRunner.assertEquals(state.loansLedger.showAddForm, true,
+            'El form debe abrirse aunque el empleado no tenga préstamos previos');
+    }
+
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -487,7 +487,7 @@ function EmployeePickerOverlay() {
                         </div>
                     ` : filtered.map(emp => `
                         <div role="button" tabindex="0"
-                             data-app-fn="openProfileForLoan" data-arg="${emp.id}"
+                             data-app-fn="pickEmployeeForNewLoan" data-arg="${emp.id}"
                              style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: background 0.12s;"
                              onmouseover="this.style.background='#0f172a'"
                              onmouseout="this.style.background='transparent'">
