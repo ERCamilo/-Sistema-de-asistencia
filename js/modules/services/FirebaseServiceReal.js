@@ -73,12 +73,17 @@ class FirebaseService {
 
 
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+            // 🛡️ merge: true evita que un guardado parcial borre campos top-level
+            // que este dispositivo no conoce (ej: una nueva configuración añadida
+            // por otro dispositivo). NOTA: arreglos como employees[] siguen siendo
+            // reemplazados completos por Firestore — eso lo resuelve la Fase 4.1
+            // (doc por empleado). Esto es la mitigación general previa.
             await setDoc(docRef, {
                 ...cleanState,
                 updatedAt: serverTimestamp(),
                 lastDevice: navigator.userAgent,
                 lastChangedBy: getDeviceId()
-            });
+            }, { merge: true });
             console.log('☁️ Estado sincronizado en Firebase');
         } catch (error) {
             console.error('❌ Error sincronizando estado:', error);
