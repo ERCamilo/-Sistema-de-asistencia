@@ -2949,7 +2949,7 @@ window.uploadToCloud = async function () {
         console.error('Error al subir a la nube:', e);
         showNotification('❌ Error al sincronizar historial', 'error');
     } finally {
-        loading.close();
+        loading.dismiss();
     }
 };
 
@@ -2986,7 +2986,7 @@ window.downloadFromCloud = async function () {
         console.error('Error al descargar de la nube:', e);
         showNotification('❌ Error al descargar datos', 'error');
     } finally {
-        loading.close();
+        loading.dismiss();
     }
 };
 
@@ -3008,7 +3008,7 @@ window.deleteCloudDataNow = async function () {
         console.error('Error al eliminar datos:', e);
         showNotification('❌ Error al eliminar datos remotos', 'error');
     } finally {
-        loading.close();
+        loading.dismiss();
     }
 };
 
@@ -4152,6 +4152,13 @@ window.setAttendanceListColumns = (columns) => {
     render();
 };
 
+window.setAttendanceCardSize = (mode) => {
+    state.listDisplayMode = mode === 'compact' ? 'compact' : 'relaxed';
+    state.showModal = false;
+    state.modalType = null;
+    render();
+};
+
 window.openSyncCenterModal = () => {
     state.modalType = 'sync-center';
     state.showModal = true;
@@ -4221,7 +4228,8 @@ function DisplayModeFloatingToggle() {
 
 function AttendanceLayoutModal() {
     const currentColumns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
-    const option = (columns, title, description, icon) => `
+    const currentCardSize = state.listDisplayMode === 'compact' ? 'compact' : 'relaxed';
+    const columnOption = (columns, title, description, icon) => `
         <button type="button"
                 class="attendance-layout-option ${currentColumns === columns ? 'active' : ''}"
                 data-app-fn="setAttendanceListColumns"
@@ -4234,20 +4242,39 @@ function AttendanceLayoutModal() {
             <span class="attendance-layout-option-check">${currentColumns === columns ? '✓' : ''}</span>
         </button>
     `;
+    const sizeOption = (mode, title, description, icon) => `
+        <button type="button"
+                class="attendance-layout-option ${currentCardSize === mode ? 'active' : ''}"
+                data-app-fn="setAttendanceCardSize"
+                data-arg="${mode}">
+            <span class="attendance-layout-option-icon">${icon}</span>
+            <span class="attendance-layout-option-text">
+                <strong>${title}</strong>
+                <small>${description}</small>
+            </span>
+            <span class="attendance-layout-option-check">${currentCardSize === mode ? '✓' : ''}</span>
+        </button>
+    `;
 
     return `
         <div class="modal-overlay attendance-layout-overlay" data-app-close-on-self="close-modal">
             <div class="attendance-layout-modal" role="dialog" aria-modal="true" aria-labelledby="attendance-layout-title">
                 <div class="attendance-layout-header">
                     <div>
-                        <h2 id="attendance-layout-title">Distribución de empleados</h2>
-                        <p>Elige cómo quieres ver la lista diaria.</p>
+                        <h2 id="attendance-layout-title">Vista de empleados</h2>
+                        <p>Elige la distribución y el tamaño de las tarjetas.</p>
                     </div>
                     <button type="button" class="attendance-layout-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
                 </div>
+                <div class="attendance-layout-section-title">Distribución</div>
                 <div class="attendance-layout-options">
-                    ${option(1, 'Una columna', 'Formato actual, cómodo para revisar detalles.', '▤')}
-                    ${option(2, 'Dos columnas', 'Muestra más empleados a la vez en pantallas anchas.', '⊞')}
+                    ${columnOption(1, 'Una columna', 'Formato actual, cómodo para revisar detalles.', '▤')}
+                    ${columnOption(2, 'Dos columnas', 'Muestra más empleados a la vez en pantallas anchas.', '⊞')}
+                </div>
+                <div class="attendance-layout-section-title">Tamaño de tarjeta</div>
+                <div class="attendance-layout-options">
+                    ${sizeOption('relaxed', 'Normal', 'Tarjetas amplias con posiciones, notas y más contexto.', '▣')}
+                    ${sizeOption('compact', 'Reducida', 'Filas más pequeñas para ver más personal sin desplazarte tanto.', '≡')}
                 </div>
             </div>
         </div>
