@@ -411,6 +411,67 @@
     background: rgba(100, 116, 139, 0.14);
     color: #94a3b8;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    /* IDs (UUID, EMP-*, emp-*) pueden ser largos. Permitimos que se rompan
+       en cualquier caracter para no desbordar la card; el title attribute
+       conserva el id completo para copiar al pasar el cursor. */
+    max-width: 100%;
+    word-break: break-all;
+    white-space: normal;
+    line-height: 1.25;
+}
+
+/* Input inline para reasignar ficha cuando role==='separate'.
+   Reemplaza al window.prompt() del flujo anterior. */
+.maintenance-reassign-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(6, 182, 212, 0.08);
+    border: 1px solid rgba(6, 182, 212, 0.35);
+}
+
+.maintenance-reassign-input-wrap label {
+    font-size: 0.75rem;
+    color: #67e8f9;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.maintenance-reassign-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(51, 65, 85, 0.7);
+    background: rgba(2, 6, 23, 0.85);
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.maintenance-reassign-input:focus {
+    outline: none;
+    border-color: #06b6d4;
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.25);
+}
+
+.maintenance-reassign-confirm {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(6, 182, 212, 0.6);
+    background: rgba(6, 182, 212, 0.18);
+    color: #67e8f9;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.maintenance-reassign-confirm:hover {
+    background: rgba(6, 182, 212, 0.3);
 }
 
 .maintenance-source-tag {

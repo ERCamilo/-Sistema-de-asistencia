@@ -36,7 +36,8 @@ const _MAINT_ACTION_MAP = {
         window._maintenanceUI?.setMemberRole(memberId, role);
     },
     'apply-manual-group': () => window._maintenanceUI?.applyManualGroup(),
-    'cloud-reconcile': () => window._maintenanceUI?.handleCloudReconcile()
+    'cloud-reconcile': () => window._maintenanceUI?.handleCloudReconcile(),
+    'commit-reassign-ficha': (id) => window._maintenanceUI?.commitReassignFicha(id)
 };
 
 function _handleMaintClick(e) {
@@ -50,6 +51,13 @@ function _handleMaintClick(e) {
 }
 
 function _handleMaintKeydown(e) {
+    // Enter dentro del input inline de reasignación → commit.
+    if (e.key === 'Enter' && e.target?.classList?.contains('maintenance-reassign-input')) {
+        e.preventDefault();
+        const id = e.target.dataset?.id;
+        if (id) window._maintenanceUI?.commitReassignFicha(id);
+        return;
+    }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const target = e.target.closest('[data-maint-action]');
     if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
@@ -554,9 +562,29 @@ export class MaintenanceUI {
         const isMostComplete = emp.completeness === Math.max(...group.members.map(m => m.completeness || 0));
         const hasMoreAttendance = emp.attendanceCount === Math.max(...group.members.map(m => m.attendanceCount || 0));
 
-        // Si el rol es separate, mostrar la ficha destino si ya se eligió.
-        const reassignHint = (role === 'separate' && emp._reassignTo)
-            ? `<div class="maintenance-reassign-hint">Nueva ficha: ${emp._reassignTo}</div>`
+        // Si el rol es separate, mostrar input inline para escribir la nueva
+        // ficha (antes era window.prompt — UX cortante y rompe el flujo).
+        const reassignBlock = role === 'separate'
+            ? `
+                <div class="maintenance-reassign-input-wrap" role="group" aria-label="Nueva ficha para este empleado">
+                    <label for="reassign-input-${emp.id}">Nueva ficha:</label>
+                    <input type="text"
+                           id="reassign-input-${emp.id}"
+                           class="maintenance-reassign-input"
+                           value="${emp._reassignTo || ''}"
+                           placeholder="Nro. de ficha"
+                           data-id="${emp.id}"
+                           autocomplete="off"
+                           inputmode="numeric">
+                    <button type="button"
+                            class="maintenance-reassign-confirm"
+                            data-maint-action="commit-reassign-ficha"
+                            data-id="${emp.id}"
+                            title="Confirmar nueva ficha (Enter)">
+                        Confirmar
+                    </button>
+                </div>
+            `
             : '';
 
         const btn = (action, label, helper, dataRole) => `
@@ -587,10 +615,10 @@ export class MaintenanceUI {
                     </div>
                     <h4>${emp.name || '(sin nombre)'}</h4>
                     <div class="maintenance-meta-row">
-                        <span class="maintenance-id-tag">ID ${(emp.id || '').substring(0, 8)}</span>
+                        <span class="maintenance-id-tag" title="ID completo: ${emp.id || ''}">ID ${emp.id || '(sin id)'}</span>
                         ${srcTag}
                     </div>
-                    ${reassignHint}
+                    ${reassignBlock}
                 </div>
 
                 <div class="maintenance-stats">
@@ -643,12 +671,70 @@ export class MaintenanceUI {
             if (role !== 'separate') member._reassignTo = null;
         }
 
-        // Re-render. El sub-modal de reasignación lo abre #23 cuando role==='separate'.
+        // Re-render. El input inline de la card permite escribir la nueva
+        // ficha sin abrir un prompt() del navegador (ver renderEmployeeCard).
+        this.showWizardStep();
+
+        // UX: si pasó a 'separate', enfocar el input recién renderizado.
         if (role === 'separate' && member.role === 'separate') {
-            this.promptReassignFicha(memberId);
-        } else {
-            this.showWizardStep();
+            queueMicrotask(() => {
+                const input = typeof document !== 'undefined'
+                    && document.getElementById(`reassign-input-${memberId}`);
+                if (input && typeof input.focus === 'function') {
+                    input.focus();
+                    input.select?.();
+                }
+            });
         }
+    }
+
+    /**
+     * Lee el valor del input inline para el miembro dado, valida y guarda
+     * en member._reassignTo. Re-renderiza para que la card refleje el
+     * nuevo valor y el botón "Aplicar" se habilite si todas las decisiones
+     * son consistentes.
+     *
+     * Validaciones:
+     *   - No vacío.
+     *   - No igual al número de la ficha actual del grupo (no tiene sentido
+     *     "reasignarse a sí mismo").
+     *   - No igual al _reassignTo de otro miembro 'separate' del mismo grupo.
+     *
+     * Permitir colisiones contra empleados FUERA del grupo es intencional
+     * (ver reassignEmployeeNumber con allowCollision:true): si chocan, la
+     * cascada de re-análisis los detectará como un nuevo grupo manual.
+     */
+    commitReassignFicha(memberId) {
+        const group = this.conflicts[this.currentConflictIndex];
+        if (!group) return;
+        const member = group.members.find(m => m.id === memberId);
+        if (!member) return;
+
+        const input = typeof document !== 'undefined'
+            && document.getElementById(`reassign-input-${memberId}`);
+        if (!input) return;
+
+        const raw = String(input.value || '').trim();
+        if (!raw) {
+            NotificationSystem.error('Escribe el número de la nueva ficha.');
+            return;
+        }
+        if (String(raw) === String(group.number)) {
+            NotificationSystem.error('La nueva ficha no puede ser la misma que la actual.');
+            return;
+        }
+        const used = new Set(
+            group.members
+                .filter(m => m.id !== memberId && m.role === 'separate' && m._reassignTo)
+                .map(m => String(m._reassignTo))
+        );
+        if (used.has(raw)) {
+            NotificationSystem.error(`La ficha ${raw} ya está siendo usada por otro miembro de este grupo. Elige otra.`);
+            return;
+        }
+
+        member._reassignTo = raw;
+        this.showWizardStep();
     }
 
     /**
