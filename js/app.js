@@ -6029,6 +6029,64 @@ async function _checkSanitizationCloudSyncPrompt() {
 }
 
 // ============================================
+// ⚠️ OUTGOING CONFLICT GUARD
+// ============================================
+
+/**
+ * Registra el listener de conflictos salientes (cloud más reciente que local).
+ *
+ * PersistenceService emite 'sync:outgoing-conflict' cuando detecta que la
+ * nube tiene un timestamp más reciente que el estado local y se está
+ * intentando subir datos.  Este listener pregunta al usuario qué hacer.
+ *
+ * Llamado UNA sola vez desde initializeApp, después de que loadApplicationData
+ * termina (para que showNotification / Modal estén disponibles).
+ */
+function _initOutgoingConflictGuard() {
+    eventBus.on('sync:outgoing-conflict', async ({ localTime, cloudTime }) => {
+        // Formatear diferencia relativa para el mensaje
+        const diffMs  = Math.max(0, cloudTime - localTime);
+        const diffSec = Math.round(diffMs / 1000);
+        const diffStr = diffSec < 60
+            ? `${diffSec} segundo${diffSec !== 1 ? 's' : ''}`
+            : `${Math.round(diffSec / 60)} minuto${Math.round(diffSec / 60) !== 1 ? 's' : ''}`;
+
+        const cloudDate = cloudTime
+            ? new Date(cloudTime).toLocaleString()
+            : 'desconocida';
+
+        const confirmed = await Modal.confirm({
+            title: '⚠️ La nube tiene cambios más recientes',
+            message:
+                `La nube tiene cambios realizados hace <strong>${diffStr}</strong> ` +
+                `que son más recientes que tus datos locales ` +
+                `(última actualización en la nube: ${cloudDate}).<br><br>` +
+                `Si subes ahora, esos cambios serán reemplazados por tus datos locales.<br><br>` +
+                `¿Deseas continuar y reemplazar los datos de la nube?`,
+            confirmText: '⬆️ Sí, reemplazar nube con mis datos',
+            cancelText: '← No, conservar los cambios de la nube',
+            type: 'warning'
+        });
+
+        // Limpiar flag de revisión pendiente — independientemente de la decisión.
+        state._outgoingConflictReviewPending = false;
+
+        if (confirmed) {
+            // Local wins: reset the known-cloud timestamp so the next save
+            // passes the conflict check, then force-push.
+            state._lastKnownCloudUpdatedAt = state.settings?.localUpdatedAt || 0;
+            saveApplicationData({ force: true });
+            showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
+        } else {
+            // Cloud wins: don't push. The existing subscribeToChanges listener
+            // will handle applying the newer remote data (or the user can accept
+            // the incoming-change modal if it reappears).
+            showNotification('← Se conservaron los cambios de la nube', 'info');
+        }
+    });
+}
+
+// ============================================
 // 🚀 INICIALIZACIÓN DE LA APLICACIÓN
 // ============================================
 
@@ -6106,6 +6164,10 @@ async function _checkSanitizationCloudSyncPrompt() {
         debug.log('📂 Cargando datos...');
         await loadApplicationData();
 
+        // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
+        // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.
+        _initOutgoingConflictGuard();
+
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
             debug.log('💾 Guardando cambios de sanitización inicial...');
@@ -6159,6 +6221,12 @@ async function _checkSanitizationCloudSyncPrompt() {
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges(async (remoteData) => {
                     debug.log('📡 Cambio detectado en la nube...');
+
+                    // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
+                    // detectar conflictos salientes (local más viejo que la nube).
+                    // Se actualiza siempre, incluso si los datos se descartan más abajo.
+                    state._lastKnownCloudUpdatedAt =
+                        remoteData?.settings?.localUpdatedAt || state._lastKnownCloudUpdatedAt || 0;
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.

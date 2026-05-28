@@ -227,13 +227,47 @@ async function _executeSave(options = {}) {
 
     console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
+    // ──────────────────────────────────────────────────────────
+    // 🛡️ OUTGOING CONFLICT CHECK
+    // Before pushing to Firebase, verify that the cloud's last-known timestamp
+    // is not meaningfully newer than the local state.  If it is, another device
+    // wrote to Firebase more recently and we'd silently overwrite those changes.
+    // Instead: emit an event, let app.js ask the user, and skip Firebase this time.
+    //
+    // Grace period: 10 s absorbs Firebase's own echo latency (the same-device
+    // roundtrip where cloud timestamp == local timestamp ± a few ms).
+    // Bypassed by options.force (caller explicitly wants to win) and options.localOnly
+    // (Firebase is already skipped for other reasons).
+    // ──────────────────────────────────────────────────────────
+    const OUTGOING_CONFLICT_GRACE_MS = 10_000;
+    const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
+    const _localTime = state.settings?.localUpdatedAt || 0;
+    const _hasOutgoingConflict = _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS
+        && !options.force
+        && !options.localOnly;
+
+    if (_hasOutgoingConflict && !state._outgoingConflictReviewPending) {
+        state._outgoingConflictReviewPending = true;
+        debug.log(
+            `⚠️ PersistenceService: conflicto saliente detectado.` +
+            ` Cloud@${new Date(_cloudTime).toISOString()} > Local@${new Date(_localTime).toISOString()}`
+        );
+        if (globalThis.eventBus) {
+            globalThis.eventBus.emit('sync:outgoing-conflict', {
+                localTime: _localTime,
+                cloudTime: _cloudTime
+            });
+        }
+    }
+
     // ☀️ Sincronización con Firebase
-    // Skipped when cloudUploadPaused is set (user paused) or localOnly is set
-    // (caller wants IndexedDB-only save, e.g. load-time sanitization that the
-    // user still hasn't approved to push to cloud).
+    // Skipped when cloudUploadPaused is set (user paused), localOnly is set
+    // (IndexedDB-only intentional save), or an outgoing conflict is pending
+    // user review (see sync:outgoing-conflict listener in app.js).
     if (globalThis.currentUser && !globalThis._isApplyingRemoteData
         && !state.settings?.cloudUploadPaused
-        && !options.localOnly) {
+        && !options.localOnly
+        && !_hasOutgoingConflict) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
             const dayRecords = {};
