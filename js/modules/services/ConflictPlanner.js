@@ -27,14 +27,25 @@ export function namesAreIdentical(a, b) {
     return a === b;
 }
 
+import { idFormatRank } from './IdFormat.js';
+
 function pickMaster(members) {
-    // Copia para no mutar el input.
+    // Orden de prioridad (data-quality primero, formato como desempate final):
+    //   1. attendanceCount mayor.
+    //   2. updatedAt mayor.
+    //   3. completeness mayor.
+    //   4. idFormatRank mayor — empate de calidad → preferir el formato más
+    //      moderno (EMP{timestamp} > emp-seed > UUID legacy). Esto NO cambia
+    //      la identidad: el id sigue siendo inmutable. Solo es un tiebreaker
+    //      defensivo cuando dos registros son indistinguibles en calidad.
     const sorted = [...members].sort((a, b) => {
         const ac = (b.attendanceCount || 0) - (a.attendanceCount || 0);
         if (ac !== 0) return ac;
         const au = (b.updatedAt || 0) - (a.updatedAt || 0);
         if (au !== 0) return au;
-        return (b.completeness || 0) - (a.completeness || 0);
+        const co = (b.completeness || 0) - (a.completeness || 0);
+        if (co !== 0) return co;
+        return idFormatRank(b.id) - idFormatRank(a.id);
     });
     return sorted[0];
 }

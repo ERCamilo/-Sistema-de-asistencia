@@ -166,6 +166,41 @@ testRunner.addSuite("ConflictPlanner — buildConflictPlan: selección de master
         testRunner.assertEquals(plan[0].proposedMasterId, 'b');
     },
 
+    "empate total → formato más moderno gana (EMP{ts} > UUID legacy)"() {
+        // Caso real del usuario: dos registros con misma calidad de datos
+        // pero distinto formato de id. Preferimos el más nuevo solo cuando
+        // todo lo demás empata — la calidad sigue mandando si difiere.
+        const conflicts = [{
+            number: '001',
+            members: [
+                { id: '13c3f7db-1234-4567-89ab-cdef12345678', name: 'Ana',
+                  attendanceCount: 10, updatedAt: 100, completeness: 50 },
+                { id: 'EMP1769317074330', name: 'Ana',
+                  attendanceCount: 10, updatedAt: 100, completeness: 50 }
+            ]
+        }];
+        const plan = buildConflictPlan(conflicts);
+        testRunner.assertEquals(plan[0].proposedMasterId, 'EMP1769317074330',
+            'Formato moderno EMP{timestamp} gana sobre UUID legacy en empate');
+    },
+
+    "formato NO compite con calidad: UUID con más asistencia gana sobre EMP vacío"() {
+        // Defensa contra el bug que advertí: si pusiéramos formato como
+        // criterio primario, perderíamos los datos buenos del UUID legacy.
+        const conflicts = [{
+            number: '001',
+            members: [
+                { id: '13c3f7db-1234-4567-89ab-cdef12345678', name: 'Ana',
+                  attendanceCount: 500, updatedAt: 100, completeness: 90 },
+                { id: 'EMP1', name: 'Ana',
+                  attendanceCount: 0, updatedAt: 100, completeness: 0 }
+            ]
+        }];
+        const plan = buildConflictPlan(conflicts);
+        testRunner.assertEquals(plan[0].proposedMasterId, '13c3f7db-1234-4567-89ab-cdef12345678',
+            'La calidad de datos sigue mandando aunque el otro lado tenga formato nuevo');
+    },
+
     "losers = todos los miembros excepto el master propuesto"() {
         const conflicts = [{
             number: '001',
