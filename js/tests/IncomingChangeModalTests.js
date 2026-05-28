@@ -63,28 +63,45 @@ testRunner.addSuite("IncomingChangeModal — render (Tarea #27)", {
             'Modal se cierra tras Apply');
     },
 
-    "botón 'Rechazar' invoca onReject y NO onApply"() {
+    "botón × (data-action=reject) invoca onDismiss y NO onApply / NO reupload / NO pause"() {
+        // CHANGED 2026-05-28: × button is now a safe dismissal (was auto-reuploading
+        // silently, which overwrote newer cloud data). Now requires explicit choice.
         flush();
-        let applies = 0, rejects = 0;
+        let applies = 0, dismisses = 0, pauses = 0, reuploads = 0;
         IncomingChangeModal.show(
             [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
-            { onApply: () => applies++, onReject: () => rejects++ }
+            {
+                onApply: () => applies++,
+                onDismiss: () => dismisses++,
+                onRejectAndPause: () => pauses++,
+                onRejectAndReupload: () => reuploads++
+            }
         );
         document.querySelector('.incoming-change-modal [data-action="reject"]').click();
-        testRunner.assertEquals(rejects, 1);
-        testRunner.assertEquals(applies, 0);
+        testRunner.assertEquals(dismisses, 1, '× debe invocar onDismiss');
+        testRunner.assertEquals(applies,   0, '× NO debe aplicar');
+        testRunner.assertEquals(pauses,    0, '× NO debe pausar');
+        testRunner.assertEquals(reuploads, 0, '× NO debe re-subir');
         flush();
     },
 
-    "tecla Escape cierra el modal e invoca onReject"() {
+    "tecla Escape cierra el modal e invoca onDismiss (no toma acción destructiva)"() {
+        // CHANGED 2026-05-28: Escape used to call onRejectAndPause (silent pause).
+        // Now it's a safe dismissal — the modal can reappear on the next sync cycle.
         flush();
-        let rejected = false;
+        let dismissed = false, paused = 0, reuploaded = 0;
         IncomingChangeModal.show(
             [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
-            { onReject: () => { rejected = true; } }
+            {
+                onDismiss: () => { dismissed = true; },
+                onRejectAndPause: () => paused++,
+                onRejectAndReupload: () => reuploaded++
+            }
         );
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        testRunner.assertEquals(rejected, true);
+        testRunner.assertEquals(dismissed, true, 'Escape debe invocar onDismiss');
+        testRunner.assertEquals(paused, 0,    'Escape NO debe pausar silenciosamente');
+        testRunner.assertEquals(reuploaded, 0, 'Escape NO debe re-subir');
         flush();
     },
 
@@ -185,19 +202,24 @@ testRunner.addSuite("IncomingChangeModal — 3-action reject flow (cloud-upload 
         testRunner.assert(!document.querySelector('.incoming-change-modal'), 'Modal debe cerrarse');
     },
 
-    "Escape invoca onRejectAndPause (comportamiento conservador: no re-sube)"() {
+    "Escape invoca onDismiss y NO pausa ni re-sube (acción explícita requerida)"() {
+        // CHANGED 2026-05-28: Escape no longer auto-pauses. Users were silently
+        // ending up in paused state without realizing it. Now requires an explicit
+        // click on one of the three action buttons.
         flush();
-        let pauseCalled = 0, reuploadCalled = 0;
+        let dismissCalled = 0, pauseCalled = 0, reuploadCalled = 0;
         IncomingChangeModal.show(
             [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
             {
+                onDismiss:           () => dismissCalled++,
                 onRejectAndPause:    () => pauseCalled++,
                 onRejectAndReupload: () => reuploadCalled++
             }
         );
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        testRunner.assertEquals(pauseCalled, 1,    'Escape debe pausar (conservador)');
-        testRunner.assertEquals(reuploadCalled, 0, 'Escape NO debe re-subir');
+        testRunner.assertEquals(dismissCalled, 1, 'Escape debe invocar onDismiss');
+        testRunner.assertEquals(pauseCalled,   0, 'Escape NO debe pausar (acción explícita requerida)');
+        testRunner.assertEquals(reuploadCalled,0, 'Escape NO debe re-subir');
         flush();
     },
 

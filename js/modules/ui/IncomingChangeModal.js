@@ -181,21 +181,24 @@ export const IncomingChangeModal = {
                 else if (typeof opts.onReject === 'function') opts.onReject();
             });
         }
-        // Legacy: close (×) button still mapped to reject-and-reupload/onReject
+        // × close button → safe dismissal (no pause, no reupload).
+        // Calls onDismiss so the host can clear any "pending review" flag and
+        // let the modal reappear on the next sync cycle. The user must make
+        // an EXPLICIT choice (apply / pause / reupload) via the action buttons.
         modal.querySelectorAll('[data-action="reject"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 close();
-                if (typeof opts.onRejectAndReupload === 'function') opts.onRejectAndReupload();
-                else if (typeof opts.onReject === 'function') opts.onReject();
+                if (typeof opts.onDismiss === 'function') opts.onDismiss();
             });
         });
 
-        // Escape → pause (most conservative: don't push local over remote silently)
+        // Escape → same safe dismissal as ×. Does NOT silently pause anymore
+        // (users were dismissing the dialog and ending up with paused sync
+        // without realizing it).
         const onKey = (e) => {
             if (e.key === 'Escape') {
                 close();
-                if (typeof opts.onRejectAndPause === 'function') opts.onRejectAndPause();
-                else if (typeof opts.onReject === 'function') opts.onReject();
+                if (typeof opts.onDismiss === 'function') opts.onDismiss();
             }
         };
         document.addEventListener('keydown', onKey);

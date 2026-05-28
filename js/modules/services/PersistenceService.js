@@ -236,15 +236,22 @@ async function _executeSave(options = {}) {
     //
     // Grace period: 10 s absorbs Firebase's own echo latency (the same-device
     // roundtrip where cloud timestamp == local timestamp ± a few ms).
-    // Bypassed by options.force (caller explicitly wants to win) and options.localOnly
-    // (Firebase is already skipped for other reasons).
+    //
+    // CRITICAL: this check must share ALL the same guards as the Firebase
+    // block below — otherwise it fires false positives (e.g. during
+    // _isApplyingRemoteData = true, the local timestamp is intentionally NOT
+    // refreshed and a stale value would trip the check on every incoming sync).
     // ──────────────────────────────────────────────────────────
     const OUTGOING_CONFLICT_GRACE_MS = 10_000;
+    const _canSyncFirebase = globalThis.currentUser
+        && !globalThis._isApplyingRemoteData
+        && !state.settings?.cloudUploadPaused
+        && !options.localOnly;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
     const _localTime = state.settings?.localUpdatedAt || 0;
-    const _hasOutgoingConflict = _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS
+    const _hasOutgoingConflict = _canSyncFirebase
         && !options.force
-        && !options.localOnly;
+        && _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS;
 
     if (_hasOutgoingConflict && !state._outgoingConflictReviewPending) {
         state._outgoingConflictReviewPending = true;
@@ -261,13 +268,9 @@ async function _executeSave(options = {}) {
     }
 
     // ☀️ Sincronización con Firebase
-    // Skipped when cloudUploadPaused is set (user paused), localOnly is set
-    // (IndexedDB-only intentional save), or an outgoing conflict is pending
-    // user review (see sync:outgoing-conflict listener in app.js).
-    if (globalThis.currentUser && !globalThis._isApplyingRemoteData
-        && !state.settings?.cloudUploadPaused
-        && !options.localOnly
-        && !_hasOutgoingConflict) {
+    // Skipped when not authenticated, applying remote data, paused, localOnly,
+    // or an outgoing conflict is pending user review.
+    if (_canSyncFirebase && !_hasOutgoingConflict) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
             const dayRecords = {};

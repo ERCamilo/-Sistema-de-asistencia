@@ -6278,6 +6278,13 @@ function _initOutgoingConflictGuard() {
                                         if (typeof saveApplicationData === 'function') {
                                             saveApplicationData({ force: true });
                                         }
+                                    },
+                                    // Escape / × close: safe dismissal — no action taken.
+                                    // Clear the flag so the modal can reappear on the next
+                                    // sync cycle if changes are still significant.
+                                    onDismiss: () => {
+                                        window._pendingIncomingReview = false;
+                                        debug.log('🙈 Modal de cambios entrantes dismissed sin acción. Reaparecerá en el próximo sync si los cambios siguen siendo significativos.');
                                     }
                                 });
                                 return;
