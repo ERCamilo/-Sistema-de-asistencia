@@ -50,7 +50,7 @@ function pickNewerScalar(server, local) {
  * usable reciben un id sintético (UUID) y se preservan — perder datos
  * silenciosamente cuesta más que un duplicado eventual.
  */
-function unionById(serverArr, localArr, idKey = 'id', recurse = null) {
+export function unionById(serverArr, localArr, idKey = 'id', recurse = null) {
     const map = new Map();
     const orphans = []; // items sin id de ambos lados; se incluyen tal cual con id sintético
 

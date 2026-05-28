@@ -9,6 +9,7 @@ import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
+import { unionById } from './EmployeeMerge.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { debug } from '../utils/Debug.js';
@@ -845,23 +846,49 @@ export function mergeEmployees(masterId, duplicateId) {
         }
     });
 
-    // 2. Fusionar Datos Financieros
-    if (duplicate.advances) {
-        master.advances = [...(master.advances || []), ...(duplicate.advances || [])];
-    }
-    if (duplicate.bonuses) {
-        master.bonuses = [...(master.bonuses || []), ...(duplicate.bonuses || [])];
-    }
-    if (duplicate.deductions) {
-        master.deductions = [...(master.deductions || []), ...(duplicate.deductions || [])];
+    // 2. Fusionar arreglos "log" del empleado usando unionById:
+    //    - Loans, advances, bonuses, deductions → unión por id (en colisión
+    //      gana el de mayor updatedAt). Items sin id reciben uno sintético
+    //      y se preservan (defensa en profundidad sobre el fix de unionById).
+    //    - Antes solo se concatenaban advances/bonuses/deductions y se
+    //      perdían los loans del duplicate. El caso real del usuario:
+    //      master(5 asist, 0 préstamos, [a,b]) absorbiendo
+    //      duplicate(0 asist, 3 préstamos, [a,c]) ahora termina como
+    //      (5 asist, 3 préstamos, [a,b,c]).
+    master.loans      = unionById(master.loans,      duplicate.loans);
+    master.advances   = unionById(master.advances,   duplicate.advances);
+    master.bonuses    = unionById(master.bonuses,    duplicate.bonuses);
+    master.deductions = unionById(master.deductions, duplicate.deductions);
+
+    // 3. Posiciones (lista de strings) → unión deduplicada
+    {
+        const set = new Set();
+        (Array.isArray(master.positions) ? master.positions : []).forEach(p => { if (p) set.add(p); });
+        (Array.isArray(duplicate.positions) ? duplicate.positions : []).forEach(p => { if (p) set.add(p); });
+        master.positions = [...set];
     }
 
-    // 3. Completar campos del maestro si están vacíos
+    // 4. positionSalaries (mapa por positionId) → unión por clave.
+    //    Master gana en colisión (el usuario lo eligió como verdad);
+    //    las claves que solo existen en el duplicate se traen al master.
+    if (duplicate.positionSalaries && typeof duplicate.positionSalaries === 'object') {
+        const ms = (master.positionSalaries && typeof master.positionSalaries === 'object')
+            ? master.positionSalaries : {};
+        const merged = { ...duplicate.positionSalaries, ...ms };
+        master.positionSalaries = merged;
+    }
+
+    // 5. Completar campos del maestro si están vacíos
     ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
         if (!master[field] && duplicate[field]) master[field] = duplicate[field];
     });
 
-    // 4. Eliminar el duplicado del estado
+    // 6. Refrescar updatedAt para que el siguiente saveMany propague el
+    //    estado fusionado al doc remoto del master.
+    master.updatedAt = Date.now();
+    master._isDirty = true;
+
+    // 7. Eliminar el duplicado del estado
     state.employees = state.employees.filter(e => e.id !== duplicateId);
 
     return true;
