@@ -56,6 +56,8 @@ function lucideIcon(name, color, size = 20) {
 function badgeHtml(state, text, extraAttr = '', compact = false) {
     const s = STATES[state] || STATES.pending;
     const icon = lucideIcon(s.icon, s.color, compact ? 21 : 15);
+    // Only the 'paused' state is actionable (clicking resumes uploads).
+    const cursor = state === 'paused' ? 'pointer' : 'default';
 
     if (compact) {
         const safeTitle = String(text || '').replace(/"/g, '&quot;');
@@ -65,7 +67,7 @@ function badgeHtml(state, text, extraAttr = '', compact = false) {
                   ${extraAttr}
                   style="display: inline-flex; align-items: center; justify-content: center;
                          width: 28px; height: 28px; color: ${s.color}; line-height: 1;
-                         cursor: default;">
+                         cursor: ${cursor};">
                 ${icon}
             </span>
         `;
@@ -76,7 +78,7 @@ function badgeHtml(state, text, extraAttr = '', compact = false) {
               style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
                      background: ${s.bg}; color: ${s.color}; border: 1px solid ${s.color};
                      border-radius: 12px; font-size: 0.72rem; font-weight: 700;
-                     white-space: nowrap; line-height: 1.2;">
+                     white-space: nowrap; line-height: 1.2; cursor: ${cursor};">
             <span style="display:inline-flex;line-height:1;">${icon}</span>
             <span>${text}</span>
         </span>
@@ -125,6 +127,7 @@ export function renderSyncStatusBadge(opts = {}) {
 
 let _activeUnsubscribe = null;
 let _activeInterval = null;
+let _activeClickHandler = null;
 const UPDATE_INTERVAL_MS = 5000;
 
 function _refreshAllBadges({ getAuth, getOnline, getUploadPaused, compact }) {
@@ -155,6 +158,20 @@ export function attachLiveBadge(args = {}) {
         _activeInterval = setInterval(() => _refreshAllBadges(ctx), UPDATE_INTERVAL_MS);
     }
 
+    // Click delegation: only the paused badge is actionable (click → resume).
+    // We use event delegation so it survives the badge's periodic re-render.
+    if (typeof document !== 'undefined' && typeof ctx.onPausedClick === 'function') {
+        _activeClickHandler = (e) => {
+            const badge = e.target.closest && e.target.closest('[data-role="sync-badge"][data-state="paused"]');
+            if (badge) {
+                e.preventDefault();
+                try { ctx.onPausedClick(); }
+                catch (err) { console.error('Error en onPausedClick del badge:', err); }
+            }
+        };
+        document.addEventListener('click', _activeClickHandler);
+    }
+
     _refreshAllBadges(ctx);
 
     return detachLiveBadge;
@@ -169,6 +186,10 @@ export function detachLiveBadge() {
         try { clearInterval(_activeInterval); } catch (_) {}
     }
     _activeInterval = null;
+    if (_activeClickHandler && typeof document !== 'undefined') {
+        try { document.removeEventListener('click', _activeClickHandler); } catch (_) {}
+    }
+    _activeClickHandler = null;
 }
 
 export default renderSyncStatusBadge;

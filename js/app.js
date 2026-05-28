@@ -3267,7 +3267,30 @@ if (typeof window !== 'undefined') {
         getAuth:          () => !!window.currentUser,
         getOnline:        () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
         getUploadPaused:  () => isSyncPaused(),
-        compact:          true   // El header usa modo icono-solo
+        compact:          true,  // El header usa modo icono-solo
+        // Click en badge naranja "pausado" → confirmar y reanudar la subida.
+        // Esto es la ÚNICA manera de salir del estado pausado desde la UI.
+        onPausedClick: async () => {
+            const confirmed = await Modal.confirm({
+                title: '▶️ Reanudar subida a la nube',
+                message:
+                    'La subida a la nube está actualmente pausada — tus cambios locales no se ' +
+                    'están enviando a Firebase ni a tus otros dispositivos.<br><br>' +
+                    '¿Deseas reanudar la subida ahora? Se subirán inmediatamente todos los ' +
+                    'cambios pendientes.',
+                confirmText: '▶️ Sí, reanudar y subir',
+                cancelText: 'Mantener pausado'
+            });
+            if (confirmed) {
+                try {
+                    await resumeCloudUpload();
+                    showNotification('▶️ Subida a la nube reanudada. Sincronizando…', 'success');
+                } catch (e) {
+                    console.error('Error al reanudar:', e);
+                    showNotification('❌ Error al reanudar la subida', 'error');
+                }
+            }
+        }
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
     window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
@@ -6167,6 +6190,20 @@ function _initOutgoingConflictGuard() {
         // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
         // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.
         _initOutgoingConflictGuard();
+
+        // 1.0.b Si la app arranca con cloudUploadPaused = true (persistido en IDB),
+        // avisar al usuario de forma visible — el badge naranja puede pasar
+        // desapercibido y la pausa puede venir de una sesión anterior.
+        if (isSyncPaused()) {
+            // Pequeño delay para que la notificación no se pierda en el barullo de carga.
+            setTimeout(() => {
+                showNotification(
+                    '⏸️ La subida a la nube está pausada. Haz clic en el badge naranja del header para reanudar.',
+                    'warning',
+                    10000
+                );
+            }, 1500);
+        }
 
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
