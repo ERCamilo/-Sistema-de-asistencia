@@ -13,10 +13,26 @@ import icons from '../IconSystem.js';
 let _cvDelegationAttached = false;
 if (!_cvDelegationAttached) {
     document.addEventListener('click', (e) => {
-        const t = e.target.closest('[data-cv-nav-action]');
-        if (!t) return;
-        const fn = window[t.dataset.cvNavAction];
-        if (typeof fn === 'function') fn(parseInt(t.dataset.cvDelta || '0', 10));
+        const nav = e.target.closest('[data-cv-nav-action]');
+        if (nav) {
+            const fn = window[nav.dataset.cvNavAction];
+            if (typeof fn === 'function') fn(parseInt(nav.dataset.cvDelta || '0', 10));
+            return;
+        }
+
+        const day = e.target.closest('[data-cv-select-action]');
+        if (!day) return;
+        const fn = window[day.dataset.cvSelectAction];
+        if (typeof fn === 'function') fn(day.dataset.cvDate);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const day = e.target.closest('[data-cv-select-action]');
+        if (!day) return;
+        e.preventDefault();
+        const fn = window[day.dataset.cvSelectAction];
+        if (typeof fn === 'function') fn(day.dataset.cvDate);
     });
     _cvDelegationAttached = true;
 }
@@ -29,12 +45,13 @@ if (!_cvDelegationAttached) {
  * @param {String} options.navAction - El handler global para cambiar mes (ej: 'window.changeFloatingMonth')
  * @param {Boolean} [options.showLegend=false] - Si mostrar la leyenda al pie
  */
-export function CalendarView({ employee, month, navAction, showLegend = false }) {
+export function CalendarView({ employee, month, navAction, showLegend = false, selectedDate = null, selectAction = '' }) {
     if (!employee || !month) return '<div class="empty-state">No hay datos</div>';
 
     const days = getDaysInMonth(month);
     const dayNames = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
     const todayKey = getDateKey(new Date());
+    const selectedKey = selectedDate ? getDateKey(selectedDate) : '';
     const payPeriod = state.settings.payPeriod;
 
     // Generar las celdas de los días
@@ -42,6 +59,7 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
         const dKey = getDateKey(d.date);
         const isCurrentMonth = d.currentMonth;
         const isToday = dKey === todayKey;
+        const isSelected = selectedKey && dKey === selectedKey;
         
         // Datos de asistencia
         const attKey = `${employee.id}-${dKey}`;
@@ -58,6 +76,7 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
             'calendar-day',
             !isCurrentMonth ? 'other-month' : '',
             isToday ? 'today' : '',
+            isSelected ? 'selected' : '',
             isPresent ? 'has-attendance' : '',
             checkColor,
             isInPeriod ? 'calendar-day-pay-period' : '',
@@ -71,7 +90,8 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
         const moneyIcon = isPaid ? `<span class="money-badge">💰</span>` : '';
 
         return `
-            <div class="${classes}" title="${tooltip}">
+            <div class="${classes}" title="${tooltip}"
+                 ${selectAction && isCurrentMonth ? `role="button" tabindex="0" data-cv-select-action="${selectAction}" data-cv-date="${dKey}"` : ''}>
                 <span class="day-number">${d.date.getDate()}</span>
                 ${isPresent ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
                 ${todayIcon}

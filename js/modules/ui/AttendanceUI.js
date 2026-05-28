@@ -426,12 +426,13 @@ export function PositionFilters() {
 
     const totalCount = activeEmployees.length;
     const currentFilter = state.filters.position;
+    const filterChevron = icons.get(state.showFilters ? 'chevron-down' : 'chevron-right', { size: 18, color: '#94a3b8' });
 
     return `
         <div class="position-filters-container" style="margin-top: 16px;">
             <button class="filters-toggle view-btn" type="button" data-att-action="toggle-filters" style="width: 100%; justify-content: space-between;">
                 <span style="color: #f1f5f9; font-weight: 600; font-size: 0.875rem;">🎯 Filtrar Posición</span>
-                <span style="font-size: 1.25rem; color: #94a3b8;">${state.showFilters ? '▼' : '▶'}</span>
+                <span style="display:inline-flex;color:#94a3b8;">${filterChevron}</span>
             </button>
             ${state.showFilters ? `
                 <div class="filters-content position-filters-grid">
@@ -483,7 +484,7 @@ export function SearchBar() {
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
                     ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
                 </select>
-                <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; font-size: 0.75rem;">▼</div>
+                <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.55; display:inline-flex;">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
             </div>
             <button type="button"
                     class="attendance-layout-btn"
@@ -557,9 +558,10 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     const workedPositionIds = isChecked
         ? (isMultiPosition ? (att.positionHours || []).map(ph => ph.positionId) : [selPos])
         : [];
+    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
 
     const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}`;
-    return `<div id="emp-row-${emp.id}" class="employee-row" data-memo-f="${fingerprint}">
+    return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}" data-memo-f="${fingerprint}">
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
@@ -652,11 +654,12 @@ export function EmployeeRowCompact(emp) {
     const att = state.attendance[key];
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
+    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
-    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact">
+    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>

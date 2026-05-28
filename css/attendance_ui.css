@@ -508,6 +508,19 @@
     gap: 10px;
 }
 
+.attendance-layout-section-title {
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 14px 0 8px;
+}
+
+.attendance-layout-header + .attendance-layout-section-title {
+    margin-top: 0;
+}
+
 .attendance-layout-option {
     width: 100%;
     border: 1px solid #334155;

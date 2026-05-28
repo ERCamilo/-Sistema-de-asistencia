@@ -2,7 +2,8 @@
  * AttendanceUITests - Tests for Attendance UI controls and components
  */
 
-import { DateControls, formatSplitName, WeekView, SearchBar, DayView } from '../modules/ui/AttendanceUI.js';
+import { DateControls, formatSplitName, WeekView, SearchBar, DayView, EmployeeRow, EmployeeRowCompact } from '../modules/ui/AttendanceUI.js';
+import { CalendarView } from '../modules/ui/components/CalendarView.js';
 
 testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
 
@@ -80,5 +81,71 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         testRunner.assert(oneColumnHTML.includes('employee-list-cols-1'), 'Debe aplicar la clase de una columna');
 
         window.state.attendanceListColumns = originalColumns;
+    },
+
+    "DayView: aplica modo reducido de tarjetas"() {
+        const originalMode = window.state.listDisplayMode;
+
+        window.state.listDisplayMode = 'compact';
+        const compactHTML = DayView();
+        testRunner.assert(compactHTML.includes('compact-list'), 'Debe aplicar la clase de lista reducida');
+
+        window.state.listDisplayMode = 'relaxed';
+        const normalHTML = DayView();
+        testRunner.assert(!normalHTML.includes('compact-list'), 'La vista normal no debe usar compact-list');
+
+        window.state.listDisplayMode = originalMode;
+    },
+
+    "EmployeeRow: agrega clase visual cuando esta seleccionado en detalle desktop"() {
+        const originalSelected = window.state.selectedDetailEmployeeId;
+        const originalPositions = window.state.positions;
+
+        window.state.selectedDetailEmployeeId = 'emp-selected';
+        window.state.positions = [{ id: 'pos1', name: 'Ayudante', color: '#10b981' }];
+
+        try {
+            const emp = { id: 'emp-selected', name: 'Empleado Seleccionado', number: '007', positions: ['pos1'], active: true };
+            testRunner.assert(EmployeeRow(emp).includes('is-detail-selected'), 'La tarjeta normal debe marcarse como seleccionada');
+            testRunner.assert(EmployeeRowCompact(emp).includes('is-detail-selected'), 'La tarjeta reducida debe marcarse como seleccionada');
+        } finally {
+            window.state.selectedDetailEmployeeId = originalSelected;
+            window.state.positions = originalPositions;
+        }
+    },
+
+    "CalendarView: marca asistencia con clases de color check"() {
+        const originalAttendance = window.state.attendance;
+        const originalSettings = window.state.settings;
+
+        window.state.settings = {
+            ...window.state.settings,
+            regularHoursPerDay: 8,
+            holidays: ['2026-05-14']
+        };
+        window.state.attendance = {
+            'emp-cal-2026-05-12': { employeeId: 'emp-cal', date: '2026-05-12', present: true, hoursWorked: 8, positionHours: [{ positionId: 'p1', hours: 8 }] },
+            'emp-cal-2026-05-13': { employeeId: 'emp-cal', date: '2026-05-13', present: true, hoursWorked: 4, positionHours: [{ positionId: 'p1', hours: 4 }] },
+            'emp-cal-2026-05-14': { employeeId: 'emp-cal', date: '2026-05-14', present: true, hoursWorked: 8, positionHours: [{ positionId: 'p1', hours: 8 }] },
+            'emp-cal-2026-05-15': { employeeId: 'emp-cal', date: '2026-05-15', present: true, hoursWorked: 10, positionHours: [{ positionId: 'p1', hours: 10 }] },
+            'emp-cal-2026-05-16': { employeeId: 'emp-cal', date: '2026-05-16', present: true, hoursWorked: 8, positionHours: [{ positionId: 'p1', hours: 4 }, { positionId: 'p2', hours: 4 }] }
+        };
+
+        try {
+            const html = CalendarView({
+                employee: { id: 'emp-cal', name: 'Empleado Calendario', positions: ['p1', 'p2'] },
+                month: new Date('2026-05-01T12:00:00'),
+                navAction: 'noop'
+            });
+
+            testRunner.assert(html.includes('check-regular'), 'Debe marcar asistencia completa en verde');
+            testRunner.assert(html.includes('check-undertime'), 'Debe marcar asistencia incompleta en rojo');
+            testRunner.assert(html.includes('check-holiday'), 'Debe marcar asistencia en feriado en dorado');
+            testRunner.assert(html.includes('check-overtime'), 'Debe marcar horas extra en azul');
+            testRunner.assert(html.includes('check-multiposition'), 'Debe marcar multi-posicion en morado');
+        } finally {
+            window.state.attendance = originalAttendance;
+            window.state.settings = originalSettings;
+        }
     }
 });

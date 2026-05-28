@@ -245,8 +245,34 @@ body.has-sidebar {
 
 /* ----- Selected row indicator ----- */
 .employee-row.is-detail-selected {
-    box-shadow: inset 3px 0 0 #06b6d4;
-    background: rgba(6, 182, 212, 0.04);
+    position: relative;
+    border-color: rgba(34, 211, 238, 0.55) !important;
+    background:
+        linear-gradient(90deg, rgba(6, 182, 212, 0.2), rgba(6, 182, 212, 0.06) 42%, rgba(15, 23, 42, 0.08)),
+        #111827 !important;
+    box-shadow:
+        inset 4px 0 0 #06b6d4,
+        0 0 0 1px rgba(6, 182, 212, 0.22),
+        0 12px 32px rgba(6, 182, 212, 0.1);
+}
+
+.employee-row.is-detail-selected::after {
+    content: "";
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #22d3ee;
+    box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.16), 0 0 14px rgba(34, 211, 238, 0.45);
+    pointer-events: none;
+}
+
+.employee-row-compact.is-detail-selected::after {
+    top: 8px;
+    right: 8px;
+    transform: none;
 }
 
 /* ----- Detail panel card ----- */
@@ -424,6 +450,31 @@ body.has-sidebar {
     box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.13);
 }
 
+.detail-week-day.present.check-regular i {
+    background: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.detail-week-day.present.check-undertime i {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+}
+
+.detail-week-day.present.check-overtime i {
+    background: #06b6d4;
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.16);
+}
+
+.detail-week-day.present.check-holiday i {
+    background: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
+.detail-week-day.present.check-multiposition i {
+    background: #8b5cf6;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.16);
+}
+
 .detail-week-day.present i::before {
     content: "";
     width: 8px;
@@ -435,6 +486,10 @@ body.has-sidebar {
 
 .detail-week-day.rest i {
     opacity: 0.72;
+}
+
+.detail-week-day.present.rest i {
+    opacity: 1;
 }
 
 .detail-progress-footer,
@@ -720,6 +775,298 @@ body.has-sidebar {
 .detail-timeline-row.holiday  .detail-tl-label { color: #a855f7; }
 .detail-timeline-row.absent   .detail-tl-label { color: #ef4444; }
 .detail-timeline-row.extra    .detail-tl-hours { color: #f59e0b; }
+
+/* ----- Detail tabs: calendar + day hours ----- */
+.detail-tabbed-panel {
+    display: grid;
+    gap: 10px;
+}
+
+.detail-panel-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 3px;
+    background: #111827;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 10px;
+}
+
+.detail-panel-tab {
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #94a3b8;
+    min-height: 34px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    cursor: pointer;
+    transition: background 0.16s, color 0.16s, box-shadow 0.16s;
+}
+
+.detail-panel-tab:hover,
+.detail-panel-tab:focus-visible {
+    color: #e2e8f0;
+    background: rgba(148, 163, 184, 0.08);
+    outline: none;
+}
+
+.detail-panel-tab.active {
+    color: #07111f;
+    background: #06b6d4;
+    box-shadow: 0 8px 18px rgba(6, 182, 212, 0.2);
+}
+
+.detail-panel-body {
+    min-width: 0;
+}
+
+.detail-panel-body.is-calendar {
+    background:
+        radial-gradient(circle at 24px 20px, rgba(6, 182, 212, 0.09), transparent 58px),
+        #111827;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 12px;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.detail-panel-body .premium-calendar .calendar-grid {
+    gap: clamp(4px, 1.35cqw, 8px);
+}
+
+.detail-panel-body .premium-calendar .calendar-day {
+    min-width: 0;
+    border-radius: 8px;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.selected {
+    border-color: #22d3ee !important;
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.26), inset 0 0 0 1px rgba(8, 47, 73, 0.8) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance.check-regular {
+    background: #10b981 !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance.check-undertime {
+    background: #ef4444 !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance.check-overtime {
+    background: #06b6d4 !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance.check-holiday {
+    background: #f59e0b !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance.check-multiposition {
+    background: #8b5cf6 !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance .day-number,
+.detail-panel-body .premium-calendar .calendar-day.has-attendance .hours-dot {
+    color: #ffffff !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.has-attendance.selected {
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.52), inset 0 0 0 1px rgba(15, 23, 42, 0.55) !important;
+}
+
+.detail-panel-body .premium-calendar .calendar-day-name {
+    padding-bottom: 4px;
+}
+
+.detail-panel-body .premium-calendar .calendar-month-title {
+    font-size: clamp(12px, 3.3cqw, 14px) !important;
+}
+
+.detail-panel-body .premium-calendar .day-number {
+    font-size: clamp(11px, 3.1cqw, 13px);
+    font-weight: 800;
+}
+
+.detail-panel-body .premium-calendar .hours-dot {
+    font-size: clamp(9px, 2.5cqw, 11px);
+    font-weight: 800;
+}
+
+.detail-hours-editor {
+    display: grid;
+    gap: 10px;
+}
+
+.detail-hours-editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #111827;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 10px;
+}
+
+.detail-hours-editor-head span {
+    display: block;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.detail-hours-editor-head strong {
+    display: block;
+    color: #f8fafc;
+    margin-top: 3px;
+    font-size: 13px;
+    text-transform: capitalize;
+}
+
+.detail-hours-state {
+    flex: none;
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 11px !important;
+    letter-spacing: 0 !important;
+    text-transform: none !important;
+    color: #94a3b8 !important;
+    background: rgba(148, 163, 184, 0.11);
+}
+
+.detail-hours-state.present {
+    color: #10b981 !important;
+    background: rgba(16, 185, 129, 0.14);
+}
+
+.detail-position-hours-list {
+    display: grid;
+    gap: 10px;
+}
+
+.detail-position-hours-card {
+    background: #1e293b;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-left: 3px solid var(--pos-color, #06b6d4);
+    border-radius: 10px;
+    padding: 11px;
+}
+
+.detail-position-hours-title {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 9px;
+}
+
+.detail-position-hours-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--pos-color, #06b6d4);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--pos-color, #06b6d4) 18%, transparent);
+}
+
+.detail-position-hours-title strong {
+    color: #f1f5f9;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.detail-position-hours-title small {
+    color: #64748b;
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.detail-position-hours-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.detail-position-hours-fields label {
+    display: grid;
+    gap: 4px;
+}
+
+.detail-position-hours-fields span {
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.detail-position-hours-fields input {
+    width: 100%;
+    min-width: 0;
+    height: 34px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 7px;
+    color: #f8fafc;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    outline: none;
+}
+
+.detail-position-hours-fields input:focus {
+    border-color: #06b6d4;
+    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.14);
+}
+
+.detail-hours-total-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    background: linear-gradient(135deg, #1e293b, #263449);
+    border: 1px solid #06b6d4;
+    border-radius: 10px;
+    padding: 11px;
+}
+
+.detail-hours-total-card span {
+    display: block;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+}
+
+.detail-hours-total-card strong {
+    color: #10b981;
+    font-size: 19px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+}
+
+.detail-hours-empty {
+    color: #94a3b8;
+    background: #111827;
+    border: 1px dashed #334155;
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+    font-size: 13px;
+}
+
+.detail-hours-save {
+    width: 100%;
+}
 
 /* ----- Quick note textarea ----- */
 .detail-quick-note {

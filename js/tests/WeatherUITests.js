@@ -168,7 +168,7 @@ testRunner.addSuite("WeatherPanel — render", {
 
 testRunner.addSuite("WeatherBar — collapsed / expanded", {
 
-    async "collapsed bar shows today's temp + 4-day preview by default"() {
+    async "collapsed bar shows today + next 2 days and API sync age"() {
         resetWeatherState();
         await refreshWeather(); // populate cache without expanding
         
@@ -185,6 +185,9 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         const html = WeatherBar();
         testRunner.assert(html.includes('Hoy'), 'Today summary shown');
         testRunner.assert(html.includes('toggle-weather'), 'Toggle action wired');
+        testRunner.assertEquals((html.match(/data-weather-preview-day=/g) || []).length, 3, 'Collapsed preview limited to 3 days');
+        testRunner.assert(html.includes('Última sincronización con la API'), 'API sync tooltip shown');
+        testRunner.assert(/hace (un momento|\d+ min|\d+h|\d+ d)/.test(html), 'Relative API sync age shown');
         // Collapsed view should NOT contain the expanded-only labels.
         testRunner.assert(!html.includes('Próximas 24 horas'), 'Hourly section hidden when collapsed');
         testRunner.assert(!html.includes('Próximos días'), 'Daily section header hidden when collapsed');
