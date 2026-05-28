@@ -13,7 +13,7 @@
  *      double-fire updates.
  */
 
-import { initSyncPersistence } from '../modules/services/PersistenceService.js';
+import { initSyncPersistence, warmUpSyncStatus } from '../modules/services/PersistenceService.js';
 import { state } from '../modules/core/AppState.js';
 import { SyncStatus } from '../modules/services/SyncStatus.js';
 
@@ -83,6 +83,40 @@ testRunner.addSuite("LastCloudSavedAt — idempotence of initSyncPersistence (Ta
 
         // The value must be correct (42), not wrong due to a doubled listener.
         testRunner.assertEquals(state.settings.lastCloudSavedAt, 42);
+    }
+
+});
+
+testRunner.addSuite("LastCloudSavedAt — warmUpSyncStatus on reload (Task #5)", {
+
+    "warmUpSyncStatus with a saved ts pre-loads SyncStatus so badge is correct from frame 1"() {
+        SyncStatus.reset();
+        if (!state.settings) state.settings = {};
+        state.settings.lastCloudSavedAt = 8888888;
+
+        warmUpSyncStatus(state.settings);
+
+        testRunner.assertEquals(SyncStatus.getLastSyncedAt(), 8888888,
+            'SyncStatus should be pre-loaded with the persisted timestamp');
+    },
+
+    "warmUpSyncStatus with no saved ts leaves SyncStatus as null (first-run)"() {
+        SyncStatus.reset();
+        if (!state.settings) state.settings = {};
+        delete state.settings.lastCloudSavedAt;
+
+        warmUpSyncStatus(state.settings);
+
+        testRunner.assertEquals(SyncStatus.getLastSyncedAt(), null,
+            'SyncStatus should stay null when no persisted timestamp exists');
+    },
+
+    "warmUpSyncStatus with invalid value is a no-op"() {
+        SyncStatus.reset();
+        warmUpSyncStatus({ lastCloudSavedAt: 'bad' });
+        testRunner.assertEquals(SyncStatus.getLastSyncedAt(), null);
+        warmUpSyncStatus(null);
+        testRunner.assertEquals(SyncStatus.getLastSyncedAt(), null);
     }
 
 });

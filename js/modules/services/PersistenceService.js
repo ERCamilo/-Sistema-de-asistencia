@@ -41,6 +41,22 @@ const _pendingCloudDeletes = new Set();
 let _syncPersistenceUnsub = null;
 
 /**
+ * Pre-loads SyncStatus with the persisted lastCloudSavedAt timestamp so the
+ * sync badge shows the correct "Sincronizado · hace Xm" text from the very
+ * first render after a page reload, instead of "Aún no sincronizado".
+ *
+ * Safe to call multiple times (no-op when the value is missing or invalid).
+ *
+ * @param {object|null} settings - state.settings object (or null/undefined).
+ */
+export function warmUpSyncStatus(settings) {
+    const ts = settings?.lastCloudSavedAt;
+    if (typeof ts === 'number' && Number.isFinite(ts)) {
+        SyncStatus.markSynced(ts);
+    }
+}
+
+/**
  * Subscribes to SyncStatus so that every successful cloud write (markSynced)
  * stores the timestamp in state.settings.lastCloudSavedAt.
  *
@@ -332,6 +348,11 @@ export async function loadApplicationData() {
             // el listener anterior en lugar de apilarlo.
             initSyncPersistence();
 
+            // 🟢 Pre-cargar SyncStatus con el último timestamp persistido para
+            // que el badge muestre "Sincronizado · hace Xm" desde el primer
+            // render, en lugar de "Aún no sincronizado".
+            warmUpSyncStatus(state.settings);
+
             // 🛡️ Validar integridad. Si hubo correcciones, persistir inmediatamente
             // para evitar que Firebase reescriba el state con datos sucios después.
             const fixesOnLoad = validateDataIntegrity();
@@ -353,6 +374,7 @@ export async function loadApplicationData() {
             debug.log('✅ Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
             initSyncPersistence();
+            warmUpSyncStatus(state.settings);
             
             // Si el navegador soporta IndexedDB, migramos de inmediato
             if (indexedDBService.isSupported()) {
