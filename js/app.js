@@ -5988,6 +5988,47 @@ window.addEventListener('scroll', () => {
 // [LEGACY ONBOARDING REMOVED - MOVED TO modules/ui/Onboarding.js]
 
 // ============================================
+// 🛡️ PROMPT POST-SANEAMIENTO
+// ============================================
+
+/**
+ * Muestra un Modal.confirm si loadApplicationData encontró y corrigió
+ * referencias huérfanas o IDs faltantes en los datos locales.
+ *
+ * Debe llamarse DESPUÉS de que el primer sync de Firebase se complete
+ * (isInitialLoad = false) para que el usuario tome la decisión con los
+ * datos ya mergeados y la UI lista.
+ *
+ * Si no hay usuario autenticado, limpia el flag silenciosamente.
+ */
+async function _checkSanitizationCloudSyncPrompt() {
+    if (!state._pendingSanitizationCloudSync) return;
+
+    const count = state._pendingSanitizationCloudSync;
+    delete state._pendingSanitizationCloudSync;
+
+    if (!globalThis.currentUser) {
+        // No hay sesión → no se puede subir a la nube. Flag ya limpiado.
+        return;
+    }
+
+    const confirmed = await Modal.confirm({
+        title: '🛡️ Saneamiento de datos completado',
+        message:
+            `Al cargar, se encontraron y corrigieron <strong>${count}</strong> elemento(s) en ` +
+            `tus datos locales (IDs faltantes, referencias huérfanas).<br><br>` +
+            `¿Deseas subir estas correcciones a la nube ahora?`,
+        confirmText: '☁️ Subir a la nube',
+        cancelText: 'Solo mantener local'
+    });
+
+    if (confirmed) {
+        saveApplicationData({ force: true });
+        showNotification('☁️ Correcciones de integridad subidas a la nube', 'success');
+    }
+}
+
+// ============================================
 // 🚀 INICIALIZACIÓN DE LA APLICACIÓN
 // ============================================
 
@@ -6288,6 +6329,9 @@ window.addEventListener('scroll', () => {
                         isInitialLoad = false;
                         // Forzar render inicial con datos de la nube
                         render();
+                        // 🛡️ Post-load sanitization prompt:
+                        // Primera sync completada → datos mergeados → buen momento para preguntar.
+                        _checkSanitizationCloudSyncPrompt();
                     }
                     } // ← cierra applyRemoteData()
                 });
@@ -6401,6 +6445,8 @@ window.addEventListener('scroll', () => {
                 hideLoader();
                 isInitialLoad = false;
                 render(); // Asegurar que la UI de settings/auth se limpie
+                // No hay sesión → no se puede subir a la nube, limpiar flag.
+                delete state._pendingSanitizationCloudSync;
             }
         });
 
@@ -6475,7 +6521,7 @@ function initBackToTop() {
     const btn = document.createElement('div');
     btn.className = 'back-to-top';
     btn.id = 'backToTop';
-    btn.innerHTML = '▲'; // Unicode arrow para máxima compatibilidad
+    btn.innerHTML = icons.get('chevron-up', { size: 22 });
     btn.title = 'Ir arriba';
     btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     document.body.appendChild(btn);

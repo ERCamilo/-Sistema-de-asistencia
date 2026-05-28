@@ -228,10 +228,12 @@ async function _executeSave(options = {}) {
     console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ☀️ Sincronización con Firebase
-    // Skipped when cloudUploadPaused is set: the user explicitly chose to
-    // keep local state without syncing. Local (IndexedDB) save still runs.
+    // Skipped when cloudUploadPaused is set (user paused) or localOnly is set
+    // (caller wants IndexedDB-only save, e.g. load-time sanitization that the
+    // user still hasn't approved to push to cloud).
     if (globalThis.currentUser && !globalThis._isApplyingRemoteData
-        && !state.settings?.cloudUploadPaused) {
+        && !state.settings?.cloudUploadPaused
+        && !options.localOnly) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
             const dayRecords = {};
@@ -356,13 +358,18 @@ export async function loadApplicationData() {
             // render, en lugar de "Aún no sincronizado".
             warmUpSyncStatus(state.settings);
 
-            // 🛡️ Validar integridad. Si hubo correcciones, persistir inmediatamente
-            // para evitar que Firebase reescriba el state con datos sucios después.
+            // 🛡️ Validar integridad. Si hubo correcciones, persistir en IndexedDB
+            // de forma inmediata pero sin subir a Firebase todavía.
+            // Se guarda un contador en state para que app.js le pregunte al
+            // usuario si desea subir las correcciones a la nube después del
+            // primer render (ver _checkSanitizationCloudSyncPrompt en app.js).
             const fixesOnLoad = validateDataIntegrity();
             if (fixesOnLoad > 0) {
-                debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad...`);
-                // Guardado full (no granular) → también dispara sync con Firebase
-                saveApplicationData({ force: true });
+                debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad (solo local)...`);
+                // localOnly:true → escribe IndexedDB pero omite el bloque de Firebase.
+                saveApplicationData({ force: true, localOnly: true });
+                // Señal para la capa de UI: mostrar prompt de subida después del render.
+                state._pendingSanitizationCloudSync = fixesOnLoad;
             }
 
             stateManager.markAttendanceDirty(); // Asegurar reconstrucción total tras carga masiva
