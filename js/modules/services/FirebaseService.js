@@ -122,6 +122,82 @@ class FirebaseService {
     }
 
     /**
+     * 🔄 TRUE OVERWRITE: Replace cloud data entirely with local state.
+     *
+     * Unlike saveFullState (which uses merge:true and leaves cloud-only
+     * data intact), this method:
+     *   1. Reads all cloud employee doc IDs
+     *   2. Deletes any doc NOT present in the local employee list (orphans)
+     *   3. Writes the main state doc WITHOUT merge:true (full overwrite)
+     *   4. Saves all local employees via EmployeeRepository.saveMany
+     *
+     * Only use this when the user explicitly confirms they want their
+     * local data to win over the cloud — it's destructive to cloud-only data.
+     */
+    async replaceCloudFull(state) {
+        if (!auth.currentUser) return;
+
+        try {
+            console.log('🔄 replaceCloudFull: Reemplazando nube con datos locales (overwrite real)...');
+
+            const schemaVersion = state?.settings?.schemaVersion;
+            const isMigrated = typeof schemaVersion === 'number' && schemaVersion >= 2;
+
+            // --- 1. Delete orphan cloud employee docs ---
+            if (isMigrated) {
+                const cloudEmps = await EmployeeRepository.loadAll();
+                const localIds  = new Set(
+                    (Array.isArray(state.employees) ? state.employees : [])
+                        .map(e => String(e.id))
+                );
+                const orphanIds = cloudEmps
+                    .map(e => String(e.id))
+                    .filter(id => !localIds.has(id));
+
+                if (orphanIds.length > 0) {
+                    console.log(`🗑️ replaceCloudFull: Borrando ${orphanIds.length} empleado(s) huérfano(s) de la nube:`, orphanIds);
+                    for (const id of orphanIds) {
+                        try { await EmployeeRepository.deleteOne(id); }
+                        catch (e) { console.warn(`⚠️ Error borrando doc cloud ${id}:`, e); }
+                    }
+                }
+
+                // Save all local employees (no mergeRemote — local wins entirely).
+                const emps = Array.isArray(state.employees) ? state.employees : [];
+                if (emps.length > 0) {
+                    await EmployeeRepository.saveMany(emps, { mergeRemote: false });
+                }
+            }
+
+            // --- 2. Build main doc payload (same cleanup as saveFullState) ---
+            const snapshotContext = { ...state };
+            delete snapshotContext.snapshots;
+            delete snapshotContext.isLoadingSnapshots;
+            delete snapshotContext.currentUser;
+            delete snapshotContext.attendance;
+            delete snapshotContext.attendanceByDate;
+            if (isMigrated) delete snapshotContext.employees;
+
+            const cleanState = JSON.parse(JSON.stringify(snapshotContext));
+
+            // --- 3. Write WITHOUT merge:true (true overwrite) ---
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+            await setDoc(docRef, {
+                ...cleanState,
+                updatedAt: serverTimestamp(),
+                lastDevice: navigator.userAgent,
+                lastChangedBy: getDeviceId()
+            }); // NO { merge: true } — this REPLACES the doc entirely
+
+            console.log('✅ replaceCloudFull: Nube reemplazada con datos locales');
+            SyncStatus.markSynced();
+        } catch (error) {
+            console.error('❌ Error en replaceCloudFull:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Crea un punto de restauración (Snapshot) en la colección de backups
      * @param {object} state Estado global a respaldar
      * @param {string} type Tipo (auto/manual/pre-restore) — compat hacia atrás

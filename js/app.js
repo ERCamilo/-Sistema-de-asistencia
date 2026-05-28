@@ -6095,11 +6095,16 @@ function _initOutgoingConflictGuard() {
         state._outgoingConflictReviewPending = false;
 
         if (confirmed) {
-            // Local wins: reset the known-cloud timestamp so the next save
-            // passes the conflict check, then force-push.
+            // Local wins: true overwrite (not merge). Deletes orphan cloud docs,
+            // writes the main doc WITHOUT merge:true, so cloud-only data is removed.
             state._lastKnownCloudUpdatedAt = state.settings?.localUpdatedAt || 0;
-            saveApplicationData({ force: true });
-            showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
+            try {
+                await FirebaseService.replaceCloudFull(state);
+                showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
+            } catch (e) {
+                console.error('Error en replaceCloudFull:', e);
+                showNotification('❌ Error al reemplazar los datos de la nube', 'error');
+            }
         } else {
             // Cloud wins: don't push. The existing subscribeToChanges listener
             // will handle applying the newer remote data (or the user can accept

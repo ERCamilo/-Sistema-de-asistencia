@@ -122,13 +122,14 @@ testRunner.addSuite("OutgoingConflict — app.js (source checks)", {
         );
     },
 
-    "if user confirms, app.js calls saveApplicationData with force:true"() {
-        // saveApplicationData comes after Modal.confirm resolves, so the window
-        // needs to cover the full handler body (message + confirm + conditional).
+    "if user confirms, app.js calls replaceCloudFull (true overwrite, not merge)"() {
+        // CHANGED 2026-05-28: saveApplicationData({force:true}) used merge:true
+        // in Firestore, which didn't actually delete cloud-only data. Now uses
+        // replaceCloudFull for a true overwrite that deletes orphan cloud docs.
         const block = APP_SRC.match(/sync:outgoing-conflict[\s\S]{0,3000}/);
         testRunner.assert(
-            !!block && /saveApplicationData\s*\(\s*\{[^}]*force\s*:\s*true/.test(block[0]),
-            'After user confirms, handler must call saveApplicationData({force:true})'
+            !!block && /replaceCloudFull/.test(block[0]),
+            'After user confirms, handler must call replaceCloudFull (not saveApplicationData)'
         );
     },
 
