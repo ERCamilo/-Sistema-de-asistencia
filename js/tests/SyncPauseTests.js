@@ -92,6 +92,26 @@ testRunner.addSuite("SyncPauseService — resumeCloudUpload (cloud-upload pause)
             'Flag must be cleared after resume');
     },
 
+    "sets cloudUploadPaused to false (NOT delete) — survives Firestore merge:true"() {
+        // Regression (2026-05-28): delete state.settings.cloudUploadPaused
+        // would be stripped by JSON.stringify, and Firestore's setDoc with
+        // merge:true would keep the cloud's old true value. The next
+        // subscribeToChanges echo would re-apply true, flipping the badge
+        // back to paused. Setting an explicit false value propagates correctly.
+        resetSettings({ cloudUploadPaused: true });
+        resumeCloudUpload();
+        testRunner.assertEquals(
+            state.settings.cloudUploadPaused, false,
+            'After resume, cloudUploadPaused must be explicitly false (not undefined/missing) ' +
+            'so it survives JSON.stringify + Firestore merge:true round-trip'
+        );
+        testRunner.assert(
+            'cloudUploadPaused' in state.settings,
+            'cloudUploadPaused must remain a property on state.settings (not deleted), ' +
+            'otherwise JSON.stringify omits it and Firestore merge keeps the old value'
+        );
+    },
+
     "isSyncPaused() returns false after resumeCloudUpload()"() {
         resetSettings({ cloudUploadPaused: true });
         resumeCloudUpload();

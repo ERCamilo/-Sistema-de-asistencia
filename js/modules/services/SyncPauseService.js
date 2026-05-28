@@ -63,11 +63,19 @@ export async function pauseCloudUpload() {
 /**
  * Resume cloud uploads and immediately re-upload local state to Firestore
  * so any changes made while paused are reflected in the cloud.
+ *
+ * IMPORTANT: we set the flag to `false` (not `delete`) on purpose. The save
+ * path goes through JSON.stringify (which strips undefined properties) and
+ * then through Firestore's setDoc(..., { merge: true }), which only overwrites
+ * fields present in the payload. If we delete the flag, it disappears from the
+ * payload entirely, the cloud keeps the old `true`, and the next subscribe
+ * echo re-applies `true` to local state — sync stays paused forever.
  */
 export async function resumeCloudUpload() {
     if (!state.settings) state.settings = {};
-    // Clear the flag BEFORE saving so the upcoming save DOES hit Firebase.
-    delete state.settings.cloudUploadPaused;
+    // Explicit false (not delete) so the value survives JSON.stringify and
+    // overwrites the cloud's old true through Firestore's merge:true.
+    state.settings.cloudUploadPaused = false;
     const save = await _getSave();
     save({ force: true, immediate: true });
 }
