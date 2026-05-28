@@ -14,6 +14,7 @@ import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner
 import { EmployeeRepository } from '../services/EmployeeRepository.js';
 import { validateManualGroup } from '../services/ManualGroupValidator.js';
 import { reconcileCloudFromLocal } from '../services/CloudReconcile.js';
+import { classifyEmployeeId, idFormatLabel } from '../services/IdFormat.js';
 import { state } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 
@@ -602,6 +603,13 @@ export class MaintenanceUI {
             ? `<span class="maintenance-source-tag ${emp._source === 'cloud' ? 'is-cloud' : emp._source === 'both' ? 'is-both' : 'is-local'}">${emp._source === 'cloud' ? 'Nube' : emp._source === 'both' ? 'Local y nube' : 'Local'}</span>`
             : '';
 
+        // Badge de formato de id — display-only. Ayuda al usuario a distinguir
+        // de un vistazo cuál registro viene del sistema legacy (UUID) vs el
+        // actual (EMP{timestamp}). NO afecta identidad ni rutas — el id es
+        // siempre inmutable; el formato es solo metadata visual.
+        const formatClass = classifyEmployeeId(emp.id); // emp-modern | emp-seed | emp-legacy | emp-unknown
+        const formatTag = `<span class="maintenance-format-tag is-${formatClass}" title="Formato del id: ${formatClass}">${idFormatLabel(emp.id)}</span>`;
+
         return `
             <div class="emp-compare-card maintenance-employee-card ${style.className}">
                 <div class="maintenance-role-status">
@@ -616,6 +624,7 @@ export class MaintenanceUI {
                     <h4>${emp.name || '(sin nombre)'}</h4>
                     <div class="maintenance-meta-row">
                         <span class="maintenance-id-tag" title="ID completo: ${emp.id || ''}">ID ${emp.id || '(sin id)'}</span>
+                        ${formatTag}
                         ${srcTag}
                     </div>
                     ${reassignBlock}

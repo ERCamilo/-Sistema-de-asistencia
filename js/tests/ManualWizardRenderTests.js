@@ -82,6 +82,31 @@ testRunner.addSuite("MaintenanceUI — delegation map para nuevos handlers (Tare
 
 });
 
+testRunner.addSuite("MaintenanceUI — badge de formato de id (display-only)", {
+
+    "importa idFormatLabel o classifyEmployeeId desde IdFormat"() {
+        testRunner.assert(
+            /from\s+['"]\.\.\/services\/IdFormat\.js['"]/.test(SRC),
+            'Debe importar IdFormat para construir el badge'
+        );
+    },
+
+    "renderEmployeeCard incluye un badge con clase maintenance-format-tag"() {
+        testRunner.assert(
+            /maintenance-format-tag/.test(SRC),
+            'Card debe renderizar un <span class="maintenance-format-tag"> con la etiqueta del formato'
+        );
+    },
+
+    "badge usa idFormatLabel(emp.id) para el texto"() {
+        testRunner.assert(
+            /idFormatLabel\s*\(\s*emp\.id\s*\)/.test(SRC),
+            'El texto del badge sale de idFormatLabel(emp.id)'
+        );
+    }
+
+});
+
 testRunner.addSuite("MaintenanceUI — card muestra ID completo + reasign inline", {
 
     "renderEmployeeCard NO trunca el id (8 chars eran un bug UX)"() {

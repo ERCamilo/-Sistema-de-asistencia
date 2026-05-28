@@ -489,6 +489,35 @@
     color: #86efac;
 }
 
+/* Badge de formato de id — display-only, ayuda al usuario a distinguir
+   registros del sistema viejo (UUID) del actual (EMP{timestamp}). */
+.maintenance-format-tag {
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 3px 7px;
+}
+
+.maintenance-format-tag.is-emp-modern {
+    background: rgba(34, 197, 94, 0.14);
+    color: #86efac;
+}
+
+.maintenance-format-tag.is-emp-seed {
+    background: rgba(234, 179, 8, 0.14);
+    color: #fde68a;
+}
+
+.maintenance-format-tag.is-emp-legacy {
+    background: rgba(244, 114, 182, 0.14);
+    color: #fbcfe8;
+}
+
+.maintenance-format-tag.is-emp-unknown {
+    background: rgba(100, 116, 139, 0.14);
+    color: #cbd5e1;
+}
+
 .maintenance-reassign-hint {
     background: rgba(6, 182, 212, 0.12);
     color: #67e8f9;
