@@ -228,7 +228,10 @@ async function _executeSave(options = {}) {
     console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ☀️ Sincronización con Firebase
-    if (globalThis.currentUser && !globalThis._isApplyingRemoteData) {
+    // Skipped when cloudUploadPaused is set: the user explicitly chose to
+    // keep local state without syncing. Local (IndexedDB) save still runs.
+    if (globalThis.currentUser && !globalThis._isApplyingRemoteData
+        && !state.settings?.cloudUploadPaused) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
             const dayRecords = {};

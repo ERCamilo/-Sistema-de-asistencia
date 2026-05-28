@@ -127,4 +127,95 @@ testRunner.addSuite("IncomingChangeModal — render (Tarea #27)", {
 
 });
 
+testRunner.addSuite("IncomingChangeModal — 3-action reject flow (cloud-upload pause)", {
+
+    "muestra botón 'Pausar subida' con data-action='reject-and-pause'"() {
+        flush();
+        IncomingChangeModal.show(
+            [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
+            {}
+        );
+        const btn = document.querySelector('.incoming-change-modal [data-action="reject-and-pause"]');
+        testRunner.assert(!!btn, 'Debe existir botón Pausar subida');
+        flush();
+    },
+
+    "muestra botón 'Re-subir mis datos' con data-action='reject-and-reupload'"() {
+        flush();
+        IncomingChangeModal.show(
+            [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
+            {}
+        );
+        const btn = document.querySelector('.incoming-change-modal [data-action="reject-and-reupload"]');
+        testRunner.assert(!!btn, 'Debe existir botón Re-subir mis datos');
+        flush();
+    },
+
+    "reject-and-pause invoca onRejectAndPause y cierra el modal"() {
+        flush();
+        let pauseCalled = 0, reuploadCalled = 0, applyCalled = 0;
+        IncomingChangeModal.show(
+            [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
+            {
+                onApply:           () => applyCalled++,
+                onRejectAndPause:  () => pauseCalled++,
+                onRejectAndReupload: () => reuploadCalled++
+            }
+        );
+        document.querySelector('.incoming-change-modal [data-action="reject-and-pause"]').click();
+        testRunner.assertEquals(pauseCalled, 1,    'onRejectAndPause debe invocarse');
+        testRunner.assertEquals(reuploadCalled, 0, 'onRejectAndReupload NO debe invocarse');
+        testRunner.assertEquals(applyCalled, 0,    'onApply NO debe invocarse');
+        testRunner.assert(!document.querySelector('.incoming-change-modal'), 'Modal debe cerrarse');
+    },
+
+    "reject-and-reupload invoca onRejectAndReupload y cierra el modal"() {
+        flush();
+        let pauseCalled = 0, reuploadCalled = 0;
+        IncomingChangeModal.show(
+            [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
+            {
+                onRejectAndPause:    () => pauseCalled++,
+                onRejectAndReupload: () => reuploadCalled++
+            }
+        );
+        document.querySelector('.incoming-change-modal [data-action="reject-and-reupload"]').click();
+        testRunner.assertEquals(reuploadCalled, 1, 'onRejectAndReupload debe invocarse');
+        testRunner.assertEquals(pauseCalled, 0,    'onRejectAndPause NO debe invocarse');
+        testRunner.assert(!document.querySelector('.incoming-change-modal'), 'Modal debe cerrarse');
+    },
+
+    "Escape invoca onRejectAndPause (comportamiento conservador: no re-sube)"() {
+        flush();
+        let pauseCalled = 0, reuploadCalled = 0;
+        IncomingChangeModal.show(
+            [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
+            {
+                onRejectAndPause:    () => pauseCalled++,
+                onRejectAndReupload: () => reuploadCalled++
+            }
+        );
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        testRunner.assertEquals(pauseCalled, 1,    'Escape debe pausar (conservador)');
+        testRunner.assertEquals(reuploadCalled, 0, 'Escape NO debe re-subir');
+        flush();
+    },
+
+    "backward compat: onReject legacy callback funciona como onRejectAndReupload"() {
+        // Callers que aún pasan onReject (no los hemos actualizado todos)
+        // deben seguir funcionando — no queremos romper silenciosamente.
+        flush();
+        let legacyCalled = 0;
+        IncomingChangeModal.show(
+            [{ kind: 'deletion', severity: 'significant', entityType: 'employee', entityId: 'e1', description: 'X' }],
+            { onReject: () => legacyCalled++ }
+        );
+        document.querySelector('.incoming-change-modal [data-action="reject-and-reupload"]').click();
+        testRunner.assertEquals(legacyCalled, 1,
+            'onReject legacy debe mapearse a reject-and-reupload');
+        flush();
+    }
+
+});
+
 console.log('🧪 IncomingChangeModal tests cargados.');

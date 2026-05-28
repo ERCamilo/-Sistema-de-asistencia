@@ -24,6 +24,7 @@ import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
+import { pauseCloudUpload, resumeCloudUpload, isSyncPaused } from './modules/services/SyncPauseService.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { generateLoansReadonlySection } from './modules/features/profile/LoansReadonlySection.js';
 import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusBadge.js';
@@ -3263,9 +3264,10 @@ window.renderSyncStatusBadgeForHeader = () => {
 // de render() global, que sería costoso).
 if (typeof window !== 'undefined') {
     attachLiveBadge({
-        getAuth:   () => !!window.currentUser,
-        getOnline: () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
-        compact:   true   // El header usa modo icono-solo
+        getAuth:          () => !!window.currentUser,
+        getOnline:        () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
+        getUploadPaused:  () => isSyncPaused(),
+        compact:          true   // El header usa modo icono-solo
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
     window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
@@ -3566,10 +3568,11 @@ function _AttendanceDetailPanelInner() {
         const dk = getDateKey(day);
         const isWorkDay = worksOnDay(day) && !holidays.includes(dk);
         const att = state.attendance[`${emp.id}-${dk}`];
+        const checkColor = getCheckColor(att, day);
         if (isWorkDay) weekWorkDays++;
         if (isWorkDay && att?.present) weekPresentDays++;
         weekDots.push(`
-            <div class="detail-week-day ${att?.present ? 'present' : ''} ${!isWorkDay ? 'rest' : ''}">
+            <div class="detail-week-day ${att?.present ? `present ${checkColor}` : ''} ${!isWorkDay ? 'rest' : ''}">
                 <span>${weekLabels[i]}</span>
                 <i aria-hidden="true"></i>
             </div>
@@ -3642,36 +3645,7 @@ function _AttendanceDetailPanelInner() {
         ? `Período actual · ${escapeHTML(rangeLabel)}`
         : `Mes en curso · ${escapeHTML(rangeLabel)} <span style="color:#f59e0b;font-weight:600;">(configura el período en Ajustes → Calendario)</span>`;
 
-    // ----- Recent history (last 7 days ending at selectedDate) -----
-    const historyRows = [];
-    const cursor = new Date(today);
-    for (let i = 0; i < 7; i++) {
-        const dk = getDateKey(new Date(cursor));
-        const att = state.attendance[`${emp.id}-${dk}`];
-        const isHoliday = (state.settings?.holidays || []).includes(dk);
-        const dayLabel = cursor.toLocaleDateString('es', { weekday: 'short', day: '2-digit', month: 'short' });
-        let labelTxt, cls, hours;
-        if (isHoliday) {
-            labelTxt = 'Feriado';
-            cls = 'holiday';
-            hours = (att && att.present) ? `${att.hoursWorked || 0}h` : '0h';
-        } else if (att && att.present) {
-            labelTxt = (att.hoursWorked || 0) > (state.settings?.regularHoursPerDay || 8)
-                ? 'Presente · extras' : 'Presente';
-            cls = (att.hoursWorked || 0) > (state.settings?.regularHoursPerDay || 8) ? 'present extra' : 'present';
-            hours = `${att.hoursWorked || 0}h`;
-        } else {
-            labelTxt = 'Ausente';
-            cls = 'absent';
-            hours = '0h';
-        }
-        historyRows.push(`<div class="detail-timeline-row ${cls}">
-            <span class="detail-tl-date">${escapeHTML(dayLabel)}</span>
-            <span class="detail-tl-label">${labelTxt}</span>
-            <span class="detail-tl-hours">${hours}</span>
-        </div>`);
-        cursor.setDate(cursor.getDate() - 1);
-    }
+    const detailInteractivePanel = renderAttendanceDetailWorkPanel(emp, today);
 
     // ----- Compose initials for avatar -----
     const initials = (emp.name || '?').split(/\s+/).map(s => s[0] || '').slice(0, 2).join('').toUpperCase();
@@ -3740,10 +3714,7 @@ function _AttendanceDetailPanelInner() {
             </div>
             <div class="detail-range-note">${rangeNote}${overtimeHours > 0 ? ` · <span style="color:#f59e0b;">⚡ ${overtimeHours}h extras</span>` : ''}</div>
 
-            <div class="detail-section-title">Últimos 7 días</div>
-            <div class="detail-timeline">
-                ${historyRows.join('')}
-            </div>
+            ${detailInteractivePanel}
 
             <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
                 <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
@@ -3764,6 +3735,230 @@ function _AttendanceDetailPanelInner() {
         </div>
     </aside>`;
 }
+
+function getAttendanceDetailPositionHours(emp, att) {
+    const positionIds = (emp.positions && emp.positions.length > 0)
+        ? emp.positions
+        : (emp.positionId ? [emp.positionId] : []);
+
+    if (att?.positionHours?.length) {
+        return positionIds.map(pid => {
+            const ph = att.positionHours.find(item => item.positionId === pid);
+            return {
+                positionId: pid,
+                hours: Number(ph?.hours || 0),
+                overtimeHours: Number(ph?.overtimeHours || 0)
+            };
+        });
+    }
+
+    return positionIds.map((pid, idx) => ({
+        positionId: pid,
+        hours: idx === 0 ? Number(att?.hoursWorked || 0) : 0,
+        overtimeHours: idx === 0 ? Number(att?.overtimeHours || 0) : 0
+    }));
+}
+
+function renderAttendanceDetailWorkPanel(emp, selectedDate) {
+    const activeTab = state.attendanceDetailPanelTab || 'calendar';
+    const selectedDateKey = getDateKey(selectedDate);
+    const calendarMonth = state.attendanceDetailCalendarMonth instanceof Date
+        ? state.attendanceDetailCalendarMonth
+        : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    const att = state.attendance[`${emp.id}-${selectedDateKey}`] || {};
+    const positionHours = getAttendanceDetailPositionHours(emp, att);
+    const totalHours = positionHours.reduce((sum, ph) => sum + Number(ph.hours || 0), 0);
+    const totalOvertime = positionHours.reduce((sum, ph) => sum + Number(ph.overtimeHours || 0), 0);
+    const selectedLabel = selectedDate.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+
+    const tabButton = (tab, label) => `
+        <button type="button"
+                class="detail-panel-tab ${activeTab === tab ? 'active' : ''}"
+                data-app-fn="setAttendanceDetailPanelTab"
+                data-arg="${tab}">
+            ${label}
+        </button>
+    `;
+
+    const calendarContent = CalendarView({
+        employee: emp,
+        month: calendarMonth,
+        navAction: 'changeAttendanceDetailMonth',
+        selectedDate,
+        selectAction: 'selectAttendanceDetailDate',
+        showLegend: false
+    });
+
+    const hoursContent = `
+        <div class="detail-hours-editor" data-emp-id="${emp.id}">
+            <div class="detail-hours-editor-head">
+                <div>
+                    <span>Fecha activa</span>
+                    <strong>${escapeHTML(selectedLabel)}</strong>
+                </div>
+                <span class="detail-hours-state ${att.present ? 'present' : 'absent'}">
+                    ${att.present ? 'Con asistencia' : 'Sin asistencia'}
+                </span>
+            </div>
+
+            <div class="detail-position-hours-list">
+                ${positionHours.length ? positionHours.map(ph => {
+                    const pos = state.positions.find(p => p.id === ph.positionId);
+                    const color = pos?.color || '#06b6d4';
+                    const positionSalary = pos?.salaryConfig?.amount ?? pos?.baseSalary ?? 0;
+                    const config = pos?.salaryConfig || { amount: positionSalary, period: 'month', workDays: [] };
+                    const display = payrollService.formatSalaryDisplay(config);
+                    return `
+                        <div class="detail-position-hours-card" style="--pos-color:${color};">
+                            <div class="detail-position-hours-title">
+                                <span class="detail-position-hours-dot"></span>
+                                <strong>${escapeHTML(pos?.name || 'Posición')}</strong>
+                                <small>${escapeHTML(display.full || '')}</small>
+                            </div>
+                            <div class="detail-position-hours-fields">
+                                <label>
+                                    <span>Horas</span>
+                                    <input type="number" inputmode="decimal" min="0" max="24" step="0.5"
+                                           data-detail-hours-input="hours"
+                                           data-position-id="${ph.positionId}"
+                                           value="${Number(ph.hours || 0)}"
+                                           oninput="updateAttendanceDetailHoursTotal('${emp.id}')">
+                                </label>
+                                <label>
+                                    <span>Extras</span>
+                                    <input type="number" inputmode="decimal" min="0" max="12" step="0.5"
+                                           data-detail-hours-input="overtime"
+                                           data-position-id="${ph.positionId}"
+                                           value="${Number(ph.overtimeHours || 0)}"
+                                           oninput="updateAttendanceDetailHoursTotal('${emp.id}')">
+                                </label>
+                            </div>
+                        </div>
+                    `;
+                }).join('') : `
+                    <div class="detail-hours-empty">
+                        Este empleado no tiene posiciones asignadas.
+                    </div>
+                `}
+            </div>
+
+            <div class="detail-hours-total-card">
+                <div>
+                    <span>Total de horas</span>
+                    <strong id="detail-hours-total-${emp.id}">${totalHours.toFixed(1)}h</strong>
+                </div>
+                <div>
+                    <span>Extras</span>
+                    <strong id="detail-hours-overtime-${emp.id}">${totalOvertime.toFixed(1)}h</strong>
+                </div>
+            </div>
+
+            <button class="detail-btn primary detail-hours-save" type="button"
+                    data-app-fn="saveAttendanceDetailHours"
+                    data-arg="${emp.id}">
+                Guardar horas del día
+            </button>
+        </div>
+    `;
+
+    return `
+        <div class="detail-tabbed-panel">
+            <div class="detail-panel-tabs" role="tablist" aria-label="Detalle de asistencia">
+                ${tabButton('calendar', 'Calendario')}
+                ${tabButton('hours', 'Horas del día')}
+            </div>
+            <div class="detail-panel-body ${activeTab === 'calendar' ? 'is-calendar' : 'is-hours'}">
+                ${activeTab === 'calendar' ? calendarContent : hoursContent}
+            </div>
+        </div>
+    `;
+}
+
+window.setAttendanceDetailPanelTab = (tab) => {
+    state.attendanceDetailPanelTab = tab === 'hours' ? 'hours' : 'calendar';
+    if (typeof window.render === 'function') window.render();
+};
+
+window.changeAttendanceDetailMonth = (delta) => {
+    const base = state.attendanceDetailCalendarMonth instanceof Date
+        ? new Date(state.attendanceDetailCalendarMonth)
+        : new Date(state.selectedDate);
+    base.setMonth(base.getMonth() + Number(delta || 0));
+    state.attendanceDetailCalendarMonth = base;
+    if (typeof window.render === 'function') window.render();
+};
+
+window.selectAttendanceDetailDate = (dateKey) => {
+    if (!dateKey) return;
+    const selected = parseDate(dateKey);
+    state.selectedDate = selected;
+    state.attendanceDetailCalendarMonth = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    state.attendanceDetailPanelTab = 'hours';
+    if (typeof window.render === 'function') window.render();
+};
+
+window.updateAttendanceDetailHoursTotal = (empId) => {
+    const root = document.querySelector(`.detail-hours-editor[data-emp-id="${empId}"]`);
+    if (!root) return;
+    let totalHours = 0;
+    let totalOvertime = 0;
+    root.querySelectorAll('[data-detail-hours-input="hours"]').forEach(input => {
+        totalHours += Number.parseFloat(input.value) || 0;
+    });
+    root.querySelectorAll('[data-detail-hours-input="overtime"]').forEach(input => {
+        totalOvertime += Number.parseFloat(input.value) || 0;
+    });
+    const totalEl = document.getElementById(`detail-hours-total-${empId}`);
+    const overtimeEl = document.getElementById(`detail-hours-overtime-${empId}`);
+    if (totalEl) totalEl.textContent = `${totalHours.toFixed(1)}h`;
+    if (overtimeEl) overtimeEl.textContent = `${totalOvertime.toFixed(1)}h`;
+};
+
+window.saveAttendanceDetailHours = (empId) => {
+    const emp = state.employees.find(e => e.id === empId);
+    const root = document.querySelector(`.detail-hours-editor[data-emp-id="${empId}"]`);
+    if (!emp || !root) return;
+
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${emp.id}-${dateKey}`;
+    const existing = state.attendance[key] || {};
+    const positionHours = [];
+    let totalHours = 0;
+    let totalOvertime = 0;
+
+    (emp.positions || []).forEach(pid => {
+        const hoursInput = root.querySelector(`[data-detail-hours-input="hours"][data-position-id="${pid}"]`);
+        const overtimeInput = root.querySelector(`[data-detail-hours-input="overtime"][data-position-id="${pid}"]`);
+        const hours = Number.parseFloat(hoursInput?.value) || 0;
+        const overtimeHours = Number.parseFloat(overtimeInput?.value) || 0;
+        if (hours > 0 || overtimeHours > 0) {
+            positionHours.push({ positionId: pid, hours, overtimeHours });
+            totalHours += hours;
+            totalOvertime += overtimeHours;
+        }
+    });
+
+    state.attendance[key] = {
+        ...existing,
+        employeeId: emp.id,
+        date: dateKey,
+        present: totalHours > 0 || totalOvertime > 0,
+        hoursWorked: totalHours,
+        overtimeHours: totalOvertime,
+        positionHours,
+        multiPosition: positionHours.length > 1,
+        selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
+        isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
+        notes: existing.notes || '',
+        updatedAt: Date.now(),
+        lastAccessed: Date.now(),
+        _isDirty: true
+    };
+
+    if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey });
+    if (window.showNotification) window.showNotification('Horas del día guardadas', 'success');
+    if (typeof window.render === 'function') window.render();
+};
 
 // Save handler for the quick-note textarea inside the AttendanceDetailPanel.
 // Reads the textarea by id, upserts the note onto the attendance record for
@@ -5936,10 +6131,14 @@ window.addEventListener('scroll', () => {
                                         try { await applyRemoteData(); }
                                         catch (e) { console.error('Error aplicando cambios entrantes:', e); }
                                     },
-                                    onReject: () => {
+                                    onRejectAndPause: () => {
                                         window._pendingIncomingReview = false;
-                                        debug.log('🛡️ Cambios remotos rechazados por el usuario. Re-subiendo estado local.');
-                                        // Forzar re-subir local para que la nube quede como espejo del local.
+                                        debug.log('⏸️ Cambios remotos rechazados. Subida a la nube pausada hasta que el usuario reanude.');
+                                        pauseCloudUpload();
+                                    },
+                                    onRejectAndReupload: () => {
+                                        window._pendingIncomingReview = false;
+                                        debug.log('🔄 Cambios remotos rechazados. Re-subiendo estado local a la nube.');
                                         if (typeof saveApplicationData === 'function') {
                                             saveApplicationData({ force: true });
                                         }

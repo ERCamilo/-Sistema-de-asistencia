@@ -16,15 +16,17 @@ const STATES = {
     offline: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',  icon: 'wifi-off' },
     error:   { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',  icon: 'x-circle' },
     noauth:  { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.1)', icon: 'user' },
-    pending: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: 'clock' }
+    pending: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: 'clock' },
+    paused:  { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: 'pause-circle' }
 };
 
 const LUCIDE_PATHS = {
-    'check-circle': '<path d="M21.8 10.9a10 10 0 1 1-5.9-8.9"/><path d="m9 11 3 3L22 4"/>',
-    clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
-    'wifi-off': '<path d="m2 2 20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15 15 0 0 1 5.2-3.1"/><path d="M12 20h.01"/><path d="M17 5.6a15 15 0 0 1 5 3.2"/><path d="M5 12.5a10 10 0 0 1 5.5-2.4"/>',
-    'x-circle': '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
-    user: '<path d="M19 21a7 7 0 0 0-14 0"/><circle cx="12" cy="7" r="4"/>'
+    'check-circle':  '<path d="M21.8 10.9a10 10 0 1 1-5.9-8.9"/><path d="m9 11 3 3L22 4"/>',
+    clock:           '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    'wifi-off':      '<path d="m2 2 20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15 15 0 0 1 5.2-3.1"/><path d="M12 20h.01"/><path d="M17 5.6a15 15 0 0 1 5 3.2"/><path d="M5 12.5a10 10 0 0 1 5.5-2.4"/>',
+    'x-circle':      '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+    user:            '<path d="M19 21a7 7 0 0 0-14 0"/><circle cx="12" cy="7" r="4"/>',
+    'pause-circle':  '<circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/>'
 };
 
 function lucideIcon(name, color, size = 20) {
@@ -81,6 +83,7 @@ function badgeHtml(state, text, extraAttr = '', compact = false) {
 export function renderSyncStatusBadge(opts = {}) {
     const isAuthenticated = !!opts.isAuthenticated;
     const isOnline = opts.isOnline !== false;
+    const isUploadPaused = !!opts.isUploadPaused;
     const lastSyncedAt = (typeof opts.lastSyncedAt === 'number' && Number.isFinite(opts.lastSyncedAt))
         ? opts.lastSyncedAt
         : null;
@@ -93,6 +96,15 @@ export function renderSyncStatusBadge(opts = {}) {
 
     if (!isAuthenticated) {
         return badgeHtml('noauth', 'Sin sesión', '', compact);
+    }
+
+    // Paused state: shown regardless of last sync time when upload is paused.
+    if (isUploadPaused) {
+        const pausedText = 'Sync pausado';
+        const extra = compact
+            ? `title="${pausedText} — haz clic en Reanudar para volver a subir"`
+            : 'title="Subida a la nube pausada. Tus datos locales están seguros."';
+        return badgeHtml('paused', pausedText, extra, compact);
     }
 
     if (lastSyncedAt === null) {
@@ -112,14 +124,15 @@ let _activeUnsubscribe = null;
 let _activeInterval = null;
 const UPDATE_INTERVAL_MS = 5000;
 
-function _refreshAllBadges({ getAuth, getOnline, compact }) {
+function _refreshAllBadges({ getAuth, getOnline, getUploadPaused, compact }) {
     if (typeof document === 'undefined') return;
     const badges = document.querySelectorAll('[data-role="sync-badge"]');
     if (badges.length === 0) return;
     const baseOpts = {
-        lastSyncedAt: SyncStatus.getLastSyncedAt(),
+        lastSyncedAt:    SyncStatus.getLastSyncedAt(),
         isAuthenticated: !!(getAuth ? getAuth() : false),
-        isOnline: !!(getOnline ? getOnline() : true)
+        isOnline:        !!(getOnline ? getOnline() : true),
+        isUploadPaused:  !!(getUploadPaused ? getUploadPaused() : false)
     };
     badges.forEach(el => {
         const isCompact = compact !== undefined

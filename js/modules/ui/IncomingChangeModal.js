@@ -110,16 +110,35 @@ export const IncomingChangeModal = {
                                 style="padding: 12px; background: linear-gradient(135deg, #06b6d4, #0891b2);
                                        color: white; border: none; border-radius: 10px; font-weight: 700;
                                        cursor: pointer; font-size: 0.95rem;">
-                            ✅ Aplicar cambios
+                            ✅ Aplicar cambios remotos
                         </button>
-                        <button type="button" data-action="reject"
-                                style="padding: 10px; background: transparent; color: #94a3b8;
-                                       border: 1px solid #334155; border-radius: 10px; cursor: pointer;">
-                            ❌ Rechazar (mantener mis datos locales)
+
+                        <div style="display: flex; align-items: center; gap: 8px; margin: 4px 0 2px;">
+                            <div style="flex: 1; height: 1px; background: #334155;"></div>
+                            <span style="font-size: 0.72rem; color: #475569; white-space: nowrap;">o mantener mis datos</span>
+                            <div style="flex: 1; height: 1px; background: #334155;"></div>
+                        </div>
+
+                        <button type="button" data-action="reject-and-pause"
+                                style="padding: 10px 14px; background: rgba(245,158,11,0.08);
+                                       color: #f59e0b; border: 1px solid rgba(245,158,11,0.35);
+                                       border-radius: 10px; cursor: pointer; font-size: 0.88rem;
+                                       font-weight: 600; text-align: left;">
+                            ⏸️ Mantener mis datos y <strong>pausar subida a la nube</strong>
+                            <div style="font-size: 0.75rem; font-weight: 400; color: #b45309; margin-top: 2px;">
+                                Los cambios locales no se subirán hasta que reanudes manualmente.
+                            </div>
+                        </button>
+
+                        <button type="button" data-action="reject-and-reupload"
+                                style="padding: 10px; background: transparent; color: #64748b;
+                                       border: 1px solid #334155; border-radius: 10px; cursor: pointer;
+                                       font-size: 0.85rem;">
+                            🔄 Mantener mis datos y re-subir a la nube
                         </button>
                     </div>
-                    <div style="margin-top: 12px; font-size: 0.7rem; color: #64748b; line-height: 1.5; text-align: center;">
-                        Si rechazas, los cambios entrantes se ignoran y el local se vuelve a subir.
+                    <div style="margin-top: 10px; font-size: 0.7rem; color: #475569; line-height: 1.5; text-align: center;">
+                        ⏸️ Si pausas, el badge del encabezado mostrará el estado y podrás reanudar cuando quieras.
                     </div>
                 </div>
             </div>
@@ -133,12 +152,7 @@ export const IncomingChangeModal = {
             document.removeEventListener('keydown', onKey);
         };
 
-        modal.querySelectorAll('[data-action="reject"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                close();
-                if (typeof opts.onReject === 'function') opts.onReject();
-            });
-        });
+        // "Apply" button
         const applyBtn = modal.querySelector('[data-action="apply"]');
         if (applyBtn) {
             applyBtn.addEventListener('click', () => {
@@ -147,10 +161,41 @@ export const IncomingChangeModal = {
             });
         }
 
+        // "Pause" button
+        const pauseBtn = modal.querySelector('[data-action="reject-and-pause"]');
+        if (pauseBtn) {
+            pauseBtn.addEventListener('click', () => {
+                close();
+                if (typeof opts.onRejectAndPause === 'function') opts.onRejectAndPause();
+            });
+        }
+
+        // "Re-upload" button (also handles legacy data-action="reject" if present,
+        // and the legacy onReject callback for backward compatibility).
+        const reuploadBtn = modal.querySelector('[data-action="reject-and-reupload"]');
+        if (reuploadBtn) {
+            reuploadBtn.addEventListener('click', () => {
+                close();
+                if (typeof opts.onRejectAndReupload === 'function') opts.onRejectAndReupload();
+                // Legacy backward compat: callers that only passed onReject still work.
+                else if (typeof opts.onReject === 'function') opts.onReject();
+            });
+        }
+        // Legacy: close (×) button still mapped to reject-and-reupload/onReject
+        modal.querySelectorAll('[data-action="reject"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                close();
+                if (typeof opts.onRejectAndReupload === 'function') opts.onRejectAndReupload();
+                else if (typeof opts.onReject === 'function') opts.onReject();
+            });
+        });
+
+        // Escape → pause (most conservative: don't push local over remote silently)
         const onKey = (e) => {
             if (e.key === 'Escape') {
                 close();
-                if (typeof opts.onReject === 'function') opts.onReject();
+                if (typeof opts.onRejectAndPause === 'function') opts.onRejectAndPause();
+                else if (typeof opts.onReject === 'function') opts.onReject();
             }
         };
         document.addEventListener('keydown', onKey);

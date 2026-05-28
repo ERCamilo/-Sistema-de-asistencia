@@ -305,4 +305,43 @@ testRunner.addSuite("SyncStatusBadge — attachLiveBadge (Fase 3.2)", {
 
 });
 
+testRunner.addSuite("SyncStatusBadge — estado 'paused' (cloud-upload pause)", {
+
+    "isUploadPaused:true → muestra texto indicando pausa"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true,
+            isUploadPaused: true
+        });
+        testRunner.assert(/paus|paused/i.test(html),
+            `Debe indicar que la subida está pausada. HTML: ${html.slice(0, 300)}`);
+    },
+
+    "isUploadPaused:true en modo compacto incluye 'pausad' en el title (tooltip)"() {
+        const html = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(),
+            isAuthenticated: true,
+            isOnline: true,
+            isUploadPaused: true,
+            compact: true
+        });
+        testRunner.assert(/title=["'][^"']*paus/i.test(html),
+            'Compact pausado debe tener title con "pausad" para accesibilidad');
+    },
+
+    "isUploadPaused:false no afecta el render normal"() {
+        const normal = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(), isAuthenticated: true, isOnline: true
+        });
+        const withFalse = renderSyncStatusBadge({
+            lastSyncedAt: Date.now(), isAuthenticated: true, isOnline: true, isUploadPaused: false
+        });
+        // Both should say "Sincronizado", not paused
+        testRunner.assert(/sincronizado/i.test(withFalse),
+            'isUploadPaused:false no debe activar el estado paused');
+    }
+
+});
+
 console.log('🧪 SyncStatusBadge tests cargados.');
