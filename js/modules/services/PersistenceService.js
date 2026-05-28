@@ -10,6 +10,8 @@ import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
 import { unionById } from './EmployeeMerge.js';
+import { backfillNestedIds } from './LoanIdBackfill.js';
+import { SyncStatus } from './SyncStatus.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { debug } from '../utils/Debug.js';
@@ -31,6 +33,35 @@ let _pendingSaveOptions = {};
 // el state local ya no lo tiene, pero su doc remoto sigue en
 // users/{uid}/employees/{id} y hay que limpiarlo.
 const _pendingCloudDeletes = new Set();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🕒 lastCloudSavedAt — persistir timestamp de la última sync exitosa
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _syncPersistenceUnsub = null;
+
+/**
+ * Subscribes to SyncStatus so that every successful cloud write (markSynced)
+ * stores the timestamp in state.settings.lastCloudSavedAt.
+ *
+ * Idempotent: calling more than once unsubscribes the previous listener
+ * first, so the state is only updated once per markSynced call.
+ *
+ * Call this once from loadApplicationData() after state is populated.
+ */
+export function initSyncPersistence() {
+    if (_syncPersistenceUnsub) {
+        _syncPersistenceUnsub();
+        _syncPersistenceUnsub = null;
+    }
+    _syncPersistenceUnsub = SyncStatus.subscribe(ts => {
+        // null means reset() was called (e.g. logout). We intentionally
+        // keep the last value so the user can still see "last sync was at…".
+        if (ts === null) return;
+        if (!state.settings) state.settings = {};
+        state.settings.lastCloudSavedAt = ts;
+    });
+}
 
 /**
  * Encolar un id de empleado para borrar del cloud en el próximo save.
@@ -296,6 +327,11 @@ export async function loadApplicationData() {
             state.isDataLoaded = true;
             state.useIndexedDB = true;
 
+            // 🕒 Conectar SyncStatus → state.settings.lastCloudSavedAt.
+            // Idempotente: llamadas múltiples (ej. hot-reload, demos) reemplazan
+            // el listener anterior en lugar de apilarlo.
+            initSyncPersistence();
+
             // 🛡️ Validar integridad. Si hubo correcciones, persistir inmediatamente
             // para evitar que Firebase reescriba el state con datos sucios después.
             const fixesOnLoad = validateDataIntegrity();
@@ -316,6 +352,7 @@ export async function loadApplicationData() {
         if (hasDataInLS) {
             debug.log('✅ Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
+            initSyncPersistence();
             
             // Si el navegador soporta IndexedDB, migramos de inmediato
             if (indexedDBService.isSupported()) {
@@ -372,6 +409,17 @@ export async function loadDemoDataIntoDB() {
  */
 export function validateDataIntegrity() {
     let fixes = 0;
+
+    // 0. Backfill missing ids in loans / advances / bonuses / deductions
+    //    and their nested payments / installments. Items without ids are
+    //    silently dropped by unionById during cloud merge, causing data loss.
+    //    This must run before any merge cycle touches the data.
+    const backfilled = backfillNestedIds(state.employees);
+    if (backfilled > 0) {
+        console.log(`🔑 PersistenceService: ${backfilled} id(s) asignado(s) a ítems sin id (préstamos/pagos/cuotas).`);
+        fixes += backfilled;
+    }
+
     const positionIds = new Set(state.positions.map(p => p.id));
     const leaderIds = new Set(state.leaders.map(l => l.id));
 
