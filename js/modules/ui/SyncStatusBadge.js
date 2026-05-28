@@ -11,13 +11,16 @@ import { formatRelativeTime } from '../utils/RelativeTime.js';
 import { SyncStatus } from '../services/SyncStatus.js';
 
 const STATES = {
-    synced:  { color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', icon: 'check-circle' },
-    warning: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: 'clock' },
-    offline: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',  icon: 'wifi-off' },
-    error:   { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',  icon: 'x-circle' },
-    noauth:  { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.1)', icon: 'user' },
-    pending: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: 'clock' },
-    paused:  { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: 'pause-circle' }
+    synced:  { color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)',   icon: 'check-circle' },
+    // Normal wait between syncs — neutral white/slate, not alarming.
+    pending: { color: '#cbd5e1', bg: 'rgba(203, 213, 225, 0.08)', icon: 'clock' },
+    // Sync is overdue (> threshold) — amber clock, worth noticing.
+    warning: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)',   icon: 'clock' },
+    offline: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',    icon: 'wifi-off' },
+    error:   { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',    icon: 'x-circle' },
+    noauth:  { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.1)',  icon: 'user' },
+    // Intentional pause by the user — orange, exclusively for pause-circle.
+    paused:  { color: '#f97316', bg: 'rgba(249, 115, 22, 0.12)',  icon: 'pause-circle' }
 };
 
 const LUCIDE_PATHS = {

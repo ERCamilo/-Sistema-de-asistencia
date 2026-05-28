@@ -344,4 +344,73 @@ testRunner.addSuite("SyncStatusBadge — estado 'paused' (cloud-upload pause)", 
 
 });
 
+// ─────────────────────────────────────────────────────────────
+// Visual distinction: pending (waiting) ≠ paused (intentional)
+// ─────────────────────────────────────────────────────────────
+
+testRunner.addSuite("SyncStatusBadge — distinción visual pending vs paused", {
+
+    "paused usa color naranja (f97316), NO el mismo ámbar que warning"() {
+        const html = renderSyncStatusBadge({
+            isAuthenticated: true, isOnline: true,
+            lastSyncedAt: Date.now(),
+            isUploadPaused: true
+        });
+        testRunner.assert(/f97316/i.test(html),
+            `El estado paused debe usar color naranja #f97316. HTML: ${html.slice(0, 300)}`);
+        testRunner.assert(!/f59e0b/i.test(html),
+            `El estado paused NO debe usar el mismo ámbar (#f59e0b) que warning`);
+    },
+
+    "pending usa color neutro/blanco (cbd5e1), NO ámbar ni naranja"() {
+        const html = renderSyncStatusBadge({
+            isAuthenticated: true, isOnline: true,
+            lastSyncedAt: null    // triggers pending: no sync recorded yet
+        });
+        testRunner.assert(/cbd5e1/i.test(html),
+            `El estado pending debe usar color neutro #cbd5e1. HTML: ${html.slice(0, 300)}`);
+        testRunner.assert(!/f59e0b/i.test(html),
+            `El estado pending NO debe usar ámbar (#f59e0b)`);
+        testRunner.assert(!/f97316/i.test(html),
+            `El estado pending NO debe usar naranja (#f97316) reservado para paused`);
+    },
+
+    "pending tiene data-state='pending', paused tiene data-state='paused'"() {
+        const pendingHtml = renderSyncStatusBadge({
+            isAuthenticated: true, isOnline: true, lastSyncedAt: null
+        });
+        const pausedHtml = renderSyncStatusBadge({
+            isAuthenticated: true, isOnline: true,
+            lastSyncedAt: Date.now(), isUploadPaused: true
+        });
+        testRunner.assert(/data-state=["']pending["']/.test(pendingHtml),
+            'Estado pending debe tener data-state="pending"');
+        testRunner.assert(/data-state=["']paused["']/.test(pausedHtml),
+            'Estado paused debe tener data-state="paused"');
+    },
+
+    "pending muestra icono de reloj (clock), NO pause-circle"() {
+        const html = renderSyncStatusBadge({
+            isAuthenticated: true, isOnline: true, lastSyncedAt: null
+        });
+        testRunner.assert(/data-lucide=["']clock["']|clock/.test(html),
+            'Estado pending debe usar icono de reloj');
+        testRunner.assert(!/pause-circle/.test(html),
+            'Estado pending NO debe tener pause-circle');
+    },
+
+    "los tres colores (synced/pending/warning/paused) son todos distintos"() {
+        const syncedHtml  = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: Date.now() });
+        const pendingHtml = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: null });
+        const warningHtml = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: 0, now: 60000 });
+        const pausedHtml  = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: Date.now(), isUploadPaused: true });
+
+        testRunner.assert(/10b981/.test(syncedHtml),  'synced → verde 10b981');
+        testRunner.assert(/cbd5e1/.test(pendingHtml), 'pending → neutro cbd5e1');
+        testRunner.assert(/f59e0b/.test(warningHtml), 'warning → ámbar f59e0b');
+        testRunner.assert(/f97316/.test(pausedHtml),  'paused → naranja f97316');
+    }
+
+});
+
 console.log('🧪 SyncStatusBadge tests cargados.');
