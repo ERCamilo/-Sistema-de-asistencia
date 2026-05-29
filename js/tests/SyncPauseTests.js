@@ -12,13 +12,16 @@
  *     the Firebase sync block is guarded by the pause flag.
  */
 
-import { isSyncPaused, pauseCloudUpload, resumeCloudUpload } from '../modules/services/SyncPauseService.js';
+import { isSyncPaused, pauseCloudUpload, resumeCloudUpload, SYNC_PAUSE_ENABLED } from '../modules/services/SyncPauseService.js';
 import { state } from '../modules/core/AppState.js';
 
 import fs from 'fs';
 import path from 'path';
 const PERSISTENCE_SRC = fs.readFileSync(
     path.resolve(__dirname, '../modules/services/PersistenceService.js'), 'utf8'
+);
+const APP_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../app.js'), 'utf8'
 );
 
 // ─────────────────────────────────────────────────────────────
@@ -144,6 +147,38 @@ testRunner.addSuite("SyncPauseService — PersistenceService integration (source
         testRunner.assert(
             /cloudUploadPaused/.test(PERSISTENCE_SRC),
             'PersistenceService must check cloudUploadPaused to gate Firebase sync'
+        );
+    }
+
+});
+
+// ─────────────────────────────────────────────────────────────
+// 🚧 TEMPORAL: kill-switch global del sistema de pausa.
+// Mientras verificamos la propagación multi-dispositivo (Schema v3)
+// con datos de prueba, la pausa de subida queda DESACTIVADA: nada
+// debe bloquear el upload a la nube. Para reactivar, poner
+// SYNC_PAUSE_ENABLED = true y reconstruir el switch dentro del modal.
+// Estos tests fijan ese contrato para que el día que reactivemos sea
+// un cambio consciente (estos tests fallarán y nos obligarán a revisar).
+// ─────────────────────────────────────────────────────────────
+testRunner.addSuite("SyncPauseService — kill-switch temporal (Schema v3 testing)", {
+
+    "SYNC_PAUSE_ENABLED está actualmente desactivado (false)"() {
+        testRunner.assertEquals(SYNC_PAUSE_ENABLED, false,
+            'El sistema de pausa debe estar desactivado mientras verificamos la propagación');
+    },
+
+    "el gate de Firebase en PersistenceService respeta SYNC_PAUSE_ENABLED"() {
+        testRunner.assert(
+            /SYNC_PAUSE_ENABLED/.test(PERSISTENCE_SRC),
+            'El gate de subida debe consultar SYNC_PAUSE_ENABLED para poder desactivar la pausa'
+        );
+    },
+
+    "el badge (getUploadPaused) en app.js respeta SYNC_PAUSE_ENABLED"() {
+        testRunner.assert(
+            /SYNC_PAUSE_ENABLED/.test(APP_SRC),
+            'app.js debe consultar SYNC_PAUSE_ENABLED para que el badge no muestre pausa cuando está desactivado'
         );
     }
 

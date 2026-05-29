@@ -24,7 +24,7 @@ import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
-import { pauseCloudUpload, resumeCloudUpload, isSyncPaused } from './modules/services/SyncPauseService.js';
+import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED } from './modules/services/SyncPauseService.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
 import { LeaderRepository } from './modules/services/LeaderRepository.js';
@@ -3268,7 +3268,7 @@ if (typeof window !== 'undefined') {
     attachLiveBadge({
         getAuth:          () => !!window.currentUser,
         getOnline:        () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
-        getUploadPaused:  () => isSyncPaused(),
+        getUploadPaused:  () => SYNC_PAUSE_ENABLED && isSyncPaused(),
         compact:          true,  // El header usa modo icono-solo
         // Click en badge naranja "pausado" → confirmar y reanudar la subida.
         // Esto es la ÚNICA manera de salir del estado pausado desde la UI.
@@ -6201,7 +6201,7 @@ function _initOutgoingConflictGuard() {
         // 1.0.b Si la app arranca con cloudUploadPaused = true (persistido en IDB),
         // avisar al usuario de forma visible — el badge naranja puede pasar
         // desapercibido y la pausa puede venir de una sesión anterior.
-        if (isSyncPaused()) {
+        if (SYNC_PAUSE_ENABLED && isSyncPaused()) {
             // Pequeño delay para que la notificación no se pierda en el barullo de carga.
             setTimeout(() => {
                 showNotification(

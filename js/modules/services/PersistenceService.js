@@ -12,6 +12,7 @@ import { EmployeeRepository } from './EmployeeRepository.js';
 import { unionById } from './EmployeeMerge.js';
 import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
+import { SYNC_PAUSE_ENABLED } from './SyncPauseService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { debug } from '../utils/Debug.js';
@@ -243,9 +244,14 @@ async function _executeSave(options = {}) {
     // refreshed and a stale value would trip the check on every incoming sync).
     // ──────────────────────────────────────────────────────────
     const OUTGOING_CONFLICT_GRACE_MS = 10_000;
+    // 🚧 SYNC_PAUSE_ENABLED=false (kill-switch temporal): cuando la pausa está
+    // desactivada, el flag cloudUploadPaused se ignora y la subida nunca se
+    // bloquea por pausa. El string cloudUploadPaused se conserva en el gate
+    // para el contrato; el día que reactivemos basta poner el flag en true.
+    const _isPausedEffective = SYNC_PAUSE_ENABLED && state.settings?.cloudUploadPaused === true;
     const _canSyncFirebase = globalThis.currentUser
         && !globalThis._isApplyingRemoteData
-        && !state.settings?.cloudUploadPaused
+        && !_isPausedEffective
         && !options.localOnly;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
     const _localTime = state.settings?.localUpdatedAt || 0;

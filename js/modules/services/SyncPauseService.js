@@ -27,6 +27,24 @@
 
 import { state } from '../core/AppState.js';
 
+/**
+ * 🚧 KILL-SWITCH TEMPORAL del sistema de pausa de subida.
+ *
+ * Mientras verificamos la propagación multi-dispositivo del Schema v3
+ * (cargos/líderes per-doc) con datos de prueba, la pausa queda DESACTIVADA
+ * para que nada bloquee la subida a la nube. Los puntos de integración que
+ * deben respetar esta bandera:
+ *   - PersistenceService: el gate `_canSyncFirebase` ignora cloudUploadPaused.
+ *   - app.js: el badge (getUploadPaused) no muestra "pausado".
+ *   - app.js: el aviso de boot de pausa no se dispara.
+ *
+ * Las funciones isSyncPaused/pauseCloudUpload/resumeCloudUpload mantienen su
+ * semántica original (siguen leyendo/escribiendo el flag) — así el contrato
+ * unitario del servicio no cambia y el día que reactivemos basta con poner
+ * esto en `true` y reconstruir el switch visual dentro del modal de reanudar.
+ */
+export const SYNC_PAUSE_ENABLED = false;
+
 // Lazy-imported to avoid circular dependency at evaluation time.
 // We call saveApplicationData only in pauseCloudUpload/resumeCloudUpload,
 // which are called at runtime (never during module initialisation).
