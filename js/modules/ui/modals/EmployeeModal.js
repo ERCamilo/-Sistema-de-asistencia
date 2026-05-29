@@ -1,6 +1,7 @@
 import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import icons from '../../ui/IconSystem.js';
+import { swapEmployeeNumbers, mergeEmployees, enqueueCloudEmployeeDelete } from '../../services/PersistenceService.js';
 
 export class EmployeeModal {
     static open(employeeId = null) {
@@ -207,12 +208,8 @@ export class EmployeeModal {
         if (selectedPositions.length === 0) return window.showAlert('Debes asignar al menos una posición', 'error');
 
         const state = getState();
-        
-        // Verificar número duplicado
-        const duplicate = state.employees.find(e => e.number === number && (!existingEmp || e.id !== existingEmp.id));
-        if (duplicate) return window.showAlert(`El número ${number} ya está asignado a ${duplicate.name}`, 'error');
 
-        // Sueldos personalizados
+        // Sueldos personalizados (común a todos los caminos)
         const positionSalaries = {};
         el.querySelectorAll('.custom-salary-input').forEach(input => {
             const val = parseFloat(input.value);
@@ -221,10 +218,13 @@ export class EmployeeModal {
             }
         });
 
-        if (existingEmp) {
-            const empToEdit = state.employees.find(e => e.id === existingEmp.id) || state.employees.find(e => e.key === existingEmp.id);
-            if (empToEdit) {
-                empToEdit.number = number;
+        // Aplica los campos del formulario al empleado (existente o nuevo) con
+        // el número indicado. Devuelve el id del empleado afectado.
+        const applyFields = (numberToUse) => {
+            if (existingEmp) {
+                const empToEdit = state.employees.find(e => e.id === existingEmp.id) || state.employees.find(e => e.key === existingEmp.id);
+                if (!empToEdit) return null;
+                empToEdit.number = numberToUse;
                 empToEdit.name = name;
                 empToEdit.positions = selectedPositions;
                 empToEdit.positionSalaries = positionSalaries;
@@ -234,31 +234,93 @@ export class EmployeeModal {
                 empToEdit.notes = notes;
                 empToEdit.updatedAt = Date.now();
                 empToEdit._isDirty = true;
-                window.showAlert(`${icons.get('check-circle')} Empleado ${name} actualizado`, 'success');
+                return empToEdit.id;
             }
-        } else {
             const newId = 'emp-' + Date.now();
             state.employees.push({
-                id: newId,
-                key: newId,
-                number: number,
-                name: name,
-                positions: selectedPositions,
-                positionSalaries: positionSalaries,
-                active: true,
-                hireDate: hireDate,
-                phone: phone,
-                email: email,
-                notes: notes,
+                id: newId, key: newId, number: numberToUse, name,
+                positions: selectedPositions, positionSalaries, active: true,
+                hireDate, phone, email, notes,
                 statusHistory: [{ date: hireDate, active: true, timestamp: Date.now() }],
-                updatedAt: Date.now(),
-                _isDirty: true
+                updatedAt: Date.now(), _isDirty: true
             });
-            window.showAlert(`${icons.get('check-circle')} Empleado ${name} creado correctamente`, 'success');
+            return newId;
+        };
+
+        const finish = (msg) => {
+            if (msg) window.showAlert(msg, 'success');
+            context.saveToLocalStorage();
+            context.render();
+            modalInstance.close();
+        };
+
+        // 🔢 Conflicto de número: otro empleado ya tiene esta ficha.
+        // En vez de bloquear, ofrecemos resolución: cancelar, intercambiar
+        // o fusionar (misma persona).
+        const duplicate = state.employees.find(e => e.number === number && (!existingEmp || e.id !== existingEmp.id));
+        if (duplicate) {
+            EmployeeModal._showNumberConflict({
+                intendedNumber: number, editingName: name, existingEmp, duplicate,
+                applyFields, finish, state
+            });
+            return;
         }
 
-        context.saveToLocalStorage();
-        context.render();
-        modalInstance.close();
+        finish(`${icons.get('check-circle')} Empleado ${name} ${existingEmp ? 'actualizado' : 'creado correctamente'}`);
+    }
+
+    /**
+     * Modal de resolución de conflicto de número de ficha.
+     * Opciones: Cancelar · Intercambiar (solo al editar) · Fusionar.
+     */
+    static _showNumberConflict({ intendedNumber, editingName, existingEmp, duplicate, applyFields, finish, state }) {
+        const oldNumber = existingEmp ? existingEmp.number : null;
+        const who = editingName || (existingEmp && existingEmp.name) || 'Este empleado';
+
+        const content = `
+            <div style="padding:4px 2px;">
+                <p style="color:#e2e8f0;margin:0 0 10px;line-height:1.4;">
+                    El número <strong>#${intendedNumber}</strong> ya está asignado a
+                    <strong>${duplicate.name}</strong>.
+                </p>
+                <p style="color:#94a3b8;font-size:0.85rem;margin:0;">¿Qué deseas hacer?</p>
+            </div>`;
+
+        const buttons = [
+            { text: 'Cancelar', class: 'btn-secondary', onClick: function () { this.close(); } }
+        ];
+
+        // Intercambiar solo tiene sentido al editar un empleado con número previo.
+        if (existingEmp && oldNumber && String(oldNumber) !== String(intendedNumber)) {
+            buttons.push({
+                text: `🔁 Intercambiar (#${oldNumber} ↔ #${intendedNumber})`,
+                class: 'btn-primary',
+                onClick: function () {
+                    applyFields(oldNumber);                       // aplica edits con el número viejo
+                    swapEmployeeNumbers(existingEmp.id, duplicate.id); // luego intercambia
+                    this.close();
+                    finish(`🔁 Números intercambiados: ${who} #${intendedNumber}, ${duplicate.name} #${oldNumber}`);
+                }
+            });
+        }
+
+        buttons.push({
+            text: '🤝 Es la misma persona (fusionar)',
+            class: 'btn-primary',
+            onClick: function () {
+                const editedId = applyFields(intendedNumber);
+                if (!editedId) { this.close(); return; }
+                // Master = el de más asistencia (conserva la identidad más completa).
+                const attCount = (id) => Object.keys(state.attendance || {}).filter(k => k.startsWith(`${id}-`)).length;
+                let masterId = duplicate.id, dupId = editedId;
+                if (attCount(editedId) >= attCount(duplicate.id)) { masterId = editedId; dupId = duplicate.id; }
+                mergeEmployees(masterId, dupId);
+                enqueueCloudEmployeeDelete(dupId); // borra el doc huérfano del eliminado
+                this.close();
+                finish(`🤝 ${who} y ${duplicate.name} fusionados en un solo empleado (#${intendedNumber})`);
+            }
+        });
+
+        new Modal({ title: '⚠️ Número de ficha en uso', content, size: 'small', buttons }).open();
     }
 }

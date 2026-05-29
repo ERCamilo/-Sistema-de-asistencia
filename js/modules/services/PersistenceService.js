@@ -984,6 +984,27 @@ export function analyzeConflicts(opts = {}) {
  * 🤝 mergeEmployees() - Fusiona un registro duplicado en un registro maestro
  * ⚠️ NO guarda automáticamente. El caller debe llamar saveApplicationData() al terminar.
  */
+/**
+ * 🔁 Intercambia el número de ficha de dos empleados. Usado por la
+ * resolución inline de conflicto de número (editar Pedro y darle el número
+ * de Juan → "Intercambiar"). Marca ambos como modificados para que se
+ * propaguen a la nube.
+ * @returns {boolean} true si el intercambio se realizó.
+ */
+export function swapEmployeeNumbers(idA, idB) {
+    if (idA === idB) return false;
+    const a = state.employees.find(e => e.id === idA);
+    const b = state.employees.find(e => e.id === idB);
+    if (!a || !b) return false;
+    const tmp = a.number;
+    a.number = b.number;
+    b.number = tmp;
+    const ts = Date.now();
+    a.updatedAt = ts; b.updatedAt = ts;
+    a._isDirty = true; b._isDirty = true;
+    return true;
+}
+
 export function mergeEmployees(masterId, duplicateId) {
     const master = state.employees.find(e => e.id === masterId);
     const duplicate = state.employees.find(e => e.id === duplicateId);
