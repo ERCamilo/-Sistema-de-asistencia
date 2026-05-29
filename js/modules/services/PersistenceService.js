@@ -715,29 +715,39 @@ export function sanitizePositions(state) {
     if (!state.positions || state.positions.length === 0) return false;
 
     debug.log('🧹 Iniciando sanitización de posiciones...');
-    const idMap = new Map(); // Mapa de ID_Viejo -> ID_Nuevo (Slug)
+    // ⚡ Opción A (IDs estables): los puestos tienen un id INMUTABLE que NO
+    // se deriva del nombre. sanitize ya NO convierte ids a slug (eso hacía
+    // que renombrar cambiara el id → documento nuevo + huérfano en la nube
+    // per-doc). Aquí solo: (1) deduplicamos puestos con el MISMO nombre,
+    // conservando el id del primero (master) y migrando referencias, y
+    // (2) asignamos un id a puestos que no tengan ninguno.
+    const idMap = new Map();          // ID_viejo (duplicado) -> ID_master estable
     const uniquePositions = [];
-    const positionsBySlug = new Map();
+    const masterIdBySlug = new Map(); // slug(nombre) -> ID_master estable
     let hasChanges = false;
 
     state.positions.forEach(pos => {
         const slug = slugify(pos.name);
         if (!slug) return;
 
-        if (!positionsBySlug.has(slug)) {
-            // Es la primera vez que vemos este nombre de puesto
-            const isNewId = pos.id !== slug;
-            if (isNewId) hasChanges = true;
-
-            const newPos = { ...pos, id: slug };
-            positionsBySlug.set(slug, newPos);
-            idMap.set(pos.id, slug);
-            uniquePositions.push(newPos);
-        } else {
-            // Es un duplicado. Mapear el ID viejo al ID del puesto ya existente
-            idMap.set(pos.id, slug);
+        // Garantizar un id estable: si falta, asignar UUID (una sola vez).
+        if (!pos.id) {
+            pos.id = generateUUID();
             hasChanges = true;
-            console.log(`🔗 Fusionando duplicado: ${pos.name} (${pos.id} -> ${slug})`);
+        }
+
+        if (!masterIdBySlug.has(slug)) {
+            // Primer puesto con este nombre → master. Conserva su id estable.
+            masterIdBySlug.set(slug, pos.id);
+            idMap.set(pos.id, pos.id); // identidad (no migra)
+            uniquePositions.push(pos);
+        } else {
+            // Duplicado por NOMBRE → fusionar al master, conservando el id
+            // estable del master. El doc del duplicado queda obsoleto.
+            const masterId = masterIdBySlug.get(slug);
+            idMap.set(pos.id, masterId);
+            hasChanges = true;
+            console.log(`🔗 Fusionando duplicado por nombre: ${pos.name} (${pos.id} -> ${masterId})`);
         }
     });
 
