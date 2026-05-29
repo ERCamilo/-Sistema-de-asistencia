@@ -144,9 +144,29 @@ export function detectIncomingChanges(localState, remoteData) {
 
     const changes = [];
 
-    detectEntityChanges(local.employees, remote.employees, 'employee', changes);
-    detectEntityChanges(local.positions, remote.positions, 'position', changes);
-    detectEntityChanges(local.leaders,   remote.leaders,   'leader',   changes);
+    // 🛡️ Modelo granular: a partir de v2 los empleados viven en su
+    // subcolección per-doc (no en el doc padre 'data/current'); a partir de
+    // v3 también los cargos y líderes. Cuando una entidad es granular, el
+    // doc padre NO la transporta — y peor: suele retener una copia legacy
+    // CONGELADA de la migración (merge:true nunca la borra). Inferir
+    // borrados/divergencias de esa copia produce falsos positivos (el modal
+    // "cambios entrantes" aparecía en cada guardado). Los cambios reales de
+    // estas entidades llegan por su propio live-sync per-doc, no por aquí.
+    const remoteV = typeof remote.schemaVersion === 'number'
+        ? remote.schemaVersion
+        : local.settings?.schemaVersion;
+    const employeesGranular = typeof remoteV === 'number' && remoteV >= 2;
+    const catalogsGranular  = typeof remoteV === 'number' && remoteV >= 3;
+
+    if (!employeesGranular && Array.isArray(remote.employees)) {
+        detectEntityChanges(local.employees, remote.employees, 'employee', changes);
+    }
+    if (!catalogsGranular && Array.isArray(remote.positions)) {
+        detectEntityChanges(local.positions, remote.positions, 'position', changes);
+    }
+    if (!catalogsGranular && Array.isArray(remote.leaders)) {
+        detectEntityChanges(local.leaders, remote.leaders, 'leader', changes);
+    }
     detectSchemaMismatch(local, remote, changes);
 
     return changes;

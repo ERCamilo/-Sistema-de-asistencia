@@ -203,6 +203,61 @@ testRunner.addSuite("IncomingChangeDetector — schemaVersion mismatch", {
 
 });
 
+testRunner.addSuite("IncomingChangeDetector — modelo granular (v2/v3) no infiere borrados del doc padre", {
+
+    "v3: empleados ausentes en el doc padre NO se marcan como borrados"() {
+        // A partir de v2, saveFullState quita employees del doc padre. El
+        // payload remoto (data/current) no los trae → ausencia ≠ borrado.
+        const local  = { employees: [emp('e1'), emp('e2'), emp('e3')], settings: { schemaVersion: 3 } };
+        const remote = { schemaVersion: 3 }; // sin employees/positions/leaders
+        const changes = detectIncomingChanges(local, remote);
+        const deletions = changes.filter(c => c.kind === 'deletion');
+        testRunner.assertEquals(deletions.length, 0,
+            'No debe marcar empleados como borrados solo porque el doc padre no los trae');
+    },
+
+    "v3: copia legacy CONGELADA y distinta en el doc padre NO genera borrados"() {
+        // Caso real: el doc padre retiene un employees[] viejo de la migración
+        // v1→v2 (merge:true nunca lo borró). Es obsoleto, no la fuente de verdad.
+        const local  = { employees: [emp('e1'), emp('e2'), emp('e3')], settings: { schemaVersion: 3 } };
+        const remote = { schemaVersion: 3, employees: [emp('e1')] }; // congelado/parcial
+        const changes = detectIncomingChanges(local, remote);
+        const significant = changes.filter(c => c.severity === 'significant');
+        testRunner.assertEquals(significant.length, 0,
+            'Una cuenta granular no debe disparar warnings desde la copia legacy del doc padre');
+    },
+
+    "v3: cargos y líderes ausentes NO se marcan como borrados"() {
+        const local  = {
+            positions: [{ id: 'p1', name: 'Caja' }],
+            leaders:   [{ id: 'l1', name: 'Jefe' }],
+            settings:  { schemaVersion: 3 }
+        };
+        const remote = { schemaVersion: 3 };
+        const changes = detectIncomingChanges(local, remote);
+        testRunner.assertEquals(changes.filter(c => c.kind === 'deletion').length, 0);
+    },
+
+    "v2: empleados granulares pero cargos/líderes AÚN en el doc padre → borrado de cargo sí se detecta"() {
+        // En v2 los cargos todavía viven en el doc padre, así que su borrado
+        // sí es información válida del mirror.
+        const local  = { positions: [{ id: 'p1', name: 'Caja' }], settings: { schemaVersion: 2 } };
+        const remote = { schemaVersion: 2, positions: [] };
+        const changes = detectIncomingChanges(local, remote);
+        const posDeletion = changes.find(c => c.entityType === 'position' && c.kind === 'deletion');
+        testRunner.assert(!!posDeletion, 'En v2 el borrado de un cargo del doc padre sí debe detectarse');
+    },
+
+    "cuenta NO migrada (sin schemaVersion): el borrado de empleado sí se detecta"() {
+        const local  = { employees: [emp('e1'), emp('e2')] };
+        const remote = { employees: [emp('e1')] };
+        const changes = detectIncomingChanges(local, remote);
+        testRunner.assertEquals(changes.filter(c => c.kind === 'deletion').length, 1,
+            'Sin migración, el modelo legacy del doc padre sigue siendo autoritativo');
+    }
+
+});
+
 testRunner.addSuite("IncomingChangeDetector — hasSignificantChanges helper", {
 
     "false si todos son trivial"() {
