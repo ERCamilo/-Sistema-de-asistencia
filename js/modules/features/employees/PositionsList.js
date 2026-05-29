@@ -9,7 +9,7 @@ import icons from '../../ui/IconSystem.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { state } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
-import { saveApplicationData } from '../../services/PersistenceService.js';
+import { saveApplicationData, enqueueCloudPositionDelete } from '../../services/PersistenceService.js';
 import { Modal } from '../../components/Modal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 
@@ -265,6 +265,9 @@ export function deletePosition(positionId) {
             }
 
             state.positions = state.positions.filter(p => p.id !== pos.id);
+            // 🗑️ Schema v3: borrar también el doc remoto en positions/{id}
+            // (saveMany solo hace upsert; sin esto el live-sync lo resucita).
+            enqueueCloudPositionDelete(pos.id);
             saveApplicationData();
             render();
         }

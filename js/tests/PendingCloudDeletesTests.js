@@ -165,4 +165,105 @@ testRunner.addSuite("PersistenceService — drain de _pendingCloudDeletes (Tarea
 
 });
 
+// ─────────────────────────────────────────────────────────────
+// Schema v3: colas de borrado para CARGOS y LÍDERES.
+// Igual que empleados, pero el drain ocurre solo con schemaVersion >= 3
+// (es cuando cargos/líderes viven en su subcolección per-doc).
+// ─────────────────────────────────────────────────────────────
+
+import {
+    enqueueCloudPositionDelete,
+    getPendingCloudPositionDeletes,
+    clearPendingCloudPositionDeletes,
+    enqueueCloudLeaderDelete,
+    getPendingCloudLeaderDeletes,
+    clearPendingCloudLeaderDeletes
+} from '../modules/services/PersistenceService.js';
+
+testRunner.addSuite("PersistenceService — colas de borrado cargos/líderes (v3)", {
+
+    "enqueueCloudPositionDelete agrega y dedupea"() {
+        clearPendingCloudPositionDeletes();
+        enqueueCloudPositionDelete('p1');
+        enqueueCloudPositionDelete('p1');
+        enqueueCloudPositionDelete('p2');
+        testRunner.assertEquals(getPendingCloudPositionDeletes().length, 2);
+        clearPendingCloudPositionDeletes();
+    },
+
+    "enqueueCloudPositionDelete ignora falsy"() {
+        clearPendingCloudPositionDeletes();
+        enqueueCloudPositionDelete('');
+        enqueueCloudPositionDelete(null);
+        enqueueCloudPositionDelete(undefined);
+        testRunner.assertEquals(getPendingCloudPositionDeletes().length, 0);
+    },
+
+    "enqueueCloudLeaderDelete agrega y dedupea"() {
+        clearPendingCloudLeaderDeletes();
+        enqueueCloudLeaderDelete('l1');
+        enqueueCloudLeaderDelete('l1');
+        testRunner.assertEquals(getPendingCloudLeaderDeletes().length, 1);
+        clearPendingCloudLeaderDeletes();
+    }
+
+});
+
+testRunner.addSuite("PersistenceService — drain cargos/líderes (v3)", {
+
+    async "drain de cargos con schemaVersion>=3 → deleteDoc"() {
+        clearPendingCloudPositionDeletes();
+        deleteDoc.mockClear();
+        auth.currentUser = { uid: 'test-pos-drain' };
+        globalThis.currentUser = auth.currentUser;
+        state.isDataLoaded = true;
+        state.useIndexedDB = true;
+        state.settings = state.settings || {};
+        state.settings.schemaVersion = 3;
+
+        enqueueCloudPositionDelete('pDel1');
+        enqueueCloudPositionDelete('pDel2');
+
+        saveApplicationData({ skipValidation: true });
+        flushPendingSave();
+        await sleep(30);
+
+        testRunner.assert(deleteDoc.mock.calls.length >= 2,
+            `deleteDoc debe llamarse >=2. Recibido: ${deleteDoc.mock.calls.length}`);
+        testRunner.assertEquals(getPendingCloudPositionDeletes().length, 0,
+            'La cola de cargos debe quedar vacía tras drain');
+
+        auth.currentUser = null;
+        globalThis.currentUser = null;
+        delete state.settings.schemaVersion;
+    },
+
+    async "drain de cargos NO ocurre con schemaVersion=2 (aún no granular)"() {
+        clearPendingCloudPositionDeletes();
+        deleteDoc.mockClear();
+        auth.currentUser = { uid: 'test-pos-v2' };
+        globalThis.currentUser = auth.currentUser;
+        state.isDataLoaded = true;
+        state.useIndexedDB = true;
+        state.settings = state.settings || {};
+        state.settings.schemaVersion = 2; // cargos todavía en el doc padre
+
+        enqueueCloudPositionDelete('pNoDel');
+        saveApplicationData({ skipValidation: true });
+        flushPendingSave();
+        await sleep(30);
+
+        testRunner.assertEquals(deleteDoc.mock.calls.length, 0,
+            'En v2 los cargos no son granulares → no se borra de subcolección');
+        testRunner.assertEquals(getPendingCloudPositionDeletes().length, 1,
+            'Los ids quedan encolados para cuando migre a v3');
+
+        clearPendingCloudPositionDeletes();
+        auth.currentUser = null;
+        globalThis.currentUser = null;
+        delete state.settings.schemaVersion;
+    }
+
+});
+
 console.log('🧪 PendingCloudDeletes tests cargados.');

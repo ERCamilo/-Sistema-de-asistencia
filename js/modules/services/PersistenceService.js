@@ -9,6 +9,8 @@ import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
+import { PositionRepository } from './PositionRepository.js';
+import { LeaderRepository } from './LeaderRepository.js';
 import { unionById } from './EmployeeMerge.js';
 import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
@@ -34,6 +36,14 @@ let _pendingSaveOptions = {};
 // el state local ya no lo tiene, pero su doc remoto sigue en
 // users/{uid}/employees/{id} y hay que limpiarlo.
 const _pendingCloudDeletes = new Set();
+
+// 🗑️ Colas análogas para CARGOS y LÍDERES (Schema v3). En el modelo
+// granular, borrar un cargo/líder localmente deja huérfano su doc en
+// users/{uid}/positions|leaders/{id} (saveMany solo hace upsert, nunca
+// borra). Estas colas se drenan en el próximo save, solo con schemaVersion
+// >= 3 (que es cuando estas entidades viven en su subcolección per-doc).
+const _pendingCloudPositionDeletes = new Set();
+const _pendingCloudLeaderDeletes = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🕒 lastCloudSavedAt — persistir timestamp de la última sync exitosa
@@ -101,30 +111,73 @@ export function clearPendingCloudDeletes() {
     _pendingCloudDeletes.clear();
 }
 
-/**
- * Drena la cola borrando los docs remotos correspondientes.
- * Solo opera cuando schemaVersion >= 2 (cuentas migradas al modelo
- * per-doc). En cuentas legacy es noop — no hay subcolección que limpiar.
- * Reintentable: ids que fallen quedan re-encolados.
- */
-async function _drainPendingCloudDeletes() {
-    if (_pendingCloudDeletes.size === 0) return;
-    const v = state?.settings?.schemaVersion;
-    if (typeof v !== 'number' || v < 2) return;
-    if (!globalThis.currentUser) return;
+/** Encolar un id de CARGO para borrar de la subcolección en el próximo save. */
+export function enqueueCloudPositionDelete(id) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    _pendingCloudPositionDeletes.add(key);
+}
+export function getPendingCloudPositionDeletes() {
+    return [..._pendingCloudPositionDeletes];
+}
+export function clearPendingCloudPositionDeletes() {
+    _pendingCloudPositionDeletes.clear();
+}
 
-    const ids = [..._pendingCloudDeletes];
-    _pendingCloudDeletes.clear();
+/** Encolar un id de LÍDER para borrar de la subcolección en el próximo save. */
+export function enqueueCloudLeaderDelete(id) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    _pendingCloudLeaderDeletes.add(key);
+}
+export function getPendingCloudLeaderDeletes() {
+    return [..._pendingCloudLeaderDeletes];
+}
+export function clearPendingCloudLeaderDeletes() {
+    _pendingCloudLeaderDeletes.clear();
+}
+
+/**
+ * Drena un Set de ids borrando su doc remoto vía repo.deleteOne(id).
+ * Reintentable: los ids que fallen quedan re-encolados en el mismo Set.
+ */
+async function _drainDeleteSet(set, repo) {
+    if (set.size === 0) return;
+    const ids = [...set];
+    set.clear();
     const failed = [];
     for (const id of ids) {
         try {
-            await EmployeeRepository.deleteOne(id);
+            await repo.deleteOne(id);
         } catch (e) {
             console.error(`⚠️ Error borrando doc cloud ${id}, re-encolando:`, e);
             failed.push(id);
         }
     }
-    failed.forEach(id => _pendingCloudDeletes.add(id));
+    failed.forEach(id => set.add(id));
+}
+
+/**
+ * Drena las colas de borrado contra sus subcolecciones remotas.
+ *   - Empleados: requiere schemaVersion >= 2.
+ *   - Cargos y líderes: requieren schemaVersion >= 3 (granular desde v3).
+ * En cuentas por debajo del umbral es noop y los ids quedan encolados
+ * para cuando la cuenta migre. Sin sesión, noop total.
+ */
+async function _drainPendingCloudDeletes() {
+    if (!globalThis.currentUser) return;
+    const v = state?.settings?.schemaVersion;
+    const vNum = typeof v === 'number' ? v : 0;
+
+    if (vNum >= 2) {
+        await _drainDeleteSet(_pendingCloudDeletes, EmployeeRepository);
+    }
+    if (vNum >= 3) {
+        await _drainDeleteSet(_pendingCloudPositionDeletes, PositionRepository);
+        await _drainDeleteSet(_pendingCloudLeaderDeletes, LeaderRepository);
+    }
 }
 
 /**
@@ -743,9 +796,11 @@ export function sanitizePositions(state) {
             uniquePositions.push(pos);
         } else {
             // Duplicado por NOMBRE → fusionar al master, conservando el id
-            // estable del master. El doc del duplicado queda obsoleto.
+            // estable del master. El doc del duplicado queda obsoleto → encolar
+            // su borrado de la subcolección remota (positions/{id}).
             const masterId = masterIdBySlug.get(slug);
             idMap.set(pos.id, masterId);
+            if (pos.id && pos.id !== masterId) enqueueCloudPositionDelete(pos.id);
             hasChanges = true;
             console.log(`🔗 Fusionando duplicado por nombre: ${pos.name} (${pos.id} -> ${masterId})`);
         }
