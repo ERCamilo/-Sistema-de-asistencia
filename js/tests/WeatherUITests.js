@@ -188,6 +188,9 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         testRunner.assertEquals((html.match(/data-weather-preview-day=/g) || []).length, 3, 'Collapsed preview limited to 3 days');
         testRunner.assert(html.includes('Última sincronización con la API'), 'API sync tooltip shown');
         testRunner.assert(/hace (un momento|\d+ min|\d+h|\d+ d)/.test(html), 'Relative API sync age shown');
+        testRunner.assert(html.includes('weather-sync-full'), 'Desktop sync label rendered');
+        testRunner.assert(html.includes('weather-sync-compact'), 'Mobile sync label rendered');
+        testRunner.assert(/>\d+(s|m|H|D)<\/span>/.test(html), 'Compact mobile sync age shown');
         // Collapsed view should NOT contain the expanded-only labels.
         testRunner.assert(!html.includes('Próximas 24 horas'), 'Hourly section hidden when collapsed');
         testRunner.assert(!html.includes('Próximos días'), 'Daily section header hidden when collapsed');

@@ -117,12 +117,17 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
     "CalendarView: marca asistencia con clases de color check"() {
         const originalAttendance = window.state.attendance;
         const originalSettings = window.state.settings;
+        const originalPositions = window.state.positions;
 
         window.state.settings = {
             ...window.state.settings,
             regularHoursPerDay: 8,
             holidays: ['2026-05-14']
         };
+        window.state.positions = [
+            { id: 'p1', name: 'Ayudante', color: '#8b5cf6' },
+            { id: 'p2', name: 'Operador', color: '#f59e0b' }
+        ];
         window.state.attendance = {
             'emp-cal-2026-05-12': { employeeId: 'emp-cal', date: '2026-05-12', present: true, hoursWorked: 8, positionHours: [{ positionId: 'p1', hours: 8 }] },
             'emp-cal-2026-05-13': { employeeId: 'emp-cal', date: '2026-05-13', present: true, hoursWorked: 4, positionHours: [{ positionId: 'p1', hours: 4 }] },
@@ -133,7 +138,16 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
 
         try {
             const html = CalendarView({
-                employee: { id: 'emp-cal', name: 'Empleado Calendario', positions: ['p1', 'p2'] },
+                employee: {
+                    id: 'emp-cal',
+                    name: 'Empleado Calendario',
+                    positions: ['p1', 'p2'],
+                    active: true,
+                    statusHistory: [
+                        { date: '2026-05-17', active: false, timestamp: 1 },
+                        { date: '2026-05-18', active: true, timestamp: 2 }
+                    ]
+                },
                 month: new Date('2026-05-01T12:00:00'),
                 navAction: 'noop'
             });
@@ -143,9 +157,16 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             testRunner.assert(html.includes('check-holiday'), 'Debe marcar asistencia en feriado en dorado');
             testRunner.assert(html.includes('check-overtime'), 'Debe marcar horas extra en azul');
             testRunner.assert(html.includes('check-multiposition'), 'Debe marcar multi-posicion en morado');
+            testRunner.assert(html.includes('calendar-position-dot'), 'Debe mostrar puntos de puesto trabajado');
+            testRunner.assert(html.includes('--pos-color: #8b5cf6'), 'Debe usar el color del puesto Ayudante');
+            testRunner.assert(html.includes('--pos-color: #f59e0b'), 'Debe usar el color del puesto Operador');
+            testRunner.assert(html.includes('Ayudante: 4h') && html.includes('Operador: 4h'), 'El tooltip debe listar puestos y horas');
+            testRunner.assert(html.includes('calendar-day-inactive'), 'Debe marcar dias donde el empleado estaba inactivo');
+            testRunner.assert(html.includes('Empleado inactivo segun historial'), 'El tooltip debe explicar el estado inactivo');
         } finally {
             window.state.attendance = originalAttendance;
             window.state.settings = originalSettings;
+            window.state.positions = originalPositions;
         }
     }
 });

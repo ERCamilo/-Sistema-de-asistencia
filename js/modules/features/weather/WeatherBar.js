@@ -58,6 +58,23 @@ function _formatRelativeSync(fetchedAt, now = Date.now()) {
     return `hace ${days} ${days === 1 ? 'día' : 'días'}`;
 }
 
+function _formatCompactRelativeSync(fetchedAt, now = Date.now()) {
+    if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return '--';
+
+    const elapsedMs = Math.max(0, now - fetchedAt);
+    const seconds = Math.max(1, Math.floor(elapsedMs / 1000));
+    if (seconds < 60) return `${seconds}s`;
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}H`;
+
+    const days = Math.floor(hours / 24);
+    return `${days}D`;
+}
+
 function _lastWeatherSyncAt(cache) {
     const timestamps = [
         cache?.current?.fetchedAt,
@@ -90,11 +107,13 @@ export function WeatherBar() {
     const hourly = readCachedHourly(state);
     const loc = getActiveLocation(state);
     const today = new Date().toISOString().slice(0, 10);
-    const lastSyncLabel = _formatRelativeSync(_lastWeatherSyncAt(state.weather?.cache));
+    const lastSyncAt = _lastWeatherSyncAt(state.weather?.cache);
+    const lastSyncLabel = _formatRelativeSync(lastSyncAt);
+    const lastSyncCompactLabel = _formatCompactRelativeSync(lastSyncAt);
 
     return `
         <div class="weather-bar" style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; margin-bottom: 16px; overflow: hidden;">
-            ${expanded ? _expandedHeader(current, loc) : _collapsedHeader(current, forecast, today, lastSyncLabel)}
+            ${expanded ? _expandedHeader(current, loc) : _collapsedHeader(current, forecast, today, lastSyncLabel, lastSyncCompactLabel)}
             ${expanded ? _expandedBody(current, hourly, forecast, today) : ''}
         </div>
     `;
@@ -104,7 +123,7 @@ export function WeatherBar() {
  * Collapsed header is the entire bar surface — the next-5-days mini strip
  * lives here so the user has at-a-glance forecast without expanding.
  */
-function _collapsedHeader(current, forecast, today, lastSyncLabel) {
+function _collapsedHeader(current, forecast, today, lastSyncLabel, lastSyncCompactLabel) {
     const fallbackToday = {
         date: today,
         icon: current.icon,
@@ -138,7 +157,8 @@ function _collapsedHeader(current, forecast, today, lastSyncLabel) {
             <div title="Última sincronización con la API"
                  style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: #94a3b8; font-size: 0.72rem; font-weight: 700; white-space: nowrap;">
                 ${icons.get('sync', { size: 14, color: '#94a3b8' })}
-                <span>${lastSyncLabel}</span>
+                <span class="weather-sync-full">${lastSyncLabel}</span>
+                <span class="weather-sync-compact">${lastSyncCompactLabel}</span>
             </div>
             <div style="color: #64748b; flex-shrink: 0; display: inline-flex;">${icons.get('chevron-right', { size: 18, color: '#64748b' })}</div>
         </div>

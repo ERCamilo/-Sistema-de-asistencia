@@ -651,6 +651,20 @@
     align-items: center !important;
 }
 
+.weather-sync-compact {
+    display: none;
+}
+
+@media (max-width: 640px) {
+    .weather-sync-full {
+        display: none;
+    }
+
+    .weather-sync-compact {
+        display: inline;
+    }
+}
+
 /* --- 📅 ESTILOS DE TABLA SEMANAL (STICKY COLUMNS & NOMBRES) --- */
 .week-view-table .sticky-column {
     min-width: 180px;

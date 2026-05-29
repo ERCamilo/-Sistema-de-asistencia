@@ -21,6 +21,9 @@ function _handleCalClick(e) {
     const action = target.dataset.calAction;
     const handler = _CAL_ACTION_MAP[action];
     if (!handler) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation?.();
     const arg = target.dataset.id ?? target.dataset.value ?? null;
     handler(arg, target, e);
 }

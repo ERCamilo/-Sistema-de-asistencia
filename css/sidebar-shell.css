@@ -840,6 +840,36 @@ body.has-sidebar {
 .detail-panel-body .premium-calendar .calendar-day {
     min-width: 0;
     border-radius: 8px;
+    overflow: hidden;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+        repeating-linear-gradient(
+            135deg,
+            rgba(148, 163, 184, 0.42) 0,
+            rgba(148, 163, 184, 0.42) 2px,
+            transparent 2px,
+            transparent 7px
+        );
+    mix-blend-mode: screen;
+    opacity: 0.58;
+    z-index: 1;
+}
+
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive .day-number,
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive .hours-dot,
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive .calendar-position-dots,
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive .today-marker,
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive .payday-indicator,
+.detail-panel-body .premium-calendar .calendar-day.calendar-day-inactive .money-badge {
+    position: relative;
+    z-index: 2;
 }
 
 .detail-panel-body .premium-calendar .calendar-day.selected {
@@ -897,6 +927,20 @@ body.has-sidebar {
 .detail-panel-body .premium-calendar .hours-dot {
     font-size: clamp(9px, 2.5cqw, 11px);
     font-weight: 800;
+}
+
+.detail-panel-body .premium-calendar .calendar-position-dots {
+    gap: clamp(2px, 0.9cqw, 4px);
+    margin-top: 2px;
+}
+
+.detail-panel-body .premium-calendar .calendar-position-dot {
+    width: clamp(5px, 1.8cqw, 7px);
+    height: clamp(5px, 1.8cqw, 7px);
+}
+
+.detail-panel-body .premium-calendar .calendar-position-more {
+    font-size: clamp(7px, 2cqw, 9px);
 }
 
 .detail-hours-editor {
