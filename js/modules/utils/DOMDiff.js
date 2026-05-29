@@ -28,6 +28,36 @@ export class DOMDiff {
     }
 
     /**
+     * Patches an element to match a new element AT THE SAME LEVEL (the target
+     * IS the element being updated, not a container of it).
+     *
+     * Use this when the source HTML's root corresponds to `target` itself
+     * (e.g. updating a single `<div id="emp-row-x">` row). Unlike apply()
+     * with a string — which patches the target's CHILDREN against the
+     * template (container semantics, used by RenderManager) — this patches
+     * the target node itself: its attributes/class and its children.
+     *
+     * Without this, updating a row via apply() nested the new row inside the
+     * old one and dropped sibling columns, collapsing the card's flex layout.
+     *
+     * @param {HTMLElement} target - The element to update in place.
+     * @param {string|HTMLElement} source - New HTML whose root maps to target.
+     */
+    static patchSelf(target, source) {
+        if (!target) return;
+
+        let newRoot = source;
+        if (typeof source === 'string') {
+            const template = document.createElement('template');
+            template.innerHTML = source.trim();
+            newRoot = template.content.firstElementChild;
+        }
+        if (!newRoot) return;
+
+        this.patch(target, newRoot);
+    }
+
+    /**
      * Recursively patches oldNode to match newNode.
      * @param {Node} oldNode 
      * @param {Node} newNode 

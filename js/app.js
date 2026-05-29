@@ -4084,8 +4084,8 @@ window.updateEmployeeRow = function (employeeId) {
     const newHTML = state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
 
     // Usar DOMDiff para actualizar solo lo necesario del DOM real
-    if (DOMDiff && typeof DOMDiff.apply === 'function') {
-        DOMDiff.apply(rowEl, newHTML);
+    if (DOMDiff && typeof DOMDiff.patchSelf === 'function') {
+        DOMDiff.patchSelf(rowEl, newHTML);
     } else {
         rowEl.outerHTML = newHTML;
     }
@@ -4104,8 +4104,8 @@ window.updateWeekRow = function (employeeId) {
     const week = getWeekDates(new Date(state.selectedDate));
     const newHTML = WeekRow(emp, week);
 
-    if (DOMDiff && typeof DOMDiff.apply === 'function') {
-        DOMDiff.apply(rowEl, newHTML);
+    if (DOMDiff && typeof DOMDiff.patchSelf === 'function') {
+        DOMDiff.patchSelf(rowEl, newHTML);
     } else {
         rowEl.outerHTML = newHTML;
     }
@@ -4144,8 +4144,8 @@ window.updateWeekTotals = function () {
         </tr>
     `;
 
-    if (DOMDiff && typeof DOMDiff.apply === 'function') {
-        DOMDiff.apply(totalsEl, newHTML);
+    if (DOMDiff && typeof DOMDiff.patchSelf === 'function') {
+        DOMDiff.patchSelf(totalsEl, newHTML);
     } else {
         totalsEl.outerHTML = newHTML;
     }
