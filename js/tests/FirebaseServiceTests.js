@@ -1,4 +1,4 @@
-import FirebaseService from '../modules/services/FirebaseServiceReal.js';
+const FirebaseService = jest.requireActual('../modules/services/FirebaseService').default;
 import { writeBatch, deleteObject } from '../data/firebase.js';
 
 testRunner.addSuite("FirebaseService — Sincronización y Borrado", {

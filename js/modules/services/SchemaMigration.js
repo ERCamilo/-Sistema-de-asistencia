@@ -19,7 +19,7 @@
  */
 
 export const SCHEMA_VERSION_FIELD = 'schemaVersion';
-export const TARGET_SCHEMA_VERSION = 2;
+export const TARGET_SCHEMA_VERSION = 3;
 
 /**
  * Decide si una cuenta necesita migrar al modelo nuevo.
@@ -37,7 +37,13 @@ export function needsMigration(parentDoc, opts = {}) {
     }
 
     const employees = parentDoc.employees;
-    if (!Array.isArray(employees) || employees.length === 0) {
+    const positions = parentDoc.positions;
+    const leaders = parentDoc.leaders;
+    const hasEmployees = Array.isArray(employees) && employees.length > 0;
+    const hasPositions = Array.isArray(positions) && positions.length > 0;
+    const hasLeaders = Array.isArray(leaders) && leaders.length > 0;
+
+    if (!hasEmployees && !hasPositions && !hasLeaders) {
         return false; // cuenta nueva o vacía — nada que migrar
     }
 
@@ -46,14 +52,6 @@ export function needsMigration(parentDoc, opts = {}) {
 
 /**
  * Construye el plan de escrituras: un [{ id, payload }] por empleado.
- * Defensivo:
- *   - Empleados sin id se omiten.
- *   - Duplicados por id → gana el de updatedAt mayor (o el último si ninguno
- *     tiene updatedAt, comportamiento simple y predecible).
- *   - Cada payload tiene updatedAt (clave para merge por ID en Fase 2.2).
- *
- * @param {Array} employees Lista de empleados (formato plano o instancias).
- * @returns {Array<{id: string, payload: object}>}
  */
 export function prepareEmployeeMigrationWrites(employees) {
     if (!Array.isArray(employees) || employees.length === 0) return [];
@@ -67,24 +65,16 @@ export function prepareEmployeeMigrationWrites(employees) {
 
         const incomingOrigTs = typeof emp.updatedAt === 'number' ? emp.updatedAt : null;
 
-        // Si ya tenemos uno con este id, conservar el "más fresco".
-        // Reglas (sobre los updatedAt ORIGINALES, no los inyectados):
-        //   - Si solo uno tiene updatedAt → ese gana.
-        //   - Si ambos tienen → el mayor gana.
-        //   - Si ninguno tiene → last-wins (el actual reemplaza).
         const existing = byId.get(id);
         if (existing) {
             const eTs = existing._origTs;
             const iTs = incomingOrigTs;
             const eHas = eTs !== null;
             const iHas = iTs !== null;
-            if (eHas && !iHas) return;             // existing tiene fecha, incoming no → no reemplazar
-            if (eHas && iHas && iTs < eTs) return; // existing es más nuevo → no reemplazar
-            // En el resto de casos, incoming reemplaza (incluyendo last-wins).
+            if (eHas && !iHas) return;
+            if (eHas && iHas && iTs < eTs) return;
         }
 
-        // Clonar plano para no exportar referencias mutables y descartar
-        // instancias de clase (toJSON-ish behavior).
         const payload = JSON.parse(JSON.stringify(emp));
         if (typeof payload.updatedAt !== 'number') {
             payload.updatedAt = Date.now();
@@ -93,8 +83,60 @@ export function prepareEmployeeMigrationWrites(employees) {
         byId.set(id, { id, payload, _origTs: incomingOrigTs, _order: idx });
     });
 
-    // Salida estable: ordenar por orden de aparición original (para idempotencia
-    // exacta en tests).
+    const out = [...byId.values()].sort((a, b) => a._order - b._order);
+    return out.map(({ id, payload }) => ({ id, payload }));
+}
+
+/**
+ * Construye el plan de escrituras para cargos.
+ * @param {Array} positions
+ * @returns {Array<{id: string, payload: object}>}
+ */
+export function preparePositionMigrationWrites(positions) {
+    if (!Array.isArray(positions) || positions.length === 0) return [];
+
+    const byId = new Map();
+
+    positions.forEach((pos, idx) => {
+        if (!pos || typeof pos !== 'object') return;
+        const id = String(pos.id || '').trim();
+        if (!id) return;
+
+        const payload = JSON.parse(JSON.stringify(pos));
+        if (typeof payload.updatedAt !== 'number') {
+            payload.updatedAt = Date.now();
+        }
+
+        byId.set(id, { id, payload, _order: idx });
+    });
+
+    const out = [...byId.values()].sort((a, b) => a._order - b._order);
+    return out.map(({ id, payload }) => ({ id, payload }));
+}
+
+/**
+ * Construye el plan de escrituras para líderes.
+ * @param {Array} leaders
+ * @returns {Array<{id: string, payload: object}>}
+ */
+export function prepareLeaderMigrationWrites(leaders) {
+    if (!Array.isArray(leaders) || leaders.length === 0) return [];
+
+    const byId = new Map();
+
+    leaders.forEach((lead, idx) => {
+        if (!lead || typeof lead !== 'object') return;
+        const id = String(lead.id || '').trim();
+        if (!id) return;
+
+        const payload = JSON.parse(JSON.stringify(lead));
+        if (typeof payload.updatedAt !== 'number') {
+            payload.updatedAt = Date.now();
+        }
+
+        byId.set(id, { id, payload, _order: idx });
+    });
+
     const out = [...byId.values()].sort((a, b) => a._order - b._order);
     return out.map(({ id, payload }) => ({ id, payload }));
 }

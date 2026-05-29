@@ -26,6 +26,10 @@ import { detectIncomingChanges } from './modules/services/IncomingChangeDetector
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused } from './modules/services/SyncPauseService.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
+import { PositionRepository } from './modules/services/PositionRepository.js';
+import { LeaderRepository } from './modules/services/LeaderRepository.js';
+import { PositionsLiveSync } from './modules/services/PositionsLiveSync.js';
+import { LeadersLiveSync } from './modules/services/LeadersLiveSync.js';
 import { generateLoansReadonlySection } from './modules/features/profile/LoansReadonlySection.js';
 import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusBadge.js';
 import { SyncStatus } from './modules/services/SyncStatus.js';
@@ -93,7 +97,6 @@ import {
 } from './modules/utils/DateManagers.js';
 import { render, setRootComponent, saveScrollPosition, restoreScrollPosition, setupHeaderHeightObserver } from './modules/core/RenderManager.js';
 import lazyLoader from './modules/utils/LazyLoader.js';
-import syncManager from './modules/services/SyncManager.js';
 import offlineManager from './modules/services/OfflineManager.js';
 import workerPool from './modules/utils/WebWorkerPool.js';
 
@@ -267,7 +270,6 @@ icons.init(initialIconSet);
 // COMPATIBILIDAD CON CÓDIGO VIEJO (Global Bridges)
 // ============================================
 globalThis.lazyLoader = lazyLoader;
-globalThis.syncManager = syncManager;
 globalThis.offlineManager = offlineManager;
 globalThis.workerPool = workerPool;
 globalThis.renderManager = renderManager;
@@ -6312,7 +6314,7 @@ function _initOutgoingConflictGuard() {
                                     onRejectAndPause: () => {
                                         window._pendingIncomingReview = false;
                                         debug.log('⏸️ Cambios remotos rechazados. Subida a la nube pausada hasta que el usuario reanude.');
-                                        pauseCloudUpload();
+                                        pauseCloudUpload('Se rechazaron cambios entrantes significativos de la nube.');
                                     },
                                     onRejectAndReupload: () => {
                                         window._pendingIncomingReview = false;
@@ -6361,7 +6363,9 @@ function _initOutgoingConflictGuard() {
                         remoteData,
                         isDemo: !!state.usingDemoData,
                         migrate: (rd, opts) => FirebaseService.migrateIfNeeded(rd, opts),
-                        loadEmployees: (rd) => FirebaseService.loadEmployeesIfMigrated(rd)
+                        loadEmployees: (rd) => FirebaseService.loadEmployeesIfMigrated(rd),
+                        loadPositions: (rd) => FirebaseService.loadPositionsIfMigrated(rd),
+                        loadLeaders: (rd) => FirebaseService.loadLeadersIfMigrated(rd)
                     });
                     if (loaderResult.migrated) {
                         debug.log(`✅ Migración v2 completada: ${loaderResult.count} empleado(s)`);
@@ -6380,14 +6384,18 @@ function _initOutgoingConflictGuard() {
                     // Propagar schemaVersion al state local para que las escrituras
                     // (saveFullState) sepan tomar el camino granular.
                     const effectiveSchemaVersion = loaderResult.migrated
-                        ? 2
+                        ? 3
                         : (typeof remoteData.schemaVersion === 'number' ? remoteData.schemaVersion : state.settings.schemaVersion);
                     if (typeof effectiveSchemaVersion === 'number') {
                         state.settings.schemaVersion = effectiveSchemaVersion;
                     }
                     state.employees = newEmployees;
-                    state.positions = dedup(remoteData.positions || state.positions);
-                    state.leaders = dedup(remoteData.leaders || state.leaders);
+                    // ⚡ Schema v3: cargos y líderes vienen de su fuente granular
+                    // (subcolección si schemaVersion>=3, arreglo legacy si no),
+                    // resuelta por el loader. NO leer de remoteData directamente:
+                    // a partir de v3 el parent doc ya no recibe estos arreglos.
+                    state.positions = dedup(loaderResult.positions || remoteData.positions || state.positions);
+                    state.leaders = dedup(loaderResult.leaders || remoteData.leaders || state.leaders);
 
                     // ⚡ FASE 2.1: si ya migramos al modelo per-doc, abrir el
                     // listener en tiempo real sobre la subcolección de empleados
@@ -6403,6 +6411,33 @@ function _initOutgoingConflictGuard() {
                                     ? merged.map(e => e instanceof Employee ? e : new Employee(e))
                                     : merged;
                                 debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube`);
+                                if (typeof render === 'function') render();
+                            }
+                        });
+                    }
+
+                    // ⚡ Schema v3: listeners en tiempo real para cargos y líderes
+                    // sobre sus subcolecciones. Idempotentes (singletons internos).
+                    if (state.settings.schemaVersion >= 3) {
+                        PositionsLiveSync.start({
+                            subscribe: (cb) => PositionRepository.subscribe(cb),
+                            onApply: (positions) => {
+                                const merged = dedup(positions || []);
+                                state.positions = (typeof Position !== 'undefined')
+                                    ? merged.map(p => p instanceof Position ? p : new Position(p))
+                                    : merged;
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.positions.length} cargo(s) desde la nube`);
+                                if (typeof render === 'function') render();
+                            }
+                        });
+                        LeadersLiveSync.start({
+                            subscribe: (cb) => LeaderRepository.subscribe(cb),
+                            onApply: (leaders) => {
+                                const merged = dedup(leaders || []);
+                                state.leaders = (typeof Leader !== 'undefined')
+                                    ? merged.map(l => l instanceof Leader ? l : new Leader(l))
+                                    : merged;
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.leaders.length} líder(es) desde la nube`);
                                 if (typeof render === 'function') render();
                             }
                         });

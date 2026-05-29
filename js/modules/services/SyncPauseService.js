@@ -51,9 +51,10 @@ export function isSyncPaused() {
  * Pause cloud uploads. Local (IndexedDB) saves continue normally.
  * The flag is persisted immediately so it survives a page refresh.
  */
-export async function pauseCloudUpload() {
+export async function pauseCloudUpload(reason = 'Usuario solicitó pausar la sincronización') {
     if (!state.settings) state.settings = {};
     state.settings.cloudUploadPaused = true;
+    console.warn(`⏸️ Sincronización de subida a la nube PAUSADA. Motivo: ${reason}`);
     // Save only to IndexedDB (Firebase sync is already gated by the flag
     // we just set, so the save itself won't push to cloud).
     const save = await _getSave();
@@ -76,6 +77,7 @@ export async function resumeCloudUpload() {
     // Explicit false (not delete) so the value survives JSON.stringify and
     // overwrites the cloud's old true through Firestore's merge:true.
     state.settings.cloudUploadPaused = false;
+    console.log('▶️ Sincronización de subida a la nube REANUDADA. Re-subiendo estado local a la nube...');
     const save = await _getSave();
     save({ force: true, immediate: true });
 }

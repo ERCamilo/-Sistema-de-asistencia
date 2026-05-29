@@ -31,6 +31,8 @@ function makeDeps(overrides = {}) {
     return {
         createSnapshot:     jest.fn().mockResolvedValue(undefined),
         saveEmployees:      jest.fn().mockResolvedValue({ written: 0 }),
+        savePositions:      jest.fn().mockResolvedValue({ written: 0 }),
+        saveLeaders:        jest.fn().mockResolvedValue({ written: 0 }),
         markSchemaVersion:  jest.fn().mockResolvedValue(undefined),
         notify:             jest.fn(),
         ...overrides
@@ -41,12 +43,20 @@ const PARENT_NEEDS_MIGRATION = {
     employees: [
         { id: 'e1', name: 'Ana', updatedAt: 100 },
         { id: 'e2', name: 'Bob', updatedAt: 200 }
+    ],
+    positions: [
+        { id: 'p1', name: 'Developer' }
+    ],
+    leaders: [
+        { id: 'l1', name: 'Leader A', number: 1 }
     ]
 };
 
 const PARENT_ALREADY_MIGRATED = {
-    schemaVersion: 2,
-    employees: [{ id: 'e1', name: 'Ana' }]
+    schemaVersion: 3,
+    employees: [{ id: 'e1', name: 'Ana' }],
+    positions: [{ id: 'p1', name: 'Developer' }],
+    leaders: [{ id: 'l1', name: 'Leader A', number: 1 }]
 };
 
 testRunner.addSuite("SchemaMigrationRunner — short-circuit (Fase 4.1)", {
@@ -92,7 +102,7 @@ testRunner.addSuite("SchemaMigrationRunner — happy path (Fase 4.1)", {
         const result = await runMigrationIfNeeded({ parentDoc: PARENT_NEEDS_MIGRATION, ...deps });
 
         testRunner.assertEquals(result.migrated, true);
-        testRunner.assertEquals(result.count, 2, "Debe reportar 2 empleados migrados");
+        testRunner.assertEquals(result.count, 4, "Debe reportar 4 entidades migradas (2 empleados + 1 cargo + 1 líder)");
 
         // 1. snapshot creado
         testRunner.assertEquals(deps.createSnapshot.mock.calls.length, 1);
@@ -102,11 +112,14 @@ testRunner.addSuite("SchemaMigrationRunner — happy path (Fase 4.1)", {
         testRunner.assertEquals(empsArg.length, 2);
         testRunner.assert(empsArg.find(e => e.id === 'e1'), "Debe incluir Ana");
         testRunner.assert(empsArg.find(e => e.id === 'e2'), "Debe incluir Bob");
-        // 3. schemaVersion marcado
+        // 3. savePositions y saveLeaders llamados
+        testRunner.assertEquals(deps.savePositions.mock.calls.length, 1);
+        testRunner.assertEquals(deps.saveLeaders.mock.calls.length, 1);
+        // 4. schemaVersion marcado
         testRunner.assertEquals(deps.markSchemaVersion.mock.calls.length, 1);
-        testRunner.assertEquals(deps.markSchemaVersion.mock.calls[0][0], 2,
-            "Debe marcar schemaVersion: 2");
-        // 4. notificación
+        testRunner.assertEquals(deps.markSchemaVersion.mock.calls[0][0], 3,
+            "Debe marcar schemaVersion: 3");
+        // 5. notificación
         testRunner.assertEquals(deps.notify.mock.calls.length, 1);
     },
 
@@ -115,12 +128,14 @@ testRunner.addSuite("SchemaMigrationRunner — happy path (Fase 4.1)", {
         const deps = {
             createSnapshot:    jest.fn().mockImplementation(async () => { calls.push('snapshot'); }),
             saveEmployees:     jest.fn().mockImplementation(async () => { calls.push('save');     return { written: 2 }; }),
+            savePositions:     jest.fn().mockImplementation(async () => { calls.push('savePos');  return { written: 1 }; }),
+            saveLeaders:       jest.fn().mockImplementation(async () => { calls.push('saveLead'); return { written: 1 }; }),
             markSchemaVersion: jest.fn().mockImplementation(async () => { calls.push('mark');     }),
             notify:            jest.fn().mockImplementation(()       => { calls.push('notify');   })
         };
         await runMigrationIfNeeded({ parentDoc: PARENT_NEEDS_MIGRATION, ...deps });
-        testRunner.assertEquals(calls.join(','), 'snapshot,save,mark,notify',
-            "El orden debe ser snapshot → save → mark → notify");
+        testRunner.assertEquals(calls.join(','), 'snapshot,save,savePos,saveLead,mark,notify',
+            "El orden debe ser snapshot → save → savePos → saveLead → mark → notify");
     },
 
     async "notify es opcional — no romper si no se pasa"() {
@@ -136,8 +151,8 @@ testRunner.addSuite("SchemaMigrationRunner — happy path (Fase 4.1)", {
         await runMigrationIfNeeded({ parentDoc: PARENT_NEEDS_MIGRATION, ...deps });
         const msg = deps.notify.mock.calls[0][0];
         testRunner.assert(typeof msg === 'string' && msg.length > 0);
-        testRunner.assert(msg.includes('2'),
-            `Mensaje debe mencionar el conteo (2). Recibido: "${msg}"`);
+        testRunner.assert(msg.includes('3'),
+            `Mensaje debe mencionar versión 3. Recibido: "${msg}"`);
     }
 
 });

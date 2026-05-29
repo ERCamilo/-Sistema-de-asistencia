@@ -10,6 +10,8 @@ import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
 import { notifySnapshotCreated } from './SnapshotNotifier.js';
 import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
+import { PositionRepository } from './PositionRepository.js';
+import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
 
@@ -75,27 +77,32 @@ class FirebaseService {
             delete snapshotContext.attendance; // ⚡ OPT: La asistencia se guarda por separado en su propia colección
             delete snapshotContext.attendanceByDate; // ⚡ OPT: Índices locales no se suben
 
-            // ⚡ FASE 4.1: Si la cuenta ya migró al modelo doc-por-empleado
-            // (schemaVersion >= 2), escribimos los empleados granular en
-            // users/{uid}/employees/{id} en lugar de aplastar el arreglo
-            // en el parent. Cada dispositivo solo toca los docs que cambia
-            // y deja de pisar lo que cambiaron otros dispositivos.
+            // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular,
+            // escribimos las entidades en sus propias colecciones.
             const schemaVersion = state?.settings?.schemaVersion;
-            const isMigrated = typeof schemaVersion === 'number' && schemaVersion >= 2;
+            const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
+            const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
 
-            if (isMigrated) {
-                // Escribir empleados como docs individuales en paralelo.
-                // mergeRemote:true (Fase 2.2) hace read-merge-write para fusionar
-                // por id los arreglos del empleado (loans, advances, payments,
-                // etc.) — protege contra pérdida cuando dos dispositivos
-                // editaron el mismo empleado offline.
+            if (isMigratedEmployees) {
                 const emps = Array.isArray(state.employees) ? state.employees : [];
                 if (emps.length > 0) {
                     await EmployeeRepository.saveMany(emps, { mergeRemote: true });
                 }
-                // Y eliminarlos del payload del mirror para no reescribir
-                // el arreglo legacy con datos que ya viven en su propia colección.
                 delete snapshotContext.employees;
+            }
+
+            if (isMigratedGranular) {
+                const positions = Array.isArray(state.positions) ? state.positions : [];
+                if (positions.length > 0) {
+                    await PositionRepository.saveMany(positions, { mergeRemote: true });
+                }
+                delete snapshotContext.positions;
+
+                const leaders = Array.isArray(state.leaders) ? state.leaders : [];
+                if (leaders.length > 0) {
+                    await LeaderRepository.saveMany(leaders, { mergeRemote: true });
+                }
+                delete snapshotContext.leaders;
             }
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
@@ -302,9 +309,13 @@ class FirebaseService {
             parentDoc,
             isDemo: !!opts.isDemo,
             createSnapshot: () =>
-                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v2'),
+                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v3'),
             saveEmployees: (employees) =>
                 EmployeeRepository.saveMany(employees),
+            savePositions: (positions) =>
+                PositionRepository.saveMany(positions),
+            saveLeaders: (leaders) =>
+                LeaderRepository.saveMany(leaders),
             markSchemaVersion: async (version) => {
                 const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
                 // lastChangedBy garantiza que el listener filtre este eco.
@@ -333,6 +344,32 @@ class FirebaseService {
         }
         // Modelo viejo: confiar en el arreglo legacy.
         return Array.isArray(parentDoc?.employees) ? parentDoc.employees : [];
+    }
+
+    /**
+     * 📥 Carga la lista actual de cargos aplicando el modelo correcto:
+     *   - Si schemaVersion >= 3: lee de users/{uid}/positions/* (per-doc).
+     *   - Si schemaVersion < 3 o ausente: usa el arreglo legacy del parent.
+     */
+    async loadPositionsIfMigrated(parentDoc) {
+        const version = parentDoc?.schemaVersion;
+        if (typeof version === 'number' && version >= 3) {
+            return await PositionRepository.loadAll();
+        }
+        return Array.isArray(parentDoc?.positions) ? parentDoc.positions : [];
+    }
+
+    /**
+     * 📥 Carga la lista actual de líderes aplicando el modelo correcto:
+     *   - Si schemaVersion >= 3: lee de users/{uid}/leaders/* (per-doc).
+     *   - Si schemaVersion < 3 o ausente: usa el arreglo legacy del parent.
+     */
+    async loadLeadersIfMigrated(parentDoc) {
+        const version = parentDoc?.schemaVersion;
+        if (typeof version === 'number' && version >= 3) {
+            return await LeaderRepository.loadAll();
+        }
+        return Array.isArray(parentDoc?.leaders) ? parentDoc.leaders : [];
     }
 
     /**

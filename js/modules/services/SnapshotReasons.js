@@ -40,6 +40,13 @@ export const SNAPSHOT_REASONS = {
         color: '#a855f7',
         protected: true
     },
+    'pre-migration-v3': {
+        label: 'Antes de migrar cargos y líderes a multi-dispositivo',
+        icon: '🔄',
+        type: 'pre-restore',
+        color: '#a855f7',
+        protected: true
+    },
     'pre-bulk-delete': {
         label: 'Antes de borrado masivo',
         icon: '⚠️',

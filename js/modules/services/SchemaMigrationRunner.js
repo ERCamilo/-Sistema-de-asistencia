@@ -21,6 +21,8 @@
 import {
     needsMigration,
     prepareEmployeeMigrationWrites,
+    preparePositionMigrationWrites,
+    prepareLeaderMigrationWrites,
     TARGET_SCHEMA_VERSION
 } from './SchemaMigration.js';
 
@@ -30,6 +32,8 @@ import {
  * @param {boolean}     [args.isDemo]      Si está en modo demo, no migra
  * @param {() => Promise<any>}      args.createSnapshot
  * @param {(emps: Array) => Promise<any>}  args.saveEmployees
+ * @param {(positions: Array) => Promise<any>} args.savePositions
+ * @param {(leaders: Array) => Promise<any>} args.saveLeaders
  * @param {(version: number) => Promise<any>} args.markSchemaVersion
  * @param {(msg: string) => void}   [args.notify]
  * @returns {Promise<{migrated: boolean, count?: number}>}
@@ -39,6 +43,8 @@ export async function runMigrationIfNeeded({
     isDemo,
     createSnapshot,
     saveEmployees,
+    savePositions,
+    saveLeaders,
     markSchemaVersion,
     notify
 } = {}) {
@@ -46,27 +52,42 @@ export async function runMigrationIfNeeded({
         return { migrated: false };
     }
 
-    // 1. Snapshot pre-migración. Si falla, abortamos: no queremos
-    //    iniciar una operación destructiva sin red de seguridad.
+    // 1. Snapshot pre-migración.
     await createSnapshot();
 
-    // 2. Construir el plan y escribir empleados granular.
-    const writes = prepareEmployeeMigrationWrites(parentDoc.employees);
-    const payloads = writes.map(w => w.payload);
-    await saveEmployees(payloads);
+    const version = parentDoc.schemaVersion || 0;
 
-    // 3. Marcar la cuenta como migrada. Si esto falla, los empleados
-    //    ya están escritos — el próximo arranque encontrará schemaVersion
-    //    aún ausente y volverá a correr la migración. Como cada saveOne
-    //    usa merge: true, reintentar es seguro.
-    await markSchemaVersion(TARGET_SCHEMA_VERSION);
-
-    // 4. Notificar al usuario.
-    if (typeof notify === 'function') {
-        const count = writes.length;
-        const word = count === 1 ? 'empleado' : 'empleados';
-        notify(`✅ Sistema actualizado · ${count} ${word} migrado${count === 1 ? '' : 's'} a multi-dispositivo`);
+    // 2. Migrar empleados si la versión previa es v1 o ausente
+    let employeesMigrated = 0;
+    if (version < 2) {
+        const writes = prepareEmployeeMigrationWrites(parentDoc.employees);
+        const payloads = writes.map(w => w.payload);
+        await saveEmployees(payloads);
+        employeesMigrated = writes.length;
     }
 
-    return { migrated: true, count: writes.length };
+    // 3. Migrar posiciones y líderes si la versión previa es < 3
+    let positionsMigrated = 0;
+    let leadersMigrated = 0;
+    if (version < 3) {
+        const posWrites = preparePositionMigrationWrites(parentDoc.positions);
+        const posPayloads = posWrites.map(w => w.payload);
+        await savePositions(posPayloads);
+        positionsMigrated = posWrites.length;
+
+        const leadWrites = prepareLeaderMigrationWrites(parentDoc.leaders);
+        const leadPayloads = leadWrites.map(w => w.payload);
+        await saveLeaders(leadPayloads);
+        leadersMigrated = leadWrites.length;
+    }
+
+    // 4. Marcar la cuenta como migrada.
+    await markSchemaVersion(TARGET_SCHEMA_VERSION);
+
+    // 5. Notificar al usuario.
+    if (typeof notify === 'function') {
+        notify(`✅ Sistema actualizado a versión 3 · Cargos (${positionsMigrated}) y Líderes (${leadersMigrated}) migrados a multi-dispositivo`);
+    }
+
+    return { migrated: true, count: employeesMigrated + positionsMigrated + leadersMigrated };
 }

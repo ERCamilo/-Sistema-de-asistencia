@@ -49,12 +49,12 @@ testRunner.addSuite("FirebaseService — Contrato migrateIfNeeded (Fase 4.1)", {
         );
     },
 
-    "migrateIfNeeded usa createSnapshot con razón pre-migration-v2"() {
+    "migrateIfNeeded usa createSnapshot con razón pre-migration-v3"() {
         const block = fbSource.match(/migrateIfNeeded[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
         const txt = block[0];
         testRunner.assert(
-            /pre-migration-v2/.test(txt),
-            "El snapshot que crea debe llevar la razón 'pre-migration-v2' (catálogo)"
+            /pre-migration-v3/.test(txt),
+            "El snapshot que crea debe llevar la razón 'pre-migration-v3' (catálogo)"
         );
     },
 

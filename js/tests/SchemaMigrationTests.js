@@ -45,12 +45,12 @@ testRunner.addSuite("SchemaMigration — needsMigration (Fase 4.1)", {
         testRunner.assertEquals(needsMigration(doc), true);
     },
 
-    "schemaVersion 2 → false (ya migrada)"() {
-        const doc = { schemaVersion: 2, employees: [{ id: 'e1' }] };
-        testRunner.assertEquals(needsMigration(doc), false);
+    "schemaVersion 2 → true (necesita migrar cargos y líderes a v3)"() {
+        const doc = { schemaVersion: 2, positions: [{ id: 'p1' }] };
+        testRunner.assertEquals(needsMigration(doc), true);
     },
 
-    "schemaVersion 3 (futura) → false"() {
+    "schemaVersion 3 → false (ya migrada)"() {
         const doc = { schemaVersion: 3, employees: [{ id: 'e1' }] };
         testRunner.assertEquals(needsMigration(doc), false);
     },
@@ -83,11 +83,11 @@ testRunner.addSuite("SchemaMigration — needsMigration (Fase 4.1)", {
         testRunner.assertEquals(SCHEMA_VERSION_FIELD, 'schemaVersion');
     },
 
-    "TARGET_SCHEMA_VERSION es número >= 2"() {
+    "TARGET_SCHEMA_VERSION es número >= 3"() {
         testRunner.assert(typeof TARGET_SCHEMA_VERSION === 'number',
             "Debe ser número");
-        testRunner.assert(TARGET_SCHEMA_VERSION >= 2,
-            "Debe ser >= 2");
+        testRunner.assert(TARGET_SCHEMA_VERSION >= 3,
+            "Debe ser >= 3");
     }
 
 });

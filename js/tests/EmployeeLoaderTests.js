@@ -122,6 +122,69 @@ testRunner.addSuite("EmployeeLoader — loadAndMigrateEmployees (Fase 4.1)", {
             opts && opts.isDemo === true,
             "migrate debe recibir { isDemo: true } como segundo argumento"
         );
+    },
+
+    // ── Schema v3: carga granular de cargos y líderes ──────────────────
+
+    async "v3: carga posiciones y líderes desde la fuente granular inyectada"() {
+        const remote = { schemaVersion: 3, employees: [], positions: [], leaders: [] };
+        const positions = [{ id: 'p1', name: 'Albañil' }, { id: 'p2', name: 'Ayudante' }];
+        const leaders = [{ id: 'l1', name: 'Capataz' }];
+        const deps = makeDeps({
+            loadPositions: jest.fn().mockResolvedValue(positions),
+            loadLeaders: jest.fn().mockResolvedValue(leaders)
+        });
+        const result = await loadAndMigrateEmployees({ remoteData: remote, ...deps });
+        testRunner.assertEquals(result.positions.length, 2,
+            "Debe cargar cargos desde el loader granular, no del parent doc");
+        testRunner.assertEquals(result.leaders.length, 1,
+            "Debe cargar líderes desde el loader granular, no del parent doc");
+        testRunner.assertEquals(deps.loadPositions.mock.calls.length, 1);
+        testRunner.assertEquals(deps.loadLeaders.mock.calls.length, 1);
+    },
+
+    async "v3: tras migrar, loadPositions/loadLeaders reciben schemaVersion>=3"() {
+        const remote = { employees: [{ id: 'e1' }], positions: [{ id: 'p1' }], leaders: [] };
+        const capPos = [];
+        const capLead = [];
+        const deps = makeDeps({
+            migrate: jest.fn().mockResolvedValue({ migrated: true, count: 1 }),
+            loadPositions: jest.fn().mockImplementation(async (arg) => { capPos.push(arg); return []; }),
+            loadLeaders: jest.fn().mockImplementation(async (arg) => { capLead.push(arg); return []; })
+        });
+        await loadAndMigrateEmployees({ remoteData: remote, ...deps });
+        testRunner.assert(capPos[0].schemaVersion >= 3,
+            "Tras migrar, loadPositions debe ver schemaVersion>=3 para usar la subcolección");
+        testRunner.assert(capLead[0].schemaVersion >= 3,
+            "Tras migrar, loadLeaders debe ver schemaVersion>=3 para usar la subcolección");
+    },
+
+    async "v3: si loadPositions falla, fallback a remoteData.positions"() {
+        const legacyPos = [{ id: 'p1' }, { id: 'p2' }];
+        const remote = { schemaVersion: 3, employees: [], positions: legacyPos, leaders: [] };
+        const deps = makeDeps({
+            loadPositions: jest.fn().mockRejectedValue(new Error('pos-fail')),
+            loadLeaders: jest.fn().mockResolvedValue([])
+        });
+        const result = await loadAndMigrateEmployees({ remoteData: remote, ...deps });
+        testRunner.assertEquals(result.positions.length, 2,
+            "Si loadPositions explota, devolver los cargos legacy para no romper la UI");
+        testRunner.assert(!!result.error, "Debe capturar el error de carga de cargos");
+    },
+
+    async "sin loaders de cargos/líderes, usa los arreglos legacy del remoteData"() {
+        const remote = {
+            schemaVersion: 2,
+            employees: [],
+            positions: [{ id: 'p1' }],
+            leaders: [{ id: 'l1' }, { id: 'l2' }]
+        };
+        const deps = makeDeps(); // sin loadPositions/loadLeaders
+        const result = await loadAndMigrateEmployees({ remoteData: remote, ...deps });
+        testRunner.assertEquals(result.positions.length, 1,
+            "Sin loader granular, los cargos vienen del arreglo legacy del parent");
+        testRunner.assertEquals(result.leaders.length, 2,
+            "Sin loader granular, los líderes vienen del arreglo legacy del parent");
     }
 
 });

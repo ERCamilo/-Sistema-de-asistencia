@@ -21,17 +21,30 @@
  *      remoteData con schemaVersion>=2 para que tome el camino nuevo.
  */
 
+import { TARGET_SCHEMA_VERSION } from './SchemaMigration.js';
+
 export async function loadAndMigrateEmployees({
     remoteData,
     isDemo,
     migrate,
-    loadEmployees
+    loadEmployees,
+    loadPositions,
+    loadLeaders
 } = {}) {
-    const result = { migrated: false, count: 0, employees: [], error: null };
+    const result = {
+        migrated: false,
+        count: 0,
+        employees: [],
+        positions: [],
+        leaders: [],
+        error: null
+    };
 
     if (!remoteData || typeof remoteData !== 'object') {
         return result;
     }
+
+    const legacyArr = (key) => Array.isArray(remoteData[key]) ? remoteData[key] : [];
 
     // 1. Intentar migrar (si aplica).
     try {
@@ -41,25 +54,56 @@ export async function loadAndMigrateEmployees({
     } catch (e) {
         console.error('❌ EmployeeLoader: migrate falló, usando legacy como fallback:', e);
         result.error = e;
-        result.employees = Array.isArray(remoteData.employees) ? remoteData.employees : [];
+        result.employees = legacyArr('employees');
+        result.positions = legacyArr('positions');
+        result.leaders = legacyArr('leaders');
         return result;
     }
 
-    // 2. Cargar empleados desde la fuente correcta.
-    //    Si acabamos de migrar, "forzamos" schemaVersion en el payload pasado
-    //    al loader para que decida usar la subcolección sin esperar al próximo
-    //    fire del listener.
+    // 2. Cargar desde la fuente correcta. Si acabamos de migrar, "forzamos"
+    //    schemaVersion al objetivo (3) en el payload pasado a los loaders para
+    //    que decidan usar las subcolecciones sin esperar al próximo fire del
+    //    listener. Como TARGET=3, esto también satisface a empleados (>=2).
     const payloadForLoad = result.migrated
-        ? { ...remoteData, schemaVersion: 2 }
+        ? { ...remoteData, schemaVersion: TARGET_SCHEMA_VERSION }
         : remoteData;
 
+    // 2a. Empleados (loader requerido).
     try {
         const emps = await loadEmployees(payloadForLoad);
         result.employees = Array.isArray(emps) ? emps : [];
     } catch (e) {
         console.error('❌ EmployeeLoader: loadEmployees falló, fallback al legacy:', e);
         result.error = e;
-        result.employees = Array.isArray(remoteData.employees) ? remoteData.employees : [];
+        result.employees = legacyArr('employees');
+    }
+
+    // 2b. Cargos (loader opcional — sin él, fallback al arreglo legacy).
+    if (typeof loadPositions === 'function') {
+        try {
+            const pos = await loadPositions(payloadForLoad);
+            result.positions = Array.isArray(pos) ? pos : [];
+        } catch (e) {
+            console.error('❌ EmployeeLoader: loadPositions falló, fallback al legacy:', e);
+            result.error = result.error || e;
+            result.positions = legacyArr('positions');
+        }
+    } else {
+        result.positions = legacyArr('positions');
+    }
+
+    // 2c. Líderes (loader opcional — sin él, fallback al arreglo legacy).
+    if (typeof loadLeaders === 'function') {
+        try {
+            const leads = await loadLeaders(payloadForLoad);
+            result.leaders = Array.isArray(leads) ? leads : [];
+        } catch (e) {
+            console.error('❌ EmployeeLoader: loadLeaders falló, fallback al legacy:', e);
+            result.error = result.error || e;
+            result.leaders = legacyArr('leaders');
+        }
+    } else {
+        result.leaders = legacyArr('leaders');
     }
 
     return result;

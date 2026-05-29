@@ -6,7 +6,7 @@
  * para forzar actualización de assets cacheados.
  */
 
-const CACHE_VERSION = '1.0.26';
+const CACHE_VERSION = '1.0.27';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -41,7 +41,6 @@ const APP_SHELL = [
     './js/modules/core/PWA.js',
     './js/modules/core/Performance.js',
     './js/modules/core/RenderManager.js',
-    './js/modules/core/Sync.js',
     './js/modules/core/Workers.js',
 
     // Config
@@ -73,7 +72,6 @@ const APP_SHELL = [
     './js/modules/services/PersistenceService.js',
     './js/modules/services/ScrollService.js',
     './js/modules/services/StorageService.js',
-    './js/modules/services/SyncManager.js',
     './js/modules/services/ValidationService.js',
     './js/modules/services/index.js',
 
