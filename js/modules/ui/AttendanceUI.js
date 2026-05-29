@@ -5,7 +5,7 @@
 
 import { state, calculateStats, getEmployeeTotalHours, getEmployeeMTDStats } from '../core/AppState.js';
 import icons from './IconSystem.js';
-import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
+import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
 import { EmptyState } from '../components/EmptyState.js';
@@ -42,6 +42,7 @@ const _ACTION_MAP = {
 };
 
 function _handleAttendanceClick(e) {
+    if (e.target.closest('.calendar-picker')) return;
     const target = e.target.closest('[data-att-action]');
     if (!target) return;
     const action = target.dataset.attAction;
@@ -66,6 +67,7 @@ function _handleAttendanceChange(e) {
 
 function _handleAttendanceKeydown(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target.closest('.calendar-picker')) return;
     const target = e.target.closest('[data-att-action]');
     if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
     if (target.getAttribute('role') !== 'button') return;
@@ -560,13 +562,23 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         : [];
     const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
 
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}`;
-    return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}" data-memo-f="${fingerprint}">
+    // 🚩 Empleado activo HOY pero que, según el historial de estados, no estaba
+    // activo en esta fecha. Lo mostramos igual (totalmente funcional) con la
+    // tarjeta atenuada y un óvalo rojizo de texto siempre visible. Si se marca
+    // su asistencia, wasEmployeeActiveOnDate pasa a true y el marcador se va.
+    const inactiveOnDate = emp.active === true && !wasEmployeeActiveOnDate(emp, dateKey, state.attendance);
+    const inactiveFlagHTML = inactiveOnDate
+        ? `<div class="inactive-on-date-flag" title="Según el registro de estados, este empleado no estaba activo el ${dateKey}. Puedes registrar su asistencia igualmente; corrige las fechas en su perfil si fue un error." style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 10px;border-radius:999px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.55);color:#fca5a5;font-size:0.7rem;font-weight:600;line-height:1.2;white-space:nowrap;">${icons.get('alert', { size: 12 })} No activo en esta fecha</div>`
+        : '';
+
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}`;
+    return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${inactiveOnDate ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}"${inactiveOnDate ? ' style="opacity:0.62;"' : ''}>
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
                         <div class="employee-number">${emp.number}</div>
                     </div>
+                    ${inactiveFlagHTML}
                     <div class="position-toggles" style="margin-top: 2px;">
                         ${emp.positions.map(pid => {
         const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
@@ -719,7 +731,11 @@ export function DayView() {
  */
 export function getFilteredEmployeesForDay() {
     const date = parseDate(state.selectedDate);
-    let employees = state.employees.filter(emp => wasEmployeeActiveOnDate(emp, date));
+    // 🔎 Un empleado activo HOY siempre aparece (desde su ingreso), aunque el
+    // historial diga inactivo ese día — en ese caso se marca visualmente en la
+    // tarjeta (ver _buildEmployeeRow). Pasamos state.attendance para que un día
+    // con asistencia registrada cuente como activo.
+    let employees = state.employees.filter(emp => isEmployeeVisibleOnDate(emp, date, state.attendance).visible);
 
     // Ordenar por número
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
@@ -924,7 +940,16 @@ export function getFilteredEmployeesForWeek(week, positionMapArg = null) {
     // Crear mapa si no se provee
     const positionMap = positionMapArg || new Map(state.positions.map(p => [p.id, p]));
 
-    let employees = state.employees.filter(emp => wasEmployeeActiveInRange(emp, startDate, endDate, state.attendance));
+    let employees = state.employees.filter(emp => {
+        if (wasEmployeeActiveInRange(emp, startDate, endDate, state.attendance)) return true;
+        // Activo HOY → aparece desde su ingreso, consistente con la vista diaria.
+        if (emp.active === true) {
+            const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : null;
+            const end = typeof endDate === 'string' ? endDate : getDateKey(endDate);
+            if (!hire || end >= hire) return true;
+        }
+        return false;
+    });
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
 
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {
