@@ -19,7 +19,10 @@ export const APP_CONFIG = {
     DATABASE_NAME: "asistencia-db",
     STORAGE_KEY: "asistencia-data",
     MAX_RECORDS_MEMORY: 2000,
-    RELEVANT_DAYS_LIMIT: 60
+    RELEVANT_DAYS_LIMIT: 60,
+    // 💵 SplitX: webapp de pago en efectivo que importa el JSON de nómina.
+    // La nómina ofrece "Copiar y abrir en SplitX" (copia el JSON + abre esta URL).
+    SPLITX_URL: "https://splitx.erlin.do"
 };
 
 /**

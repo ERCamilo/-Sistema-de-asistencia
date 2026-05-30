@@ -3,6 +3,7 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
 import { migrateAllAdvances } from '../loans/LoansController.js';
+import { APP_CONFIG } from '../../config/Config.js';
 
 let context = null;
 let payrollService = null;
@@ -23,6 +24,7 @@ const _ACTION_MAP = {
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
+    'open-in-splitx': () => window.PayrollUI?.openInSplitX?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
 };
 
@@ -429,11 +431,18 @@ function PayrollGeneratorTab() {
                         onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
                     Copiar JSON al Portapapeles
                 </button>
-                <button type="button" data-payroll-action="download-export-json" 
+                <button type="button" data-payroll-action="download-export-json"
                         style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
                         onmouseover="this.style.background='rgba(6, 182, 212, 0.1)'"
                         onmouseout="this.style.background='#1e293b'">
                     Descargar Archivo .json
+                </button>
+                <button type="button" data-payroll-action="open-in-splitx"
+                        title="Copia el JSON y abre SplitX para pegar e importar la nómina"
+                        style="flex: 1; min-width: 200px; padding: 16px; background: linear-gradient(135deg, #a855f7, #6366f1); border: none; border-radius: 8px; color: #fff; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(168, 85, 247, 0.3)'"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                    💵 Copiar y abrir en SplitX
                 </button>
             </div>
         </div>
@@ -907,6 +916,40 @@ export function copyExportJSON() {
     navigator.clipboard.writeText(json).then(() => {
         if (window.showNotification) window.showNotification('✅ JSON copiado al portapapeles', 'success');
     });
+}
+
+/**
+ * 💵 Copia el JSON de nómina al portapapeles y abre SplitX en una pestaña
+ * nueva. SplitX importa este mismo formato; el usuario pega el JSON allá.
+ * (Opción B: sin cambios en SplitX. La URL es configurable en Config.js.)
+ */
+export function openInSplitX() {
+    const data = generateExportData();
+    if (!data.length) {
+        if (window.showNotification) window.showNotification('No hay datos de nómina para enviar a SplitX', 'warning');
+        return;
+    }
+    const json = JSON.stringify(data, null, 2);
+    const url = (APP_CONFIG && APP_CONFIG.SPLITX_URL) || 'https://splitx.erlin.do';
+
+    const openSplitX = () => {
+        window.open(url, '_blank', 'noopener');
+        if (window.showNotification) {
+            window.showNotification('✅ JSON copiado. Pégalo en SplitX para importar la nómina.', 'success');
+        }
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(json).then(openSplitX).catch(() => {
+            // Si el portapapeles falla (permiso/contexto), igual abrimos SplitX.
+            window.open(url, '_blank', 'noopener');
+            if (window.showNotification) {
+                window.showNotification('⚠️ No se pudo copiar automáticamente. Usa "Copiar JSON" y pega en SplitX.', 'warning');
+            }
+        });
+    } else {
+        openSplitX();
+    }
 }
 
 export function downloadExportJSON() {
