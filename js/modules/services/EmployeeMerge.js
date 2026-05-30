@@ -24,7 +24,7 @@
 import { generateUUID } from '../utils/Helpers.js';
 
 const ARRAY_FIELDS_BY_ID = ['loans', 'advances', 'bonuses', 'deductions'];
-const LOAN_NESTED_BY_ID  = ['payments', 'installments'];
+const LOAN_NESTED_BY_ID  = ['payments', 'installments', 'refinancings'];
 
 function hasUsableId(item, idKey) {
     const k = item?.[idKey];

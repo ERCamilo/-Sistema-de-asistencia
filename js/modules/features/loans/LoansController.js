@@ -26,6 +26,7 @@ import {
     voidPayment,
     writeOffLoan,
     reopenLoan,
+    refinanceLoan,
     migrateAdvancesToLoans,
     getBalance,
     LOAN_STATUS,
@@ -46,7 +47,9 @@ function ensureLedgerState() {
             paymentDraft: { amount: 0, date: getDateKey(new Date()), note: '' },
             showEmployeePicker: false,
             pickerSearch: '',
-            showInactiveHistory: false
+            showInactiveHistory: false,
+            showRefinanceFormForLoan: null,
+            refinanceDraft: createEmptyRefinanceDraft()
         };
     } else {
         // Backfill new fields on pre-existing ledger objects (older sessions)
@@ -59,7 +62,17 @@ function ensureLedgerState() {
         if (typeof state.loansLedger.showInactiveHistory === 'undefined') {
             state.loansLedger.showInactiveHistory = false;
         }
+        if (typeof state.loansLedger.showRefinanceFormForLoan === 'undefined') {
+            state.loansLedger.showRefinanceFormForLoan = null;
+        }
+        if (typeof state.loansLedger.refinanceDraft === 'undefined') {
+            state.loansLedger.refinanceDraft = createEmptyRefinanceDraft();
+        }
     }
+}
+
+function createEmptyRefinanceDraft() {
+    return { basis: 'balance', interestRate: 0, note: '' };
 }
 
 function createEmptyLoanDraft() {
@@ -439,6 +452,55 @@ export function voidPaymentHandler(loanId, paymentId) {
     });
 }
 
+// ─── Refinanciamiento ─────────────────────────────────────────────────────────
+
+export function toggleRefinanceForm(loanId) {
+    ensureLedgerState();
+    const open = state.loansLedger.showRefinanceFormForLoan === loanId ? null : loanId;
+    state.loansLedger.showRefinanceFormForLoan = open;
+    // Pre-llenar la tasa con la del préstamo (editable).
+    let rate = 0;
+    if (open) {
+        const emp = state.employees.find(e => e.id === state.loansLedger.selectedEmployeeId);
+        const loan = (emp?.loans || []).find(l => l.id === loanId);
+        rate = Number(loan?.interestRate || 0);
+    }
+    state.loansLedger.refinanceDraft = { basis: 'balance', interestRate: rate, note: '' };
+    render();
+}
+
+export function setRefinanceDraftField(field, value) {
+    ensureLedgerState();
+    const draft = state.loansLedger.refinanceDraft;
+    if (!draft) return;
+    if (field === 'interestRate') {
+        draft.interestRate = Number(value) || 0;
+    } else {
+        draft[field] = value;
+    }
+    // Re-render para actualizar el preview del interés a agregar.
+    render();
+}
+
+export function submitRefinance(loanId) {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) {
+        alertMsg('Empleado no encontrado');
+        return;
+    }
+    try {
+        const ev = refinanceLoan(emp, loanId, state.loansLedger.refinanceDraft);
+        state.loansLedger.showRefinanceFormForLoan = null;
+        saveApplicationData({ immediate: true });
+        notify(`♻️ Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés`, 'success');
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
+}
+
 export function toggleInactiveHistory() {
     ensureLedgerState();
     state.loansLedger.showInactiveHistory = !state.loansLedger.showInactiveHistory;
@@ -471,6 +533,9 @@ export function registerLegacyGlobals() {
     window.pickEmployeeForNewLoan = pickEmployeeForNewLoan;
     window.openLoansLedgerFor = openLoansLedgerFor;
     window.toggleInactiveHistory = toggleInactiveHistory;
+    window.toggleRefinanceForm = toggleRefinanceForm;
+    window.setRefinanceDraftField = setRefinanceDraftField;
+    window.submitRefinance = submitRefinance;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

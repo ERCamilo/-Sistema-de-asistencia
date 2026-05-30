@@ -30,6 +30,8 @@ import {
     getBalance,
     getTotalDue,
     getPaidAmount,
+    getRefinanceCount,
+    getTotalInterestAccrued,
     LOAN_STATUS,
     INSTALLMENT_MODE,
     VALIDATION,
@@ -302,7 +304,15 @@ function LoanCard(loan) {
     const isWrittenOff = loan.status === LOAN_STATUS.WRITTEN_OFF;
     const ledger = state.loansLedger || {};
     const showPay = ledger.showPaymentFormForLoan === loan.id;
+    const showRefin = ledger.showRefinanceFormForLoan === loan.id;
     const visiblePayments = (loan.payments || []).filter(p => !p.voided);
+    const refinancings = loan.refinancings || [];
+    const refinCount = getRefinanceCount(loan);
+    const totalInterest = getTotalInterestAccrued(loan);
+
+    const refinBadge = refinCount > 0
+        ? `<span title="${refinancings.map(r => `${formatDateShort(r.date)}: +${formatCurrency(r.interestAmount)}`).join(' | ')}" style="background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.6); color: #d8b4fe; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">♻️ Refinanciado ${refinCount}×</span>`
+        : '';
 
     const statusBadge = isActive
         ? `<span style="background: #f59e0b; color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ACTIVO</span>`
@@ -326,7 +336,10 @@ function LoanCard(loan) {
                         </div>
                     ` : ''}
                 </div>
-                ${statusBadge}
+                <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
+                    ${statusBadge}
+                    ${refinBadge}
+                </div>
             </div>
 
             <!-- Numbers row -->
@@ -338,6 +351,10 @@ function LoanCard(loan) {
                 <div>
                     <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Interés</div>
                     <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700;">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Int. acumulado</div>
+                    <div style="font-size: 0.95rem; color: ${refinCount > 0 ? '#d8b4fe' : '#f1f5f9'}; font-weight: 700;" title="Interés total acumulado (original + refinanciamientos)">${formatCurrency(totalInterest)}</div>
                 </div>
                 <div>
                     <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Total</div>
@@ -372,8 +389,28 @@ function LoanCard(loan) {
                 </div>
             ` : ''}
 
+            <!-- Refinancing history -->
+            ${refinancings.length > 0 ? `
+                <div style="margin-bottom: 12px;">
+                    <div style="font-size: 0.7rem; color: #d8b4fe; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">♻️ Refinanciamientos</div>
+                    ${refinancings.slice().reverse().map(r => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem; border-left: 3px solid #a855f7;">
+                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <span style="color: #d8b4fe; font-weight: 700;">+${formatCurrency(r.interestAmount)}</span>
+                                <span style="color: #94a3b8;">${formatDateShort(r.date)}</span>
+                                <span style="color: #64748b; font-size: 0.72rem;">${r.interestRate}% sobre ${r.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(r.baseAmount)})</span>
+                                ${r.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(r.note)}"</span>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+
             <!-- Payment form -->
             ${isActive && showPay ? PaymentForm(loan, balance) : ''}
+
+            <!-- Refinance form -->
+            ${isActive && showRefin ? RefinanceForm(loan, balance) : ''}
 
             <!-- Actions -->
             ${isActive ? `
@@ -382,6 +419,13 @@ function LoanCard(loan) {
                         <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
                                 style="flex: 1; min-width: 130px; padding: 10px 14px; background: #06b6d4; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
                             ${icons.get('add', { size: 14 })} Registrar abono
+                        </button>
+                    ` : ''}
+                    ${!showRefin ? `
+                        <button type="button" data-app-fn="toggleRefinanceForm" data-arg="${loan.id}"
+                                style="padding: 10px 14px; background: transparent; color: #d8b4fe; border: 1px solid #a855f7; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;"
+                                title="Agregar interés porque no pudo pagar">
+                            ♻️ Refinanciar
                         </button>
                     ` : ''}
                     <button type="button" data-app-fn="settleLoanByFullPayment" data-arg="${loan.id}"
@@ -439,6 +483,64 @@ function PaymentForm(loan, balance) {
                     Guardar abono
                 </button>
                 <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
+                        style="padding: 10px 14px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
+
+function RefinanceForm(loan, balance) {
+    const draft = (state.loansLedger || {}).refinanceDraft || { basis: 'balance', interestRate: 0, note: '' };
+    const base = draft.basis === 'balance' ? balance : Number(loan.principal || 0);
+    const rate = Number(draft.interestRate || 0);
+    const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const interestToAdd = r2(base * rate / 100);
+    const newBalance = r2(balance + interestToAdd);
+
+    const radio = (val, label, desc) => `
+        <label style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: #0f172a; border: 1px solid ${draft.basis === val ? '#a855f7' : '#334155'}; border-radius: 8px; cursor: pointer; flex: 1; min-width: 160px;">
+            <input type="radio" name="refin-basis-${loan.id}" ${draft.basis === val ? 'checked' : ''}
+                   onchange="setRefinanceDraftField('basis', '${val}')" style="margin-top: 2px;">
+            <span><span style="color: #f1f5f9; font-weight: 700; font-size: 0.85rem;">${label}</span><br>
+            <span style="color: #64748b; font-size: 0.72rem;">${desc}</span></span>
+        </label>`;
+
+    return `
+        <div style="background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.35); border-radius: 10px; padding: 12px; margin-bottom: 12px;">
+            <div style="font-size: 0.75rem; color: #d8b4fe; font-weight: 800; text-transform: uppercase; margin-bottom: 10px;">♻️ Refinanciar (no pudo pagar)</div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+                ${radio('balance', 'Sobre saldo restante', `Interés sobre ${formatCurrency(balance)}`)}
+                ${radio('principal', 'Sobre capital original', `Interés sobre ${formatCurrency(loan.principal)}`)}
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                <div>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Tasa de interés (%)</label>
+                    <input type="number" inputmode="decimal" autocomplete="off" value="${draft.interestRate || ''}"
+                           min="0" max="${VALIDATION.MAX_INTEREST_PERCENT}" step="0.1"
+                           oninput="setRefinanceDraftField('interestRate', this.value)" placeholder="0"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+                <div>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Nota (opcional)</label>
+                    <input type="text" value="${escapeAttr(draft.note || '')}"
+                           oninput="setRefinanceDraftField('note', this.value)" placeholder="motivo"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; background: #0f172a; border-radius: 8px; margin-bottom: 10px; font-size: 0.82rem;">
+                <span style="color: #94a3b8;">Interés a agregar: <strong style="color: #d8b4fe;">+${formatCurrency(interestToAdd)}</strong></span>
+                <span style="color: #94a3b8;">Nuevo saldo: <strong style="color: #f59e0b;">${formatCurrency(newBalance)}</strong></span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button type="button" data-app-fn="submitRefinance" data-arg="${loan.id}"
+                        style="flex: 1; padding: 10px; background: #a855f7; color: #fff; border: none; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
+                    Aplicar refinanciamiento
+                </button>
+                <button type="button" data-app-fn="toggleRefinanceForm" data-arg="${loan.id}"
                         style="padding: 10px 14px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
                     Cancelar
                 </button>
