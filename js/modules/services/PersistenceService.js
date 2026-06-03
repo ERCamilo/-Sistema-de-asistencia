@@ -227,6 +227,16 @@ export async function saveToIndexedDB(options = {}) {
  * Orquesta el guardado local y la sincronización con la nube.
  */
 export function saveApplicationData(options = {}) {
+    // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
+    // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
+    // locales durante la ventana de 300 ms en que el guardado aún está en cola.
+    // Sin esto, un nuevo empleado/cargo/líder añadido al state puede perderse si
+    // el listener de Firebase aplica datos remotos antes de que _executeSave corra.
+    if (!globalThis._isApplyingRemoteData && !options.localOnly) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
+
     // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
     if (options.dateKey && _pendingSaveOptions.dateKey) {
         _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
@@ -305,16 +315,13 @@ async function _executeSave(options = {}) {
         && !_isPausedEffective
         && !options.localOnly;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
-    // Read BEFORE updating localUpdatedAt so we compare cloud vs previous save.
+    // Already set in saveApplicationData(); reflects when save was requested.
     const _localTime = state.settings?.localUpdatedAt || 0;
     const _hasOutgoingConflict = _canSyncFirebase
         && !options.force
         && _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS;
 
-    // ⚡ FIX: Almacenar marca de tiempo de la última modificación local
-    // Esto previene que la caché de Firebase sobrescriba cambios si se refresca la página
-    // muy rápido antes de que se complete el debounced sync a la nube.
-    // Must run AFTER the conflict check so _localTime reflects the previous save.
+    // Refresh to actual execution time (after conflict check).
     if (!globalThis._isApplyingRemoteData) {
         if (!state.settings) state.settings = {};
         state.settings.localUpdatedAt = Date.now();
