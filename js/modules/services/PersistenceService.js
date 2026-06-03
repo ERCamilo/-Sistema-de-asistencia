@@ -212,7 +212,9 @@ export const syncFirebaseMirrorDebounced = (function() {
  */
 export async function saveToIndexedDB(options = {}) {
     try {
-        await indexedDBService.saveState(state, options);
+        // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
+        const rawState = stateManager.getState();
+        await indexedDBService.saveState(rawState, options);
         debug.log('💾 Datos guardados en IndexedDB');
         return true;
     } catch (error) {
@@ -225,6 +227,16 @@ export async function saveToIndexedDB(options = {}) {
  * Orquesta el guardado local y la sincronización con la nube.
  */
 export function saveApplicationData(options = {}) {
+    // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
+    // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
+    // locales durante la ventana de 300 ms en que el guardado aún está en cola.
+    // Sin esto, un nuevo empleado/cargo/líder añadido al state puede perderse si
+    // el listener de Firebase aplica datos remotos antes de que _executeSave corra.
+    if (!globalThis._isApplyingRemoteData && !options.localOnly) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
+
     // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
     if (options.dateKey && _pendingSaveOptions.dateKey) {
         _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
@@ -271,14 +283,6 @@ async function _executeSave(options = {}) {
         return;
     }
 
-    // ⚡ FIX: Almacenar marca de tiempo de la última modificación local
-    // Esto previene que la caché de Firebase sobrescriba cambios si se refresca la página
-    // muy rápido antes de que se complete el debounced sync a la nube.
-    if (!globalThis._isApplyingRemoteData) {
-        if (!state.settings) state.settings = {};
-        state.settings.localUpdatedAt = Date.now();
-    }
-
     console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ──────────────────────────────────────────────────────────
@@ -295,6 +299,10 @@ async function _executeSave(options = {}) {
     // block below — otherwise it fires false positives (e.g. during
     // _isApplyingRemoteData = true, the local timestamp is intentionally NOT
     // refreshed and a stale value would trip the check on every incoming sync).
+    //
+    // NOTE: we read localUpdatedAt BEFORE updating it so the conflict check
+    // compares the cloud's timestamp against the PREVIOUS local save, not NOW.
+    // Updating localUpdatedAt first would always make _localTime >= _cloudTime.
     // ──────────────────────────────────────────────────────────
     const OUTGOING_CONFLICT_GRACE_MS = 10_000;
     // 🚧 SYNC_PAUSE_ENABLED=false (kill-switch temporal): cuando la pausa está
@@ -307,10 +315,17 @@ async function _executeSave(options = {}) {
         && !_isPausedEffective
         && !options.localOnly;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
+    // Already set in saveApplicationData(); reflects when save was requested.
     const _localTime = state.settings?.localUpdatedAt || 0;
     const _hasOutgoingConflict = _canSyncFirebase
         && !options.force
         && _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS;
+
+    // Refresh to actual execution time (after conflict check).
+    if (!globalThis._isApplyingRemoteData) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
 
     if (_hasOutgoingConflict && !state._outgoingConflictReviewPending) {
         state._outgoingConflictReviewPending = true;
