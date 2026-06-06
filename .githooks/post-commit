@@ -1,0 +1,23 @@
+#!/bin/sh
+# Post-commit hook — sync sw.js working tree with what the pre-commit hook
+# wrote into the index, so `git status` stays clean after every commit.
+#
+# Background: the pre-commit hook patches CACHE_VERSION only in the git index
+# (via git hash-object + git update-index --cacheinfo) to avoid accidentally
+# staging partial working-tree edits to sw.js.  Side-effect: after the commit
+# the working tree still carries the old CACHE_VERSION, showing as "modified".
+# This hook fixes that by fast-forwarding the working tree to match HEAD.
+
+SW_FILE="sw.js"
+
+if [ ! -f "$SW_FILE" ]; then
+    exit 0
+fi
+
+# Only act when sw.js HEAD differs from the working tree (i.e. the pre-commit
+# hook bumped the version).  `git diff HEAD -- sw.js` is empty when in sync.
+if git diff --quiet HEAD -- "$SW_FILE"; then
+    exit 0
+fi
+
+git checkout HEAD -- "$SW_FILE"
