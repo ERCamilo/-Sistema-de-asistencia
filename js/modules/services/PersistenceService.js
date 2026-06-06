@@ -30,6 +30,23 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
 
+// 🔴 Rate-limit para toasts de error de sync: no spamear cada 2s.
+// Se resetea a null cuando markSynced() dispara (sync se recuperó).
+let _lastSyncErrorNotifiedAt = null;
+const _SYNC_ERROR_NOTIFY_COOLDOWN_MS = 60 * 1000;
+
+function _notifySyncError(e) {
+    SyncStatus.markError(e);
+    const now = Date.now();
+    if (!_lastSyncErrorNotifiedAt || now - _lastSyncErrorNotifiedAt > _SYNC_ERROR_NOTIFY_COOLDOWN_MS) {
+        _lastSyncErrorNotifiedAt = now;
+        NotificationSystem.error(
+            'No se pudo sincronizar con la nube. Tus datos locales están seguros.',
+            10000
+        );
+    }
+}
+
 // 🗑️ Cola de ids de empleados a borrar de la subcolección de Firebase
 // la próxima vez que saveApplicationData drene (Tarea #18).
 // Usada por el wizard de duplicados cuando consume un duplicado cloud-only:
@@ -87,6 +104,9 @@ export function initSyncPersistence() {
         if (ts === null) return;
         if (!state.settings) state.settings = {};
         state.settings.lastCloudSavedAt = ts;
+        // Sync se recuperó — resetear rate-limiter para que el próximo
+        // error vuelva a mostrar toast inmediatamente.
+        _lastSyncErrorNotifiedAt = null;
     });
 }
 
@@ -194,6 +214,7 @@ export const syncFirebaseMirrorDebounced = (function() {
                 const runSync = () => {
                     FirebaseService.saveFullState(state).catch(e => {
                         console.warn('⚠️ Error en sincronización debounced:', e);
+                        _notifySyncError(e);
                     });
                 };
 
@@ -354,9 +375,10 @@ async function _executeSave(options = {}) {
                     dayRecords[key] = record;
                 }
             });
-            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => 
-                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e)
-            );
+            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => {
+                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e);
+                _notifySyncError(e);
+            });
         }
 
         // 2. Sincronización Espejo (Full State) - DEBOUNCED
