@@ -63,6 +63,52 @@ const _pendingCloudPositionDeletes = new Set();
 const _pendingCloudLeaderDeletes = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 💾 Persistencia de colas de borrado en localStorage
+// Las tres colas son en-memoria; sin persistencia, un page reload descartaría
+// ids pendientes y sus docs en Firestore quedarían huérfanos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _PENDING_DELETES_LS_KEY = 'asistencia_pending_cloud_deletes';
+
+function _persistDeleteQueues() {
+    if (typeof localStorage === 'undefined') return;
+    const data = {
+        employees: [..._pendingCloudDeletes],
+        positions: [..._pendingCloudPositionDeletes],
+        leaders:   [..._pendingCloudLeaderDeletes]
+    };
+    const total = data.employees.length + data.positions.length + data.leaders.length;
+    try {
+        if (total === 0) {
+            localStorage.removeItem(_PENDING_DELETES_LS_KEY);
+        } else {
+            localStorage.setItem(_PENDING_DELETES_LS_KEY, JSON.stringify(data));
+        }
+    } catch (e) {
+        console.warn('⚠️ No se pudo persistir la cola de borrados pendientes:', e);
+    }
+}
+
+/** Carga los ids pendientes desde localStorage y los agrega a los Sets en-memoria. */
+export function loadDeleteQueuesFromStorage() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const raw = localStorage.getItem(_PENDING_DELETES_LS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.employees || []).forEach(id => { if (id) _pendingCloudDeletes.add(String(id)); });
+        (data.positions || []).forEach(id => { if (id) _pendingCloudPositionDeletes.add(String(id)); });
+        (data.leaders   || []).forEach(id => { if (id) _pendingCloudLeaderDeletes.add(String(id)); });
+        const total = _pendingCloudDeletes.size + _pendingCloudPositionDeletes.size + _pendingCloudLeaderDeletes.size;
+        if (total > 0) {
+            debug.log(`🗑️ Cola de borrados recuperada del storage: ${total} doc(s) pendiente(s)`);
+        }
+    } catch (e) {
+        console.warn('⚠️ Error al leer la cola de borrados del storage (ignorando):', e);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 🕒 lastCloudSavedAt — persistir timestamp de la última sync exitosa
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -119,6 +165,7 @@ export function enqueueCloudEmployeeDelete(id) {
     const key = String(id).trim();
     if (!key) return;
     _pendingCloudDeletes.add(key);
+    _persistDeleteQueues();
 }
 
 /** Snapshot de la cola actual (copia). */
@@ -137,6 +184,7 @@ export function enqueueCloudPositionDelete(id) {
     const key = String(id).trim();
     if (!key) return;
     _pendingCloudPositionDeletes.add(key);
+    _persistDeleteQueues();
 }
 export function getPendingCloudPositionDeletes() {
     return [..._pendingCloudPositionDeletes];
@@ -151,6 +199,7 @@ export function enqueueCloudLeaderDelete(id) {
     const key = String(id).trim();
     if (!key) return;
     _pendingCloudLeaderDeletes.add(key);
+    _persistDeleteQueues();
 }
 export function getPendingCloudLeaderDeletes() {
     return [..._pendingCloudLeaderDeletes];
@@ -177,6 +226,8 @@ async function _drainDeleteSet(set, repo) {
         }
     }
     failed.forEach(id => set.add(id));
+    // Sync storage: remove drained ids, keep only failed ones.
+    _persistDeleteQueues();
 }
 
 /**
@@ -455,7 +506,11 @@ async function _executeSave(options = {}) {
 export async function loadApplicationData() {
     try {
         debug.log('📂 PersistenceService: Iniciando carga de datos...');
-        
+
+        // Rehidratar colas de borrado pendientes del storage para que
+        // docs que quedaron sin borrar en sesiones anteriores se reintenten.
+        loadDeleteQueuesFromStorage();
+
         // 1. Intentar cargar desde IndexedDB (Fase 2+)
         const idbData = await indexedDBService.loadFullState();
         
