@@ -108,6 +108,7 @@ import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlo
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
 import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } from './modules/features/loans/index.js';
+import { registerLegacyGlobals as registerLegacyAdvancesGlobals } from './modules/features/loans/LegacyAdvancesBridge.js';
 import {
     WeatherChip,
     WeatherChipWithPanel,
@@ -2114,83 +2115,13 @@ eventBus.on('render:complete', () => {
 // path is preserved for backward compatibility — existing UI templates still
 // read from it. A migration runs on each profile open to mirror legacy data
 // into emp.loans[].
-window.addAdvance = () => {
-    if (!state.employeeProfile.advances) state.employeeProfile.advances = [];
-
-    const newIndex = state.employeeProfile.advances.length;
-    state.employeeProfile.advances.push({
-        id: `ADV-${Date.now()}`,
-        amount: 0,
-        date: getDateKey(new Date()),
-        interest: 0,
-        note: ''
-    });
-
-    // ⚡ FIX (Bug #2): Auto-open the new entry in edit mode so the user can
-    // fill it in immediately (mirrors the UX of the old dead handler).
-    if (!state.employeeProfile.editingAdvances) state.employeeProfile.editingAdvances = {};
-    state.employeeProfile.editingAdvances[newIndex] = true;
-
-    syncProfileToMaster(state.employeeProfile.employeeId);
-    updatePayrollUI();
-};
-
-window.removeAdvance = (index) => {
-    state.employeeProfile.advances.splice(index, 1);
-    syncProfileToMaster(state.employeeProfile.employeeId);
-    updatePayrollUI();
-};
-
-window.updateAdvanceValue = (index, amount) => {
-    if (state.employeeProfile.advances[index]) {
-        state.employeeProfile.advances[index].amount = parseFloat(amount) || 0;
-        syncAdvancesAndSave(); // ⚡ Auto-save
-        updatePayrollUI();
-    }
-};
-
-window.updateAdvanceDate = (index, date) => {
-    if (state.employeeProfile.advances[index]) {
-        state.employeeProfile.advances[index].date = date;
-        syncAdvancesAndSave(); // ⚡ Auto-save
-        updatePayrollUI();
-    }
-};
-
-window.updateAdvanceInterest = (index, interest) => {
-    if (state.employeeProfile.advances[index]) {
-        state.employeeProfile.advances[index].interest = parseFloat(interest) || 0;
-        syncAdvancesAndSave(); // ⚡ Auto-save
-        updatePayrollUI();
-    }
-};
-
-window.updateAdvanceNote = (index, note) => {
-    if (state.employeeProfile.advances[index]) {
-        state.employeeProfile.advances[index].note = note;
-        syncAdvancesAndSave(); // ⚡ Auto-save
-        updatePayrollUI();
-    }
-};
-
-window.saveAdvance = (index) => {
-    // ⚡ FIX (Bug #2): Close edit mode for this row so the user sees the
-    // saved summary (the dead-code version used to do this; the live
-    // version didn't, leaving rows perpetually expanded).
-    if (state.employeeProfile.editingAdvances) {
-        state.employeeProfile.editingAdvances[index] = false;
-    }
-    syncAdvancesAndSave();
-    updatePayrollUI();
-    showNotification('✅ Adelanto guardado correctamente', 'success');
-};
-
-/**
- * ⚡ Sincroniza adelantos del perfil al empleado y guarda en DB
- */
-function syncAdvancesAndSave() {
-    syncProfileToMaster(state.employeeProfile.employeeId);
-}
+//
+// The eight window-bound handlers (addAdvance, removeAdvance, the four
+// updateAdvance*, editAdvance, saveAdvance) now live in
+// js/modules/features/loans/LegacyAdvancesBridge.js and are wired below via
+// registerLegacyAdvancesGlobals(). The bridge uses pure helpers covered by
+// LegacyAdvancesBridgeTests; the duplicated definitions previously in this
+// file were a load-order accident from the old extraction.
 
 // ⚡ NUEVO: Función principal para actualizar toda la interfaz de nómina
 function updatePayrollUI(payrollOverride = null) {
@@ -3076,6 +3007,12 @@ registerNotesGlobals();
 registerExportGlobals();
 registerProfileGlobals();
 registerLoansGlobals();
+// Bind window.addAdvance / removeAdvance / updateAdvance* / editAdvance /
+// saveAdvance to the LegacyAdvancesBridge handlers. Must run AFTER
+// registerLoansGlobals so the new ledger still owns the loan-side window.*
+// surface, and AFTER any older copy of these handlers in this file (none
+// remain) so the bridge is what the data-app-fn dispatcher resolves to.
+registerLegacyAdvancesGlobals();
 
 // 🌤️ Weather: chip + panel handlers, outside-click closer, initial refresh.
 //    AttendanceUI reads window.WeatherChip / WeatherChipWithPanel lazily, so
