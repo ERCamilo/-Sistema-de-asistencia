@@ -33,17 +33,24 @@ body.has-sidebar {
     body.has-sidebar .app-sidebar {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: clamp(1px, 0.45vh, 4px);
         position: fixed;
         left: 0;
         top: 0;
         bottom: 0;
         width: 240px;
-        padding: 16px 12px 16px;
+        padding: clamp(8px, 1.7vh, 16px) 12px;
         background: #0f172a;
         border-right: 1px solid rgba(255, 255, 255, 0.06);
         z-index: 50;
-        overflow-y: auto;
+        overflow: hidden !important;
+        overflow-y: hidden !important;
+    }
+
+    body.has-sidebar .sidebar-brand-box {
+        height: clamp(42px, 9vh, 72px) !important;
+        margin-bottom: clamp(6px, 1.5vh, 16px) !important;
+        padding: clamp(6px, 1.2vh, 10px) !important;
     }
 
     /* Hide the mobile bottom nav at desktop width */
@@ -54,12 +61,84 @@ body.has-sidebar {
     body.has-sidebar .container { max-width: 1480px; }
 }
 
+/* XGA desktop baseline: keep the full navigation visible at 1024x768+. */
+@media (min-width: 1024px) and (max-height: 768px) {
+    body.has-sidebar {
+        padding-left: 224px;
+    }
+
+    body.has-sidebar .app-sidebar {
+        width: 224px;
+        gap: 2px;
+        padding: 8px 10px;
+    }
+
+    body.has-sidebar .sidebar-brand-box {
+        height: 52px !important;
+        margin-bottom: 6px !important;
+        padding: 6px !important;
+    }
+
+    .sidebar-item {
+        min-height: 32px;
+        padding: 6px 10px;
+        gap: 10px;
+        font-size: 13px;
+        border-radius: 8px;
+    }
+
+    .sidebar-icon {
+        width: 18px;
+        height: 18px;
+        font-size: 16px;
+    }
+
+    .sidebar-badge {
+        padding: 1px 6px;
+        font-size: 10px;
+    }
+
+    .sidebar-subitems {
+        padding-left: 14px !important;
+        gap: 1px !important;
+        margin-top: 1px !important;
+        margin-bottom: 2px !important;
+    }
+
+    .sidebar-subitems .sidebar-item {
+        min-height: 26px !important;
+        padding: 4px 10px !important;
+        font-size: 12px !important;
+    }
+
+    .sidebar-divider {
+        margin: 4px;
+    }
+
+    .sidebar-section {
+        padding: 5px 10px 2px;
+        font-size: 9px;
+    }
+
+    .sidebar-foot {
+        padding: 8px 10px;
+        gap: 8px;
+        font-size: 11px;
+        border-radius: 8px;
+    }
+
+    .sidebar-foot-sub {
+        font-size: 10px;
+        margin-top: 1px;
+    }
+}
+
 /* ----- Sidebar items ----- */
 .sidebar-item {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 12px;
+    padding: clamp(6px, 1.15vh, 10px) 12px;
     border-radius: 10px;
     color: #94a3b8;
     background: none;
@@ -67,13 +146,27 @@ body.has-sidebar {
     cursor: pointer;
     text-align: left;
     line-height: 1;
-    min-height: 40px;
+    min-height: clamp(28px, 4.8vh, 40px);
     font-size: 14px;
     font-weight: 500;
     font-family: inherit;
     transition: background 0.12s, color 0.12s;
     position: relative;
     width: 100%;
+}
+
+@media (min-width: 1024px) {
+    .sidebar-subitems {
+        gap: clamp(1px, 0.35vh, 2px) !important;
+        margin-top: clamp(1px, 0.35vh, 2px) !important;
+        margin-bottom: clamp(2px, 0.7vh, 4px) !important;
+    }
+
+    .sidebar-subitems .sidebar-item {
+        min-height: clamp(24px, 4.2vh, 36px) !important;
+        padding-top: clamp(4px, 0.9vh, 6px) !important;
+        padding-bottom: clamp(4px, 0.9vh, 6px) !important;
+    }
 }
 
 .sidebar-item:hover {
@@ -138,7 +231,7 @@ body.has-sidebar {
 .sidebar-divider {
     height: 1px;
     background: rgba(255, 255, 255, 0.06);
-    margin: 8px 4px;
+    margin: clamp(4px, 1vh, 8px) 4px;
 }
 
 .sidebar-section {
@@ -146,13 +239,13 @@ body.has-sidebar {
     font-size: 11px;
     letter-spacing: 0.08em;
     color: #64748b;
-    padding: 12px 12px 4px;
+    padding: clamp(6px, 1.2vh, 12px) 12px clamp(2px, 0.6vh, 4px);
     font-weight: 700;
 }
 
 .sidebar-foot {
     margin-top: auto;
-    padding: 12px;
+    padding: clamp(8px, 1.4vh, 12px);
     background: #1e293b;
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
@@ -160,6 +253,84 @@ body.has-sidebar {
     align-items: center;
     gap: 10px;
     font-size: 12px;
+}
+
+@media (min-width: 1024px) and (max-height: 620px) {
+    .sidebar-item {
+        font-size: 13px;
+        min-height: 30px;
+        padding-top: 5px;
+        padding-bottom: 5px;
+    }
+
+    .sidebar-icon {
+        width: 19px;
+        height: 19px;
+        font-size: 16px;
+    }
+
+    .sidebar-section {
+        font-size: 10px;
+    }
+
+    .sidebar-foot {
+        font-size: 11px;
+        gap: 8px;
+    }
+
+    .sidebar-foot-sub {
+        font-size: 10px;
+    }
+}
+
+@media (min-width: 1024px) and (max-height: 560px) {
+    body.has-sidebar .app-sidebar {
+        gap: 1px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+    }
+
+    body.has-sidebar .sidebar-brand-box {
+        height: 34px !important;
+        margin-bottom: 4px !important;
+        padding: 4px !important;
+    }
+
+    .sidebar-item {
+        min-height: 26px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        font-size: 12px;
+        border-radius: 8px;
+    }
+
+    .sidebar-subitems {
+        padding-left: 14px !important;
+        margin-top: 0 !important;
+        margin-bottom: 1px !important;
+    }
+
+    .sidebar-subitems .sidebar-item {
+        min-height: 23px !important;
+        padding-top: 3px !important;
+        padding-bottom: 3px !important;
+        font-size: 12px !important;
+    }
+
+    .sidebar-divider {
+        margin-top: 3px;
+        margin-bottom: 3px;
+    }
+
+    .sidebar-section {
+        padding-top: 4px;
+        padding-bottom: 1px;
+        font-size: 9px;
+    }
+
+    .sidebar-foot {
+        display: none;
+    }
 }
 
 .sidebar-foot-dot {
@@ -833,8 +1004,57 @@ body.has-sidebar {
     overflow: hidden;
 }
 
+.detail-calendar-view-toggle {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 3px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.detail-calendar-view-toggle button {
+    border: 0;
+    border-radius: 7px;
+    min-height: 30px;
+    padding: 7px 8px;
+    background: transparent;
+    color: #94a3b8;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.detail-calendar-view-toggle button:hover,
+.detail-calendar-view-toggle button:focus-visible {
+    color: #e2e8f0;
+    background: rgba(148, 163, 184, 0.08);
+    outline: none;
+}
+
+.detail-calendar-view-toggle button.active {
+    color: #07111f;
+    background: #06b6d4;
+    box-shadow: 0 8px 18px rgba(6, 182, 212, 0.18);
+}
+
 .detail-panel-body .premium-calendar .calendar-grid {
     gap: clamp(4px, 1.35cqw, 8px);
+}
+
+.detail-panel-body .premium-calendar.calendar-period-mode .calendar-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.detail-panel-body .premium-calendar .nav-btn-placeholder {
+    width: 32px;
+    height: 32px;
+    display: inline-block;
+    flex: none;
 }
 
 .detail-panel-body .premium-calendar .calendar-day {
@@ -927,6 +1147,15 @@ body.has-sidebar {
 .detail-panel-body .premium-calendar .hours-dot {
     font-size: clamp(9px, 2.5cqw, 11px);
     font-weight: 800;
+}
+
+.detail-panel-body .premium-calendar .period-day-label {
+    margin-top: 2px;
+    color: rgba(226, 232, 240, 0.76);
+    font-size: clamp(7px, 2cqw, 9px);
+    font-weight: 900;
+    line-height: 1;
+    text-transform: uppercase;
 }
 
 .detail-panel-body .premium-calendar .calendar-position-dots {
@@ -1113,6 +1342,49 @@ body.has-sidebar {
 }
 
 /* ----- Quick note textarea ----- */
+.detail-quick-note-section {
+    display: grid;
+    gap: 8px;
+}
+
+.detail-note-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.detail-note-summary::-webkit-details-marker {
+    display: none;
+}
+
+.detail-note-summary::after {
+    content: "▾";
+    color: #64748b;
+    font-size: 11px;
+    transition: transform 0.16s ease, color 0.16s ease;
+}
+
+.detail-quick-note-section[open] .detail-note-summary::after {
+    transform: rotate(180deg);
+    color: #06b6d4;
+}
+
+.detail-note-summary-right {
+    margin-left: auto;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.detail-quick-note-section[open] .detail-note-summary-right {
+    color: #10b981;
+}
+
 .detail-quick-note {
     width: 100%;
     min-height: 64px;
@@ -1257,4 +1529,276 @@ body.has-sidebar {
 .attendance-detail.empty .detail-empty-sub {
     font-size: 12px;
     margin-top: 4px;
+}
+
+/* =================================================================
+   🖥️ XGA DENSITY PASS (1024×768 and similar desktop heights)
+   -----------------------------------------------------------------
+   Compact the right-side attendance detail panel itself, not only the
+   left navigation. This keeps the calendar useful while avoiding the
+   "small page inside the page" scrollbar feel on 768px-tall displays.
+   ================================================================= */
+@media (min-width: 1024px) and (max-height: 768px) {
+    body.has-sidebar .container {
+        padding-top: 8px;
+        padding-bottom: 8px;
+    }
+
+    .attendance-split {
+        grid-template-columns: minmax(0, 1.58fr) minmax(292px, 0.88fr);
+        gap: 12px;
+    }
+
+    .attendance-detail {
+        top: 8px;
+        max-height: calc(100vh - 16px);
+        overflow: hidden;
+    }
+
+    .detail-card {
+        gap: 8px;
+        padding: 11px;
+        border-radius: 12px;
+    }
+
+    .detail-head {
+        gap: 9px;
+    }
+
+    .detail-avatar {
+        width: 38px;
+        height: 38px;
+        font-size: 14px;
+    }
+
+    .detail-name {
+        font-size: 15px;
+        line-height: 1.1;
+    }
+
+    .detail-sub {
+        margin-top: 2px;
+        font-size: 11px;
+        gap: 4px;
+    }
+
+    .detail-pos-chip {
+        padding: 1px 6px;
+        font-size: 10px;
+    }
+
+    .detail-status-pill {
+        padding: 3px 8px;
+        font-size: 10px;
+    }
+
+    .detail-stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .detail-finance-stat {
+        display: none;
+    }
+
+    .detail-stat {
+        padding: 7px 8px;
+        border-radius: 8px;
+    }
+
+    .detail-week-stat,
+    .detail-hours-progress-stat {
+        min-height: 78px;
+    }
+
+    .detail-finance-icon {
+        width: 30px;
+        height: 30px;
+        font-size: 18px;
+    }
+
+    .detail-progress-title,
+    .detail-stat-label {
+        font-size: 10px;
+    }
+
+    .detail-week-days {
+        gap: 4px;
+    }
+
+    .detail-week-day span {
+        font-size: 10px;
+    }
+
+    .detail-week-day i {
+        width: 18px;
+        height: 18px;
+    }
+
+    .detail-progress-footer,
+    .detail-progress-note,
+    .detail-stat-sub,
+    .detail-range-note {
+        font-size: 10px;
+    }
+
+    .detail-hours-value strong {
+        font-size: 22px;
+    }
+
+    .detail-hours-value span {
+        font-size: 14px;
+    }
+
+    .detail-finance-stat .detail-stat-value {
+        font-size: 17px;
+    }
+
+    .detail-range-note {
+        margin-top: -2px;
+    }
+
+    .detail-tabbed-panel {
+        gap: 6px;
+    }
+
+    .detail-panel-tabs {
+        padding: 2px;
+        border-radius: 8px;
+    }
+
+    .detail-panel-tab {
+        min-height: 27px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+    }
+
+    .detail-panel-body.is-calendar {
+        padding: 7px;
+        border-radius: 10px;
+    }
+
+    .detail-calendar-view-toggle {
+        margin-bottom: 6px;
+        padding: 2px;
+        border-radius: 8px;
+    }
+
+    .detail-calendar-view-toggle button {
+        min-height: 24px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        font-size: 10px;
+    }
+
+    .detail-panel-body .premium-calendar .calendar-grid {
+        gap: 4px;
+    }
+
+    .detail-panel-body .premium-calendar.calendar-period-mode .calendar-grid {
+        gap: 4px;
+    }
+
+    .detail-panel-body .premium-calendar .nav-btn-placeholder {
+        width: 24px;
+        height: 24px;
+    }
+
+    .detail-panel-body .premium-calendar .calendar-day-name {
+        padding-bottom: 2px;
+        font-size: 9px;
+    }
+
+    .detail-panel-body .premium-calendar .calendar-month-title {
+        font-size: 12px !important;
+        line-height: 1.1;
+    }
+
+    .detail-panel-body .premium-calendar .calendar-day {
+        aspect-ratio: auto;
+        min-height: 28px;
+        max-height: 32px;
+        border-radius: 7px;
+    }
+
+    .detail-panel-body .premium-calendar .day-number {
+        font-size: 10px;
+        line-height: 1;
+    }
+
+    .detail-panel-body .premium-calendar .hours-dot {
+        margin-top: 1px;
+        padding: 1px 3px;
+        font-size: 8px;
+        line-height: 1.1;
+    }
+
+    .detail-panel-body .premium-calendar .period-day-label {
+        margin-top: 1px;
+        font-size: 7px;
+    }
+
+    .detail-panel-body .premium-calendar .calendar-position-dots,
+    .detail-panel-body .premium-calendar .money-badge,
+    .detail-panel-body .premium-calendar .payday-indicator,
+    .detail-panel-body .premium-calendar .today-marker {
+        display: none !important;
+    }
+
+    .calendar-day-pay-period,
+    .calendar-payday {
+        border-width: 1px !important;
+        box-shadow: 0 0 6px rgba(6, 182, 212, 0.24) !important;
+    }
+
+    .detail-quick-note-section {
+        gap: 5px;
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 9px;
+        background: #111827;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    .detail-note-summary {
+        margin: 0;
+        padding: 7px 9px;
+    }
+
+    .detail-note-summary-right {
+        font-size: 9px;
+    }
+
+    .detail-quick-note-section[open] {
+        padding-bottom: 8px;
+    }
+
+    .detail-quick-note-section[open] .detail-quick-note,
+    .detail-quick-note-section[open] .detail-actions {
+        margin-left: 8px;
+        margin-right: 8px;
+        width: calc(100% - 16px);
+    }
+
+    .detail-quick-note {
+        min-height: 42px;
+        max-height: 48px;
+        padding: 7px 8px;
+        font-size: 11px;
+        line-height: 1.35;
+        resize: none;
+    }
+
+    .detail-actions {
+        gap: 6px;
+        margin-top: 0;
+    }
+
+    .detail-btn {
+        min-height: 28px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        font-size: 11px;
+    }
 }

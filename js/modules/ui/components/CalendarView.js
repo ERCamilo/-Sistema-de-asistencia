@@ -61,6 +61,34 @@ function _positionMarkerData(att, employee) {
     return Array.from(byPosition.values());
 }
 
+function _getPeriodDays(payPeriod, fallbackMonth) {
+    if (!payPeriod?.periodStart || !payPeriod?.periodLength) {
+        return getDaysInMonth(fallbackMonth).filter(day => day.currentMonth);
+    }
+
+    const start = new Date(`${payPeriod.periodStart}T00:00:00`);
+    if (isNaN(start.getTime())) return getDaysInMonth(fallbackMonth);
+
+    const length = Math.max(1, Math.min(60, Number(payPeriod.periodLength) || 1));
+    const days = [];
+    for (let i = 0; i < length; i++) {
+        const date = new Date(start);
+        date.setDate(start.getDate() + i);
+        days.push({ date, currentMonth: true, periodOnly: true });
+    }
+    return days;
+}
+
+function _formatRangeLabel(days) {
+    if (!days.length) return '';
+    const first = days[0].date;
+    const last = days[days.length - 1].date;
+    const sameYear = first.getFullYear() === last.getFullYear();
+    const shortOpts = { day: 'numeric', month: 'short' };
+    const fullOpts = { day: 'numeric', month: 'short', year: 'numeric' };
+    return `${first.toLocaleDateString('es', sameYear ? shortOpts : fullOpts)} – ${last.toLocaleDateString('es', fullOpts)}`;
+}
+
 // Delegación: los botones de CalendarView usan data-cv-nav-action + data-cv-delta
 // para resolver dinámicamente la función global a llamar (preserva la API original).
 let _cvDelegationAttached = false;
@@ -98,14 +126,16 @@ if (!_cvDelegationAttached) {
  * @param {String} options.navAction - El handler global para cambiar mes (ej: 'window.changeFloatingMonth')
  * @param {Boolean} [options.showLegend=false] - Si mostrar la leyenda al pie
  */
-export function CalendarView({ employee, month, navAction, showLegend = false, selectedDate = null, selectAction = '' }) {
+export function CalendarView({ employee, month, navAction, showLegend = false, selectedDate = null, selectAction = '', viewMode = 'month' }) {
     if (!employee || !month) return '<div class="empty-state">No hay datos</div>';
 
-    const days = getDaysInMonth(month);
+    const payPeriod = state.settings.payPeriod;
+    const isPeriodView = viewMode === 'period';
+    const days = isPeriodView ? _getPeriodDays(payPeriod, month) : getDaysInMonth(month);
     const dayNames = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
     const todayKey = getDateKey(new Date());
     const selectedKey = selectedDate ? getDateKey(selectedDate) : '';
-    const payPeriod = state.settings.payPeriod;
+    const periodLabel = isPeriodView ? _formatRangeLabel(days) : '';
 
     // Generar las celdas de los días
     const daysHTML = days.map(d => {
@@ -129,6 +159,7 @@ export function CalendarView({ employee, month, navAction, showLegend = false, s
         // Clases CSS
         const classes = [
             'calendar-day',
+            isPeriodView ? 'calendar-day-period-view' : '',
             !isCurrentMonth ? 'other-month' : '',
             isToday ? 'today' : '',
             isSelected ? 'selected' : '',
@@ -160,6 +191,7 @@ export function CalendarView({ employee, month, navAction, showLegend = false, s
             <div class="${classes}" title="${escapeAttr(enrichedTooltip)}"
                  ${selectAction && isCurrentMonth ? `role="button" tabindex="0" data-cv-select-action="${selectAction}" data-cv-date="${dKey}"` : ''}>
                 <span class="day-number">${d.date.getDate()}</span>
+                ${isPeriodView ? `<span class="period-day-label">${dayNames[d.date.getDay()]}</span>` : ''}
                 ${isPresent ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
                 ${positionDots}
                 ${todayIcon}
@@ -170,17 +202,17 @@ export function CalendarView({ employee, month, navAction, showLegend = false, s
     }).join('');
 
     return `
-        <div class="calendar-container premium-calendar">
+        <div class="calendar-container premium-calendar ${isPeriodView ? 'calendar-period-mode' : 'calendar-month-mode'}">
             <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior">${icons.get('chevron-left')}</button>
+                ${isPeriodView ? '<span class="nav-btn-placeholder" aria-hidden="true"></span>' : `<button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior">${icons.get('chevron-left')}</button>`}
                 <div class="calendar-month-title" style="font-weight: 700; color: #f1f5f9; font-size: 0.9rem;">
-                    ${formatMonthYear(month)}
+                    ${isPeriodView ? `Período · ${periodLabel}` : formatMonthYear(month)}
                 </div>
-                <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>
+                ${isPeriodView ? '<span class="nav-btn-placeholder" aria-hidden="true"></span>' : `<button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>`}
             </div>
             
             <div class="calendar-grid">
-                ${dayNames.map(name => `<div class="calendar-day-name">${name}</div>`).join('')}
+                ${isPeriodView ? '' : dayNames.map(name => `<div class="calendar-day-name">${name}</div>`).join('')}
                 ${daysHTML}
             </div>
 
