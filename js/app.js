@@ -3683,6 +3683,8 @@ function _AttendanceDetailPanelInner() {
 
     // ----- Format money -----
     const money = (n) => '$' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const todayKey = getDateKey(today);
+    const todayNote = state.attendance[`${emp.id}-${todayKey}`]?.notes || '';
 
     return `<aside class="attendance-detail" data-emp-id="${emp.id}">
         <div class="detail-card">
@@ -3741,22 +3743,24 @@ function _AttendanceDetailPanelInner() {
 
             ${detailInteractivePanel}
 
-            <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
-                <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
-                ${(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
-            </div>
-            <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
-                placeholder="Anota algo sobre ${escapeHTML(emp.name.split(/\s+/)[0] || 'el empleado')} (ej. salió temprano por cita médica)…"
-                data-emp-id="${emp.id}">${escapeHTML(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes || '')}</textarea>
+            <details class="detail-quick-note-section">
+                <summary class="detail-section-title detail-note-summary">
+                    <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
+                    <span class="detail-note-summary-right">${todayNote ? '● guardada' : 'desplegar'}</span>
+                </summary>
+                <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
+                    placeholder="Anota algo sobre ${escapeHTML(emp.name.split(/\s+/)[0] || 'el empleado')} (ej. salió temprano por cita médica)…"
+                    data-emp-id="${emp.id}">${escapeHTML(todayNote)}</textarea>
 
-            <div class="detail-actions">
-                <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
-                    📋 Ver perfil completo
-                </button>
-                <button class="detail-btn primary" type="button" data-app-fn="saveQuickNoteFromDetail" data-arg="${emp.id}">
-                    💾 Guardar nota
-                </button>
-            </div>
+                <div class="detail-actions">
+                    <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
+                        📋 Ver perfil completo
+                    </button>
+                    <button class="detail-btn primary" type="button" data-app-fn="saveQuickNoteFromDetail" data-arg="${emp.id}">
+                        💾 Guardar nota
+                    </button>
+                </div>
+            </details>
         </div>
     </aside>`;
 }
@@ -3786,6 +3790,7 @@ function getAttendanceDetailPositionHours(emp, att) {
 
 function renderAttendanceDetailWorkPanel(emp, selectedDate) {
     const activeTab = state.attendanceDetailPanelTab || 'calendar';
+    const calendarViewMode = state.attendanceDetailCalendarViewMode || 'period';
     const selectedDateKey = getDateKey(selectedDate);
     const calendarMonth = state.attendanceDetailCalendarMonth instanceof Date
         ? state.attendanceDetailCalendarMonth
@@ -3811,8 +3816,26 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
         navAction: 'changeAttendanceDetailMonth',
         selectedDate,
         selectAction: 'selectAttendanceDetailDate',
-        showLegend: false
+        showLegend: false,
+        viewMode: calendarViewMode
     });
+
+    const calendarViewToggle = `
+        <div class="detail-calendar-view-toggle" role="group" aria-label="Vista del calendario">
+            <button type="button"
+                    class="${calendarViewMode === 'period' ? 'active' : ''}"
+                    data-app-fn="setAttendanceDetailCalendarViewMode"
+                    data-arg="period">
+                Período
+            </button>
+            <button type="button"
+                    class="${calendarViewMode === 'month' ? 'active' : ''}"
+                    data-app-fn="setAttendanceDetailCalendarViewMode"
+                    data-arg="month">
+                Mes completo
+            </button>
+        </div>
+    `;
 
     const hoursContent = `
         <div class="detail-hours-editor" data-emp-id="${emp.id}">
@@ -3893,7 +3916,7 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
                 ${tabButton('hours', 'Horas del día')}
             </div>
             <div class="detail-panel-body ${activeTab === 'calendar' ? 'is-calendar' : 'is-hours'}">
-                ${activeTab === 'calendar' ? calendarContent : hoursContent}
+                ${activeTab === 'calendar' ? `${calendarViewToggle}${calendarContent}` : hoursContent}
             </div>
         </div>
     `;
@@ -3910,6 +3933,11 @@ window.changeAttendanceDetailMonth = (delta) => {
         : new Date(state.selectedDate);
     base.setMonth(base.getMonth() + Number(delta || 0));
     state.attendanceDetailCalendarMonth = base;
+    if (typeof window.render === 'function') window.render();
+};
+
+window.setAttendanceDetailCalendarViewMode = (mode) => {
+    state.attendanceDetailCalendarViewMode = mode === 'month' ? 'month' : 'period';
     if (typeof window.render === 'function') window.render();
 };
 
@@ -4037,6 +4065,23 @@ window.saveQuickNoteFromDetail = (empId) => {
 // user clicks on a row body (not on any interactive child). Selection updates
 // `state.selectedDetailEmployeeId` and triggers a re-render. Cheap because
 // DOMDiff only patches the changed parts.
+function getEffectiveDetailSelectionId() {
+    const selected = state.selectedDetailEmployeeId;
+    if (selected && state.employees?.some(emp => emp.id === selected)) return selected;
+    return (state.employees || []).find(emp => emp.active !== false)?.id || state.employees?.[0]?.id || null;
+}
+
+function syncDetailSelectedRowHighlight(forceId = null) {
+    const selectedId = forceId || getEffectiveDetailSelectionId();
+    document.querySelectorAll('.employee-row.is-detail-selected').forEach(row => {
+        if (row.id !== `emp-row-${selectedId}`) row.classList.remove('is-detail-selected');
+    });
+    if (!selectedId) return;
+    document.getElementById(`emp-row-${selectedId}`)?.classList.add('is-detail-selected');
+}
+
+window.syncDetailSelectedRowHighlight = syncDetailSelectedRowHighlight;
+
 if (!window._detailSelectionDelegationAttached) {
     document.addEventListener('click', (e) => {
         // Skip if the click was on something interactive — let that handler run.
@@ -4047,7 +4092,9 @@ if (!window._detailSelectionDelegationAttached) {
         if (!m) return;
         if (state.selectedDetailEmployeeId === m[1]) return; // no-op
         state.selectedDetailEmployeeId = m[1];
+        syncDetailSelectedRowHighlight(m[1]);
         window.render?.();
+        requestAnimationFrame(() => syncDetailSelectedRowHighlight(m[1]));
     });
     window._detailSelectionDelegationAttached = true;
 }

@@ -14,6 +14,12 @@ import { escapeHTML } from '../utils/Sanitize.js';
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
 
+function getEffectiveDetailEmployeeId() {
+    const selected = state.selectedDetailEmployeeId;
+    if (selected && state.employees?.some(emp => emp.id === selected)) return selected;
+    return (state.employees || []).find(emp => emp.active !== false)?.id || state.employees?.[0]?.id || null;
+}
+
 // ============================================
 // 🎯 EVENT DELEGATION (data-action)
 // ============================================
@@ -507,6 +513,7 @@ export function EmployeeRow(emp) {
     const dateKey = getDateKey(state.selectedDate);
     const attKey = `${emp.id}-${dateKey}`;
     const att = state.attendance[attKey];
+    const effectiveDetailEmployeeId = getEffectiveDetailEmployeeId();
 
     // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
     // - att.updatedAt: cambia cuando se registra/modifica asistencia de este empleado
@@ -522,6 +529,7 @@ export function EmployeeRow(emp) {
             state.listDisplayMode,
             state.settings?.regularHoursPerDay || 8,
             getDayHours(state.selectedDate),
+            effectiveDetailEmployeeId || '',
             (state.settings.holidays || []).join(','),
             state.tempPositionSelection?.[attKey] || '',
             att?.selectedPosition || ''
@@ -560,7 +568,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     const workedPositionIds = isChecked
         ? (isMultiPosition ? (att.positionHours || []).map(ph => ph.positionId) : [selPos])
         : [];
-    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
+    const isDetailSelected = getEffectiveDetailEmployeeId() === emp.id;
 
     // 🚩 Empleado activo HOY pero que, según el historial de estados, no estaba
     // activo en esta fecha. Lo mostramos igual (totalmente funcional) con la
@@ -666,7 +674,7 @@ export function EmployeeRowCompact(emp) {
     const att = state.attendance[key];
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
-    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
+    const isDetailSelected = getEffectiveDetailEmployeeId() === emp.id;
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
@@ -696,6 +704,10 @@ export function EmployeeRowCompact(emp) {
 export function DayView() {
     const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const filtered = getFilteredEmployeesForDay();
+    if (!state.selectedDetailEmployeeId && filtered.length > 0) {
+        const fallback = filtered.find(emp => emp.active !== false) || filtered[0];
+        state.selectedDetailEmployeeId = fallback?.id || null;
+    }
     const columns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
     const listHTML = filtered.length > 0
         ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
