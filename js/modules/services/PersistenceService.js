@@ -14,7 +14,7 @@ import { LeaderRepository } from './LeaderRepository.js';
 import { unionById } from './EmployeeMerge.js';
 import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
-import { SYNC_PAUSE_ENABLED } from './SyncPauseService.js';
+import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { debug } from '../utils/Debug.js';
@@ -388,11 +388,11 @@ async function _executeSave(options = {}) {
     // Updating localUpdatedAt first would always make _localTime >= _cloudTime.
     // ──────────────────────────────────────────────────────────
     const OUTGOING_CONFLICT_GRACE_MS = 10_000;
-    // 🚧 SYNC_PAUSE_ENABLED=false (kill-switch temporal): cuando la pausa está
-    // desactivada, el flag cloudUploadPaused se ignora y la subida nunca se
-    // bloquea por pausa. El string cloudUploadPaused se conserva en el gate
-    // para el contrato; el día que reactivemos basta poner el flag en true.
-    const _isPausedEffective = SYNC_PAUSE_ENABLED && state.settings?.cloudUploadPaused === true;
+    // ⏸️ La pausa es POR DISPOSITIVO: isSyncPaused() lee de localStorage, no de
+    // state.settings (que se sincroniza a Firebase). Así un flag viejo en la
+    // nube no puede re-pausar este equipo, y pausar aquí no afecta a los demás.
+    // El kill-switch SYNC_PAUSE_ENABLED permite desactivar la función entera.
+    const _isPausedEffective = SYNC_PAUSE_ENABLED && isSyncPaused();
     const _canSyncFirebase = globalThis.currentUser
         && !globalThis._isApplyingRemoteData
         && !_isPausedEffective

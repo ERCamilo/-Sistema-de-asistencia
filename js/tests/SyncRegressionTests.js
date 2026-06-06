@@ -74,12 +74,16 @@ testRunner.addSuite("SyncRegression — outgoing conflict gated by Firebase guar
         );
     },
 
-    "conflict check is bypassed when cloudUploadPaused is true"() {
-        const hasGuard = /_hasOutgoingConflict[\s\S]{0,400}cloudUploadPaused/.test(PERSISTENCE_SRC)
-            || /cloudUploadPaused[\s\S]{0,400}_hasOutgoingConflict/.test(PERSISTENCE_SRC);
+    "conflict check is bypassed when sync is paused"() {
+        // La pausa ahora es por-dispositivo (isSyncPaused() lee de localStorage).
+        // El conflict check se gatea vía _canSyncFirebase, que incluye
+        // !_isPausedEffective, que a su vez usa isSyncPaused().
+        const pauseGatesSync = /_isPausedEffective\s*=\s*[\s\S]{0,80}isSyncPaused/.test(PERSISTENCE_SRC);
+        const canSyncUsesPause = /_canSyncFirebase[\s\S]{0,400}_isPausedEffective/.test(PERSISTENCE_SRC);
+        const conflictUsesCanSync = /_hasOutgoingConflict\s*=\s*[\s\S]{0,80}_canSyncFirebase/.test(PERSISTENCE_SRC);
         testRunner.assert(
-            hasGuard,
-            'outgoing-conflict check must be gated by !cloudUploadPaused (already not pushing anyway)'
+            pauseGatesSync && canSyncUsesPause && conflictUsesCanSync,
+            'outgoing-conflict check must be gated (via _canSyncFirebase → _isPausedEffective → isSyncPaused) so a paused device does not run it'
         );
     }
 

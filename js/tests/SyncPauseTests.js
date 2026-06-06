@@ -1,19 +1,22 @@
 /**
  * 🧪 SyncPauseTests (Task: cloud-upload pause)
  *
+ * La pausa es POR DISPOSITIVO: vive en localStorage, NUNCA en state.settings
+ * (que se sincroniza a Firebase). Esto evita que un flag viejo en la nube
+ * re-pause el equipo, y que pausar aquí afecte a otros dispositivos.
+ *
  * Contract for SyncPauseService:
- *   - isSyncPaused() reads state.settings.cloudUploadPaused.
- *   - pauseCloudUpload() sets the flag and saves immediately (IndexedDB only).
+ *   - isSyncPaused() reads the localStorage flag (device-local).
+ *   - pauseCloudUpload() writes the flag to localStorage.
  *   - resumeCloudUpload() clears the flag and re-queues a full save.
- *   - isSyncPaused() returns false when flag is absent or false.
+ *   - isSyncPaused() returns false when the flag is absent.
  *
  * Contract for _executeSave integration (source-level check):
- *   - PersistenceService source must reference cloudUploadPaused so that
- *     the Firebase sync block is guarded by the pause flag.
+ *   - PersistenceService source must gate the Firebase sync block via
+ *     isSyncPaused() so the device-local pause is respected.
  */
 
 import { isSyncPaused, pauseCloudUpload, resumeCloudUpload, SYNC_PAUSE_ENABLED } from '../modules/services/SyncPauseService.js';
-import { state } from '../modules/core/AppState.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -24,105 +27,95 @@ const APP_SRC = fs.readFileSync(
     path.resolve(__dirname, '../app.js'), 'utf8'
 );
 
+const _PAUSE_LS_KEY = 'asistencia_cloud_upload_paused';
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
-function resetSettings(overrides = {}) {
-    if (!state.settings) state.settings = {};
-    delete state.settings.cloudUploadPaused;
-    Object.assign(state.settings, overrides);
+function clearPauseFlag() {
+    try { localStorage.removeItem(_PAUSE_LS_KEY); } catch (_) {}
+}
+
+function setPauseFlag() {
+    try { localStorage.setItem(_PAUSE_LS_KEY, 'true'); } catch (_) {}
 }
 
 // ─────────────────────────────────────────────────────────────
 
-testRunner.addSuite("SyncPauseService — isSyncPaused (cloud-upload pause)", {
+testRunner.addSuite("SyncPauseService — isSyncPaused (device-local pause)", {
 
     "returns false when flag absent"() {
-        resetSettings();
+        clearPauseFlag();
         testRunner.assertEquals(isSyncPaused(), false);
     },
 
-    "returns false when flag is explicitly false"() {
-        resetSettings({ cloudUploadPaused: false });
-        testRunner.assertEquals(isSyncPaused(), false);
-    },
-
-    "returns true when flag is true"() {
-        resetSettings({ cloudUploadPaused: true });
+    "returns true when localStorage flag is set"() {
+        setPauseFlag();
         testRunner.assertEquals(isSyncPaused(), true);
+        clearPauseFlag();
     },
 
-    "returns false when state.settings is null"() {
-        const orig = state.settings;
-        state.settings = null;
+    "returns false after the flag is removed"() {
+        setPauseFlag();
+        clearPauseFlag();
         testRunner.assertEquals(isSyncPaused(), false);
-        state.settings = orig;
     }
 
 });
 
-testRunner.addSuite("SyncPauseService — pauseCloudUpload (cloud-upload pause)", {
+testRunner.addSuite("SyncPauseService — pauseCloudUpload (device-local pause)", {
 
-    "sets state.settings.cloudUploadPaused to true"() {
-        resetSettings();
+    "writes the pause flag to localStorage"() {
+        clearPauseFlag();
         pauseCloudUpload();
-        testRunner.assertEquals(state.settings.cloudUploadPaused, true);
-    },
-
-    "creates state.settings if missing"() {
-        const orig = state.settings;
-        state.settings = null;
-        pauseCloudUpload();
-        testRunner.assertEquals(state?.settings?.cloudUploadPaused, true);
-        state.settings = orig;
+        testRunner.assertEquals(localStorage.getItem(_PAUSE_LS_KEY), 'true');
+        clearPauseFlag();
     },
 
     "isSyncPaused() returns true after pauseCloudUpload()"() {
-        resetSettings();
+        clearPauseFlag();
         pauseCloudUpload();
         testRunner.assertEquals(isSyncPaused(), true);
+        clearPauseFlag();
+    },
+
+    "does NOT touch Firebase-synced state (no cloudUploadPaused in SyncPauseService source)"() {
+        const SVC_SRC = fs.readFileSync(
+            path.resolve(__dirname, '../modules/services/SyncPauseService.js'), 'utf8'
+        );
+        testRunner.assert(
+            !/state\.settings\.cloudUploadPaused/.test(SVC_SRC),
+            'SyncPauseService must NOT write the pause flag into state.settings (it would sync to Firebase)'
+        );
     }
 
 });
 
-testRunner.addSuite("SyncPauseService — resumeCloudUpload (cloud-upload pause)", {
+testRunner.addSuite("SyncPauseService — resumeCloudUpload (device-local pause)", {
 
-    "clears the cloudUploadPaused flag"() {
-        resetSettings({ cloudUploadPaused: true });
+    "clears the pause flag"() {
+        setPauseFlag();
         resumeCloudUpload();
         testRunner.assertEquals(isSyncPaused(), false,
             'Flag must be cleared after resume');
     },
 
-    "sets cloudUploadPaused to false (NOT delete) — survives Firestore merge:true"() {
-        // Regression (2026-05-28): delete state.settings.cloudUploadPaused
-        // would be stripped by JSON.stringify, and Firestore's setDoc with
-        // merge:true would keep the cloud's old true value. The next
-        // subscribeToChanges echo would re-apply true, flipping the badge
-        // back to paused. Setting an explicit false value propagates correctly.
-        resetSettings({ cloudUploadPaused: true });
+    "removes the localStorage key entirely"() {
+        setPauseFlag();
         resumeCloudUpload();
-        testRunner.assertEquals(
-            state.settings.cloudUploadPaused, false,
-            'After resume, cloudUploadPaused must be explicitly false (not undefined/missing) ' +
-            'so it survives JSON.stringify + Firestore merge:true round-trip'
-        );
-        testRunner.assert(
-            'cloudUploadPaused' in state.settings,
-            'cloudUploadPaused must remain a property on state.settings (not deleted), ' +
-            'otherwise JSON.stringify omits it and Firestore merge keeps the old value'
-        );
+        testRunner.assertEquals(localStorage.getItem(_PAUSE_LS_KEY), null,
+            'After resume the device-local pause key must be removed');
     },
 
     "isSyncPaused() returns false after resumeCloudUpload()"() {
-        resetSettings({ cloudUploadPaused: true });
+        setPauseFlag();
         resumeCloudUpload();
         testRunner.assertEquals(isSyncPaused(), false);
     },
 
     "resumeCloudUpload() is safe to call when not paused"() {
-        resetSettings();
+        clearPauseFlag();
         let threw = false;
         try { resumeCloudUpload(); } catch (_) { threw = true; }
         testRunner.assertEquals(threw, false);
@@ -133,20 +126,17 @@ testRunner.addSuite("SyncPauseService — resumeCloudUpload (cloud-upload pause)
 
 testRunner.addSuite("SyncPauseService — PersistenceService integration (source check)", {
 
-    "PersistenceService._executeSave checks cloudUploadPaused before Firebase sync"() {
+    "PersistenceService gates Firebase sync via isSyncPaused()"() {
         testRunner.assert(
-            /cloudUploadPaused/.test(PERSISTENCE_SRC),
-            'PersistenceService must reference cloudUploadPaused to gate Firebase sync'
+            /isSyncPaused\(\)/.test(PERSISTENCE_SRC),
+            'PersistenceService must call isSyncPaused() to gate the Firebase sync block'
         );
     },
 
-    "PersistenceService guards Firebase sync with cloudUploadPaused check"() {
-        // The guard can be implemented by importing isSyncPaused() OR by reading
-        // the flag directly. Either way, cloudUploadPaused must appear in the
-        // Firebase sync block of _executeSave.
+    "PersistenceService does NOT read the pause flag from synced state.settings"() {
         testRunner.assert(
-            /cloudUploadPaused/.test(PERSISTENCE_SRC),
-            'PersistenceService must check cloudUploadPaused to gate Firebase sync'
+            !/state\.settings\??\.cloudUploadPaused/.test(PERSISTENCE_SRC),
+            'PersistenceService must not read the pause flag from state.settings (device-local now)'
         );
     }
 

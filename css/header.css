@@ -291,6 +291,88 @@
     line-height: 1.35;
 }
 
+/* ⏸️ Toggle de pausa de subida a la nube (centro de sincronización) */
+.sync-pause-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    text-align: left;
+    background: #111827;
+    border: 1px solid #243044;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.sync-pause-row:hover {
+    border-color: #334155;
+}
+
+.sync-pause-row.is-paused {
+    background: #2a1a0d;
+    border-color: #b45309;
+}
+
+.sync-pause-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.sync-pause-copy strong {
+    color: #f8fafc;
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.sync-pause-copy small {
+    color: #94a3b8;
+    font-size: 0.73rem;
+    line-height: 1.35;
+}
+
+.sync-pause-row.is-paused .sync-pause-copy strong {
+    color: #fbbf24;
+}
+
+/* Switch — verde (activo) ↔ ámbar (pausado) */
+.sync-pause-switch {
+    flex-shrink: 0;
+    width: 44px;
+    height: 24px;
+    background: #10b981;
+    border-radius: 24px;
+    position: relative;
+    border: 1.5px solid #10b981;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sync-pause-switch-handle {
+    width: 18px;
+    height: 18px;
+    background: #ffffff;
+    border-radius: 50%;
+    position: absolute;
+    top: 1.5px;
+    left: 22px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sync-pause-row.is-paused .sync-pause-switch {
+    background: #f59e0b;
+    border-color: #f59e0b;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+}
+
+.sync-pause-row.is-paused .sync-pause-switch-handle {
+    left: 2px;
+}
+
 @media (max-width: 640px) {
     .sync-center-status,
     .sync-center-actions.primary {
