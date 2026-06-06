@@ -1,31 +1,31 @@
 /**
  * ⏸️ SyncPauseService.js (cloud-upload pause feature)
  *
- * Manages the cloudUploadPaused flag in state.settings.
- * When paused:
- *   - All saves still go to IndexedDB (local persistence is unaffected).
- *   - Firebase sync is skipped until the user resumes.
- *   - The SyncStatusBadge shows a "⏸️ Sync pausado" state.
- *   - The flag persists across page refreshes (stored in IndexedDB via
- *     the normal save cycle).
+ * La pausa de subida a la nube es un estado **POR DISPOSITIVO**: vive en
+ * localStorage, NUNCA en Firebase ni en state.settings. Esto es intencional:
  *
- * Typical flow:
- *   User rejects incoming changes and chooses "pause" →
- *   pauseCloudUpload() is called →
- *   Future saves skip Firebase →
- *   User clicks "Reanudar" in the badge or settings →
- *   resumeCloudUpload() is called →
- *   The flag is cleared and local state is re-uploaded immediately.
+ *   - Pausar/reanudar en un dispositivo NO afecta a los demás (útil para
+ *     pruebas o mantenimiento local sin tumbar la sync del resto).
+ *   - Un flag viejo en la nube NO puede re-pausar este equipo solo: la pausa
+ *     solo cambia con una acción explícita del usuario en ESTE dispositivo.
  *
- * Dependency note: this module imports from PersistenceService to
- * trigger saves. PersistenceService in turn imports isSyncPaused() from
- * here to guard the Firebase sync block — no circular dependency because
- * PersistenceService only calls isSyncPaused() at runtime (not at module
- * evaluation time), and this module only calls saveApplicationData at
- * runtime.
+ * Cuando está pausado:
+ *   - Todos los guardados siguen yendo a IndexedDB (la persistencia local no
+ *     se ve afectada).
+ *   - La subida a Firebase se omite hasta que el usuario reanude.
+ *   - El SyncStatusBadge muestra el estado "⏸️ Sync pausado".
+ *   - El flag persiste entre recargas (localStorage de este navegador).
+ *
+ * Flujo típico:
+ *   El usuario activa la pausa (switch del centro de sync o rechaza cambios
+ *   entrantes) → pauseCloudUpload() → los próximos saves omiten Firebase →
+ *   el usuario reanuda → resumeCloudUpload() → el flag local se limpia y se
+ *   re-sube el estado local de inmediato.
+ *
+ * Dependencia: este módulo importa saveApplicationData de PersistenceService
+ * de forma diferida (dynamic import) solo en runtime, para evitar ciclos en
+ * tiempo de evaluación de módulos.
  */
-
-import { state } from '../core/AppState.js';
 
 /**
  * ✅ Kill-switch reactivado (2026-06-06).
@@ -44,10 +44,13 @@ import { state } from '../core/AppState.js';
  * Puntos de integración que respetan esta bandera:
  *   - PersistenceService: `_isPausedEffective` bloquea Firebase cuando pausado.
  *   - app.js: el badge muestra "⏸️ Sync pausado" y el click abre el modal de
- *     reanudar.
+ *     reanudar; el switch del centro de sync activa/desactiva la pausa.
  *   - app.js: el aviso de boot se dispara si la app arranca con pausa activa.
  */
 export const SYNC_PAUSE_ENABLED = true;
+
+// Clave local (por dispositivo). NUNCA se sincroniza a Firebase.
+const _PAUSE_LS_KEY = 'asistencia_cloud_upload_paused';
 
 // Lazy-imported to avoid circular dependency at evaluation time.
 // We call saveApplicationData only in pauseCloudUpload/resumeCloudUpload,
@@ -61,44 +64,49 @@ async function _getSave() {
     return _saveApplicationData;
 }
 
+function _writePausedFlag(paused) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        if (paused) {
+            localStorage.setItem(_PAUSE_LS_KEY, 'true');
+        } else {
+            localStorage.removeItem(_PAUSE_LS_KEY);
+        }
+    } catch (e) {
+        console.warn('⚠️ No se pudo persistir el estado de pausa local:', e);
+    }
+}
+
 /**
- * Returns true when cloud uploads are currently paused.
- * Safe to call before state is fully loaded (returns false defensively).
+ * Returns true when cloud uploads are currently paused ON THIS DEVICE.
+ * Reads only from localStorage — never from Firebase-synced state. Safe to
+ * call before state is fully loaded.
  */
 export function isSyncPaused() {
-    return state?.settings?.cloudUploadPaused === true;
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        return localStorage.getItem(_PAUSE_LS_KEY) === 'true';
+    } catch (_) {
+        return false;
+    }
 }
 
 /**
- * Pause cloud uploads. Local (IndexedDB) saves continue normally.
- * The flag is persisted immediately so it survives a page refresh.
+ * Pause cloud uploads on this device. Local (IndexedDB) saves continue
+ * normally. The flag is written to localStorage synchronously so it survives
+ * a page refresh and is never pushed to the cloud.
  */
 export async function pauseCloudUpload(reason = 'Usuario solicitó pausar la sincronización') {
-    if (!state.settings) state.settings = {};
-    state.settings.cloudUploadPaused = true;
-    console.warn(`⏸️ Sincronización de subida a la nube PAUSADA. Motivo: ${reason}`);
-    // Save only to IndexedDB (Firebase sync is already gated by the flag
-    // we just set, so the save itself won't push to cloud).
-    const save = await _getSave();
-    save({ immediate: true });
+    _writePausedFlag(true);
+    console.warn(`⏸️ Sincronización de subida a la nube PAUSADA (solo este dispositivo). Motivo: ${reason}`);
 }
 
 /**
- * Resume cloud uploads and immediately re-upload local state to Firestore
- * so any changes made while paused are reflected in the cloud.
- *
- * IMPORTANT: we set the flag to `false` (not `delete`) on purpose. The save
- * path goes through JSON.stringify (which strips undefined properties) and
- * then through Firestore's setDoc(..., { merge: true }), which only overwrites
- * fields present in the payload. If we delete the flag, it disappears from the
- * payload entirely, the cloud keeps the old `true`, and the next subscribe
- * echo re-applies `true` to local state — sync stays paused forever.
+ * Resume cloud uploads on this device and immediately re-upload local state
+ * to Firestore so any changes made while paused are reflected in the cloud.
  */
 export async function resumeCloudUpload() {
-    if (!state.settings) state.settings = {};
-    // Explicit false (not delete) so the value survives JSON.stringify and
-    // overwrites the cloud's old true through Firestore's merge:true.
-    state.settings.cloudUploadPaused = false;
+    _writePausedFlag(false);
     console.log('▶️ Sincronización de subida a la nube REANUDADA. Re-subiendo estado local a la nube...');
     const save = await _getSave();
     save({ force: true, immediate: true });

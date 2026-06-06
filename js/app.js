@@ -6238,9 +6238,10 @@ function _initOutgoingConflictGuard() {
         // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.
         _initOutgoingConflictGuard();
 
-        // 1.0.b Si la app arranca con cloudUploadPaused = true (persistido en IDB),
-        // avisar al usuario de forma visible — el badge naranja puede pasar
-        // desapercibido y la pausa puede venir de una sesión anterior.
+        // 1.0.b Si la app arranca con la pausa activa (flag por-dispositivo en
+        // localStorage), avisar al usuario de forma visible — el badge naranja
+        // puede pasar desapercibido y la pausa puede venir de una sesión anterior
+        // en ESTE mismo dispositivo (nunca de la nube ni de otro equipo).
         if (SYNC_PAUSE_ENABLED && isSyncPaused()) {
             // Pequeño delay para que la notificación no se pierda en el barullo de carga.
             setTimeout(() => {
