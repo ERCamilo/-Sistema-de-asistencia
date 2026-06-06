@@ -43,3 +43,4 @@ export const getBlob = asyncNoop;
 export const ref = jest.fn(() => ({}));
 export const uploadString = asyncNoop;
 export const getDownloadURL = jest.fn().mockResolvedValue('');
+export const deleteObject = asyncNoop;

@@ -75,12 +75,19 @@ testRunner.addSuite("LoansLedger UI — picker overlay", {
         testRunner.assert(!html.includes('Margaret Hamilton'), "Inactive employee e3 NOT listed");
     },
 
-    "each row binds to openProfileForLoan with the employee id"() {
+    "each row binds to pickEmployeeForNewLoan with the employee id"() {
+        // Tras la unificación: las filas del picker llevan al usuario DIRECTO
+        // al formulario del ledger, sin pasar por el perfil.
         resetState();
         openLoansEmployeePicker();
         const html = LoansLedger();
-        testRunner.assert(html.includes('data-app-fn="openProfileForLoan" data-arg="e1"'), "Row for e1 is wired");
-        testRunner.assert(html.includes('data-app-fn="openProfileForLoan" data-arg="e2"'), "Row for e2 is wired");
+        testRunner.assert(html.includes('data-app-fn="pickEmployeeForNewLoan" data-arg="e1"'),
+            "Row for e1 must call pickEmployeeForNewLoan (no longer routes via profile)");
+        testRunner.assert(html.includes('data-app-fn="pickEmployeeForNewLoan" data-arg="e2"'),
+            "Row for e2 must call pickEmployeeForNewLoan");
+        // Y NO el handler viejo
+        testRunner.assert(!html.includes('data-app-fn="openProfileForLoan"'),
+            "openProfileForLoan no debe seguir wired en el HTML del picker");
     },
 
     "search input filters the list down"() {
@@ -111,16 +118,15 @@ testRunner.addSuite("LoansLedger UI — picker overlay", {
 
 testRunner.addSuite("LoansLedger UI — full flow", {
 
-    "click 'Agregar nuevo' → pick employee → profile opens on Nómina tab"() {
+    "click 'Agregar nuevo' → pick employee → form de nuevo préstamo se abre EN el ledger (sin perfil)"() {
+        // Antes esto abría el perfil del empleado en pestaña Nómina porque ahí
+        // estaba el form de alta. Tras unificación: el form de alta es del
+        // ledger, y el picker debe llevar directo a él. UN solo paso.
         resetState();
         const restoreSilence = silenceWindow();
         const prevOpen = window.openEmployeeProfile;
-        window.openEmployeeProfile = (id) => {
-            const emp = state.employees.find(e => e.id === id);
-            state.selectedEmployee = emp;
-            state.employeeProfile = { employeeId: id, activeTab: 'resumen' };
-            state.showEmployeeProfile = true;
-        };
+        let profileOpened = false;
+        window.openEmployeeProfile = () => { profileOpened = true; };
 
         try {
             // Step 1: user clicks "Agregar nuevo"
@@ -131,23 +137,72 @@ testRunner.addSuite("LoansLedger UI — full flow", {
             let html = LoansLedger();
             testRunner.assert(html.includes('Ada Lovelace'), "Picker shows Ada");
 
-            // Step 3: user clicks Ada's row → openProfileForLoan('e1')
+            // Step 3: user clicks Ada's row → pickEmployeeForNewLoan('e1')
+            // (note: openProfileForLoan kept as deprecated alias = same effect)
             openProfileForLoan('e1');
 
-            // Step 4: profile modal is open on Nómina tab, picker is closed
-            testRunner.assertEquals(state.showEmployeeProfile, true, "Profile modal is open");
-            testRunner.assertEquals(state.employeeProfile.employeeId, 'e1', "Profile is for Ada");
-            testRunner.assertEquals(state.employeeProfile.activeTab, 'nomina', "Landed on Nómina tab");
+            // Step 4: profile NOT opened; picker closed; form open in ledger
+            testRunner.assertEquals(profileOpened, false,
+                "Profile must NOT open (read-only for loans now)");
+            testRunner.assert(!state.showEmployeeProfile, "showEmployeeProfile stays falsy");
             testRunner.assertEquals(state.loansLedger.showEmployeePicker, false, "Picker closed");
-
-            // And the picker is gone from the next render
-            html = LoansLedger();
-            testRunner.assert(!html.includes('Selecciona un empleado'), "Picker no longer rendered");
+            testRunner.assertEquals(state.loansLedger.selectedEmployeeId, 'e1', "Ada is selected in the ledger");
+            testRunner.assertEquals(state.loansLedger.showAddForm, true, "New-loan form is open");
         } finally {
             window.openEmployeeProfile = prevOpen;
             restoreSilence();
         }
     }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Suite: timestamps "último cambio" en el ledger (Tarea #16)
+// ─────────────────────────────────────────────────────────────
+// El usuario debe poder ver de un vistazo cuándo fue el último cambio
+// en cada préstamo (creación, abono, anulación, write-off, reopen).
+
+import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
+
+testRunner.addSuite("LoansLedger UI — Timestamps último cambio", {
+
+    "préstamo con updatedAt reciente muestra 'hace Xs'"() {
+        resetState();
+        state.employees = [{
+            id: 'eT1', name: 'Ts', number: '001', active: true,
+            loans: [{
+                id: 'L1', principal: 1000, interestRate: 0,
+                concept: 'Reciente', status: 'active',
+                installmentMode: 'lump',
+                installments: [], payments: [],
+                startDate: '2026-05-26',
+                updatedAt: Date.now() - 10000 // hace 10s
+            }]
+        }];
+        selectLoansEmployee('eT1');
+        const html = LoansLedger();
+        testRunner.assert(/hace 10s|último cambio/i.test(html),
+            `Debe mostrar el timestamp del préstamo. HTML excerpt: ${html.slice(0, 400)}`);
+    },
+
+    "préstamo sin updatedAt no rompe el render"() {
+        resetState();
+        state.employees = [{
+            id: 'eT2', name: 'Ts', number: '002', active: true,
+            loans: [{
+                id: 'L1', principal: 500, interestRate: 0,
+                concept: 'Sin TS', status: 'active',
+                installmentMode: 'lump',
+                installments: [], payments: [],
+                startDate: '2026-05-26'
+                // sin updatedAt
+            }]
+        }];
+        selectLoansEmployee('eT2');
+        let threw = false;
+        try { LoansLedger(); } catch (e) { threw = true; }
+        testRunner.assertEquals(threw, false, 'Defensivo ante loan sin updatedAt');
+    }
+
 });
 
 console.log('🧪 LoansLedger UI tests cargados.');

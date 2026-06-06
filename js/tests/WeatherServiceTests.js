@@ -109,70 +109,70 @@ testRunner.addSuite("WeatherService — caching", {
         testRunner.assertEquals(isCacheFresh(stale, 10_000, now), false, '60s outside 10s TTL');
     },
 
-    "fetchCurrent populates the cache on first call"() {
+    async "fetchCurrent populates the cache on first call"() {
         const state = buildState();
-        const data = fetchCurrent(state);
+        const data = await fetchCurrent(state);
         testRunner.assert(state.weather, 'state.weather created');
         testRunner.assert(state.weather.cache?.current?.data === data, 'cache stored same reference');
         testRunner.assert(typeof state.weather.cache.current.fetchedAt === 'number', 'fetchedAt set');
     },
 
-    "fetchCurrent returns the cached value on the second call without refetching"() {
+    async "fetchCurrent returns the cached value on the second call without refetching"() {
         const state = buildState();
-        const first = fetchCurrent(state);
+        const first = await fetchCurrent(state);
         const firstFetchedAt = state.weather.cache.current.fetchedAt;
 
         // Wait a tick then call again. We expect SAME data + SAME fetchedAt because
         // the cache hit short-circuits the adapter.
-        const second = fetchCurrent(state);
+        const second = await fetchCurrent(state);
         testRunner.assertEquals(second, first, 'Same cached reference returned');
         testRunner.assertEquals(state.weather.cache.current.fetchedAt, firstFetchedAt, 'fetchedAt unchanged');
     },
 
-    "fetchCurrent({force: true}) bypasses the cache"() {
+    async "fetchCurrent({force: true}) bypasses the cache"() {
         const state = buildState();
-        fetchCurrent(state);
+        await fetchCurrent(state);
         const firstFetchedAt = state.weather.cache.current.fetchedAt;
         // Force a tiny gap so a refetch produces a different fetchedAt.
         const before = Date.now();
         while (Date.now() === before) { /* spin one ms */ }
-        fetchCurrent(state, { force: true });
+        await fetchCurrent(state, { force: true });
         testRunner.assert(state.weather.cache.current.fetchedAt > firstFetchedAt, 'fetchedAt advanced');
     },
 
-    "fetchForecast caches independently from fetchCurrent"() {
+    async "fetchForecast caches independently from fetchCurrent"() {
         const state = buildState();
-        fetchCurrent(state);
+        await fetchCurrent(state);
         testRunner.assertEquals(state.weather.cache.forecast, undefined, 'forecast not pre-populated');
-        const forecast = fetchForecast(state, 3);
+        const forecast = await fetchForecast(state, 3);
         testRunner.assertEquals(forecast.length, 3, '3 entries returned');
         testRunner.assert(state.weather.cache.forecast?.data, 'forecast cache populated');
     },
 
-    "fetchHourly returns 24h at 3h steps by default (9 entries)"() {
+    async "fetchHourly returns 24h at 3h steps by default (9 entries)"() {
         const state = buildState();
-        const hourly = fetchHourly(state);
+        const hourly = await fetchHourly(state);
         testRunner.assertEquals(hourly.length, 8, '24/3 = 8 entries (0, 3, 6, ..., 21h)');
         testRunner.assert(typeof hourly[0].hourLabel === 'string', 'hourLabel present');
         testRunner.assert(typeof hourly[0].temp === 'number', 'temp present');
         testRunner.assert(hourly[0].precipChance >= 0 && hourly[0].precipChance <= 100, 'precip bounded');
     },
 
-    "fetchHourly respects custom hours and step"() {
+    async "fetchHourly respects custom hours and step"() {
         const state = buildState();
-        const hourly = fetchHourly(state, 12, 6);
+        const hourly = await fetchHourly(state, 12, 6);
         testRunner.assertEquals(hourly.length, 2, '12/6 = 2 entries');
     },
 
-    "fetchHourly caches under its own key"() {
+    async "fetchHourly caches under its own key"() {
         const state = buildState();
-        fetchCurrent(state);
+        await fetchCurrent(state);
         testRunner.assertEquals(state.weather.cache.hourly, undefined, 'hourly not pre-populated');
-        fetchHourly(state);
+        await fetchHourly(state);
         testRunner.assert(state.weather.cache.hourly?.data, 'hourly cache populated separately');
     },
 
-    "fetchHourly falls back when adapter lacks getHourly"() {
+    async "fetchHourly falls back when adapter lacks getHourly"() {
         const state = buildState();
         const slim = {
             providerName: 'slim',
@@ -185,7 +185,7 @@ testRunner.addSuite("WeatherService — caching", {
         };
         registerAdapter('slim', slim);
         setActiveProvider(state, 'slim');
-        const hourly = fetchHourly(state, 24);
+        const hourly = await fetchHourly(state, 24);
         testRunner.assert(hourly.length > 0, 'Synthetic hourly returned');
         testRunner.assert(typeof hourly[0].hourLabel === 'string', 'hourLabel still present');
     },
@@ -233,9 +233,9 @@ testRunner.addSuite("WeatherService — location + provider switching", {
         testRunner.assert(threw, 'Should reject adapter without getCurrent');
     },
 
-    "setActiveProvider switches + clears the cache"() {
+    async "setActiveProvider switches + clears the cache"() {
         const state = buildState();
-        fetchCurrent(state);
+        await fetchCurrent(state);
         testRunner.assert(state.weather.cache.current.data, 'cache populated first');
 
         // Register a sibling adapter so setActiveProvider has somewhere to go.
@@ -251,7 +251,7 @@ testRunner.addSuite("WeatherService — location + provider switching", {
         testRunner.assertEquals(state.weather.cache.current, null, 'cache invalidated');
 
         // Next fetch should come from the new adapter.
-        const data = fetchCurrent(state);
+        const data = await fetchCurrent(state);
         testRunner.assertEquals(data.temp, 99, 'fake adapter served');
     },
 

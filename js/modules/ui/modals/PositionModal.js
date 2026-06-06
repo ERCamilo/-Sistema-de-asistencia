@@ -2,7 +2,7 @@ import { Modal } from '../../components/Modal.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import icons from '../../ui/IconSystem.js';
-import { slugify } from '../../utils/Helpers.js';
+import { slugify, generateUUID } from '../../utils/Helpers.js';
 import { HelpTooltip } from '../../components/HelpTooltip.js';
 
 export class PositionModal {
@@ -267,22 +267,24 @@ export class PositionModal {
         }
 
         const state = getState();
-        const newId = slugify(name);
-
-        // Verificar nombre único
-        const duplicate = state.positions.find(p => p.id === newId && (!existingPos || p.id !== existingPos.id));
+        // ⚡ Opción A (IDs estables): el id del puesto NO se deriva del nombre.
+        // La unicidad se valida por nombre (slug), pero el id es inmutable, así
+        // que renombrar actualiza el MISMO documento en la nube (sin duplicar
+        // ni dejar huérfanos en la subcolección positions/{id}).
+        const nameSlug = slugify(name);
+        const duplicate = state.positions.find(
+            p => slugify(p.name) === nameSlug && (!existingPos || p.id !== existingPos.id)
+        );
         if (duplicate) {
             window.showAlert('Ya existe una posición con este nombre', 'error');
             return;
         }
 
         if (existingPos) {
-            const oldId = existingPos.id;
-            const posToEdit = state.positions.find(p => p.id === oldId);
+            const posToEdit = state.positions.find(p => p.id === existingPos.id);
             if (posToEdit) {
-                const idChanged = oldId !== newId;
-                
-                posToEdit.id = newId; 
+                // El id permanece estable; renombrar solo cambia el nombre y los
+                // campos. No hay que migrar referencias porque el id no cambia.
                 posToEdit.name = name;
                 posToEdit.hourlyRate = rate;
                 posToEdit.leaderId = leaderId || null;
@@ -291,34 +293,11 @@ export class PositionModal {
                 posToEdit.updatedAt = Date.now();
                 posToEdit._isDirty = true;
 
-                if (idChanged) {
-                    console.log(`🔄 Renombrando posición: ${oldId} -> ${newId}. Actualizando referencias...`);
-                    // Actualizar empleados
-                    state.employees.forEach(emp => {
-                        if (emp.positions) {
-                            emp.positions = emp.positions.map(pid => pid === oldId ? newId : pid);
-                        }
-                        if (emp.positionSalaries && emp.positionSalaries[oldId] !== undefined) {
-                            emp.positionSalaries[newId] = emp.positionSalaries[oldId];
-                            delete emp.positionSalaries[oldId];
-                        }
-                    });
-                    // Actualizar asistencias
-                    Object.values(state.attendance).forEach(att => {
-                        if (att.positionHours) {
-                            att.positionHours.forEach(ph => {
-                                if (ph.positionId === oldId) ph.positionId = newId;
-                            });
-                        }
-                        if (att.selectedPosition === oldId) att.selectedPosition = newId;
-                    });
-                }
-
                 window.showAlert(`${icons.get('check-circle')} Posición "${name}" actualizada`, 'success');
             }
         } else {
             state.positions.push({
-                id: newId,
+                id: generateUUID(),
                 name: name,
                 hourlyRate: rate,
                 workingDays: workingDays,

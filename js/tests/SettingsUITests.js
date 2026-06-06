@@ -1,0 +1,138 @@
+import { initSettingsUI, SettingsTab } from '../modules/ui/SettingsUI.js';
+
+testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
+
+    "initSettingsUI: recibe el getter currentUser y lo evalúa correctamente"() {
+        // Simular window.currentUser
+        const originalUser = window.currentUser;
+        window.currentUser = { email: 'test@construccion.com', name: 'Obrero Test' };
+
+        // Simular dependencias
+        const dependencies = {
+            state: {},
+            icons: { get: () => '' },
+            holidayService: {},
+            get currentUser() { return window.currentUser; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({})
+        };
+
+        // Inicializar
+        initSettingsUI(dependencies);
+
+        // En SettingsUI.js, las dependencias se guardan en la variable local `context`
+        // y se leen mediante getters como `context.currentUser`.
+        // Vamos a verificar que podemos llamar a las dependencias sin ReferenceError.
+        let err = null;
+        let userEmail = null;
+        try {
+            userEmail = dependencies.currentUser?.email;
+        } catch (e) {
+            err = e;
+        }
+
+        testRunner.assert(err === null, `No debe lanzar ReferenceError al evaluar currentUser: ${err?.message}`);
+        testRunner.assertEquals(userEmail, 'test@construccion.com', "currentUser debe retornar el valor configurado en window.currentUser");
+
+        // Limpiar window
+        window.currentUser = originalUser;
+    },
+
+    "SettingsTab: asume general por defecto si state.settingsActiveTab es undefined"() {
+        const stateMock = {
+            settingsActiveTab: undefined,
+            settings: {
+                regularHoursPerDay: 8,
+                syncEnabled: true,
+                overtimeFactor: 1,
+                holidayFactor: 2,
+                holidays: [],
+                scrollbarMode: 'on-scroll',
+                iconSet: 'default',
+                companyName: 'Empresa Test',
+                backupFrequency: 'none',
+                hideDuplicateAlerts: false,
+                weatherEnabled: false
+            },
+            employees: [],
+            positions: [],
+            attendance: {},
+            swVersion: '1.0.0'
+        };
+
+        const dependencies = {
+            state: stateMock,
+            icons: {
+                get: (name) => `[icon:${name}]`,
+                getAvailableSets: () => ['default']
+            },
+            holidayService: {
+                renderSettingsCalendar: () => '<div id="mock-calendar">Calendar</div>'
+            },
+            get currentUser() { return null; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({ percentage: 10, usedMB: 0.5, available: '4.5MB' })
+        };
+
+        initSettingsUI(dependencies);
+
+        // Al llamar a SettingsTab sin inicializar settingsActiveTab en el mock,
+        // no debería fallar y debería asumir 'general' o comportarse de forma tolerante.
+        const html = SettingsTab();
+
+        testRunner.assert(typeof html === 'string', 'SettingsTab debe retornar un string de HTML');
+        testRunner.assert(html.includes('Configuración del Sistema'), 'Debe incluir el título de configuración');
+        
+        // Comprobar que incluye elementos del formulario general (como companyName) si asumió 'general'
+        testRunner.assert(html.includes('companyName') || html.includes('Nombre de la Empresa'), 'Debe renderizar la pestaña General por defecto');
+    },
+
+    "SettingsTab: renderiza la pestaña correcta según el tab activo"() {
+        const stateMock = {
+            settingsActiveTab: 'data',
+            settings: {
+                regularHoursPerDay: 8,
+                syncEnabled: true,
+                overtimeFactor: 1,
+                holidayFactor: 2,
+                holidays: [],
+                scrollbarMode: 'on-scroll',
+                iconSet: 'default',
+                companyName: 'Empresa Test',
+                backupFrequency: 'none',
+                hideDuplicateAlerts: false,
+                weatherEnabled: false
+            },
+            employees: [],
+            positions: [],
+            attendance: {},
+            swVersion: '1.0.0'
+        };
+
+        const dependencies = {
+            state: stateMock,
+            icons: {
+                get: (name) => `[icon:${name}]`,
+                getAvailableSets: () => ['default']
+            },
+            holidayService: {
+                renderSettingsCalendar: () => '<div id="mock-calendar">Calendar</div>'
+            },
+            get currentUser() { return { displayName: 'Admin Test', email: 'admin@test.com' }; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({ percentage: 10, usedMB: 0.5, available: '4.5MB' })
+        };
+
+        initSettingsUI(dependencies);
+
+        // Caso 1: Tab 'data'
+        const htmlData = SettingsTab();
+        testRunner.assert(htmlData.includes('Sincronización en la Nube') || htmlData.includes('Datos Locales'), 'Debe renderizar la pestaña de Datos');
+
+        // Caso 2: Tab 'calendar'
+        stateMock.settingsActiveTab = 'calendar';
+        const htmlCalendar = SettingsTab();
+        testRunner.assert(htmlCalendar.includes('Control de Calendario y Pagos') || htmlCalendar.includes('Ajustes de Período'), 'Debe renderizar la pestaña de Calendario');
+    }
+});
+

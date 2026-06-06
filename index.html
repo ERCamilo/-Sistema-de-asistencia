@@ -77,6 +77,7 @@
     <link rel="stylesheet" href="css/employee_profile.css?v=2">
     <link rel="stylesheet" href="css/onboarding.css">
     <link rel="stylesheet" href="css/maintenance.css">
+    <link rel="stylesheet" href="css/sidebar-shell.css">
 </head>
 
 <body>
@@ -102,6 +103,11 @@
     <script type="module" src="js/tests/ModalTests.js"></script>
     <script type="module" src="js/tests/DataIntegrityTests.js"></script>
     <script type="module" src="js/tests/HelpTooltipTests.js"></script>
+    <script type="module" src="js/tests/OnboardingTests.js"></script>
+    <script type="module" src="js/tests/EmployeeProfileTests.js"></script>
+    <script type="module" src="js/tests/AttendanceUITests.js"></script>
+    <script type="module" src="js/tests/AnalyticsUITests.js"></script>
+    <script type="module" src="js/tests/BrowserWorkflowTests.js"></script>
 
     <!-- 📱 Registro del Service Worker -->
     <script>
@@ -116,6 +122,10 @@
                             const newWorker = registration.installing;
                             newWorker.addEventListener('statechange', () => {
                                 if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                                    // Evitar molestar durante el onboarding
+                                    const isShowingOnboarding = window.state && window.state.showOnboarding;
+                                    if (isShowingOnboarding) return;
+
                                     // Hay una nueva versión activa — notificar al usuario
                                     if (window.Notification && typeof window.Notification.info === 'function') {
                                         window.Notification.info('🔄 Nueva versión disponible. Recarga para actualizar.', 0);

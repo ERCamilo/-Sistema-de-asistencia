@@ -121,6 +121,7 @@ class StateManager {
 
 const initialState = {
     activeTab: 'attendance',
+    settingsActiveTab: 'general', // ⚡ Pestaña activa por defecto en Ajustes
     viewMode: 'day', 
     selectedDate: new Date(),
     employees: [],
@@ -158,10 +159,14 @@ const initialState = {
     isScrolled: false,
     tempPositionSelection: {},
     listDisplayMode: 'relaxed',
+    attendanceListColumns: 1,
     isDataLoaded: false,
     syncStatus: 'idle',
     showFloatingCard: false,
     bottomNavHidden: false, // ⚡ Control de visibilidad de la barra inferior
+    selectedDetailEmployeeId: null, // 🏠 Empleado mostrado en el panel lateral derecho del split-view (desktop ≥1024px)
+    attendanceDetailPanelTab: 'calendar',
+    attendanceDetailCalendarMonth: new Date(),
     floatingCardEmployee: null,
     floatingCardMonth: new Date(),
     chartPeriod: 'week',

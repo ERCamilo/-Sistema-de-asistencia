@@ -30,5 +30,7 @@ export {
     closeLoansEmployeePicker,
     setLoansPickerSearch,
     openProfileForLoan,
+    pickEmployeeForNewLoan,
+    openLoansLedgerFor,
     registerLegacyGlobals
 } from './LoansController.js';

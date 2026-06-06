@@ -4,19 +4,88 @@
  */
 
 import { state } from '../../core/AppState.js';
-import { getDateKey, getDaysInMonth, formatMonthYear, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
+import { getDateKey, getDaysInMonth, formatMonthYear, isDateInPayPeriod, isPayday, wasEmployeeActiveOnDate } from '../../utils/DateUtils.js';
 import { getCheckColor } from '../AttendanceUI.js';
 import icons from '../IconSystem.js';
+
+function escapeAttr(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function safeColor(value) {
+    const color = String(value || '').trim();
+    return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color) ? color : '#94a3b8';
+}
+
+function _positionWorkSegments(att, employee) {
+    if (!att || !att.present) return [];
+
+    const segments = Array.isArray(att.positionHours)
+        ? att.positionHours
+            .filter(ph => (Number(ph.hours || 0) + Number(ph.overtimeHours || 0)) > 0)
+            .map(ph => ({
+                positionId: ph.positionId,
+                hours: Number(ph.hours || 0),
+                overtimeHours: Number(ph.overtimeHours || 0)
+            }))
+        : [];
+
+    if (segments.length > 0) return segments;
+
+    const fallbackPositionId = att.selectedPosition || employee?.positions?.[0] || employee?.positionId;
+    return fallbackPositionId
+        ? [{ positionId: fallbackPositionId, hours: Number(att.hoursWorked || 0), overtimeHours: Number(att.overtimeHours || 0) }]
+        : [];
+}
+
+function _positionMarkerData(att, employee) {
+    const byPosition = new Map();
+
+    _positionWorkSegments(att, employee).forEach(segment => {
+        const pos = state.positions.find(p => p.id === segment.positionId);
+        const total = segment.hours + segment.overtimeHours;
+        const existing = byPosition.get(segment.positionId);
+
+        byPosition.set(segment.positionId, {
+            id: segment.positionId,
+            name: pos?.name || 'Puesto sin nombre',
+            color: safeColor(pos?.color),
+            hours: (existing?.hours || 0) + total
+        });
+    });
+
+    return Array.from(byPosition.values());
+}
 
 // Delegación: los botones de CalendarView usan data-cv-nav-action + data-cv-delta
 // para resolver dinámicamente la función global a llamar (preserva la API original).
 let _cvDelegationAttached = false;
 if (!_cvDelegationAttached) {
     document.addEventListener('click', (e) => {
-        const t = e.target.closest('[data-cv-nav-action]');
-        if (!t) return;
-        const fn = window[t.dataset.cvNavAction];
-        if (typeof fn === 'function') fn(parseInt(t.dataset.cvDelta || '0', 10));
+        const nav = e.target.closest('[data-cv-nav-action]');
+        if (nav) {
+            const fn = window[nav.dataset.cvNavAction];
+            if (typeof fn === 'function') fn(parseInt(nav.dataset.cvDelta || '0', 10));
+            return;
+        }
+
+        const day = e.target.closest('[data-cv-select-action]');
+        if (!day) return;
+        const fn = window[day.dataset.cvSelectAction];
+        if (typeof fn === 'function') fn(day.dataset.cvDate);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const day = e.target.closest('[data-cv-select-action]');
+        if (!day) return;
+        e.preventDefault();
+        const fn = window[day.dataset.cvSelectAction];
+        if (typeof fn === 'function') fn(day.dataset.cvDate);
     });
     _cvDelegationAttached = true;
 }
@@ -29,12 +98,13 @@ if (!_cvDelegationAttached) {
  * @param {String} options.navAction - El handler global para cambiar mes (ej: 'window.changeFloatingMonth')
  * @param {Boolean} [options.showLegend=false] - Si mostrar la leyenda al pie
  */
-export function CalendarView({ employee, month, navAction, showLegend = false }) {
+export function CalendarView({ employee, month, navAction, showLegend = false, selectedDate = null, selectAction = '' }) {
     if (!employee || !month) return '<div class="empty-state">No hay datos</div>';
 
     const days = getDaysInMonth(month);
     const dayNames = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
     const todayKey = getDateKey(new Date());
+    const selectedKey = selectedDate ? getDateKey(selectedDate) : '';
     const payPeriod = state.settings.payPeriod;
 
     // Generar las celdas de los días
@@ -42,12 +112,15 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
         const dKey = getDateKey(d.date);
         const isCurrentMonth = d.currentMonth;
         const isToday = dKey === todayKey;
+        const isSelected = selectedKey && dKey === selectedKey;
+        const isInactiveByStatus = isCurrentMonth && !wasEmployeeActiveOnDate(employee, dKey, {});
         
         // Datos de asistencia
         const attKey = `${employee.id}-${dKey}`;
         const att = state.attendance[attKey];
         const isPresent = att && att.present;
         const checkColor = getCheckColor(att, d.date);
+        const positionMarkers = _positionMarkerData(att, employee);
         
         // Estados de Pago
         const isInPeriod = isDateInPayPeriod(dKey, payPeriod);
@@ -58,7 +131,9 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
             'calendar-day',
             !isCurrentMonth ? 'other-month' : '',
             isToday ? 'today' : '',
+            isSelected ? 'selected' : '',
             isPresent ? 'has-attendance' : '',
+            isInactiveByStatus ? 'calendar-day-inactive' : '',
             checkColor,
             isInPeriod ? 'calendar-day-pay-period' : '',
             isPaid ? 'calendar-payday' : ''
@@ -69,11 +144,24 @@ export function CalendarView({ employee, month, navAction, showLegend = false })
         const todayIcon = isToday ? '<span class="today-marker">🎯</span>' : '';
         const paydayIcon = isPaid ? `<div class="payday-indicator" title="Día de Pago">${icons.get('zap', { size: 10 })}</div>` : '';
         const moneyIcon = isPaid ? `<span class="money-badge">💰</span>` : '';
+        const positionTooltip = positionMarkers.map(pos => `${pos.name}: ${pos.hours}h`).join('\n');
+        const inactiveTooltip = isInactiveByStatus ? 'Empleado inactivo segun historial en esta fecha' : '';
+        const enrichedTooltip = [tooltip, positionTooltip, inactiveTooltip].filter(Boolean).join('\n');
+        const positionDots = positionMarkers.length ? `
+            <span class="calendar-position-dots" aria-hidden="true">
+                ${positionMarkers.slice(0, 3).map(pos => `
+                    <span class="calendar-position-dot" style="--pos-color: ${escapeAttr(pos.color)};" title="${escapeAttr(`${pos.name}: ${pos.hours}h`)}"></span>
+                `).join('')}
+                ${positionMarkers.length > 3 ? `<span class="calendar-position-more">+${positionMarkers.length - 3}</span>` : ''}
+            </span>
+        ` : '';
 
         return `
-            <div class="${classes}" title="${tooltip}">
+            <div class="${classes}" title="${escapeAttr(enrichedTooltip)}"
+                 ${selectAction && isCurrentMonth ? `role="button" tabindex="0" data-cv-select-action="${selectAction}" data-cv-date="${dKey}"` : ''}>
                 <span class="day-number">${d.date.getDate()}</span>
                 ${isPresent ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
+                ${positionDots}
                 ${todayIcon}
                 ${paydayIcon}
                 ${moneyIcon}

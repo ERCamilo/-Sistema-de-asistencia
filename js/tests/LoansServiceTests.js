@@ -28,9 +28,17 @@ import {
     getEmployeesWithDebt,
     getTotalExposure,
     getTotalPaidActive,
+    getEmployeesWithOnlyInactiveLoans,
+    getInterestAmount,
+    getTotalActiveInterest,
+    getTotalHistoricalInterest,
+    getTotalHistoricalDue,
+    getTotalHistoricalPaid,
+    getClosedLoansCount,
     LOAN_STATUS,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
+import { Employee } from '../modules/features/employees/Employee.js';
 
 function buildEmployee() {
     return { id: 'emp1', name: 'Test Employee', number: '001', loans: [] };
@@ -367,6 +375,132 @@ testRunner.addSuite("LoansService — validation helpers", {
         const loan = { principal: 100, interestRate: 0, interestIncluded: false, payments: [] };
         const r = validatePaymentInput(loan, { amount: -50, date: '2026-05-25' });
         testRunner.assertEquals(r.valid, false, "Negative amount rejected");
+    }
+});
+
+testRunner.addSuite("Employee — loans serialization regression", {
+    "constructor preserves loans list"() {
+        const mockData = {
+            id: 'emp_test_1',
+            name: 'Grace Hopper',
+            number: '42',
+            loans: [
+                { id: 'LOAN-1', principal: 1000, status: 'active', payments: [] }
+            ]
+        };
+        const emp = new Employee(mockData);
+        testRunner.assert(Array.isArray(emp.loans), "loans property should be an array");
+        testRunner.assertEquals(emp.loans.length, 1, "loans list should have 1 item");
+        testRunner.assertEquals(emp.loans[0].principal, 1000, "principal should be preserved");
+    },
+
+    "toJSON includes loans list"() {
+        const mockData = {
+            id: 'emp_test_2',
+            name: 'Ada Lovelace',
+            number: '43',
+            loans: [
+                { id: 'LOAN-2', principal: 5000, status: 'active', payments: [] }
+            ]
+        };
+        const emp = new Employee(mockData);
+        // Tweak manually since constructor is broken right now
+        emp.loans = mockData.loans;
+        
+        const serialized = emp.toJSON();
+        testRunner.assert(serialized.hasOwnProperty('loans'), "serialized object must have loans key");
+        testRunner.assert(Array.isArray(serialized.loans), "loans in serialized object must be an array");
+        testRunner.assertEquals(serialized.loans[0].id, 'LOAN-2', "loan data inside serialized object must match");
+    }
+});
+
+testRunner.addSuite("LoansService — getEmployeesWithOnlyInactiveLoans", {
+    "returns only employees with inactive loans and no active ones"() {
+        const mockState = {
+            employees: [
+                // e1: sin préstamos (excluido)
+                { id: 'e1', name: 'Ada', number: '001', loans: [] },
+                // e2: préstamo activo (excluido)
+                { id: 'e2', name: 'Grace', number: '002', loans: [
+                    { id: 'L1', principal: 100, interestRate: 0, status: LOAN_STATUS.ACTIVE, interestIncluded: false, payments: [] }
+                ]},
+                // e3: préstamo pagado (incluido)
+                { id: 'e3', name: 'Linus', number: '003', loans: [
+                    { id: 'L2', principal: 500, interestRate: 0, status: LOAN_STATUS.PAID, interestIncluded: false, payments: [{ amount: 500, voided: false }] }
+                ]},
+                // e4: préstamo anulado (incluido)
+                { id: 'e4', name: 'Donald', number: '004', loans: [
+                    { id: 'L3', principal: 300, interestRate: 0, status: LOAN_STATUS.WRITTEN_OFF, interestIncluded: false, payments: [] }
+                ]},
+                // e5: préstamo activo + préstamo pagado (excluido porque tiene uno activo)
+                { id: 'e5', name: 'Margaret', number: '005', loans: [
+                    { id: 'L4', principal: 200, interestRate: 0, status: LOAN_STATUS.ACTIVE, interestIncluded: false, payments: [] },
+                    { id: 'L5', principal: 400, interestRate: 0, status: LOAN_STATUS.PAID, interestIncluded: false, payments: [{ amount: 400, voided: false }] }
+                ]}
+            ]
+        };
+        const out = getEmployeesWithOnlyInactiveLoans(mockState);
+        testRunner.assertEquals(out.length, 2, "Only 2 employees should be returned");
+        testRunner.assertEquals(out[0].name, 'Donald', "Sorted alphabetically (Donald before Linus)");
+        testRunner.assertEquals(out[1].name, 'Linus', "Linus second");
+    }
+});
+
+testRunner.addSuite("LoansService — KPI Improved Metrics", {
+    "getInterestAmount computes interest correctly"() {
+        const loan1 = { principal: 1000, interestRate: 5, interestIncluded: false };
+        const loan2 = { principal: 1000, interestRate: 5, interestIncluded: true };
+        testRunner.assertEquals(getInterestAmount(loan1), 50, "1000 * 5% = 50");
+        testRunner.assertEquals(getInterestAmount(loan2), 0, "0 interest when interestIncluded is true");
+    },
+
+    "getTotalActiveInterest and getTotalHistoricalInterest sum correctly"() {
+        const mockState = {
+            employees: [
+                { id: 'e1', loans: [
+                    { principal: 1000, interestRate: 10, interestIncluded: false, status: LOAN_STATUS.ACTIVE },
+                    { principal: 2000, interestRate: 5, interestIncluded: false, status: LOAN_STATUS.PAID }
+                ]},
+                { id: 'e2', loans: [
+                    { principal: 500, interestRate: 20, interestIncluded: false, status: LOAN_STATUS.ACTIVE },
+                    { principal: 800, interestRate: 10, interestIncluded: false, status: LOAN_STATUS.WRITTEN_OFF }
+                ]}
+            ]
+        };
+        // Activos: L1 (100) + L3 (100) = 200
+        testRunner.assertEquals(getTotalActiveInterest(mockState), 200, "Active interest should be 200");
+        // Histórico: L1 (100) + L2 (100) + L3 (100) + L4 (80) = 380
+        testRunner.assertEquals(getTotalHistoricalInterest(mockState), 380, "Historical interest should be 380");
+    },
+
+    "getTotalHistoricalDue and getTotalHistoricalPaid sum correctly"() {
+        const mockState = {
+            employees: [
+                { id: 'e1', loans: [
+                    { principal: 1000, interestRate: 0, interestIncluded: false, status: LOAN_STATUS.ACTIVE, payments: [{ amount: 400, voided: false }] },
+                    { principal: 500, interestRate: 0, interestIncluded: false, status: LOAN_STATUS.PAID, payments: [{ amount: 500, voided: false }] }
+                ]}
+            ]
+        };
+        // Histórico Due: 1000 + 500 = 1500
+        testRunner.assertEquals(getTotalHistoricalDue(mockState), 1500, "Historical due should be 1500");
+        // Histórico Paid: 400 + 500 = 900
+        testRunner.assertEquals(getTotalHistoricalPaid(mockState), 900, "Historical paid should be 900");
+    },
+
+    "getClosedLoansCount counts paid and written-off loans"() {
+        const mockState = {
+            employees: [
+                { id: 'e1', loans: [
+                    { id: 'L1', status: LOAN_STATUS.ACTIVE },
+                    { id: 'L2', status: LOAN_STATUS.PAID }
+                ]},
+                { id: 'e2', loans: [
+                    { id: 'L3', status: LOAN_STATUS.WRITTEN_OFF }
+                ]}
+            ]
+        };
+        testRunner.assertEquals(getClosedLoansCount(mockState), 2, "Should count 2 closed loans");
     }
 });
 

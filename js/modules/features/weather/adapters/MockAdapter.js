@@ -43,6 +43,9 @@ function _dateKey(d) {
  * ignored — the mock provider is location-agnostic so tests are stable.
  */
 export function getCurrent(_lat, _lon, today = new Date()) {
+    if (!(today instanceof Date)) {
+        today = new Date();
+    }
     const c = _conditionForDate(_dateKey(today));
     return {
         provider: 'mock',
@@ -52,8 +55,13 @@ export function getCurrent(_lat, _lon, today = new Date()) {
         temp: Math.round((c.tempMax + c.tempMin) / 2),
         feelsLike: Math.round((c.tempMax + c.tempMin) / 2) + (c.icon === WEATHER_ICON.HOT ? 3 : 1),
         precipChance: c.precip,
+        precipMm: Math.round((c.precip / 10) * 10) / 10,
         windKph: c.wind,
-        humidity: 65
+        humidity: 65,
+        uv: c.icon === WEATHER_ICON.SUNNY ? 9 : (c.icon === WEATHER_ICON.HOT ? 11 : (c.icon === WEATHER_ICON.PARTLY_CLOUDY ? 5 : 2)),
+        windGustKph: Math.round(c.wind * 1.5),
+        pressureMb: c.icon === WEATHER_ICON.STORMY ? 995 : (c.icon === WEATHER_ICON.RAINY ? 1005 : 1013),
+        visKm: c.icon === WEATHER_ICON.STORMY ? 2 : (c.icon === WEATHER_ICON.RAINY ? 6 : 10)
     };
 }
 
@@ -62,6 +70,9 @@ export function getCurrent(_lat, _lon, today = new Date()) {
  * @param {number} days number of days (incl. today). Default 5.
  */
 export function getForecast(_lat, _lon, days = 5, startDate = new Date()) {
+    if (!(startDate instanceof Date)) {
+        startDate = new Date();
+    }
     const out = [];
     for (let i = 0; i < days; i++) {
         const d = new Date(startDate);
@@ -74,6 +85,7 @@ export function getForecast(_lat, _lon, days = 5, startDate = new Date()) {
             tempMax: c.tempMax,
             tempMin: c.tempMin,
             precipChance: c.precip,
+            precipMm: Math.round((c.precip / 10) * 10) / 10,
             windKph: c.wind
         });
     }
@@ -101,6 +113,9 @@ export function getAlerts(_lat, _lon) {
  * — close enough to reality for a mock and predictable for tests.
  */
 export function getHourly(_lat, _lon, hours = 24, stepHours = 3, now = new Date()) {
+    if (!(now instanceof Date)) {
+        now = new Date();
+    }
     if (stepHours < 1) stepHours = 1;
     const out = [];
     for (let h = 0; h < hours; h += stepHours) {
@@ -115,12 +130,14 @@ export function getHourly(_lat, _lon, hours = 24, stepHours = 3, now = new Date(
         const temp = Math.round(mean + amp * Math.cos(phase));
         // Precip probability dips at night, peaks mid-afternoon. Bounded to base.
         const precipBoost = Math.max(0, Math.cos(phase)) * 10;
+        const pChance = Math.min(100, Math.round(c.precip + precipBoost));
         out.push({
             isoHour: t.toISOString(),
             hourLabel: `${String(t.getHours()).padStart(2, '0')}:00`,
             icon: c.icon,
             temp,
-            precipChance: Math.min(100, Math.round(c.precip + precipBoost)),
+            precipChance: pChance,
+            precipMm: Math.round((pChance / 10) * 10) / 10,
             windKph: c.wind
         });
     }

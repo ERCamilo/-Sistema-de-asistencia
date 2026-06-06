@@ -6,7 +6,10 @@
       "Bash(grep -n \"innerHTML = \\\\`\" js/app.js)",
       "Bash(python3)",
       "Bash(grep -n \"\\\\${.*\\\\.name\" js/modules/features/employees/EmployeesUI.js)",
-      "Bash(grep -n 'title=\"${.*\\\\.\\\\w\\\\*}\"' js/app.js)"
+      "Bash(grep -n 'title=\"${.*\\\\.\\\\w\\\\*}\"' js/app.js)",
+      "Bash(python -m http.server 8765)",
+      "mcp__Claude_in_Chrome__browser_batch",
+      "mcp__Claude_in_Chrome__computer"
     ]
   }
 }

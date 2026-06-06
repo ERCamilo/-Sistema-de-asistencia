@@ -26,6 +26,7 @@ import {
     voidPayment,
     writeOffLoan,
     reopenLoan,
+    refinanceLoan,
     migrateAdvancesToLoans,
     getBalance,
     LOAN_STATUS,
@@ -45,7 +46,10 @@ function ensureLedgerState() {
             showPaymentFormForLoan: null,
             paymentDraft: { amount: 0, date: getDateKey(new Date()), note: '' },
             showEmployeePicker: false,
-            pickerSearch: ''
+            pickerSearch: '',
+            showInactiveHistory: false,
+            showRefinanceFormForLoan: null,
+            refinanceDraft: createEmptyRefinanceDraft()
         };
     } else {
         // Backfill new fields on pre-existing ledger objects (older sessions)
@@ -55,7 +59,20 @@ function ensureLedgerState() {
         if (typeof state.loansLedger.pickerSearch === 'undefined') {
             state.loansLedger.pickerSearch = '';
         }
+        if (typeof state.loansLedger.showInactiveHistory === 'undefined') {
+            state.loansLedger.showInactiveHistory = false;
+        }
+        if (typeof state.loansLedger.showRefinanceFormForLoan === 'undefined') {
+            state.loansLedger.showRefinanceFormForLoan = null;
+        }
+        if (typeof state.loansLedger.refinanceDraft === 'undefined') {
+            state.loansLedger.refinanceDraft = createEmptyRefinanceDraft();
+        }
     }
+}
+
+function createEmptyRefinanceDraft() {
+    return { basis: 'balance', interestRate: 0, note: '' };
 }
 
 function createEmptyLoanDraft() {
@@ -156,21 +173,80 @@ export function setLoansPickerSearch(value) {
 }
 
 /**
- * Close the picker and open the employee profile modal on the Nómina tab,
- * which hosts the legacy advances editor and (soon) a unified loans editor.
+ * 📊 Sentido inverso: del PERFIL al LEDGER.
+ * Cierra el modal del perfil del empleado, preselecciona al empleado en
+ * el ledger de Cuentas por Cobrar, navega a esa vista y abre el form
+ * de "Nuevo préstamo" (el usuario vino aquí justamente a registrar).
+ *
+ * Reemplaza el flujo dual viejo donde se podía registrar tanto desde el
+ * perfil (via emp.advances[]) como desde el ledger. Ahora el perfil es
+ * solo-lectura; este handler es el puente.
+ *
+ * Defensivo si window.openCuentasPorCobrar no está disponible: prepara
+ * el state del ledger igual para que la próxima navegación manual lo
+ * encuentre listo.
  */
-export function openProfileForLoan(employeeId) {
+export function openLoansLedgerFor(employeeId) {
+    if (!employeeId) return;
+    ensureLedgerState();
+
+    // 1. Cerrar el modal del perfil si estaba abierto.
+    if (typeof state !== 'undefined') {
+        state.showEmployeeProfile = false;
+    }
+
+    // 2. Preseleccionar al empleado en el ledger.
+    state.loansLedger.selectedEmployeeId = employeeId;
+    state.loansLedger.showPaymentFormForLoan = null;
+
+    // 3. Abrir el formulario de nuevo préstamo (el usuario vino a registrar).
+    state.loansLedger.showAddForm = true;
+    state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+
+    // 4. Navegar a la vista de Cuentas por Cobrar (defensivo).
+    if (typeof window !== 'undefined' && typeof window.openCuentasPorCobrar === 'function') {
+        window.openCuentasPorCobrar();
+    } else {
+        // Si la función de navegación no existe (tests, ruta no inicializada),
+        // al menos disparamos un render para que la UI refleje el cambio.
+        render();
+    }
+}
+
+/**
+ * 🎯 Tras elegir un empleado en el picker, lleva al usuario DIRECTO al
+ * formulario de nuevo préstamo, sin abrir el perfil. Es el flujo correcto
+ * desde que el perfil pasó a ser read-only para préstamos: el picker
+ * abría el perfil porque ahí estaba antes el form, pero ese paso intermedio
+ * ya no aporta nada — solo agrega clics.
+ *
+ * Funciona igual para empleados con o sin préstamos previos.
+ */
+export function pickEmployeeForNewLoan(employeeId) {
+    if (!employeeId) return;
     ensureLedgerState();
     state.loansLedger.showEmployeePicker = false;
-    if (typeof window === 'undefined' || typeof window.openEmployeeProfile !== 'function') {
-        return;
-    }
-    window.openEmployeeProfile(employeeId);
-    // Jump straight to the Nómina tab where loans are registered.
-    if (state.employeeProfile) {
-        state.employeeProfile.activeTab = 'nomina';
-    }
+    state.loansLedger.selectedEmployeeId = employeeId;
+    state.loansLedger.showPaymentFormForLoan = null;
+    state.loansLedger.showAddForm = true;
+    state.loansLedger.newLoanDraft = createEmptyLoanDraft();
     render();
+}
+
+/**
+ * ⚠️ DEPRECATED: alias hacia atrás de pickEmployeeForNewLoan.
+ *
+ * Antes esta función abría el perfil del empleado en la pestaña Nómina
+ * porque ahí estaba el editor de adelantos. Tras la unificación de
+ * préstamos (perfil read-only, registro solo desde Cuentas por Cobrar),
+ * el comportamiento correcto es ir directo al formulario en el ledger.
+ *
+ * Se conserva el nombre exportado para no romper imports externos
+ * mientras se hace el grep de callers. La UI ya no lo usa (LoansLedger
+ * apunta a pickEmployeeForNewLoan).
+ */
+export function openProfileForLoan(employeeId) {
+    return pickEmployeeForNewLoan(employeeId);
 }
 
 // ─── New loan form ───────────────────────────────────────────────────────────
@@ -376,6 +452,61 @@ export function voidPaymentHandler(loanId, paymentId) {
     });
 }
 
+// ─── Refinanciamiento ─────────────────────────────────────────────────────────
+
+export function toggleRefinanceForm(loanId) {
+    ensureLedgerState();
+    const open = state.loansLedger.showRefinanceFormForLoan === loanId ? null : loanId;
+    state.loansLedger.showRefinanceFormForLoan = open;
+    // Pre-llenar la tasa con la del préstamo (editable).
+    let rate = 0;
+    if (open) {
+        const emp = state.employees.find(e => e.id === state.loansLedger.selectedEmployeeId);
+        const loan = (emp?.loans || []).find(l => l.id === loanId);
+        rate = Number(loan?.interestRate || 0);
+    }
+    state.loansLedger.refinanceDraft = { basis: 'balance', interestRate: rate, note: '' };
+    render();
+}
+
+export function setRefinanceDraftField(field, value) {
+    ensureLedgerState();
+    const draft = state.loansLedger.refinanceDraft;
+    if (!draft) return;
+    if (field === 'interestRate') {
+        draft.interestRate = Number(value) || 0;
+    } else {
+        draft[field] = value;
+    }
+    // Re-render para actualizar el preview del interés a agregar.
+    render();
+}
+
+export function submitRefinance(loanId) {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) {
+        alertMsg('Empleado no encontrado');
+        return;
+    }
+    try {
+        const ev = refinanceLoan(emp, loanId, state.loansLedger.refinanceDraft);
+        state.loansLedger.showRefinanceFormForLoan = null;
+        saveApplicationData({ immediate: true });
+        notify(`♻️ Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés`, 'success');
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
+}
+
+export function toggleInactiveHistory() {
+    ensureLedgerState();
+    state.loansLedger.showInactiveHistory = !state.loansLedger.showInactiveHistory;
+    render();
+}
+
 /**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
@@ -399,6 +530,12 @@ export function registerLegacyGlobals() {
     window.closeLoansEmployeePicker = closeLoansEmployeePicker;
     window.setLoansPickerSearch = setLoansPickerSearch;
     window.openProfileForLoan = openProfileForLoan;
+    window.pickEmployeeForNewLoan = pickEmployeeForNewLoan;
+    window.openLoansLedgerFor = openLoansLedgerFor;
+    window.toggleInactiveHistory = toggleInactiveHistory;
+    window.toggleRefinanceForm = toggleRefinanceForm;
+    window.setRefinanceDraftField = setRefinanceDraftField;
+    window.submitRefinance = submitRefinance;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

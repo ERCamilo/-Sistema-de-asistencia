@@ -30,6 +30,8 @@ import {
     getActiveLocation
 } from './WeatherService.js';
 import { emojiFor, labelFor, formatTemp } from './WeatherTypes.js';
+import { getWindAlert, getPrecipAlert, getTempAlert, getAggregatedAlert, getWindGustAlert, getPressureAlert, getVisAlert, getUvAlert, ALERT_LEVEL } from './WeatherAlertRules.js';
+import icons from '../../ui/IconSystem.js';
 
 /**
  * Spanish-locale weekday for a YYYY-MM-DD key. "Hoy" shortcut when the key
@@ -39,6 +41,55 @@ function _shortDayLabel(dateKey, todayKey) {
     if (dateKey === todayKey) return 'Hoy';
     const d = new Date(dateKey + 'T00:00:00');
     return d.toLocaleDateString('es-DO', { weekday: 'short' }).replace('.', '');
+}
+
+function _formatRelativeSync(fetchedAt, now = Date.now()) {
+    if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return 'Sin sincronizar';
+
+    const elapsedMs = Math.max(0, now - fetchedAt);
+    const minutes = Math.floor(elapsedMs / 60_000);
+    if (minutes < 1) return 'hace un momento';
+    if (minutes < 60) return `hace ${minutes} min`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `hace ${hours}h`;
+
+    const days = Math.floor(hours / 24);
+    return `hace ${days} ${days === 1 ? 'día' : 'días'}`;
+}
+
+function _formatCompactRelativeSync(fetchedAt, now = Date.now()) {
+    if (!Number.isFinite(fetchedAt) || fetchedAt <= 0) return '--';
+
+    const elapsedMs = Math.max(0, now - fetchedAt);
+    const seconds = Math.max(1, Math.floor(elapsedMs / 1000));
+    if (seconds < 60) return `${seconds}s`;
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}H`;
+
+    const days = Math.floor(hours / 24);
+    return `${days}D`;
+}
+
+function _lastWeatherSyncAt(cache) {
+    const timestamps = [
+        cache?.current?.fetchedAt,
+        cache?.forecast?.fetchedAt,
+        cache?.hourly?.fetchedAt
+    ].filter(ts => Number.isFinite(ts) && ts > 0);
+
+    return timestamps.length ? Math.max(...timestamps) : null;
+}
+
+function _formatDailyTemp(day) {
+    if (Number.isFinite(day.tempMax) && Number.isFinite(day.tempMin)) {
+        return `${formatTemp(day.tempMax)} / ${formatTemp(day.tempMin)}`;
+    }
+    return formatTemp(day.tempMax ?? day.temp);
 }
 
 function _isHidden() {
@@ -56,10 +107,13 @@ export function WeatherBar() {
     const hourly = readCachedHourly(state);
     const loc = getActiveLocation(state);
     const today = new Date().toISOString().slice(0, 10);
+    const lastSyncAt = _lastWeatherSyncAt(state.weather?.cache);
+    const lastSyncLabel = _formatRelativeSync(lastSyncAt);
+    const lastSyncCompactLabel = _formatCompactRelativeSync(lastSyncAt);
 
     return `
         <div class="weather-bar" style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; margin-bottom: 16px; overflow: hidden;">
-            ${expanded ? _expandedHeader(current, loc) : _collapsedHeader(current, forecast, today)}
+            ${expanded ? _expandedHeader(current, loc) : _collapsedHeader(current, forecast, today, lastSyncLabel, lastSyncCompactLabel)}
             ${expanded ? _expandedBody(current, hourly, forecast, today) : ''}
         </div>
     `;
@@ -69,39 +123,44 @@ export function WeatherBar() {
  * Collapsed header is the entire bar surface — the next-5-days mini strip
  * lives here so the user has at-a-glance forecast without expanding.
  */
-function _collapsedHeader(current, forecast, today) {
-    const todayEmoji = emojiFor(current.icon);
-    const todayTemp = formatTemp(current.temp);
-    const previewDays = (forecast || []).slice(0, 5);
+function _collapsedHeader(current, forecast, today, lastSyncLabel, lastSyncCompactLabel) {
+    const fallbackToday = {
+        date: today,
+        icon: current.icon,
+        tempMax: current.temp,
+        tempMin: null
+    };
+    const previewDays = (forecast && forecast.length ? forecast : [fallbackToday]).slice(0, 3);
+    const alert = getAggregatedAlert(current);
 
     return `
         <div role="button" tabindex="0"
              data-att-action="toggle-weather"
              aria-expanded="false"
              aria-label="Ver detalle del clima"
-             style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; flex-wrap: nowrap; overflow-x: auto;">
-            <!-- Today summary (always pinned left) -->
-            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                <span style="font-size: 1.2rem; line-height: 1;" aria-hidden="true">${todayEmoji}</span>
-                <span style="font-size: 0.85rem; color: #f1f5f9; font-weight: 800;">Hoy ${todayTemp}</span>
-            </div>
-            <!-- Vertical divider -->
-            <div style="width: 1px; height: 24px; background: #334155; flex-shrink: 0;"></div>
-            <!-- Next-days strip -->
-            <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
-                ${previewDays.slice(1).map(d => `
-                    <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;" title="${_shortDayLabel(d.date, today)} · ${labelFor(d.icon)}">
-                        <span style="font-size: 0.7rem; color: #94a3b8; font-weight: 700; text-transform: uppercase;">${_shortDayLabel(d.date, today)}</span>
+             style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; flex-wrap: nowrap; overflow-x: auto; ${alert.active ? `background: rgba(248, 113, 113, 0.08); border-left: 4px solid ${alert.color};` : ''}">
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+                ${previewDays.map(d => `
+                    <div data-weather-preview-day="${d.date}"
+                         style="display: flex; align-items: center; gap: 5px; flex: 0 0 auto; min-width: 0; padding: 4px 8px; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 8px; background: rgba(15, 23, 42, 0.55);"
+                         title="${_shortDayLabel(d.date, today)} · ${labelFor(d.icon)}">
+                        <span style="font-size: 0.7rem; color: ${d.date === today ? '#22d3ee' : '#94a3b8'}; font-weight: 800; text-transform: uppercase; white-space: nowrap;">${_shortDayLabel(d.date, today)}</span>
                         <span style="font-size: 1rem; line-height: 1;" aria-hidden="true">${emojiFor(d.icon)}</span>
-                        <span style="font-size: 0.75rem; color: #f1f5f9; font-weight: 700;">${formatTemp(d.tempMax)}</span>
+                        <span style="font-size: 0.75rem; color: #f1f5f9; font-weight: 800; white-space: nowrap;">${_formatDailyTemp(d)}</span>
                     </div>
                 `).join('')}
                 ${previewDays.length === 0 ? `
                     <span style="color: #64748b; font-size: 0.78rem;">Sin pronóstico disponible</span>
                 ` : ''}
             </div>
-            <!-- Toggle indicator -->
-            <div style="color: #64748b; font-size: 1.1rem; flex-shrink: 0;">▶</div>
+            <div style="width: 1px; height: 24px; background: #334155; flex-shrink: 0;"></div>
+            <div title="Última sincronización con la API"
+                 style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; color: #94a3b8; font-size: 0.72rem; font-weight: 700; white-space: nowrap;">
+                ${icons.get('sync', { size: 14, color: '#94a3b8' })}
+                <span class="weather-sync-full">${lastSyncLabel}</span>
+                <span class="weather-sync-compact">${lastSyncCompactLabel}</span>
+            </div>
+            <div style="color: #64748b; flex-shrink: 0; display: inline-flex;">${icons.get('chevron-right', { size: 18, color: '#64748b' })}</div>
         </div>
     `;
 }
@@ -124,21 +183,42 @@ function _expandedHeader(current, loc) {
             </div>
             <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
                 <div style="font-size: 1.4rem; font-weight: 900; color: #f1f5f9;">${formatTemp(current.temp)}</div>
-                <div style="color: #64748b; font-size: 1.1rem;">▼</div>
+                <div style="color: #64748b; display: inline-flex;">${icons.get('chevron-down', { size: 18, color: '#64748b' })}</div>
             </div>
         </div>
     `;
 }
 
 function _expandedBody(current, hourly, forecast, today) {
+    const windAlert = getWindAlert(current.windKph);
+    const precipAlert = getPrecipAlert(current.precipMm);
+    const tempAlert = getTempAlert(current.feelsLike !== null ? current.feelsLike : current.temp);
+    const uvAlert = getUvAlert(current.uv);
+
+    // Parámetros dinámicos (solo se muestran si hay alertas)
+    const gustAlert = getWindGustAlert(current.windGustKph);
+    const pressAlert = getPressureAlert(current.pressureMb);
+    const visAlert = getVisAlert(current.visKm);
+
+    const showGust = gustAlert.level !== ALERT_LEVEL.NORMAL;
+    const showPress = pressAlert.level !== ALERT_LEVEL.NORMAL;
+    const showVis = visAlert.level !== ALERT_LEVEL.NORMAL;
+
     return `
         <div style="padding: 12px 14px;">
             <!-- Vitals row -->
             <div style="display: flex; gap: 14px; font-size: 0.78rem; color: #94a3b8; margin-bottom: 14px; flex-wrap: wrap;">
-                <span title="Probabilidad de precipitación">💧 ${current.precipChance ?? '—'}%</span>
-                <span title="Viento">💨 ${current.windKph ?? '—'} km/h</span>
-                ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación ${formatTemp(current.feelsLike)}</span>` : ''}
-                ${current.humidity != null ? `<span title="Humedad">💦 ${current.humidity}%</span>` : ''}
+                <span title="Probabilidad de precipitación">💧 Probabilidad: <strong style="color: #f1f5f9;">${current.precipChance ?? '—'}%</strong></span>
+                <span title="Cantidad de lluvia acumulada">🧊 Lluvia: <strong style="color: ${precipAlert.color};">${current.precipMm ?? '0'} mm</strong></span>
+                <span title="Velocidad del viento">💨 Viento: <strong style="color: ${windAlert.color};">${current.windKph ?? '—'} km/h</strong></span>
+                ${current.feelsLike != null ? `<span title="Sensación térmica">🌡️ Sensación: <strong style="color: ${tempAlert.color};">${formatTemp(current.feelsLike)}</strong></span>` : ''}
+                ${current.humidity != null ? `<span title="Humedad">💦 Humedad: <strong style="color: #f1f5f9;">${current.humidity}%</strong></span>` : ''}
+                <span title="Índice UV">☀️ Índice UV: <strong style="color: ${uvAlert.color};">${current.uv ?? '—'} (${uvAlert.label})</strong></span>
+                
+                <!-- Campos dinámicos de alerta -->
+                ${showGust ? `<span title="Rachas de viento">💨 Ráfagas: <strong style="color: ${gustAlert.color};">${current.windGustKph} km/h</strong></span>` : ''}
+                ${showVis ? `<span title="Visibilidad">🌫️ Visibilidad: <strong style="color: ${visAlert.color};">${current.visKm} km</strong></span>` : ''}
+                ${showPress ? `<span title="Presión atmosférica">📉 Presión: <strong style="color: ${pressAlert.color};">${current.pressureMb} mb</strong></span>` : ''}
             </div>
 
             <!-- Hourly strip (24h ahead) -->
@@ -175,9 +255,14 @@ function _expandedBody(current, hourly, forecast, today) {
                 </div>
             ` : ''}
 
-            <!-- Footer: provider tag -->
-            <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #334155; font-size: 0.6rem; color: #64748b; text-align: right;">
-                Fuente: ${state.weather?.cache?.provider || 'mock'}
+            <!-- Footer: provider tag + refresh button -->
+            <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #334155; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" data-app-fn="forceRefreshWeather"
+                        ${state.weather?.isRefreshing ? 'disabled' : ''}
+                        style="background: transparent; color: #06b6d4; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; font-size: 0.65rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    ${state.weather?.isRefreshing ? 'Actualizando...' : '🔄 Actualizar clima'}
+                </button>
+                <span style="font-size: 0.6rem; color: #64748b;">Fuente: ${state.weather?.cache?.provider || 'mock'}</span>
             </div>
         </div>
     `;

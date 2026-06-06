@@ -3,9 +3,17 @@ import {
     signInWithPopup, signOut, onAuthStateChanged,
     doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, 
     query, orderBy, limit, getDocs,
-    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob
+    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob, deleteObject
 } from '../data/firebase.js';
 import { getDeviceId } from '../config/Config.js';
+import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
+import { notifySnapshotCreated } from './SnapshotNotifier.js';
+import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
+import { EmployeeRepository } from './EmployeeRepository.js';
+import { PositionRepository } from './PositionRepository.js';
+import { LeaderRepository } from './LeaderRepository.js';
+import { Notification } from '../components/Notification.js';
+import { SyncStatus } from './SyncStatus.js';
 
 class FirebaseService {
     constructor() {
@@ -68,18 +76,52 @@ class FirebaseService {
             delete snapshotContext.currentUser;
             delete snapshotContext.attendance; // ⚡ OPT: La asistencia se guarda por separado en su propia colección
             delete snapshotContext.attendanceByDate; // ⚡ OPT: Índices locales no se suben
-            
+
+            // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular,
+            // escribimos las entidades en sus propias colecciones.
+            const schemaVersion = state?.settings?.schemaVersion;
+            const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
+            const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
+
+            if (isMigratedEmployees) {
+                const emps = Array.isArray(state.employees) ? state.employees : [];
+                if (emps.length > 0) {
+                    await EmployeeRepository.saveMany(emps, { mergeRemote: true });
+                }
+                delete snapshotContext.employees;
+            }
+
+            if (isMigratedGranular) {
+                const positions = Array.isArray(state.positions) ? state.positions : [];
+                if (positions.length > 0) {
+                    await PositionRepository.saveMany(positions, { mergeRemote: true });
+                }
+                delete snapshotContext.positions;
+
+                const leaders = Array.isArray(state.leaders) ? state.leaders : [];
+                if (leaders.length > 0) {
+                    await LeaderRepository.saveMany(leaders, { mergeRemote: true });
+                }
+                delete snapshotContext.leaders;
+            }
+
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
 
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+            // 🛡️ merge: true evita que un guardado parcial borre campos top-level
+            // que este dispositivo no conoce. Combinado con el split de empleados
+            // arriba, esto cierra la ruta de pérdida de datos en multi-dispositivo
+            // para todo lo que vive en el empleado (préstamos, segundos empleos,
+            // adelantos, etc.).
             await setDoc(docRef, {
                 ...cleanState,
                 updatedAt: serverTimestamp(),
                 lastDevice: navigator.userAgent,
                 lastChangedBy: getDeviceId()
-            });
-            console.log('☁️ Estado sincronizado en Firebase');
+            }, { merge: true });
+            console.log(`☁️ Estado sincronizado en Firebase (schemaVersion=${schemaVersion || 'legacy'})`);
+            SyncStatus.markSynced();
         } catch (error) {
             console.error('❌ Error sincronizando estado:', error);
             throw error;
@@ -87,17 +129,113 @@ class FirebaseService {
     }
 
     /**
-     * Crea un punto de restauración (Snapshot) en la colección de backups
+     * 🔄 TRUE OVERWRITE: Replace cloud data entirely with local state.
+     *
+     * Unlike saveFullState (which uses merge:true and leaves cloud-only
+     * data intact), this method:
+     *   1. Reads all cloud employee doc IDs
+     *   2. Deletes any doc NOT present in the local employee list (orphans)
+     *   3. Writes the main state doc WITHOUT merge:true (full overwrite)
+     *   4. Saves all local employees via EmployeeRepository.saveMany
+     *
+     * Only use this when the user explicitly confirms they want their
+     * local data to win over the cloud — it's destructive to cloud-only data.
      */
-    async createSnapshot(state, type = 'auto') {
+    async replaceCloudFull(state) {
         if (!auth.currentUser) return;
+
+        try {
+            console.log('🔄 replaceCloudFull: Reemplazando nube con datos locales (overwrite real)...');
+
+            const schemaVersion = state?.settings?.schemaVersion;
+            const isMigrated = typeof schemaVersion === 'number' && schemaVersion >= 2;
+
+            // --- 1. Delete orphan cloud employee docs ---
+            if (isMigrated) {
+                const cloudEmps = await EmployeeRepository.loadAll();
+                const localIds  = new Set(
+                    (Array.isArray(state.employees) ? state.employees : [])
+                        .map(e => String(e.id))
+                );
+                const orphanIds = cloudEmps
+                    .map(e => String(e.id))
+                    .filter(id => !localIds.has(id));
+
+                if (orphanIds.length > 0) {
+                    console.log(`🗑️ replaceCloudFull: Borrando ${orphanIds.length} empleado(s) huérfano(s) de la nube:`, orphanIds);
+                    for (const id of orphanIds) {
+                        try { await EmployeeRepository.deleteOne(id); }
+                        catch (e) { console.warn(`⚠️ Error borrando doc cloud ${id}:`, e); }
+                    }
+                }
+
+                // Save all local employees (no mergeRemote — local wins entirely).
+                const emps = Array.isArray(state.employees) ? state.employees : [];
+                if (emps.length > 0) {
+                    await EmployeeRepository.saveMany(emps, { mergeRemote: false });
+                }
+            }
+
+            // --- 2. Build main doc payload (same cleanup as saveFullState) ---
+            const snapshotContext = { ...state };
+            delete snapshotContext.snapshots;
+            delete snapshotContext.isLoadingSnapshots;
+            delete snapshotContext.currentUser;
+            delete snapshotContext.attendance;
+            delete snapshotContext.attendanceByDate;
+            if (isMigrated) delete snapshotContext.employees;
+
+            const cleanState = JSON.parse(JSON.stringify(snapshotContext));
+
+            // --- 3. Write WITHOUT merge:true (true overwrite) ---
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+            await setDoc(docRef, {
+                ...cleanState,
+                updatedAt: serverTimestamp(),
+                lastDevice: navigator.userAgent,
+                lastChangedBy: getDeviceId()
+            }); // NO { merge: true } — this REPLACES the doc entirely
+
+            console.log('✅ replaceCloudFull: Nube reemplazada con datos locales');
+            SyncStatus.markSynced();
+        } catch (error) {
+            console.error('❌ Error en replaceCloudFull:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Crea un punto de restauración (Snapshot) en la colección de backups
+     * @param {object} state Estado global a respaldar
+     * @param {string} type Tipo (auto/manual/pre-restore) — compat hacia atrás
+     * @param {string|object} [reasonOrOpts] Razón específica (código del catálogo
+     *   SnapshotReasons) o un objeto { reason, userNote } para snapshots manuales
+     *   con comentario libre del usuario.
+     */
+    async createSnapshot(state, type = 'auto', reasonOrOpts = null) {
+        if (!auth.currentUser) return;
+
+        // Permitir tanto string (reason) como objeto { reason, userNote }
+        let reason = null;
+        let userNote = null;
+        if (typeof reasonOrOpts === 'string') {
+            reason = reasonOrOpts;
+        } else if (reasonOrOpts && typeof reasonOrOpts === 'object') {
+            reason = reasonOrOpts.reason || null;
+            userNote = reasonOrOpts.userNote || null;
+        }
+
+        // Resolver reason desde el type si no vino explícita
+        const resolvedReason = reason || defaultReasonForType(type);
+        const reasonInfo = SNAPSHOT_REASONS[resolvedReason] || null;
+        const reasonLabel = reasonInfo?.label || null;
 
         try {
             const snapshotContext = { ...state };
             delete snapshotContext.snapshots;
             delete snapshotContext.isLoadingSnapshots;
             delete snapshotContext.currentUser;
-            
+
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
             const timestamp = Date.now();
@@ -121,7 +259,10 @@ class FirebaseService {
                 metadata: {
                     timestamp,
                     type,
-                    isProtected: type === 'pre-restore',
+                    reason: resolvedReason,
+                    reasonLabel,
+                    userNote,
+                    isProtected: type === 'pre-restore' || !!reasonInfo?.protected,
                     size: stateString.length,
                     employeeCount: state.employees?.length || 0,
                     attendanceCount: Object.keys(state.attendance || {}).length,
@@ -129,12 +270,106 @@ class FirebaseService {
                     lastChangedBy: getDeviceId()
                 }
             });
-            console.log(`📸 Snapshot (${type}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
+            console.log(`📸 Snapshot (${type}/${resolvedReason}) creado en Firebase ${isExternal ? '(en Storage)' : '(en Firestore)'}`);
+
+            // 📣 Notificar al usuario (solo snapshots automáticos/del sistema;
+            // los manuales ya muestran su propio toast desde el botón).
+            notifySnapshotCreated({
+                reason: resolvedReason,
+                reasonLabel,
+                type,
+                isProtected: type === 'pre-restore' || !!reasonInfo?.protected
+            });
+
             return docRef.id;
         } catch (error) {
             console.error('❌ Error creando snapshot:', error);
             throw error;
         }
+    }
+
+    /**
+     * 🔄 Migración v1→v2: Si el doc parent indica que aún no migró
+     * (schemaVersion < 2) y hay empleados en el arreglo legacy, ejecuta:
+     *   1. Snapshot pre-migration-v2 (red de seguridad)
+     *   2. Escritura granular: un doc por empleado en users/{uid}/employees/{id}
+     *   3. Marca schemaVersion: 2 en el parent (merge:true para no romper otros campos)
+     *   4. Toast de éxito al usuario
+     *
+     * Idempotente: si se interrumpe a medias, el próximo arranque lo retoma.
+     *
+     * @param {object|null} parentDoc El doc users/{uid}/data/current
+     * @param {object} [opts]         { isDemo?: boolean }
+     * @returns {Promise<{migrated: boolean, count?: number}>}
+     */
+    async migrateIfNeeded(parentDoc, opts = {}) {
+        if (!auth.currentUser) return { migrated: false };
+
+        return await runMigrationIfNeeded({
+            parentDoc,
+            isDemo: !!opts.isDemo,
+            createSnapshot: () =>
+                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v3'),
+            saveEmployees: (employees) =>
+                EmployeeRepository.saveMany(employees),
+            savePositions: (positions) =>
+                PositionRepository.saveMany(positions),
+            saveLeaders: (leaders) =>
+                LeaderRepository.saveMany(leaders),
+            markSchemaVersion: async (version) => {
+                const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+                // lastChangedBy garantiza que el listener filtre este eco.
+                await setDoc(docRef, {
+                    schemaVersion: version,
+                    lastChangedBy: getDeviceId(),
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            },
+            notify: (msg) => Notification.success(msg, 5000)
+        });
+    }
+
+    /**
+     * 📥 Carga la lista actual de empleados aplicando el modelo correcto:
+     *   - Si schemaVersion >= 2: lee de users/{uid}/employees/* (per-doc).
+     *   - Si schemaVersion < 2 o ausente: usa el arreglo legacy del parent.
+     *
+     * @param {object|null} parentDoc El doc users/{uid}/data/current
+     * @returns {Promise<Array>}
+     */
+    async loadEmployeesIfMigrated(parentDoc) {
+        const version = parentDoc?.schemaVersion;
+        if (typeof version === 'number' && version >= 2) {
+            return await EmployeeRepository.loadAll();
+        }
+        // Modelo viejo: confiar en el arreglo legacy.
+        return Array.isArray(parentDoc?.employees) ? parentDoc.employees : [];
+    }
+
+    /**
+     * 📥 Carga la lista actual de cargos aplicando el modelo correcto:
+     *   - Si schemaVersion >= 3: lee de users/{uid}/positions/* (per-doc).
+     *   - Si schemaVersion < 3 o ausente: usa el arreglo legacy del parent.
+     */
+    async loadPositionsIfMigrated(parentDoc) {
+        const version = parentDoc?.schemaVersion;
+        if (typeof version === 'number' && version >= 3) {
+            return await PositionRepository.loadAll();
+        }
+        return Array.isArray(parentDoc?.positions) ? parentDoc.positions : [];
+    }
+
+    /**
+     * 📥 Carga la lista actual de líderes aplicando el modelo correcto:
+     *   - Si schemaVersion >= 3: lee de users/{uid}/leaders/* (per-doc).
+     *   - Si schemaVersion < 3 o ausente: usa el arreglo legacy del parent.
+     */
+    async loadLeadersIfMigrated(parentDoc) {
+        const version = parentDoc?.schemaVersion;
+        if (typeof version === 'number' && version >= 3) {
+            return await LeaderRepository.loadAll();
+        }
+        return Array.isArray(parentDoc?.leaders) ? parentDoc.leaders : [];
     }
 
     /**
@@ -363,7 +598,7 @@ class FirebaseService {
         });
 
         const totalDays = Object.keys(daysToSync).length;
-        const batch = writeBatch(db);
+        let batch = writeBatch(db);
         let operationsCount = 0;
 
         // 2. Preparar el Batch (Límax 500 operaciones por batch en Firestore)
@@ -378,11 +613,19 @@ class FirebaseService {
             }, { merge: true });
 
             operationsCount++;
+
+            // Si llegamos al límite de 500, enviamos y reiniciamos el batch
+            if (operationsCount === 500) {
+                console.log('Enviando lote de 500 días a Firestore...');
+                await batch.commit();
+                batch = writeBatch(db);
+                operationsCount = 0;
+            }
         }
 
-        // 3. Comprometer el Batch
+        // 3. Comprometer el Batch restante
         if (operationsCount > 0) {
-            console.log(`⏳ Enviando lote de ${operationsCount} días a Firestore...`);
+            console.log(`Enviando lote final de ${operationsCount} días a Firestore...`);
             await batch.commit();
         }
 

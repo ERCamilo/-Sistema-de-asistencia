@@ -1,0 +1,62 @@
+#!/bin/sh
+# Pre-commit hook — auto-bump sw.js CACHE_VERSION on every commit that
+# touches web assets (JS/CSS/HTML), so browsers always get fresh code.
+#
+# Version format: YYYY.MMDD.HHmmss  (e.g. 2026.0606.143027)
+#   - Seconds precision  → no collision even with rapid successive commits
+#   - Monotonically increasing  → no merge conflicts between branches
+#   - Human-readable  → tells you exactly when it was deployed
+#
+# Install once:  pnpm run install-hooks
+# (also runs automatically on `pnpm install` via the "prepare" script)
+
+SW_FILE="sw.js"
+
+# ── 1. Skip if sw.js doesn't exist ───────────────────────────────────────────
+if [ ! -f "$SW_FILE" ]; then
+    exit 0
+fi
+
+# ── 2. Only bump when files that actually run in the browser change ───────────
+# Excludes pure-Jest wrappers (*.test.js), jest config, and babel config.
+CHANGED_ASSETS=$(git diff --cached --name-only \
+    | grep -E '\.(js|css|html)$' \
+    | grep -Ev '(\.test\.js$|jest\.(config|setup)\.js$|babel\.config\.js$)')
+
+if [ -z "$CHANGED_ASSETS" ]; then
+    exit 0
+fi
+
+# ── 3. Generate new version (date + time with seconds) ───────────────────────
+NEW_VERSION=$(date +"%Y.%m%d.%H%M%S")
+
+# ── 4. Read old version for the log message ──────────────────────────────────
+OLD_VERSION=$(grep "const CACHE_VERSION = '" "$SW_FILE" \
+    | sed "s/.*CACHE_VERSION = '//;s/'.*//")
+
+# ── 5. Patch ONLY the staged (index) content, never the working tree ─────────
+#
+# Why: if the developer has unsaved edits to sw.js (e.g. partially editing the
+# APP_SHELL list), a plain `perl -pi + git add` would accidentally commit those
+# unfinished changes. Instead we patch the index blob directly so the working
+# tree stays untouched.
+#
+# If sw.js is not yet staged, read from working tree and stage the patched version.
+
+SW_MODE=$(git ls-files -s "$SW_FILE" | awk '{print $1}')
+if [ -n "$SW_MODE" ]; then
+    # sw.js is already staged — patch the staged blob
+    SW_CONTENT=$(git show :"$SW_FILE")
+else
+    # sw.js is not staged — read from working tree and stage the patched version
+    SW_CONTENT=$(cat "$SW_FILE")
+    SW_MODE="100644"
+fi
+
+BLOB_SHA=$(printf '%s' "$SW_CONTENT" \
+    | perl -pe "s/const CACHE_VERSION = '[^']*'/const CACHE_VERSION = '$NEW_VERSION'/" \
+    | git hash-object -w --stdin)
+
+git update-index --cacheinfo "$SW_MODE,$BLOB_SHA,$SW_FILE"
+
+echo "  ↺  sw.js cache: ${OLD_VERSION:-<unknown>} → $NEW_VERSION"

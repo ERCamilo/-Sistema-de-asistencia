@@ -44,9 +44,9 @@ testRunner.addSuite("WeatherChip — render", {
         testRunner.assert(html.includes('data-app-fn="toggleWeatherPanel"'), 'wired to toggle handler');
     },
 
-    "shows real emoji + temperature once cache is populated"() {
+    async "shows real emoji + temperature once cache is populated"() {
         resetWeatherState();
-        fetchCurrent(state);
+        await fetchCurrent(state);
         const cached = state.weather.cache.current.data;
         const html = WeatherChip();
         testRunner.assert(html.length > 0, 'Chip rendered');
@@ -74,9 +74,10 @@ testRunner.addSuite("WeatherChip — render", {
 
 testRunner.addSuite("WeatherController — open/close flow", {
 
-    "toggleWeatherPanel opens, refreshes cache, and updates state"() {
+    async "toggleWeatherPanel opens, refreshes cache, and updates state"() {
         resetWeatherState();
         toggleWeatherPanel();
+        await refreshWeather();
         testRunner.assertEquals(state.weather.panelOpen, true, 'panel opened');
         testRunner.assert(state.weather.cache?.current?.data, 'cache populated by refresh on open');
     },
@@ -96,13 +97,28 @@ testRunner.addSuite("WeatherController — open/close flow", {
         testRunner.assertEquals(state.weather.panelOpen, false, 'still closed');
     },
 
-    "refreshWeather is a no-op when cache is fresh"() {
+    async "refreshWeather is a no-op when cache is fresh"() {
         resetWeatherState();
-        refreshWeather();
+        await refreshWeather();
         const firstFetchedAt = state.weather.cache.current.fetchedAt;
         // Immediately calling refreshWeather again must hit the cache (no change).
-        refreshWeather();
+        await refreshWeather();
         testRunner.assertEquals(state.weather.cache.current.fetchedAt, firstFetchedAt, 'fetchedAt unchanged');
+    },
+
+    async "forceRefreshWeather bypasses cache and updates fetchedAt"() {
+        resetWeatherState();
+        await refreshWeather();
+        const firstFetchedAt = state.weather.cache.current.fetchedAt;
+        
+        // Bounded delay to guarantee clock ticks for timestamp difference check
+        await new Promise(resolve => setTimeout(resolve, 5));
+        
+        const forceRefreshModule = await import('../modules/features/weather/WeatherController.js');
+        await forceRefreshModule.forceRefreshWeather();
+        
+        testRunner.assert(state.weather.cache.current.fetchedAt > firstFetchedAt, 'fetchedAt updated indicating cache bypass');
+        testRunner.assertEquals(state.weather.isRefreshing, false, 'isRefreshing state is reset to false');
     }
 });
 
@@ -114,29 +130,34 @@ testRunner.addSuite("WeatherPanel — render", {
         testRunner.assertEquals(html, '', 'Empty when closed');
     },
 
-    "renders the full panel when panelOpen is true"() {
+    async "renders the full panel when panelOpen is true"() {
         resetWeatherState();
-        toggleWeatherPanel(); // opens + populates cache
+        toggleWeatherPanel(); // opens
+        await refreshWeather(); // populates cache
         const html = WeatherPanel();
         testRunner.assert(html.includes('role="dialog"'), 'Dialog rendered');
         testRunner.assert(html.includes('Cerrar'), 'Close button rendered');
+        testRunner.assert(html.includes('data-app-fn="forceRefreshWeather"'), 'Refresh button rendered with dispatcher action');
+        testRunner.assert(html.includes('Actualizar'), 'Refresh button label rendered');
         testRunner.assert(html.includes('°'), 'Temperature displayed');
         // 5-day forecast strip uses "Hoy" as the first label
-        testRunner.assert(html.includes('Hoy'), 'Today label shown');
+        testRunner.assert(html.includes('Hoy'), 'Today label');
     },
 
-    "panel surfaces the active location name"() {
+    async "panel surfaces the active location name"() {
         resetWeatherState();
         state.settings = state.settings || {};
         state.settings.weatherLocation = { lat: 18.5, lon: -68.4, name: 'Punta Cana' };
         toggleWeatherPanel();
+        await refreshWeather();
         const html = WeatherPanel();
         testRunner.assert(html.includes('Punta Cana'), 'Custom location name displayed');
     },
 
-    "panel renders the hourly strip with 'Ahora' marker"() {
+    async "panel renders the hourly strip with 'Ahora' marker"() {
         resetWeatherState();
-        toggleWeatherPanel(); // triggers refreshWeather → populates hourly cache
+        toggleWeatherPanel(); // triggers refreshWeather
+        await refreshWeather(); // populates hourly cache
         const html = WeatherPanel();
         testRunner.assert(html.includes('Próximas 24 horas'), 'Hourly section header present');
         testRunner.assert(html.includes('Ahora'), 'First hour labeled "Ahora"');
@@ -147,12 +168,29 @@ testRunner.addSuite("WeatherPanel — render", {
 
 testRunner.addSuite("WeatherBar — collapsed / expanded", {
 
-    "collapsed bar shows today's temp + 4-day preview by default"() {
+    async "collapsed bar shows today + next 2 days and API sync age"() {
         resetWeatherState();
-        refreshWeather(); // populate cache without expanding
+        await refreshWeather(); // populate cache without expanding
+        
+        // Forzar datos normales para evitar que la rotación por fecha dispare alertas
+        state.weather.cache.current.data.precipMm = 0;
+        state.weather.cache.current.data.windKph = 10;
+        state.weather.cache.current.data.feelsLike = 25;
+        state.weather.cache.current.data.temp = 25;
+        state.weather.cache.current.data.uv = 1;
+        state.weather.cache.current.data.windGustKph = 15;
+        state.weather.cache.current.data.pressureMb = 1013;
+        state.weather.cache.current.data.visKm = 10;
+
         const html = WeatherBar();
         testRunner.assert(html.includes('Hoy'), 'Today summary shown');
         testRunner.assert(html.includes('toggle-weather'), 'Toggle action wired');
+        testRunner.assertEquals((html.match(/data-weather-preview-day=/g) || []).length, 3, 'Collapsed preview limited to 3 days');
+        testRunner.assert(html.includes('Última sincronización con la API'), 'API sync tooltip shown');
+        testRunner.assert(/hace (un momento|\d+ min|\d+h|\d+ d)/.test(html), 'Relative API sync age shown');
+        testRunner.assert(html.includes('weather-sync-full'), 'Desktop sync label rendered');
+        testRunner.assert(html.includes('weather-sync-compact'), 'Mobile sync label rendered');
+        testRunner.assert(/>\d+(s|m|H|D)<\/span>/.test(html), 'Compact mobile sync age shown');
         // Collapsed view should NOT contain the expanded-only labels.
         testRunner.assert(!html.includes('Próximas 24 horas'), 'Hourly section hidden when collapsed');
         testRunner.assert(!html.includes('Próximos días'), 'Daily section header hidden when collapsed');
@@ -160,23 +198,27 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         testRunner.assert(html.includes('°'), 'Some temperature displayed');
     },
 
-    "expanded bar shows current detail + hourly + daily"() {
+    async "expanded bar shows current detail + hourly + daily"() {
         resetWeatherState();
         toggleWeatherExpanded(); // populate cache + expand
+        await refreshWeather();
         const html = WeatherBar();
         testRunner.assert(state.weatherExpanded === true, 'state flag set');
         testRunner.assert(html.includes('Próximas 24 horas'), 'Hourly section shown');
         testRunner.assert(html.includes('Próximos días'), 'Daily section shown');
         testRunner.assert(html.includes('Ahora'), 'Now marker shown in hourly strip');
+        testRunner.assert(html.includes('data-app-fn="forceRefreshWeather"'), 'Refresh button rendered in bar');
+        testRunner.assert(html.includes('Actualizar clima'), 'Refresh button label rendered in bar');
         testRunner.assert(html.includes('Fuente:'), 'Provider footer shown');
     },
 
-    "toggleWeatherExpanded twice returns to collapsed"() {
+    async "toggleWeatherExpanded twice returns to collapsed"() {
         resetWeatherState();
         toggleWeatherExpanded();
         toggleWeatherExpanded();
-        testRunner.assertEquals(state.weatherExpanded, false, 'Collapsed again');
+        await refreshWeather();
         const html = WeatherBar();
+        testRunner.assertEquals(state.weatherExpanded, false, 'Collapsed again');
         testRunner.assert(!html.includes('Próximas 24 horas'), 'Detail no longer rendered');
     },
 
@@ -194,11 +236,12 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         testRunner.assertEquals(html, '', 'Default-off: requires opt-in from Ajustes');
     },
 
-    "expanded bar surfaces the configured location name"() {
+    async "expanded bar surfaces the configured location name"() {
         resetWeatherState();
         state.settings = state.settings || {};
         state.settings.weatherLocation = { lat: 18.5, lon: -68.4, name: 'Punta Cana' };
         toggleWeatherExpanded();
+        await refreshWeather();
         const html = WeatherBar();
         testRunner.assert(html.includes('Punta Cana'), 'Custom location displayed');
     }

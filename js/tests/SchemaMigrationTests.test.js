@@ -1,0 +1,1 @@
+import './SchemaMigrationTests.js';

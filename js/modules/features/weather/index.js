@@ -34,5 +34,6 @@ export {
     toggleWeatherPanel,
     closeWeatherPanel,
     toggleWeatherExpanded,
+    forceRefreshWeather,
     registerLegacyGlobals
 } from './WeatherController.js';

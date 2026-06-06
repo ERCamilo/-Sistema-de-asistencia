@@ -125,6 +125,24 @@ export function validatePaymentInput(loan, params) {
     return { valid: errors.length === 0, errors };
 }
 
+/** Validate a refinancing (refinanciamiento) entry. */
+export function validateRefinanceInput(loan, params) {
+    const errors = [];
+    const rate = Number(params.interestRate);
+    if (!Number.isFinite(rate) || rate <= 0) {
+        errors.push('La tasa de interés del refinanciamiento debe ser mayor a 0');
+    } else if (rate > VALIDATION.MAX_INTEREST_PERCENT) {
+        errors.push(`El interés excede el máximo permitido (${VALIDATION.MAX_INTEREST_PERCENT}%)`);
+    }
+    if (params.date && !/^\d{4}-\d{2}-\d{2}$/.test(params.date)) {
+        errors.push('La fecha debe estar en formato YYYY-MM-DD');
+    }
+    if (params.basis && !['principal', 'balance'].includes(params.basis)) {
+        errors.push('Base de interés inválida (capital original o saldo restante)');
+    }
+    return { valid: errors.length === 0, errors };
+}
+
 // ─── Migration ───────────────────────────────────────────────────────────────
 
 /**
@@ -221,6 +239,7 @@ export function createLoan(emp, params) {
         closedBy: null
     };
     emp.loans.push(loan);
+    emp.updatedAt = Date.now();
     return loan;
 }
 
@@ -276,6 +295,7 @@ export function recordPayment(emp, loanId, params) {
     };
     loan.payments.push(payment);
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
 
     // Auto-close if fully paid (within 1 cent of zero)
     const remaining = getBalance(loan);
@@ -286,6 +306,57 @@ export function recordPayment(emp, loanId, params) {
     }
 
     return payment;
+}
+
+/**
+ * ♻️ Refinance a loan: the employee couldn't pay (fully or partially), so we
+ * add interest to the loan. The interest base is chosen per refinancing:
+ *   - basis 'principal' → interest on the ORIGINAL capital (loan.principal)
+ *   - basis 'balance'   → interest on the REMAINING balance at this moment
+ *
+ * v1: only adds interest (and history). It does NOT touch due dates or
+ * regenerate installments. The loan stays ACTIVE; its totalDue/balance grow.
+ *
+ * @returns {object} the refinancing event appended to loan.refinancings[]
+ */
+export function refinanceLoan(emp, loanId, params = {}) {
+    const loan = (emp.loans || []).find(l => l.id === loanId);
+    if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
+    if (loan.status !== LOAN_STATUS.ACTIVE) {
+        throw new Error('Solo se pueden refinanciar préstamos activos');
+    }
+    const balance = getBalance(loan);
+    if (balance <= 0.01) {
+        throw new Error('No se puede refinanciar un préstamo sin saldo pendiente');
+    }
+
+    const { valid, errors } = validateRefinanceInput(loan, params);
+    if (!valid) throw new Error(errors.join('. '));
+
+    const basis = params.basis === 'balance' ? 'balance' : 'principal';
+    const baseAmount = basis === 'balance' ? balance : round2(Number(loan.principal || 0));
+    const rate = Number(params.interestRate);
+    const interestAmount = round2(baseAmount * rate / 100);
+
+    const event = {
+        id: genId('REFIN'),
+        date: params.date || new Date().toISOString().slice(0, 10),
+        basis,
+        baseAmount,
+        interestRate: rate,
+        interestAmount,
+        unpaidAmount: (params.unpaidAmount != null && Number.isFinite(Number(params.unpaidAmount)))
+            ? round2(Number(params.unpaidAmount)) : null,
+        note: (params.note || '').trim(),
+        createdBy: params.createdBy || null,
+        createdAt: Date.now()
+    };
+
+    if (!Array.isArray(loan.refinancings)) loan.refinancings = [];
+    loan.refinancings.push(event);
+    loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
+    return event;
 }
 
 /** Mark a previously recorded payment as voided. Preserves audit trail. */
@@ -300,6 +371,7 @@ export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
     payment.voidedAt = Date.now();
     payment.voidedBy = voidedBy;
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
 
     // If voiding moves the loan back to having a balance, re-open it
     if (loan.status === LOAN_STATUS.PAID && getBalance(loan) > 0.01) {
@@ -318,6 +390,7 @@ export function writeOffLoan(emp, loanId, writtenOffBy = null) {
     loan.closedAt = Date.now();
     loan.closedBy = writtenOffBy;
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
     return loan;
 }
 
@@ -330,17 +403,34 @@ export function reopenLoan(emp, loanId) {
     loan.status = getBalance(loan) <= 0.01 ? LOAN_STATUS.PAID : LOAN_STATUS.ACTIVE;
     loan.closedAt = loan.status === LOAN_STATUS.PAID ? Date.now() : null;
     loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
     return loan;
 }
 
 // ─── Derived calculations ────────────────────────────────────────────────────
 
-/** Total amount the loan should collect (principal + interest if not included). */
+/** Total amount the loan should collect (principal + interest + refinancing interest). */
 export function getTotalDue(loan) {
     const principal = Number(loan.principal || 0);
     const rate = Number(loan.interestRate || 0);
     const interest = loan.interestIncluded ? 0 : (principal * rate / 100);
-    return round2(principal + interest);
+    return round2(principal + interest + getRefinanceInterest(loan));
+}
+
+/** Total interest added by all refinancing events on this loan. */
+export function getRefinanceInterest(loan) {
+    return round2((loan.refinancings || [])
+        .reduce((sum, r) => sum + Number(r.interestAmount || 0), 0));
+}
+
+/** Number of times this loan has been refinanced. */
+export function getRefinanceCount(loan) {
+    return (loan.refinancings || []).length;
+}
+
+/** Accrued total interest: original loan interest + all refinancing interest. */
+export function getTotalInterestAccrued(loan) {
+    return round2(getInterestAmount(loan) + getRefinanceInterest(loan));
 }
 
 /** Total of all NON-VOIDED payments made against the loan. */
@@ -465,4 +555,84 @@ export function getTotalPaidActive(state) {
             .filter(l => l.status === LOAN_STATUS.ACTIVE)
             .reduce((s, l) => s + getPaidAmount(l), 0)
     );
+}
+
+/** Employees who had loans in the past, but none are active currently. */
+export function getEmployeesWithOnlyInactiveLoans(state) {
+    const result = [];
+    for (const emp of (state.employees || [])) {
+        const allLoans = emp.loans || [];
+        if (allLoans.length === 0) continue;
+        
+        const hasActive = allLoans.some(l => l.status === LOAN_STATUS.ACTIVE);
+        if (hasActive) continue;
+        
+        const totalDue = round2(allLoans.reduce((s, l) => s + getTotalDue(l), 0));
+        const totalPaid = round2(allLoans.reduce((s, l) => s + getPaidAmount(l), 0));
+        const totalBalance = round2(allLoans.reduce((s, l) => s + getBalance(l), 0));
+        
+        result.push({
+            employeeId: emp.id,
+            name: emp.name,
+            number: emp.number,
+            loanCount: allLoans.length,
+            totalDue,
+            totalPaid,
+            totalBalance
+        });
+    }
+    result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    return result;
+}
+
+/** Get the interest amount of a single loan. */
+export function getInterestAmount(loan) {
+    const principal = Number(loan.principal || 0);
+    const rate = Number(loan.interestRate || 0);
+    return loan.interestIncluded ? 0 : round2(principal * rate / 100);
+}
+
+/** Sum of interest for all currently active loans. */
+export function getTotalActiveInterest(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .filter(l => l.status === LOAN_STATUS.ACTIVE)
+            .reduce((s, l) => s + getInterestAmount(l), 0)
+    );
+}
+
+/** Sum of interest for all historical loans (active, paid, written-off). */
+export function getTotalHistoricalInterest(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .reduce((s, l) => s + getInterestAmount(l), 0)
+    );
+}
+
+/** Sum of totalDue for all historical loans. */
+export function getTotalHistoricalDue(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .reduce((s, l) => s + getTotalDue(l), 0)
+    );
+}
+
+/** Sum of paidAmount for all historical loans. */
+export function getTotalHistoricalPaid(state) {
+    return round2(
+        (state.employees || [])
+            .flatMap(e => e.loans || [])
+            .reduce((s, l) => s + getPaidAmount(l), 0)
+    );
+}
+
+/** Number of closed loans (paid or written-off). */
+export function getClosedLoansCount(state) {
+    return (state.employees || [])
+        .flatMap(e => e.loans || [])
+        .filter(l => l.status === LOAN_STATUS.PAID || l.status === LOAN_STATUS.WRITTEN_OFF)
+        .length;
 }

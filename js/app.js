@@ -1,4 +1,4 @@
-﻿import FirebaseService from './modules/services/FirebaseService.js';
+import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
 import { BatchedSaver } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -19,6 +19,20 @@ import {
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
+import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
+import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
+import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
+import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
+import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED } from './modules/services/SyncPauseService.js';
+import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
+import { PositionRepository } from './modules/services/PositionRepository.js';
+import { LeaderRepository } from './modules/services/LeaderRepository.js';
+import { PositionsLiveSync } from './modules/services/PositionsLiveSync.js';
+import { LeadersLiveSync } from './modules/services/LeadersLiveSync.js';
+import { generateLoansReadonlySection } from './modules/features/profile/LoansReadonlySection.js';
+import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusBadge.js';
+import { SyncStatus } from './modules/services/SyncStatus.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 
 // ... (Resto de importaciones existentes)
@@ -42,6 +56,10 @@ import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange } from './modules/utils/DateUtils.js';
+import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
+// Local alias so the detail panel can use escapeHTML(...) without colliding
+// with any other escapeHTML helper defined later in this file.
+const escapeHTML = _escapeHTML_split;
 import { formatCurrency } from './modules/utils/Formatters.js';
 
 // 🛡️ SISTEMA DE REPORTE DE ERRORES: Manejado globalmente por index.html (Alpha Refactorizer)
@@ -79,7 +97,6 @@ import {
 } from './modules/utils/DateManagers.js';
 import { render, setRootComponent, saveScrollPosition, restoreScrollPosition, setupHeaderHeightObserver } from './modules/core/RenderManager.js';
 import lazyLoader from './modules/utils/LazyLoader.js';
-import syncManager from './modules/services/SyncManager.js';
 import offlineManager from './modules/services/OfflineManager.js';
 import workerPool from './modules/utils/WebWorkerPool.js';
 
@@ -96,8 +113,11 @@ import {
     WeatherChip,
     WeatherChipWithPanel,
     WeatherBar,
-    registerLegacyGlobals as registerWeatherGlobals
+    registerLegacyGlobals as registerWeatherGlobals,
+    registerAdapter as registerWeatherAdapter,
+    setActiveProvider as setWeatherProvider
 } from './modules/features/weather/index.js';
+import { WeatherApiAdapter } from './modules/features/weather/adapters/WeatherApiAdapter.js';
 import { monitorSWVersion } from './modules/utils/SWVersion.js';
 import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/LazyCDN.js';
 
@@ -251,7 +271,6 @@ icons.init(initialIconSet);
 // COMPATIBILIDAD CON CÓDIGO VIEJO (Global Bridges)
 // ============================================
 globalThis.lazyLoader = lazyLoader;
-globalThis.syncManager = syncManager;
 globalThis.offlineManager = offlineManager;
 globalThis.workerPool = workerPool;
 globalThis.renderManager = renderManager;
@@ -421,10 +440,10 @@ window.App.Sync = {
         }
     },
 
-    createSnapshot: async (type = 'manual') => {
+    createSnapshot: async (type = 'manual', reason = null) => {
         try {
             showNotification('📸 Creando snapshot...', 'info');
-            await FirebaseService.createSnapshot(state, type);
+            await FirebaseService.createSnapshot(state, type, reason);
             if (state.settingsActiveTab === 'data') {
                 state.isLoadingSnapshots = true; render();
                 state.snapshots = await FirebaseService.listSnapshots();
@@ -826,7 +845,6 @@ initSettingsUI({
     icons,
     holidayService,
     get currentUser() { return window.currentUser; },
-    get currentUser() { return currentUser; },
     get autoSyncEnabled() { return autoSyncEnabled; },
     calculateStorageStats: () => calculateStorageStats()
 });
@@ -1288,7 +1306,7 @@ async function saveApplicationData(options = {}) {
             };
 
             if (now - lastBackup > (intervals[freq] || Infinity)) {
-                FirebaseService.createSnapshot(state, 'auto').then(() => {
+                FirebaseService.createSnapshot(state, 'auto', 'daily-auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
                     // No llamamos a saveApplicationData aquí para evitar bucles,
                     // se guardará en el siguiente paso de IndexedDB.
@@ -1537,58 +1555,78 @@ window.changeSettingsTab = async (tab) => {
     }
 };
 
-// ⚡ NUEVO: Restaurar Snapshot desde Firebase (Fase 4)
+// ⚡ Restaurar Snapshot desde Firebase
+// Flujo (Snapshot UX B):
+//   1. Descargar el snapshot.
+//   2. Mostrar modal de diff (qué cambia, qué se perdería).
+//   3. Si confirma: crear snapshot "pre-restore" del estado actual (red de
+//      seguridad) y luego aplicar.
 window.restoreSnapshot = async (snapshotId) => {
     if (!window.currentUser) return;
 
-    // Confirmación brutalmente honesta como pide el usuario
-    const confirmed = await Modal.confirm({
-        title: '⚠️ Advertencia de Restauración',
-        message: '¿Estás REALMENTE seguro? Esta acción borrará TODO tu estado actual (empleados, posiciones y asistencia) para reemplazarlo por los datos de esta captura. No hay vuelta atrás.',
-        confirmText: 'Sí, Sobreiscribir Todo',
-        cancelText: 'Cancelar',
-        type: 'danger'
-    });
-
-    if (!confirmed) return;
-
+    let snapshot;
     try {
-        state.isLoadingSnapshots = true;
-        render();
-        Notification.info('⏳ Restaurando sistema...', 0);
-
-        const snapshot = await FirebaseService.getSnapshot(snapshotId);
-
-        if (!snapshot || !snapshot.state) {
-            throw new Error('El snapshot está vacío o corrupto');
-        }
-
-        // Aplicar datos al estado global
-        state.employees = snapshot.state.employees || [];
-        state.positions = snapshot.state.positions || [];
-        state.attendance = snapshot.state.attendance || {};
-
-        // Mezclar settings con precaución (mantener flags de sesión si existen)
-        if (snapshot.state.settings) {
-            state.settings = { ...state.settings, ...snapshot.state.settings };
-        }
-
-
-        // Persistencia crítica: IndexedDB y Mirror
-        await saveApplicationData();
-
+        Notification.info('⏳ Cargando snapshot para comparar...', 0);
+        snapshot = await FirebaseService.getSnapshot(snapshotId);
         Notification.clearAll();
-        Notification.success('✅ Sistema restaurado con éxito', 5000);
-
-        state.isLoadingSnapshots = false;
-        render();
-
     } catch (e) {
-        console.error('Error fatal en restauración:', e);
-        Notification.error('❌ Error al restaurar: ' + e.message);
-        state.isLoadingSnapshots = false;
-        render();
+        Notification.clearAll();
+        console.error('Error descargando snapshot:', e);
+        Notification.error('❌ No se pudo cargar el snapshot: ' + e.message);
+        return;
     }
+
+    if (!snapshot || !snapshot.state) {
+        Notification.error('❌ El snapshot está vacío o corrupto');
+        return;
+    }
+
+    // Mostrar modal de comparación. La restauración real ocurre en onRestore.
+    SnapshotDiffModal.show(snapshot.state, state, {
+        snapshotMeta: snapshot.metadata || {},
+        onRestore: async () => {
+            try {
+                state.isLoadingSnapshots = true;
+                render();
+                Notification.info('🛟 Creando red de seguridad...', 0);
+
+                // 1. Snapshot de seguridad ANTES de aplicar el cambio.
+                try {
+                    await FirebaseService.createSnapshot(state, 'pre-restore', 'pre-restore');
+                } catch (snapErr) {
+                    // No bloqueamos: mejor restaurar sin red que no restaurar.
+                    console.warn('⚠️ No se pudo crear el snapshot pre-restore:', snapErr);
+                }
+
+                Notification.clearAll();
+                Notification.info('⏳ Restaurando sistema...', 0);
+
+                // 2. Aplicar datos al estado global.
+                state.employees = snapshot.state.employees || [];
+                state.positions = snapshot.state.positions || [];
+                state.attendance = snapshot.state.attendance || {};
+
+                // Mezclar settings con precaución (mantener flags de sesión si existen)
+                if (snapshot.state.settings) {
+                    state.settings = { ...state.settings, ...snapshot.state.settings };
+                }
+
+                // 3. Persistencia: IndexedDB + mirror.
+                await saveApplicationData();
+
+                Notification.clearAll();
+                Notification.success('✅ Sistema restaurado con éxito', 5000);
+                state.isLoadingSnapshots = false;
+                render();
+            } catch (e) {
+                console.error('Error fatal en restauración:', e);
+                Notification.clearAll();
+                Notification.error('❌ Error al restaurar: ' + e.message);
+                state.isLoadingSnapshots = false;
+                render();
+            }
+        }
+    });
 };
 
 
@@ -2272,7 +2310,19 @@ function generateBonusesHTML(payroll) {
     `;
 }
 
-function generateAdvancesHTML(payroll) {
+// 🔄 UNIFICACIÓN DE PRÉSTAMOS:
+// La sección "Adelantos y Préstamos" del perfil ahora es de SOLO LECTURA.
+// El único lugar para registrar/editar es Cuentas por Cobrar. La implementación
+// vive en LoansReadonlySection.js para que sea testeable en aislamiento.
+function generateAdvancesHTML(/* payroll (no longer used) */) {
+    const emp = state.employees?.find(e => e.id === state.employeeProfile?.employeeId);
+    if (!emp) return '';
+    return generateLoansReadonlySection(emp);
+}
+
+// Implementación vieja eliminada en la unificación de préstamos. Si necesitas
+// referencia histórica, ver git blame de este archivo en commits anteriores.
+function _legacyGenerateAdvancesHTML_REMOVED(payroll) {
     const advances = state.employeeProfile.advances || [];
     const totalAdvancesAccumulated = advances.reduce((sum, adv) => {
         const amount = parseFloat(adv.amount) || 0;
@@ -2832,7 +2882,7 @@ window.uploadToCloud = async function () {
         console.error('Error al subir a la nube:', e);
         showNotification('❌ Error al sincronizar historial', 'error');
     } finally {
-        loading.close();
+        loading.dismiss();
     }
 };
 
@@ -2869,7 +2919,7 @@ window.downloadFromCloud = async function () {
         console.error('Error al descargar de la nube:', e);
         showNotification('❌ Error al descargar datos', 'error');
     } finally {
-        loading.close();
+        loading.dismiss();
     }
 };
 
@@ -2891,7 +2941,7 @@ window.deleteCloudDataNow = async function () {
         console.error('Error al eliminar datos:', e);
         showNotification('❌ Error al eliminar datos remotos', 'error');
     } finally {
-        loading.close();
+        loading.dismiss();
     }
 };
 
@@ -2971,6 +3021,19 @@ window.WeatherChip = WeatherChip;
 window.WeatherChipWithPanel = WeatherChipWithPanel;
 window.WeatherBar = WeatherBar;
 registerWeatherGlobals();
+
+// Register the real WeatherAPI.com adapter and activate it if the admin
+// has configured an API key. Without a key, MockAdapter stays active.
+(function _wireWeatherAdapter() {
+    try {
+        registerWeatherAdapter('weatherapi', WeatherApiAdapter);
+        if (state.settings?.weatherApiKey) {
+            setWeatherProvider(state, 'weatherapi');
+        }
+    } catch (err) {
+        if (window.debug) window.debug.log(`Weather adapter registration: ${err.message}`);
+    }
+})();
 
 // 🛡️ Surface the active Service Worker's CACHE_VERSION in state so the
 //    Ajustes footer can show it next to the app version. Updates again
@@ -3059,7 +3122,7 @@ function BottomNavigation() {
                     <span class="bottom-nav-text">Asistencia</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'employees' || state.activeTab === 'positions' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="employees"
+                        type="button" data-app-fn="openEmpleadosPersonal"
                         title="Gestionar empleados y posiciones">
                     <span class="bottom-nav-icon">${icons.get('personnel')}</span>
                     <span class="bottom-nav-text">Personal</span>
@@ -3071,18 +3134,860 @@ function BottomNavigation() {
                     <span class="bottom-nav-text">Reportes</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'export' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="export"
+                        type="button" data-app-fn="openNomina"
                         title="Nómina">
                     <span class="bottom-nav-icon">${icons.get('payroll')}</span>
                     <span class="bottom-nav-text">Nómina</span>
                 </button>
                 <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
-                        type="button" data-app-fn="changeTab" data-arg="settings"
+                        type="button" data-app-fn="openAjustesGenerales"
                         title="Configuración del sistema">
                     <span class="bottom-nav-icon">${icons.get('settings')}</span>
                     <span class="bottom-nav-text">Ajustes</span>
                 </button>
             </nav>`;
+}
+
+/**
+ * 🏠 SIDEBAR NAVIGATION (desktop ≥1024px)
+ *
+ * Mirrors `BottomNavigation()` but rendered as a left-side rail. Uses the
+ * same `data-app-fn="changeTab"` delegation, so every existing handler
+ * (tab switching, scroll preservation, etc.) works without changes.
+ *
+ * Visibility is controlled entirely by CSS in `css/sidebar-shell.css`:
+ *   - `body.has-sidebar` (already toggled by RenderManager)
+ *   - hidden below 1024px
+ *
+ * Audit references: replaces the bottom-nav at desktop widths (audit
+ * opportunity O1) and fixes the wasted horizontal space that the original
+ * audit flagged on Asistencia.
+ */
+// Shortcut helpers that switch the main tab AND set the appropriate sub-tab
+// in one go, so the sidebar can "deep link" into Cuentas por Cobrar /
+// Calendario without the user needing two clicks.
+window.openCuentasPorCobrar = () => {
+    if (state) state.payrollViewMode = 'ledger';
+    if (typeof window.changeTab === 'function') window.changeTab('export');
+};
+
+// 🟢 Badge de sincronización (Fase 3.2 + ajuste UX consolidado) —
+// invocado desde el Header. Modo compacto: SOLO el icono, el texto va
+// al tooltip (title). El estado se comunica enteramente por el icono y
+// el color:
+//   ✅ verde   = totalmente sincronizado.
+//   🕒 ámbar  = aún sincronizando o desactualizado.
+//   ❌ rojo   = error.
+//   🔌 rojo   = sin conexión a Internet.
+//   👤 gris   = sin sesión.
+window.renderSyncStatusBadgeForHeader = () => {
+    const badge = renderSyncStatusBadge({
+        lastSyncedAt: SyncStatus.getLastSyncedAt(),
+        hasError:     SyncStatus.hasError(),
+        isAuthenticated: !!window.currentUser,
+        isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
+        compact: true
+    });
+    return `
+        <button type="button"
+                class="header-sync-center-btn"
+                data-app-fn="openSyncCenterModal"
+                aria-label="Abrir centro de sincronización"
+                title="Abrir centro de sincronización">
+            ${badge}
+        </button>
+    `;
+};
+
+// Conectar el live updater una sola vez al cargar app.js.
+// Re-renderiza el badge cada 5s y en cada cambio de SyncStatus (sin trigger
+// de render() global, que sería costoso).
+if (typeof window !== 'undefined') {
+    attachLiveBadge({
+        getAuth:          () => !!window.currentUser,
+        getOnline:        () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
+        getUploadPaused:  () => SYNC_PAUSE_ENABLED && isSyncPaused(),
+        compact:          true,  // El header usa modo icono-solo
+        // Click en badge naranja "pausado" → confirmar y reanudar la subida.
+        // Esto es la ÚNICA manera de salir del estado pausado desde la UI.
+        onPausedClick: async () => {
+            const confirmed = await Modal.confirm({
+                title: '▶️ Reanudar subida a la nube',
+                message:
+                    'La subida a la nube está actualmente pausada — tus cambios locales no se ' +
+                    'están enviando a Firebase ni a tus otros dispositivos.<br><br>' +
+                    '¿Deseas reanudar la subida ahora? Se subirán inmediatamente todos los ' +
+                    'cambios pendientes.',
+                confirmText: '▶️ Sí, reanudar y subir',
+                cancelText: 'Mantener pausado'
+            });
+            if (confirmed) {
+                try {
+                    await resumeCloudUpload();
+                    showNotification('▶️ Subida a la nube reanudada. Sincronizando…', 'success');
+                } catch (e) {
+                    console.error('Error al reanudar:', e);
+                    showNotification('❌ Error al reanudar la subida', 'error');
+                }
+            }
+        }
+    });
+    // Cuando cambia el estado de conexión, refrescar inmediatamente.
+    window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
+    window.addEventListener('offline', () => {
+        // Forzar refresh visual sin tocar el ts real (lo dispara internalmente
+        // notificando con el mismo timestamp existente).
+        const ts = SyncStatus.getLastSyncedAt();
+        if (ts !== null) SyncStatus.markSynced(ts);
+    });
+}
+window.openCalendarioAjustes = () => {
+    if (state) state.settingsActiveTab = 'calendar';
+    if (typeof window.changeTab === 'function') window.changeTab('settings');
+};
+
+window.openDatosAjustes = () => {
+    if (state) state.settingsActiveTab = 'data';
+    if (typeof window.changeTab === 'function') {
+        window.changeTab('settings');
+    }
+    // Si hay un usuario logueado en Firebase, cargar las snapshots de forma asíncrona
+    if (window.currentUser && typeof FirebaseService !== 'undefined') {
+        setTimeout(async () => {
+            try {
+                state.isLoadingSnapshots = true;
+                if (typeof render === 'function') render();
+                const snaps = await FirebaseService.listSnapshots();
+                state.snapshots = snaps;
+                state.isLoadingSnapshots = false;
+                if (typeof render === 'function') render();
+            } catch (e) {
+                console.error('Error cargando snapshots en openDatosAjustes:', e);
+                state.isLoadingSnapshots = false;
+                if (typeof render === 'function') render();
+            }
+        }, 100);
+    }
+};
+
+window.openNomina = () => {
+    if (state) state.payrollViewMode = 'generator';
+    if (typeof window.changeTab === 'function') window.changeTab('export');
+};
+
+window.openAjustesGenerales = () => {
+    if (state) state.settingsActiveTab = 'general';
+    if (typeof window.changeTab === 'function') window.changeTab('settings');
+};
+
+window.openEmpleadosPersonal = () => {
+    if (state) state.employeeViewMode = 'employees';
+    if (typeof window.changeTab === 'function') window.changeTab('employees');
+};
+
+window.openLideresPersonal = () => {
+    if (state) state.employeeViewMode = 'leaders';
+    if (typeof window.changeTab === 'function') window.changeTab('employees');
+};
+
+window.openPuestosPersonal = () => {
+    if (state) state.employeeViewMode = 'positions';
+    if (typeof window.changeTab === 'function') window.changeTab('employees');
+};
+
+function SidebarNavigation() {
+    const t = state.activeTab;
+    const cls = (...tabs) => tabs.includes(t) ? 'sidebar-item active' : 'sidebar-item';
+
+    // Live counts for badges
+    const activeEmployees = (state.employees || []).filter(e => e.active !== false).length;
+    let activeLoans = 0;
+    try {
+        (state.employees || []).forEach(e => {
+            (e.loans || []).forEach(l => { if (l.status === 'active') activeLoans++; });
+        });
+    } catch (_) { activeLoans = 0; }
+
+    // "Cuentas por Cobrar" is active when on Nómina screen with the ledger sub-view
+    const isCuentas = state.activeTab === 'export' && state.payrollViewMode === 'ledger';
+    const cuentasCls = isCuentas ? 'sidebar-item active' : 'sidebar-item';
+
+    // "Datos" is active when on Ajustes with the data sub-tab
+    const isData = state.activeTab === 'settings' && state.settingsActiveTab === 'data';
+    const dataCls = isData ? 'sidebar-item active' : 'sidebar-item';
+
+    // "Calendario" is active when on Ajustes with the calendar sub-tab
+    const isCal = state.activeTab === 'settings' && state.settingsActiveTab === 'calendar';
+    const calCls = isCal ? 'sidebar-item active' : 'sidebar-item';
+
+    // "Ajustes" (General) is active when on settings but not calendar or data
+    const isAjustes = state.activeTab === 'settings' && !isCal && !isData;
+    const ajustesCls = isAjustes ? 'sidebar-item active' : 'sidebar-item';
+
+    const isPersonalActive = state.activeTab === 'employees' || state.activeTab === 'positions';
+
+    const badge = (n) => n > 0 ? `<span class="sidebar-badge">${n}</span>` : '';
+
+    return `<aside class="app-sidebar" aria-label="Navegación principal">
+                <!-- Logo/Branding Box -->
+                <div class="sidebar-brand-box" style="margin-bottom: 16px; padding: 10px; border-radius: 12px; background: #020617; border: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; height: 72px; overflow: hidden; flex-shrink: 0;">
+                    <img src="feature_graphic (Custom) (1).jpeg" alt="Logo" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 6px;">
+                </div>
+                <button class="${cls('attendance')}" type="button" data-app-fn="changeTab" data-arg="attendance" aria-label="Asistencia" title="Asistencia">
+                    <span class="sidebar-icon">${icons.get('attendance')}</span>
+                    <span class="sidebar-label">Asistencia</span>
+                    ${badge(activeEmployees)}
+                </button>
+                <button class="${isPersonalActive ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="openEmpleadosPersonal" aria-label="Personal" title="Personal">
+                    <span class="sidebar-icon">${icons.get('personnel')}</span>
+                    <span class="sidebar-label">Personal</span>
+                </button>
+                ${isPersonalActive ? `
+                <div class="sidebar-subitems" style="padding-left: 20px; display: flex; flex-direction: column; gap: 2px; margin-top: 2px; margin-bottom: 4px;">
+                    <button class="sidebar-item ${state.employeeViewMode === 'employees' || !state.employeeViewMode ? 'active' : ''}" type="button" data-app-fn="openEmpleadosPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Empleados" title="Empleados">
+                        <span class="sidebar-icon" style="font-size: 14px;">👥</span>
+                        <span class="sidebar-label">Empleados</span>
+                    </button>
+                    <button class="sidebar-item ${state.employeeViewMode === 'leaders' ? 'active' : ''}" type="button" data-app-fn="openLideresPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Líderes" title="Líderes">
+                        <span class="sidebar-icon" style="font-size: 14px;">🔑</span>
+                        <span class="sidebar-label">Líderes</span>
+                    </button>
+                    <button class="sidebar-item ${state.employeeViewMode === 'positions' ? 'active' : ''}" type="button" data-app-fn="openPuestosPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Puestos" title="Puestos">
+                        <span class="sidebar-icon" style="font-size: 14px;">💼</span>
+                        <span class="sidebar-label">Puestos</span>
+                    </button>
+                </div>
+                ` : ''}
+                <button class="${cls('employee-report','dashboard')}" type="button" data-app-fn="changeTab" data-arg="employee-report" aria-label="Reportes" title="Reportes">
+                    <span class="sidebar-icon">${icons.get('reports')}</span>
+                    <span class="sidebar-label">Reportes</span>
+                </button>
+                <button class="${state.activeTab === 'export' && !isCuentas ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="openNomina" aria-label="Nómina" title="Nómina">
+                    <span class="sidebar-icon">${icons.get('payroll')}</span>
+                    <span class="sidebar-label">Nómina</span>
+                </button>
+                <button class="${cuentasCls}" type="button" data-app-fn="openCuentasPorCobrar" aria-label="Cuentas por Cobrar" title="Cuentas por Cobrar">
+                    <span class="sidebar-icon">💳</span>
+                    <span class="sidebar-label">Cuentas por Cobrar</span>
+                    ${badge(activeLoans)}
+                </button>
+                <div class="sidebar-divider"></div>
+                <div class="sidebar-section">Sistema</div>
+                <button class="${ajustesCls}" type="button" data-app-fn="openAjustesGenerales" aria-label="Ajustes" title="Ajustes">
+                    <span class="sidebar-icon">${icons.get('settings')}</span>
+                    <span class="sidebar-label">Ajustes</span>
+                </button>
+                <button class="${calCls}" type="button" data-app-fn="openCalendarioAjustes" aria-label="Calendario" title="Calendario">
+                    <span class="sidebar-icon">📅</span>
+                    <span class="sidebar-label">Calendario</span>
+                </button>
+                <button class="${dataCls}" type="button" data-app-fn="openDatosAjustes" aria-label="Datos" title="Datos">
+                    <span class="sidebar-icon">${icons.get('save')}</span>
+                    <span class="sidebar-label">Datos</span>
+                </button>
+                <div class="sidebar-foot">
+                    <span class="sidebar-foot-dot"></span>
+                    <div>
+                        <div class="sidebar-foot-title">Sincronizado</div>
+                        <div class="sidebar-foot-sub">v1.6.7 · Firebase</div>
+                    </div>
+                </div>
+            </aside>`;
+}
+
+/**
+ * 🧭 ATTENDANCE PAGE TITLE — compact contextual header above the day view.
+ *
+ * Renders the big "Asistencia diaria · <fecha>" h1 plus a sub-line showing
+ * how many active employees there are and the default-hours setting. Hidden
+ * on small screens via CSS to keep the mobile experience unchanged.
+ */
+function AttendancePageTitle() {
+    const date = state.selectedDate instanceof Date ? state.selectedDate : new Date(state.selectedDate);
+    const dateLabel = date.toLocaleDateString('es', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
+    const dateLabelCap = dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1);
+    const activeCount = (state.employees || []).filter(e => e.active !== false).length;
+    const defaultHours = state.settings?.regularHoursPerDay || 8;
+    const modeLabel = state.viewMode === 'week' ? 'Semanal' : 'Diaria';
+    return `<div class="page-title-row">
+                <div>
+                    <h1 class="page-title">Asistencia ${modeLabel.toLowerCase()} · <span class="page-title-accent">${escapeHTML(dateLabelCap)}</span></h1>
+                    <div class="page-title-sub">${activeCount} trabajadores activos · Horas por defecto: <b>${defaultHours}h</b></div>
+                </div>
+            </div>`;
+}
+
+/**
+ * 🪟 ATTENDANCE DETAIL PANEL (right column of the desktop split view)
+ *
+ * Phase-2 of the desktop redesign: renders a sticky right-side panel
+ * with the currently-selected employee's at-a-glance info. Hidden on
+ * <1024px via CSS. Used only on the Asistencia screen.
+ *
+ * Selection state lives in `state.selectedDetailEmployeeId`. If null
+ * (first render), defaults to the first ACTIVE employee.
+ */
+function AttendanceDetailPanel() {
+    try { return _AttendanceDetailPanelInner(); }
+    catch (err) {
+        // Defensive: if the detail panel throws, return an empty aside instead of
+        // taking down the entire Asistencia render. The error is still logged so
+        // the team can see it.
+        console.error('❌ AttendanceDetailPanel falló:', err);
+        return `<aside class="attendance-detail" data-error="1"></aside>`;
+    }
+}
+
+function _AttendanceDetailPanelInner() {
+    if (!state.employees || state.employees.length === 0) {
+        return `<aside class="attendance-detail empty">
+            <div class="detail-empty-state">
+                <div class="detail-empty-icon">👥</div>
+                <div class="detail-empty-title">Aún no hay empleados</div>
+                <div class="detail-empty-sub">Crea uno desde la pestaña Personal para ver su detalle aquí.</div>
+            </div>
+        </aside>`;
+    }
+
+    // Resolve the selected employee — fall back to first active, then first.
+    const selId = state.selectedDetailEmployeeId;
+    let emp = selId ? state.employees.find(e => e.id === selId) : null;
+    if (!emp) emp = state.employees.find(e => e.active !== false) || state.employees[0];
+
+    // Normalise positions array (older records may only have positionId)
+    if (!emp.positions) emp.positions = emp.positionId ? [emp.positionId] : [];
+
+    // ----- Build position chips -----
+    const positionChips = (emp.positions || []).map(pid => {
+        const pos = state.positions.find(p => p.id === pid);
+        if (!pos) return '';
+        const color = pos.color || '#64748b';
+        return `<span class="detail-pos-chip" style="color:${color};border-color:${color};">
+            <span class="detail-pos-dot" style="background:${color};"></span>${escapeHTML(pos.name || 'Posición')}
+        </span>`;
+    }).join('');
+
+    // ----- Compute stats over the CURRENT PAY PERIOD -----
+    // Source: state.settings.payPeriod (configured in Ajustes → Calendario).
+    // Range: [periodStart, periodStart + periodLength - 1]. We cap iteration
+    // at the selected date so future days of the period don't pre-count.
+    // If no period is configured, fall back to month-to-date silently and
+    // surface a hint at the bottom of the stat grid.
+    const today = state.selectedDate instanceof Date ? state.selectedDate : new Date(state.selectedDate);
+    const pp = state.settings && state.settings.payPeriod;
+    let rangeStart, rangeEnd, rangeMode;
+    if (pp && pp.periodStart) {
+        rangeStart = parseDate(pp.periodStart);
+        rangeEnd = new Date(rangeStart);
+        rangeEnd.setDate(rangeStart.getDate() + ((pp.periodLength || 15) - 1));
+        rangeMode = 'period';
+    } else {
+        rangeStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        rangeEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        rangeMode = 'month';
+    }
+    // Iterate up to the earlier of (rangeEnd, today) so future days are excluded
+    const iterEnd = rangeEnd < today ? rangeEnd : today;
+
+    let periodHours = 0;
+    let periodDays = 0;
+    let overtimeHours = 0;
+    try {
+        for (let d = new Date(rangeStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
+            const dk = getDateKey(new Date(d));
+            const att = state.attendance[`${emp.id}-${dk}`];
+            if (att && att.present) {
+                periodDays++;
+                periodHours += (att.hoursWorked || 0);
+                const reg = state.settings?.regularHoursPerDay || 8;
+                if ((att.hoursWorked || 0) > reg) overtimeHours += (att.hoursWorked - reg);
+            }
+        }
+    } catch (e) { /* defensive */ }
+
+    // ----- Visual summary cards: current week + period hours progress -----
+    const regularHours = state.settings?.regularHoursPerDay || 8;
+    const holidays = state.settings?.holidays || [];
+    const firstWorkPosId = emp.positions?.[0];
+    const firstWorkPos = state.positions.find(p => p.id === firstWorkPosId);
+    const employeeWorkingDays = (
+        emp.customWorkingDays?.[firstWorkPosId]
+        || firstWorkPos?.workingDays
+        || [1, 2, 3, 4, 5, 6]
+    );
+    const worksOnDay = (date) => {
+        if (!Array.isArray(employeeWorkingDays) || employeeWorkingDays.length === 0) return true;
+        return employeeWorkingDays.includes(date.getDay());
+    };
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7)); // Monday
+    let weekPresentDays = 0;
+    let weekWorkDays = 0;
+    const weekLabels = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    const weekDots = [];
+    for (let i = 0; i < 7; i++) {
+        const day = new Date(weekStart);
+        day.setDate(weekStart.getDate() + i);
+        const dk = getDateKey(day);
+        const isWorkDay = worksOnDay(day) && !holidays.includes(dk);
+        const att = state.attendance[`${emp.id}-${dk}`];
+        const checkColor = getCheckColor(att, day);
+        if (isWorkDay) weekWorkDays++;
+        if (isWorkDay && att?.present) weekPresentDays++;
+        weekDots.push(`
+            <div class="detail-week-day ${att?.present ? `present ${checkColor}` : ''} ${!isWorkDay ? 'rest' : ''}">
+                <span>${weekLabels[i]}</span>
+                <i aria-hidden="true"></i>
+            </div>
+        `);
+    }
+    const weekAttendancePct = weekWorkDays > 0 ? Math.round((weekPresentDays / weekWorkDays) * 100) : 0;
+
+    let periodTargetHours = 0;
+    for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
+        const dk = getDateKey(new Date(d));
+        if (worksOnDay(d) && !holidays.includes(dk)) periodTargetHours += regularHours;
+    }
+    const periodHoursPct = periodTargetHours > 0
+        ? Math.min(100, Math.round((periodHours / periodTargetHours) * 100))
+        : 0;
+
+    // Approx salary based on first position tarifa × period hours.
+    // TODO: if the employee worked under multiple positions in the period,
+    // sum each position's rate × its own hours (per-position breakdown).
+    const firstPos = state.positions.find(p => p.id === emp.positions[0]);
+    const hourlyRate = (firstPos && firstPos.hourlyRate) || 0;
+    const salaryEstimate = periodHours * hourlyRate;
+
+    // Pending loan balance — sum across the employee's ACTIVE loans.
+    // Inlined to avoid an import cycle; mirrors LoansService.getBalance().
+    let pendingLoanBalance = 0;
+    let activeLoanCount = 0;
+    let nextLoanDueDate = null;
+    try {
+        (emp.loans || []).forEach(loan => {
+            if (loan.status !== 'active') return;
+            activeLoanCount++;
+            const principal = Number(loan.principal || 0);
+            const rate = Number(loan.interestRate || 0);
+            const interest = loan.interestIncluded ? 0 : (principal * rate / 100);
+            const due = principal + interest;
+            const paid = (loan.payments || [])
+                .filter(p => !p.voided)
+                .reduce((s, p) => s + Number(p.amount || 0), 0);
+            pendingLoanBalance += Math.max(0, due - paid);
+
+            let allocated = 0;
+            for (const inst of (loan.installments || [])) {
+                const scheduled = Number(inst.scheduledAmount || 0);
+                const upperBound = allocated + scheduled;
+                if (paid >= upperBound) {
+                    allocated = upperBound;
+                    continue;
+                }
+                if (inst.dueDate && (!nextLoanDueDate || inst.dueDate < nextLoanDueDate)) {
+                    nextLoanDueDate = inst.dueDate;
+                }
+                break;
+            }
+        });
+        pendingLoanBalance = Math.round(pendingLoanBalance * 100) / 100;
+    } catch (_) { pendingLoanBalance = 0; }
+    const nextLoanDueLabel = nextLoanDueDate
+        ? parseDate(nextLoanDueDate).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'Sin cuota programada';
+
+    // Format the range for display (e.g. "1 may – 21 may 2026")
+    const rangeLabel = (() => {
+        const optsShort = { day: 'numeric', month: 'short' };
+        const optsFull = { day: 'numeric', month: 'short', year: 'numeric' };
+        const sameYear = rangeStart.getFullYear() === rangeEnd.getFullYear();
+        return `${rangeStart.toLocaleDateString('es', sameYear ? optsShort : optsFull)} – ${rangeEnd.toLocaleDateString('es', optsFull)}`;
+    })();
+    const rangeNote = rangeMode === 'period'
+        ? `Período actual · ${escapeHTML(rangeLabel)}`
+        : `Mes en curso · ${escapeHTML(rangeLabel)} <span style="color:#f59e0b;font-weight:600;">(configura el período en Ajustes → Calendario)</span>`;
+
+    const detailInteractivePanel = renderAttendanceDetailWorkPanel(emp, today);
+
+    // ----- Compose initials for avatar -----
+    const initials = (emp.name || '?').split(/\s+/).map(s => s[0] || '').slice(0, 2).join('').toUpperCase();
+
+    // ----- Status pill -----
+    const isActive = emp.active !== false;
+    const statusPill = isActive
+        ? `<span class="detail-status-pill ok"><span class="detail-status-dot"></span>Activo</span>`
+        : `<span class="detail-status-pill off"><span class="detail-status-dot"></span>Inactivo</span>`;
+
+    // ----- Format money -----
+    const money = (n) => '$' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    return `<aside class="attendance-detail" data-emp-id="${emp.id}">
+        <div class="detail-card">
+            <div class="detail-head">
+                <div class="detail-avatar">${escapeHTML(initials)}</div>
+                <div class="detail-head-meta">
+                    <div class="detail-name">${escapeHTML(emp.name || 'Sin nombre')}</div>
+                    <div class="detail-sub">#${escapeHTML(String(emp.number || '—'))}${positionChips ? ' · ' + positionChips : ''}</div>
+                </div>
+                ${statusPill}
+            </div>
+
+            <div class="detail-stat-grid">
+                <div class="detail-stat detail-week-stat">
+                    <div class="detail-progress-title">Asistencia esta semana</div>
+                    <div class="detail-week-days">
+                        ${weekDots.join('')}
+                    </div>
+                    <div class="detail-progress-footer">
+                        <span><strong>${weekPresentDays}</strong> / ${weekWorkDays} días asistidos</span>
+                        <strong>${weekAttendancePct}%</strong>
+                    </div>
+                </div>
+                <div class="detail-stat detail-hours-progress-stat">
+                    <div class="detail-progress-head">
+                        <div class="detail-progress-title">Horas del período</div>
+                        <strong>${periodHoursPct}%</strong>
+                    </div>
+                    <div class="detail-hours-value">
+                        <strong>${periodHours}h</strong>
+                        <span>/ ${periodTargetHours}h</span>
+                    </div>
+                    <div class="detail-progress-track" aria-hidden="true">
+                        <span style="width:${periodHoursPct}%;"></span>
+                    </div>
+                    <div class="detail-progress-note">Meta del período: ${periodTargetHours}h</div>
+                </div>
+                <div class="detail-stat detail-finance-stat salary">
+                    <div class="detail-finance-icon salary" aria-hidden="true">$</div>
+                    <div class="detail-finance-copy">
+                    <div class="detail-stat-label">Salario (período)</div>
+                    <div class="detail-stat-value ok">${money(salaryEstimate)}</div>
+                    <div class="detail-stat-sub">Estimado por horas</div>
+                    </div>
+                </div>
+                <div class="detail-stat detail-finance-stat loan">
+                    <div class="detail-finance-icon loan" aria-hidden="true"><span></span></div>
+                    <div class="detail-finance-copy">
+                    <div class="detail-stat-label">Préstamo pendiente${activeLoanCount > 1 ? ` (${activeLoanCount})` : ''}</div>
+                    <div class="detail-stat-value ${pendingLoanBalance > 0 ? 'warn' : 'muted'}">${money(pendingLoanBalance)}</div>
+                    <div class="detail-stat-sub">Próx. cuota: ${escapeHTML(nextLoanDueLabel)}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="detail-range-note">${rangeNote}${overtimeHours > 0 ? ` · <span style="color:#f59e0b;">⚡ ${overtimeHours}h extras</span>` : ''}</div>
+
+            ${detailInteractivePanel}
+
+            <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
+                ${(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
+            </div>
+            <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
+                placeholder="Anota algo sobre ${escapeHTML(emp.name.split(/\s+/)[0] || 'el empleado')} (ej. salió temprano por cita médica)…"
+                data-emp-id="${emp.id}">${escapeHTML(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes || '')}</textarea>
+
+            <div class="detail-actions">
+                <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
+                    📋 Ver perfil completo
+                </button>
+                <button class="detail-btn primary" type="button" data-app-fn="saveQuickNoteFromDetail" data-arg="${emp.id}">
+                    💾 Guardar nota
+                </button>
+            </div>
+        </div>
+    </aside>`;
+}
+
+function getAttendanceDetailPositionHours(emp, att) {
+    const positionIds = (emp.positions && emp.positions.length > 0)
+        ? emp.positions
+        : (emp.positionId ? [emp.positionId] : []);
+
+    if (att?.positionHours?.length) {
+        return positionIds.map(pid => {
+            const ph = att.positionHours.find(item => item.positionId === pid);
+            return {
+                positionId: pid,
+                hours: Number(ph?.hours || 0),
+                overtimeHours: Number(ph?.overtimeHours || 0)
+            };
+        });
+    }
+
+    return positionIds.map((pid, idx) => ({
+        positionId: pid,
+        hours: idx === 0 ? Number(att?.hoursWorked || 0) : 0,
+        overtimeHours: idx === 0 ? Number(att?.overtimeHours || 0) : 0
+    }));
+}
+
+function renderAttendanceDetailWorkPanel(emp, selectedDate) {
+    const activeTab = state.attendanceDetailPanelTab || 'calendar';
+    const selectedDateKey = getDateKey(selectedDate);
+    const calendarMonth = state.attendanceDetailCalendarMonth instanceof Date
+        ? state.attendanceDetailCalendarMonth
+        : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    const att = state.attendance[`${emp.id}-${selectedDateKey}`] || {};
+    const positionHours = getAttendanceDetailPositionHours(emp, att);
+    const totalHours = positionHours.reduce((sum, ph) => sum + Number(ph.hours || 0), 0);
+    const totalOvertime = positionHours.reduce((sum, ph) => sum + Number(ph.overtimeHours || 0), 0);
+    const selectedLabel = selectedDate.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+
+    const tabButton = (tab, label) => `
+        <button type="button"
+                class="detail-panel-tab ${activeTab === tab ? 'active' : ''}"
+                data-app-fn="setAttendanceDetailPanelTab"
+                data-arg="${tab}">
+            ${label}
+        </button>
+    `;
+
+    const calendarContent = CalendarView({
+        employee: emp,
+        month: calendarMonth,
+        navAction: 'changeAttendanceDetailMonth',
+        selectedDate,
+        selectAction: 'selectAttendanceDetailDate',
+        showLegend: false
+    });
+
+    const hoursContent = `
+        <div class="detail-hours-editor" data-emp-id="${emp.id}">
+            <div class="detail-hours-editor-head">
+                <div>
+                    <span>Fecha activa</span>
+                    <strong>${escapeHTML(selectedLabel)}</strong>
+                </div>
+                <span class="detail-hours-state ${att.present ? 'present' : 'absent'}">
+                    ${att.present ? 'Con asistencia' : 'Sin asistencia'}
+                </span>
+            </div>
+
+            <div class="detail-position-hours-list">
+                ${positionHours.length ? positionHours.map(ph => {
+                    const pos = state.positions.find(p => p.id === ph.positionId);
+                    const color = pos?.color || '#06b6d4';
+                    const positionSalary = pos?.salaryConfig?.amount ?? pos?.baseSalary ?? 0;
+                    const config = pos?.salaryConfig || { amount: positionSalary, period: 'month', workDays: [] };
+                    const display = payrollService.formatSalaryDisplay(config);
+                    return `
+                        <div class="detail-position-hours-card" style="--pos-color:${color};">
+                            <div class="detail-position-hours-title">
+                                <span class="detail-position-hours-dot"></span>
+                                <strong>${escapeHTML(pos?.name || 'Posición')}</strong>
+                                <small>${escapeHTML(display.full || '')}</small>
+                            </div>
+                            <div class="detail-position-hours-fields">
+                                <label>
+                                    <span>Horas</span>
+                                    <input type="number" inputmode="decimal" min="0" max="24" step="0.5"
+                                           data-detail-hours-input="hours"
+                                           data-position-id="${ph.positionId}"
+                                           value="${Number(ph.hours || 0)}"
+                                           oninput="updateAttendanceDetailHoursTotal('${emp.id}')">
+                                </label>
+                                <label>
+                                    <span>Extras</span>
+                                    <input type="number" inputmode="decimal" min="0" max="12" step="0.5"
+                                           data-detail-hours-input="overtime"
+                                           data-position-id="${ph.positionId}"
+                                           value="${Number(ph.overtimeHours || 0)}"
+                                           oninput="updateAttendanceDetailHoursTotal('${emp.id}')">
+                                </label>
+                            </div>
+                        </div>
+                    `;
+                }).join('') : `
+                    <div class="detail-hours-empty">
+                        Este empleado no tiene posiciones asignadas.
+                    </div>
+                `}
+            </div>
+
+            <div class="detail-hours-total-card">
+                <div>
+                    <span>Total de horas</span>
+                    <strong id="detail-hours-total-${emp.id}">${totalHours.toFixed(1)}h</strong>
+                </div>
+                <div>
+                    <span>Extras</span>
+                    <strong id="detail-hours-overtime-${emp.id}">${totalOvertime.toFixed(1)}h</strong>
+                </div>
+            </div>
+
+            <button class="detail-btn primary detail-hours-save" type="button"
+                    data-app-fn="saveAttendanceDetailHours"
+                    data-arg="${emp.id}">
+                Guardar horas del día
+            </button>
+        </div>
+    `;
+
+    return `
+        <div class="detail-tabbed-panel">
+            <div class="detail-panel-tabs" role="tablist" aria-label="Detalle de asistencia">
+                ${tabButton('calendar', 'Calendario')}
+                ${tabButton('hours', 'Horas del día')}
+            </div>
+            <div class="detail-panel-body ${activeTab === 'calendar' ? 'is-calendar' : 'is-hours'}">
+                ${activeTab === 'calendar' ? calendarContent : hoursContent}
+            </div>
+        </div>
+    `;
+}
+
+window.setAttendanceDetailPanelTab = (tab) => {
+    state.attendanceDetailPanelTab = tab === 'hours' ? 'hours' : 'calendar';
+    if (typeof window.render === 'function') window.render();
+};
+
+window.changeAttendanceDetailMonth = (delta) => {
+    const base = state.attendanceDetailCalendarMonth instanceof Date
+        ? new Date(state.attendanceDetailCalendarMonth)
+        : new Date(state.selectedDate);
+    base.setMonth(base.getMonth() + Number(delta || 0));
+    state.attendanceDetailCalendarMonth = base;
+    if (typeof window.render === 'function') window.render();
+};
+
+window.selectAttendanceDetailDate = (dateKey) => {
+    if (!dateKey) return;
+    const selected = parseDate(dateKey);
+    state.selectedDate = selected;
+    state.attendanceDetailCalendarMonth = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    state.attendanceDetailPanelTab = 'hours';
+    if (typeof window.render === 'function') window.render();
+};
+
+window.updateAttendanceDetailHoursTotal = (empId) => {
+    const root = document.querySelector(`.detail-hours-editor[data-emp-id="${empId}"]`);
+    if (!root) return;
+    let totalHours = 0;
+    let totalOvertime = 0;
+    root.querySelectorAll('[data-detail-hours-input="hours"]').forEach(input => {
+        totalHours += Number.parseFloat(input.value) || 0;
+    });
+    root.querySelectorAll('[data-detail-hours-input="overtime"]').forEach(input => {
+        totalOvertime += Number.parseFloat(input.value) || 0;
+    });
+    const totalEl = document.getElementById(`detail-hours-total-${empId}`);
+    const overtimeEl = document.getElementById(`detail-hours-overtime-${empId}`);
+    if (totalEl) totalEl.textContent = `${totalHours.toFixed(1)}h`;
+    if (overtimeEl) overtimeEl.textContent = `${totalOvertime.toFixed(1)}h`;
+};
+
+window.saveAttendanceDetailHours = (empId) => {
+    const emp = state.employees.find(e => e.id === empId);
+    const root = document.querySelector(`.detail-hours-editor[data-emp-id="${empId}"]`);
+    if (!emp || !root) return;
+
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${emp.id}-${dateKey}`;
+    const existing = state.attendance[key] || {};
+    const positionHours = [];
+    let totalHours = 0;
+    let totalOvertime = 0;
+
+    (emp.positions || []).forEach(pid => {
+        const hoursInput = root.querySelector(`[data-detail-hours-input="hours"][data-position-id="${pid}"]`);
+        const overtimeInput = root.querySelector(`[data-detail-hours-input="overtime"][data-position-id="${pid}"]`);
+        const hours = Number.parseFloat(hoursInput?.value) || 0;
+        const overtimeHours = Number.parseFloat(overtimeInput?.value) || 0;
+        if (hours > 0 || overtimeHours > 0) {
+            positionHours.push({ positionId: pid, hours, overtimeHours });
+            totalHours += hours;
+            totalOvertime += overtimeHours;
+        }
+    });
+
+    state.attendance[key] = {
+        ...existing,
+        employeeId: emp.id,
+        date: dateKey,
+        present: totalHours > 0 || totalOvertime > 0,
+        hoursWorked: totalHours,
+        overtimeHours: totalOvertime,
+        positionHours,
+        multiPosition: positionHours.length > 1,
+        selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
+        isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
+        notes: existing.notes || '',
+        updatedAt: Date.now(),
+        lastAccessed: Date.now(),
+        _isDirty: true
+    };
+
+    if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey });
+    if (window.showNotification) window.showNotification('Horas del día guardadas', 'success');
+    if (typeof window.render === 'function') window.render();
+};
+
+// Save handler for the quick-note textarea inside the AttendanceDetailPanel.
+// Reads the textarea by id, upserts the note onto the attendance record for
+// the currently-selected date, and persists. Reuses the existing notes
+// data model so the note shows up in the rest of the app (Notes Center,
+// employee profile, etc.) without any extra wiring.
+window.saveQuickNoteFromDetail = (empId) => {
+    if (!empId || !state) return;
+    const ta = document.getElementById(`detail-quick-note-${empId}`);
+    if (!ta) return;
+    const text = (ta.value || '').trim();
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${empId}-${dateKey}`;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    if (!text) {
+        // Empty textarea = clear the note (if any existed).
+        if (state.attendance[key]) {
+            state.attendance[key].notes = '';
+            state.attendance[key].updatedAt = Date.now();
+            state.attendance[key]._isDirty = true;
+        }
+    } else {
+        const existing = state.attendance[key] || {
+            employeeId: empId,
+            date: dateKey,
+            present: false,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            isHoliday: false,
+            selectedPosition: emp.positions?.[0] || null,
+            multiPosition: false,
+            positionHours: [],
+            notes: ''
+        };
+        existing.notes = text;
+        existing.updatedAt = Date.now();
+        existing._isDirty = true;
+        state.attendance[key] = existing;
+    }
+
+    if (typeof saveApplicationData === 'function') saveApplicationData();
+    if (window.showNotification) {
+        window.showNotification(text ? '✅ Nota guardada' : '🗑️ Nota eliminada', 'success');
+    }
+    if (typeof window.render === 'function') window.render();
+};
+
+// ⚡ Click delegation: select an employee for the right detail panel when the
+// user clicks on a row body (not on any interactive child). Selection updates
+// `state.selectedDetailEmployeeId` and triggers a re-render. Cheap because
+// DOMDiff only patches the changed parts.
+if (!window._detailSelectionDelegationAttached) {
+    document.addEventListener('click', (e) => {
+        // Skip if the click was on something interactive — let that handler run.
+        if (e.target.closest('button, input, a, select, textarea, [data-att-action], [data-app-fn], [data-app-action]')) return;
+        const row = e.target.closest('.employee-row');
+        if (!row) return;
+        const m = row.id && row.id.match(/^emp-row-(.+)$/);
+        if (!m) return;
+        if (state.selectedDetailEmployeeId === m[1]) return; // no-op
+        state.selectedDetailEmployeeId = m[1];
+        window.render?.();
+    });
+    window._detailSelectionDelegationAttached = true;
 }
 
 // ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
@@ -3117,8 +4022,8 @@ window.updateEmployeeRow = function (employeeId) {
     const newHTML = state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp);
 
     // Usar DOMDiff para actualizar solo lo necesario del DOM real
-    if (DOMDiff && typeof DOMDiff.apply === 'function') {
-        DOMDiff.apply(rowEl, newHTML);
+    if (DOMDiff && typeof DOMDiff.patchSelf === 'function') {
+        DOMDiff.patchSelf(rowEl, newHTML);
     } else {
         rowEl.outerHTML = newHTML;
     }
@@ -3137,8 +4042,8 @@ window.updateWeekRow = function (employeeId) {
     const week = getWeekDates(new Date(state.selectedDate));
     const newHTML = WeekRow(emp, week);
 
-    if (DOMDiff && typeof DOMDiff.apply === 'function') {
-        DOMDiff.apply(rowEl, newHTML);
+    if (DOMDiff && typeof DOMDiff.patchSelf === 'function') {
+        DOMDiff.patchSelf(rowEl, newHTML);
     } else {
         rowEl.outerHTML = newHTML;
     }
@@ -3177,8 +4082,8 @@ window.updateWeekTotals = function () {
         </tr>
     `;
 
-    if (DOMDiff && typeof DOMDiff.apply === 'function') {
-        DOMDiff.apply(totalsEl, newHTML);
+    if (DOMDiff && typeof DOMDiff.patchSelf === 'function') {
+        DOMDiff.patchSelf(totalsEl, newHTML);
     } else {
         totalsEl.outerHTML = newHTML;
     }
@@ -3196,6 +4101,81 @@ window.toggleListDisplayMode = () => {
     render();
 };
 
+window.openAttendanceLayoutModal = () => {
+    state.modalType = 'attendance-layout';
+    state.showModal = true;
+    render();
+};
+
+window.setAttendanceListColumns = (columns) => {
+    const nextColumns = Number(columns) === 2 ? 2 : 1;
+    state.attendanceListColumns = nextColumns;
+    state.showModal = false;
+    state.modalType = null;
+    render();
+};
+
+window.setAttendanceCardSize = (mode) => {
+    state.listDisplayMode = mode === 'compact' ? 'compact' : 'relaxed';
+    state.showModal = false;
+    state.modalType = null;
+    render();
+};
+
+window.openSyncCenterModal = () => {
+    state.modalType = 'sync-center';
+    state.showModal = true;
+    render();
+};
+
+window.syncCenterSyncNow = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.syncFirebaseNow?.();
+};
+
+window.syncCenterUploadToCloud = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.uploadToCloud?.();
+};
+
+window.syncCenterDownloadFromCloud = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.downloadFromCloud?.();
+};
+
+window.syncCenterCreateSnapshot = async () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    await window.createFirebaseSnapshot?.('manual');
+};
+
+window.syncCenterOpenBackups = () => {
+    state.showModal = false;
+    state.modalType = null;
+    window.openDatosAjustes?.();
+};
+
+window.syncCenterResolveConflicts = () => {
+    state.showModal = false;
+    state.modalType = null;
+    render();
+    window.startMaintenanceWizard?.();
+};
+
+window.syncCenterOpenSettings = () => {
+    state.showModal = false;
+    state.modalType = null;
+    if (state) state.settingsActiveTab = 'data';
+    window.changeTab?.('settings');
+};
+
 function DisplayModeFloatingToggle() {
     if (state.activeTab !== 'attendance') return '';
 
@@ -3205,6 +4185,134 @@ function DisplayModeFloatingToggle() {
              data-app-fn="toggleListDisplayMode"
              aria-label="Cambiar densidad de lista (${state.listDisplayMode === 'compact' ? 'Relajada' : 'Compacta'})">
             ${state.listDisplayMode === 'compact' ? '▤' : '⬛'}
+        </div>
+    `;
+}
+
+function AttendanceLayoutModal() {
+    const currentColumns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
+    const currentCardSize = state.listDisplayMode === 'compact' ? 'compact' : 'relaxed';
+    const columnOption = (columns, title, description, icon) => `
+        <button type="button"
+                class="attendance-layout-option ${currentColumns === columns ? 'active' : ''}"
+                data-app-fn="setAttendanceListColumns"
+                data-arg="${columns}">
+            <span class="attendance-layout-option-icon">${icon}</span>
+            <span class="attendance-layout-option-text">
+                <strong>${title}</strong>
+                <small>${description}</small>
+            </span>
+            <span class="attendance-layout-option-check">${currentColumns === columns ? '✓' : ''}</span>
+        </button>
+    `;
+    const sizeOption = (mode, title, description, icon) => `
+        <button type="button"
+                class="attendance-layout-option ${currentCardSize === mode ? 'active' : ''}"
+                data-app-fn="setAttendanceCardSize"
+                data-arg="${mode}">
+            <span class="attendance-layout-option-icon">${icon}</span>
+            <span class="attendance-layout-option-text">
+                <strong>${title}</strong>
+                <small>${description}</small>
+            </span>
+            <span class="attendance-layout-option-check">${currentCardSize === mode ? '✓' : ''}</span>
+        </button>
+    `;
+
+    return `
+        <div class="modal-overlay attendance-layout-overlay" data-app-close-on-self="close-modal">
+            <div class="attendance-layout-modal" role="dialog" aria-modal="true" aria-labelledby="attendance-layout-title">
+                <div class="attendance-layout-header">
+                    <div>
+                        <h2 id="attendance-layout-title">Vista de empleados</h2>
+                        <p>Elige la distribución y el tamaño de las tarjetas.</p>
+                    </div>
+                    <button type="button" class="attendance-layout-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
+                </div>
+                <div class="attendance-layout-section-title">Distribución</div>
+                <div class="attendance-layout-options">
+                    ${columnOption(1, 'Una columna', 'Formato actual, cómodo para revisar detalles.', '▤')}
+                    ${columnOption(2, 'Dos columnas', 'Muestra más empleados a la vez en pantallas anchas.', '⊞')}
+                </div>
+                <div class="attendance-layout-section-title">Tamaño de tarjeta</div>
+                <div class="attendance-layout-options">
+                    ${sizeOption('relaxed', 'Normal', 'Tarjetas amplias con posiciones, notas y más contexto.', '▣')}
+                    ${sizeOption('compact', 'Reducida', 'Filas más pequeñas para ver más personal sin desplazarte tanto.', '≡')}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function SyncCenterModal() {
+    const lastSyncedAt = SyncStatus.getLastSyncedAt();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+    const hasUser = !!window.currentUser;
+    const userLabel = window.currentUser?.displayName || window.currentUser?.email || 'Sin sesión';
+    const lastSyncLabel = lastSyncedAt
+        ? new Date(lastSyncedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+        : 'Aún no sincronizado';
+    const stateLabel = !isOnline
+        ? 'Sin conexión'
+        : !hasUser
+            ? 'Sin sesión'
+            : state.syncStatus === 'syncing'
+                ? 'Sincronizando'
+                : state.syncStatus === 'error'
+                    ? 'Error'
+                    : lastSyncedAt
+                        ? 'Sincronizado'
+                        : 'Pendiente';
+
+    const action = (fn, icon, title, description, extraClass = '') => `
+        <button type="button" class="sync-center-action ${extraClass}" data-app-fn="${fn}">
+            <span class="sync-center-action-icon">${icon}</span>
+            <span class="sync-center-action-copy">
+                <strong>${title}</strong>
+                <small>${description}</small>
+            </span>
+        </button>
+    `;
+
+    return `
+        <div class="modal-overlay sync-center-overlay" data-app-close-on-self="close-modal">
+            <div class="sync-center-modal" role="dialog" aria-modal="true" aria-labelledby="sync-center-title">
+                <div class="sync-center-header">
+                    <div>
+                        <h2 id="sync-center-title">Sincronización</h2>
+                        <p>Controla la nube, respaldos y conflictos desde un solo lugar.</p>
+                    </div>
+                    <button type="button" class="sync-center-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
+                </div>
+
+                <div class="sync-center-status">
+                    <div>
+                        <span>Estado</span>
+                        <strong>${escapeHTML(stateLabel)}</strong>
+                    </div>
+                    <div>
+                        <span>Última sincronización</span>
+                        <strong>${escapeHTML(lastSyncLabel)}</strong>
+                    </div>
+                    <div>
+                        <span>Cuenta</span>
+                        <strong>${escapeHTML(userLabel)}</strong>
+                    </div>
+                </div>
+
+                <div class="sync-center-actions primary">
+                    ${action('syncCenterSyncNow', '↻', 'Sincronizar ahora', 'Guarda y refresca los datos con la nube.')}
+                    ${action('syncCenterUploadToCloud', '↑', 'Subir a la nube', 'Usa este equipo como fuente principal.')}
+                    ${action('syncCenterDownloadFromCloud', '↓', 'Descargar de la nube', 'Trae la versión remota a este equipo.')}
+                    ${action('syncCenterCreateSnapshot', '●', 'Crear punto de respaldo', 'Guarda una copia manual del estado actual.')}
+                </div>
+
+                <div class="sync-center-actions secondary">
+                    ${action('syncCenterOpenBackups', '◷', 'Respaldos y restauración', 'Ver snapshots y recuperar versiones anteriores.', 'secondary')}
+                    ${action('syncCenterResolveConflicts', '≋', 'Resolver conflictos', 'Revisar duplicados y datos inconsistentes.', 'secondary')}
+                    ${action('syncCenterOpenSettings', '⚙', 'Configurar sincronización', 'Abrir los ajustes de datos y nube.', 'secondary')}
+                </div>
+            </div>
         </div>
     `;
 }
@@ -3752,6 +4860,10 @@ window.saveSettings = function () {
     const hideDuplicateAlerts = hideDuplicateAlertsElement ? hideDuplicateAlertsElement.checked : !!state.settings.hideDuplicateAlerts;
     const weatherEnabledElement = document.getElementById('weatherEnabled');
     const weatherEnabled = weatherEnabledElement ? weatherEnabledElement.checked : state.settings.weatherEnabled === true;
+    const weatherApiKeyElement = document.getElementById('weatherApiKey');
+    const weatherApiKey = weatherApiKeyElement ? weatherApiKeyElement.value.trim() : (state.settings.weatherApiKey || '');
+    const weatherLocationInputElement = document.getElementById('weatherLocationInput');
+    const weatherLocationRaw = weatherLocationInputElement ? weatherLocationInputElement.value.trim() : (state.settings.weatherLocationRaw || '');
 
     // Validaciones
     if (!companyName) {
@@ -3779,6 +4891,27 @@ window.saveSettings = function () {
         return;
     }
 
+    let weatherLocation = null;
+    if (weatherEnabled && weatherLocationRaw) {
+        const cleanLoc = weatherLocationRaw.replace(/^@/, '');
+        const match = cleanLoc.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+        if (match) {
+            const lat = parseFloat(match[1]);
+            const lon = parseFloat(match[2]);
+            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                    showNotification('❌ Coordenadas fuera de rango (Latitud: -90 a 90, Longitud: -180 a 180)', 'error');
+                    return;
+                }
+                weatherLocation = { lat, lon, name: 'Ubicación Personalizada' };
+            }
+        }
+        if (!weatherLocation) {
+            showNotification('❌ Formato de coordenadas inválido. Debe ser: Latitud, Longitud (ej: 18.47, -69.89)', 'error');
+            return;
+        }
+    }
+
     // Guardar configuración
     state.settings.companyName = companyName;
     state.settings.regularHoursPerDay = regularHoursPerDay;
@@ -3792,6 +4925,35 @@ window.saveSettings = function () {
     state.settings.scrollbarMode = scrollbarMode;
     state.settings.hideDuplicateAlerts = hideDuplicateAlerts;
     state.settings.weatherEnabled = weatherEnabled;
+
+    // Guardar ubicación y limpiar caché si cambia
+    const prevLocRaw = state.settings.weatherLocationRaw || '';
+    state.settings.weatherLocationRaw = weatherLocationRaw;
+    state.settings.weatherLocation = weatherLocation;
+
+    if (weatherLocationRaw !== prevLocRaw) {
+        if (state.weather?.cache) {
+            state.weather.cache.current = null;
+            state.weather.cache.forecast = null;
+            state.weather.cache.hourly = null;
+            state.weather.cache.alerts = null;
+        }
+    }
+
+    // Weather API key: cambiar provider segun presencia de key
+    const prevKey = state.settings.weatherApiKey || '';
+    state.settings.weatherApiKey = weatherApiKey;
+    if (weatherApiKey && weatherApiKey !== prevKey) {
+        // Key nueva o cambiada: activar adapter real e invalidar cache
+        try {
+            setWeatherProvider(state, 'weatherapi');
+        } catch (_e) { /* adapter no registrado — no deberia pasar */ }
+    } else if (!weatherApiKey && prevKey) {
+        // Key eliminada: volver a mock
+        try {
+            setWeatherProvider(state, 'mock');
+        } catch (_e) { /* siempre registrado */ }
+    }
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
@@ -3846,10 +5008,10 @@ window.exportData = async function () {
 /**
  * 📸 Creador de Snapshots accesible globalmente para RestoreUI
  */
-window.createFirebaseSnapshot = async function (type = 'auto') {
+window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
     if (!window.currentUser) return null;
     try {
-        const id = await FirebaseService.createSnapshot(state, type);
+        const id = await FirebaseService.createSnapshot(state, type, reason);
         return id;
     } catch (error) {
         console.error('Error creando snapshot:', error);
@@ -4657,7 +5819,14 @@ function App() {
     // ⚡ OPTIMIZACIÓN: Lazy loading con mapeo de tabs
     // ⚡ OPTIMIZACIÓN: Lazy loading con mapeo de tabs
     const tabMap = {
-        'attendance': () => AttendanceTab(),
+        'attendance': () => {
+            // Split view (day view only — week view already uses full width).
+            // CSS in sidebar-shell.css makes this a 6fr/4fr grid at ≥1024px
+            // and stacks vertically (with the detail panel hidden) below.
+            const pageHeader = AttendancePageTitle();
+            if (state.viewMode === 'week') return `${pageHeader}${AttendanceTab()}`;
+            return `${pageHeader}<div class="attendance-split"><div class="attendance-main">${AttendanceTab()}</div>${AttendanceDetailPanel()}</div>`;
+        },
         'employees': () => EmployeesUI.EmployeesTab(),
         'positions': () => {
             state.employeeViewMode = 'positions';
@@ -4683,7 +5852,9 @@ function App() {
         'employee-form': () => '',
         'leader-form': () => '',
         'position-form': () => '',
-        'multi-position': () => ''
+        'multi-position': () => '',
+        'attendance-layout': () => AttendanceLayoutModal(),
+        'sync-center': () => SyncCenterModal()
     };
 
     const modal = state.showModal && modalMap[state.modalType]
@@ -4698,7 +5869,7 @@ function App() {
         activeTab: state.activeTab,
         changeTab: (tab) => window.changeTab(tab),
         legacyNavigation: state.settings.legacyNavigation
-    })}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenter()}${NoteEditorModal()}`;
+    })}${state.settings.legacyNavigation ? '' : SidebarNavigation()}<main class="main-content" ${state.settings.legacyNavigation ? 'style="padding-bottom: 24px;"' : ''}><div class="container">${content}</div></main>${state.settings.legacyNavigation ? '' : BottomNavigation()}${!state.settings.legacyNavigation ? '<button type="button" class="landscape-toggle-btn" data-app-fn="toggleBottomNav" aria-label="Mostrar/Ocultar Menú">☰</button>' : ''}${employeeFloatingCard.render()}${EmployeeProfileModal()}${modal}${ContextMenu()}${ExportMenu()}${ImportFullModal()}${NotesCenter()}${NoteEditorModal()}`;
 }
 
 // 🎯 Registrar el componente raíz para el motor modular
@@ -4780,6 +5951,110 @@ window.addEventListener('scroll', () => {
 // [LEGACY ONBOARDING REMOVED - MOVED TO modules/ui/Onboarding.js]
 
 // ============================================
+// 🛡️ PROMPT POST-SANEAMIENTO
+// ============================================
+
+/**
+ * Muestra un Modal.confirm si loadApplicationData encontró y corrigió
+ * referencias huérfanas o IDs faltantes en los datos locales.
+ *
+ * Debe llamarse DESPUÉS de que el primer sync de Firebase se complete
+ * (isInitialLoad = false) para que el usuario tome la decisión con los
+ * datos ya mergeados y la UI lista.
+ *
+ * Si no hay usuario autenticado, limpia el flag silenciosamente.
+ */
+async function _checkSanitizationCloudSyncPrompt() {
+    if (!state._pendingSanitizationCloudSync) return;
+
+    const count = state._pendingSanitizationCloudSync;
+    delete state._pendingSanitizationCloudSync;
+
+    if (!globalThis.currentUser) {
+        // No hay sesión → no se puede subir a la nube. Flag ya limpiado.
+        return;
+    }
+
+    const confirmed = await Modal.confirm({
+        title: '🛡️ Saneamiento de datos completado',
+        message:
+            `Al cargar, se encontraron y corrigieron <strong>${count}</strong> elemento(s) en ` +
+            `tus datos locales (IDs faltantes, referencias huérfanas).<br><br>` +
+            `¿Deseas subir estas correcciones a la nube ahora?`,
+        confirmText: '☁️ Subir a la nube',
+        cancelText: 'Solo mantener local'
+    });
+
+    if (confirmed) {
+        saveApplicationData({ force: true });
+        showNotification('☁️ Correcciones de integridad subidas a la nube', 'success');
+    }
+}
+
+// ============================================
+// ⚠️ OUTGOING CONFLICT GUARD
+// ============================================
+
+/**
+ * Registra el listener de conflictos salientes (cloud más reciente que local).
+ *
+ * PersistenceService emite 'sync:outgoing-conflict' cuando detecta que la
+ * nube tiene un timestamp más reciente que el estado local y se está
+ * intentando subir datos.  Este listener pregunta al usuario qué hacer.
+ *
+ * Llamado UNA sola vez desde initializeApp, después de que loadApplicationData
+ * termina (para que showNotification / Modal estén disponibles).
+ */
+function _initOutgoingConflictGuard() {
+    eventBus.on('sync:outgoing-conflict', async ({ localTime, cloudTime }) => {
+        // Formatear diferencia relativa para el mensaje
+        const diffMs  = Math.max(0, cloudTime - localTime);
+        const diffSec = Math.round(diffMs / 1000);
+        const diffStr = diffSec < 60
+            ? `${diffSec} segundo${diffSec !== 1 ? 's' : ''}`
+            : `${Math.round(diffSec / 60)} minuto${Math.round(diffSec / 60) !== 1 ? 's' : ''}`;
+
+        const cloudDate = cloudTime
+            ? new Date(cloudTime).toLocaleString()
+            : 'desconocida';
+
+        const confirmed = await Modal.confirm({
+            title: '⚠️ La nube tiene cambios más recientes',
+            message:
+                `La nube tiene cambios realizados hace <strong>${diffStr}</strong> ` +
+                `que son más recientes que tus datos locales ` +
+                `(última actualización en la nube: ${cloudDate}).<br><br>` +
+                `Si subes ahora, esos cambios serán reemplazados por tus datos locales.<br><br>` +
+                `¿Deseas continuar y reemplazar los datos de la nube?`,
+            confirmText: '⬆️ Sí, reemplazar nube con mis datos',
+            cancelText: '← No, conservar los cambios de la nube',
+            type: 'warning'
+        });
+
+        // Limpiar flag de revisión pendiente — independientemente de la decisión.
+        state._outgoingConflictReviewPending = false;
+
+        if (confirmed) {
+            // Local wins: true overwrite (not merge). Deletes orphan cloud docs,
+            // writes the main doc WITHOUT merge:true, so cloud-only data is removed.
+            state._lastKnownCloudUpdatedAt = state.settings?.localUpdatedAt || 0;
+            try {
+                await FirebaseService.replaceCloudFull(state);
+                showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
+            } catch (e) {
+                console.error('Error en replaceCloudFull:', e);
+                showNotification('❌ Error al reemplazar los datos de la nube', 'error');
+            }
+        } else {
+            // Cloud wins: don't push. The existing subscribeToChanges listener
+            // will handle applying the newer remote data (or the user can accept
+            // the incoming-change modal if it reappears).
+            showNotification('← Se conservaron los cambios de la nube', 'info');
+        }
+    });
+}
+
+// ============================================
 // 🚀 INICIALIZACIÓN DE LA APLICACIÓN
 // ============================================
 
@@ -4857,6 +6132,24 @@ window.addEventListener('scroll', () => {
         debug.log('📂 Cargando datos...');
         await loadApplicationData();
 
+        // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
+        // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.
+        _initOutgoingConflictGuard();
+
+        // 1.0.b Si la app arranca con cloudUploadPaused = true (persistido en IDB),
+        // avisar al usuario de forma visible — el badge naranja puede pasar
+        // desapercibido y la pausa puede venir de una sesión anterior.
+        if (SYNC_PAUSE_ENABLED && isSyncPaused()) {
+            // Pequeño delay para que la notificación no se pierda en el barullo de carga.
+            setTimeout(() => {
+                showNotification(
+                    '⏸️ La subida a la nube está pausada. Haz clic en el badge naranja del header para reanudar.',
+                    'warning',
+                    10000
+                );
+            }, 1500);
+        }
+
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
             debug.log('💾 Guardando cambios de sanitización inicial...');
@@ -4908,14 +6201,20 @@ window.addEventListener('scroll', () => {
                 }
 
                 // Suscribirse a cambios en el estado (Mirror Sync)
-                FirebaseService.subscribeToChanges((remoteData) => {
+                FirebaseService.subscribeToChanges(async (remoteData) => {
                     debug.log('📡 Cambio detectado en la nube...');
+
+                    // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
+                    // detectar conflictos salientes (local más viejo que la nube).
+                    // Se actualiza siempre, incluso si los datos se descartan más abajo.
+                    state._lastKnownCloudUpdatedAt =
+                        remoteData?.settings?.localUpdatedAt || state._lastKnownCloudUpdatedAt || 0;
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
                     const remoteTime = remoteData.settings?.localUpdatedAt || 0;
                     const localTime = state.settings?.localUpdatedAt || 0;
-                    
+
                     if (localTime > remoteTime) {
                         debug.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
                         // Si F5 frenó la sincronización, forzamos un save ahora que reinició
@@ -4928,6 +6227,65 @@ window.addEventListener('scroll', () => {
                         return; // Ignorar estos datos obsoletos para no destruir el state local
                     }
 
+                    // 🛡️ TRACK 2: Pre-apply hook. Si NO es la carga inicial y los
+                    // cambios entrantes son significant (borrados, divergencias
+                    // de campos críticos, caída de préstamos, schemaVersion
+                    // bajando), pausar y pedir confirmación al usuario en lugar
+                    // de aplicar a ciegas. Si los cambios son triviales (nuevos
+                    // empleados, email diff, schemaVersion subiendo) → aplica
+                    // silencioso como antes.
+                    if (!isInitialLoad
+                        && !window._isApplyingRemoteData
+                        && !window._pendingIncomingReview
+                    ) {
+                        try {
+                            const changes = detectIncomingChanges(state, remoteData);
+                            const hasSignificant = changes.some(c => c.severity === 'significant');
+                            if (hasSignificant) {
+                                window._pendingIncomingReview = true;
+                                IncomingChangeModal.show(changes, {
+                                    onApply: async () => {
+                                        window._pendingIncomingReview = false;
+                                        try { await applyRemoteData(); }
+                                        catch (e) { console.error('Error aplicando cambios entrantes:', e); }
+                                    },
+                                    onRejectAndPause: () => {
+                                        window._pendingIncomingReview = false;
+                                        debug.log('⏸️ Cambios remotos rechazados. Subida a la nube pausada hasta que el usuario reanude.');
+                                        pauseCloudUpload('Se rechazaron cambios entrantes significativos de la nube.');
+                                    },
+                                    onRejectAndReupload: () => {
+                                        window._pendingIncomingReview = false;
+                                        debug.log('🔄 Cambios remotos rechazados. Re-subiendo estado local a la nube.');
+                                        if (typeof saveApplicationData === 'function') {
+                                            saveApplicationData({ force: true });
+                                        }
+                                    },
+                                    // Escape / × close: safe dismissal — no action taken.
+                                    // Clear the flag so the modal can reappear on the next
+                                    // sync cycle if changes are still significant.
+                                    onDismiss: () => {
+                                        window._pendingIncomingReview = false;
+                                        debug.log('🙈 Modal de cambios entrantes dismissed sin acción. Reaparecerá en el próximo sync si los cambios siguen siendo significativos.');
+                                    }
+                                });
+                                return;
+                            }
+                        } catch (e) {
+                            // Si la detección falla por cualquier razón, NO bloquear
+                            // la aplicación de cambios — caer al flujo legacy.
+                            console.warn('⚠️ Pre-apply hook falló, aplicando sin revisar:', e);
+                        }
+                    }
+
+                    // Sin cambios significativos (o es initial load) → aplicar
+                    // directo como siempre.
+                    await applyRemoteData();
+
+                    // Cuerpo del apply real, extraído como función local para que
+                    // tanto el flujo silencioso como el modal puedan invocarlo.
+                    async function applyRemoteData() {
+
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
@@ -4935,17 +6293,93 @@ window.addEventListener('scroll', () => {
 
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
-                    
-                    // ⚡ FIX: Asegurar instancias correctas de clase al recibir de Firebase
-                    let newEmployees = dedup(remoteData.employees || state.employees);
+
+                    // ⚡ FASE 4.1: Migrar al modelo doc-por-empleado si aplica, y
+                    // cargar empleados desde la fuente correcta (subcolección si
+                    // ya migró, arreglo legacy si todavía no).
+                    const loaderResult = await loadAndMigrateEmployees({
+                        remoteData,
+                        isDemo: !!state.usingDemoData,
+                        migrate: (rd, opts) => FirebaseService.migrateIfNeeded(rd, opts),
+                        loadEmployees: (rd) => FirebaseService.loadEmployeesIfMigrated(rd),
+                        loadPositions: (rd) => FirebaseService.loadPositionsIfMigrated(rd),
+                        loadLeaders: (rd) => FirebaseService.loadLeadersIfMigrated(rd)
+                    });
+                    if (loaderResult.migrated) {
+                        debug.log(`✅ Migración v2 completada: ${loaderResult.count} empleado(s)`);
+                    }
+                    if (loaderResult.error) {
+                        console.warn('⚠️ Migración/carga con error, usando fallback legacy:', loaderResult.error);
+                    }
+
+                    // ⚡ FIX: Asegurar instancias correctas de clase
+                    let newEmployees = dedup(loaderResult.employees || state.employees);
                     if (typeof Employee !== 'undefined') {
                         newEmployees = newEmployees.map(e => e instanceof Employee ? e : new Employee(e));
                     }
 
                     state.settings = { ...state.settings, ...remoteData.settings };
+                    // Propagar schemaVersion al state local para que las escrituras
+                    // (saveFullState) sepan tomar el camino granular.
+                    const effectiveSchemaVersion = loaderResult.migrated
+                        ? 3
+                        : (typeof remoteData.schemaVersion === 'number' ? remoteData.schemaVersion : state.settings.schemaVersion);
+                    if (typeof effectiveSchemaVersion === 'number') {
+                        state.settings.schemaVersion = effectiveSchemaVersion;
+                    }
                     state.employees = newEmployees;
-                    state.positions = dedup(remoteData.positions || state.positions);
-                    state.leaders = dedup(remoteData.leaders || state.leaders);
+                    // ⚡ Schema v3: cargos y líderes vienen de su fuente granular
+                    // (subcolección si schemaVersion>=3, arreglo legacy si no),
+                    // resuelta por el loader. NO leer de remoteData directamente:
+                    // a partir de v3 el parent doc ya no recibe estos arreglos.
+                    state.positions = dedup(loaderResult.positions || remoteData.positions || state.positions);
+                    state.leaders = dedup(loaderResult.leaders || remoteData.leaders || state.leaders);
+
+                    // ⚡ FASE 2.1: si ya migramos al modelo per-doc, abrir el
+                    // listener en tiempo real sobre la subcolección de empleados
+                    // para que los cambios remotos lleguen sin recargar. La
+                    // suscripción es idempotente — el guard de schemaVersion + el
+                    // singleton interno garantizan una sola conexión activa.
+                    if (state.settings.schemaVersion >= 2) {
+                        EmployeesLiveSync.start({
+                            subscribe: (cb) => EmployeeRepository.subscribe(cb),
+                            onApply: (emps) => {
+                                const merged = dedup(emps || []);
+                                state.employees = (typeof Employee !== 'undefined')
+                                    ? merged.map(e => e instanceof Employee ? e : new Employee(e))
+                                    : merged;
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube`);
+                                if (typeof render === 'function') render();
+                            }
+                        });
+                    }
+
+                    // ⚡ Schema v3: listeners en tiempo real para cargos y líderes
+                    // sobre sus subcolecciones. Idempotentes (singletons internos).
+                    if (state.settings.schemaVersion >= 3) {
+                        PositionsLiveSync.start({
+                            subscribe: (cb) => PositionRepository.subscribe(cb),
+                            onApply: (positions) => {
+                                const merged = dedup(positions || []);
+                                state.positions = (typeof Position !== 'undefined')
+                                    ? merged.map(p => p instanceof Position ? p : new Position(p))
+                                    : merged;
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.positions.length} cargo(s) desde la nube`);
+                                if (typeof render === 'function') render();
+                            }
+                        });
+                        LeadersLiveSync.start({
+                            subscribe: (cb) => LeaderRepository.subscribe(cb),
+                            onApply: (leaders) => {
+                                const merged = dedup(leaders || []);
+                                state.leaders = (typeof Leader !== 'undefined')
+                                    ? merged.map(l => l instanceof Leader ? l : new Leader(l))
+                                    : merged;
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.leaders.length} líder(es) desde la nube`);
+                                if (typeof render === 'function') render();
+                            }
+                        });
+                    }
 
                     if (remoteData.attendance) {
                         debug.log('⚠️ Ignorando attendance de Mirror Sync (gestionado por Zonal Sync)');
@@ -4985,7 +6419,11 @@ window.addEventListener('scroll', () => {
                         isInitialLoad = false;
                         // Forzar render inicial con datos de la nube
                         render();
+                        // 🛡️ Post-load sanitization prompt:
+                        // Primera sync completada → datos mergeados → buen momento para preguntar.
+                        _checkSanitizationCloudSyncPrompt();
                     }
+                    } // ← cierra applyRemoteData()
                 });
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
@@ -5097,6 +6535,8 @@ window.addEventListener('scroll', () => {
                 hideLoader();
                 isInitialLoad = false;
                 render(); // Asegurar que la UI de settings/auth se limpie
+                // No hay sesión → no se puede subir a la nube, limpiar flag.
+                delete state._pendingSanitizationCloudSync;
             }
         });
 
@@ -5171,7 +6611,7 @@ function initBackToTop() {
     const btn = document.createElement('div');
     btn.className = 'back-to-top';
     btn.id = 'backToTop';
-    btn.innerHTML = '▲'; // Unicode arrow para máxima compatibilidad
+    btn.innerHTML = icons.get('chevron-up', { size: 22 });
     btn.title = 'Ir arriba';
     btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     document.body.appendChild(btn);

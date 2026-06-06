@@ -14,6 +14,7 @@ module.exports = {
         '(^|/)IndexedDBService\\.js$': '<rootDir>/__mocks__/IndexedDBService.js',
         '(^|/)DataService\\.js$': '<rootDir>/__mocks__/DataService.js'
     },
+    modulePathIgnorePatterns: ['<rootDir>/\\.claude/'],
     testMatch: ['**/js/tests/**/*.test.js'],
     testTimeout: 10000,
     verbose: true

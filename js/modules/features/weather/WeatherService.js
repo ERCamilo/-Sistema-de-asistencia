@@ -1,5 +1,5 @@
 /**
- * 🌤️ WeatherService — unified entry point for weather data.
+ * WeatherService — unified entry point for weather data.
  *
  * The UI never imports adapters directly. It calls these helpers, which:
  *  1. Read the active provider from state (settings.weatherProvider or 'mock')
@@ -8,6 +8,9 @@
  *  4. Persist the response back into state.weather.cache
  *
  * Provider switching is purely a state change — no UI code touches APIs.
+ *
+ * All fetch* methods are async to support real HTTP adapters alongside the
+ * synchronous MockAdapter. The mock path resolves instantly (no tick delay).
  *
  * Cache shape lives on state.weather.cache:
  *   {
@@ -62,6 +65,17 @@ function _activeAdapter(state) {
 }
 
 /**
+ * Build the opts object passed to adapter methods.
+ * Includes apiKey when available so real adapters can authenticate.
+ */
+function _adapterOpts(state) {
+    const opts = {};
+    const key = state?.settings?.weatherApiKey;
+    if (key) opts.apiKey = key;
+    return opts;
+}
+
+/**
  * Read the configured location, falling back to DEFAULT_LOCATION. Centralized
  * so every fetch goes through the same coordinate source.
  */
@@ -81,25 +95,27 @@ function _ensureCacheShape(state) {
 
 /**
  * Fetch current weather. Returns cached data if fresh; otherwise hits the
- * adapter and persists the result. Sync API — adapters return data directly
- * for the mock case; real adapters will return a Promise in the future.
+ * adapter and persists the result.
+ *
+ * Async to support real HTTP adapters. MockAdapter returns synchronously
+ * but wrapping in async is harmless (resolves in the same microtask).
  *
  * @param {{force?: boolean}} opts pass force:true to bypass the cache
  */
-export function fetchCurrent(state, opts = {}) {
+export async function fetchCurrent(state, opts = {}) {
     const cache = _ensureCacheShape(state);
     if (!opts.force && isCacheFresh(cache.current, WEATHER_TTL.CURRENT_MS)) {
         return cache.current.data;
     }
     const adapter = _activeAdapter(state);
     const loc = getActiveLocation(state);
-    const data = adapter.getCurrent(loc.lat, loc.lon);
+    const data = await adapter.getCurrent(loc.lat, loc.lon, _adapterOpts(state));
     cache.current = { data, fetchedAt: Date.now() };
     cache.provider = adapter.providerName || 'unknown';
     return data;
 }
 
-export function fetchForecast(state, days = 5, opts = {}) {
+export async function fetchForecast(state, days = 5, opts = {}) {
     const cache = _ensureCacheShape(state);
     if (!opts.force && isCacheFresh(cache.forecast, WEATHER_TTL.FORECAST_MS)) {
         // Truncate to the requested number of days, in case cached entry has more.
@@ -107,7 +123,7 @@ export function fetchForecast(state, days = 5, opts = {}) {
     }
     const adapter = _activeAdapter(state);
     const loc = getActiveLocation(state);
-    const data = adapter.getForecast(loc.lat, loc.lon, days);
+    const data = await adapter.getForecast(loc.lat, loc.lon, days, _adapterOpts(state));
     cache.forecast = { data, fetchedAt: Date.now() };
     cache.provider = adapter.providerName || 'unknown';
     return data;
@@ -119,20 +135,21 @@ export function fetchForecast(state, days = 5, opts = {}) {
  * stale at the same rate). Adapters that lack a getHourly method get a
  * derived stub from the daily forecast so the UI degrades gracefully.
  */
-export function fetchHourly(state, hours = 24, stepHours = 3, opts = {}) {
+export async function fetchHourly(state, hours = 24, stepHours = 3, opts = {}) {
     const cache = _ensureCacheShape(state);
     if (!opts.force && isCacheFresh(cache.hourly, WEATHER_TTL.FORECAST_MS)) {
         return cache.hourly.data || [];
     }
     const adapter = _activeAdapter(state);
     const loc = getActiveLocation(state);
+    const adapterOpts = _adapterOpts(state);
     let data;
     if (typeof adapter.getHourly === 'function') {
-        data = adapter.getHourly(loc.lat, loc.lon, hours, stepHours);
+        data = await adapter.getHourly(loc.lat, loc.lon, hours, stepHours, adapterOpts);
     } else {
         // Fallback: synthesize a single entry per day from the daily forecast
         // so the panel always has *something* to render.
-        const daily = adapter.getForecast(loc.lat, loc.lon, Math.ceil(hours / 24));
+        const daily = await adapter.getForecast(loc.lat, loc.lon, Math.ceil(hours / 24), adapterOpts);
         data = daily.map(d => ({
             isoHour: `${d.date}T12:00:00.000Z`,
             hourLabel: '12:00',
@@ -151,14 +168,14 @@ export function readCachedHourly(state) {
     return state?.weather?.cache?.hourly?.data || [];
 }
 
-export function fetchAlerts(state, opts = {}) {
+export async function fetchAlerts(state, opts = {}) {
     const cache = _ensureCacheShape(state);
     if (!opts.force && isCacheFresh(cache.alerts, WEATHER_TTL.ALERTS_MS)) {
         return cache.alerts.data || [];
     }
     const adapter = _activeAdapter(state);
     const loc = getActiveLocation(state);
-    const data = adapter.getAlerts(loc.lat, loc.lon);
+    const data = await adapter.getAlerts(loc.lat, loc.lon, _adapterOpts(state));
     cache.alerts = { data, fetchedAt: Date.now() };
     return data;
 }

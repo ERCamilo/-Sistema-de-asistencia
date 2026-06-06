@@ -8,6 +8,13 @@ import { buildAttendanceIndex } from '../core/AppState.js';
 import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
+import { EmployeeRepository } from './EmployeeRepository.js';
+import { PositionRepository } from './PositionRepository.js';
+import { LeaderRepository } from './LeaderRepository.js';
+import { unionById } from './EmployeeMerge.js';
+import { backfillNestedIds } from './LoanIdBackfill.js';
+import { SyncStatus } from './SyncStatus.js';
+import { SYNC_PAUSE_ENABLED } from './SyncPauseService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { debug } from '../utils/Debug.js';
@@ -23,6 +30,238 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
 
+// 🔴 Rate-limit para toasts de error de sync: no spamear cada 2s.
+// Se resetea a null cuando markSynced() dispara (sync se recuperó).
+let _lastSyncErrorNotifiedAt = null;
+const _SYNC_ERROR_NOTIFY_COOLDOWN_MS = 60 * 1000;
+
+function _notifySyncError(e) {
+    SyncStatus.markError(e);
+    const now = Date.now();
+    if (!_lastSyncErrorNotifiedAt || now - _lastSyncErrorNotifiedAt > _SYNC_ERROR_NOTIFY_COOLDOWN_MS) {
+        _lastSyncErrorNotifiedAt = now;
+        NotificationSystem.error(
+            'No se pudo sincronizar con la nube. Tus datos locales están seguros.',
+            10000
+        );
+    }
+}
+
+// 🗑️ Cola de ids de empleados a borrar de la subcolección de Firebase
+// la próxima vez que saveApplicationData drene (Tarea #18).
+// Usada por el wizard de duplicados cuando consume un duplicado cloud-only:
+// el state local ya no lo tiene, pero su doc remoto sigue en
+// users/{uid}/employees/{id} y hay que limpiarlo.
+const _pendingCloudDeletes = new Set();
+
+// 🗑️ Colas análogas para CARGOS y LÍDERES (Schema v3). En el modelo
+// granular, borrar un cargo/líder localmente deja huérfano su doc en
+// users/{uid}/positions|leaders/{id} (saveMany solo hace upsert, nunca
+// borra). Estas colas se drenan en el próximo save, solo con schemaVersion
+// >= 3 (que es cuando estas entidades viven en su subcolección per-doc).
+const _pendingCloudPositionDeletes = new Set();
+const _pendingCloudLeaderDeletes = new Set();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 💾 Persistencia de colas de borrado en localStorage
+// Las tres colas son en-memoria; sin persistencia, un page reload descartaría
+// ids pendientes y sus docs en Firestore quedarían huérfanos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _PENDING_DELETES_LS_KEY = 'asistencia_pending_cloud_deletes';
+
+function _persistDeleteQueues() {
+    if (typeof localStorage === 'undefined') return;
+    const data = {
+        employees: [..._pendingCloudDeletes],
+        positions: [..._pendingCloudPositionDeletes],
+        leaders:   [..._pendingCloudLeaderDeletes]
+    };
+    const total = data.employees.length + data.positions.length + data.leaders.length;
+    try {
+        if (total === 0) {
+            localStorage.removeItem(_PENDING_DELETES_LS_KEY);
+        } else {
+            localStorage.setItem(_PENDING_DELETES_LS_KEY, JSON.stringify(data));
+        }
+    } catch (e) {
+        console.warn('⚠️ No se pudo persistir la cola de borrados pendientes:', e);
+    }
+}
+
+/** Carga los ids pendientes desde localStorage y los agrega a los Sets en-memoria. */
+export function loadDeleteQueuesFromStorage() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const raw = localStorage.getItem(_PENDING_DELETES_LS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.employees || []).forEach(id => { if (id) _pendingCloudDeletes.add(String(id)); });
+        (data.positions || []).forEach(id => { if (id) _pendingCloudPositionDeletes.add(String(id)); });
+        (data.leaders   || []).forEach(id => { if (id) _pendingCloudLeaderDeletes.add(String(id)); });
+        const total = _pendingCloudDeletes.size + _pendingCloudPositionDeletes.size + _pendingCloudLeaderDeletes.size;
+        if (total > 0) {
+            debug.log(`🗑️ Cola de borrados recuperada del storage: ${total} doc(s) pendiente(s)`);
+        }
+    } catch (e) {
+        console.warn('⚠️ Error al leer la cola de borrados del storage (ignorando):', e);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🕒 lastCloudSavedAt — persistir timestamp de la última sync exitosa
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _syncPersistenceUnsub = null;
+
+/**
+ * Pre-loads SyncStatus with the persisted lastCloudSavedAt timestamp so the
+ * sync badge shows the correct "Sincronizado · hace Xm" text from the very
+ * first render after a page reload, instead of "Aún no sincronizado".
+ *
+ * Safe to call multiple times (no-op when the value is missing or invalid).
+ *
+ * @param {object|null} settings - state.settings object (or null/undefined).
+ */
+export function warmUpSyncStatus(settings) {
+    const ts = settings?.lastCloudSavedAt;
+    if (typeof ts === 'number' && Number.isFinite(ts)) {
+        SyncStatus.markSynced(ts);
+    }
+}
+
+/**
+ * Subscribes to SyncStatus so that every successful cloud write (markSynced)
+ * stores the timestamp in state.settings.lastCloudSavedAt.
+ *
+ * Idempotent: calling more than once unsubscribes the previous listener
+ * first, so the state is only updated once per markSynced call.
+ *
+ * Call this once from loadApplicationData() after state is populated.
+ */
+export function initSyncPersistence() {
+    if (_syncPersistenceUnsub) {
+        _syncPersistenceUnsub();
+        _syncPersistenceUnsub = null;
+    }
+    _syncPersistenceUnsub = SyncStatus.subscribe(ts => {
+        // null means reset() was called (e.g. logout). We intentionally
+        // keep the last value so the user can still see "last sync was at…".
+        if (ts === null) return;
+        if (!state.settings) state.settings = {};
+        state.settings.lastCloudSavedAt = ts;
+        // Sync se recuperó — resetear rate-limiter para que el próximo
+        // error vuelva a mostrar toast inmediatamente.
+        _lastSyncErrorNotifiedAt = null;
+    });
+}
+
+/**
+ * Encolar un id de empleado para borrar del cloud en el próximo save.
+ * Defensivo: ignora ids falsy.
+ */
+export function enqueueCloudEmployeeDelete(id) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    _pendingCloudDeletes.add(key);
+    _persistDeleteQueues();
+}
+
+/** Encola varios ids de empleados con una sola escritura a localStorage. */
+export function enqueueCloudEmployeeDeleteBatch(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    ids.forEach(id => {
+        if (!id) return;
+        const key = String(id).trim();
+        if (key) _pendingCloudDeletes.add(key);
+    });
+    _persistDeleteQueues();
+}
+
+/** Snapshot de la cola actual (copia). */
+export function getPendingCloudDeletes() {
+    return [..._pendingCloudDeletes];
+}
+
+/** Vacía la cola. Llamado tras drenar exitosamente o desde tests. */
+export function clearPendingCloudDeletes() {
+    _pendingCloudDeletes.clear();
+}
+
+/** Encolar un id de CARGO para borrar de la subcolección en el próximo save. */
+export function enqueueCloudPositionDelete(id) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    _pendingCloudPositionDeletes.add(key);
+    _persistDeleteQueues();
+}
+export function getPendingCloudPositionDeletes() {
+    return [..._pendingCloudPositionDeletes];
+}
+export function clearPendingCloudPositionDeletes() {
+    _pendingCloudPositionDeletes.clear();
+}
+
+/** Encolar un id de LÍDER para borrar de la subcolección en el próximo save. */
+export function enqueueCloudLeaderDelete(id) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    _pendingCloudLeaderDeletes.add(key);
+    _persistDeleteQueues();
+}
+export function getPendingCloudLeaderDeletes() {
+    return [..._pendingCloudLeaderDeletes];
+}
+export function clearPendingCloudLeaderDeletes() {
+    _pendingCloudLeaderDeletes.clear();
+}
+
+/**
+ * Drena un Set de ids borrando su doc remoto vía repo.deleteOne(id).
+ * Reintentable: los ids que fallen quedan re-encolados en el mismo Set.
+ */
+async function _drainDeleteSet(set, repo) {
+    if (set.size === 0) return;
+    const ids = [...set];
+    set.clear();
+    const failed = [];
+    for (const id of ids) {
+        try {
+            await repo.deleteOne(id);
+        } catch (e) {
+            console.error(`⚠️ Error borrando doc cloud ${id}, re-encolando:`, e);
+            failed.push(id);
+        }
+    }
+    failed.forEach(id => set.add(id));
+    // Sync storage: remove drained ids, keep only failed ones.
+    _persistDeleteQueues();
+}
+
+/**
+ * Drena las colas de borrado contra sus subcolecciones remotas.
+ *   - Empleados: requiere schemaVersion >= 2.
+ *   - Cargos y líderes: requieren schemaVersion >= 3 (granular desde v3).
+ * En cuentas por debajo del umbral es noop y los ids quedan encolados
+ * para cuando la cuenta migre. Sin sesión, noop total.
+ */
+async function _drainPendingCloudDeletes() {
+    if (!globalThis.currentUser) return;
+    const v = state?.settings?.schemaVersion;
+    const vNum = typeof v === 'number' ? v : 0;
+
+    if (vNum >= 2) {
+        await _drainDeleteSet(_pendingCloudDeletes, EmployeeRepository);
+    }
+    if (vNum >= 3) {
+        await _drainDeleteSet(_pendingCloudPositionDeletes, PositionRepository);
+        await _drainDeleteSet(_pendingCloudLeaderDeletes, LeaderRepository);
+    }
+}
+
 /**
  * ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
  * Evita saturar la cuota de Firebase con guardados demasiado frecuentes
@@ -37,6 +276,7 @@ export const syncFirebaseMirrorDebounced = (function() {
                 const runSync = () => {
                     FirebaseService.saveFullState(state).catch(e => {
                         console.warn('⚠️ Error en sincronización debounced:', e);
+                        _notifySyncError(e);
                     });
                 };
 
@@ -55,7 +295,9 @@ export const syncFirebaseMirrorDebounced = (function() {
  */
 export async function saveToIndexedDB(options = {}) {
     try {
-        await indexedDBService.saveState(state, options);
+        // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
+        const rawState = stateManager.getState();
+        await indexedDBService.saveState(rawState, options);
         debug.log('💾 Datos guardados en IndexedDB');
         return true;
     } catch (error) {
@@ -68,6 +310,16 @@ export async function saveToIndexedDB(options = {}) {
  * Orquesta el guardado local y la sincronización con la nube.
  */
 export function saveApplicationData(options = {}) {
+    // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
+    // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
+    // locales durante la ventana de 300 ms en que el guardado aún está en cola.
+    // Sin esto, un nuevo empleado/cargo/líder añadido al state puede perderse si
+    // el listener de Firebase aplica datos remotos antes de que _executeSave corra.
+    if (!globalThis._isApplyingRemoteData && !options.localOnly) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
+
     // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
     if (options.dateKey && _pendingSaveOptions.dateKey) {
         _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
@@ -114,18 +366,68 @@ async function _executeSave(options = {}) {
         return;
     }
 
-    // ⚡ FIX: Almacenar marca de tiempo de la última modificación local
-    // Esto previene que la caché de Firebase sobrescriba cambios si se refresca la página
-    // muy rápido antes de que se complete el debounced sync a la nube.
+    console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
+
+    // ──────────────────────────────────────────────────────────
+    // 🛡️ OUTGOING CONFLICT CHECK
+    // Before pushing to Firebase, verify that the cloud's last-known timestamp
+    // is not meaningfully newer than the local state.  If it is, another device
+    // wrote to Firebase more recently and we'd silently overwrite those changes.
+    // Instead: emit an event, let app.js ask the user, and skip Firebase this time.
+    //
+    // Grace period: 10 s absorbs Firebase's own echo latency (the same-device
+    // roundtrip where cloud timestamp == local timestamp ± a few ms).
+    //
+    // CRITICAL: this check must share ALL the same guards as the Firebase
+    // block below — otherwise it fires false positives (e.g. during
+    // _isApplyingRemoteData = true, the local timestamp is intentionally NOT
+    // refreshed and a stale value would trip the check on every incoming sync).
+    //
+    // NOTE: we read localUpdatedAt BEFORE updating it so the conflict check
+    // compares the cloud's timestamp against the PREVIOUS local save, not NOW.
+    // Updating localUpdatedAt first would always make _localTime >= _cloudTime.
+    // ──────────────────────────────────────────────────────────
+    const OUTGOING_CONFLICT_GRACE_MS = 10_000;
+    // 🚧 SYNC_PAUSE_ENABLED=false (kill-switch temporal): cuando la pausa está
+    // desactivada, el flag cloudUploadPaused se ignora y la subida nunca se
+    // bloquea por pausa. El string cloudUploadPaused se conserva en el gate
+    // para el contrato; el día que reactivemos basta poner el flag en true.
+    const _isPausedEffective = SYNC_PAUSE_ENABLED && state.settings?.cloudUploadPaused === true;
+    const _canSyncFirebase = globalThis.currentUser
+        && !globalThis._isApplyingRemoteData
+        && !_isPausedEffective
+        && !options.localOnly;
+    const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
+    // Already set in saveApplicationData(); reflects when save was requested.
+    const _localTime = state.settings?.localUpdatedAt || 0;
+    const _hasOutgoingConflict = _canSyncFirebase
+        && !options.force
+        && _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS;
+
+    // Refresh to actual execution time (after conflict check).
     if (!globalThis._isApplyingRemoteData) {
         if (!state.settings) state.settings = {};
         state.settings.localUpdatedAt = Date.now();
     }
 
-    console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
+    if (_hasOutgoingConflict && !state._outgoingConflictReviewPending) {
+        state._outgoingConflictReviewPending = true;
+        debug.log(
+            `⚠️ PersistenceService: conflicto saliente detectado.` +
+            ` Cloud@${new Date(_cloudTime).toISOString()} > Local@${new Date(_localTime).toISOString()}`
+        );
+        if (globalThis.eventBus) {
+            globalThis.eventBus.emit('sync:outgoing-conflict', {
+                localTime: _localTime,
+                cloudTime: _cloudTime
+            });
+        }
+    }
 
     // ☀️ Sincronización con Firebase
-    if (globalThis.currentUser && !globalThis._isApplyingRemoteData) {
+    // Skipped when not authenticated, applying remote data, paused, localOnly,
+    // or an outgoing conflict is pending user review.
+    if (_canSyncFirebase && !_hasOutgoingConflict) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
             const dayRecords = {};
@@ -135,13 +437,22 @@ async function _executeSave(options = {}) {
                     dayRecords[key] = record;
                 }
             });
-            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => 
-                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e)
-            );
+            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => {
+                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e);
+                _notifySyncError(e);
+            });
         }
 
         // 2. Sincronización Espejo (Full State) - DEBOUNCED
         syncFirebaseMirrorDebounced(state);
+
+        // 2.b Drenar la cola de borrados pendientes en la nube.
+        // Ocurre solo si schemaVersion >= 2 (cuentas migradas). Es seguro
+        // hacerlo en paralelo con el mirror debounced — operan sobre rutas
+        // distintas (data/current vs employees/{id}).
+        _drainPendingCloudDeletes().catch(e =>
+            console.warn('⚠️ Error drenando cola de cloud deletes (no crítico):', e)
+        );
 
         // 3. Backup Automático (Snapshots)
         const freq = state.settings?.backupFrequency || 'none';
@@ -156,7 +467,7 @@ async function _executeSave(options = {}) {
 
             if (now - lastBackup > (intervals[freq] || Infinity)) {
                 const rawState = stateManager.getState();
-                FirebaseService.createSnapshot(rawState, 'auto').then(() => {
+                FirebaseService.createSnapshot(rawState, 'auto', 'daily-auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
                 }).catch(e => console.error('Error en backup automático:', e));
             }
@@ -206,7 +517,11 @@ async function _executeSave(options = {}) {
 export async function loadApplicationData() {
     try {
         debug.log('📂 PersistenceService: Iniciando carga de datos...');
-        
+
+        // Rehidratar colas de borrado pendientes del storage para que
+        // docs que quedaron sin borrar en sesiones anteriores se reintenten.
+        loadDeleteQueuesFromStorage();
+
         // 1. Intentar cargar desde IndexedDB (Fase 2+)
         const idbData = await indexedDBService.loadFullState();
         
@@ -232,13 +547,28 @@ export async function loadApplicationData() {
             state.isDataLoaded = true;
             state.useIndexedDB = true;
 
-            // 🛡️ Validar integridad. Si hubo correcciones, persistir inmediatamente
-            // para evitar que Firebase reescriba el state con datos sucios después.
+            // 🕒 Conectar SyncStatus → state.settings.lastCloudSavedAt.
+            // Idempotente: llamadas múltiples (ej. hot-reload, demos) reemplazan
+            // el listener anterior en lugar de apilarlo.
+            initSyncPersistence();
+
+            // 🟢 Pre-cargar SyncStatus con el último timestamp persistido para
+            // que el badge muestre "Sincronizado · hace Xm" desde el primer
+            // render, en lugar de "Aún no sincronizado".
+            warmUpSyncStatus(state.settings);
+
+            // 🛡️ Validar integridad. Si hubo correcciones, persistir en IndexedDB
+            // de forma inmediata pero sin subir a Firebase todavía.
+            // Se guarda un contador en state para que app.js le pregunte al
+            // usuario si desea subir las correcciones a la nube después del
+            // primer render (ver _checkSanitizationCloudSyncPrompt en app.js).
             const fixesOnLoad = validateDataIntegrity();
             if (fixesOnLoad > 0) {
-                debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad...`);
-                // Guardado full (no granular) → también dispara sync con Firebase
-                saveApplicationData({ force: true });
+                debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad (solo local)...`);
+                // localOnly:true → escribe IndexedDB pero omite el bloque de Firebase.
+                saveApplicationData({ force: true, localOnly: true });
+                // Señal para la capa de UI: mostrar prompt de subida después del render.
+                state._pendingSanitizationCloudSync = fixesOnLoad;
             }
 
             stateManager.markAttendanceDirty(); // Asegurar reconstrucción total tras carga masiva
@@ -252,6 +582,8 @@ export async function loadApplicationData() {
         if (hasDataInLS) {
             debug.log('✅ Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
+            initSyncPersistence();
+            warmUpSyncStatus(state.settings);
             
             // Si el navegador soporta IndexedDB, migramos de inmediato
             if (indexedDBService.isSupported()) {
@@ -308,6 +640,17 @@ export async function loadDemoDataIntoDB() {
  */
 export function validateDataIntegrity() {
     let fixes = 0;
+
+    // 0. Backfill missing ids in loans / advances / bonuses / deductions
+    //    and their nested payments / installments. Items without ids are
+    //    silently dropped by unionById during cloud merge, causing data loss.
+    //    This must run before any merge cycle touches the data.
+    const backfilled = backfillNestedIds(state.employees);
+    if (backfilled > 0) {
+        console.log(`🔑 PersistenceService: ${backfilled} id(s) asignado(s) a ítems sin id (préstamos/pagos/cuotas).`);
+        fixes += backfilled;
+    }
+
     const positionIds = new Set(state.positions.map(p => p.id));
     const leaderIds = new Set(state.leaders.map(l => l.id));
 
@@ -528,29 +871,41 @@ export function sanitizePositions(state) {
     if (!state.positions || state.positions.length === 0) return false;
 
     debug.log('🧹 Iniciando sanitización de posiciones...');
-    const idMap = new Map(); // Mapa de ID_Viejo -> ID_Nuevo (Slug)
+    // ⚡ Opción A (IDs estables): los puestos tienen un id INMUTABLE que NO
+    // se deriva del nombre. sanitize ya NO convierte ids a slug (eso hacía
+    // que renombrar cambiara el id → documento nuevo + huérfano en la nube
+    // per-doc). Aquí solo: (1) deduplicamos puestos con el MISMO nombre,
+    // conservando el id del primero (master) y migrando referencias, y
+    // (2) asignamos un id a puestos que no tengan ninguno.
+    const idMap = new Map();          // ID_viejo (duplicado) -> ID_master estable
     const uniquePositions = [];
-    const positionsBySlug = new Map();
+    const masterIdBySlug = new Map(); // slug(nombre) -> ID_master estable
     let hasChanges = false;
 
     state.positions.forEach(pos => {
         const slug = slugify(pos.name);
         if (!slug) return;
 
-        if (!positionsBySlug.has(slug)) {
-            // Es la primera vez que vemos este nombre de puesto
-            const isNewId = pos.id !== slug;
-            if (isNewId) hasChanges = true;
-
-            const newPos = { ...pos, id: slug };
-            positionsBySlug.set(slug, newPos);
-            idMap.set(pos.id, slug);
-            uniquePositions.push(newPos);
-        } else {
-            // Es un duplicado. Mapear el ID viejo al ID del puesto ya existente
-            idMap.set(pos.id, slug);
+        // Garantizar un id estable: si falta, asignar UUID (una sola vez).
+        if (!pos.id) {
+            pos.id = generateUUID();
             hasChanges = true;
-            console.log(`🔗 Fusionando duplicado: ${pos.name} (${pos.id} -> ${slug})`);
+        }
+
+        if (!masterIdBySlug.has(slug)) {
+            // Primer puesto con este nombre → master. Conserva su id estable.
+            masterIdBySlug.set(slug, pos.id);
+            idMap.set(pos.id, pos.id); // identidad (no migra)
+            uniquePositions.push(pos);
+        } else {
+            // Duplicado por NOMBRE → fusionar al master, conservando el id
+            // estable del master. El doc del duplicado queda obsoleto → encolar
+            // su borrado de la subcolección remota (positions/{id}).
+            const masterId = masterIdBySlug.get(slug);
+            idMap.set(pos.id, masterId);
+            if (pos.id && pos.id !== masterId) enqueueCloudPositionDelete(pos.id);
+            hasChanges = true;
+            console.log(`🔗 Fusionando duplicado por nombre: ${pos.name} (${pos.id} -> ${masterId})`);
         }
     });
 
@@ -618,6 +973,22 @@ export function sanitizePositions(state) {
     return true;
 }
 
+// 🛟 Flush del guardado pendiente cuando la pestaña se oculta o se cierra.
+// Sin esto, un guardado en debounce (300 ms) muere silenciosamente si el usuario
+// cierra rápido la pestaña, manda la PWA a segundo plano o navega. `pagehide` es
+// más fiable que `beforeunload` en móvil y PWAs; `visibilitychange` cubre el caso
+// de cambio a otra app sin cerrar.
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => { flushPendingSave(); });
+    // visibilitychange se dispara en `document` por spec — escucharlo ahí
+    // (en window solo llega por burbujeo, y no es fiable en todos los entornos).
+    if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flushPendingSave();
+        });
+    }
+}
+
 // Inicializar alias globales (Legacy compatibility)
 globalThis.saveApplicationData = saveApplicationData;
 globalThis.loadApplicationData = loadApplicationData;
@@ -632,22 +1003,49 @@ globalThis.loadDemoDataIntoDB = loadDemoDataIntoDB;
 globalThis.testConflictedRestore = testConflictedRestore;
 
 /**
- * 🔍 analyzeConflicts() - Detecta empleados duplicados por número de ficha
+ * 🔍 analyzeConflicts() - Detecta empleados duplicados por número de ficha.
+ *
+ * Si se pasa opts.cloudEmployees (lista de docs de users/{uid}/employees/),
+ * los une con state.employees antes de agrupar, y marca cada miembro con
+ * _source: 'local' | 'cloud' | 'both' para que la UI sepa de dónde viene
+ * y la lógica de merge sepa si tiene que borrar el doc de la nube.
+ *
+ * Si un mismo id aparece en ambos lados, gana el de updatedAt mayor.
+ *
+ * @param {{cloudEmployees?: Array}} [opts]
  * @returns {Array} Lista de grupos de conflictos
  */
-export function analyzeConflicts() {
-    if (!state.employees || state.employees.length === 0) return [];
+export function analyzeConflicts(opts = {}) {
+    const localEmps = Array.isArray(state.employees) ? state.employees : [];
+    const cloudEmps = Array.isArray(opts.cloudEmployees) ? opts.cloudEmployees : [];
 
+    if (localEmps.length === 0 && cloudEmps.length === 0) return [];
+
+    // 1. Unir local + cloud, deduplicar por id. Si un id está en ambos,
+    //    gana el de mayor updatedAt y se marca _source: 'both'.
+    const byId = new Map();
+    localEmps.forEach(emp => {
+        if (!emp || !emp.id || !emp.number) return;
+        byId.set(String(emp.id), { ...emp, _source: 'local' });
+    });
+    cloudEmps.forEach(emp => {
+        if (!emp || !emp.id || !emp.number) return;
+        const key = String(emp.id);
+        const existing = byId.get(key);
+        if (!existing) {
+            byId.set(key, { ...emp, _source: 'cloud' });
+            return;
+        }
+        // Colisión por id: gana el de mayor updatedAt. _source pasa a 'both'.
+        const existingTs = typeof existing.updatedAt === 'number' ? existing.updatedAt : 0;
+        const incomingTs = typeof emp.updatedAt === 'number' ? emp.updatedAt : 0;
+        const winner = incomingTs > existingTs ? emp : existing;
+        byId.set(key, { ...winner, _source: 'both' });
+    });
+
+    // 2. Agrupar por número (igual que antes, pero sobre el set unido).
     const groups = new Map();
-    const processedIds = new Set();
-
-    state.employees.forEach(emp => {
-        if (!emp.number || !emp.id) return;
-        
-        // ⚡ FIX: Ignorar si ya procesamos este ID exacto en memoria (duplicado de referencia)
-        if (processedIds.has(emp.id)) return;
-        processedIds.add(emp.id);
-
+    byId.forEach((emp) => {
         if (!groups.has(emp.number)) groups.set(emp.number, []);
         groups.get(emp.number).push(emp);
     });
@@ -689,6 +1087,27 @@ export function analyzeConflicts() {
  * 🤝 mergeEmployees() - Fusiona un registro duplicado en un registro maestro
  * ⚠️ NO guarda automáticamente. El caller debe llamar saveApplicationData() al terminar.
  */
+/**
+ * 🔁 Intercambia el número de ficha de dos empleados. Usado por la
+ * resolución inline de conflicto de número (editar Pedro y darle el número
+ * de Juan → "Intercambiar"). Marca ambos como modificados para que se
+ * propaguen a la nube.
+ * @returns {boolean} true si el intercambio se realizó.
+ */
+export function swapEmployeeNumbers(idA, idB) {
+    if (idA === idB) return false;
+    const a = state.employees.find(e => e.id === idA);
+    const b = state.employees.find(e => e.id === idB);
+    if (!a || !b) return false;
+    const tmp = a.number;
+    a.number = b.number;
+    b.number = tmp;
+    const ts = Date.now();
+    a.updatedAt = ts; b.updatedAt = ts;
+    a._isDirty = true; b._isDirty = true;
+    return true;
+}
+
 export function mergeEmployees(masterId, duplicateId) {
     const master = state.employees.find(e => e.id === masterId);
     const duplicate = state.employees.find(e => e.id === duplicateId);
@@ -739,23 +1158,49 @@ export function mergeEmployees(masterId, duplicateId) {
         }
     });
 
-    // 2. Fusionar Datos Financieros
-    if (duplicate.advances) {
-        master.advances = [...(master.advances || []), ...(duplicate.advances || [])];
-    }
-    if (duplicate.bonuses) {
-        master.bonuses = [...(master.bonuses || []), ...(duplicate.bonuses || [])];
-    }
-    if (duplicate.deductions) {
-        master.deductions = [...(master.deductions || []), ...(duplicate.deductions || [])];
+    // 2. Fusionar arreglos "log" del empleado usando unionById:
+    //    - Loans, advances, bonuses, deductions → unión por id (en colisión
+    //      gana el de mayor updatedAt). Items sin id reciben uno sintético
+    //      y se preservan (defensa en profundidad sobre el fix de unionById).
+    //    - Antes solo se concatenaban advances/bonuses/deductions y se
+    //      perdían los loans del duplicate. El caso real del usuario:
+    //      master(5 asist, 0 préstamos, [a,b]) absorbiendo
+    //      duplicate(0 asist, 3 préstamos, [a,c]) ahora termina como
+    //      (5 asist, 3 préstamos, [a,b,c]).
+    master.loans      = unionById(master.loans,      duplicate.loans);
+    master.advances   = unionById(master.advances,   duplicate.advances);
+    master.bonuses    = unionById(master.bonuses,    duplicate.bonuses);
+    master.deductions = unionById(master.deductions, duplicate.deductions);
+
+    // 3. Posiciones (lista de strings) → unión deduplicada
+    {
+        const set = new Set();
+        (Array.isArray(master.positions) ? master.positions : []).forEach(p => { if (p) set.add(p); });
+        (Array.isArray(duplicate.positions) ? duplicate.positions : []).forEach(p => { if (p) set.add(p); });
+        master.positions = [...set];
     }
 
-    // 3. Completar campos del maestro si están vacíos
+    // 4. positionSalaries (mapa por positionId) → unión por clave.
+    //    Master gana en colisión (el usuario lo eligió como verdad);
+    //    las claves que solo existen en el duplicate se traen al master.
+    if (duplicate.positionSalaries && typeof duplicate.positionSalaries === 'object') {
+        const ms = (master.positionSalaries && typeof master.positionSalaries === 'object')
+            ? master.positionSalaries : {};
+        const merged = { ...duplicate.positionSalaries, ...ms };
+        master.positionSalaries = merged;
+    }
+
+    // 5. Completar campos del maestro si están vacíos
     ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
         if (!master[field] && duplicate[field]) master[field] = duplicate[field];
     });
 
-    // 4. Eliminar el duplicado del estado
+    // 6. Refrescar updatedAt para que el siguiente saveMany propague el
+    //    estado fusionado al doc remoto del master.
+    master.updatedAt = Date.now();
+    master._isDirty = true;
+
+    // 7. Eliminar el duplicado del estado
     state.employees = state.employees.filter(e => e.id !== duplicateId);
 
     return true;
@@ -847,17 +1292,32 @@ export async function executeAutoRepair() {
 /**
  * 🔄 reassignEmployeeNumber() - Cambia el número de ficha de un empleado
  * También actualiza las claves de asistencia para mantener coherencia.
+ *
+ * Por defecto rechaza la reasignación si el nuevo número ya está en uso
+ * por otro empleado (comportamiento clásico, seguro para llamadas desde
+ * UI ad-hoc).
+ *
+ * Con `opts.allowCollision === true` aplica la reasignación aunque deje
+ * dos (o más) empleados con el mismo número, creando un conflicto
+ * temporal. Usado por el wizard manual de saneamiento: la cascada de
+ * re-análisis (applyManualGroup paso 4) detectará el nuevo grupo y
+ * lo añadirá a la cola para que el usuario lo resuelva a continuación.
+ * Sin este opt, el wizard se quedaba atascado en cascadas tipo
+ * "ficha 501 con 3 personas, una va a ficha 500 ya ocupada".
+ *
  * ⚠️ NO guarda automáticamente. El caller debe llamar saveApplicationData().
  */
-export function reassignEmployeeNumber(employeeId, newNumber) {
+export function reassignEmployeeNumber(employeeId, newNumber, opts = {}) {
     const emp = state.employees.find(e => e.id === employeeId);
     if (!emp) return false;
 
-    // Verificar que el nuevo número no esté en uso
-    const conflict = state.employees.find(e => e.number === newNumber && e.id !== employeeId);
-    if (conflict) {
-        console.warn(`⚠️ Número ${newNumber} ya en uso por ${conflict.name}`);
-        return false;
+    if (!opts.allowCollision) {
+        // Verificar que el nuevo número no esté en uso
+        const conflict = state.employees.find(e => e.number === newNumber && e.id !== employeeId);
+        if (conflict) {
+            console.warn(`⚠️ Número ${newNumber} ya en uso por ${conflict.name}`);
+            return false;
+        }
     }
 
     const oldNumber = emp.number;
@@ -865,7 +1325,10 @@ export function reassignEmployeeNumber(employeeId, newNumber) {
     emp.updatedAt = Date.now();
     emp._isDirty = true;
 
-    console.log(`🔄 Ficha reasignada: ${emp.name} (${oldNumber} → ${newNumber})`);
+    const tail = opts.allowCollision && state.employees.some(e => e.number === newNumber && e.id !== employeeId)
+        ? ' [conflicto temporal — el wizard lo resolverá en el siguiente paso]'
+        : '';
+    console.log(`🔄 Ficha reasignada: ${emp.name} (${oldNumber} → ${newNumber})${tail}`);
     return true;
 }
 

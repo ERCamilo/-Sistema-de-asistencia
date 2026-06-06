@@ -5,7 +5,7 @@
 
 import { state, calculateStats, getEmployeeTotalHours, getEmployeeMTDStats } from '../core/AppState.js';
 import icons from './IconSystem.js';
-import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
+import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
 import { EmptyState } from '../components/EmptyState.js';
@@ -26,6 +26,8 @@ const _ACTION_MAP = {
     'change-base-hours': (delta) => window.changeBaseHours?.(parseFloat(delta)),
     'set-employee-filter': (val) => window.setEmployeeFilter?.(val === 'null' ? null : val),
     'set-position-filter': (id) => window.setPositionFilter?.(id),
+    'set-search-filter': (_, el) => window.setSearchFilter?.(el.value),
+    'set-leader-filter': (_, el) => window.setLeaderFilter?.(el.value),
     'toggle-filters': () => window.toggleFilters?.(),
     'clear-search-filter': () => window.setSearchFilter?.(''),
     'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
@@ -40,17 +42,32 @@ const _ACTION_MAP = {
 };
 
 function _handleAttendanceClick(e) {
+    if (e.target.closest('.calendar-picker')) return;
     const target = e.target.closest('[data-att-action]');
     if (!target) return;
     const action = target.dataset.attAction;
+    if (action === 'set-search-filter' || action === 'set-leader-filter') return;
     const handler = _ACTION_MAP[action];
     if (!handler) return;
     const arg = target.dataset.id ?? target.dataset.value ?? null;
     handler(arg, target, e);
 }
 
+function _handleAttendanceInput(e) {
+    const target = e.target.closest('[data-att-action]');
+    if (!target || target.dataset.attAction !== 'set-search-filter') return;
+    _ACTION_MAP['set-search-filter']?.(null, target, e);
+}
+
+function _handleAttendanceChange(e) {
+    const target = e.target.closest('[data-att-action]');
+    if (!target || target.dataset.attAction !== 'set-leader-filter') return;
+    _ACTION_MAP['set-leader-filter']?.(null, target, e);
+}
+
 function _handleAttendanceKeydown(e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target.closest('.calendar-picker')) return;
     const target = e.target.closest('[data-att-action]');
     if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
     if (target.getAttribute('role') !== 'button') return;
@@ -62,6 +79,8 @@ let _attendanceDelegationAttached = false;
 export function attachAttendanceDelegation() {
     if (_attendanceDelegationAttached) return;
     document.addEventListener('click', _handleAttendanceClick);
+    document.addEventListener('input', _handleAttendanceInput);
+    document.addEventListener('change', _handleAttendanceChange);
     document.addEventListener('keydown', _handleAttendanceKeydown);
     _attendanceDelegationAttached = true;
 }
@@ -116,6 +135,25 @@ export function DateControlsCompact() {
                 </div>
             </div>
         `;
+}
+
+/**
+ * 👤 Divide el nombre completo del empleado en primer nombre y primer apellido
+ * para visualización vertical compacta en móviles.
+ */
+export function formatSplitName(fullName) {
+    if (!fullName) return '';
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length <= 1) return escapeHTML(fullName);
+
+    const first = escapeHTML(parts[0]);
+    const commonMiddleNames = ['jose', 'josé', 'maria', 'maría', 'carlos', 'luis', 'antonio', 'manuel', 'francisco', 'juan', 'altagracia', 'alexander', 'miguel', 'angel', 'ángel', 'david', 'eduardo', 'rafael', 'ramon', 'ramón', 'alberto', 'jesus', 'jesús'];
+
+    if (parts.length >= 3 && commonMiddleNames.includes(parts[1].toLowerCase())) {
+        return `<div class="name-line-1">${first}</div><div class="name-line-2">${escapeHTML(parts[2])}</div>`;
+    }
+
+    return `<div class="name-line-1">${first}</div><div class="name-line-2">${escapeHTML(parts[1])}</div>`;
 }
 
 /**
@@ -243,9 +281,9 @@ export function DateControls() {
         ? getWeekRangeText(state.selectedDate)
         : formatDateShort(state.selectedDate);
 
-    // Lógica de etiquetas adaptativas para ahorrar espacio en móvil
-    const dayLabel = state.viewMode === 'day' ? 'Día' : 'D';
-    const weekLabel = state.viewMode === 'week' ? 'Semana' : 'S';
+    // Lógica de etiquetas consistentes para ahorrar espacio en móvil sin alternancia molesta
+    const dayLabel = 'Día';
+    const weekLabel = 'Semana';
 
     // Semántica de colores en horas (Refactorizado de operador ternario anidado)
     let hourColor = '#10b981'; // Verde (8h) - Default
@@ -390,12 +428,13 @@ export function PositionFilters() {
 
     const totalCount = activeEmployees.length;
     const currentFilter = state.filters.position;
+    const filterChevron = icons.get(state.showFilters ? 'chevron-down' : 'chevron-right', { size: 18, color: '#94a3b8' });
 
     return `
         <div class="position-filters-container" style="margin-top: 16px;">
             <button class="filters-toggle view-btn" type="button" data-att-action="toggle-filters" style="width: 100%; justify-content: space-between;">
                 <span style="color: #f1f5f9; font-weight: 600; font-size: 0.875rem;">🎯 Filtrar Posición</span>
-                <span style="font-size: 1.25rem; color: #94a3b8;">${state.showFilters ? '▼' : '▶'}</span>
+                <span style="display:inline-flex;color:#94a3b8;">${filterChevron}</span>
             </button>
             ${state.showFilters ? `
                 <div class="filters-content position-filters-grid">
@@ -431,9 +470,10 @@ export function SearchBar() {
     return `
         <div class="search-wrapper">
             <div class="search-input-group">
-                <input type="text" id="search-input" value="${searchValue}" oninput="setSearchFilter(this.value)"
+                <input type="text" id="search-input" value="${escapeHTML(searchValue)}"
+                       data-att-action="set-search-filter"
                        placeholder="Buscar por nombre, número o posición..."
-                       class="search-input-field">
+                       class="search-input-field employee-search-input">
                 <span class="search-icon-fixed">🔍</span>
                 ${searchValue ? `<button type="button" data-att-action="clear-search-filter" aria-label="Limpiar búsqueda" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">${icons.get('close', { size: 12 })}</button>` : ''}
             </div>
@@ -441,13 +481,20 @@ export function SearchBar() {
                 <div class="search-icon-fixed">
                     ${icons.get('key')}
                 </div>
-                <select onchange="setLeaderFilter(this.value)" 
+                <select data-att-action="set-leader-filter"
                         class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
                     ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
                 </select>
-                <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; font-size: 0.75rem;">▼</div>
+                <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.55; display:inline-flex;">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
             </div>
+            <button type="button"
+                    class="attendance-layout-btn"
+                    data-app-fn="openAttendanceLayoutModal"
+                    aria-label="Opciones de distribución de la lista"
+                    title="Opciones de distribución">
+                ${icons.get('settings', { size: 18 })}
+            </button>
         </div>
     `;
 }
@@ -513,14 +560,25 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     const workedPositionIds = isChecked
         ? (isMultiPosition ? (att.positionHours || []).map(ph => ph.positionId) : [selPos])
         : [];
+    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
 
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}`;
-    return `<div id="emp-row-${emp.id}" class="employee-row" data-memo-f="${fingerprint}">
+    // 🚩 Empleado activo HOY pero que, según el historial de estados, no estaba
+    // activo en esta fecha. Lo mostramos igual (totalmente funcional) con la
+    // tarjeta atenuada y un óvalo rojizo de texto siempre visible. Si se marca
+    // su asistencia, wasEmployeeActiveOnDate pasa a true y el marcador se va.
+    const inactiveOnDate = emp.active === true && !wasEmployeeActiveOnDate(emp, dateKey, state.attendance);
+    const inactiveFlagHTML = inactiveOnDate
+        ? `<div class="inactive-on-date-flag" title="Según el registro de estados, este empleado no estaba activo el ${dateKey}. Puedes registrar su asistencia igualmente; corrige las fechas en su perfil si fue un error." style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 10px;border-radius:999px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.55);color:#fca5a5;font-size:0.7rem;font-weight:600;line-height:1.2;white-space:nowrap;">${icons.get('alert', { size: 12 })} No activo en esta fecha</div>`
+        : '';
+
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}`;
+    return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${inactiveOnDate ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}"${inactiveOnDate ? ' style="opacity:0.62;"' : ''}>
                 <div class="employee-info">
                     <div class="employee-header">
-                        <div class="employee-number">${emp.number}</div>
                         <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
+                        <div class="employee-number">${emp.number}</div>
                     </div>
+                    ${inactiveFlagHTML}
                     <div class="position-toggles" style="margin-top: 2px;">
                         ${emp.positions.map(pid => {
         const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
@@ -608,11 +666,12 @@ export function EmployeeRowCompact(emp) {
     const att = state.attendance[key];
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
+    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
-    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact">
+    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>
@@ -637,6 +696,7 @@ export function EmployeeRowCompact(emp) {
 export function DayView() {
     const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const filtered = getFilteredEmployeesForDay();
+    const columns = Number(state.attendanceListColumns) === 2 ? 2 : 1;
     const listHTML = filtered.length > 0
         ? filtered.map(emp => state.listDisplayMode === 'compact' ? EmployeeRowCompact(emp) : EmployeeRow(emp)).join('')
         : EmptyState.render({
@@ -657,7 +717,7 @@ export function DayView() {
             </div>
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
-                <div id="day-view-list" data-preserve-scroll="attendance-day-list" class="employee-list ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
+                <div id="day-view-list" data-preserve-scroll="attendance-day-list" class="employee-list employee-list-cols-${columns} ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
                     ${listHTML}
                 </div>
                 ${ScrollService.renderIndicators(filtered, true)}
@@ -671,7 +731,11 @@ export function DayView() {
  */
 export function getFilteredEmployeesForDay() {
     const date = parseDate(state.selectedDate);
-    let employees = state.employees.filter(emp => wasEmployeeActiveOnDate(emp, date));
+    // 🔎 Un empleado activo HOY siempre aparece (desde su ingreso), aunque el
+    // historial diga inactivo ese día — en ese caso se marca visualmente en la
+    // tarjeta (ver _buildEmployeeRow). Pasamos state.attendance para que un día
+    // con asistencia registrada cuente como activo.
+    let employees = state.employees.filter(emp => isEmployeeVisibleOnDate(emp, date, state.attendance).visible);
 
     // Ordenar por número
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
@@ -742,12 +806,14 @@ export function WeekView() {
             <table class="week-view-table" style="margin-bottom: 100px;">
                 <thead class="sticky-header">
                     <tr>
-                        <th class="sticky-column" style="min-width: 180px;">EMPLEADO</th>
-                        ${week.map(date => {
+                        <th class="sticky-column">EMPLEADO</th>
+                         ${week.map(date => {
         const dObj = parseDate(date);
         const isH = isDayHoliday(date, state.settings?.holidays);
         const isS = dObj.getDay() === 0;
-        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${formatDateShort(dObj)}</th>`;
+        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        const dayLabel = `${dayNames[dObj.getDay()]} ${dObj.getDate()}`;
+        return `<th class="${isH ? 'holiday-header' : ''} ${isS ? 'sunday-header' : ''}">${dayLabel}</th>`;
     }).join('')}
                     </tr>
                 </thead>
@@ -786,13 +852,13 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
         <tr id="week-row-${emp.id}" data-memo-f="${fingerprint}">
             <td class="sticky-column">
                 <div class="week-employee-cell">
-                    <div class="employee-number">${emp.number}</div>
                     <div class="week-employee-name-container">
-                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>
+                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${formatSplitName(emp.name)}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
                             ${emp.positions?.map(pid => positionMap.get(pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>
                     </div>
+                    <div class="employee-number">${emp.number}</div>
                 </div>
             </td>
             ${week.map(date => {
@@ -844,7 +910,7 @@ export function WeekViewTotalsRow() {
     const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
     return `
         <tr id="week-totals-row" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
-            <td style="padding: 12px 16px; position: sticky; left: 0; background: #0f172a; z-index: 5;">
+            <td class="sticky-column" style="padding: 12px 16px; background: #0f172a; z-index: 5;">
                 <div style="font-weight: 700; color: #06b6d4; font-size: 0.875rem;">TOTALES</div>
             </td>
             ${week.map(date => {
@@ -874,7 +940,16 @@ export function getFilteredEmployeesForWeek(week, positionMapArg = null) {
     // Crear mapa si no se provee
     const positionMap = positionMapArg || new Map(state.positions.map(p => [p.id, p]));
 
-    let employees = state.employees.filter(emp => wasEmployeeActiveInRange(emp, startDate, endDate, state.attendance));
+    let employees = state.employees.filter(emp => {
+        if (wasEmployeeActiveInRange(emp, startDate, endDate, state.attendance)) return true;
+        // Activo HOY → aparece desde su ingreso, consistente con la vista diaria.
+        if (emp.active === true) {
+            const hire = emp.hireDate ? String(emp.hireDate).slice(0, 10) : null;
+            const end = typeof endDate === 'string' ? endDate : getDateKey(endDate);
+            if (!hire || end >= hire) return true;
+        }
+        return false;
+    });
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
 
     if (state.filters.leaderId && state.filters.leaderId !== 'all') {

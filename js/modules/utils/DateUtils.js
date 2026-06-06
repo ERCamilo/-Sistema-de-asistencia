@@ -214,34 +214,80 @@ export function getWeekRangeText(dateInput) {
  */
 export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
     const dateKey = typeof date === 'string' ? date : getDateKey(date);
+    // Normaliza a YYYY-MM-DD para comparar como string de forma fiable
+    // (tolera ISO con hora, p.ej. hireDate "2026-05-15T00:00:00.000Z").
+    const norm = (d) => String(d || '').slice(0, 10);
 
-    // 1. Verificar fecha de contratación
-    if (employee.hireDate && dateKey < employee.hireDate) return false;
+    // 1. Fecha de contratación
+    const hire = norm(employee.hireDate);
+    if (hire && dateKey < hire) return false;
 
-    // 2. Verificar si hay asistencia explícita (siempre significa activo)
+    // 2. Asistencia explícita ese día → siempre significa activo
     const attKey = `${employee.id}-${dateKey}`;
     if (attendance[attKey]) return true;
 
-    // 3. Verificar fecha de terminación (si existe)
-    if (employee.terminationDate && dateKey > employee.terminationDate) return false;
+    // 3. Fecha de terminación (si existe)
+    const term = norm(employee.terminationDate);
+    if (term && dateKey > term) return false;
 
-    // 4. Verificar historial de estados
+    // 4. Historial de estados
     if (!employee.statusHistory || employee.statusHistory.length === 0) {
         return employee.active !== false;
     }
 
-    const sortedHistory = [...employee.statusHistory].sort((a, b) => a.timestamp - b.timestamp);
-    let wasActive = employee.active !== false;
+    // ⚠️ Decidir por FECHA, no por timestamp. Ordenar por timestamp y luego
+    // elegir por fecha rompía el caso de reactivación tras un merge
+    // multi-dispositivo: si la reactivación quedaba con un timestamp menor
+    // que la desactivación previa (relojes desfasados), se elegía la
+    // desactivación vieja y el empleado desaparecía pese a estar activo.
+    const sorted = [...employee.statusHistory]
+        .filter(c => c && c.date)
+        .sort((a, b) => {
+            const da = norm(a.date), db = norm(b.date);
+            if (da !== db) return da < db ? -1 : 1;
+            return (a.timestamp || 0) - (b.timestamp || 0);
+        });
 
-    for (let i = sortedHistory.length - 1; i >= 0; i--) {
-        const change = sortedHistory[i];
-        if (change.date <= dateKey) {
-            wasActive = change.active;
+    let wasActive = null;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        if (norm(sorted[i].date) <= dateKey) {
+            wasActive = sorted[i].active;
             break;
         }
     }
 
+    // Si no hay ningún cambio en/antes de la fecha, la fecha es anterior al
+    // primer cambio registrado: el empleado estaba activo desde su ingreso.
+    if (wasActive === null) return true;
     return wasActive;
+}
+
+/**
+ * 🔎 Decide si un empleado debe APARECER en la lista de asistencia de una
+ * fecha, y si debe llevar un MARCADOR visual de "no activo según el registro".
+ *
+ * Regla:
+ *   - Si estuvo activo ese día (historial) → visible, sin marcador.
+ *   - Si NO estuvo activo ese día pero está activo HOY y la fecha es >= su
+ *     fecha de ingreso → visible CON marcador (caso típico: se activó un día
+ *     tarde, o se desactivó por error). Sigue siendo totalmente funcional.
+ *   - En cualquier otro caso (inactivo hoy y ese día, o antes del ingreso)
+ *     → oculto.
+ *
+ * @returns {{ visible: boolean, flagged: boolean }}
+ */
+export function isEmployeeVisibleOnDate(employee, date, attendance = {}) {
+    const dateKey = typeof date === 'string' ? date : getDateKey(date);
+    if (wasEmployeeActiveOnDate(employee, dateKey, attendance)) {
+        return { visible: true, flagged: false };
+    }
+    if (employee.active === true) {
+        const hire = employee.hireDate ? String(employee.hireDate).slice(0, 10) : null;
+        if (!hire || dateKey >= hire) {
+            return { visible: true, flagged: true };
+        }
+    }
+    return { visible: false, flagged: false };
 }
 
 /**

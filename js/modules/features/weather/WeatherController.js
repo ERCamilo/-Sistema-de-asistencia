@@ -1,5 +1,5 @@
 /**
- * 🌤️ WeatherController — handlers for the chip + panel.
+ * WeatherController — handlers for the chip + panel.
  *
  * Side-effects: mutates state.weather, refreshes the cache, persists via
  * saveApplicationData. Exposes window.toggleWeatherPanel /
@@ -21,35 +21,63 @@ function ensureWeatherState() {
  * The service handles caching internally, so calling this on every tab
  * mount is fine: hits the API only when the cache is stale.
  *
+ * Async because the service layer now supports real HTTP adapters.
+ * UI stays responsive: components read cache synchronously, and we
+ * trigger a re-render after the fetch completes with fresh data.
+ *
  * @returns {boolean} true if anything changed (cache miss + new data)
  */
-export function refreshWeather() {
+export async function refreshWeather(opts = {}) {
     ensureWeatherState();
     let changed = false;
     try {
         const prevCurrent = state.weather.cache?.current?.fetchedAt;
-        fetchCurrent(state);
+        await fetchCurrent(state, { force: !!opts.force });
         if (state.weather.cache?.current?.fetchedAt !== prevCurrent) changed = true;
 
         const prevForecast = state.weather.cache?.forecast?.fetchedAt;
-        fetchForecast(state, 5);
+        await fetchForecast(state, 5, { force: !!opts.force });
         if (state.weather.cache?.forecast?.fetchedAt !== prevForecast) changed = true;
 
         const prevHourly = state.weather.cache?.hourly?.fetchedAt;
-        fetchHourly(state, 24, 3);
+        await fetchHourly(state, 24, 3, { force: !!opts.force });
         if (state.weather.cache?.hourly?.fetchedAt !== prevHourly) changed = true;
     } catch (err) {
         // Never let a weather error break the rest of the UI. Log and move on.
-        if (window.debug) window.debug.log(`⚠️ refreshWeather error: ${err.message}`);
+        if (window.debug) window.debug.log(`refreshWeather error: ${err.message}`);
     }
-    if (changed) saveApplicationData();
+    if (changed || opts.force) {
+        saveApplicationData();
+        render();
+    }
     return changed;
+}
+
+/**
+ * Triggered by the reload button. Bypasses the cache and refreshes the UI
+ * with loading feedback.
+ */
+export async function forceRefreshWeather() {
+    ensureWeatherState();
+    if (state.weather.isRefreshing) return;
+    
+    state.weather.isRefreshing = true;
+    render();
+    
+    try {
+        await refreshWeather({ force: true });
+    } finally {
+        state.weather.isRefreshing = false;
+        render();
+    }
 }
 
 export function toggleWeatherPanel() {
     ensureWeatherState();
     state.weather.panelOpen = !state.weather.panelOpen;
-    // Opening the panel triggers a freshness check — costs nothing if cached.
+    // Opening the panel triggers a freshness check — fire-and-forget.
+    // The initial render happens immediately with cached data; when the
+    // fetch completes, refreshWeather() calls render() again with fresh data.
     if (state.weather.panelOpen) refreshWeather();
     render();
 }
@@ -61,6 +89,7 @@ export function toggleWeatherPanel() {
  */
 export function toggleWeatherExpanded() {
     state.weatherExpanded = !state.weatherExpanded;
+    // Fire-and-forget: render immediately, update when fetch resolves.
     if (state.weatherExpanded) refreshWeather();
     render();
 }
@@ -96,8 +125,9 @@ export function registerLegacyGlobals() {
     window.closeWeatherPanel = closeWeatherPanel;
     window.toggleWeatherExpanded = toggleWeatherExpanded;
     window.refreshWeather = refreshWeather;
+    window.forceRefreshWeather = forceRefreshWeather;
     _installOutsideClickHandler();
-    // Kick a refresh at boot so the chip has fresh data on first render
-    // (no-op when cache already fresh).
+    // Kick a refresh at boot so the chip has fresh data on first render.
+    // Fire-and-forget: don't block module initialization on network.
     refreshWeather();
 }

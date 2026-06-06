@@ -53,3 +53,33 @@
     background: #1e293b;
     border-radius: 10px;
 }
+
+/* 📱 Diseño Responsivo para el Asistente de Configuración */
+.onboarding-step-container {
+    padding: 60px 40px;
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    box-sizing: border-box;
+    justify-content: center;
+}
+
+.onboarding-spacing-y {
+    margin-bottom: 40px;
+}
+
+@media (max-width: 480px) {
+    .onboarding-step-container {
+        padding: 24px 16px;
+    }
+    .onboarding-spacing-y {
+        margin-bottom: 20px;
+    }
+    .onboarding-card {
+        padding: 20px 16px;
+        border-radius: 16px;
+    }
+}
+
