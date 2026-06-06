@@ -6,7 +6,7 @@
  * para forzar actualización de assets cacheados.
  */
 
-const CACHE_VERSION = '1.0.28';
+const CACHE_VERSION = '1.0.29';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -112,6 +112,7 @@ const APP_SHELL = [
     './js/modules/ui/modals/EmployeeProfileModal.js',
     './js/modules/ui/modals/LeaderModal.js',
     './js/modules/ui/modals/PositionModal.js',
+    './js/modules/ui/settings/SettingsTestsTab.js',
 
     // Features
     './js/modules/features/analytics/AnalyticsUI.js',
