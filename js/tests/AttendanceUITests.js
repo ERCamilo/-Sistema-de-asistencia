@@ -100,17 +100,21 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
     "EmployeeRow: agrega clase visual cuando esta seleccionado en detalle desktop"() {
         const originalSelected = window.state.selectedDetailEmployeeId;
         const originalPositions = window.state.positions;
+        const originalEmployees = window.state.employees;
 
+        const emp = { id: 'emp-selected', name: 'Empleado Seleccionado', number: '007', positions: ['pos1'], active: true };
         window.state.selectedDetailEmployeeId = 'emp-selected';
         window.state.positions = [{ id: 'pos1', name: 'Ayudante', color: '#10b981' }];
+        // getEffectiveDetailEmployeeId() valida que el id exista en state.employees
+        window.state.employees = [emp];
 
         try {
-            const emp = { id: 'emp-selected', name: 'Empleado Seleccionado', number: '007', positions: ['pos1'], active: true };
             testRunner.assert(EmployeeRow(emp).includes('is-detail-selected'), 'La tarjeta normal debe marcarse como seleccionada');
             testRunner.assert(EmployeeRowCompact(emp).includes('is-detail-selected'), 'La tarjeta reducida debe marcarse como seleccionada');
         } finally {
             window.state.selectedDetailEmployeeId = originalSelected;
             window.state.positions = originalPositions;
+            window.state.employees = originalEmployees;
         }
     },
 
