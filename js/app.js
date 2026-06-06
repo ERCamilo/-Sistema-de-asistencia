@@ -4191,6 +4191,26 @@ window.openSyncCenterModal = () => {
     render();
 };
 
+// ⏸️ Toggle de pausa de subida a la nube desde el centro de sincronización.
+// A diferencia del badge naranja (que solo reanuda), este switch activa Y
+// desactiva la pausa, y deja el modal abierto para que el usuario vea el
+// nuevo estado reflejado inmediatamente en el switch.
+window.syncCenterTogglePause = async () => {
+    try {
+        if (isSyncPaused()) {
+            await resumeCloudUpload();
+            showNotification('▶️ Subida a la nube reanudada. Sincronizando…', 'success');
+        } else {
+            await pauseCloudUpload('Usuario activó la pausa desde el centro de sincronización.');
+            showNotification('⏸️ Subida a la nube pausada. Tus cambios quedan solo en este equipo.', 'info');
+        }
+    } catch (e) {
+        console.error('Error al cambiar el estado de pausa:', e);
+        showNotification('❌ No se pudo cambiar el estado de la pausa', 'error');
+    }
+    render();
+};
+
 window.syncCenterSyncNow = async () => {
     state.showModal = false;
     state.modalType = null;
@@ -4327,6 +4347,8 @@ function SyncCenterModal() {
                         ? 'Sincronizado'
                         : 'Pendiente';
 
+    const isPaused = SYNC_PAUSE_ENABLED && isSyncPaused();
+
     const action = (fn, icon, title, description, extraClass = '') => `
         <button type="button" class="sync-center-action ${extraClass}" data-app-fn="${fn}">
             <span class="sync-center-action-icon">${icon}</span>
@@ -4362,6 +4384,23 @@ function SyncCenterModal() {
                         <strong>${escapeHTML(userLabel)}</strong>
                     </div>
                 </div>
+
+                <button type="button"
+                        class="sync-pause-row ${isPaused ? 'is-paused' : ''}"
+                        role="switch"
+                        aria-checked="${!isPaused}"
+                        aria-label="Subida a la nube (activada = sincroniza con tus dispositivos)"
+                        data-app-fn="syncCenterTogglePause">
+                    <span class="sync-pause-copy">
+                        <strong>${isPaused ? '⏸️ Subida a la nube pausada' : '☁️ Subida a la nube activa'}</strong>
+                        <small>${isPaused
+                            ? 'Tus cambios se guardan en este equipo pero NO se envían a tus otros dispositivos.'
+                            : 'Tus cambios se sincronizan automáticamente con la nube y tus otros dispositivos.'}</small>
+                    </span>
+                    <span class="sync-pause-switch" aria-hidden="true">
+                        <span class="sync-pause-switch-handle"></span>
+                    </span>
+                </button>
 
                 <div class="sync-center-actions primary">
                     ${action('syncCenterSyncNow', '↻', 'Sincronizar ahora', 'Guarda y refresca los datos con la nube.')}
