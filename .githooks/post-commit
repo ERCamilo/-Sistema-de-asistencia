@@ -1,12 +1,16 @@
 #!/bin/sh
-# Post-commit hook — sync sw.js working tree with what the pre-commit hook
-# wrote into the index, so `git status` stays clean after every commit.
+# Post-commit hook — sync CACHE_VERSION in sw.js working tree with what the
+# pre-commit hook wrote into the index, so `git status` stays clean.
 #
 # Background: the pre-commit hook patches CACHE_VERSION only in the git index
 # (via git hash-object + git update-index --cacheinfo) to avoid accidentally
 # staging partial working-tree edits to sw.js.  Side-effect: after the commit
 # the working tree still carries the old CACHE_VERSION, showing as "modified".
-# This hook fixes that by fast-forwarding the working tree to match HEAD.
+#
+# Fix: we do NOT `git checkout HEAD -- sw.js` (that would wipe any other
+# working-tree changes to sw.js, e.g. an APP_SHELL entry the developer hasn't
+# staged yet).  Instead we read only the new CACHE_VERSION from HEAD and apply
+# it surgically to the working tree with perl, touching nothing else.
 
 SW_FILE="sw.js"
 
@@ -14,10 +18,22 @@ if [ ! -f "$SW_FILE" ]; then
     exit 0
 fi
 
-# Only act when sw.js HEAD differs from the working tree (i.e. the pre-commit
-# hook bumped the version).  `git diff HEAD -- sw.js` is empty when in sync.
-if git diff --quiet HEAD -- "$SW_FILE"; then
+# Read the CACHE_VERSION that the pre-commit hook wrote into HEAD.
+HEAD_VERSION=$(git show HEAD:"$SW_FILE" 2>/dev/null \
+    | grep "const CACHE_VERSION = '" \
+    | sed "s/.*CACHE_VERSION = '//;s/'.*//")
+
+if [ -z "$HEAD_VERSION" ]; then
     exit 0
 fi
 
-git checkout HEAD -- "$SW_FILE"
+# Check if the working tree already has the right version (nothing to do).
+WT_VERSION=$(grep "const CACHE_VERSION = '" "$SW_FILE" \
+    | sed "s/.*CACHE_VERSION = '//;s/'.*//")
+
+if [ "$WT_VERSION" = "$HEAD_VERSION" ]; then
+    exit 0
+fi
+
+# Patch only the CACHE_VERSION line in the working tree.
+perl -pi -e "s/const CACHE_VERSION = '[^']*'/const CACHE_VERSION = '$HEAD_VERSION'/" "$SW_FILE"

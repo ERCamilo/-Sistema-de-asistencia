@@ -168,6 +168,17 @@ export function enqueueCloudEmployeeDelete(id) {
     _persistDeleteQueues();
 }
 
+/** Encola varios ids de empleados con una sola escritura a localStorage. */
+export function enqueueCloudEmployeeDeleteBatch(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    ids.forEach(id => {
+        if (!id) return;
+        const key = String(id).trim();
+        if (key) _pendingCloudDeletes.add(key);
+    });
+    _persistDeleteQueues();
+}
+
 /** Snapshot de la cola actual (copia). */
 export function getPendingCloudDeletes() {
     return [..._pendingCloudDeletes];
