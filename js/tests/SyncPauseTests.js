@@ -153,19 +153,17 @@ testRunner.addSuite("SyncPauseService — PersistenceService integration (source
 });
 
 // ─────────────────────────────────────────────────────────────
-// 🚧 TEMPORAL: kill-switch global del sistema de pausa.
-// Mientras verificamos la propagación multi-dispositivo (Schema v3)
-// con datos de prueba, la pausa de subida queda DESACTIVADA: nada
-// debe bloquear el upload a la nube. Para reactivar, poner
-// SYNC_PAUSE_ENABLED = true y reconstruir el switch dentro del modal.
-// Estos tests fijan ese contrato para que el día que reactivemos sea
-// un cambio consciente (estos tests fallarán y nos obligarán a revisar).
+// ✅ Kill-switch reactivado (2026-06-06).
+// Precondiciones satisfechas: Phase 1 (errores visibles), Phase 2
+// (queues persistidos), Schema v3 posiciones cableadas.
+// Estos tests verifican que la pausa está ACTIVA y que todos los
+// puntos de integración respetan SYNC_PAUSE_ENABLED.
 // ─────────────────────────────────────────────────────────────
-testRunner.addSuite("SyncPauseService — kill-switch temporal (Schema v3 testing)", {
+testRunner.addSuite("SyncPauseService — kill-switch (Schema v3 verificado)", {
 
-    "SYNC_PAUSE_ENABLED está actualmente desactivado (false)"() {
-        testRunner.assertEquals(SYNC_PAUSE_ENABLED, false,
-            'El sistema de pausa debe estar desactivado mientras verificamos la propagación');
+    "SYNC_PAUSE_ENABLED está activo (true)"() {
+        testRunner.assertEquals(SYNC_PAUSE_ENABLED, true,
+            'El sistema de pausa debe estar activo — precondiciones Schema v3 satisfechas');
     },
 
     "el gate de Firebase en PersistenceService respeta SYNC_PAUSE_ENABLED"() {
@@ -178,7 +176,7 @@ testRunner.addSuite("SyncPauseService — kill-switch temporal (Schema v3 testin
     "el badge (getUploadPaused) en app.js respeta SYNC_PAUSE_ENABLED"() {
         testRunner.assert(
             /SYNC_PAUSE_ENABLED/.test(APP_SRC),
-            'app.js debe consultar SYNC_PAUSE_ENABLED para que el badge no muestre pausa cuando está desactivado'
+            'app.js debe consultar SYNC_PAUSE_ENABLED para que el badge muestre pausa cuando está activo'
         );
     }
 

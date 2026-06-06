@@ -116,7 +116,7 @@ export function buildConflictPlan(conflicts) {
 import { state } from '../core/AppState.js';
 import {
     mergeEmployees as fuseLocally,
-    enqueueCloudEmployeeDelete
+    enqueueCloudEmployeeDeleteBatch
 } from './PersistenceService.js';
 import { mergeEmployees as fuseObjects } from './EmployeeMerge.js';
 
@@ -140,6 +140,9 @@ import { mergeEmployees as fuseObjects } from './EmployeeMerge.js';
 export function executeMergePlan(plan) {
     const result = { merged: 0, skippedManual: 0 };
     if (!Array.isArray(plan)) return result;
+
+    // Collect ids that need cloud deletion across all items; persist once at end.
+    const toDeleteFromCloud = [];
 
     for (const item of plan) {
         if (item.action === 'needs-manual') {
@@ -183,14 +186,17 @@ export function executeMergePlan(plan) {
                 master = merged;
             }
 
-            // Si el loser tenía representación remota, encolamos su
-            // borrado de la subcolección de Firebase.
+            // Si el loser tenía representación remota, acumular para borrado.
             if (loserMember._source === 'cloud' || loserMember._source === 'both') {
-                enqueueCloudEmployeeDelete(loserId);
+                toDeleteFromCloud.push(loserId);
             }
         }
         result.merged++;
     }
+
+    // Persist delete queue once for the entire plan (not once per loser).
+    enqueueCloudEmployeeDeleteBatch(toDeleteFromCloud);
+
     return result;
 }
 

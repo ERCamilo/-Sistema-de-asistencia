@@ -5,6 +5,7 @@ import { APP_CONFIG } from '../config/Config.js';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
+import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-settings-action)
@@ -42,7 +43,8 @@ const _SETTINGS_ACTION_MAP = {
             window.helpController.resetAllSeen();
             window.showNotification?.('🔄 Tooltips restablecidos. Aparecerán de nuevo al usar la app.', 'success');
         }
-    }
+    },
+    'run-browser-tests': () => window.runBrowserTests?.()
 };
 
 function _handleSettingsClick(e) {
@@ -121,16 +123,22 @@ export function SettingsTab() {
                             <span>${icons.get('settings')}</span><span class="tab-text"> General</span>
                         </button>
 
-                        <button class="nav-tab ${activeTab === 'calendar' ? 'active' : ''}" 
+                        <button class="nav-tab ${activeTab === 'calendar' ? 'active' : ''}"
                                 type="button" data-settings-action="change-settings-tab" data-value="calendar">
                             <span>${icons.get('calendar')}</span><span class="tab-text"> Calendario</span>
                         </button>
+
+                        <button class="nav-tab ${activeTab === 'tests' ? 'active' : ''}"
+                                type="button" data-settings-action="change-settings-tab" data-value="tests">
+                            <span>${icons.get('info')}</span><span class="tab-text"> Tests</span>
+                        </button>
                     </div>
-                    
+
                     <!-- Contenido de las Pestañas -->
                     ${activeTab === 'general' ? SettingsGeneralTab(context) : ''}
                     ${activeTab === 'data' ? SettingsDataTab(context) : ''}
                     ${activeTab === 'calendar' ? SettingsTabCalendar(context) : ''}
+                    ${activeTab === 'tests' ? SettingsTestsTab() : ''}
                     
                     <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
                         <button type="button" data-settings-action="save-settings" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">

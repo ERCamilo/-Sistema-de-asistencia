@@ -12,6 +12,7 @@
  */
 
 let _lastSyncedAt = null;
+let _lastError = null;
 const _subscribers = new Set();
 
 function _notify(ts) {
@@ -48,8 +49,24 @@ export const SyncStatus = {
         if (arguments.length > 0 && (typeof timestamp !== 'number' || !Number.isFinite(timestamp))) {
             return;
         }
+        _lastError = null;
         _lastSyncedAt = ts;
         _notify(ts);
+    },
+
+    /**
+     * Registra que el último intento de escritura a Firebase falló.
+     * Los suscriptores son notificados para que el badge se actualice.
+     * @param {Error|*} [error]
+     */
+    markError(error) {
+        _lastError = error ?? true;
+        _notify(_lastSyncedAt);
+    },
+
+    /** @returns {boolean} true si el último intento de sync falló */
+    hasError() {
+        return _lastError !== null;
     },
 
     /**
@@ -69,6 +86,7 @@ export const SyncStatus = {
      */
     reset() {
         _lastSyncedAt = null;
+        _lastError = null;
         _notify(null);
     }
 };

@@ -28,22 +28,26 @@
 import { state } from '../core/AppState.js';
 
 /**
- * 🚧 KILL-SWITCH TEMPORAL del sistema de pausa de subida.
+ * ✅ Kill-switch reactivado (2026-06-06).
  *
- * Mientras verificamos la propagación multi-dispositivo del Schema v3
- * (cargos/líderes per-doc) con datos de prueba, la pausa queda DESACTIVADA
- * para que nada bloquee la subida a la nube. Los puntos de integración que
- * deben respetar esta bandera:
- *   - PersistenceService: el gate `_canSyncFirebase` ignora cloudUploadPaused.
- *   - app.js: el badge (getUploadPaused) no muestra "pausado".
- *   - app.js: el aviso de boot de pausa no se dispara.
+ * Las precondiciones que justificaban la pausa temporal están satisfechas:
+ *   - Phase 1: errores de sync visibles al usuario (badge + toast); si algo
+ *     falla al reanudar el usuario lo ve de inmediato.
+ *   - Phase 2: colas de borrado pendientes (`_pendingCloud*Deletes`) persisten
+ *     en localStorage y se drenan en el siguiente save autenticado; una pausa
+ *     seguida de recarga ya no pierde ids de positions/leaders a borrar.
+ *   - PositionsList.js encola `enqueueCloudPositionDelete` al borrar; el runner
+ *     de Schema v3 migra cargos y líderes a per-doc en la primera sesión online.
+ *   - Leaders: solo se desactivan (nunca se borran), diseño intencional para
+ *     preservar histórico; no se necesita cola de borrado.
  *
- * Las funciones isSyncPaused/pauseCloudUpload/resumeCloudUpload mantienen su
- * semántica original (siguen leyendo/escribiendo el flag) — así el contrato
- * unitario del servicio no cambia y el día que reactivemos basta con poner
- * esto en `true` y reconstruir el switch visual dentro del modal de reanudar.
+ * Puntos de integración que respetan esta bandera:
+ *   - PersistenceService: `_isPausedEffective` bloquea Firebase cuando pausado.
+ *   - app.js: el badge muestra "⏸️ Sync pausado" y el click abre el modal de
+ *     reanudar.
+ *   - app.js: el aviso de boot se dispara si la app arranca con pausa activa.
  */
-export const SYNC_PAUSE_ENABLED = false;
+export const SYNC_PAUSE_ENABLED = true;
 
 // Lazy-imported to avoid circular dependency at evaluation time.
 // We call saveApplicationData only in pauseCloudUpload/resumeCloudUpload,

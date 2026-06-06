@@ -3246,6 +3246,7 @@ window.openCuentasPorCobrar = () => {
 window.renderSyncStatusBadgeForHeader = () => {
     const badge = renderSyncStatusBadge({
         lastSyncedAt: SyncStatus.getLastSyncedAt(),
+        hasError:     SyncStatus.hasError(),
         isAuthenticated: !!window.currentUser,
         isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
         compact: true
