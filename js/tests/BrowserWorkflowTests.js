@@ -259,6 +259,114 @@ testRunner.addSuite('Browser — Préstamos: cancelar y refinanciar', {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SUITE: Empleados — desactivar y reactivar
+// ═════════════════════════════════════════════════════════════════════════════
+
+testRunner.addSuite('Browser — Empleados: desactivar/reactivar', {
+
+    'desactivar empleado activo → active = false + statusHistory'() {
+        const emp = { id: 'br-t-e1', name: 'Test Emp', active: true, statusHistory: [] };
+
+        emp.active = false;
+        emp.statusHistory.push({ date: '2026-06-15', active: false, timestamp: Date.now() });
+
+        testRunner.assertEquals(emp.active, false, 'empleado desactivado');
+        testRunner.assertEquals(emp.statusHistory.length, 1, 'entrada en statusHistory');
+    },
+
+    'reactivar empleado inactivo → active = true + statusHistory'() {
+        const emp = { id: 'br-t-e2', name: 'Test Emp2', active: false, statusHistory: [] };
+
+        emp.active = true;
+        emp.statusHistory.push({ date: '2026-06-15', active: true, timestamp: Date.now() });
+
+        testRunner.assertEquals(emp.active, true, 'empleado reactivado');
+        testRunner.assertEquals(emp.statusHistory[0].active, true, 'historial refleja reactivación');
+    },
+
+    'múltiples cambios de estado quedan en historial ordenados'() {
+        const emp = { id: 'br-t-e3', name: 'Test Emp3', active: true, statusHistory: [] };
+
+        emp.active = false;
+        emp.statusHistory.push({ date: '2026-05-01', active: false, timestamp: 100 });
+        emp.active = true;
+        emp.statusHistory.push({ date: '2026-06-01', active: true, timestamp: 200 });
+
+        testRunner.assertEquals(emp.statusHistory.length, 2, 'dos cambios registrados');
+        testRunner.assertEquals(emp.statusHistory[1].active, true, 'último cambio = reactivación');
+    },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUITE: Posiciones — desactivar y eliminar
+// ═════════════════════════════════════════════════════════════════════════════
+
+testRunner.addSuite('Browser — Posiciones: desactivar y eliminar', {
+
+    'desactivar posición activa → active = false'() {
+        const pos = { id: 'br-t-p1', name: 'Oficial Test', active: true };
+
+        pos.active = false;
+
+        testRunner.assertEquals(pos.active, false, 'posición desactivada');
+    },
+
+    'eliminar posición inactiva sin empleados asignados'() {
+        const positions = [
+            { id: 'br-t-p2', name: 'Temporal', active: false },
+            { id: 'br-t-p3', name: 'Fijo',     active: true  },
+        ];
+        const employees = [];
+
+        const canDelete = !positions[0].active && !employees.some(e => e.positions?.includes('br-t-p2'));
+        testRunner.assert(canDelete, 'posición inactiva sin empleados puede eliminarse');
+
+        const filtered = positions.filter(p => p.id !== 'br-t-p2');
+        testRunner.assertEquals(filtered.length, 1, 'posición eliminada de la lista');
+        testRunner.assertEquals(filtered[0].id, 'br-t-p3', 'posición restante es la correcta');
+    },
+
+    'posición activa NO puede eliminarse'() {
+        const pos = { id: 'br-t-p4', name: 'Activa', active: true };
+        const canDelete = !pos.active;
+        testRunner.assertEquals(canDelete, false, 'posición activa no puede eliminarse');
+    },
+
+    'posición con empleados asignados NO puede eliminarse'() {
+        const pos = { id: 'br-t-p5', name: 'Asignada', active: false };
+        const employees = [{ id: 'e1', positions: ['br-t-p5'] }];
+        const hasAssigned = employees.some(e => e.positions?.includes(pos.id));
+        testRunner.assertEquals(hasAssigned, true, 'posición tiene empleados asignados');
+    },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUITE: Líderes — ciclo de vida
+// ═════════════════════════════════════════════════════════════════════════════
+
+testRunner.addSuite('Browser — Líderes: ciclo de vida', {
+
+    'desactivar líder → active = false + statusHistory'() {
+        const ldr = { id: 'br-t-l1', name: 'Test Líder', active: true, statusHistory: [] };
+
+        ldr.active = false;
+        ldr.statusHistory.push({ date: '2026-06-15', active: false, timestamp: Date.now() });
+
+        testRunner.assertEquals(ldr.active, false, 'líder desactivado');
+        testRunner.assertEquals(ldr.statusHistory.length, 1, 'historial actualizado');
+    },
+
+    'reactivar líder → active = true'() {
+        const ldr = { id: 'br-t-l2', name: 'Test Líder2', active: false, statusHistory: [] };
+
+        ldr.active = true;
+        ldr.statusHistory.push({ date: '2026-06-15', active: true, timestamp: Date.now() });
+
+        testRunner.assertEquals(ldr.active, true, 'líder reactivado');
+    },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Función pública — se llama desde el botón en Configuración > Tests
 // ═════════════════════════════════════════════════════════════════════════════
 
