@@ -30,6 +30,23 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
 
+// 🔴 Rate-limit para toasts de error de sync: no spamear cada 2s.
+// Se resetea a null cuando markSynced() dispara (sync se recuperó).
+let _lastSyncErrorNotifiedAt = null;
+const _SYNC_ERROR_NOTIFY_COOLDOWN_MS = 60 * 1000;
+
+function _notifySyncError(e) {
+    SyncStatus.markError(e);
+    const now = Date.now();
+    if (!_lastSyncErrorNotifiedAt || now - _lastSyncErrorNotifiedAt > _SYNC_ERROR_NOTIFY_COOLDOWN_MS) {
+        _lastSyncErrorNotifiedAt = now;
+        NotificationSystem.error(
+            'No se pudo sincronizar con la nube. Tus datos locales están seguros.',
+            10000
+        );
+    }
+}
+
 // 🗑️ Cola de ids de empleados a borrar de la subcolección de Firebase
 // la próxima vez que saveApplicationData drene (Tarea #18).
 // Usada por el wizard de duplicados cuando consume un duplicado cloud-only:
@@ -44,6 +61,52 @@ const _pendingCloudDeletes = new Set();
 // >= 3 (que es cuando estas entidades viven en su subcolección per-doc).
 const _pendingCloudPositionDeletes = new Set();
 const _pendingCloudLeaderDeletes = new Set();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 💾 Persistencia de colas de borrado en localStorage
+// Las tres colas son en-memoria; sin persistencia, un page reload descartaría
+// ids pendientes y sus docs en Firestore quedarían huérfanos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _PENDING_DELETES_LS_KEY = 'asistencia_pending_cloud_deletes';
+
+function _persistDeleteQueues() {
+    if (typeof localStorage === 'undefined') return;
+    const data = {
+        employees: [..._pendingCloudDeletes],
+        positions: [..._pendingCloudPositionDeletes],
+        leaders:   [..._pendingCloudLeaderDeletes]
+    };
+    const total = data.employees.length + data.positions.length + data.leaders.length;
+    try {
+        if (total === 0) {
+            localStorage.removeItem(_PENDING_DELETES_LS_KEY);
+        } else {
+            localStorage.setItem(_PENDING_DELETES_LS_KEY, JSON.stringify(data));
+        }
+    } catch (e) {
+        console.warn('⚠️ No se pudo persistir la cola de borrados pendientes:', e);
+    }
+}
+
+/** Carga los ids pendientes desde localStorage y los agrega a los Sets en-memoria. */
+export function loadDeleteQueuesFromStorage() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        const raw = localStorage.getItem(_PENDING_DELETES_LS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        (data.employees || []).forEach(id => { if (id) _pendingCloudDeletes.add(String(id)); });
+        (data.positions || []).forEach(id => { if (id) _pendingCloudPositionDeletes.add(String(id)); });
+        (data.leaders   || []).forEach(id => { if (id) _pendingCloudLeaderDeletes.add(String(id)); });
+        const total = _pendingCloudDeletes.size + _pendingCloudPositionDeletes.size + _pendingCloudLeaderDeletes.size;
+        if (total > 0) {
+            debug.log(`🗑️ Cola de borrados recuperada del storage: ${total} doc(s) pendiente(s)`);
+        }
+    } catch (e) {
+        console.warn('⚠️ Error al leer la cola de borrados del storage (ignorando):', e);
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 🕒 lastCloudSavedAt — persistir timestamp de la última sync exitosa
@@ -87,6 +150,9 @@ export function initSyncPersistence() {
         if (ts === null) return;
         if (!state.settings) state.settings = {};
         state.settings.lastCloudSavedAt = ts;
+        // Sync se recuperó — resetear rate-limiter para que el próximo
+        // error vuelva a mostrar toast inmediatamente.
+        _lastSyncErrorNotifiedAt = null;
     });
 }
 
@@ -99,6 +165,18 @@ export function enqueueCloudEmployeeDelete(id) {
     const key = String(id).trim();
     if (!key) return;
     _pendingCloudDeletes.add(key);
+    _persistDeleteQueues();
+}
+
+/** Encola varios ids de empleados con una sola escritura a localStorage. */
+export function enqueueCloudEmployeeDeleteBatch(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    ids.forEach(id => {
+        if (!id) return;
+        const key = String(id).trim();
+        if (key) _pendingCloudDeletes.add(key);
+    });
+    _persistDeleteQueues();
 }
 
 /** Snapshot de la cola actual (copia). */
@@ -117,6 +195,7 @@ export function enqueueCloudPositionDelete(id) {
     const key = String(id).trim();
     if (!key) return;
     _pendingCloudPositionDeletes.add(key);
+    _persistDeleteQueues();
 }
 export function getPendingCloudPositionDeletes() {
     return [..._pendingCloudPositionDeletes];
@@ -131,6 +210,7 @@ export function enqueueCloudLeaderDelete(id) {
     const key = String(id).trim();
     if (!key) return;
     _pendingCloudLeaderDeletes.add(key);
+    _persistDeleteQueues();
 }
 export function getPendingCloudLeaderDeletes() {
     return [..._pendingCloudLeaderDeletes];
@@ -157,6 +237,8 @@ async function _drainDeleteSet(set, repo) {
         }
     }
     failed.forEach(id => set.add(id));
+    // Sync storage: remove drained ids, keep only failed ones.
+    _persistDeleteQueues();
 }
 
 /**
@@ -194,6 +276,7 @@ export const syncFirebaseMirrorDebounced = (function() {
                 const runSync = () => {
                     FirebaseService.saveFullState(state).catch(e => {
                         console.warn('⚠️ Error en sincronización debounced:', e);
+                        _notifySyncError(e);
                     });
                 };
 
@@ -212,7 +295,9 @@ export const syncFirebaseMirrorDebounced = (function() {
  */
 export async function saveToIndexedDB(options = {}) {
     try {
-        await indexedDBService.saveState(state, options);
+        // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
+        const rawState = stateManager.getState();
+        await indexedDBService.saveState(rawState, options);
         debug.log('💾 Datos guardados en IndexedDB');
         return true;
     } catch (error) {
@@ -225,6 +310,16 @@ export async function saveToIndexedDB(options = {}) {
  * Orquesta el guardado local y la sincronización con la nube.
  */
 export function saveApplicationData(options = {}) {
+    // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
+    // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
+    // locales durante la ventana de 300 ms en que el guardado aún está en cola.
+    // Sin esto, un nuevo empleado/cargo/líder añadido al state puede perderse si
+    // el listener de Firebase aplica datos remotos antes de que _executeSave corra.
+    if (!globalThis._isApplyingRemoteData && !options.localOnly) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
+
     // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
     if (options.dateKey && _pendingSaveOptions.dateKey) {
         _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
@@ -271,14 +366,6 @@ async function _executeSave(options = {}) {
         return;
     }
 
-    // ⚡ FIX: Almacenar marca de tiempo de la última modificación local
-    // Esto previene que la caché de Firebase sobrescriba cambios si se refresca la página
-    // muy rápido antes de que se complete el debounced sync a la nube.
-    if (!globalThis._isApplyingRemoteData) {
-        if (!state.settings) state.settings = {};
-        state.settings.localUpdatedAt = Date.now();
-    }
-
     console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
 
     // ──────────────────────────────────────────────────────────
@@ -295,6 +382,10 @@ async function _executeSave(options = {}) {
     // block below — otherwise it fires false positives (e.g. during
     // _isApplyingRemoteData = true, the local timestamp is intentionally NOT
     // refreshed and a stale value would trip the check on every incoming sync).
+    //
+    // NOTE: we read localUpdatedAt BEFORE updating it so the conflict check
+    // compares the cloud's timestamp against the PREVIOUS local save, not NOW.
+    // Updating localUpdatedAt first would always make _localTime >= _cloudTime.
     // ──────────────────────────────────────────────────────────
     const OUTGOING_CONFLICT_GRACE_MS = 10_000;
     // 🚧 SYNC_PAUSE_ENABLED=false (kill-switch temporal): cuando la pausa está
@@ -307,10 +398,17 @@ async function _executeSave(options = {}) {
         && !_isPausedEffective
         && !options.localOnly;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
+    // Already set in saveApplicationData(); reflects when save was requested.
     const _localTime = state.settings?.localUpdatedAt || 0;
     const _hasOutgoingConflict = _canSyncFirebase
         && !options.force
         && _cloudTime > _localTime + OUTGOING_CONFLICT_GRACE_MS;
+
+    // Refresh to actual execution time (after conflict check).
+    if (!globalThis._isApplyingRemoteData) {
+        if (!state.settings) state.settings = {};
+        state.settings.localUpdatedAt = Date.now();
+    }
 
     if (_hasOutgoingConflict && !state._outgoingConflictReviewPending) {
         state._outgoingConflictReviewPending = true;
@@ -339,9 +437,10 @@ async function _executeSave(options = {}) {
                     dayRecords[key] = record;
                 }
             });
-            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => 
-                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e)
-            );
+            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => {
+                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e);
+                _notifySyncError(e);
+            });
         }
 
         // 2. Sincronización Espejo (Full State) - DEBOUNCED
@@ -418,7 +517,11 @@ async function _executeSave(options = {}) {
 export async function loadApplicationData() {
     try {
         debug.log('📂 PersistenceService: Iniciando carga de datos...');
-        
+
+        // Rehidratar colas de borrado pendientes del storage para que
+        // docs que quedaron sin borrar en sesiones anteriores se reintenten.
+        loadDeleteQueuesFromStorage();
+
         // 1. Intentar cargar desde IndexedDB (Fase 2+)
         const idbData = await indexedDBService.loadFullState();
         

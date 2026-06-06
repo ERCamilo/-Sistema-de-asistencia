@@ -89,6 +89,7 @@ export function renderSyncStatusBadge(opts = {}) {
     const isAuthenticated = !!opts.isAuthenticated;
     const isOnline = opts.isOnline !== false;
     const isUploadPaused = !!opts.isUploadPaused;
+    const hasError = !!opts.hasError;
     const lastSyncedAt = (typeof opts.lastSyncedAt === 'number' && Number.isFinite(opts.lastSyncedAt))
         ? opts.lastSyncedAt
         : null;
@@ -110,6 +111,12 @@ export function renderSyncStatusBadge(opts = {}) {
             ? `title="${pausedText} — haz clic en Reanudar para volver a subir"`
             : 'title="Subida a la nube pausada. Tus datos locales están seguros."';
         return badgeHtml('paused', pausedText, extra, compact);
+    }
+
+    if (hasError) {
+        const extra = compact ? 'title="Error al sincronizar con la nube"'
+            : 'title="No se pudo guardar en la nube. Tus datos locales están seguros."';
+        return badgeHtml('error', 'Error de sync', extra, compact);
     }
 
     if (lastSyncedAt === null) {
@@ -136,6 +143,7 @@ function _refreshAllBadges({ getAuth, getOnline, getUploadPaused, compact }) {
     if (badges.length === 0) return;
     const baseOpts = {
         lastSyncedAt:    SyncStatus.getLastSyncedAt(),
+        hasError:        SyncStatus.hasError(),
         isAuthenticated: !!(getAuth ? getAuth() : false),
         isOnline:        !!(getOnline ? getOnline() : true),
         isUploadPaused:  !!(getUploadPaused ? getUploadPaused() : false)

@@ -2,11 +2,15 @@
  * Service Worker — Control de Asistencia v1.6.7
  * Estrategia: App Shell + Stale While Revalidate
  *
- * CACHE_VERSION: Incrementar cada vez que se haga deploy
- * para forzar actualización de assets cacheados.
+ * CACHE_VERSION: Se bumpa automáticamente en cada commit (pre-commit hook).
+ * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
+<<<<<<< HEAD
 const CACHE_VERSION = '1.0.32';
+=======
+const CACHE_VERSION = '2026.0606.201510';
+>>>>>>> 78515d380c822a6c293257a3a4c1122091a7e8dd
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -113,6 +117,7 @@ const APP_SHELL = [
     './js/modules/ui/modals/EmployeeProfileModal.js',
     './js/modules/ui/modals/LeaderModal.js',
     './js/modules/ui/modals/PositionModal.js',
+    './js/modules/ui/settings/SettingsTestsTab.js',
 
     // Features
     './js/modules/features/analytics/AnalyticsUI.js',

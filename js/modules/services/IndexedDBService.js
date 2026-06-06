@@ -119,7 +119,7 @@ export class IndexedDBService {
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => {
                 console.error(`❌ Error en put (${storeName}):`, request.error);
-                reject(request.error || new Error('Error en solicitud IndexedDB (request.error balance null)'));
+                reject(request.error || new Error('Error en solicitud IndexedDB (request.error es null)'));
             };
         });
     }

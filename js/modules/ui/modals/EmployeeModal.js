@@ -266,6 +266,7 @@ export class EmployeeModal {
             return;
         }
 
+        applyFields(number);
         finish(`${icons.get('check-circle')} Empleado ${name} ${existingEmp ? 'actualizado' : 'creado correctamente'}`);
     }
 
