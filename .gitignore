@@ -20,8 +20,8 @@ Thumbs.db
 
 Planeamiento y analisis/
 
-# Cuaderno de ideas / diseño (no se versiona)
-futuras-implementaciones/
+# Handoff documents — solo locales, nunca en el remoto
+HANDOFF*.md
 
 # Screenshots
 screenshots/
