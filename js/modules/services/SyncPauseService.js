@@ -52,6 +52,13 @@ export const SYNC_PAUSE_ENABLED = true;
 // Clave local (por dispositivo). NUNCA se sincroniza a Firebase.
 const _PAUSE_LS_KEY = 'asistencia_cloud_upload_paused';
 
+// Pausa de DESCARGA (device-local, simétrica a la de subida). Cuando está
+// activa, los cambios entrantes de la nube NO se aplican al estado local: el
+// dispositivo queda "congelado" respecto a la nube hasta que el usuario
+// reanude. Útil para pruebas o mantenimiento sin que la nube pise lo local.
+// Al igual que la pausa de subida, vive SOLO en localStorage de este equipo.
+const _DOWNLOAD_PAUSE_LS_KEY = 'asistencia_cloud_download_paused';
+
 // Lazy-imported to avoid circular dependency at evaluation time.
 // We call saveApplicationData only in pauseCloudUpload/resumeCloudUpload,
 // which are called at runtime (never during module initialisation).
@@ -74,6 +81,19 @@ function _writePausedFlag(paused) {
         }
     } catch (e) {
         console.warn('⚠️ No se pudo persistir el estado de pausa local:', e);
+    }
+}
+
+function _writeDownloadPausedFlag(paused) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        if (paused) {
+            localStorage.setItem(_DOWNLOAD_PAUSE_LS_KEY, 'true');
+        } else {
+            localStorage.removeItem(_DOWNLOAD_PAUSE_LS_KEY);
+        }
+    } catch (e) {
+        console.warn('⚠️ No se pudo persistir el estado de pausa de descarga:', e);
     }
 }
 
@@ -112,4 +132,35 @@ export async function resumeCloudUpload() {
     save({ force: true, immediate: true });
 }
 
-export default { isSyncPaused, pauseCloudUpload, resumeCloudUpload };
+/**
+ * Returns true when cloud downloads are currently paused ON THIS DEVICE.
+ * Reads only from localStorage — never from Firebase-synced state.
+ */
+export function isDownloadPaused() {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        return localStorage.getItem(_DOWNLOAD_PAUSE_LS_KEY) === 'true';
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
+ * Pause incoming cloud data on this device. Snapshot listeners stay open
+ * but their callbacks return early — no remote data is applied to state.
+ */
+export async function pauseCloudDownload(reason = 'Usuario solicitó pausar la descarga de la nube') {
+    _writeDownloadPausedFlag(true);
+    console.warn(`⏸️ Descarga de datos de la nube PAUSADA (solo este dispositivo). Motivo: ${reason}`);
+}
+
+/**
+ * Resume incoming cloud data on this device. The caller should trigger a
+ * re-sync (e.g. syncFirebaseNow) so data missed during the pause is applied.
+ */
+export async function resumeCloudDownload() {
+    _writeDownloadPausedFlag(false);
+    console.log('▶️ Descarga de datos de la nube REANUDADA...');
+}
+
+export default { isSyncPaused, pauseCloudUpload, resumeCloudUpload, isDownloadPaused, pauseCloudDownload, resumeCloudDownload };

@@ -24,7 +24,7 @@ import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
-import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED } from './modules/services/SyncPauseService.js';
+import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
 import { LeaderRepository } from './modules/services/LeaderRepository.js';
@@ -4211,6 +4211,24 @@ window.syncCenterTogglePause = async () => {
     render();
 };
 
+window.syncCenterToggleDownloadPause = async () => {
+    try {
+        if (isDownloadPaused()) {
+            await resumeCloudDownload();
+            showNotification('▶️ Descarga de la nube reanudada. Sincronizando…', 'success');
+            // Forzar re-sync para traer los cambios que llegaron mientras estaba pausado.
+            await window.syncFirebaseNow?.();
+        } else {
+            await pauseCloudDownload('Usuario activó la pausa desde el centro de sincronización.');
+            showNotification('⏸️ Descarga pausada. Los cambios de la nube no se aplicarán en este equipo.', 'info');
+        }
+    } catch (e) {
+        console.error('Error al cambiar el estado de pausa de descarga:', e);
+        showNotification('❌ No se pudo cambiar el estado de la pausa de descarga', 'error');
+    }
+    render();
+};
+
 window.syncCenterSyncNow = async () => {
     state.showModal = false;
     state.modalType = null;
@@ -4348,6 +4366,7 @@ function SyncCenterModal() {
                         : 'Pendiente';
 
     const isPaused = SYNC_PAUSE_ENABLED && isSyncPaused();
+    const isDownloadPausedNow = isDownloadPaused();
 
     const action = (fn, icon, title, description, extraClass = '') => `
         <button type="button" class="sync-center-action ${extraClass}" data-app-fn="${fn}">
@@ -4385,22 +4404,41 @@ function SyncCenterModal() {
                     </div>
                 </div>
 
-                <button type="button"
-                        class="sync-pause-row ${isPaused ? 'is-paused' : ''}"
-                        role="switch"
-                        aria-checked="${!isPaused}"
-                        aria-label="Subida a la nube (activada = sincroniza con tus dispositivos)"
-                        data-app-fn="syncCenterTogglePause">
-                    <span class="sync-pause-copy">
-                        <strong>${isPaused ? '⏸️ Subida a la nube pausada' : '☁️ Subida a la nube activa'}</strong>
-                        <small>${isPaused
-                            ? 'Tus cambios se guardan en este equipo pero NO se envían a tus otros dispositivos.'
-                            : 'Tus cambios se sincronizan automáticamente con la nube y tus otros dispositivos.'}</small>
-                    </span>
-                    <span class="sync-pause-switch" aria-hidden="true">
-                        <span class="sync-pause-switch-handle"></span>
-                    </span>
-                </button>
+                <div class="sync-pause-switches">
+                    <button type="button"
+                            class="sync-pause-row ${isPaused ? 'is-paused' : ''}"
+                            role="switch"
+                            aria-checked="${!isPaused}"
+                            aria-label="Subida a la nube (activada = sincroniza con tus dispositivos)"
+                            data-app-fn="syncCenterTogglePause">
+                        <span class="sync-pause-copy">
+                            <strong>${isPaused ? '⏸️ Subida a la nube pausada' : '☁️ Subida a la nube activa'}</strong>
+                            <small>${isPaused
+                                ? 'Tus cambios se guardan en este equipo pero NO se envían a tus otros dispositivos.'
+                                : 'Tus cambios se sincronizan automáticamente con la nube y tus otros dispositivos.'}</small>
+                        </span>
+                        <span class="sync-pause-switch" aria-hidden="true">
+                            <span class="sync-pause-switch-handle"></span>
+                        </span>
+                    </button>
+
+                    <button type="button"
+                            class="sync-pause-row ${isDownloadPausedNow ? 'is-paused' : ''}"
+                            role="switch"
+                            aria-checked="${!isDownloadPausedNow}"
+                            aria-label="Descarga de la nube (activada = recibe cambios de otros dispositivos)"
+                            data-app-fn="syncCenterToggleDownloadPause">
+                        <span class="sync-pause-copy">
+                            <strong>${isDownloadPausedNow ? '⏸️ Descarga de la nube pausada' : '📥 Descarga de la nube activa'}</strong>
+                            <small>${isDownloadPausedNow
+                                ? 'Los cambios de otros dispositivos NO se aplican en este equipo.'
+                                : 'Los cambios de la nube se aplican automáticamente en este equipo.'}</small>
+                        </span>
+                        <span class="sync-pause-switch" aria-hidden="true">
+                            <span class="sync-pause-switch-handle"></span>
+                        </span>
+                    </button>
+                </div>
 
                 <div class="sync-center-actions primary">
                     ${action('syncCenterSyncNow', '↻', 'Sincronizar ahora', 'Guarda y refresca los datos con la nube.')}
@@ -6330,6 +6368,12 @@ function _initOutgoingConflictGuard() {
                         return; // Ignorar estos datos obsoletos para no destruir el state local
                     }
 
+                    // ⏸️ Pausa de descarga (device-local): ignorar datos entrantes si el usuario la activó.
+                    if (isDownloadPaused()) {
+                        debug.log('⏸️ Descarga pausada — cambio de la nube ignorado (dispositivo local).');
+                        return;
+                    }
+
                     // 🛡️ TRACK 2: Pre-apply hook. Si NO es la carga inicial y los
                     // cambios entrantes son significant (borrados, divergencias
                     // de campos críticos, caída de préstamos, schemaVersion
@@ -6447,6 +6491,7 @@ function _initOutgoingConflictGuard() {
                         EmployeesLiveSync.start({
                             subscribe: (cb) => EmployeeRepository.subscribe(cb),
                             onApply: (emps) => {
+                                if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync empleados ignorado.'); return; }
                                 const merged = dedup(emps || []);
                                 state.employees = (typeof Employee !== 'undefined')
                                     ? merged.map(e => e instanceof Employee ? e : new Employee(e))
@@ -6463,6 +6508,7 @@ function _initOutgoingConflictGuard() {
                         PositionsLiveSync.start({
                             subscribe: (cb) => PositionRepository.subscribe(cb),
                             onApply: (positions) => {
+                                if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync cargos ignorado.'); return; }
                                 const merged = dedup(positions || []);
                                 state.positions = (typeof Position !== 'undefined')
                                     ? merged.map(p => p instanceof Position ? p : new Position(p))
@@ -6474,6 +6520,7 @@ function _initOutgoingConflictGuard() {
                         LeadersLiveSync.start({
                             subscribe: (cb) => LeaderRepository.subscribe(cb),
                             onApply: (leaders) => {
+                                if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync líderes ignorado.'); return; }
                                 const merged = dedup(leaders || []);
                                 state.leaders = (typeof Leader !== 'undefined')
                                     ? merged.map(l => l instanceof Leader ? l : new Leader(l))
@@ -6551,8 +6598,12 @@ function _initOutgoingConflictGuard() {
                         startDate,
                         endDate,
                         onInitialLoad: (allAttendance) => {
+                            if (isDownloadPaused()) {
+                                debug.log('⏸️ Descarga pausada — carga inicial de asistencia ignorada.');
+                                return;
+                            }
                             window._isApplyingRemoteData = true;
-                            
+
                             // 🛡️ LIMPIEZA DE ESTADO: Eliminar claves "cortas" (solo id) o inconsistentes
                             // Solo deben quedar claves con formato: employeeId-dateKey
                             const entries = Object.entries(allAttendance);
@@ -6593,8 +6644,12 @@ function _initOutgoingConflictGuard() {
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
+                            if (isDownloadPaused()) {
+                                debug.log(`⏸️ Descarga pausada — modificación de asistencia [${dateKey}] ignorada.`);
+                                return;
+                            }
                             window._isApplyingRemoteData = true;
-                            
+
                             // 🛡️ LIMPIEZA DE ESTADO: Evitar duplicidad si Firebase envía claves incoherentes
                             Object.values(records).forEach(record => {
                                 const shortKey = record.employeeId;
