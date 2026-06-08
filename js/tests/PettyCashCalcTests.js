@@ -25,7 +25,12 @@ import {
     totalReposiciones,
     saldoPeriodo,
     resumenPeriodo,
-    saldoProyecto
+    saldoProyecto,
+    periodsOfProject,
+    movementsOfPeriod,
+    movementsOfProject,
+    saldoPeriodoFlat,
+    saldoProyectoFlat
 } from '../modules/features/pettycash/PettyCashCalc.js';
 
 const gasto = (amount) => ({ type: 'gasto', amount });
@@ -166,4 +171,61 @@ testRunner.addSuite("PettyCashCalc — saldoProyecto", {
         ];
         testRunner.assertEquals(saldoProyecto(periodos), 1000);
     }
+});
+
+testRunner.addSuite("PettyCashCalc — selectores del state plano", {
+
+    "periodsOfProject filtra por projectId"() {
+        const periods = [
+            { id: 'per1', projectId: 'p1' },
+            { id: 'per2', projectId: 'p2' },
+            { id: 'per3', projectId: 'p1' }
+        ];
+        const r = periodsOfProject(periods, 'p1');
+        testRunner.assertEquals(r.length, 2);
+        testRunner.assertEquals(r.map(p => p.id).join(','), 'per1,per3');
+    },
+
+    "movementsOfPeriod filtra por periodId"() {
+        const movs = [
+            { id: 'm1', periodId: 'per1', type: 'gasto', amount: 100 },
+            { id: 'm2', periodId: 'per2', type: 'gasto', amount: 200 },
+            { id: 'm3', periodId: 'per1', type: 'reposicion', amount: 500 }
+        ];
+        testRunner.assertEquals(movementsOfPeriod(movs, 'per1').length, 2);
+    },
+
+    "movementsOfProject filtra por projectId"() {
+        const movs = [
+            { id: 'm1', projectId: 'p1', type: 'gasto', amount: 100 },
+            { id: 'm2', projectId: 'p2', type: 'gasto', amount: 200 }
+        ];
+        testRunner.assertEquals(movementsOfProject(movs, 'p1').length, 1);
+    },
+
+    "saldoPeriodoFlat: reposicion − gastos del periodo"() {
+        const movs = [
+            { periodId: 'per1', type: 'reposicion', amount: 10000 },
+            { periodId: 'per1', type: 'gasto', amount: 3500 },
+            { periodId: 'per2', type: 'gasto', amount: 9999 }
+        ];
+        testRunner.assertEquals(saldoPeriodoFlat(movs, 'per1'), 6500);
+    },
+
+    "saldoProyectoFlat: suma de todos los movimientos del proyecto"() {
+        const movs = [
+            { projectId: 'p1', type: 'reposicion', amount: 10000 },
+            { projectId: 'p1', type: 'gasto', amount: 4000 },
+            { projectId: 'p1', type: 'gasto', amount: 1500 },
+            { projectId: 'p2', type: 'gasto', amount: 9999 }
+        ];
+        testRunner.assertEquals(saldoProyectoFlat(movs, 'p1'), 4500);
+    },
+
+    "selectores toleran null / no-arreglo"() {
+        testRunner.assertEquals(periodsOfProject(null, 'p1').length, 0);
+        testRunner.assertEquals(movementsOfPeriod(undefined, 'per1').length, 0);
+        testRunner.assertEquals(saldoProyectoFlat(null, 'p1'), 0);
+    }
+
 });

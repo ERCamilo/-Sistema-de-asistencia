@@ -88,3 +88,33 @@ export function saldoProyecto(periodos) {
     );
     return round2(total);
 }
+
+// ── Selectores para el state PLANO (projects[]/periods[]/movements[]) ──────
+// En la persistencia real cada nivel es una colección plana enlazada por id:
+// period.projectId, movement.periodId/.projectId. Estos selectores componen
+// la vista anidada sin reconstruir estructuras.
+
+/** Periodos que pertenecen a un proyecto. */
+export function periodsOfProject(periods, projectId) {
+    return (Array.isArray(periods) ? periods : []).filter(p => p && p.projectId === projectId);
+}
+
+/** Movimientos de un periodo. */
+export function movementsOfPeriod(movements, periodId) {
+    return (Array.isArray(movements) ? movements : []).filter(m => m && m.periodId === periodId);
+}
+
+/** Movimientos de un proyecto (usa el projectId denormalizado en el movimiento). */
+export function movementsOfProject(movements, projectId) {
+    return (Array.isArray(movements) ? movements : []).filter(m => m && m.projectId === projectId);
+}
+
+/** Saldo de un periodo en el modelo plano. */
+export function saldoPeriodoFlat(movements, periodId) {
+    return saldoPeriodo(movementsOfPeriod(movements, periodId));
+}
+
+/** Saldo de un proyecto en el modelo plano (Σ de todos sus movimientos). */
+export function saldoProyectoFlat(movements, projectId) {
+    return saldoPeriodo(movementsOfProject(movements, projectId));
+}
