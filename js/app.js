@@ -21,6 +21,7 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
+import { localStateIsEmpty, shouldAcceptRemote } from './modules/services/SyncWatermark.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
@@ -103,6 +104,7 @@ import workerPool from './modules/utils/WebWorkerPool.js';
 import { firebaseConfig, APP_CONFIG } from './modules/config/Config.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
+import { PettyCashTab, registerPettyCashGlobals } from './modules/features/pettycash/PettyCashUI.js';
 import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
@@ -477,7 +479,22 @@ window.App.Sync = {
                 return;
             }
             Object.assign(state, cloudState);
-            state.attendance = cloudAttendance;
+
+            // 🛡️ FIX: en el modelo migrado (schemaVersion>=2) empleados/cargos/
+            // líderes viven en subcolecciones per-doc; data/current los tiene
+            // vacíos. Object.assign de arriba dejó esos arreglos en []; los
+            // recuperamos de la fuente correcta para no perderlos.
+            const sv = (typeof state.settings?.schemaVersion === 'number') ? state.settings.schemaVersion : 0;
+            if (sv >= 2) {
+                state.employees = await EmployeeRepository.loadAll();
+                state.positions = (sv >= 3) ? await PositionRepository.loadAll() : (cloudState.positions || []);
+                state.leaders   = (sv >= 3) ? await LeaderRepository.loadAll()   : (cloudState.leaders || []);
+            }
+            if (typeof Employee !== 'undefined') state.employees = (state.employees || []).map(e => e instanceof Employee ? e : new Employee(e));
+            if (typeof Position !== 'undefined') state.positions = (state.positions || []).map(p => p instanceof Position ? p : new Position(p));
+            if (typeof Leader !== 'undefined') state.leaders = (state.leaders || []).map(l => l instanceof Leader ? l : new Leader(l));
+
+            state.attendance = cloudAttendance; // historial completo (todos los días)
             saveApplicationData();
             loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
             render();
@@ -2970,9 +2987,34 @@ window.downloadFromCloud = async function () {
         if (remoteState) {
             // Fusión simple de metadatos (evitar duplicados por ID)
             const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
-            state.employees = dedup([...state.employees, ...(remoteState.employees || [])]);
-            state.positions = dedup([...state.positions, ...(remoteState.positions || [])]);
-            state.leaders = dedup([...state.leaders, ...(remoteState.leaders || [])]);
+
+            // 🛡️ FIX: en el modelo migrado (schemaVersion>=2) los empleados/cargos/
+            // líderes viven en subcolecciones per-doc, NO en data/current (que los
+            // tiene vacíos). Leerlos de la fuente correcta; si no, caer al legacy.
+            const sv = (typeof remoteState.settings?.schemaVersion === 'number')
+                ? remoteState.settings.schemaVersion
+                : (typeof remoteState.schemaVersion === 'number' ? remoteState.schemaVersion : 0);
+
+            let remoteEmployees, remotePositions, remoteLeaders;
+            if (sv >= 2) {
+                remoteEmployees = await EmployeeRepository.loadAll();
+                remotePositions = (sv >= 3) ? await PositionRepository.loadAll() : (remoteState.positions || []);
+                remoteLeaders   = (sv >= 3) ? await LeaderRepository.loadAll()   : (remoteState.leaders || []);
+                if (state.settings && typeof state.settings === 'object') state.settings.schemaVersion = sv;
+            } else {
+                remoteEmployees = remoteState.employees || [];
+                remotePositions = remoteState.positions || [];
+                remoteLeaders   = remoteState.leaders || [];
+            }
+
+            state.employees = dedup([...state.employees, ...remoteEmployees]);
+            state.positions = dedup([...state.positions, ...remotePositions]);
+            state.leaders = dedup([...state.leaders, ...remoteLeaders]);
+
+            // Reinstanciar a clases (los repos devuelven objetos planos)
+            if (typeof Employee !== 'undefined') state.employees = state.employees.map(e => e instanceof Employee ? e : new Employee(e));
+            if (typeof Position !== 'undefined') state.positions = state.positions.map(p => p instanceof Position ? p : new Position(p));
+            if (typeof Leader !== 'undefined') state.leaders = state.leaders.map(l => l instanceof Leader ? l : new Leader(l));
 
             // Cargar historial completo
             const remoteAttendance = await FirebaseService.getAllAttendance();
@@ -3076,6 +3118,7 @@ registerNotesGlobals();
 registerExportGlobals();
 registerProfileGlobals();
 registerLoansGlobals();
+registerPettyCashGlobals();
 
 // 🌤️ Weather: chip + panel handlers, outside-click closer, initial refresh.
 //    AttendanceUI reads window.WeatherChip / WeatherChipWithPanel lazily, so
@@ -3202,7 +3245,13 @@ function BottomNavigation() {
                     <span class="bottom-nav-icon">${icons.get('payroll')}</span>
                     <span class="bottom-nav-text">Nómina</span>
                 </button>
-                <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}" 
+                <button class="bottom-nav-tab ${state.activeTab === 'pettycash' ? 'active' : ''}"
+                        type="button" data-app-fn="changeTab" data-arg="pettycash"
+                        title="Caja Chica">
+                    <span class="bottom-nav-icon">${icons.get('dollar')}</span>
+                    <span class="bottom-nav-text">Caja</span>
+                </button>
+                <button class="bottom-nav-tab ${state.activeTab === 'settings' ? 'active' : ''}"
                         type="button" data-app-fn="openAjustesGenerales"
                         title="Configuración del sistema">
                     <span class="bottom-nav-icon">${icons.get('settings')}</span>
@@ -3433,6 +3482,10 @@ function SidebarNavigation() {
                     <span class="sidebar-icon">💳</span>
                     <span class="sidebar-label">Cuentas por Cobrar</span>
                     ${badge(activeLoans)}
+                </button>
+                <button class="${state.activeTab === 'pettycash' ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="pettycash" aria-label="Caja Chica" title="Caja Chica">
+                    <span class="sidebar-icon">${icons.get('dollar')}</span>
+                    <span class="sidebar-label">Caja Chica</span>
                 </button>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-section">Sistema</div>
@@ -5978,6 +6031,7 @@ function App() {
             return AnalyticsUI.ReportsTab();
         },
         'export': () => PayrollUI.PayrollTab(),  // ⚡ NUEVO
+        'pettycash': () => PettyCashTab(),
         'settings': () => SettingsTab()
     };
 
@@ -6355,8 +6409,13 @@ function _initOutgoingConflictGuard() {
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
                     const remoteTime = remoteData.settings?.localUpdatedAt || 0;
                     const localTime = state.settings?.localUpdatedAt || 0;
+                    // 🛡️ FIX: si el estado local está VACÍO (navegador fresco), no hay
+                    // nada que proteger → aceptar la nube aunque un guardado prematuro
+                    // haya estampado un localUpdatedAt más reciente. Sin esto, los
+                    // empleados/cargos/líderes nunca cargaban de la subcolección.
+                    const localEmpty = localStateIsEmpty(state);
 
-                    if (localTime > remoteTime) {
+                    if (!shouldAcceptRemote({ localTime, remoteTime, localEmpty })) {
                         debug.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
                         // Si F5 frenó la sincronización, forzamos un save ahora que reinició
                         if (!window._forceSyncTimer) {
