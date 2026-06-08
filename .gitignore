@@ -15,13 +15,16 @@ Thumbs.db
 # IDE/editor — keep only intentionally tracked files inside .vscode/
 .vscode/*.tmp
 
-# Local worktrees (Claude Code creates them under .claude/worktrees/)
-.claude/worktrees/
+# Claude Code local files (worktrees, launch.json, etc.)
+.claude/
 
 Planeamiento y analisis/
 
 # Handoff documents — solo locales, nunca en el remoto
 HANDOFF*.md
+
+# Notas de diseño / futuras implementaciones — cuaderno local, nunca en el remoto
+futuras-implementaciones/
 
 # Screenshots
 screenshots/

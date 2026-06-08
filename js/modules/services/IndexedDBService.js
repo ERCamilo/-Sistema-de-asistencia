@@ -4,6 +4,7 @@
  */
 
 import { Notification } from '../components/Notification.js';
+import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 
 export class IndexedDBService {
     constructor(dbName = 'attendance-app-db', version = 8) {
@@ -388,6 +389,9 @@ export class IndexedDBService {
                 await this.update('settings', { key: 'app', ...state.settings });
             }
 
+            const extras = computeSaveStatsExtras(state);
+            stats.loans = extras.loans;
+            stats.pettyCash = extras.pettyCash;
             console.log(`📊 IndexedDB ${isGranular ? 'Granular' : 'Full'} Save Stats:`, stats);
             return stats;
         } catch (error) {
