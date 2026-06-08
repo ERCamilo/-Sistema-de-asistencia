@@ -6377,6 +6377,9 @@ function _initOutgoingConflictGuard() {
             if (user) {
                 showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
 
+                // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
+                window.startPettyCashSync?.();
+
                 // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2) ---
                 if (state.isDataLoaded) {
                     try {
