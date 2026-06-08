@@ -7,7 +7,7 @@ import { Notification } from '../components/Notification.js';
 import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 8) {
+    constructor(dbName = 'attendance-app-db', version = 9) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -29,6 +29,10 @@ export class IndexedDBService {
             request.onerror = () => {
                 console.error('❌ Error al abrir IndexedDB:', request.error);
                 reject(request.error);
+            };
+
+            request.onblocked = () => {
+                console.warn('⚠️ Upgrade de IndexedDB bloqueado: cierra otras pestañas de la app para completar la actualización.');
             };
 
             request.onsuccess = () => {
@@ -107,6 +111,13 @@ export class IndexedDBService {
                     syncStore.createIndex('status', 'status', { unique: false });
                     syncStore.createIndex('timestamp', 'timestamp', { unique: false });
                 }
+
+                // Store: Comprobantes de caja chica (v9) — foto local (data URL)
+                // por txId, en cola para subir a Supabase vía n8n.
+                if (!db.objectStoreNames.contains('pettyCashReceipts')) {
+                    const rcStore = db.createObjectStore('pettyCashReceipts', { keyPath: 'txId' });
+                    rcStore.createIndex('status', 'status', { unique: false });
+                }
             };
         });
     }
@@ -141,6 +152,61 @@ export class IndexedDBService {
                 console.error(`❌ Error limpiando store ${storeName}:`, request.error);
                 reject(request.error);
             };
+        });
+    }
+
+    // ─── Comprobantes de caja chica (fotos locales, v9) ───────────────
+    /**
+     * Guarda (upsert) la foto de un comprobante como data URL, en cola para
+     * subir a Supabase vía n8n.
+     * @param {string} txId  id del movimiento
+     * @param {string} dataUrl  'data:image/jpeg;base64,...'
+     * @param {string} [status] 'pending' (local, por subir) | 'uploaded'
+     */
+    async saveReceipt(txId, dataUrl, status = 'pending') {
+        if (!txId || !dataUrl) return;
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readwrite');
+            const req = tx.objectStore('pettyCashReceipts').put({ txId, dataUrl, status, createdAt: Date.now() });
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /** Devuelve el registro del comprobante { txId, dataUrl, status } o null. */
+    async getReceipt(txId) {
+        if (!txId) return null;
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readonly');
+            const req = tx.objectStore('pettyCashReceipts').get(txId);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /** Borra el comprobante local de un movimiento. */
+    async deleteReceipt(txId) {
+        if (!txId) return;
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readwrite');
+            const req = tx.objectStore('pettyCashReceipts').delete(txId);
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /** Lista los comprobantes pendientes de subir (status 'pending'). */
+    async listPendingReceipts() {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readonly');
+            const idx = tx.objectStore('pettyCashReceipts').index('status');
+            const req = idx.getAll('pending');
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => reject(req.error);
         });
     }
 

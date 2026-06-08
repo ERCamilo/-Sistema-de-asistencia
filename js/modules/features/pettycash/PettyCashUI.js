@@ -21,6 +21,8 @@ import {
 } from './PettyCashCalc.js';
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
+import { indexedDBService } from '../../services/IndexedDBService.js';
+import { compressImage } from './PettyCashPhoto.js';
 
 const LS_KEY = '_pettycash_local_v2';
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
@@ -307,7 +309,13 @@ function _movementForm(form) {
             </label>
             <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;">
                 <input id="pc-receipt" type="checkbox" ${form.hasReceipt ? 'checked' : ''}> Tiene comprobante (factura)
-            </label>` : `
+            </label>
+            <div style="grid-column:1/-1;">
+                <label style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:6px;">📷 Foto de la factura</label>
+                ${form.photoDataUrl
+                    ? `<div style="display:flex;align-items:center;gap:10px;"><img src="${form.photoDataUrl}" style="max-height:120px;border-radius:8px;border:1px solid #334155;"><button type="button" data-app-fn="pcRemovePhotoNew" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">Quitar</button></div>`
+                    : `<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoNew(this)" style="color:#cbd5e1;font-size:.85rem;">`}
+            </div>` : `
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Nota (opcional)
                 <input id="pc-desc" type="text" value="${esc(form.description || '')}" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">
             </label>`}
@@ -337,6 +345,12 @@ function _movementEditForm(mov, cerrada) {
             ${lab('Categoría', `<select id="pce-cat" ${ro} style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">${CATEGORIAS.map(c => `<option ${mov.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Descripción${inp('pce-desc', mov.description)}</label>
             <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;"><input id="pce-receipt" type="checkbox" ${ro} ${mov.hasReceipt ? 'checked' : ''}> Tiene comprobante (factura)</label>
+            <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <label style="font-size:.75rem;color:#94a3b8;">📷 Comprobante:</label>
+                ${pc()._editPhoto ? `<img src="${pc()._editPhoto}" style="max-height:90px;border-radius:8px;border:1px solid #0ea5e9;"><span style="font-size:.7rem;color:#34d399;">(nueva foto)</span>`
+                    : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button>` : '<span style="font-size:.75rem;color:#64748b;">Sin foto</span>')}
+                ${ro ? '' : `<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoEdit(this)" style="color:#cbd5e1;font-size:.8rem;">`}
+            </div>
             <div style="grid-column:1/-1;border-top:1px solid #334155;margin-top:6px;padding-top:10px;font-size:.72rem;color:#64748b;font-weight:700;letter-spacing:.04em;">DATOS FISCALES DE LA FACTURA</div>
             ${lab('Subtotal', inp('pce-subtotal', mov.subtotal, 'number', 'step="0.01"'))}
             ${lab('ITBIS', inp('pce-itbis', mov.itbis, 'number', 'step="0.01"'))}
@@ -420,7 +434,10 @@ export function registerPettyCashGlobals() {
         const ok = await Modal.confirm({ title: '🗑️ Eliminar proyecto', message: `¿Eliminar el proyecto "${esc(proj.name)}"${pers.length ? ` y sus ${pers.length} periodo(s)` : ''}? No se puede deshacer.`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
         // cascada: movimientos + periodos del proyecto
-        d.movements.filter(m => m.projectId === proj.id).forEach(m => _deleteRemote(PettyCashRepository.movements, m.id));
+        d.movements.filter(m => m.projectId === proj.id).forEach(m => {
+            if (m.receiptStatus) indexedDBService.deleteReceipt(m.id);
+            _deleteRemote(PettyCashRepository.movements, m.id);
+        });
         pers.forEach(p => _deleteRemote(PettyCashRepository.periods, p.id));
         _deleteRemote(PettyCashRepository.projects, proj.id);
         d.movements = d.movements.filter(m => m.projectId !== proj.id);
@@ -476,7 +493,10 @@ export function registerPettyCashGlobals() {
         const movs = movementsOfPeriod(d.movements, period.id);
         const ok = await Modal.confirm({ title: '🗑️ Eliminar periodo', message: `¿Eliminar el periodo "${esc(period.label)}"${movs.length ? ` y sus ${movs.length} movimiento(s)` : ''}? No se puede deshacer.`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
-        movs.forEach(m => _deleteRemote(PettyCashRepository.movements, m.id));
+        movs.forEach(m => {
+            if (m.receiptStatus) indexedDBService.deleteReceipt(m.id);
+            _deleteRemote(PettyCashRepository.movements, m.id);
+        });
         _deleteRemote(PettyCashRepository.periods, period.id);
         d.movements = d.movements.filter(m => m.periodId !== period.id);
         d.periods = d.periods.filter(p => p.id !== period.id);
@@ -491,13 +511,14 @@ export function registerPettyCashGlobals() {
     };
     window.pcCancelForm = () => { pc().form = null; window.render?.(); };
 
-    window.pcSaveMovement = () => {
+    window.pcSaveMovement = async () => {
         const d = pc();
         const period = currentPeriod();
         const form = d.form;
         if (!period || !form) return;
         const amount = parseFloat(document.getElementById('pc-amount')?.value);
         if (!Number.isFinite(amount) || amount <= 0) { Modal.alert({ title: 'Monto inválido', message: 'Ingresa un monto válido mayor que 0.' }); return; }
+        const photo = form.photoDataUrl || null;
         const mov = {
             id: uid('mov'), periodId: period.id, projectId: period.projectId,
             type: form.type, amount: round2(amount),
@@ -508,20 +529,60 @@ export function registerPettyCashGlobals() {
         if (form.type === 'gasto') {
             mov.paidTo = document.getElementById('pc-tienda')?.value?.trim() || '';
             mov.category = document.getElementById('pc-cat')?.value || '';
-            mov.hasReceipt = !!document.getElementById('pc-receipt')?.checked;
+            mov.hasReceipt = !!document.getElementById('pc-receipt')?.checked || !!photo;
         }
         d.movements.push(mov);
         d.form = null;
         persist(); saveMovement(mov); window.render?.();
+        // Guardar la foto localmente en IndexedDB (cola para subir a Supabase vía n8n).
+        if (photo && mov.type === 'gasto') {
+            try {
+                await indexedDBService.saveReceipt(mov.id, photo, 'pending');
+                mov.receiptStatus = 'local'; mov.hasReceipt = true; mov.updatedAt = Date.now();
+                persist(); saveMovement(mov); window.render?.();
+            } catch (e) {
+                console.warn('⚠️ saveReceipt local:', e);
+                Modal.alert({ title: 'Foto', message: 'El gasto se guardó, pero la foto no se pudo guardar localmente.' });
+            }
+        }
     };
 
     window.pcOpenMovement = (movId) => {
-        pc().editMov = movId; pc().form = null; pc().periodForm = null;
+        pc().editMov = movId; pc().form = null; pc().periodForm = null; pc()._editPhoto = null;
         window.render?.();
     };
-    window.pcCancelMovementEdit = () => { pc().editMov = null; window.render?.(); };
+    window.pcCancelMovementEdit = () => { pc().editMov = null; pc()._editPhoto = null; window.render?.(); };
 
-    window.pcSaveMovementEdit = () => {
+    window.pcPhotoNew = async (input) => {
+        const file = input?.files?.[0];
+        if (!file || !pc().form) return;
+        try { pc().form.photoDataUrl = await compressImage(file); pc().form.hasReceipt = true; window.render?.(); }
+        catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
+    };
+    window.pcRemovePhotoNew = () => { if (pc().form) { pc().form.photoDataUrl = null; window.render?.(); } };
+
+    window.pcPhotoEdit = async (input) => {
+        const file = input?.files?.[0];
+        if (!file) return;
+        try { pc()._editPhoto = await compressImage(file); window.render?.(); }
+        catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
+    };
+
+    window.pcViewReceipt = async (movId) => {
+        try {
+            const rec = await indexedDBService.getReceipt(movId);
+            if (!rec || !rec.dataUrl) {
+                Modal.alert({ title: 'Comprobante', message: 'No hay foto guardada para este movimiento.' });
+                return;
+            }
+            Modal.alert({ title: '🧾 Comprobante', message: `<img src="${rec.dataUrl}" style="max-width:100%;border-radius:8px;">` });
+        } catch (e) {
+            console.warn('getReceipt', e);
+            Modal.alert({ title: 'Comprobante', message: 'No se pudo cargar la imagen.' });
+        }
+    };
+
+    window.pcSaveMovementEdit = async () => {
         const d = pc();
         const mov = d.movements.find(m => m.id === d.editMov);
         if (!mov) return;
@@ -545,8 +606,20 @@ export function registerPettyCashGlobals() {
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
         }
         mov.updatedAt = Date.now();
-        d.editMov = null;
+        const pendingPhoto = d._editPhoto;
+        d.editMov = null; d._editPhoto = null;
         persist(); saveMovement(mov); window.render?.();
+        // Subir foto reemplazada (si hay)
+        if (pendingPhoto && mov.type === 'gasto') {
+            try {
+                await indexedDBService.saveReceipt(mov.id, pendingPhoto, 'pending');
+                mov.receiptStatus = 'local'; mov.hasReceipt = true; mov.updatedAt = Date.now();
+                persist(); saveMovement(mov); window.render?.();
+            } catch (e) {
+                console.warn('⚠️ saveReceipt local (edit):', e);
+                Modal.alert({ title: 'Foto', message: 'Los cambios se guardaron, pero la foto no se pudo guardar localmente.' });
+            }
+        }
     };
 
     window.pcDeleteMovement = async (movId) => {
@@ -556,6 +629,7 @@ export function registerPettyCashGlobals() {
         const label = mov.type === 'gasto' ? (mov.paidTo || mov.description || 'gasto') : 'reposición';
         const ok = await Modal.confirm({ title: '🗑️ Eliminar movimiento', message: `¿Eliminar "${esc(label)}" de ${rd(mov.amount)}?`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
+        if (mov.receiptStatus) indexedDBService.deleteReceipt(movId);
         _deleteRemote(PettyCashRepository.movements, movId);
         d.movements = d.movements.filter(m => m.id !== movId);
         persist(); window.render?.();
