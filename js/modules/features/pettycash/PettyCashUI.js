@@ -23,6 +23,7 @@ import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { compressImage } from './PettyCashPhoto.js';
+import { APP_CONFIG } from '../../config/Config.js';
 
 const LS_KEY = '_pettycash_local_v2';
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
@@ -228,8 +229,8 @@ function _periodPanel(period) {
             </div>
             ${cerrada ? '' : `
             <div style="display:flex;gap:8px;">
-                <button type="button" data-app-fn="pcOpenForm" data-arg="gasto" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;">− Gasto</button>
                 <button type="button" data-app-fn="pcOpenForm" data-arg="reposicion" style="background:#22c55e;color:#062;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;">+ Reposición</button>
+                <button type="button" data-app-fn="pcOpenForm" data-arg="gasto" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;">− Gasto</button>
             </div>`}
         </div>
 
@@ -308,13 +309,18 @@ function _movementForm(form) {
                 <input id="pc-desc" type="text" value="${esc(form.description || '')}" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">
             </label>
             <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;">
-                <input id="pc-receipt" type="checkbox" ${form.hasReceipt ? 'checked' : ''}> Tiene comprobante (factura)
+                <input id="pc-receipt" type="checkbox" ${form.hasReceipt ? 'checked' : ''}> 📷 Tiene foto/imagen de la factura
             </label>
             <div style="grid-column:1/-1;">
                 <label style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:6px;">📷 Foto de la factura</label>
                 ${form.photoDataUrl
-                    ? `<div style="display:flex;align-items:center;gap:10px;"><img src="${form.photoDataUrl}" style="max-height:120px;border-radius:8px;border:1px solid #334155;"><button type="button" data-app-fn="pcRemovePhotoNew" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">Quitar</button></div>`
-                    : `<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoNew(this)" style="color:#cbd5e1;font-size:.85rem;">`}
+                    ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <img src="${form.photoDataUrl}" style="max-height:120px;border-radius:8px;border:1px solid #334155;">
+                        <button type="button" data-app-fn="pcScanReceipt" style="background:#8b5cf6;color:#fff;border:none;border-radius:7px;padding:8px 12px;font-weight:700;cursor:pointer;">⚡ Escanear con IA</button>
+                        <button type="button" data-app-fn="pcRemovePhotoNew" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">Quitar</button>
+                        ${form.scanStatus ? `<span style="font-size:.72rem;color:#94a3b8;">${esc(form.scanStatus)}</span>` : ''}
+                       </div>`
+                    : `<label style="display:inline-block;background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:.85rem;">➕ Elegir / tomar foto<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoNew(this)" style="display:none;"></label>`}
             </div>` : `
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Nota (opcional)
                 <input id="pc-desc" type="text" value="${esc(form.description || '')}" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">
@@ -341,15 +347,17 @@ function _movementEditForm(mov, cerrada) {
             ${isGasto ? `
             ${lab('Tienda / proveedor', inp('pce-tienda', mov.paidTo))}
             ${lab('RNC / comprobante de la empresa', inp('pce-rnc', mov.rncEmisor))}
+            ${lab('Cliente (opcional)', inp('pce-cliente', mov.cliente))}
+            ${lab('RNC cliente (opcional)', inp('pce-rnccli', mov.rncCliente))}
             ${lab('NCF · N° de comprobante fiscal', inp('pce-ncf', mov.ncf))}
             ${lab('Categoría', `<select id="pce-cat" ${ro} style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">${CATEGORIAS.map(c => `<option ${mov.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Descripción${inp('pce-desc', mov.description)}</label>
-            <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;"><input id="pce-receipt" type="checkbox" ${ro} ${mov.hasReceipt ? 'checked' : ''}> Tiene comprobante (factura)</label>
+            <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;"><input id="pce-receipt" type="checkbox" ${ro} ${mov.hasReceipt ? 'checked' : ''}> 📷 Tiene foto/imagen de la factura</label>
             <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                 <label style="font-size:.75rem;color:#94a3b8;">📷 Comprobante:</label>
                 ${pc()._editPhoto ? `<img src="${pc()._editPhoto}" style="max-height:90px;border-radius:8px;border:1px solid #0ea5e9;"><span style="font-size:.7rem;color:#34d399;">(nueva foto)</span>`
                     : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button>` : '<span style="font-size:.75rem;color:#64748b;">Sin foto</span>')}
-                ${ro ? '' : `<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoEdit(this)" style="color:#cbd5e1;font-size:.8rem;">`}
+                ${ro ? '' : `<label style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:.8rem;">${(mov.receiptStatus || pc()._editPhoto) ? '🔄 Cambiar foto' : '➕ Agregar foto'}<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoEdit(this)" style="display:none;"></label>`}
             </div>
             <div style="grid-column:1/-1;border-top:1px solid #334155;margin-top:6px;padding-top:10px;font-size:.72rem;color:#64748b;font-weight:700;letter-spacing:.04em;">DATOS FISCALES DE LA FACTURA</div>
             ${lab('Subtotal', inp('pce-subtotal', mov.subtotal, 'number', 'step="0.01"'))}
@@ -357,6 +365,8 @@ function _movementEditForm(mov, cerrada) {
             ${lab('Total', inp('pce-total', mov.total, 'number', 'step="0.01"'))}
             ${lab('Fecha emisión', inp('pce-femision', mov.fechaEmision, 'date'))}
             ${lab('Fecha vencimiento', inp('pce-fvenc', mov.fechaVencimiento, 'date'))}
+            <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Notas / detalles<textarea id="pce-notas" ${ro} rows="2" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;resize:vertical;">${esc(mov.notas || '')}</textarea></label>
+            ${(Array.isArray(mov.items) && mov.items.length) ? `<div style="grid-column:1/-1;border-top:1px solid #334155;margin-top:6px;padding-top:10px;"><div style="font-size:.72rem;color:#64748b;font-weight:700;letter-spacing:.04em;margin-bottom:6px;">ARTÍCULOS (${mov.items.length})</div>${mov.items.map(it => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:.8rem;color:#cbd5e1;padding:2px 0;"><span>${esc((it.cantidad ? it.cantidad + '× ' : '') + (it.descripcion || '—'))}</span><span style="color:#94a3b8;white-space:nowrap;">${it.precio != null ? rd(it.precio) : ''}</span></div>`).join('')}</div>` : ''}
             ` : `
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Nota${inp('pce-desc', mov.description)}</label>
             `}
@@ -530,6 +540,19 @@ export function registerPettyCashGlobals() {
             mov.paidTo = document.getElementById('pc-tienda')?.value?.trim() || '';
             mov.category = document.getElementById('pc-cat')?.value || '';
             mov.hasReceipt = !!document.getElementById('pc-receipt')?.checked || !!photo;
+            // Datos fiscales pre-extraídos por el OCR (no visibles en el form rápido)
+            if (form.ocr) {
+                if (form.ocr.rncEmisor) mov.rncEmisor = form.ocr.rncEmisor;
+                if (form.ocr.ncf) mov.ncf = form.ocr.ncf;
+                if (form.ocr.cliente) mov.cliente = form.ocr.cliente;
+                if (form.ocr.rncCliente) mov.rncCliente = form.ocr.rncCliente;
+                if (form.ocr.subtotal != null) mov.subtotal = form.ocr.subtotal;
+                if (form.ocr.itbis != null) mov.itbis = form.ocr.itbis;
+                if (form.ocr.total != null) mov.total = form.ocr.total;
+                if (form.ocr.fechaEmision) mov.fechaEmision = form.ocr.fechaEmision;
+                if (form.ocr.notas) mov.notas = form.ocr.notas;
+                if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
+            }
         }
         d.movements.push(mov);
         d.form = null;
@@ -559,7 +582,65 @@ export function registerPettyCashGlobals() {
         try { pc().form.photoDataUrl = await compressImage(file); pc().form.hasReceipt = true; window.render?.(); }
         catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
     };
-    window.pcRemovePhotoNew = () => { if (pc().form) { pc().form.photoDataUrl = null; window.render?.(); } };
+    window.pcRemovePhotoNew = () => { if (pc().form) { pc().form.photoDataUrl = null; pc().form.scanStatus = null; pc().form.ocr = null; window.render?.(); } };
+
+    window.pcScanReceipt = async () => {
+        const form = pc().form;
+        if (!form || !form.photoDataUrl) return;
+        const url = APP_CONFIG && APP_CONFIG.OCR_WEBHOOK_URL;
+        if (!url) { Modal.alert({ title: 'OCR', message: 'No hay URL de OCR configurada.' }); return; }
+        form.scanStatus = '⏳ Escaneando...';
+        window.render?.();
+        try {
+            const base64 = String(form.photoDataUrl).split(',')[1] || form.photoDataUrl;
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageBase64: base64 })
+            });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            console.log('🤖 OCR respuesta:', data);
+            if (!data || data.ok === false) throw new Error((data && data.error) || 'sin datos');
+            const f = pc().form;
+            if (!f) return;
+            if (data.total != null) f.amount = data.total;
+            else if (data.subtotal != null) f.amount = data.subtotal;
+            if (data.emisor) f.paidTo = data.emisor;
+            if (data.concepto) f.description = data.concepto;
+            if (data.fecha) f.date = data.fecha;
+            if (data.categoria && CATEGORIAS.includes(data.categoria)) f.category = data.categoria;
+            f.ocr = {
+                rncEmisor: data.rncEmisor ?? null, ncf: data.ncf ?? null,
+                cliente: data.cliente ?? null, rncCliente: data.rncCliente ?? null,
+                subtotal: data.subtotal ?? null, itbis: data.itbis ?? null,
+                total: data.total ?? null, fechaEmision: data.fecha ?? null,
+                notas: data.notas ?? null,
+                items: Array.isArray(data.items) ? data.items : []
+            };
+            f.hasReceipt = true;
+            const got = [data.emisor, data.total, data.ncf, data.fecha].some(v => v != null && v !== '');
+            f.scanStatus = got ? '✅ Datos extraídos — revisa y guarda' : '⚠️ La IA no pudo leer datos de esta foto';
+            window.render?.();
+            // El re-render puede preservar los inputs existentes (no reescribe .value);
+            // los seteamos directo tras el frame de render para garantizar que se vean.
+            setTimeout(() => {
+                const setVal = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = String(v); };
+                setVal('pc-amount', f.amount);
+                setVal('pc-tienda', f.paidTo);
+                setVal('pc-desc', f.description);
+                setVal('pc-date', f.date);
+                const cat = document.getElementById('pc-cat');
+                if (cat && f.category) cat.value = f.category;
+            }, 60);
+        } catch (e) {
+            console.warn('OCR scan:', e);
+            const f = pc().form;
+            if (f) f.scanStatus = '❌ No se pudo escanear';
+            window.render?.();
+            Modal.alert({ title: 'Escaneo', message: 'No se pudo escanear la factura; llena los datos a mano. (' + (e.message || '') + ')' });
+        }
+    };
 
     window.pcPhotoEdit = async (input) => {
         const file = input?.files?.[0];
@@ -596,6 +677,8 @@ export function registerPettyCashGlobals() {
         if (mov.type === 'gasto') {
             mov.paidTo = txt('pce-tienda');
             mov.rncEmisor = txt('pce-rnc');
+            mov.cliente = txt('pce-cliente');
+            mov.rncCliente = txt('pce-rnccli');
             mov.ncf = txt('pce-ncf');
             mov.category = document.getElementById('pce-cat')?.value || '';
             mov.hasReceipt = !!document.getElementById('pce-receipt')?.checked;
@@ -604,6 +687,7 @@ export function registerPettyCashGlobals() {
             mov.total = numOrNull('pce-total');
             mov.fechaEmision = document.getElementById('pce-femision')?.value || null;
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
+            mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
         }
         mov.updatedAt = Date.now();
         const pendingPhoto = d._editPhoto;

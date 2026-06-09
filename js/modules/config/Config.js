@@ -19,7 +19,10 @@ export const APP_CONFIG = {
     DATABASE_NAME: "asistencia-db",
     STORAGE_KEY: "asistencia-data",
     MAX_RECORDS_MEMORY: 2000,
-    RELEVANT_DAYS_LIMIT: 60
+    RELEVANT_DAYS_LIMIT: 60,
+    // 🤖 Caja chica — OCR de facturas (webhook configurable; hoy n8n,
+    // migrable a Firebase Function sin tocar la app).
+    OCR_WEBHOOK_URL: "https://n8n.erlin.do/webhook/caja-chica-ocr"
 };
 
 /**
