@@ -23,8 +23,10 @@ import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { compressImage } from './PettyCashPhoto.js';
+import { buildPeriodSheets } from './PettyCashExport.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
+import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 
 const LS_KEY = '_pettycash_local_v2';
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
@@ -298,9 +300,10 @@ function _periodPanel(period) {
         ${editMov ? _movementEditForm(editMov, cerrada) : ''}
         ${_movementsList(movs, cerrada)}
 
-        ${cerrada ? '' : `<div style="margin-top:14px;text-align:right;">
-            <button type="button" data-app-fn="pcClosePeriod" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">🔒 Cerrar periodo</button>
-        </div>`}
+        <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+            <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
+            ${cerrada ? '' : `<button type="button" data-app-fn="pcClosePeriod" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">🔒 Cerrar periodo</button>`}
+        </div>
     </div>`;
 }
 
@@ -637,6 +640,41 @@ export function registerPettyCashGlobals() {
         mov.reviewPending = false;
         mov.updatedAt = Date.now();
         persist(); saveMovement(mov); window.render?.();
+    };
+
+    window.pcExportExcel = async () => {
+        const proj = currentProject();
+        const period = currentPeriod();
+        if (!proj || !period) return;
+        const loading = (typeof window.showNotification === 'function') ? window.showNotification('📊 Generando Excel...', 'loading') : null;
+        try {
+            await ensureExcelJSLoaded();
+            const ExcelJS = window.ExcelJS;
+            if (!ExcelJS) throw new Error('ExcelJS no disponible');
+            const movs = movementsOfPeriod(pc().movements, period.id);
+            const sheets = buildPeriodSheets(proj, period, movs);
+            const wb = new ExcelJS.Workbook();
+            wb.addWorksheet('Resumen').addRows(sheets.resumen);
+            wb.addWorksheet('Movimientos').addRows(sheets.movimientos);
+            if (sheets.items.length > 1) wb.addWorksheet('Artículos').addRows(sheets.items);
+            const buffer = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const safe = (s) => String(s || '').replace(/[^\w\-]+/g, '_').slice(0, 40);
+            const filename = `CajaChica_${safe(proj.name)}_${safe(period.label)}.xlsx`;
+            loading?.dismiss?.();
+            if (typeof window.showExportMenu === 'function') {
+                window.showExportMenu({ filename, blob, title: `Caja Chica — ${proj.name}`, text: period.label });
+            } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1500);
+            }
+        } catch (e) {
+            loading?.dismiss?.();
+            console.warn('pcExportExcel:', e);
+            Modal.alert({ title: 'Excel', message: 'No se pudo generar el Excel. (' + (e.message || '') + ')' });
+        }
     };
 
     // ⚡ Re-escanear con IA la foto de un movimiento existente (desde el detalle).
