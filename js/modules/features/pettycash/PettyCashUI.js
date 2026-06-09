@@ -24,6 +24,7 @@ import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { compressImage } from './PettyCashPhoto.js';
 import { APP_CONFIG } from '../../config/Config.js';
+import { auth } from '../../data/firebase.js';
 
 const LS_KEY = '_pettycash_local_v2';
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
@@ -589,14 +590,17 @@ export function registerPettyCashGlobals() {
         if (!form || !form.photoDataUrl) return;
         const url = APP_CONFIG && APP_CONFIG.OCR_WEBHOOK_URL;
         if (!url) { Modal.alert({ title: 'OCR', message: 'No hay URL de OCR configurada.' }); return; }
+        const user = auth && auth.currentUser;
+        if (!user) { Modal.alert({ title: 'Sesión requerida', message: 'Inicia sesión para escanear con IA.' }); return; }
         form.scanStatus = '⏳ Escaneando...';
         window.render?.();
         try {
+            const idToken = await user.getIdToken();
             const base64 = String(form.photoDataUrl).split(',')[1] || form.photoDataUrl;
             const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ imageBase64: base64 })
+                body: JSON.stringify({ imageBase64: base64, idToken })
             });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
