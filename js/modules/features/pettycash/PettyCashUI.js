@@ -123,6 +123,52 @@ export async function startPettyCashSync() {
             onApply: (list) => { pc().movements = dedupById(list); persist(); window.render?.(); }
         }
     });
+
+    // Subir comprobantes pendientes (los que quedaron solo en local).
+    uploadPendingReceipts();
+}
+
+// Sube a Supabase (vía n8n) las fotos con status 'pending' en IndexedDB.
+// No-op sin sesión / sin URL. Tolerante a fallos (reintenta en el próximo ciclo).
+let _uploadingReceipts = false;
+export async function uploadPendingReceipts() {
+    if (_uploadingReceipts) return;
+    const url = APP_CONFIG && APP_CONFIG.RECEIPT_UPLOAD_URL;
+    const user = auth && auth.currentUser;
+    if (!url || !user) return;
+    let pend = [];
+    try { pend = await indexedDBService.listPendingReceipts(); } catch { return; }
+    if (!pend || !pend.length) return;
+    _uploadingReceipts = true;
+    try {
+        const idToken = await user.getIdToken();
+        for (const rec of pend) {
+            try {
+                const base64 = String(rec.dataUrl).split(',')[1] || rec.dataUrl;
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ idToken, txId: rec.txId, imageBase64: base64 })
+                });
+                if (!resp.ok) continue;
+                const data = await resp.json().catch(() => null);
+                if (!data || data.ok === false) continue;
+                await indexedDBService.saveReceipt(rec.txId, rec.dataUrl, 'uploaded');
+                const mov = pc().movements.find(m => m.id === rec.txId);
+                if (mov) {
+                    mov.receiptStatus = 'uploaded';
+                    mov.receiptUrl = data.path || null;
+                    mov.updatedAt = Date.now();
+                    saveMovement(mov);
+                }
+            } catch (e) {
+                console.warn('⚠️ uploadPendingReceipts(' + rec.txId + '):', e);
+            }
+        }
+        persist(); window.render?.();
+    } finally {
+        _uploadingReceipts = false;
+    }
 }
 
 // ══ render ═════════════════════════════════════════════════════════════
@@ -564,6 +610,7 @@ export function registerPettyCashGlobals() {
                 await indexedDBService.saveReceipt(mov.id, photo, 'pending');
                 mov.receiptStatus = 'local'; mov.hasReceipt = true; mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
+                uploadPendingReceipts();
             } catch (e) {
                 console.warn('⚠️ saveReceipt local:', e);
                 Modal.alert({ title: 'Foto', message: 'El gasto se guardó, pero la foto no se pudo guardar localmente.' });
@@ -703,6 +750,7 @@ export function registerPettyCashGlobals() {
                 await indexedDBService.saveReceipt(mov.id, pendingPhoto, 'pending');
                 mov.receiptStatus = 'local'; mov.hasReceipt = true; mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
+                uploadPendingReceipts();
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
                 Modal.alert({ title: 'Foto', message: 'Los cambios se guardaron, pero la foto no se pudo guardar localmente.' });

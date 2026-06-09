@@ -22,7 +22,9 @@ export const APP_CONFIG = {
     RELEVANT_DAYS_LIMIT: 60,
     // 🤖 Caja chica — OCR de facturas (webhook configurable; hoy n8n,
     // migrable a Firebase Function sin tocar la app).
-    OCR_WEBHOOK_URL: "https://n8n.erlin.do/webhook/caja-chica-ocr"
+    OCR_WEBHOOK_URL: "https://n8n.erlin.do/webhook/caja-chica-ocr",
+    // 📤 Caja chica — subir foto del comprobante a Supabase (vía n8n).
+    RECEIPT_UPLOAD_URL: "https://n8n.erlin.do/webhook/caja-chica-subir"
 };
 
 /**
