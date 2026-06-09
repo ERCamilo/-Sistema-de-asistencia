@@ -275,11 +275,14 @@ function _periodPanel(period) {
                 <div style="font-size:.72rem;color:#64748b;margin-top:4px;">📅 Apertura: ${esc(period.openingDate || '—')} · Cierre: ${esc(period.closingDate || '—')}</div>
             </div>
             ${cerrada ? '' : `
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" data-app-fn="pcOpenForm" data-arg="reposicion" style="background:#22c55e;color:#062;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;">+ Reposición</button>
                 <button type="button" data-app-fn="pcOpenForm" data-arg="gasto" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;">− Gasto</button>
+                <label style="background:#8b5cf6;color:#fff;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;" title="Subir varias facturas; se registran automáticamente para revisar">📸 Lote<input type="file" accept="image/*" multiple onchange="window.pcBatchPhotos(this)" style="display:none;"></label>
             </div>`}
         </div>
+
+        ${d.batchStatus ? `<div style="margin:10px 0;font-size:.85rem;color:#a78bfa;display:flex;align-items:center;gap:8px;">⏳ ${esc(d.batchStatus)}</div>` : ''}
 
         ${periodForm ? _periodEditForm(period) : ''}
 
@@ -405,6 +408,8 @@ function _movementEditForm(mov, cerrada) {
                 ${pc()._editPhoto ? `<img src="${pc()._editPhoto}" style="max-height:90px;border-radius:8px;border:1px solid #0ea5e9;"><span style="font-size:.7rem;color:#34d399;">(nueva foto)</span>`
                     : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button>` : '<span style="font-size:.75rem;color:#64748b;">Sin foto</span>')}
                 ${ro ? '' : `<label style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:.8rem;">${(mov.receiptStatus || pc()._editPhoto) ? '🔄 Cambiar foto' : '➕ Agregar foto'}<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoEdit(this)" style="display:none;"></label>`}
+                ${(!ro && (mov.receiptStatus || pc()._editPhoto)) ? `<button type="button" data-app-fn="pcRescanReceipt" data-arg="${mov.id}" style="background:#8b5cf6;color:#fff;border:none;border-radius:7px;padding:6px 10px;font-weight:700;cursor:pointer;">⚡ Re-escanear con IA</button>` : ''}
+                ${pc()._rescanStatus ? `<span style="font-size:.72rem;color:#a78bfa;">${esc(pc()._rescanStatus)}</span>` : ''}
             </div>
             <div style="grid-column:1/-1;border-top:1px solid #334155;margin-top:6px;padding-top:10px;font-size:.72rem;color:#64748b;font-weight:700;letter-spacing:.04em;">DATOS FISCALES DE LA FACTURA</div>
             ${lab('Subtotal', inp('pce-subtotal', mov.subtotal, 'number', 'step="0.01"'))}
@@ -418,7 +423,8 @@ function _movementEditForm(mov, cerrada) {
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Nota${inp('pce-desc', mov.description)}</label>
             `}
         </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;margin-top:12px;flex-wrap:wrap;">
+            ${(mov.reviewPending && !cerrada) ? `<button type="button" data-app-fn="pcConfirmMovement" data-arg="${mov.id}" style="margin-right:auto;background:#22c55e;color:#062;border:none;border-radius:7px;padding:8px 14px;font-weight:700;cursor:pointer;">✓ Confirmar revisado</button>` : ''}
             <button type="button" data-app-fn="pcCancelMovementEdit" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:7px;padding:8px 14px;cursor:pointer;">${cerrada ? 'Cerrar' : 'Cancelar'}</button>
             ${cerrada ? '' : `<button type="button" data-app-fn="pcSaveMovementEdit" style="background:#0ea5e9;color:#fff;border:none;border-radius:7px;padding:8px 16px;font-weight:600;cursor:pointer;">Guardar cambios</button>`}
         </div>
@@ -439,6 +445,7 @@ function _movementsList(movs, cerrada) {
                 <div style="flex:1;min-width:0;">
                     <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;">
                         ${isGasto ? '🏪' : '💰'} ${esc(titulo)}
+                        ${m.reviewPending ? '<span title="Creado automáticamente — toca para revisar y confirmar" style="font-size:.62rem;background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5);padding:1px 7px;border-radius:999px;font-weight:700;">⚠️ Revisar</span>' : ''}
                         ${isGasto && m.hasReceipt ? '<span title="Tiene comprobante">🧾</span>' : ''}
                         ${isGasto && m.category ? `<span style="font-size:.68rem;background:#1e293b;border:1px solid #334155;padding:1px 7px;border-radius:999px;color:#94a3b8;">${esc(m.category)}</span>` : ''}
                     </div>
@@ -619,10 +626,132 @@ export function registerPettyCashGlobals() {
     };
 
     window.pcOpenMovement = (movId) => {
-        pc().editMov = movId; pc().form = null; pc().periodForm = null; pc()._editPhoto = null;
+        pc().editMov = movId; pc().form = null; pc().periodForm = null; pc()._editPhoto = null; pc()._rescanStatus = null;
         window.render?.();
     };
-    window.pcCancelMovementEdit = () => { pc().editMov = null; pc()._editPhoto = null; window.render?.(); };
+    window.pcCancelMovementEdit = () => { pc().editMov = null; pc()._editPhoto = null; pc()._rescanStatus = null; window.render?.(); };
+
+    window.pcConfirmMovement = (movId) => {
+        const mov = pc().movements.find(m => m.id === movId);
+        if (!mov) return;
+        mov.reviewPending = false;
+        mov.updatedAt = Date.now();
+        persist(); saveMovement(mov); window.render?.();
+    };
+
+    // ⚡ Re-escanear con IA la foto de un movimiento existente (desde el detalle).
+    window.pcRescanReceipt = async (movId) => {
+        const url = APP_CONFIG && APP_CONFIG.OCR_WEBHOOK_URL;
+        const user = auth && auth.currentUser;
+        if (!url) { Modal.alert({ title: 'OCR', message: 'No hay URL de OCR configurada.' }); return; }
+        if (!user) { Modal.alert({ title: 'Sesión requerida', message: 'Inicia sesión para escanear con IA.' }); return; }
+        const d = pc();
+        const mov = d.movements.find(m => m.id === movId);
+        if (!mov) return;
+        let dataUrl = d._editPhoto;
+        if (!dataUrl) {
+            try { const rec = await indexedDBService.getReceipt(movId); dataUrl = rec && rec.dataUrl; } catch { /* noop */ }
+        }
+        if (!dataUrl) { Modal.alert({ title: 'Re-escanear', message: 'No hay foto para escanear. Agrega o cambia la foto primero.' }); return; }
+        d._rescanStatus = '⏳ Escaneando...';
+        window.render?.();
+        try {
+            const idToken = await user.getIdToken();
+            const base64 = String(dataUrl).split(',')[1] || dataUrl;
+            const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: base64, idToken }) });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json().catch(() => null);
+            if (!data || data.ok === false) throw new Error((data && data.error) || 'sin datos');
+            if (data.total != null) mov.amount = round2(data.total);
+            else if (data.subtotal != null) mov.amount = round2(data.subtotal);
+            if (data.emisor) mov.paidTo = data.emisor;
+            if (data.concepto) mov.description = data.concepto;
+            if (data.fecha) { mov.date = data.fecha; mov.fechaEmision = data.fecha; }
+            if (data.categoria && CATEGORIAS.includes(data.categoria)) mov.category = data.categoria;
+            if (data.rncEmisor) mov.rncEmisor = data.rncEmisor;
+            if (data.ncf) mov.ncf = data.ncf;
+            if (data.cliente) mov.cliente = data.cliente;
+            if (data.rncCliente) mov.rncCliente = data.rncCliente;
+            if (data.subtotal != null) mov.subtotal = data.subtotal;
+            if (data.itbis != null) mov.itbis = data.itbis;
+            if (data.total != null) mov.total = data.total;
+            if (data.notas) mov.notas = data.notas;
+            if (Array.isArray(data.items) && data.items.length) mov.items = data.items;
+            mov.updatedAt = Date.now();
+            d._rescanStatus = null;
+            persist(); saveMovement(mov); window.render?.();
+        } catch (e) {
+            console.warn('rescan OCR:', e);
+            pc()._rescanStatus = null;
+            window.render?.();
+            Modal.alert({ title: 'Re-escanear', message: 'No se pudo escanear. (' + (e.message || '') + ')' });
+        }
+    };
+
+    // 📸 Lote: varias facturas → un gasto por foto, OCR automático, badge "por revisar".
+    window.pcBatchPhotos = async (input) => {
+        const files = input && input.files ? Array.from(input.files) : [];
+        if (input) input.value = '';
+        const period = currentPeriod();
+        if (!files.length || !period) return;
+        const d = pc();
+        const ocrUrl = APP_CONFIG && APP_CONFIG.OCR_WEBHOOK_URL;
+        const user = auth && auth.currentUser;
+        let idToken = null;
+        if (user) { try { idToken = await user.getIdToken(); } catch { /* sin OCR */ } }
+
+        for (let i = 0; i < files.length; i++) {
+            d.batchStatus = `Procesando ${i + 1} de ${files.length}...`;
+            window.render?.();
+
+            let dataUrl;
+            try { dataUrl = await compressImage(files[i]); } catch (e) { console.warn('batch compress', e); continue; }
+
+            const mov = {
+                id: uid('mov'), periodId: period.id, projectId: period.projectId,
+                type: 'gasto', amount: 0, date: today(),
+                hasReceipt: true, receiptStatus: 'local', reviewPending: true,
+                createdBy: 'app', updatedAt: Date.now()
+            };
+            d.movements.push(mov);
+            persist(); saveMovement(mov);
+            try { await indexedDBService.saveReceipt(mov.id, dataUrl, 'pending'); } catch (e) { console.warn('batch saveReceipt', e); }
+            window.render?.();
+
+            if (ocrUrl && idToken) {
+                try {
+                    const base64 = String(dataUrl).split(',')[1] || dataUrl;
+                    const resp = await fetch(ocrUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: base64, idToken }) });
+                    if (resp.ok) {
+                        const data = await resp.json().catch(() => null);
+                        if (data && data.ok !== false) {
+                            if (data.total != null) mov.amount = round2(data.total);
+                            else if (data.subtotal != null) mov.amount = round2(data.subtotal);
+                            if (data.emisor) mov.paidTo = data.emisor;
+                            if (data.concepto) mov.description = data.concepto;
+                            if (data.fecha) { mov.date = data.fecha; mov.fechaEmision = data.fecha; }
+                            if (data.categoria && CATEGORIAS.includes(data.categoria)) mov.category = data.categoria;
+                            if (data.rncEmisor) mov.rncEmisor = data.rncEmisor;
+                            if (data.ncf) mov.ncf = data.ncf;
+                            if (data.cliente) mov.cliente = data.cliente;
+                            if (data.rncCliente) mov.rncCliente = data.rncCliente;
+                            if (data.subtotal != null) mov.subtotal = data.subtotal;
+                            if (data.itbis != null) mov.itbis = data.itbis;
+                            if (data.total != null) mov.total = data.total;
+                            if (data.notas) mov.notas = data.notas;
+                            if (Array.isArray(data.items) && data.items.length) mov.items = data.items;
+                            mov.updatedAt = Date.now();
+                            persist(); saveMovement(mov); window.render?.();
+                        }
+                    }
+                } catch (e) { console.warn('batch OCR', e); }
+            }
+        }
+
+        d.batchStatus = null;
+        persist(); window.render?.();
+        uploadPendingReceipts();
+    };
 
     window.pcPhotoNew = async (input) => {
         const file = input?.files?.[0];
@@ -740,6 +869,7 @@ export function registerPettyCashGlobals() {
             mov.fechaVencimiento = document.getElementById('pce-fvenc')?.value || null;
             mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
         }
+        mov.reviewPending = false; // guardar el detalle = revisado/confirmado
         mov.updatedAt = Date.now();
         const pendingPhoto = d._editPhoto;
         d.editMov = null; d._editPhoto = null;
