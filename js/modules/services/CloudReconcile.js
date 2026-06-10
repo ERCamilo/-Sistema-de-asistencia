@@ -47,7 +47,15 @@ export async function reconcileCloudFromLocal(localEmployees, opts = {}) {
     );
 
     onProgress({ phase: 'loading-cloud' });
-    const cloudList = await repository.loadAll();
+    // M1: loadAll() devuelve null ante fallo de lectura. Si no pudimos leer la
+    // nube NO calculamos huérfanos (borrar basándonos en una lectura fallida
+    // podría arrasar la nube). Lo tratamos como lista vacía → 0 borrados, y
+    // dejamos constancia del error; el push de lo local sigue su curso.
+    const cloudListRaw = await repository.loadAll();
+    if (cloudListRaw === null) {
+        errors.push({ op: 'loadCloud', error: 'No se pudo leer la nube; se omite el borrado de huérfanos' });
+    }
+    const cloudList = Array.isArray(cloudListRaw) ? cloudListRaw : [];
     const cloudBefore = cloudList.length;
 
     const orphans = cloudList

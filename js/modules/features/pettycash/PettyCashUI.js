@@ -22,55 +22,48 @@ import {
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
-import { compressImage } from './PettyCashPhoto.js';
+import { PettyCashStore } from './PettyCashStore.js';
+import { compressImage, downscaleDataUrl } from './PettyCashPhoto.js';
 import { buildPeriodSheets } from './PettyCashExport.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 
-const LS_KEY = '_pettycash_local_v2';
+const SEL_KEY = '_pettycash_sel_v1'; // solo la selección de UI (los datos van a IndexedDB)
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
 
-// ── state + persistencia local ───────────────────────────────────────
+// ── state ─────────────────────────────────────────────────────────────
+// Los DATOS (projects/periods/movements) viven en IndexedDB (vía PettyCashStore)
+// y se cargan async a state.pettyCash en el arranque. localStorage solo guarda
+// la selección de UI (proyecto/periodo activos), que es chica y desechable.
 function _base() {
     return { projects: [], periods: [], movements: [], selectedProjectId: null, selectedPeriodId: null, form: null, periodForm: null, editMov: null };
 }
-function _loadLocal() {
-    try {
-        const d = JSON.parse(localStorage.getItem(LS_KEY));
-        if (d && Array.isArray(d.projects) && Array.isArray(d.periods) && Array.isArray(d.movements)) {
-            return { ..._base(), projects: d.projects, periods: d.periods, movements: d.movements,
-                selectedProjectId: d.selectedProjectId || null, selectedPeriodId: d.selectedPeriodId || null };
-        }
-    } catch { /* noop */ }
-    return _base();
+function _loadSelection() {
+    try { return JSON.parse(localStorage.getItem(SEL_KEY)) || {}; } catch { return {}; }
 }
 function pc() {
-    if (!state.pettyCash) state.pettyCash = _loadLocal();
+    if (!state.pettyCash) {
+        const sel = _loadSelection();
+        state.pettyCash = { ..._base(), selectedProjectId: sel.selectedProjectId || null, selectedPeriodId: sel.selectedPeriodId || null };
+    }
     return state.pettyCash;
 }
+// Persistir SOLO la selección (los datos se guardan por item en PettyCashStore).
 function persist() {
     try {
         const d = pc();
-        localStorage.setItem(LS_KEY, JSON.stringify({
-            projects: d.projects, periods: d.periods, movements: d.movements,
-            selectedProjectId: d.selectedProjectId, selectedPeriodId: d.selectedPeriodId
-        }));
+        localStorage.setItem(SEL_KEY, JSON.stringify({ selectedProjectId: d.selectedProjectId, selectedPeriodId: d.selectedPeriodId }));
     } catch { /* noop */ }
 }
 
-// ── sync a Firestore (no-op sin sesión) ──────────────────────────────
-function _saveRemote(repo, item) {
-    try { repo.saveOne(item).catch(e => console.warn('⚠️ PettyCash saveOne:', e)); }
-    catch (e) { console.warn('⚠️ PettyCash saveOne:', e); }
-}
-function _deleteRemote(repo, id) {
-    try { repo.deleteOne(id).catch(e => console.warn('⚠️ PettyCash deleteOne:', e)); }
-    catch (e) { console.warn('⚠️ PettyCash deleteOne:', e); }
-}
-const saveProject  = (p) => _saveRemote(PettyCashRepository.projects, p);
-const savePeriod   = (p) => _saveRemote(PettyCashRepository.periods, p);
-const saveMovement = (m) => _saveRemote(PettyCashRepository.movements, m);
+// ── persistencia durable: IndexedDB local + outbox + Firestore ────────
+const saveProject  = (p) => PettyCashStore.save('projects', p);
+const savePeriod   = (p) => PettyCashStore.save('periods', p);
+const saveMovement = (m) => PettyCashStore.save('movements', m);
+const removeProjectDoc  = (id) => PettyCashStore.remove('projects', id);
+const removePeriodDoc   = (id) => PettyCashStore.remove('periods', id);
+const removeMovementDoc = (id) => PettyCashStore.remove('movements', id);
 
 function dedupById(arr) {
     return arr ? [...new Map(arr.map(i => [i.id, i])).values()] : [];
@@ -91,9 +84,30 @@ function currentPeriod() {
     return d.periods.find(p => p.id === d.selectedPeriodId) || null;
 }
 
+// ══ carga local (IndexedDB) — corre al arrancar, con o sin sesión ═════════
+let _pcLocalLoaded = false;
+export async function loadPettyCashLocal() {
+    if (_pcLocalLoaded) return;
+    _pcLocalLoaded = true;
+    const d = pc();
+    try {
+        await PettyCashStore.migrateFromLocalStorage();
+        const local = await PettyCashStore.loadLocal();
+        d.projects = dedupById(local.projects);
+        d.periods = dedupById(local.periods);
+        d.movements = dedupById(local.movements);
+        window.render?.();
+    } catch (e) {
+        console.warn('⚠️ loadPettyCashLocal:', e);
+    }
+}
+
 // ══ carga inicial + live sync (llamado desde app.js tras login) ════════
 export async function startPettyCashSync() {
     const d = pc();
+    await loadPettyCashLocal();          // primero lo local (offline-safe)
+    PettyCashStore.flush();              // empujar cambios pendientes (offline → nube)
+
     try {
         const [projects, periods, movements] = await Promise.all([
             PettyCashRepository.projects.loadAll(),
@@ -104,7 +118,10 @@ export async function startPettyCashSync() {
             d.projects = dedupById(projects);
             d.periods = dedupById(periods);
             d.movements = dedupById(movements);
-            persist();
+            // Espejar lo de la nube al IndexedDB local (caché offline).
+            PettyCashStore.applyRemote('projects', d.projects);
+            PettyCashStore.applyRemote('periods', d.periods);
+            PettyCashStore.applyRemote('movements', d.movements);
             window.render?.();
         }
     } catch (e) {
@@ -114,15 +131,15 @@ export async function startPettyCashSync() {
     PettyCashLiveSync.start({
         projects: {
             subscribe: (cb) => PettyCashRepository.projects.subscribe(cb),
-            onApply: (list) => { pc().projects = dedupById(list); persist(); window.render?.(); }
+            onApply: (list) => { const l = dedupById(list); pc().projects = l; PettyCashStore.applyRemote('projects', l); window.render?.(); }
         },
         periods: {
             subscribe: (cb) => PettyCashRepository.periods.subscribe(cb),
-            onApply: (list) => { pc().periods = dedupById(list); persist(); window.render?.(); }
+            onApply: (list) => { const l = dedupById(list); pc().periods = l; PettyCashStore.applyRemote('periods', l); window.render?.(); }
         },
         movements: {
             subscribe: (cb) => PettyCashRepository.movements.subscribe(cb),
-            onApply: (list) => { pc().movements = dedupById(list); persist(); window.render?.(); }
+            onApply: (list) => { const l = dedupById(list); pc().movements = l; PettyCashStore.applyRemote('movements', l); window.render?.(); }
         }
     });
 
@@ -155,7 +172,11 @@ export async function uploadPendingReceipts() {
                 if (!resp.ok) continue;
                 const data = await resp.json().catch(() => null);
                 if (!data || data.ok === false) continue;
-                await indexedDBService.saveReceipt(rec.txId, rec.dataUrl, 'uploaded');
+                // M4: el full-res ya está en la nube (data.path). Localmente
+                // guardamos sólo una miniatura para no acumular cientos de KB
+                // por comprobante; "Ver comprobante" sigue mostrando la imagen.
+                const thumb = await downscaleDataUrl(rec.dataUrl);
+                await indexedDBService.saveReceipt(rec.txId, thumb, 'uploaded');
                 const mov = pc().movements.find(m => m.id === rec.txId);
                 if (mov) {
                     mov.receiptStatus = 'uploaded';
@@ -465,6 +486,14 @@ function _movementsList(movs, cerrada) {
 export function registerPettyCashGlobals() {
     window.startPettyCashSync = startPettyCashSync;
 
+    // Cargar datos locales (IndexedDB) al arrancar, aun sin sesión (offline-safe).
+    loadPettyCashLocal();
+    // Al volver la conexión: reintentar la cola de escrituras y subir comprobantes.
+    if (typeof window !== 'undefined' && !window._pcOnlineHooked) {
+        window._pcOnlineHooked = true;
+        window.addEventListener('online', () => { PettyCashStore.flush(); uploadPendingReceipts(); });
+    }
+
     window.pcNewProject = async () => {
         const name = (await Modal.prompt({ title: '🏗️ Nuevo proyecto / obra', message: 'Nombre del proyecto u obra:', placeholder: 'Ej. Torre A', confirmText: 'Crear' }) || '').trim();
         if (!name) return;
@@ -503,10 +532,10 @@ export function registerPettyCashGlobals() {
         // cascada: movimientos + periodos del proyecto
         d.movements.filter(m => m.projectId === proj.id).forEach(m => {
             if (m.receiptStatus) indexedDBService.deleteReceipt(m.id);
-            _deleteRemote(PettyCashRepository.movements, m.id);
+            removeMovementDoc(m.id);
         });
-        pers.forEach(p => _deleteRemote(PettyCashRepository.periods, p.id));
-        _deleteRemote(PettyCashRepository.projects, proj.id);
+        pers.forEach(p => removePeriodDoc(p.id));
+        removeProjectDoc(proj.id);
         d.movements = d.movements.filter(m => m.projectId !== proj.id);
         d.periods = d.periods.filter(p => p.projectId !== proj.id);
         d.projects = d.projects.filter(p => p.id !== proj.id);
@@ -562,9 +591,9 @@ export function registerPettyCashGlobals() {
         if (!ok) return;
         movs.forEach(m => {
             if (m.receiptStatus) indexedDBService.deleteReceipt(m.id);
-            _deleteRemote(PettyCashRepository.movements, m.id);
+            removeMovementDoc(m.id);
         });
-        _deleteRemote(PettyCashRepository.periods, period.id);
+        removePeriodDoc(period.id);
         d.movements = d.movements.filter(m => m.periodId !== period.id);
         d.periods = d.periods.filter(p => p.id !== period.id);
         d.selectedPeriodId = null; d.periodForm = null; d.form = null; d.editMov = null;
@@ -934,7 +963,7 @@ export function registerPettyCashGlobals() {
         const ok = await Modal.confirm({ title: '🗑️ Eliminar movimiento', message: `¿Eliminar "${esc(label)}" de ${rd(mov.amount)}?`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
         if (mov.receiptStatus) indexedDBService.deleteReceipt(movId);
-        _deleteRemote(PettyCashRepository.movements, movId);
+        removeMovementDoc(movId);
         d.movements = d.movements.filter(m => m.id !== movId);
         persist(); window.render?.();
     };

@@ -19,6 +19,7 @@
  */
 
 import { generateUUID } from '../utils/Helpers.js';
+import { fingerprintId } from './RecordKey.js';
 
 // Top-level array fields in an employee object that hold id-keyed items.
 const TOP_LEVEL_FIELDS = ['loans', 'advances', 'bonuses', 'deductions'];
@@ -35,16 +36,26 @@ function hasUsableId(item) {
  * Ensure every item in `arr` has an 'id'. Returns the number of ids
  * that were assigned (0 if all items already had one).
  * Skips null / non-object items silently.
+ *
+ * 🫆 P3 (Auditoría 2026-06-10): el id asignado es DETERMINISTA (huella de
+ * contenido), no un UUID aleatorio. Antes, dos dispositivos que cargaban el
+ * mismo doc legacy asignaban UUIDs distintos al MISMO préstamo y el merge
+ * lo duplicaba. Con la huella, mismo contenido → mismo id en ambos lados.
+ * Items idénticos dentro del mismo arreglo se distinguen con un sufijo de
+ * ocurrencia (estable: el orden viene del mismo documento).
  */
 function ensureIds(arr) {
     if (!Array.isArray(arr)) return 0;
     let count = 0;
+    const occurrences = new Map();
     for (const item of arr) {
         if (!item || typeof item !== 'object') continue;
-        if (!hasUsableId(item)) {
-            item.id = generateUUID();
-            count++;
-        }
+        if (hasUsableId(item)) continue;
+        const base = fingerprintId(item) || generateUUID();
+        const n = (occurrences.get(base) || 0) + 1;
+        occurrences.set(base, n);
+        item.id = n === 1 ? base : `${base}-${n}`;
+        count++;
     }
     return count;
 }

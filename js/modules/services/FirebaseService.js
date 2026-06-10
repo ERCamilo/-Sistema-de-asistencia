@@ -6,6 +6,8 @@ import {
     ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob, deleteObject
 } from '../data/firebase.js';
 import { getDeviceId } from '../config/Config.js';
+import { sanitizePettyCashForSnapshot } from './SnapshotSanitizer.js';
+import { selectSnapshotsToPrune } from './SnapshotRetention.js';
 import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
 import { notifySnapshotCreated } from './SnapshotNotifier.js';
 import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
@@ -40,6 +42,14 @@ class FirebaseService {
      * Cierra la sesión activa
      */
     async logout() {
+        // 🔐 M6: el auto-backup de sessionStorage guarda el estado completo en
+        // claro (salarios, préstamos, RNC). En un equipo compartido NO debe
+        // sobrevivir al cierre de sesión. Lo limpiamos ANTES del signOut para
+        // que se borre aunque signOut falle.
+        try {
+            sessionStorage.removeItem('attendance-backup');
+        } catch (_) { /* sessionStorage no disponible: nada que limpiar */ }
+
         try {
             await signOut(auth);
             this.user = null;
@@ -76,6 +86,10 @@ class FirebaseService {
             delete snapshotContext.currentUser;
             delete snapshotContext.attendance; // ⚡ OPT: La asistencia se guarda por separado en su propia colección
             delete snapshotContext.attendanceByDate; // ⚡ OPT: Índices locales no se suben
+            // 🧼 C3: la caja chica vive per-doc en projects/cashPeriods/pettyCash.
+            // Además, su estado de UI (form/_editPhoto) puede contener fotos
+            // base64 que harían superar el límite de 1 MB del doc espejo.
+            delete snapshotContext.pettyCash;
 
             // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular,
             // escribimos las entidades en sus propias colecciones.
@@ -106,7 +120,7 @@ class FirebaseService {
             }
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
-
+            const settingsMap = cleanState.settings;
 
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
             // 🛡️ merge: true evita que un guardado parcial borre campos top-level
@@ -114,12 +128,27 @@ class FirebaseService {
             // arriba, esto cierra la ruta de pérdida de datos en multi-dispositivo
             // para todo lo que vive en el empleado (préstamos, segundos empleos,
             // adelantos, etc.).
+            //
+            // ⚠️ settings SE INCLUYE en este write para que el snapshot lleve el
+            // localUpdatedAt correcto en una sola operación (si lo excluyéramos,
+            // el otro dispositivo vería un snapshot con settings/localUpdatedAt
+            // viejos y el watermark dispararía un re-sync innecesario).
             await setDoc(docRef, {
                 ...cleanState,
                 updatedAt: serverTimestamp(),
                 lastDevice: navigator.userAgent,
                 lastChangedBy: getDeviceId()
             }, { merge: true });
+
+            // 🧩 M9: tras el merge, REEMPLAZAMOS settings como mapa COMPLETO.
+            // Con merge:true Firestore fusiona mapas en profundidad, así que una
+            // clave de settings BORRADA localmente sobreviviría. updateDoc
+            // reemplaza el campo entero, eliminando las claves que ya no existen
+            // (LWW por dispositivo: settings es un objeto coherente que el
+            // dispositivo siempre tiene completo en memoria).
+            if (settingsMap && typeof settingsMap === 'object') {
+                await updateDoc(docRef, { settings: settingsMap });
+            }
             console.log(`☁️ Estado sincronizado en Firebase (schemaVersion=${schemaVersion || 'legacy'})`);
             SyncStatus.markSynced();
         } catch (error) {
@@ -152,14 +181,20 @@ class FirebaseService {
 
             // --- 1. Delete orphan cloud employee docs ---
             if (isMigrated) {
+                // M1: loadAll() devuelve null ante fallo de lectura. Si no
+                // pudimos leer la nube, OMITIMOS el borrado de huérfanos (no se
+                // debe borrar a ciegas); el guardado de lo local sigue su curso.
                 const cloudEmps = await EmployeeRepository.loadAll();
                 const localIds  = new Set(
                     (Array.isArray(state.employees) ? state.employees : [])
                         .map(e => String(e.id))
                 );
-                const orphanIds = cloudEmps
-                    .map(e => String(e.id))
-                    .filter(id => !localIds.has(id));
+                const orphanIds = Array.isArray(cloudEmps)
+                    ? cloudEmps.map(e => String(e.id)).filter(id => !localIds.has(id))
+                    : [];
+                if (!Array.isArray(cloudEmps)) {
+                    console.warn('⚠️ replaceCloudFull: no se pudo leer empleados cloud; se omite el borrado de huérfanos');
+                }
 
                 if (orphanIds.length > 0) {
                     console.log(`🗑️ replaceCloudFull: Borrando ${orphanIds.length} empleado(s) huérfano(s) de la nube:`, orphanIds);
@@ -183,6 +218,8 @@ class FirebaseService {
             delete snapshotContext.currentUser;
             delete snapshotContext.attendance;
             delete snapshotContext.attendanceByDate;
+            // 🧼 C3: igual que en saveFullState — per-doc + riesgo de fotos base64.
+            delete snapshotContext.pettyCash;
             if (isMigrated) delete snapshotContext.employees;
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
@@ -235,6 +272,10 @@ class FirebaseService {
             delete snapshotContext.snapshots;
             delete snapshotContext.isLoadingSnapshots;
             delete snapshotContext.currentUser;
+            // 🧼 C3: el snapshot SÍ conserva los datos de caja chica (es un
+            // backup completo), pero saneados: sin form/fotos base64/estado UI.
+            snapshotContext.pettyCash = sanitizePettyCashForSnapshot(snapshotContext.pettyCash);
+            if (snapshotContext.pettyCash === null) delete snapshotContext.pettyCash;
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
@@ -280,6 +321,14 @@ class FirebaseService {
                 type,
                 isProtected: type === 'pre-restore' || !!reasonInfo?.protected
             });
+
+            // 🧹 M5: retención. Tras un snapshot AUTOMÁTICO (los que se acumulan),
+            // podamos los autos antiguos. Best-effort y fire-and-forget: nunca
+            // debe bloquear ni romper la creación del snapshot.
+            if (type === 'auto') {
+                this.pruneOldSnapshots().catch(e =>
+                    console.warn('⚠️ Retención de snapshots no crítica falló:', e));
+            }
 
             return docRef.id;
         } catch (error) {
@@ -575,6 +624,10 @@ class FirebaseService {
             console.log(`☁️ Asistencia sincronizada: ${dateKey}`);
         } catch (error) {
             console.error(`❌ Error sincronizando asistencia del ${dateKey}:`, error);
+            // 🔔 H6: re-lanzar para que el caller notifique al usuario
+            // (_notifySyncError). Tragarse el error aquí dejaba el badge en
+            // "Sincronizado" mientras la asistencia llevaba días sin subir.
+            throw error;
         }
     }
 
@@ -663,6 +716,66 @@ class FirebaseService {
     }
 
     /**
+     * 🗑️ Elimina TODOS los datos de la cuenta en la nube (Auditoría C1).
+     *
+     * Borra:
+     *   - El doc espejo users/{uid}/data/current
+     *   - Las subcolecciones de entidades: employees, positions, leaders
+     *   - La asistencia granular: attendance/{fecha}
+     *   - Caja chica: projects, cashPeriods, pettyCash
+     *
+     * NO borra los snapshots: son la red de seguridad para deshacer
+     * exactamente esta clase de operación destructiva. Para limpiarlos
+     * existe deleteSnapshotsByType().
+     *
+     * Los borrados van en lotes de writeBatch (límite Firestore: 500 ops).
+     *
+     * @returns {Promise<{deleted: number}>} cantidad de docs eliminados
+     */
+    async deleteCloudData() {
+        if (!auth.currentUser) return { deleted: 0 };
+        const uid = auth.currentUser.uid;
+
+        const SUBCOLLECTIONS = [
+            'employees', 'positions', 'leaders', 'attendance',
+            'projects', 'cashPeriods', 'pettyCash'
+        ];
+
+        let deleted = 0;
+        try {
+            for (const colName of SUBCOLLECTIONS) {
+                const colRef = collection(db, 'users', uid, colName);
+                const snap = await getDocs(colRef);
+
+                let batch = writeBatch(db);
+                let ops = 0;
+                for (const docSnap of snap.docs) {
+                    batch.delete(docSnap.ref);
+                    ops++;
+                    deleted++;
+                    if (ops === 500) {
+                        await batch.commit();
+                        batch = writeBatch(db);
+                        ops = 0;
+                    }
+                }
+                if (ops > 0) await batch.commit();
+            }
+
+            // Doc espejo principal al final: si algo falla antes, el doc
+            // sobrevive y la cuenta sigue siendo funcional/reintentable.
+            await deleteDoc(doc(db, 'users', uid, 'data', 'current'));
+            deleted++;
+
+            console.log(`🗑️ deleteCloudData: ${deleted} doc(s) eliminados de la nube`);
+            return { deleted };
+        } catch (error) {
+            console.error('❌ Error en deleteCloudData:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Elimina un snapshot específico
      */
     async deleteSnapshot(snapshotId) {
@@ -735,6 +848,50 @@ class FirebaseService {
         } catch (error) {
             console.error(`❌ Error en borrado masivo de snapshots (${type}):`, error);
             throw error;
+        }
+    }
+
+    /**
+     * 🧹 M5: Retención de snapshots. Conserva los N más recientes por razón
+     * de los snapshots AUTOMÁTICOS y borra el resto (Firestore + Storage).
+     * Nunca toca protegidos ni manuales. Best-effort: cualquier fallo se
+     * reporta pero no se propaga (no debe romper la creación de snapshots).
+     *
+     * @param {object} [opts] { keep?: {razón: N}, defaultKeep?: number }
+     * @returns {Promise<{pruned: number}>}
+     */
+    async pruneOldSnapshots(opts = {}) {
+        if (!auth.currentUser) return { pruned: 0 };
+        try {
+            const snapshotsRef = collection(db, 'users', auth.currentUser.uid, 'snapshots');
+            // Listamos TODOS (no sólo los 10 de listSnapshots) para decidir bien.
+            const qs = await getDocs(query(snapshotsRef, orderBy('metadata.timestamp', 'desc')));
+            const all = qs.docs.map(d => {
+                const meta = d.data()?.metadata || {};
+                return {
+                    id: d.id,
+                    type: meta.type,
+                    reason: meta.reason,
+                    timestamp: meta.timestamp,
+                    isProtected: !!meta.isProtected
+                };
+            });
+
+            const ids = selectSnapshotsToPrune(all, opts);
+            let pruned = 0;
+            for (const id of ids) {
+                try {
+                    await this.deleteSnapshot(id);
+                    pruned++;
+                } catch (e) {
+                    console.warn(`⚠️ Retención: no se pudo borrar snapshot ${id}:`, e);
+                }
+            }
+            if (pruned > 0) console.log(`🧹 Retención de snapshots: ${pruned} automático(s) antiguo(s) eliminados`);
+            return { pruned };
+        } catch (error) {
+            console.warn('⚠️ pruneOldSnapshots falló (no crítico):', error);
+            return { pruned: 0 };
         }
     }
 }

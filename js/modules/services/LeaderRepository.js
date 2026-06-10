@@ -46,7 +46,7 @@ export const LeaderRepository = {
             return result;
         } catch (e) {
             console.error('❌ LeaderRepository.loadAll error:', e);
-            return [];
+            return null; // M1: null = fallo de lectura, NO "colección vacía"
         }
     },
 

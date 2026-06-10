@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// 🔐 Reglas de Firebase Storage (Auditoría 2026-06-09, hallazgo M7).
+// Los snapshots grandes (JSON de nómina completo) se suben a
+// users/{uid}/snapshots/*. Igual que firestore.rules: SOLO el dueño de la
+// cuenta puede leer/escribir sus propios archivos, y todo lo demás se deniega
+// por defecto (principio de menor privilegio).
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // El dueño de la cuenta controla todo bajo su propio prefijo.
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Denegar todo lo demás por defecto.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

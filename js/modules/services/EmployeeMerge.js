@@ -22,6 +22,8 @@
  */
 
 import { generateUUID } from '../utils/Helpers.js';
+import { fingerprintId } from './RecordKey.js';
+import { mergeTombstoneMaps, tombstoneSetFor, TOMBSTONE_FIELDS } from './NestedTombstones.js';
 
 const ARRAY_FIELDS_BY_ID = ['loans', 'advances', 'bonuses', 'deductions'];
 const LOAN_NESTED_BY_ID  = ['payments', 'installments', 'refinancings'];
@@ -45,29 +47,44 @@ function pickNewerScalar(server, local) {
 }
 
 /**
+ * 🫆 Asigna ids sintéticos DETERMINISTAS a los items sin id de un arreglo.
+ * (Hallazgo P3) Antes se usaba un UUID aleatorio por lado: el MISMO item
+ * legacy presente en server y local recibía dos ids distintos y el merge
+ * lo duplicaba. Con la huella de contenido, mismo contenido → mismo id en
+ * ambos lados → la unión por id los fusiona naturalmente.
+ *
+ * Dos items idénticos dentro del MISMO arreglo (p. ej. dos adelantos
+ * iguales el mismo día) se distinguen con un sufijo de ocurrencia, que es
+ * estable entre dispositivos porque el orden del arreglo viene del mismo
+ * documento.
+ */
+function withDeterministicIds(arr, idKey) {
+    const occurrences = new Map();
+    return (Array.isArray(arr) ? arr : [])
+        .filter(item => item && typeof item === 'object')
+        .map(item => {
+            if (hasUsableId(item, idKey)) return item;
+            const base = fingerprintId(item) || generateUUID();
+            const n = (occurrences.get(base) || 0) + 1;
+            occurrences.set(base, n);
+            return { ...item, [idKey]: n === 1 ? base : `${base}-${n}` };
+        });
+}
+
+/**
  * Une dos arreglos de objetos por id. En colisión gana el de mayor
  * updatedAt; en empate o ambos sin updatedAt, gana local. Items sin id
- * usable reciben un id sintético (UUID) y se preservan — perder datos
- * silenciosamente cuesta más que un duplicado eventual.
+ * usable reciben un id sintético DETERMINISTA (huella de contenido) y se
+ * preservan — perder datos silenciosamente cuesta más que un duplicado
+ * eventual, y la huella evita duplicar el mismo item entre dispositivos.
  */
 export function unionById(serverArr, localArr, idKey = 'id', recurse = null) {
     const map = new Map();
-    const orphans = []; // items sin id de ambos lados; se incluyen tal cual con id sintético
 
-    (Array.isArray(serverArr) ? serverArr : []).forEach(item => {
-        if (!item || typeof item !== 'object') return;
-        if (!hasUsableId(item, idKey)) {
-            orphans.push({ ...item, [idKey]: generateUUID() });
-            return;
-        }
+    withDeterministicIds(serverArr, idKey).forEach(item => {
         map.set(String(item[idKey]), { side: 'server', item });
     });
-    (Array.isArray(localArr) ? localArr : []).forEach(item => {
-        if (!item || typeof item !== 'object') return;
-        if (!hasUsableId(item, idKey)) {
-            orphans.push({ ...item, [idKey]: generateUUID() });
-            return;
-        }
+    withDeterministicIds(localArr, idKey).forEach(item => {
         const k = String(item[idKey]);
         const existing = map.get(k);
         if (!existing) {
@@ -85,7 +102,7 @@ export function unionById(serverArr, localArr, idKey = 'id', recurse = null) {
         map.set(k, { side: winner, item: merged });
     });
 
-    return [...[...map.values()].map(v => v.item), ...orphans];
+    return [...map.values()].map(v => v.item);
 }
 
 /**
@@ -161,6 +178,22 @@ export function mergeEmployees(server, local) {
     out.advances    = unionById(server.advances,    local.advances);
     out.bonuses     = unionById(server.bonuses,     local.bonuses);
     out.deductions  = unionById(server.deductions,  local.deductions);
+
+    // 2.b 🪦 Tombstones (hallazgo P1): la unión por id RESUCITABA los items
+    // borrados (el lado que aún los tenía los re-aportaba). Los borrados se
+    // registran en deletedItemIds; aquí se unen los de ambos lados, se
+    // excluyen del resultado y se propagan para proteger futuros merges.
+    const tombstones = mergeTombstoneMaps(server.deletedItemIds, local.deletedItemIds);
+    for (const field of TOMBSTONE_FIELDS) {
+        const dead = tombstoneSetFor(tombstones, field);
+        if (dead.size === 0) continue;
+        if (Array.isArray(out[field])) {
+            out[field] = out[field].filter(item => !dead.has(String(item?.id)));
+        }
+    }
+    if (Object.keys(tombstones).length > 0) {
+        out.deletedItemIds = tombstones;
+    }
 
     // 3. statusHistory por timestamp.
     out.statusHistory = mergeStatusHistory(server.statusHistory, local.statusHistory);

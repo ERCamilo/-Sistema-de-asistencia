@@ -56,7 +56,12 @@ export function round2(n) {
 let _idCounter = 0;
 function genId(prefix) {
     _idCounter++;
-    return `${prefix}-${Date.now().toString(36)}-${_idCounter.toString(36)}`;
+    // 🫆 P4: el sufijo aleatorio evita colisiones ENTRE dispositivos — el
+    // contador reinicia en cada carga de página, así que dos dispositivos
+    // creando en el mismo milisegundo generaban el MISMO id y el merge
+    // fusionaba préstamos/abonos distintos.
+    const rand = Math.random().toString(36).slice(2, 8);
+    return `${prefix}-${Date.now().toString(36)}-${_idCounter.toString(36)}-${rand}`;
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -283,13 +288,18 @@ export function recordPayment(emp, loanId, params) {
     const { valid, errors } = validatePaymentInput(loan, params);
     if (!valid) throw new Error(errors.join('. '));
 
+    const now = Date.now();
     const payment = {
         id: genId('PAY'),
         date: params.date,
         amount: round2(params.amount),
         note: (params.note || '').trim(),
         recordedBy: params.recordedBy || null,
-        recordedAt: Date.now(),
+        recordedAt: now,
+        // 🕒 P2: updatedAt por-payment. Sin esto, en una colisión de merge
+        // (mismo id en server y local) ganaba siempre "local" y una copia
+        // vieja podía pisar una anulación hecha en otro dispositivo.
+        updatedAt: now,
         voided: false,
         voidedAt: null
     };
@@ -370,6 +380,9 @@ export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
     payment.voided = true;
     payment.voidedAt = Date.now();
     payment.voidedBy = voidedBy;
+    // 🕒 P2: la anulación debe ganar el merge contra copias viejas del
+    // mismo payment en otros dispositivos.
+    payment.updatedAt = Date.now();
     loan.updatedAt = Date.now();
     emp.updatedAt = Date.now();
 

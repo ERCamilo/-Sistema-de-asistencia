@@ -1,6 +1,7 @@
 import { state } from '../core/AppState.js';
 import storageService from './StorageService.js';
 import indexedDBService from './IndexedDBService.js';
+import { clearLocalOwnership } from './LocalDataOwner.js';
 
 export class DataService {
     constructor() {
@@ -139,6 +140,10 @@ export class DataService {
                 // 3. Limpiar banderas de migración
                 localStorage.removeItem('migrated-to-idb');
                 localStorage.removeItem('onboardingCompleted');
+
+                // 4. Sin datos locales ya no hay dueño que proteger (C2):
+                // el próximo login reclama el dispositivo sin fricción.
+                clearLocalOwnership();
 
                 console.log('✅ Borrado local completo');
                 location.reload();

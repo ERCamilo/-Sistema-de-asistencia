@@ -50,7 +50,7 @@ testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull (source c
         // Find the replaceCloudFull method body and check that at least one
         // setDoc call does NOT use { merge: true }.
         const method = FIREBASE_SRC.match(
-            /replaceCloudFull[\s\S]{0,3000}/
+            /replaceCloudFull[\s\S]{0,4000}/
         );
         testRunner.assert(!!method, 'replaceCloudFull must exist');
         // It should have a setDoc call.  We check there is at least one setDoc

@@ -99,7 +99,8 @@ export class MaintenanceUI {
         const hasUser = typeof globalThis !== 'undefined' && !!globalThis.currentUser;
         if (isMigrated && hasUser) {
             try {
-                cloudEmployees = await EmployeeRepository.loadAll();
+                // M1: loadAll() puede devolver null ante fallo de lectura → []
+                cloudEmployees = (await EmployeeRepository.loadAll()) || [];
             } catch (e) {
                 console.warn('⚠️ No se pudo leer la subcolección de empleados:', e);
                 cloudEmployees = [];
@@ -301,6 +302,12 @@ export class MaintenanceUI {
             cloud = await EmployeeRepository.loadAll();
         } catch (e) {
             console.error('No se pudo leer la subcolección de empleados:', e);
+            NotificationSystem.error('No se pudo leer la nube. Revisa tu conexión.');
+            return;
+        }
+        // M1: null = fallo de lectura señalado por el repo (loadAll ya no lanza).
+        // No calcular huérfanos sobre una lectura fallida; abortar con aviso.
+        if (cloud === null) {
             NotificationSystem.error('No se pudo leer la nube. Revisa tu conexión.');
             return;
         }
@@ -857,7 +864,8 @@ export class MaintenanceUI {
         const hasUser = typeof globalThis !== 'undefined' && !!globalThis.currentUser;
         if (isMigrated && hasUser) {
             try {
-                cloudEmployees = await EmployeeRepository.loadAll();
+                // M1: null ante fallo de lectura → conservar [] para el análisis
+                cloudEmployees = (await EmployeeRepository.loadAll()) || [];
             } catch (e) {
                 console.warn('⚠️ Re-análisis: no se pudo leer cloud:', e);
             }

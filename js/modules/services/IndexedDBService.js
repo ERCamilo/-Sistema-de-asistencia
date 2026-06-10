@@ -5,9 +5,10 @@
 
 import { Notification } from '../components/Notification.js';
 import { computeSaveStatsExtras } from './SaveStatsExtras.js';
+import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 9) {
+    constructor(dbName = 'attendance-app-db', version = 10) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -118,6 +119,25 @@ export class IndexedDBService {
                     const rcStore = db.createObjectStore('pettyCashReceipts', { keyPath: 'txId' });
                     rcStore.createIndex('status', 'status', { unique: false });
                 }
+
+                // Stores: Caja chica datos (v10) — proyectos/periodos/movimientos
+                // ahora viven en IndexedDB (no en localStorage) + outbox de
+                // escrituras pendientes para no perder cambios hechos offline.
+                if (!db.objectStoreNames.contains('pettyCashProjects')) {
+                    db.createObjectStore('pettyCashProjects', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('pettyCashPeriods')) {
+                    const pStore = db.createObjectStore('pettyCashPeriods', { keyPath: 'id' });
+                    pStore.createIndex('projectId', 'projectId', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('pettyCashMovements')) {
+                    const mStore = db.createObjectStore('pettyCashMovements', { keyPath: 'id' });
+                    mStore.createIndex('periodId', 'periodId', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('pettyCashOutbox')) {
+                    const oStore = db.createObjectStore('pettyCashOutbox', { keyPath: 'key', autoIncrement: true });
+                    oStore.createIndex('status', 'status', { unique: false });
+                }
             };
         });
     }
@@ -136,24 +156,9 @@ export class IndexedDBService {
         });
     }
 
-    /**
-     * 🧹 Limpia todos los registros de una store específica.
-     * Usado antes de reescribir la store de attendance tras fusiones.
-     * @param {string} storeName - Nombre del store a limpiar
-     */
-    async clear(storeName) {
-        await this.init();
-        return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore(storeName);
-            const request = store.clear();
-            request.onsuccess = () => resolve();
-            request.onerror = () => {
-                console.error(`❌ Error limpiando store ${storeName}:`, request.error);
-                reject(request.error);
-            };
-        });
-    }
+    // 🧹 clear(storeName) está definido más abajo (junto a delete/clearAll).
+    // La copia duplicada que vivía aquí era código muerto (L1, auditoría
+    // 2026-06-09): en una clase, la segunda definición pisa a la primera.
 
     // ─── Comprobantes de caja chica (fotos locales, v9) ───────────────
     /**
@@ -321,10 +326,14 @@ export class IndexedDBService {
 
     async clearAll() {
         await this.init();
-        const stores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
+        // 🧹 H2: limpiar TODO lo que exista en la DB, no una lista hardcodeada.
+        // La lista vieja omitía los stores de caja chica (v9/v10): "Borrar
+        // Información Local" dejaba movimientos financieros y fotos de
+        // comprobantes en el dispositivo.
+        const stores = Array.from(this.db.objectStoreNames);
         const promises = stores.map(store => this.clear(store));
         await Promise.all(promises);
-        console.log('🧹 IndexedDB: Todas las tablas limpiadas');
+        console.log(`🧹 IndexedDB: ${stores.length} store(s) limpiados (${stores.join(', ')})`);
         return true;
     }
 
@@ -371,9 +380,20 @@ export class IndexedDBService {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
         try {
             const isGranular = !!options.dateKey;
-            
+
             if (options.clearFirst) {
-                await this.clearAll();
+                // 🧹 M3: limpiar SOLO los stores que este método reescribe.
+                // clearAll() borraría también la caja chica y los comprobantes,
+                // que saveState NO sabe restaurar (los maneja PettyCashStore) —
+                // un restore de backup viejo arrasaría datos que el archivo no
+                // trae. El borrado total sigue siendo clearAll() (Borrar Local).
+                const ownStores = ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue'];
+                await this.init();
+                await Promise.all(
+                    ownStores
+                        .filter(s => this.db.objectStoreNames.contains(s))
+                        .map(s => this.clear(s))
+                );
             }
 
             // ⚡ P1-OPT: No clonar todo el estado (evita 500ms+ de CPU)
@@ -381,14 +401,17 @@ export class IndexedDBService {
 
             if (!isGranular) {
                 // 1. DEDUPLICACIÓN INTERNA (Solo en guardado completo)
+                // 🔑 H1: la clave es number || id (dedupKeyForRecord). Antes,
+                // un registro sin número se descartaba en silencio y nunca
+                // llegaba a IndexedDB — pérdida de datos local tras un F5.
                 const empMap = new Map();
                 (state.employees || []).forEach(emp => {
-                    const num = String(emp.number || '').trim();
-                    if (!num) return;
-                    const existing = empMap.get(num);
+                    const key = dedupKeyForRecord(emp);
+                    if (!key) return; // sin number NI id: nada que persistir
+                    const existing = empMap.get(key);
                     if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
                         if (existing) stats.deduplicated++;
-                        empMap.set(num, emp);
+                        empMap.set(key, emp);
                     } else {
                         stats.deduplicated++;
                     }
@@ -396,12 +419,12 @@ export class IndexedDBService {
 
                 const leadMap = new Map();
                 (state.leaders || []).forEach(l => {
-                    const num = String(l.number || '').trim();
-                    if (!num) return;
-                    const existing = leadMap.get(num);
+                    const key = dedupKeyForRecord(l);
+                    if (!key) return;
+                    const existing = leadMap.get(key);
                     if (!existing || (l.updatedAt || 0) > (existing.updatedAt || 0)) {
                         if (existing) stats.deduplicated++;
-                        leadMap.set(num, l);
+                        leadMap.set(key, l);
                     } else {
                         stats.deduplicated++;
                     }
@@ -452,7 +475,9 @@ export class IndexedDBService {
             stats.attendance = await this.batchUpdate('attendance', attToSave);
 
             if (state.settings) {
-                await this.update('settings', { key: 'app', ...state.settings });
+                // L3: key:'app' va DESPUÉS del spread para que un eventual
+                // state.settings.key no pise el keyPath del store.
+                await this.update('settings', { ...state.settings, key: 'app' });
             }
 
             const extras = computeSaveStatsExtras(state);
@@ -474,6 +499,11 @@ export class IndexedDBService {
             leaders: await this.getAll('leaders'),
             attendance: await this.getAll('attendance'),
             settings: await this.getAll('settings'),
+            // 💵 M3: la caja chica también es parte de la DB local — sin esto
+            // el dump estaba incompleto y una restauración la perdía.
+            pettyCashProjects: await this.getAll('pettyCashProjects').catch(() => []),
+            pettyCashPeriods: await this.getAll('pettyCashPeriods').catch(() => []),
+            pettyCashMovements: await this.getAll('pettyCashMovements').catch(() => []),
             exportedAt: new Date().toISOString(),
             version: this.version
         };
@@ -530,11 +560,13 @@ export class IndexedDBService {
             await this.clear('attendance');
             await this.clear('settings');
 
-            if (data.employees) for (const emp of data.employees) await this.update('employees', emp);
-            if (data.positions) for (const pos of data.positions) await this.update('positions', pos);
-            if (data.leaders) for (const leader of data.leaders) await this.update('leaders', leader);
-            if (data.attendance) for (const att of data.attendance) await this.update('attendance', att);
-            if (data.settings) for (const s of data.settings) await this.update('settings', s);
+            // L5: escritura por lotes (batchUpdate) en vez de update() uno-por-uno;
+            // mucho más rápido al restaurar backups grandes.
+            if (Array.isArray(data.employees)) await this.batchUpdate('employees', data.employees);
+            if (Array.isArray(data.positions)) await this.batchUpdate('positions', data.positions);
+            if (Array.isArray(data.leaders))   await this.batchUpdate('leaders', data.leaders);
+            if (Array.isArray(data.attendance)) await this.batchUpdate('attendance', data.attendance);
+            if (Array.isArray(data.settings))  await this.batchUpdate('settings', data.settings);
 
             return true;
         } catch (error) {
@@ -544,7 +576,7 @@ export class IndexedDBService {
     }
 
     // Migrar desde localStorage
-    async migrateFromLocalStorage(storageKey = 'attendance-app-data') {
+    async migrateFromLocalStorage(storageKey = 'asistencia-data') {
         try {
             const oldData = localStorage.getItem(storageKey);
             if (!oldData) return false;
