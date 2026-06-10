@@ -21,40 +21,32 @@ export class StorageService {
     }
 
     // Guardar datos completos
+    // L6: los logs verbosos (tamaños, key, verificación) van DETRÁS de
+    // window.debug — en producción exponían tamaños de datos en máquinas
+    // compartidas y ensuciaban la consola. Los errores se siguen reportando.
     save(data) {
-        console.log('🟡 StorageService.save() iniciado');
-
         if (!this.isAvailable) {
             console.error(`${icons.get('info')} LocalStorage NO disponible`);
             if (window.debug) window.debug.warn(`${icons.get('info')} LocalStorage no disponible - datos no guardados`);
             return false;
         }
 
-        console.log('💡 LocalStorage disponible');
-
         try {
             const serialized = JSON.stringify(data);
-            console.log('📦 Datos serializados:', serialized.length, 'bytes');
-
             localStorage.setItem(this.storageKey, serialized);
-            console.log('💡 \ localStorage.setItem() ejecutado exitosamente');
-            console.log('💡 Key:', this.storageKey);
 
             // Verificar que se guardó
             const verification = localStorage.getItem(this.storageKey);
-            if (verification) {
-                console.log('💡 Verificación: Datos encontrados en localStorage');
-                console.log('💡 Tamaño verificado:', verification.length, 'bytes');
-            } else {
+            if (!verification) {
                 console.error(`${icons.get('info')} Verificación falló: No se encontraron datos`);
             }
 
-            if (window.debug) window.debug.log(`${icons.get('info')} Datos guardados en localStorage`);
+            if (window.debug) {
+                window.debug.log(`${icons.get('info')} Datos guardados en localStorage (${serialized.length} bytes, key: ${this.storageKey})`);
+            }
             return true;
         } catch (e) {
             console.error(`${icons.get('info')} Error al guardar en localStorage:`, e);
-            console.error(`${icons.get('info')} Tipo de error:`, e.name);
-            console.error(`${icons.get('info')} Mensaje:`, e.message);
             if (window.debug) window.debug.error(`${icons.get('info')} Error al guardar en localStorage:`, e);
             Notification.error('Error al guardar datos', 5000);
             return false;

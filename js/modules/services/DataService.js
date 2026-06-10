@@ -2,6 +2,16 @@ import { state } from '../core/AppState.js';
 import storageService from './StorageService.js';
 import indexedDBService from './IndexedDBService.js';
 import { clearLocalOwnership } from './LocalDataOwner.js';
+// L4: imports explícitos — antes estos símbolos se resolvían vía globals que
+// app.js cuelga de globalThis; un cambio en el orden de carga rompía
+// loadAll()/reset() con ReferenceError silencioso.
+import { Employee } from '../features/employees/Employee.js';
+import { Position } from '../features/employees/Position.js';
+import { Leader } from '../features/employees/Leader.js';
+import { Attendance } from '../features/attendance/Attendance.js';
+import { Modal } from '../components/Modal.js';
+import { Notification } from '../components/Notification.js';
+import icons from '../ui/IconSystem.js';
 
 export class DataService {
     constructor() {

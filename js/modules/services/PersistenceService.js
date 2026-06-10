@@ -17,6 +17,8 @@ import { SyncStatus } from './SyncStatus.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
+import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
+import { PettyCashStore } from '../features/pettycash/PettyCashStore.js';
 import { debug } from '../utils/Debug.js';
 
 // Importar clases de entidad para inflar datos
@@ -835,6 +837,52 @@ export async function prepareDataForNewAccount() {
     });
     state.attendance = newAttendance;
 
+    // 5. 🧾 Caja chica (L7): la cuenta clonada no debe conservar los ids de la
+    // cuenta anterior. Regeneramos ids (con referencias cruzadas remapeadas),
+    // re-encadenamos los comprobantes locales al id nuevo, limpiamos la outbox
+    // vieja (sus entradas referencian ids/cuenta anteriores) y re-encolamos
+    // todo vía PettyCashStore.save — así la outbox lo sube al entrar a la
+    // cuenta nueva. Best-effort: un fallo aquí no aborta el clonado de nómina.
+    try {
+        const localPC = await PettyCashStore.loadLocal();
+        const hasPC = localPC.projects.length || localPC.periods.length || localPC.movements.length;
+        if (hasPC) {
+            const regen = regeneratePettyCashIds(localPC, generateUUID);
+
+            // Re-encadenar comprobantes (fotos locales) al id nuevo del movimiento.
+            for (const mov of localPC.movements) {
+                const newId = regen.idMap.get(mov?.id);
+                if (!newId || !mov?.receiptStatus) continue;
+                try {
+                    const rec = await indexedDBService.getReceipt(mov.id);
+                    if (rec?.dataUrl) {
+                        await indexedDBService.saveReceipt(newId, rec.dataUrl, rec.status || 'pending');
+                        await indexedDBService.deleteReceipt(mov.id);
+                    }
+                } catch { /* best-effort: el comprobante queda huérfano, no bloquea */ }
+            }
+
+            await indexedDBService.clear('pettyCashProjects');
+            await indexedDBService.clear('pettyCashPeriods');
+            await indexedDBService.clear('pettyCashMovements');
+            await indexedDBService.clear('pettyCashOutbox');
+
+            for (const p of regen.projects) await PettyCashStore.save('projects', p);
+            for (const p of regen.periods) await PettyCashStore.save('periods', p);
+            for (const m of regen.movements) await PettyCashStore.save('movements', m);
+
+            // Reflejar en el estado en memoria si la pestaña ya está cargada.
+            if (state.pettyCash && typeof state.pettyCash === 'object') {
+                state.pettyCash.projects = regen.projects;
+                state.pettyCash.periods = regen.periods;
+                state.pettyCash.movements = regen.movements;
+            }
+            console.log(`🧾 Caja chica preparada para cuenta nueva: ${regen.projects.length} proyecto(s), ${regen.movements.length} movimiento(s) con ids nuevos re-encolados`);
+        }
+    } catch (e) {
+        console.warn('⚠️ No se pudo preparar la caja chica para la cuenta nueva:', e);
+    }
+
     await saveApplicationData();
     console.log('✅ IDs regenerados exitosamente');
     return true;
@@ -858,6 +906,30 @@ export function createAutoBackup() {
         };
         sessionStorage.setItem('attendance-backup', JSON.stringify(backupData));
     } catch (error) {
+        // L8: con estados grandes el backup completo puede exceder la cuota de
+        // sessionStorage (~5 MB). Antes el catch genérico lo tragaba EN SILENCIO
+        // y la sesión quedaba sin red de seguridad. Ahora: ante error de cuota
+        // reintentamos un respaldo REDUCIDO (sin asistencia, que es lo más
+        // pesado y lo más recuperable desde la nube) y avisamos por consola.
+        const isQuota = error?.name === 'QuotaExceededError' || error?.code === 22;
+        if (isQuota) {
+            try {
+                const reduced = {
+                    version: '1.0.0',
+                    timestamp: new Date().toISOString(),
+                    reduced: true,
+                    data: {
+                        employees: state.employees,
+                        positions: state.positions,
+                        leaders: state.leaders,
+                        settings: state.settings
+                    }
+                };
+                sessionStorage.setItem('attendance-backup', JSON.stringify(reduced));
+                console.warn('⚠️ Auto-backup: cuota de sessionStorage excedida — se guardó un respaldo REDUCIDO (sin asistencia).');
+                return;
+            } catch (_) { /* ni el reducido cupo: cae al reporte de abajo */ }
+        }
         console.error('❌ Error en auto-backup:', error);
     }
 }
