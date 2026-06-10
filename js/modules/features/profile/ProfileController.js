@@ -13,6 +13,7 @@ import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
+import { mergeTombstoneMaps } from '../../services/NestedTombstones.js';
 import { payrollService } from '../../services/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -43,6 +44,16 @@ export function syncProfileToMaster(empId) {
     if (state.employeeProfile.deductions) emp.deductions = [...state.employeeProfile.deductions];
     if (state.employeeProfile.bonuses) emp.bonuses = [...state.employeeProfile.bonuses];
     if (state.employeeProfile.advances) emp.advances = [...state.employeeProfile.advances];
+
+    // 🪦 P1: propagar al maestro los tombstones de items borrados en el
+    // scratch — el merge con la nube los usa para que el borrado no resucite.
+    if (state.employeeProfile.deletedItemIds) {
+        emp.deletedItemIds = mergeTombstoneMaps(emp.deletedItemIds, state.employeeProfile.deletedItemIds);
+    }
+
+    // 🕒 Sin esto, el merge escalar (gana el de mayor updatedAt) trataba la
+    // edición del perfil como "vieja" y una copia remota podía pisarla.
+    emp.updatedAt = Date.now();
 
     // ⚡ Immediate save: a fast F5 immediately after editing was discarding the
     // 300ms-debounced save. Critical financial edits (advances, deductions,

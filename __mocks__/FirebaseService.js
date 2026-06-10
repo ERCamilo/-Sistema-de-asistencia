@@ -12,6 +12,8 @@ const FirebaseService = {
     listenToAttendance: jest.fn().mockReturnValue(() => {}),
     listenToEmployees: jest.fn().mockReturnValue(() => {}),
     saveAttendanceBatch: jest.fn().mockResolvedValue(undefined),
+    deleteCloudData: jest.fn().mockResolvedValue({ deleted: 0 }),
+    replaceCloudFull: jest.fn().mockResolvedValue(undefined),
     user: null
 };
 

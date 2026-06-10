@@ -15,13 +15,11 @@ const SRC = fs.readFileSync(
     'utf8'
 );
 
-testRunner.addSuite("IndexedDBService — store de comprobantes (v9)", {
+testRunner.addSuite("IndexedDBService — store de comprobantes (v9+)", {
 
-    "la versión por defecto de la DB es 9"() {
-        testRunner.assert(
-            /version\s*=\s*9\b/.test(SRC),
-            'El constructor debe usar version = 9 para crear el store nuevo'
-        );
+    "la versión por defecto de la DB es 10 o mayor"() {
+        const m = SRC.match(/version\s*=\s*(\d+)/);
+        testRunner.assert(m && Number(m[1]) >= 10, 'El constructor debe usar version >= 10');
     },
 
     "crea el store pettyCashReceipts de forma idempotente"() {
@@ -47,6 +45,30 @@ testRunner.addSuite("IndexedDBService — store de comprobantes (v9)", {
         testRunner.assert(/getReceipt\s*\(/.test(SRC), 'getReceipt');
         testRunner.assert(/deleteReceipt\s*\(/.test(SRC), 'deleteReceipt');
         testRunner.assert(/listPendingReceipts\s*\(/.test(SRC), 'listPendingReceipts');
+    }
+
+});
+
+testRunner.addSuite("IndexedDBService — stores de caja chica + outbox (v10)", {
+
+    "crea los 3 stores de datos + outbox de forma idempotente"() {
+        ['pettyCashProjects', 'pettyCashPeriods', 'pettyCashMovements', 'pettyCashOutbox'].forEach(name => {
+            testRunner.assert(
+                new RegExp(`objectStoreNames\\.contains\\(['"]${name}['"]\\)`).test(SRC),
+                `chequea contains() de ${name}`
+            );
+            testRunner.assert(
+                new RegExp(`createObjectStore\\(['"]${name}['"]`).test(SRC),
+                `crea ${name}`
+            );
+        });
+    },
+
+    "el outbox usa autoIncrement"() {
+        testRunner.assert(
+            /createObjectStore\(['"]pettyCashOutbox['"]\s*,\s*\{[^}]*autoIncrement:\s*true/.test(SRC),
+            'pettyCashOutbox debe ser autoIncrement'
+        );
     }
 
 });

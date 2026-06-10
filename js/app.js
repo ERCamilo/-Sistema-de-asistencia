@@ -22,6 +22,10 @@ import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { localStateIsEmpty, shouldAcceptRemote } from './modules/services/SyncWatermark.js';
+import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
+import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
+import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
+import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
@@ -486,9 +490,11 @@ window.App.Sync = {
             // recuperamos de la fuente correcta para no perderlos.
             const sv = (typeof state.settings?.schemaVersion === 'number') ? state.settings.schemaVersion : 0;
             if (sv >= 2) {
-                state.employees = await EmployeeRepository.loadAll();
-                state.positions = (sv >= 3) ? await PositionRepository.loadAll() : (cloudState.positions || []);
-                state.leaders   = (sv >= 3) ? await LeaderRepository.loadAll()   : (cloudState.leaders || []);
+                // M1: loadAll() devuelve null ante fallo de lectura. `?? prev`
+                // conserva lo que ya teníamos en vez de blanquear con un error.
+                state.employees = (await EmployeeRepository.loadAll()) ?? state.employees;
+                state.positions = (sv >= 3) ? ((await PositionRepository.loadAll()) ?? state.positions) : (cloudState.positions || []);
+                state.leaders   = (sv >= 3) ? ((await LeaderRepository.loadAll())   ?? state.leaders)   : (cloudState.leaders || []);
             }
             if (typeof Employee !== 'undefined') state.employees = (state.employees || []).map(e => e instanceof Employee ? e : new Employee(e));
             if (typeof Position !== 'undefined') state.positions = (state.positions || []).map(p => p instanceof Position ? p : new Position(p));
@@ -2060,6 +2066,10 @@ window.addDeduction = () => {
 };
 
 window.removeDeduction = (index) => {
+    // 🪦 P1: registrar el tombstone ANTES del splice — sin esto, el merge
+    // con la nube (unionById) resucitaba el item borrado.
+    const _deleted = state.employeeProfile.deductions[index];
+    if (_deleted?.id) recordNestedTombstone(state.employeeProfile, 'deductions', _deleted.id);
     state.employeeProfile.deductions.splice(index, 1);
     syncProfileToMaster(state.employeeProfile.employeeId);
     updatePayrollUI();
@@ -2096,6 +2106,9 @@ window.addBonus = () => {
 };
 
 window.removeBonus = (index) => {
+    // 🪦 P1: tombstone antes del splice (ver removeDeduction).
+    const _deleted = state.employeeProfile.bonuses[index];
+    if (_deleted?.id) recordNestedTombstone(state.employeeProfile, 'bonuses', _deleted.id);
     state.employeeProfile.bonuses.splice(index, 1);
     syncProfileToMaster(state.employeeProfile.employeeId);
     updatePayrollUI();
@@ -2153,6 +2166,9 @@ window.addAdvance = () => {
 };
 
 window.removeAdvance = (index) => {
+    // 🪦 P1: tombstone antes del splice (ver removeDeduction).
+    const _deleted = state.employeeProfile.advances[index];
+    if (_deleted?.id) recordNestedTombstone(state.employeeProfile, 'advances', _deleted.id);
     state.employeeProfile.advances.splice(index, 1);
     syncProfileToMaster(state.employeeProfile.employeeId);
     updatePayrollUI();
@@ -2997,9 +3013,12 @@ window.downloadFromCloud = async function () {
 
             let remoteEmployees, remotePositions, remoteLeaders;
             if (sv >= 2) {
-                remoteEmployees = await EmployeeRepository.loadAll();
-                remotePositions = (sv >= 3) ? await PositionRepository.loadAll() : (remoteState.positions || []);
-                remoteLeaders   = (sv >= 3) ? await LeaderRepository.loadAll()   : (remoteState.leaders || []);
+                // M1: en este camino de FUSIÓN (union con lo local), un fallo de
+                // lectura (null) se trata como [] → no se fusiona nada remoto,
+                // se conserva lo local. Nunca se blanquea.
+                remoteEmployees = (await EmployeeRepository.loadAll()) ?? [];
+                remotePositions = (sv >= 3) ? ((await PositionRepository.loadAll()) ?? []) : (remoteState.positions || []);
+                remoteLeaders   = (sv >= 3) ? ((await LeaderRepository.loadAll())   ?? []) : (remoteState.leaders || []);
                 if (state.settings && typeof state.settings === 'object') state.settings.schemaVersion = sv;
             } else {
                 remoteEmployees = remoteState.employees || [];
@@ -5033,16 +5052,23 @@ window.previewIconSet = function (value) {
     state.settings.iconSet = applyIconSet(value);
     render();
 };
-
 window.saveSettings = function () {
     // Leer valores del formulario
-    const companyName = document.getElementById('companyName').value.trim();
-    const regularHoursPerDay = parseFloat(document.getElementById('regularHoursPerDay').value);
-    const overtimeFactor = parseFloat(document.getElementById('overtimeFactor').value);
-    const holidayFactor = parseFloat(document.getElementById('holidayFactor').value);
+    const companyNameElement = document.getElementById('companyName');
+    const companyName = companyNameElement ? companyNameElement.value.trim() : state.settings.companyName;
+
+    const regularHoursPerDayElement = document.getElementById('regularHoursPerDay');
+    const regularHoursPerDay = regularHoursPerDayElement ? parseFloat(regularHoursPerDayElement.value) : state.settings.regularHoursPerDay;
+
+    const overtimeFactorElement = document.getElementById('overtimeFactor');
+    const overtimeFactor = overtimeFactorElement ? parseFloat(overtimeFactorElement.value) : state.settings.overtimeFactor;
+
+    const holidayFactorElement = document.getElementById('holidayFactor');
+    const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : state.settings.holidayFactor;
 
     // ⚡ Leer configuración de nómina
-    const defaultDeductionPercentage = parseFloat(document.getElementById('defaultDeductionPercentage').value) || 2;
+    const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
+    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (state.settings.defaultDeductionPercentage || 2);
     const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
 
     // Leer toggle legacy
@@ -5161,6 +5187,17 @@ window.saveSettings = function () {
 
 window.exportData = async function () {
     try {
+        // 💵 M3: incluir la caja chica en el backup. Se lee de PettyCashStore
+        // (IndexedDB, la verdad durable) y NO de state.pettyCash, que puede
+        // no estar cargado si nunca se abrió la pestaña en esta sesión.
+        // sanitize garantiza que solo van datos (sin form/fotos/estado UI).
+        let pettyCashBackup = null;
+        try {
+            pettyCashBackup = sanitizePettyCashForSnapshot(await PettyCashStore.loadLocal());
+        } catch (e) {
+            console.warn('⚠️ exportData: no se pudo leer caja chica (se exporta sin ella):', e);
+        }
+
         // Crear objeto con todos los datos
         const exportData = {
             version: '1.0.0',
@@ -5173,7 +5210,8 @@ window.exportData = async function () {
                 leaders: state.leaders,
                 attendance: state.attendance,
                 tempAssignments: state.tempAssignments || [],
-                dayHoursConfig: state.dayHoursConfig || {}
+                dayHoursConfig: state.dayHoursConfig || {},
+                ...(pettyCashBackup ? { pettyCash: pettyCashBackup } : {})
             }
         };
 
@@ -5242,6 +5280,21 @@ async function applyBackupData(importedData) {
 
         // Guardar en IndexedDB
         await saveToIndexedDB({ clearFirst: true });
+
+        // 💵 M3: restaurar la caja chica si el backup la trae (formato nuevo).
+        // Backups viejos sin pettyCash: los stores locales quedan intactos
+        // (clearFirst ya no los toca) — no se destruye lo que el archivo no
+        // puede restaurar.
+        if (data.pettyCash && typeof data.pettyCash === 'object') {
+            try {
+                await PettyCashStore.applyRemote('projects', data.pettyCash.projects || []);
+                await PettyCashStore.applyRemote('periods', data.pettyCash.periods || []);
+                await PettyCashStore.applyRemote('movements', data.pettyCash.movements || []);
+                console.log('💵 Caja chica restaurada desde el backup');
+            } catch (e) {
+                console.warn('⚠️ No se pudo restaurar la caja chica del backup:', e);
+            }
+        }
 
         showNotification('✅ Datos restaurados localmente', 'success');
         render(); // Refrescar UI
@@ -6365,6 +6418,51 @@ function _initOutgoingConflictGuard() {
             restoreAutoBackup();
         }
 
+        // 🔐 C2: Resolución de conflicto de dueño de datos locales.
+        // Se invoca cuando inicia sesión una cuenta distinta a la que generó
+        // los datos locales de este dispositivo. Dos salidas seguras:
+        //   - Borrar lo local y recargar (la nube de ESTA cuenta será la verdad).
+        //   - Cerrar sesión y dejar lo local intacto.
+        async function handleLocalOwnerMismatch(user) {
+            console.warn('🔐 Datos locales pertenecen a otra cuenta. Sincronización bloqueada hasta resolver.');
+            const wipeAndContinue = await Modal.confirm({
+                title: '🔐 Este dispositivo tiene datos de otra cuenta',
+                message:
+                    `Iniciaste sesión como <b>${escapeHTML(user.email || user.uid)}</b>, pero los datos guardados ` +
+                    `en este dispositivo pertenecen a otra cuenta.<br><br>` +
+                    `Para proteger ambos lados, la sincronización está pausada.<br><br>` +
+                    `<b>Borrar datos locales:</b> se eliminan los datos del dispositivo y se cargan ` +
+                    `los de tu cuenta desde la nube (los datos de la otra cuenta NO se tocan en su nube).<br>` +
+                    `<b>Cerrar sesión:</b> todo queda como estaba.`,
+                confirmText: 'Borrar datos locales y continuar',
+                cancelText: 'Cerrar sesión',
+                type: 'danger'
+            });
+
+            if (wipeAndContinue) {
+                try {
+                    await indexedDBService.clearAll();
+                } catch (e) {
+                    console.error('❌ Error limpiando IndexedDB en cambio de cuenta:', e);
+                }
+                try {
+                    localStorage.removeItem('asistencia-data');
+                    localStorage.removeItem('migrated-to-idb');
+                    localStorage.removeItem('asistencia_pending_cloud_deletes');
+                    sessionStorage.removeItem('attendance-backup');
+                } catch (e) { /* noop */ }
+                clearLocalOwnership();
+                claimLocalOwnership(user.uid);
+                showNotification('🧹 Datos locales borrados. Cargando los datos de tu cuenta...', 'info');
+                setTimeout(() => location.reload(), 900);
+            } else {
+                await FirebaseService.logout();
+                window.currentUser = null;
+                showNotification('🔒 Sesión cerrada. Los datos locales quedaron intactos.', 'info');
+                render();
+            }
+        }
+
         // 4. Inicializar Auth y Sincronización (Tiempo Real)
         FirebaseService.onAuthStateChanged(async (user) => {
             // Estandarización de Scope Global
@@ -6376,6 +6474,19 @@ function _initOutgoingConflictGuard() {
 
             if (user) {
                 showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
+
+                // 🔐 C2 (Auditoría 2026-06-09): guard de propiedad de los datos
+                // locales. Si este dispositivo tiene datos de OTRA cuenta, NO
+                // arrancar ninguna sincronización: la "migración inicial" de
+                // abajo subiría la nómina del dueño anterior a esta cuenta.
+                const _ownership = checkLocalOwnership(user.uid, {
+                    localHasData: !localStateIsEmpty(state)
+                });
+                if (_ownership === 'mismatch') {
+                    await handleLocalOwnerMismatch(user);
+                    return; // El flujo continúa tras el wipe+reload o el logout.
+                }
+                claimLocalOwnership(user.uid);
 
                 // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                 window.startPettyCashSync?.();
@@ -6420,10 +6531,19 @@ function _initOutgoingConflictGuard() {
 
                     if (!shouldAcceptRemote({ localTime, remoteTime, localEmpty })) {
                         debug.log(`🛡️ Persistencia: Nube (${remoteTime}) es más antigua que Estado Local (${localTime}). Redirigiendo...`);
-                        // Si F5 frenó la sincronización, forzamos un save ahora que reinició
+                        // 🕒 H4: NO re-subimos con un saveFullState CRUDO. Ese camino
+                        // salta el chequeo de conflictos salientes de _executeSave y,
+                        // bajo desfase de reloj entre dispositivos, podía pisar en
+                        // silencio cambios REALES del otro dispositivo (reloj lento →
+                        // timestamp "viejo"). En su lugar encolamos un guardado NORMAL:
+                        //   - si lo local es genuinamente más nuevo (p.ej. un save que
+                        //     F5 interrumpió) → sube como siempre;
+                        //   - si hay conflicto saliente real → _executeSave emite
+                        //     sync:outgoing-conflict y el usuario decide (no se
+                        //     sobrescribe a ciegas por reloj).
                         if (!window._forceSyncTimer) {
                             window._forceSyncTimer = setTimeout(() => {
-                                FirebaseService.saveFullState(state);
+                                saveApplicationData();
                                 window._forceSyncTimer = null;
                             }, 1000);
                         }

@@ -68,10 +68,21 @@ export async function loadAndMigrateEmployees({
         ? { ...remoteData, schemaVersion: TARGET_SCHEMA_VERSION }
         : remoteData;
 
+    // M1: un loader puede devolver `null` para señalar un FALLO de lectura
+    // (distinto de [] = "vacío"). En ese caso NO blanqueamos: dejamos `null`
+    // para que el caller conserve su estado vía `result.x || state.x`, y
+    // marcamos result.error para que pueda reportar.
+    const readFailed = (v) => v === null;
+
     // 2a. Empleados (loader requerido).
     try {
         const emps = await loadEmployees(payloadForLoad);
-        result.employees = Array.isArray(emps) ? emps : [];
+        if (readFailed(emps)) {
+            result.error = result.error || new Error('loadEmployees devolvió null (fallo de lectura)');
+            result.employees = null;
+        } else {
+            result.employees = Array.isArray(emps) ? emps : [];
+        }
     } catch (e) {
         console.error('❌ EmployeeLoader: loadEmployees falló, fallback al legacy:', e);
         result.error = e;
@@ -82,7 +93,12 @@ export async function loadAndMigrateEmployees({
     if (typeof loadPositions === 'function') {
         try {
             const pos = await loadPositions(payloadForLoad);
-            result.positions = Array.isArray(pos) ? pos : [];
+            if (readFailed(pos)) {
+                result.error = result.error || new Error('loadPositions devolvió null (fallo de lectura)');
+                result.positions = null;
+            } else {
+                result.positions = Array.isArray(pos) ? pos : [];
+            }
         } catch (e) {
             console.error('❌ EmployeeLoader: loadPositions falló, fallback al legacy:', e);
             result.error = result.error || e;
@@ -96,7 +112,12 @@ export async function loadAndMigrateEmployees({
     if (typeof loadLeaders === 'function') {
         try {
             const leads = await loadLeaders(payloadForLoad);
-            result.leaders = Array.isArray(leads) ? leads : [];
+            if (readFailed(leads)) {
+                result.error = result.error || new Error('loadLeaders devolvió null (fallo de lectura)');
+                result.leaders = null;
+            } else {
+                result.leaders = Array.isArray(leads) ? leads : [];
+            }
         } catch (e) {
             console.error('❌ EmployeeLoader: loadLeaders falló, fallback al legacy:', e);
             result.error = result.error || e;

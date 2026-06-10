@@ -29,7 +29,7 @@ testRunner.addSuite("Pre-apply hook — cableado en subscribeToChanges (Tarea #2
 
     "el hook llama a detectIncomingChanges dentro del subscribeToChanges"() {
         // Buscamos el bloque del subscribe y verificamos la llamada.
-        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,5000}\}\);/);
+        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,8000}\}\);/);
         testRunner.assert(!!subBlock, 'Bloque de subscribeToChanges localizable');
         testRunner.assert(
             /detectIncomingChanges\s*\(/.test(subBlock[0]),
@@ -38,7 +38,7 @@ testRunner.addSuite("Pre-apply hook — cableado en subscribeToChanges (Tarea #2
     },
 
     "abre IncomingChangeModal cuando hay cambios significant"() {
-        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,5000}\}\);/);
+        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,8000}\}\);/);
         testRunner.assert(
             /IncomingChangeModal\.show\s*\(/.test(subBlock[0]),
             'Debe invocar IncomingChangeModal.show'
@@ -46,7 +46,7 @@ testRunner.addSuite("Pre-apply hook — cableado en subscribeToChanges (Tarea #2
     },
 
     "el modal pasa onApply y los callbacks de reject"() {
-        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,5000}\}\);/);
+        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,8000}\}\);/);
         testRunner.assert(/onApply\s*:/.test(subBlock[0]),
             'Debe pasar onApply');
         // New API: onReject was split into onRejectAndPause + onRejectAndReupload
@@ -57,19 +57,19 @@ testRunner.addSuite("Pre-apply hook — cableado en subscribeToChanges (Tarea #2
     },
 
     "el hook respeta isInitialLoad (no molesta en la carga inicial)"() {
-        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,5000}\}\);/);
+        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,8000}\}\);/);
         testRunner.assert(/!isInitialLoad/.test(subBlock[0]),
             'Debe gatekeep el hook con isInitialLoad para no molestar en boot');
     },
 
     "el hook respeta _pendingIncomingReview (no abre dos modales)"() {
-        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,5000}\}\);/);
+        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,8000}\}\);/);
         testRunner.assert(/_pendingIncomingReview/.test(subBlock[0]),
             'Debe trackear un flag para evitar modales simultáneos');
     },
 
     "onRejectAndReupload fuerza re-subir el estado local (saveApplicationData force)"() {
-        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,5000}\}\);/);
+        const subBlock = APP.match(/subscribeToChanges\(async[\s\S]{0,8000}\}\);/);
         testRunner.assert(
             /saveApplicationData\s*\(\s*\{\s*force\s*:\s*true/.test(subBlock[0]),
             'onRejectAndReupload debe forzar re-subir el local con saveApplicationData({force:true})'

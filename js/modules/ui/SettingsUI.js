@@ -8,7 +8,7 @@ import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
 
 // ============================================
-// 🎯 EVENT DELEGATION (data-settings-action)
+// EVENT DELEGATION (data-settings-action)
 // ============================================
 const _SETTINGS_ACTION_MAP = {
     'change-settings-tab': (tab) => window.changeSettingsTab?.(tab),
@@ -30,18 +30,18 @@ const _SETTINGS_ACTION_MAP = {
     'install-pwa': () => window.handleInstallPWA?.(),
     'delete-snapshot': (id) => window.deleteSnapshotHandler?.(id),
     'restore-snapshot': (id) => window.restoreSnapshot?.(id),
-    // 💡 Ayuda contextual
+    // Ayuda contextual
     'set-help-mode': (_, el) => {
         const newMode = el.value;
         if (window.helpController) {
             window.helpController.setMode(newMode);
-            window.showNotification?.(`💡 Modo de ayuda: ${newMode}`, 'info');
+            window.showNotification?.(`Modo de ayuda: ${newMode}`, 'info');
         }
     },
     'reset-help-seen': () => {
         if (window.helpController) {
             window.helpController.resetAllSeen();
-            window.showNotification?.('🔄 Tooltips restablecidos. Aparecerán de nuevo al usar la app.', 'success');
+            window.showNotification?.('Tooltips restablecidos. Aparecerán de nuevo al usar la app.', 'success');
         }
     },
     'run-browser-tests': () => window.runBrowserTests?.()
@@ -66,11 +66,38 @@ function _handleSettingsKeydown(e) {
     _handleSettingsClick(e);
 }
 
+function _handleSettingsChange(e) {
+    const target = e.target;
+    if (target && target.type === 'checkbox') {
+        const row = target.closest('.stg-switch-row');
+        if (row) {
+            row.classList.toggle('is-active', target.checked);
+            row.setAttribute('aria-checked', target.checked ? 'true' : 'false');
+
+            // Actualizar el estado en memoria de forma inmediata para evitar reversión visual en re-renderizados
+            if (target.id === 'legacyNavigation') {
+                state.settings.legacyNavigation = target.checked;
+            } else if (target.id === 'hideDuplicateAlerts') {
+                state.settings.hideDuplicateAlerts = target.checked;
+            } else if (target.id === 'weatherEnabled') {
+                state.settings.weatherEnabled = target.checked;
+                
+                // Caso especial: Mostrar/ocultar configuración del clima en tiempo real
+                const configPanel = document.getElementById('weatherConfigPanel');
+                if (configPanel) {
+                    configPanel.style.display = target.checked ? 'block' : 'none';
+                }
+            }
+        }
+    }
+}
+
 let _settingsDelegationAttached = false;
 function _attachSettingsDelegation() {
     if (_settingsDelegationAttached) return;
     document.addEventListener('click', _handleSettingsClick);
     document.addEventListener('keydown', _handleSettingsKeydown);
+    document.addEventListener('change', _handleSettingsChange);
     _settingsDelegationAttached = true;
 }
 _attachSettingsDelegation();
@@ -92,22 +119,22 @@ export function SettingsTab() {
     const state = getState();
     const icons = getIcons();
 
-    // ⚡ Fallback para pestaña activa si está indefinida (Bug de inicialización)
+    // Fallback para pestaña activa si está indefinida
     const activeTab = state.settingsActiveTab || 'general';
 
     return `
                 <div style="max-width: 900px; margin: 0 auto;">
-                    <div style="margin-bottom: 24px;">
-                        <h2 style="margin: 0 0 8px 0; font-size: 1.75rem; display: flex; align-items: center; gap: 12px;">
-                            <span>${icons.get('settings', { size: 24 })}</span>
-                            <span class="gradient-text">Configuración del Sistema</span>
-                        </h2>
-                        <p style="margin: 0; color: #94a3b8; font-size: 0.875rem;">
-                            Personaliza la configuración de tu sistema de asistencia
-                        </p>
+                    <div class="stg-header" style="margin-bottom: 20px;">
+                        <div>
+                            <h3>
+                                <span>${icons.get('settings', { size: 24 })}</span>
+                                <span>Configuración del Sistema</span>
+                            </h3>
+                            <p>Personaliza la configuración de tu sistema de asistencia</p>
+                        </div>
                     </div>
                     
-                    <!-- ✨ Dashboard de Resumen -->
+                    <!-- Dashboard de Resumen -->
                     ${SettingsDashboard()}
                     
                     <!-- Navegación de Pestañas -->
@@ -142,18 +169,18 @@ export function SettingsTab() {
                     
                     <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
                         <button type="button" data-settings-action="save-settings" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">
-                            💾 Guardar Configuración
+                            Guardar Configuración
                         </button>
                     </div>
 
                     <!-- Versión y fecha de actualización -->
-                    <div style="margin-top: 32px; padding: 16px; border-top: 1px solid #1e293b; text-align: center; color: #64748b; font-size: 0.75rem;">
+                    <div class="stg-footer">
                         <div style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;">
                             <span>${icons.get('info', { size: 12 })}</span>
-                            <span><strong style="color: #94a3b8;">Versión ${APP_CONFIG.VERSION}</strong></span>
+                            <span><strong>Versión ${APP_CONFIG.VERSION}</strong></span>
                             <span style="opacity: 0.5;">·</span>
                             <span title="Versión del Service Worker (caché PWA)">
-                                SW <strong style="color: #94a3b8;">${state.swVersion || '…'}</strong>
+                                SW <strong>${state.swVersion || '…'}</strong>
                             </span>
                             <span style="opacity: 0.5;">·</span>
                             <span>Actualizado: ${APP_CONFIG.LAST_UPDATED}</span>
@@ -178,67 +205,34 @@ function SettingsDashboard() {
     };
 
     const freeSpace = Math.round(100 - storage.percentage);
-    const syncIcon = syncStatus.connected ? '✅' : '⚪';
     const syncText = syncStatus.connected ? 'Online' : 'Offline';
-    const syncColor = syncStatus.connected ? '#10b981' : '#94a3b8';
+    const syncColor = syncStatus.connected ? 'success' : '';
 
     return `
-                <details style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 12px; margin-bottom: 24px; border: 1px solid #334155; overflow: hidden;">
-                    <summary style="padding: 16px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; list-style: none; user-select: none;">
-                        <h3 style="margin: 0; color: #06b6d4; font-size: 1rem; display: flex; align-items: center; gap: 6px;">
-                            <span>${icons.get('analytics', { size: 16 })}</span>
-                            <span>Resumen del Sistema</span>
-                        </h3>
-                        
-                        <div style="display: flex; align-items: center; gap: 12px; font-size: 0.8rem;">
-                            <!-- Resumen Storage -->
-                            <div style="display: flex; align-items: center; gap: 4px; color: ${freeSpace < 20 ? '#ef4444' : '#94a3b8'};">
-                                <span>💾</span>
-                                <span>${freeSpace}% libre</span>
-                            </div>
-                            
-                            <!-- Resumen Sync -->
-                            <div style="display: flex; align-items: center; gap: 4px; color: ${syncColor};">
-                                <span>${syncIcon}</span>
-                                <span style="display: none;">${syncText}</span>
-                            </div>
-                            
-                            <span style="color: #64748b; font-size: 0.8rem;">▼</span>
-                        </div>
-                    </summary>
-                    
-                    <div style="padding: 0 16px 16px 16px;">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; border-top: 1px solid #334155; padding-top: 16px;">
-                            ${StorageCard(storage)}
-                            ${SyncCard(syncStatus)}
-                            ${DataSummaryCard()}
-                        </div>
+                <div class="stg-panel" style="margin-bottom: 24px;">
+                    <div class="stg-status-bar">
+                        ${StorageCard(storage)}
+                        ${SyncCard(syncStatus)}
+                        ${DataSummaryCard()}
                     </div>
-                </details>
+                </div>
             `;
 }
 
 function StorageCard(stats) {
+    const colorClass = stats.percentage > 80 ? 'danger' :
+        stats.percentage > 60 ? 'warning' : 'success';
     const color = stats.percentage > 80 ? '#ef4444' :
         stats.percentage > 60 ? '#f59e0b' : '#10b981';
 
     return `
-                <div style="background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                        <span style="font-size: 1rem;">💾</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.8rem;">Almacenamiento</span>
+                <div class="stg-status-cell">
+                    <span class="stg-label">Almacenamiento</span>
+                    <span class="stg-value ${colorClass}">${stats.usedMB} MB</span>
+                    <div class="stg-progress">
+                        <div class="stg-progress-bar" style="background: ${color}; width: ${stats.percentage}%;"></div>
                     </div>
-                    
-                    <div style="font-size: 1.25rem; font-weight: 700; color: ${color}; margin-bottom: 2px; line-height: 1;">
-                        ${stats.usedMB} <span style="font-size: 0.75rem; color: #64748b; font-weight: 400;">MB</span>
-                    </div>
-                    
-                    <!-- Barra de progreso mini -->
-                    <div style="background: #1e293b; height: 4px; border-radius: 2px; overflow: hidden; margin: 6px 0;">
-                        <div style="background: ${color}; height: 100%; width: ${stats.percentage}%; transition: width 0.3s;"></div>
-                    </div>
-                    
-                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #94a3b8;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #94a3b8; margin-top: 2px;">
                         <span>${stats.percentage}% uso</span>
                         <span>${stats.available} libre</span>
                     </div>
@@ -249,31 +243,20 @@ function StorageCard(stats) {
 export function SyncCard(status) {
     const currentUser = window.currentUser;
     const isConnected = !!currentUser;
-    const statusColor = isConnected ? '#10b981' : '#64748b';
-    const statusIcon = isConnected ? '✅' : '⚪';
+    const statusColor = isConnected ? 'success' : '';
     const statusText = isConnected ? 'Conectado' : 'Sin conexión';
 
     return `
-                <div style="background: #0f172a; border-radius: 12px; padding: 16px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 1.5rem;">☁️</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.95rem;">Sincronización (Firebase)</span>
-                    </div>
-                    
-                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                        <span style="font-size: 1.5rem;">${statusIcon}</span>
-                        <span style="font-size: 1.25rem; font-weight: 700; color: ${statusColor};">
-                            ${statusText}
-                        </span>
-                    </div>
-                    
+                <div class="stg-status-cell">
+                    <span class="stg-label">Sincronización</span>
+                    <span class="stg-value ${statusColor}">${statusText}</span>
                     ${isConnected ? `
-                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             ${currentUser.email}
                         </div>
                     ` : `
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 8px;">
-                            Usa tu cuenta de Google para respaldar tus datos.
+                        <div style="font-size: 0.7rem; color: #64748b; margin-top: 6px;">
+                            Conecta tu cuenta de Google
                         </div>
                     `}
                 </div>
@@ -287,26 +270,15 @@ function DataSummaryCard() {
     const activePositions = state.positions.filter(p => p.active).length;
 
     return `
-                <div style="background: #0f172a; border-radius: 8px; padding: 12px; border: 1px solid #334155;">
-                    <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                        <span style="font-size: 1rem;">👥</span>
-                        <span style="font-weight: 600; color: #f1f5f9; font-size: 0.8rem;">Datos Generales</span>
+                <div class="stg-status-cell">
+                    <span class="stg-label">Datos</span>
+                    <span class="stg-value accent">${totalEmployees}</span>
+                    <div style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">
+                        empleados (${activeEmployees} activos)
                     </div>
-                    
-                    <div style="display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px;">
-                        <div style="font-size: 1.25rem; font-weight: 700; color: #06b6d4;">
-                            ${totalEmployees}
-                        </div>
-                        <div style="font-size: 0.7rem; color: #64748b;">
-                            empleados (${activeEmployees} activos)
-                        </div>
-                    </div>
-                    
-                    <div style="background: #1e293b; padding: 6px; border-radius: 4px; margin-top: auto;">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.7rem;">
-                            <span style="color: #94a3b8;">Posiciones:</span>
-                            <span style="color: #10b981; font-weight: 600;">${activePositions}</span>
-                        </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-top: 6px; background: rgba(17, 24, 39, 0.5); padding: 4px 6px; border-radius: 4px;">
+                        <span style="color: #94a3b8;">Posiciones:</span>
+                        <span style="color: #10b981; font-weight: 600;">${activePositions}</span>
                     </div>
                 </div>
             `;

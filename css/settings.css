@@ -1,0 +1,493 @@
+/* ============================================================
+   settings.css — Estilo visual unificado para Ajustes
+   Replica el vocabulario visual del SyncCenter modal.
+   ============================================================ */
+
+:root {
+    --stg-bg: #0f172a;
+    --stg-card-bg: #111827;
+    --stg-border: rgba(148, 163, 184, 0.15);
+    --stg-border-card: #243044;
+    --stg-text-primary: #f8fafc;
+    --stg-text-secondary: #94a3b8;
+    --stg-text-muted: #64748b;
+    --stg-accent: #06b6d4;
+    --stg-accent-glow: rgba(6, 182, 212, 0.15);
+    --stg-success: #10b981;
+    --stg-warning: #f59e0b;
+    --stg-danger: #ef4444;
+    --stg-radius: 14px;
+    --stg-radius-sm: 10px;
+}
+
+/* ─── Panel principal de seccion ─── */
+.stg-panel {
+    background: var(--stg-bg);
+    border: 1px solid var(--stg-border);
+    border-radius: var(--stg-radius);
+    padding: 18px;
+    margin-bottom: 16px;
+}
+
+.stg-panel.accent {
+    border-color: var(--stg-accent);
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.06);
+}
+
+.stg-panel.connected {
+    border-color: #4285F4;
+}
+
+/* ─── Header de seccion ─── */
+.stg-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.stg-header h3 {
+    margin: 0;
+    color: var(--stg-text-primary);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.stg-header p {
+    margin: 4px 0 0;
+    color: var(--stg-text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}
+
+/* ─── Barra de estado (3 columnas) ─── */
+.stg-status-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.stg-status-cell {
+    background: var(--stg-card-bg);
+    border: 1px solid var(--stg-border-card);
+    border-radius: var(--stg-radius-sm);
+    padding: 10px;
+    min-width: 0;
+}
+
+.stg-status-cell .stg-label {
+    display: block;
+    color: var(--stg-text-muted);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: 0.03em;
+}
+
+.stg-status-cell .stg-value {
+    display: block;
+    color: var(--stg-text-primary);
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stg-status-cell .stg-value.success { color: var(--stg-success); }
+.stg-status-cell .stg-value.warning { color: var(--stg-warning); }
+.stg-status-cell .stg-value.danger  { color: var(--stg-danger); }
+.stg-status-cell .stg-value.accent  { color: var(--stg-accent); }
+
+/* ─── Subcard interna ─── */
+.stg-card {
+    background: var(--stg-card-bg);
+    border: 1px solid var(--stg-border-card);
+    border-radius: var(--stg-radius-sm);
+    padding: 14px;
+}
+
+.stg-card-title {
+    color: var(--stg-text-secondary);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 10px;
+}
+
+/* ─── Switch row (toggle on/off) ─── */
+.stg-switch-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    text-align: left;
+    background: var(--stg-card-bg);
+    border: 1px solid var(--stg-border-card);
+    border-radius: var(--stg-radius-sm);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+    margin-bottom: 8px;
+}
+
+.stg-switch-row:last-child {
+    margin-bottom: 0;
+}
+
+.stg-switch-row:hover {
+    border-color: #334155;
+}
+
+.stg-switch-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+}
+
+.stg-switch-copy strong {
+    color: var(--stg-text-primary);
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.stg-switch-copy small {
+    color: var(--stg-text-secondary);
+    font-size: 0.73rem;
+    line-height: 1.35;
+}
+
+/* El switch track */
+.stg-switch-track {
+    flex-shrink: 0;
+    width: 44px;
+    height: 24px;
+    background: #334155;
+    border-radius: 24px;
+    position: relative;
+    border: 1.5px solid #334155;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stg-switch-handle {
+    width: 18px;
+    height: 18px;
+    background: #94a3b8;
+    border-radius: 50%;
+    position: absolute;
+    top: 1.5px;
+    left: 2px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Estado activo */
+.stg-switch-row.is-active .stg-switch-track {
+    background: var(--stg-success);
+    border-color: var(--stg-success);
+}
+
+.stg-switch-row.is-active .stg-switch-handle {
+    left: 22px;
+    background: #ffffff;
+}
+
+/* Hidden real checkbox */
+.stg-switch-row input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+/* ─── Grid de acciones (2x2) ─── */
+.stg-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.stg-action {
+    border: 1px solid #334155;
+    background: var(--stg-card-bg);
+    color: #e2e8f0;
+    border-radius: var(--stg-radius-sm);
+    padding: 13px;
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    gap: 11px;
+    align-items: center;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.stg-action:hover,
+.stg-action:focus-visible {
+    border-color: var(--stg-accent);
+    background: rgba(6, 182, 212, 0.08);
+    box-shadow: inset 0 0 0 1px var(--stg-accent-glow);
+    outline: none;
+}
+
+.stg-action-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--stg-radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6, 182, 212, 0.12);
+    color: var(--stg-accent);
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+.stg-action-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+}
+
+.stg-action-copy strong {
+    color: var(--stg-text-primary);
+    font-size: 0.88rem;
+}
+
+.stg-action-copy small {
+    color: var(--stg-text-secondary);
+    font-size: 0.74rem;
+    line-height: 1.35;
+}
+
+/* Variante secundaria (lista vertical) */
+.stg-actions-list {
+    display: grid;
+    gap: 10px;
+}
+
+.stg-action.secondary {
+    grid-template-columns: 34px 1fr;
+    padding: 11px 12px;
+}
+
+.stg-action.secondary .stg-action-icon {
+    width: 34px;
+    height: 34px;
+    color: var(--stg-text-secondary);
+    background: rgba(148, 163, 184, 0.1);
+}
+
+/* Variante de color para acciones de Firebase */
+.stg-action-icon.blue {
+    background: rgba(66, 133, 244, 0.12);
+    color: #4285F4;
+}
+
+.stg-action-icon.green {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--stg-success);
+}
+
+.stg-action-icon.cyan {
+    background: rgba(6, 182, 212, 0.12);
+    color: var(--stg-accent);
+}
+
+/* Accion que abarca 2 columnas */
+.stg-action.span-2 {
+    grid-column: span 2;
+}
+
+/* ─── Zona de peligro ─── */
+.stg-danger-zone {
+    padding: 14px;
+    background: rgba(239, 68, 68, 0.05);
+    border-radius: var(--stg-radius-sm);
+    border: 1px dashed rgba(239, 68, 68, 0.3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-top: 14px;
+}
+
+.stg-danger-zone-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-danger-zone-title {
+    color: var(--stg-danger);
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+
+.stg-danger-zone-desc {
+    font-size: 0.75rem;
+    color: var(--stg-text-secondary);
+}
+
+/* ─── Divider ─── */
+.stg-divider {
+    border: none;
+    border-top: 1px solid var(--stg-border-card);
+    margin: 14px 0;
+}
+
+/* ─── Info callout (tip box) ─── */
+.stg-callout {
+    font-size: 0.75rem;
+    color: var(--stg-text-muted);
+    line-height: 1.6;
+    background: rgba(59, 130, 246, 0.08);
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 3px solid #3b82f6;
+}
+
+.stg-callout strong {
+    color: #93c5fd;
+}
+
+/* ─── Footer de version ─── */
+.stg-footer {
+    margin-top: 24px;
+    padding: 14px;
+    border-top: 1px solid var(--stg-border-card);
+    text-align: center;
+    color: var(--stg-text-muted);
+    font-size: 0.75rem;
+}
+
+.stg-footer strong {
+    color: var(--stg-text-secondary);
+}
+
+/* ─── User card (connected account) ─── */
+.stg-user-card {
+    background: rgba(16, 185, 129, 0.08);
+    padding: 14px;
+    border-radius: var(--stg-radius-sm);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.stg-user-card img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #334155;
+    flex-shrink: 0;
+}
+
+.stg-user-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-user-card-name {
+    color: var(--stg-text-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.stg-user-card-email {
+    color: var(--stg-text-secondary);
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── Progress bar mini ─── */
+.stg-progress {
+    background: #1e293b;
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 6px 0;
+}
+
+.stg-progress-bar {
+    height: 100%;
+    transition: width 0.3s;
+    border-radius: 2px;
+}
+
+/* ─── Snapshot entry ─── */
+.stg-snapshot {
+    background: var(--stg-card-bg);
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--stg-border-card);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.stg-snapshot-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* ─── Login CTA (Google) ─── */
+.stg-login-cta {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 14px;
+    background: white;
+    color: #374151;
+    font-weight: 600;
+    border: 1px solid #d1d5db;
+    border-radius: var(--stg-radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.stg-login-cta:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 640px) {
+    .stg-status-bar {
+        grid-template-columns: 1fr;
+    }
+
+    .stg-actions-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stg-action.span-2 {
+        grid-column: span 1;
+    }
+
+    .stg-danger-zone {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+    }
+}

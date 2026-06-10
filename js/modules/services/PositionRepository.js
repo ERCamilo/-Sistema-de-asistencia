@@ -46,7 +46,7 @@ export const PositionRepository = {
             return result;
         } catch (e) {
             console.error('❌ PositionRepository.loadAll error:', e);
-            return [];
+            return null; // M1: null = fallo de lectura, NO "colección vacía"
         }
     },
 

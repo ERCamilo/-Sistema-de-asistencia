@@ -267,27 +267,52 @@ async function _drainPendingCloudDeletes() {
  * Evita saturar la cuota de Firebase con guardados demasiado frecuentes
  */
 export const syncFirebaseMirrorDebounced = (function() {
-    let timeout;
-    return function(state) {
-        clearTimeout(timeout);
-        timeout = setTimeout(async () => {
-            if (globalThis.currentUser && !globalThis._isApplyingRemoteData) {
-                // ⚡ P4-OPT: Ejecutar guardado en Firebase solo cuando el hilo principal esté libre
-                const runSync = () => {
-                    FirebaseService.saveFullState(state).catch(e => {
-                        console.warn('⚠️ Error en sincronización debounced:', e);
-                        _notifySyncError(e);
-                    });
-                };
+    let timeout = null;
+    let pendingState = null;
 
-                if (window.requestIdleCallback) {
-                    window.requestIdleCallback(runSync, { timeout: 1000 });
-                } else {
-                    runSync();
-                }
-            }
+    // Dispara el guardado del mirror. `immediate` (flush en pagehide) salta el
+    // requestIdleCallback: la pestaña se está cerrando y no habrá idle time, así
+    // que despachamos la escritura ya mismo (el SDK de Firestore la maneja en
+    // best-effort aunque la pestaña muera).
+    const fire = (state, immediate = false) => {
+        if (!(globalThis.currentUser && !globalThis._isApplyingRemoteData)) return;
+        const runSync = () => {
+            FirebaseService.saveFullState(state).catch(e => {
+                console.warn('⚠️ Error en sincronización debounced:', e);
+                _notifySyncError(e);
+            });
+        };
+        if (!immediate && window.requestIdleCallback) {
+            window.requestIdleCallback(runSync, { timeout: 1000 });
+        } else {
+            runSync();
+        }
+    };
+
+    const debounced = function(state) {
+        pendingState = state;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            const s = pendingState;
+            pendingState = null;
+            timeout = null;
+            fire(s, false);
         }, 2000); // 2 segundos de espera
     };
+
+    // 🚿 M10: vacía el mirror pendiente de inmediato (pagehide/visibilitychange).
+    // Sin esto, un cambio hecho dentro de la ventana de 2s sólo llegaba a
+    // IndexedDB y no a la nube hasta la próxima sesión.
+    debounced.flush = function() {
+        if (timeout) { clearTimeout(timeout); timeout = null; }
+        if (pendingState != null) {
+            const s = pendingState;
+            pendingState = null;
+            fire(s, true);
+        }
+    };
+
+    return debounced;
 })();
 
 /**
@@ -351,6 +376,11 @@ export function saveApplicationData(options = {}) {
  * away (beforeunload) or after critical operations.
  */
 export function flushPendingSave() {
+    // M10: vaciar también el mirror a Firestore pendiente (debounce de 2s),
+    // no sólo el guardado local de 300ms. Así el último cambio llega a la nube
+    // aunque la pestaña se cierre dentro de la ventana de debounce.
+    syncFirebaseMirrorDebounced.flush();
+
     if (!_saveDebounceTimer) return false;
     clearTimeout(_saveDebounceTimer);
     _saveDebounceTimer = null;
@@ -518,6 +548,17 @@ export async function loadApplicationData() {
     try {
         debug.log('📂 PersistenceService: Iniciando carga de datos...');
 
+        // 🛡️ H5: pedir almacenamiento persistente (best-effort). Sin esto el
+        // navegador puede desalojar IndexedDB bajo presión de espacio (Safari
+        // es agresivo) y la app caería a datos viejos o vacíos.
+        try {
+            if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+                navigator.storage.persist().then(granted => {
+                    debug.log(`🗄️ Almacenamiento persistente: ${granted ? 'concedido' : 'denegado (best-effort)'}`);
+                }).catch(() => { /* best-effort */ });
+            }
+        } catch (_) { /* navegadores sin soporte */ }
+
         // Rehidratar colas de borrado pendientes del storage para que
         // docs que quedaron sin borrar en sesiones anteriores se reintenten.
         loadDeleteQueuesFromStorage();
@@ -591,6 +632,14 @@ export async function loadApplicationData() {
                 await indexedDBService.saveState(state);
                 state.useIndexedDB = true;
                 localStorage.setItem('migrated-to-idb', 'true');
+                // 🛡️ H5: eliminar la copia legacy de localStorage. Si se queda,
+                // un desalojo futuro de IndexedDB la "resucitaría" como verdad
+                // (datos congelados de meses atrás) y podría subirla a la nube.
+                // El saveState de arriba ya lanzó si la migración falló.
+                try {
+                    localStorage.removeItem('asistencia-data');
+                    debug.log('🧹 Copia legacy de localStorage eliminada tras migración a IndexedDB');
+                } catch (_) { /* noop */ }
             }
             
             validateDataIntegrity();

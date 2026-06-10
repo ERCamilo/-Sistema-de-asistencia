@@ -43,9 +43,10 @@ function employeeDocRef(employeeId) {
 export const EmployeeRepository = {
 
     /**
-     * Carga todos los empleados de la colección. Retorna [] si no hay
-     * sesión o la colección está vacía.
-     * @returns {Promise<Array>}
+     * Carga todos los empleados de la colección.
+     * @returns {Promise<Array|null>} [] si no hay sesión o la colección está
+     *   vacía; **null si la lectura FALLA** (M1: distinguible de "vacío" para
+     *   que el caller no blanquee el estado con un error transitorio).
      */
     async loadAll() {
         const ref = userEmployeesRef();
@@ -60,7 +61,7 @@ export const EmployeeRepository = {
             return result;
         } catch (e) {
             console.error('❌ EmployeeRepository.loadAll error:', e);
-            return [];
+            return null; // M1: null = fallo de lectura, NO "colección vacía"
         }
     },
 
