@@ -20,6 +20,7 @@ import { state } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { syncProfileToMaster } from '../profile/index.js';
+import { recordNestedTombstone } from '../../services/NestedTombstones.js';
 
 // ─── ID generator (kept compatible with the legacy ADV-{ts} format) ──────────
 
@@ -56,6 +57,10 @@ export function addAdvanceTo(scratch, todayKey) {
 export function removeAdvanceAt(scratch, index) {
     if (!scratch || !Array.isArray(scratch.advances)) return;
     if (index < 0 || index >= scratch.advances.length) return;
+    // 🪦 P1: tombstone antes del splice — sin esto el merge con la nube
+    // resucitaba el adelanto borrado desde la copia remota.
+    const deleted = scratch.advances[index];
+    if (deleted?.id) recordNestedTombstone(scratch, 'advances', deleted.id);
     scratch.advances.splice(index, 1);
     // Also reset the matching editing flag so we don't leak orphan true-states
     if (scratch.editingAdvances) {
