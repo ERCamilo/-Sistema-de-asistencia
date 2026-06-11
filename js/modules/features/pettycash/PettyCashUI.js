@@ -58,12 +58,14 @@ function persist() {
 }
 
 // ── persistencia durable: IndexedDB local + outbox + Firestore ────────
-const saveProject  = (p) => PettyCashStore.save('projects', p);
-const savePeriod   = (p) => PettyCashStore.save('periods', p);
-const saveMovement = (m) => PettyCashStore.save('movements', m);
-const removeProjectDoc  = (id) => PettyCashStore.remove('projects', id);
-const removePeriodDoc   = (id) => PettyCashStore.remove('periods', id);
-const removeMovementDoc = (id) => PettyCashStore.remove('movements', id);
+// `announce` (opcional): etiqueta para el toast HONESTO del resultado —
+// verde si llegó a la nube, amarillo si quedó solo local, rojo si ni local.
+const saveProject  = (p, announce) => PettyCashStore.save('projects', p, { announce });
+const savePeriod   = (p, announce) => PettyCashStore.save('periods', p, { announce });
+const saveMovement = (m, announce) => PettyCashStore.save('movements', m, { announce });
+const removeProjectDoc  = (id, announce) => PettyCashStore.remove('projects', id, { announce });
+const removePeriodDoc   = (id, announce) => PettyCashStore.remove('periods', id, { announce });
+const removeMovementDoc = (id, announce) => PettyCashStore.remove('movements', id, { announce });
 
 function dedupById(arr) {
     return arr ? [...new Map(arr.map(i => [i.id, i])).values()] : [];
@@ -502,7 +504,7 @@ export function registerPettyCashGlobals() {
         d.projects.push(p);
         d.selectedProjectId = p.id;
         d.selectedPeriodId = null;
-        persist(); saveProject(p); window.render?.();
+        persist(); saveProject(p, 'Proyecto creado'); window.render?.();
     };
 
     window.pcSelectProject = (id) => {
@@ -519,7 +521,7 @@ export function registerPettyCashGlobals() {
         const name = (await Modal.prompt({ title: '✏️ Renombrar proyecto', message: 'Nuevo nombre del proyecto:', defaultValue: proj.name, confirmText: 'Guardar' }) || '').trim();
         if (!name) return;
         proj.name = name; proj.updatedAt = Date.now();
-        persist(); saveProject(proj); window.render?.();
+        persist(); saveProject(proj, 'Proyecto renombrado'); window.render?.();
     };
 
     window.pcDeleteProject = async () => {
@@ -553,7 +555,7 @@ export function registerPettyCashGlobals() {
         d.periods.push(per);
         d.selectedPeriodId = per.id;
         d.form = null; d.periodForm = null; d.editMov = null;
-        persist(); savePeriod(per); window.render?.();
+        persist(); savePeriod(per, 'Periodo creado'); window.render?.();
     };
 
     window.pcSelectPeriod = (id) => {
@@ -579,7 +581,7 @@ export function registerPettyCashGlobals() {
         period.closingDate = document.getElementById('pc-per-close')?.value || null;
         period.updatedAt = Date.now();
         pc().periodForm = null;
-        persist(); savePeriod(period); window.render?.();
+        persist(); savePeriod(period, 'Periodo actualizado'); window.render?.();
     };
 
     window.pcDeletePeriod = async () => {
@@ -642,7 +644,7 @@ export function registerPettyCashGlobals() {
         }
         d.movements.push(mov);
         d.form = null;
-        persist(); saveMovement(mov); window.render?.();
+        persist(); saveMovement(mov, mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado'); window.render?.();
         // Guardar la foto localmente en IndexedDB (cola para subir a Supabase vía n8n).
         if (photo && mov.type === 'gasto') {
             try {
@@ -668,7 +670,7 @@ export function registerPettyCashGlobals() {
         if (!mov) return;
         mov.reviewPending = false;
         mov.updatedAt = Date.now();
-        persist(); saveMovement(mov); window.render?.();
+        persist(); saveMovement(mov, 'Movimiento confirmado'); window.render?.();
     };
 
     window.pcExportExcel = async () => {
@@ -746,7 +748,7 @@ export function registerPettyCashGlobals() {
             if (Array.isArray(data.items) && data.items.length) mov.items = data.items;
             mov.updatedAt = Date.now();
             d._rescanStatus = null;
-            persist(); saveMovement(mov); window.render?.();
+            persist(); saveMovement(mov, 'Movimiento actualizado'); window.render?.();
         } catch (e) {
             console.warn('rescan OCR:', e);
             pc()._rescanStatus = null;
@@ -940,7 +942,7 @@ export function registerPettyCashGlobals() {
         mov.updatedAt = Date.now();
         const pendingPhoto = d._editPhoto;
         d.editMov = null; d._editPhoto = null;
-        persist(); saveMovement(mov); window.render?.();
+        persist(); saveMovement(mov, 'Movimiento actualizado'); window.render?.();
         // Subir foto reemplazada (si hay)
         if (pendingPhoto && mov.type === 'gasto') {
             try {
@@ -963,7 +965,7 @@ export function registerPettyCashGlobals() {
         const ok = await Modal.confirm({ title: '🗑️ Eliminar movimiento', message: `¿Eliminar "${esc(label)}" de ${rd(mov.amount)}?`, confirmText: 'Eliminar', cancelText: 'Cancelar', type: 'danger' });
         if (!ok) return;
         if (mov.receiptStatus) indexedDBService.deleteReceipt(movId);
-        removeMovementDoc(movId);
+        removeMovementDoc(movId, 'Movimiento eliminado');
         d.movements = d.movements.filter(m => m.id !== movId);
         persist(); window.render?.();
     };
@@ -983,7 +985,7 @@ export function registerPettyCashGlobals() {
         period.diferencia = diferencia;
         period.closingDate = today();
         period.updatedAt = Date.now();
-        persist(); savePeriod(period); window.render?.();
+        persist(); savePeriod(period, 'Periodo cerrado'); window.render?.();
         const estado = diferencia === 0 ? 'Cuadra perfecto ✓' : diferencia > 0 ? `Sobra ${rd(diferencia)}` : `Falta ${rd(-diferencia)}`;
         Modal.alert({ title: 'Periodo cerrado', message: `Saldo calculado: ${rd(r.saldo)}<br>Efectivo contado: ${rd(contado)}<br><b>Diferencia: ${estado}</b>` });
     };

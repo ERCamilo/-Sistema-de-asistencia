@@ -121,8 +121,7 @@ export function saveNoteModal() {
         return;
     }
 
-    saveApplicationData();
-    if (window.showNotification) window.showNotification('✅ Nota guardada', 'success');
+    saveApplicationData({ announce: 'Nota guardada' });
     closeNoteModal();
     render();
 }

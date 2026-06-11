@@ -164,9 +164,9 @@ export function editAdvance(index) {
 
 export function saveAdvance(index) {
     clearEditing(state.employeeProfile, parseInt(index, 10));
-    syncProfileToMaster(state.employeeProfile?.employeeId);
+    // Toast honesto con el resultado real (lo emite el SaveOutcomeNotifier).
+    syncProfileToMaster(state.employeeProfile?.employeeId, { announce: 'Adelanto guardado' });
     refreshPayrollUI();
-    notify('✅ Adelanto guardado correctamente', 'success');
 }
 
 /**

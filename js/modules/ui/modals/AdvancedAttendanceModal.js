@@ -245,11 +245,10 @@ export function saveAdvancedAttendance() {
     // Guardar en el estado (Proxy activará la actualización del índice por fecha)
     state.attendance[key] = attendanceRecord;
     
-    // Sincronizar y renderizar (Zonal Sync)
-    saveApplicationData({ dateKey });
-    
+    // Sincronizar y renderizar (Zonal Sync). Toast honesto del resultado real.
+    saveApplicationData({ dateKey, announce: 'Detalles guardados' });
+
     if (window.render) window.render();
-    if (window.showNotification) window.showNotification('✅ Detalles guardados correctamente', 'success');
 
     return true;
 }

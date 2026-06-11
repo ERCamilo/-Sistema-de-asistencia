@@ -248,8 +248,10 @@ export class EmployeeModal {
         };
 
         const finish = (msg) => {
-            if (msg) window.showAlert(msg, 'success');
-            context.saveToLocalStorage();
+            // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
+            // guardado. El msg (puede traer HTML del icono) se usa como label.
+            const label = msg ? String(msg).replace(/<[^>]*>/g, '').trim() : null;
+            context.saveToLocalStorage(label ? { announce: label } : undefined);
             context.render();
             modalInstance.close();
         };

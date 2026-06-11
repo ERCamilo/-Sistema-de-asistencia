@@ -1816,6 +1816,9 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         ? { ...att, positionHours: att.positionHours ? [...att.positionHours] : [] }
         : null;
 
+    // Label del toast honesto (solo al MARCAR presente; desmarcar no anuncia).
+    let _attendanceAnnounce = null;
+
     if (att && att.present) {
         if (state.viewMode === 'week') return;
         delete state.attendance[key];
@@ -1852,9 +1855,10 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             updatedAt: Date.now()
         };
 
-        // Mostrar notificación con la posición
+        // Toast honesto: el label viaja con el guardado (announce) y el
+        // SaveOutcomeNotifier lo muestra con el resultado REAL (local/nube).
         const posName = state.positions.find(p => p.id === selectedPos)?.name || 'N/A';
-        showNotification(`✅ ${emp.name} - ${dayHours}h como ${posName}`, 'success');
+        _attendanceAnnounce = `${emp.name} - ${dayHours}h como ${posName}`;
 
         // Limpiar selección temporal después de usarla
         if (state.tempPositionSelection) {
@@ -1870,7 +1874,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
     }
 
     // ✅ Guardar cambios con dateKey para sync granular
-    saveApplicationData({ dateKey: getDateKey(date) });
+    saveApplicationData({ dateKey: getDateKey(date), announce: _attendanceAnnounce || undefined });
 
     // ⚡⚡⚡ ULTRA-SELECTIVO: Solo actualizar el checkbox, NO toda la fila
     if (state.viewMode === 'day') {
@@ -1999,11 +2003,10 @@ window.togglePosition = (empId, posId) => {
         att.positionHours = [];
 
         const posName = state.positions.find(p => p.id === posId)?.name || 'N/A';
-        showNotification(`✅ Cambiado a ${posName}`, 'success');
         att.updatedAt = Date.now();
-        
-        // ✅ Sincronizar con la base de datos (Zonal Sync)
-        saveApplicationData({ dateKey: getDateKey(state.selectedDate) });
+
+        // ✅ Sincronizar con la base de datos (Zonal Sync) + toast honesto
+        saveApplicationData({ dateKey: getDateKey(state.selectedDate), announce: `Cambiado a ${posName}` });
         
         render();
     }
@@ -2030,8 +2033,7 @@ window.toggleWeekPosition = (empId, posId, dateStr) => {
     const att = state.attendance[key];
     if (att && att.present) {
         att.selectedPosition = posId;
-        saveApplicationData(); // ✅ Guardar cambios
-        showNotification('✅ Posición actualizada', 'success');
+        saveApplicationData({ announce: 'Posición actualizada' }); // ✅ Guardar + toast honesto
         render();
     }
 };
@@ -2213,16 +2215,17 @@ window.saveAdvance = (index) => {
     if (state.employeeProfile.editingAdvances) {
         state.employeeProfile.editingAdvances[index] = false;
     }
-    syncAdvancesAndSave();
+    syncAdvancesAndSave({ announce: 'Adelanto guardado' });
     updatePayrollUI();
-    showNotification('✅ Adelanto guardado correctamente', 'success');
+    // El toast lo emite ahora el SaveOutcomeNotifier con el resultado REAL
+    // (verde local+nube / amarillo solo-local / rojo si falló).
 };
 
 /**
  * ⚡ Sincroniza adelantos del perfil al empleado y guarda en DB
  */
-function syncAdvancesAndSave() {
-    syncProfileToMaster(state.employeeProfile.employeeId);
+function syncAdvancesAndSave(saveOptions = {}) {
+    syncProfileToMaster(state.employeeProfile.employeeId, saveOptions);
 }
 
 // ⚡ NUEVO: Función principal para actualizar toda la interfaz de nómina
@@ -4099,10 +4102,9 @@ window.saveQuickNoteFromDetail = (empId) => {
         state.attendance[key] = existing;
     }
 
-    if (typeof saveApplicationData === 'function') saveApplicationData();
-    if (window.showNotification) {
-        window.showNotification(text ? '✅ Nota guardada' : '🗑️ Nota eliminada', 'success');
-    }
+    // Toast honesto con el resultado real del guardado (local/nube).
+    const _noteLabel = text ? 'Nota guardada' : 'Nota eliminada';
+    if (typeof saveApplicationData === 'function') saveApplicationData({ announce: _noteLabel });
     if (typeof window.render === 'function') window.render();
 };
 
@@ -5176,8 +5178,8 @@ window.saveSettings = function () {
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
-    saveApplicationData(); // Guardar en localStorage
-    showNotification('✅ Configuración guardada correctamente', 'success');
+    // Toast honesto: verde solo si de verdad se guardó (local + nube).
+    saveApplicationData({ announce: 'Configuración guardada' });
     render();
 };
 

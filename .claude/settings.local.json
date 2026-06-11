@@ -9,7 +9,9 @@
       "Bash(grep -n 'title=\"${.*\\\\.\\\\w\\\\*}\"' js/app.js)",
       "Bash(python -m http.server 8765)",
       "mcp__Claude_in_Chrome__browser_batch",
-      "mcp__Claude_in_Chrome__computer"
+      "mcp__Claude_in_Chrome__computer",
+      "mcp__10b6f7ee-ca4f-4a63-a607-eb71fe36a86d__execute_sql",
+      "Bash(python -c ' *)"
     ]
   }
 }

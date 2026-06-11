@@ -36,7 +36,7 @@ function alertMsg(message, type = 'info') {
  * 🔄 Sync the edit-time scratch data (deductions/bonuses/advances) into the
  * persistent employee record. Called on close and after every payroll edit.
  */
-export function syncProfileToMaster(empId) {
+export function syncProfileToMaster(empId, saveOptions = {}) {
     if (!empId) return false;
     const emp = state.employees.find(e => e.id === empId);
     if (!emp || !state.employeeProfile) return false;
@@ -58,7 +58,8 @@ export function syncProfileToMaster(empId) {
     // ⚡ Immediate save: a fast F5 immediately after editing was discarding the
     // 300ms-debounced save. Critical financial edits (advances, deductions,
     // bonuses) must persist before the tab can be reloaded.
-    saveApplicationData({ immediate: true });
+    // saveOptions permite que el caller pida announce (toast honesto del resultado).
+    saveApplicationData({ immediate: true, ...saveOptions });
     return true;
 }
 

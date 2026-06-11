@@ -14,6 +14,7 @@ import { LeaderRepository } from './LeaderRepository.js';
 import { unionById } from './EmployeeMerge.js';
 import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
+import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
@@ -32,21 +33,13 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
 
-// 🔴 Rate-limit para toasts de error de sync: no spamear cada 2s.
-// Se resetea a null cuando markSynced() dispara (sync se recuperó).
-let _lastSyncErrorNotifiedAt = null;
-const _SYNC_ERROR_NOTIFY_COOLDOWN_MS = 60 * 1000;
-
 function _notifySyncError(e) {
+    // Registra el fallo de nube en SyncStatus (lo refleja el badge de sync de
+    // forma persistente). El TOAST de fallo de nube ahora lo emite el
+    // SaveOutcomeNotifier — en AMARILLO ("guardado solo en este equipo"), no en
+    // rojo — y solo para guardados que el usuario pidió anunciar. Así no se
+    // duplica ni se spamea en cada sync de fondo.
     SyncStatus.markError(e);
-    const now = Date.now();
-    if (!_lastSyncErrorNotifiedAt || now - _lastSyncErrorNotifiedAt > _SYNC_ERROR_NOTIFY_COOLDOWN_MS) {
-        _lastSyncErrorNotifiedAt = now;
-        NotificationSystem.error(
-            'No se pudo sincronizar con la nube. Tus datos locales están seguros.',
-            10000
-        );
-    }
 }
 
 // 🗑️ Cola de ids de empleados a borrar de la subcolección de Firebase
@@ -152,9 +145,6 @@ export function initSyncPersistence() {
         if (ts === null) return;
         if (!state.settings) state.settings = {};
         state.settings.lastCloudSavedAt = ts;
-        // Sync se recuperó — resetear rate-limiter para que el próximo
-        // error vuelva a mostrar toast inmediatamente.
-        _lastSyncErrorNotifiedAt = null;
     });
 }
 
@@ -279,10 +269,13 @@ export const syncFirebaseMirrorDebounced = (function() {
     const fire = (state, immediate = false) => {
         if (!(globalThis.currentUser && !globalThis._isApplyingRemoteData)) return;
         const runSync = () => {
-            FirebaseService.saveFullState(state).catch(e => {
-                console.warn('⚠️ Error en sincronización debounced:', e);
-                _notifySyncError(e);
-            });
+            FirebaseService.saveFullState(state)
+                .then(() => saveOutcomeNotifier.recordCloudResult(true))
+                .catch(e => {
+                    console.warn('⚠️ Error en sincronización debounced:', e);
+                    _notifySyncError(e);
+                    saveOutcomeNotifier.recordCloudResult(false);
+                });
         };
         if (!immediate && window.requestIdleCallback) {
             window.requestIdleCallback(runSync, { timeout: 1000 });
@@ -353,6 +346,10 @@ export function saveApplicationData(options = {}) {
     } else {
         _pendingSaveOptions = { ...options }; // Guardado completo o primer call
     }
+    // `announce` es PEGAJOSO dentro de la ventana de debounce: si CUALQUIER
+    // llamada pidió anunciar el resultado, el guardado colapsado lo anuncia.
+    // Preservamos el valor (true o string-label) para no perder la etiqueta.
+    if (options.announce) _pendingSaveOptions.announce = options.announce;
 
     // ⚡ Immediate-save mode: bypass the 300ms debounce for critical operations
     // (e.g., creating a loan, recording a payment) where data loss on a fast F5
@@ -459,7 +456,11 @@ async function _executeSave(options = {}) {
     // ☀️ Sincronización con Firebase
     // Skipped when not authenticated, applying remote data, paused, localOnly,
     // or an outgoing conflict is pending user review.
-    if (_canSyncFirebase && !_hasOutgoingConflict) {
+    // _cloudAttempted = ¿se está intentando escribir a la nube en este guardado?
+    // Lo usa el toast honesto (SaveOutcomeNotifier) para saber si debe esperar
+    // el resultado de la nube (verde/amarillo) o anunciar solo el local (verde).
+    const _cloudAttempted = _canSyncFirebase && !_hasOutgoingConflict;
+    if (_cloudAttempted) {
         // 1. Sincronización Granular (si hay dateKey)
         if (options.dateKey) {
             const dayRecords = {};
@@ -507,13 +508,14 @@ async function _executeSave(options = {}) {
     }
 
     // 💾 Persistencia Local
+    let _localOk = true;
     if (state.useIndexedDB && !globalThis._isApplyingRemoteData) {
         try {
             // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados granulares
             if (!options.dateKey && !options.skipValidation) {
                 validateDataIntegrity();
             }
-            
+
             // ⚡ FIX: Usar el estado "raw" (sin proxy) para evitar DataCloneError en IndexedDB
             const rawState = stateManager.getState();
             await indexedDBService.saveState(rawState, options);
@@ -524,16 +526,31 @@ async function _executeSave(options = {}) {
 
             if (errorName === 'ConstraintError' || errorMessage.includes('ConstraintError')) {
                 console.warn('⚡ Conflicto de integridad en IndexedDB.');
+                _localOk = false;
                 NotificationSystem.error('❌ Conflicto de datos detectado');
             } else {
                 console.error('❌ Error fatal en persistencia local:', error);
                 // Fallback a localStorage
-                if (dataService) dataService.saveAll();
-                NotificationSystem.error('❌ Error al guardar localmente: ' + errorMessage);
+                const fallbackOk = dataService ? dataService.saveAll() : false;
+                _localOk = fallbackOk === true;
+                if (!_localOk) {
+                    NotificationSystem.error('❌ Error al guardar localmente: ' + errorMessage);
+                }
             }
         }
-    } else {
-        if (dataService) dataService.saveAll();
+    } else if (!globalThis._isApplyingRemoteData) {
+        const fallbackOk = dataService ? dataService.saveAll() : false;
+        _localOk = fallbackOk === true;
+    }
+
+    // 💬 Toast HONESTO del resultado (solo si el caller lo pidió con announce).
+    // Para announce + éxito local: el notifier espera el resultado de la nube
+    // (verde local+nube / amarillo solo-local) o anuncia solo el local si no
+    // hay nube. En fallo local, el toast de error inline de arriba (con el
+    // detalle del error) ya lo reportó — no duplicamos el rojo.
+    if (options.announce && !globalThis._isApplyingRemoteData && _localOk) {
+        const _label = typeof options.announce === 'string' ? options.announce : null;
+        saveOutcomeNotifier.recordLocalResult({ localOk: true, cloudExpected: _cloudAttempted, label: _label });
     }
 
     // 📡 Emitir evento de guardado

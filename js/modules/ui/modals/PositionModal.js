@@ -280,6 +280,9 @@ export class PositionModal {
             return;
         }
 
+        // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
+        // guardado (verde local+nube / amarillo solo-local / rojo).
+        let announce = null;
         if (existingPos) {
             const posToEdit = state.positions.find(p => p.id === existingPos.id);
             if (posToEdit) {
@@ -293,7 +296,7 @@ export class PositionModal {
                 posToEdit.updatedAt = Date.now();
                 posToEdit._isDirty = true;
 
-                window.showAlert(`${icons.get('check-circle')} Posición "${name}" actualizada`, 'success');
+                announce = `Posición "${name}" actualizada`;
             }
         } else {
             state.positions.push({
@@ -307,10 +310,10 @@ export class PositionModal {
                 updatedAt: Date.now(),
                 _isDirty: true
             });
-            window.showAlert(`${icons.get('check-circle')} Posición "${name}" creada correctamente`, 'success');
+            announce = `Posición "${name}" creada`;
         }
 
-        context.saveToLocalStorage();
+        context.saveToLocalStorage(announce ? { announce } : undefined);
         context.render();
         modalInstance.close();
     }

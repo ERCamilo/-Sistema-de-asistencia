@@ -293,8 +293,8 @@ export function submitNewLoan() {
         const loan = createLoan(emp, draft);
         state.loansLedger.showAddForm = false;
         state.loansLedger.newLoanDraft = createEmptyLoanDraft();
-        saveApplicationData({ immediate: true });
-        notify(`✅ Préstamo registrado: ${loan.concept}`, 'success');
+        // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.
+        saveApplicationData({ immediate: true, announce: `Préstamo registrado: ${loan.concept}` });
         render();
     } catch (err) {
         alertMsg(`❌ ${err.message}`);
@@ -338,8 +338,7 @@ export function submitPayment(loanId) {
     try {
         const payment = recordPayment(emp, loanId, state.loansLedger.paymentDraft);
         state.loansLedger.showPaymentFormForLoan = null;
-        saveApplicationData({ immediate: true });
-        notify(`✅ Abono registrado: ${payment.amount.toFixed(2)}`, 'success');
+        saveApplicationData({ immediate: true, announce: `Abono registrado: ${payment.amount.toFixed(2)}` });
         render();
     } catch (err) {
         alertMsg(`❌ ${err.message}`);
@@ -364,7 +363,7 @@ export function settleLoanByFullPayment(loanId) {
     if (!window.showConfirm) {
         // Fallback if Modal.confirm shim is unavailable
         recordPayment(emp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' });
-        saveApplicationData({ immediate: true });
+        saveApplicationData({ immediate: true, announce: 'Préstamo saldado' });
         render();
         return;
     }
@@ -377,8 +376,7 @@ export function settleLoanByFullPayment(loanId) {
         onConfirm: () => {
             try {
                 recordPayment(emp, loanId, { amount: balance, date: getDateKey(new Date()), note: 'Saldo completo' });
-                saveApplicationData({ immediate: true });
-                notify('✅ Préstamo saldado', 'success');
+                saveApplicationData({ immediate: true, announce: 'Préstamo saldado' });
                 render();
             } catch (err) {
                 alertMsg(`❌ ${err.message}`);
@@ -395,7 +393,7 @@ export function writeOffLoanWithConfirm(loanId) {
 
     if (!window.showConfirm) {
         writeOffLoan(emp, loanId);
-        saveApplicationData({ immediate: true });
+        saveApplicationData({ immediate: true, announce: 'Préstamo anulado' });
         render();
         return;
     }
@@ -407,8 +405,7 @@ export function writeOffLoanWithConfirm(loanId) {
         type: 'warning',
         onConfirm: () => {
             writeOffLoan(emp, loanId);
-            saveApplicationData({ immediate: true });
-            notify('Préstamo anulado', 'info');
+            saveApplicationData({ immediate: true, announce: 'Préstamo anulado' });
             render();
         }
     });
@@ -420,8 +417,7 @@ export function reopenLoanHandler(loanId) {
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
     reopenLoan(emp, loanId);
-    saveApplicationData({ immediate: true });
-    notify('Préstamo reactivado', 'info');
+    saveApplicationData({ immediate: true, announce: 'Préstamo reactivado' });
     render();
 }
 
@@ -433,7 +429,7 @@ export function voidPaymentHandler(loanId, paymentId) {
 
     if (!window.showConfirm) {
         voidPayment(emp, loanId, paymentId);
-        saveApplicationData({ immediate: true });
+        saveApplicationData({ immediate: true, announce: 'Abono anulado' });
         render();
         return;
     }
@@ -445,8 +441,7 @@ export function voidPaymentHandler(loanId, paymentId) {
         type: 'warning',
         onConfirm: () => {
             voidPayment(emp, loanId, paymentId);
-            saveApplicationData({ immediate: true });
-            notify('Abono anulado', 'info');
+            saveApplicationData({ immediate: true, announce: 'Abono anulado' });
             render();
         }
     });
@@ -493,8 +488,7 @@ export function submitRefinance(loanId) {
     try {
         const ev = refinanceLoan(emp, loanId, state.loansLedger.refinanceDraft);
         state.loansLedger.showRefinanceFormForLoan = null;
-        saveApplicationData({ immediate: true });
-        notify(`♻️ Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés`, 'success');
+        saveApplicationData({ immediate: true, announce: `Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés` });
         render();
     } catch (err) {
         alertMsg(`❌ ${err.message}`);

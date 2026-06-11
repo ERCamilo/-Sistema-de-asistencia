@@ -114,6 +114,9 @@ export class LeaderModal {
 
         const state = getState();
 
+        // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
+        // guardado (verde local+nube / amarillo solo-local / rojo).
+        let announce = null;
         if (existingLdr) {
             const ldrToEdit = state.leaders.find(l => l.id === existingLdr.id);
             if (ldrToEdit) {
@@ -124,7 +127,7 @@ export class LeaderModal {
                 ldrToEdit.notes = notes;
                 ldrToEdit.updatedAt = Date.now();
                 ldrToEdit._isDirty = true;
-                window.showAlert(`${icons.get('check-circle')} Líder actualizado`, 'success');
+                announce = `Líder ${name} actualizado`;
             }
         } else {
             state.leaders.push({
@@ -138,10 +141,10 @@ export class LeaderModal {
                 updatedAt: Date.now(),
                 _isDirty: true
             });
-            window.showAlert(`${icons.get('check-circle')} Líder creado correctamente`, 'success');
+            announce = `Líder ${name} creado`;
         }
 
-        context.saveToLocalStorage();
+        context.saveToLocalStorage(announce ? { announce } : undefined);
         context.render();
         modalInstance.close();
     }

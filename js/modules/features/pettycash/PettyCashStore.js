@@ -13,6 +13,7 @@
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { auth } from '../../data/firebase.js';
+import { saveOutcomeNotifier } from '../../services/SaveOutcomeNotifier.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
@@ -43,19 +44,41 @@ export const PettyCashStore = {
         }
     },
 
-    /** Guarda un item: local (durable) + encola para la nube + intenta flush. */
-    async save(col, item) {
+    /**
+     * Guarda un item: local (durable) + encola para la nube + intenta flush.
+     * opts.announce (string opcional): anuncia el resultado REAL vía el toast
+     * honesto — local OK al instante; el color final (verde nube / amarillo
+     * solo-local) lo decide el flush al drenar la outbox.
+     */
+    async save(col, item, opts = {}) {
         if (!STORE[col] || !item || !item.id) return;
-        try { await indexedDBService.update(STORE[col], item); } catch (e) { console.warn('pc save local:', e); }
+        let localOk = true;
+        try { await indexedDBService.update(STORE[col], item); } catch (e) { localOk = false; console.warn('pc save local:', e); }
         try { await indexedDBService.update(OUTBOX, { op: 'save', col, id: item.id, data: item, ts: Date.now(), status: 'pending' }); } catch (e) { console.warn('pc enqueue:', e); }
+        if (opts.announce) {
+            saveOutcomeNotifier.recordLocalResult({
+                localOk,
+                cloudExpected: !!(auth && auth.currentUser),
+                label: opts.announce
+            });
+        }
         this.flush();
     },
 
-    /** Borra un item: local + encola delete + intenta flush. */
-    async remove(col, id) {
+    /** Borra un item: local + encola delete + intenta flush.
+     *  opts.announce: igual que en save(). */
+    async remove(col, id, opts = {}) {
         if (!STORE[col] || !id) return;
-        try { await indexedDBService.delete(STORE[col], id); } catch (e) { console.warn('pc del local:', e); }
+        let localOk = true;
+        try { await indexedDBService.delete(STORE[col], id); } catch (e) { localOk = false; console.warn('pc del local:', e); }
         try { await indexedDBService.update(OUTBOX, { op: 'delete', col, id, ts: Date.now(), status: 'pending' }); } catch (e) { console.warn('pc enqueue del:', e); }
+        if (opts.announce) {
+            saveOutcomeNotifier.recordLocalResult({
+                localOk,
+                cloudExpected: !!(auth && auth.currentUser),
+                label: opts.announce
+            });
+        }
         this.flush();
     },
 
@@ -96,7 +119,14 @@ export const PettyCashStore = {
                         await repo.saveOne(entry.data);
                     }
                     await indexedDBService.delete(OUTBOX, entry.key);
+                    // 💬 Toast honesto: si hay un guardado anunciado esperando,
+                    // confirmar que la nube ya lo tiene (el notifier ignora el
+                    // reporte si no hay nada pendiente).
+                    saveOutcomeNotifier.recordCloudResult(true);
                 } catch (e) {
+                    // 💬 Toast honesto: la nube falló → amarillo "solo en este
+                    // equipo" para el guardado anunciado pendiente (si lo hay).
+                    saveOutcomeNotifier.recordCloudResult(false);
                     const attempts = (Number(entry.attempts) || 0) + 1;
                     const updated = { ...entry, attempts, lastError: String(e?.message || e) };
                     if (attempts >= MAX_FLUSH_ATTEMPTS) {
