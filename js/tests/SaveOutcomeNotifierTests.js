@@ -75,42 +75,54 @@ function makeHarness({ cloudTimeoutMs = 6000 } = {}) {
     return { calls, notifier, fireTimer, hasTimer: () => timer !== null };
 }
 
-testRunner.addSuite("SaveOutcomeNotifier — flujo local + nube", {
+testRunner.addSuite("SaveOutcomeNotifier — feedback en DOS FASES (inmediato + nube)", {
 
-    "local OK + sin nube esperada → toast verde inmediato"() {
+    "local OK + sin nube esperada → toast verde FINAL inmediato"() {
         const h = makeHarness();
         h.notifier.recordLocalResult({ localOk: true, cloudExpected: false });
         testRunner.assertEquals(h.calls.length, 1, 'un toast');
         testRunner.assertEquals(h.calls[0].level, 'success', 'verde');
+        testRunner.assertEquals(h.calls[0].kind, 'final', 'final: no hay nube que esperar');
         testRunner.assert(!h.hasTimer(), 'no debe quedar esperando la nube');
     },
 
-    "local OK + nube esperada: NO toast hasta que la nube confirme"() {
+    "local OK + nube esperada → toast PROVISIONAL INMEDIATO (no se espera a la nube)"() {
         const h = makeHarness();
-        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
-        testRunner.assertEquals(h.calls.length, 0, 'todavía no se muestra nada (espera la nube)');
-        testRunner.assert(h.hasTimer(), 'debe haber un timeout armado');
-        h.notifier.recordCloudResult(true);
-        testRunner.assertEquals(h.calls.length, 1, 'un toast al confirmar la nube');
-        testRunner.assertEquals(h.calls[0].level, 'success', 'verde local+nube');
-        testRunner.assert(/nube/i.test(h.calls[0].message), 'menciona la nube');
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'Gasto guardado' });
+        testRunner.assertEquals(h.calls.length, 1, 'feedback inmediato: el usuario no espera');
+        testRunner.assertEquals(h.calls[0].level, 'success', 'verde (lo local SÍ se guardó)');
+        testRunner.assertEquals(h.calls[0].kind, 'provisional', 'provisional: la nube viene en camino');
+        testRunner.assert(/nube/i.test(h.calls[0].message), 'indica que está subiendo a la nube');
+        testRunner.assert(h.hasTimer(), 'timeout de respaldo armado');
     },
 
-    "local OK + nube FALLA → amarillo"() {
+    "cuando la nube confirma → CONFIRM actualiza el toast a verde definitivo"() {
+        const h = makeHarness();
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'Gasto guardado' });
+        h.notifier.recordCloudResult(true);
+        testRunner.assertEquals(h.calls.length, 2, 'provisional + confirmación');
+        testRunner.assertEquals(h.calls[1].kind, 'confirm', 'segunda fase: confirmación');
+        testRunner.assertEquals(h.calls[1].level, 'success', 'verde definitivo');
+        testRunner.assert(/nube/i.test(h.calls[1].message), 'el mensaje final menciona la nube');
+        testRunner.assert(!h.hasTimer(), 'timeout cancelado');
+    },
+
+    "nube FALLA → el provisional se vuelve AMARILLO"() {
         const h = makeHarness();
         h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
         h.notifier.recordCloudResult(false);
-        testRunner.assertEquals(h.calls.length, 1, 'un toast');
-        testRunner.assertEquals(h.calls[0].level, 'warning', 'amarillo');
+        testRunner.assertEquals(h.calls.length, 2, 'provisional + fallo');
+        testRunner.assertEquals(h.calls[1].level, 'warning', 'amarillo');
+        testRunner.assertEquals(h.calls[1].kind, 'final', 'el amarillo es definitivo');
     },
 
-    "local OK + nube nunca responde (timeout) → amarillo"() {
+    "nube nunca responde (timeout) → amarillo"() {
         const h = makeHarness();
         h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
-        testRunner.assertEquals(h.calls.length, 0, 'aún esperando');
+        testRunner.assertEquals(h.calls.length, 1, 'provisional inmediato');
         h.fireTimer(); // se vence el timeout sin respuesta de la nube
-        testRunner.assertEquals(h.calls.length, 1, 'el timeout muestra el toast');
-        testRunner.assertEquals(h.calls[0].level, 'warning', 'amarillo: no se pudo confirmar la nube');
+        testRunner.assertEquals(h.calls.length, 2, 'el timeout resuelve');
+        testRunner.assertEquals(h.calls[1].level, 'warning', 'amarillo: no se pudo confirmar la nube');
     },
 
     "local FALLA → rojo inmediato, sin esperar nube"() {
@@ -121,20 +133,63 @@ testRunner.addSuite("SaveOutcomeNotifier — flujo local + nube", {
         testRunner.assert(!h.hasTimer(), 'no espera la nube si ni siquiera se guardó local');
     },
 
-    "varios cambios seguidos → UN solo toast cuando la nube confirma"() {
+    "ráfaga: CADA acción da feedback inmediato; UNA confirmación al final"() {
         const h = makeHarness();
-        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
-        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
-        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
-        testRunner.assertEquals(h.calls.length, 0, 'colapsa: nada hasta confirmar');
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'A' });
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'B' });
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'C' });
+        testRunner.assertEquals(h.calls.length, 3, 'un provisional por acción (feedback no se pierde)');
+        testRunner.assert(h.calls.every(c => c.kind === 'provisional'), 'todos provisionales');
         h.notifier.recordCloudResult(true);
-        testRunner.assertEquals(h.calls.length, 1, 'un único toast para la ráfaga');
+        testRunner.assertEquals(h.calls.length, 4, 'una sola confirmación para la ráfaga');
+        testRunner.assertEquals(h.calls[3].kind, 'confirm', 'confirmación final');
     },
 
     "resultado de nube sin guardado pendiente → se ignora (no spamea)"() {
         const h = makeHarness();
         h.notifier.recordCloudResult(true); // eco de sync entrante, sin save propio
         testRunner.assertEquals(h.calls.length, 0, 'no debe aparecer toast por un sync no solicitado');
+    },
+
+    // ── Fase 0: reconocimiento INSTANTÁNEO al solicitar el guardado ──
+    // El guardado local (IndexedDB, estado completo) tarda ~1s; sin esta fase
+    // el usuario no ve NADA durante ese segundo.
+
+    "recordSaveStarted → toast 'guardando…' INSTANTÁNEO (fase 0)"() {
+        const h = makeHarness();
+        h.notifier.recordSaveStarted({ label: 'Gasto guardado' });
+        testRunner.assertEquals(h.calls.length, 1, 'reconocimiento inmediato');
+        testRunner.assertEquals(h.calls[0].kind, 'start', 'fase 0');
+        testRunner.assert(/uardando/i.test(h.calls[0].message), 'dice "guardando…" (en progreso, honesto)');
+    },
+
+    "start → local OK → nube OK: el flujo completo de 3 fases"() {
+        const h = makeHarness();
+        h.notifier.recordSaveStarted({ label: 'X' });
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'X' });
+        h.notifier.recordCloudResult(true);
+        testRunner.assertEquals(h.calls.length, 3, 'start + provisional + confirm');
+        testRunner.assertEquals(h.calls[0].kind, 'start', 'fase 0');
+        testRunner.assertEquals(h.calls[1].kind, 'provisional', 'fase 1');
+        testRunner.assertEquals(h.calls[2].kind, 'confirm', 'fase 2');
+    },
+
+    "si el guardado local nunca termina, el timeout resuelve el 'guardando…'"() {
+        const h = makeHarness();
+        h.notifier.recordSaveStarted({ label: 'X' });
+        testRunner.assert(h.hasTimer(), 'timer de seguridad armado desde el start');
+        h.fireTimer();
+        testRunner.assertEquals(h.calls.length, 2, 'el timeout emite resolución');
+        testRunner.assertEquals(h.calls[1].level, 'warning', 'amarillo: no se pudo confirmar');
+    },
+
+    "start → local FALLA → rojo (el spinner no se queda colgado)"() {
+        const h = makeHarness();
+        h.notifier.recordSaveStarted({ label: 'X' });
+        h.notifier.recordLocalResult({ localOk: false, cloudExpected: true, label: 'X' });
+        testRunner.assertEquals(h.calls.length, 2, 'start + rojo');
+        testRunner.assertEquals(h.calls[1].level, 'error', 'rojo final');
+        testRunner.assert(!h.hasTimer(), 'sin timers colgados');
     }
 
 });

@@ -151,9 +151,12 @@ testRunner.addSuite("Préstamos — announce honesto en LoansController", {
 
 testRunner.addSuite("Asistencia y entidades — announce honesto", {
 
-    "marcar presente anuncia con el nombre del empleado"() {
-        testRunner.assert(/announce:\s*_attendanceAnnounce/.test(APP_SRC),
-            'toggleAttendance debe pasar el label al guardado');
+    "marcar presente usa el tracker de anillos (no toasts por marca)"() {
+        // La asistencia es acción EN RÁFAGA: su feedback es por ítem (anillo
+        // en el check + contador agregado), no un toast por marca. Ver
+        // AttendanceSyncRingTests para el contrato completo.
+        testRunner.assert(/attendanceSyncTracker\.markPending/.test(APP_SRC),
+            'toggleAttendance debe registrar el cambio en el tracker');
         testRunner.assert(!/showNotification\(`✅ \$\{emp\.name\} - \$\{dayHours\}h como/.test(APP_SRC),
             'el toast inmediato de presente debe eliminarse');
     },

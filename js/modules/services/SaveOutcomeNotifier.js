@@ -1,30 +1,34 @@
 /**
  * 💬 SaveOutcomeNotifier.js
  *
- * Hace HONESTO el toast de "guardado". Antes aparecía un "✅ guardado
- * exitosamente" al hacer el cambio, aunque nada se hubiera persistido todavía
- * (el guardado local es asíncrono y la nube va con 2s de debounce).
+ * Hace HONESTO el toast de "guardado" SIN sacrificar feedback inmediato.
  *
- * Ahora el toast refleja el resultado REAL combinando dos señales:
- *   - resultado LOCAL  → conocido al instante (IndexedDB await/throw)
- *   - resultado NUBE   → llega ~2s después (mirror) vía recordCloudResult()
+ * Diseño en DOS FASES (un solo toast que se actualiza):
+ *   1. Al confirmar el guardado LOCAL (instantáneo) → toast verde inmediato:
+ *      "✅ {acción} · en este equipo (subiendo a la nube…)"
+ *   2. Cuando la nube responde (el mirror tarda ~2s por su debounce):
+ *      - OK     → el MISMO toast se actualiza: "✅ {acción} · guardado en la nube"
+ *      - falla  → se vuelve AMARILLO: "⚠️ {acción} · solo en este equipo"
+ *      - nunca responde (timeout) → amarillo también.
  *
- * Colores:
- *   VERDE    local OK + nube OK            → "Guardado en este equipo y en la nube"
- *   VERDE    local OK + sin nube esperada  → "Guardado en este equipo"
- *   AMARILLO local OK + nube falló/timeout → "Guardado solo en este equipo (aún no en la nube)"
- *   ROJO     local falló                   → "No se pudo guardar"
+ * Si no hay cuenta conectada, el verde "en este equipo" es final (no se
+ * promete nube). Si ni lo local se guardó → ROJO inmediato.
+ *
+ * En ráfagas (marcar varios empleados seguidos) cada acción emite su toast
+ * provisional al instante — el feedback nunca se pierde ni se retrasa — y la
+ * confirmación de nube llega una sola vez al final.
  *
  * `decideSaveOutcome` es pura. `createSaveOutcomeNotifier` es la máquina de
- * estados (inyectable para test). Abajo se exporta un singleton cableado a la
- * UI real.
+ * estados (inyectable para test): emite {level, message, kind} donde kind es
+ * 'provisional' | 'confirm' | 'final'. El singleton de abajo la cablea a la
+ * UI real actualizando el MISMO toast (Notification.update).
  */
 
 import { Notification as NotificationSystem } from '../components/Notification.js';
 
 /**
- * Núcleo puro: dado el resultado, decide color y mensaje.
- * @param {{localOk:boolean, cloudConnected:boolean, cloudOk:boolean|null}} p
+ * Núcleo puro: dado el resultado FINAL, decide color y mensaje.
+ * @param {{localOk:boolean, cloudConnected:boolean, cloudOk:boolean|null, label?:string|null}} p
  * @returns {{level:'success'|'warning'|'error', message:string}}
  */
 export function decideSaveOutcome({ localOk, cloudConnected, cloudOk, label }) {
@@ -33,12 +37,14 @@ export function decideSaveOutcome({ localOk, cloudConnected, cloudOk, label }) {
     // perder contexto; si no, mensaje genérico.
     const L = (typeof label === 'string' && label.trim()) ? label.trim() : null;
 
+    // Nota: el componente Notification ya pinta un ícono según el tipo
+    // (check/alert/x), así que NO repetimos el emoji en el texto.
     if (localOk !== true) {
         return {
             level: 'error',
             message: L
-                ? `❌ No se pudo guardar: ${L}`
-                : '❌ No se pudo guardar. Revisa el almacenamiento de tu dispositivo.'
+                ? `No se pudo guardar: ${L}`
+                : 'No se pudo guardar. Revisa el almacenamiento de tu dispositivo.'
         };
     }
     if (cloudConnected !== true) {
@@ -46,39 +52,50 @@ export function decideSaveOutcome({ localOk, cloudConnected, cloudOk, label }) {
         // prometemos la nube para no mentir.
         return {
             level: 'success',
-            message: L ? `✅ ${L} · en este equipo` : '✅ Guardado en este equipo'
+            message: L ? `${L} · en este equipo` : 'Guardado en este equipo'
         };
     }
     if (cloudOk === true) {
         return {
             level: 'success',
-            message: L ? `✅ ${L} · guardado en la nube` : '✅ Guardado en este equipo y en la nube'
+            message: L ? `${L} · guardado en la nube` : 'Guardado en este equipo y en la nube'
         };
     }
     return {
         level: 'warning',
         message: L
-            ? `⚠️ ${L} · solo en este equipo (aún no en la nube)`
-            : '⚠️ Guardado solo en este equipo (aún no en la nube)'
+            ? `${L} · solo en este equipo (aún no en la nube)`
+            : 'Guardado solo en este equipo (aún no en la nube)'
     };
 }
 
+/** Mensaje de la fase 1 (local OK, nube en camino). */
+function provisionalMessage(label) {
+    const L = (typeof label === 'string' && label.trim()) ? label.trim() : null;
+    return L
+        ? `${L} · en este equipo (subiendo a la nube…)`
+        : 'Guardado en este equipo (subiendo a la nube…)';
+}
+
 /**
- * Máquina de estados. Espera el resultado de la nube tras un guardado local
- * exitoso, con un timeout de respaldo, y emite UN solo toast por guardado
- * (colapsa ráfagas de cambios).
+ * Máquina de estados de dos fases.
  *
  * @param {{
- *   notify: (o:{level:string,message:string}) => void,
+ *   notify: (o:{level:string,message:string,kind:'provisional'|'confirm'|'final'}) => void,
  *   setTimer: (fn:Function, ms:number) => any,
  *   clearTimer: (handle:any) => void,
  *   cloudTimeoutMs?: number
  * }} deps
+ *   cloudTimeoutMs por defecto 12s: el mirror tiene debounce de 2s que se
+ *   REINICIA con cada guardado, así que en ráfagas la confirmación llega ~2-3s
+ *   después de la última acción. 12s da margen sin dejar el provisional
+ *   colgado para siempre cuando la nube no responde (p. ej. offline con el
+ *   SDK bufferizando).
  */
-export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudTimeoutMs = 6000 }) {
-    let pending = false;       // ¿hay un guardado local OK esperando la nube?
+export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudTimeoutMs = 12000 }) {
+    let pending = false;       // ¿hay un guardado anunciado esperando la nube?
     let timerHandle = null;
-    let pendingLabel = null;   // etiqueta de la acción en espera (opcional)
+    let pendingLabel = null;   // etiqueta de la acción en espera (la última de la ráfaga)
 
     function _clearTimer() {
         if (timerHandle != null) { clearTimer(timerHandle); timerHandle = null; }
@@ -89,43 +106,70 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
         pending = false;
         const label = pendingLabel;
         pendingLabel = null;
-        notify(decideSaveOutcome({ localOk: true, cloudConnected: true, cloudOk, label }));
+        const outcome = decideSaveOutcome({ localOk: true, cloudConnected: true, cloudOk, label });
+        notify({ ...outcome, kind: cloudOk ? 'confirm' : 'final' });
     }
 
     return {
         /**
-         * Reporta el resultado del guardado local.
+         * Fase 0 — reconocimiento INSTANTÁNEO. Llamar en el momento de la
+         * acción del usuario (antes del debounce y de la escritura local, que
+         * puede tardar ~1s con estados grandes). Muestra "guardando…" — honesto
+         * porque describe un proceso en curso, no un resultado.
+         * @param {{label?:string}} p
+         */
+        recordSaveStarted({ label = null } = {}) {
+            pendingLabel = (typeof label === 'string') ? label : null;
+            // Timer de seguridad desde el inicio: si NADA responde (ni el
+            // local), el spinner no se queda colgado para siempre.
+            _clearTimer();
+            timerHandle = setTimer(() => { _resolveCloud(false); }, cloudTimeoutMs);
+            const L = pendingLabel;
+            notify({
+                level: 'info',
+                kind: 'start',
+                message: L ? `Guardando — ${L}…` : 'Guardando…'
+            });
+        },
+
+        /**
+         * Reporta el resultado del guardado local (fase 1 — siempre inmediata).
          * @param {{localOk:boolean, cloudExpected:boolean, label?:string}} p
          *   cloudExpected = ¿se intentó (o intentará) escribir a la nube?
          *   (false si no hay sesión, está pausado, es localOnly, o hay
          *   conflicto saliente pendiente de revisión del usuario).
-         *   label = nombre de la acción para el mensaje (opcional).
          */
         recordLocalResult({ localOk, cloudExpected, label = null }) {
-            _clearTimer();
-            pending = false;
-            pendingLabel = (typeof label === 'string') ? label : null;
+            const l = (typeof label === 'string') ? label : null;
 
             if (localOk !== true) {
-                const l = pendingLabel; pendingLabel = null;
-                notify(decideSaveOutcome({ localOk: false, cloudConnected: !!cloudExpected, cloudOk: null, label: l }));
+                _clearTimer();
+                pending = false;
+                pendingLabel = null;
+                notify({ ...decideSaveOutcome({ localOk: false, cloudConnected: !!cloudExpected, cloudOk: null, label: l }), kind: 'final' });
                 return;
             }
             if (!cloudExpected) {
-                const l = pendingLabel; pendingLabel = null;
-                notify(decideSaveOutcome({ localOk: true, cloudConnected: false, cloudOk: null, label: l }));
+                _clearTimer();
+                pending = false;
+                pendingLabel = null;
+                notify({ ...decideSaveOutcome({ localOk: true, cloudConnected: false, cloudOk: null, label: l }), kind: 'final' });
                 return;
             }
-            // Local OK y la nube viene en camino: esperar su resultado, con
-            // timeout de respaldo (si nunca llega → amarillo).
+            // Local OK + nube en camino: feedback INMEDIATO (provisional) y a
+            // esperar la confirmación. En ráfagas, cada acción re-emite su
+            // provisional y re-arma el timeout; la nube confirma una vez al final.
+            pendingLabel = l;
             pending = true;
+            _clearTimer();
             timerHandle = setTimer(() => { _resolveCloud(false); }, cloudTimeoutMs);
+            notify({ level: 'success', message: provisionalMessage(l), kind: 'provisional' });
         },
 
         /**
-         * Reporta el resultado de la escritura a la nube (mirror). Se ignora si
+         * Reporta el resultado de la escritura a la nube (fase 2). Se ignora si
          * no hay un guardado propio esperando (evita toasts por ecos de sync
-         * entrante).
+         * entrante o flushes de fondo).
          * @param {boolean} ok
          */
         recordCloudResult(ok) {
@@ -136,10 +180,62 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
 }
 
 // ─── Singleton cableado a la UI real ─────────────────────────────────────────
+// Mantiene la referencia al toast provisional para ACTUALIZARLO en sitio
+// (Notification.update) en vez de apilar toasts.
+
+let _toast = null;
+
+function _toastAlive() {
+    try {
+        return !!(_toast && _toast.element &&
+            Array.isArray(NotificationSystem.activeNotifications) &&
+            NotificationSystem.activeNotifications.includes(_toast));
+    } catch (_) { return false; }
+}
 
 const _notify = (o) => {
-    const fn = NotificationSystem[o.level] || NotificationSystem.info;
-    fn(o.message);
+    try {
+        if (o.kind === 'start') {
+            // Fase 0: spinner instantáneo. Sticky — las fases siguientes (o el
+            // timeout de seguridad de la máquina) siempre lo resuelven.
+            if (_toastAlive()) {
+                _toast.update({ type: 'loading', message: o.message, duration: 0 });
+            } else {
+                _toast = NotificationSystem.loading(o.message);
+            }
+            return;
+        }
+        if (o.kind === 'provisional') {
+            // Fase 1: crear (o reciclar) el toast verde inmediato. Duración
+            // larga: la confirmación de nube lo actualizará en ~2-3s.
+            if (_toastAlive()) {
+                _toast.update({ type: 'success', message: o.message, duration: 10000 });
+            } else {
+                _toast = NotificationSystem.success(o.message, 10000);
+            }
+            return;
+        }
+        if (o.kind === 'confirm') {
+            // Fase 2 OK: actualizar el MISMO toast. Si ya se cerró, silencio
+            // (sin noticias = todo bien; no apilamos un segundo toast).
+            if (_toastAlive()) {
+                _toast.update({ type: 'success', message: o.message });
+            }
+            _toast = null;
+            return;
+        }
+        // kind 'final': amarillo de nube fallida (SIEMPRE visible, aunque el
+        // provisional ya se haya cerrado), o verde local-only, o rojo.
+        if (o.level === 'warning' && _toastAlive()) {
+            _toast.update({ type: 'warning', message: o.message, duration: 8000 });
+        } else {
+            const fn = NotificationSystem[o.level] || NotificationSystem.info;
+            fn(o.message, o.level === 'warning' ? 8000 : undefined);
+        }
+        _toast = null;
+    } catch (e) {
+        console.warn('⚠️ SaveOutcomeNotifier UI:', e);
+    }
 };
 
 export const saveOutcomeNotifier = createSaveOutcomeNotifier({

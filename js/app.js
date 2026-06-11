@@ -1,5 +1,6 @@
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
+import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
 import { debug } from './modules/utils/Debug.js';
@@ -1816,9 +1817,6 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         ? { ...att, positionHours: att.positionHours ? [...att.positionHours] : [] }
         : null;
 
-    // Label del toast honesto (solo al MARCAR presente; desmarcar no anuncia).
-    let _attendanceAnnounce = null;
-
     if (att && att.present) {
         if (state.viewMode === 'week') return;
         delete state.attendance[key];
@@ -1855,11 +1853,6 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             updatedAt: Date.now()
         };
 
-        // Toast honesto: el label viaja con el guardado (announce) y el
-        // SaveOutcomeNotifier lo muestra con el resultado REAL (local/nube).
-        const posName = state.positions.find(p => p.id === selectedPos)?.name || 'N/A';
-        _attendanceAnnounce = `${emp.name} - ${dayHours}h como ${posName}`;
-
         // Limpiar selección temporal después de usarla
         if (state.tempPositionSelection) {
             delete state.tempPositionSelection[key];
@@ -1874,7 +1867,15 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
     }
 
     // ✅ Guardar cambios con dateKey para sync granular
-    saveApplicationData({ dateKey: getDateKey(date), announce: _attendanceAnnounce || undefined });
+    saveApplicationData({ dateKey: getDateKey(date) });
+
+    // 📡 Feedback por ítem (patrón WhatsApp): anillo girando en el check
+    // mientras el cambio sube a la nube; el espejo confirma por eventBus y
+    // el tracker muestra UN solo contador ("N asistencias guardadas en la
+    // nube"). Solo aplica con sesión — sin nube no hay nada que esperar.
+    if (window.currentUser) {
+        attendanceSyncTracker.markPending(empId);
+    }
 
     // ⚡⚡⚡ ULTRA-SELECTIVO: Solo actualizar el checkbox, NO toda la fila
     if (state.viewMode === 'day') {
@@ -2133,6 +2134,13 @@ window.updateBonusValue = (index, value) => {
 };
 
 // 📡 Event Listener para actualización de nómina post-render
+// 📡 Resultado del espejo a Firestore → anillos de asistencia + contador.
+// El tracker ignora la señal cuando no hay cambios propios pendientes.
+eventBus.on('sync:mirror-result', ({ ok } = {}) => {
+    if (ok) attendanceSyncTracker.cloudConfirmed();
+    else attendanceSyncTracker.cloudFailed();
+});
+
 eventBus.on('render:complete', () => {
     if (state.showEmployeeProfile && state.employeeProfile.activeTab === 'nomina') {
         updatePayrollSectionsTrigger();

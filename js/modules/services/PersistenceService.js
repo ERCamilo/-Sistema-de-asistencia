@@ -270,11 +270,16 @@ export const syncFirebaseMirrorDebounced = (function() {
         if (!(globalThis.currentUser && !globalThis._isApplyingRemoteData)) return;
         const runSync = () => {
             FirebaseService.saveFullState(state)
-                .then(() => saveOutcomeNotifier.recordCloudResult(true))
+                .then(() => {
+                    saveOutcomeNotifier.recordCloudResult(true);
+                    // 📡 Señal para feedback por ítem (anillos de asistencia).
+                    globalThis.eventBus?.emit?.('sync:mirror-result', { ok: true });
+                })
                 .catch(e => {
                     console.warn('⚠️ Error en sincronización debounced:', e);
                     _notifySyncError(e);
                     saveOutcomeNotifier.recordCloudResult(false);
+                    globalThis.eventBus?.emit?.('sync:mirror-result', { ok: false });
                 });
         };
         if (!immediate && window.requestIdleCallback) {
@@ -349,7 +354,17 @@ export function saveApplicationData(options = {}) {
     // `announce` es PEGAJOSO dentro de la ventana de debounce: si CUALQUIER
     // llamada pidió anunciar el resultado, el guardado colapsado lo anuncia.
     // Preservamos el valor (true o string-label) para no perder la etiqueta.
-    if (options.announce) _pendingSaveOptions.announce = options.announce;
+    if (options.announce) {
+        _pendingSaveOptions.announce = options.announce;
+        // 💬 Fase 0 del toast honesto: reconocimiento INSTANTÁNEO ("guardando…")
+        // síncrono con la acción del usuario. La escritura local completa puede
+        // tardar ~1s; sin esto el usuario no ve nada durante ese tiempo.
+        if (state.isDataLoaded && !globalThis._isApplyingRemoteData) {
+            saveOutcomeNotifier.recordSaveStarted({
+                label: typeof options.announce === 'string' ? options.announce : null
+            });
+        }
+    }
 
     // ⚡ Immediate-save mode: bypass the 300ms debounce for critical operations
     // (e.g., creating a loan, recording a payment) where data loss on a fast F5
@@ -544,13 +559,13 @@ async function _executeSave(options = {}) {
     }
 
     // 💬 Toast HONESTO del resultado (solo si el caller lo pidió con announce).
-    // Para announce + éxito local: el notifier espera el resultado de la nube
-    // (verde local+nube / amarillo solo-local) o anuncia solo el local si no
-    // hay nube. En fallo local, el toast de error inline de arriba (con el
-    // detalle del error) ya lo reportó — no duplicamos el rojo.
-    if (options.announce && !globalThis._isApplyingRemoteData && _localOk) {
+    // Éxito local → el notifier muestra el provisional y espera la nube
+    // (verde local+nube / amarillo solo-local), o el verde final si no hay
+    // nube. Fallo local → rojo (además del toast de error inline con el
+    // detalle: el spinner de la fase 0 no puede quedarse colgado).
+    if (options.announce && !globalThis._isApplyingRemoteData) {
         const _label = typeof options.announce === 'string' ? options.announce : null;
-        saveOutcomeNotifier.recordLocalResult({ localOk: true, cloudExpected: _cloudAttempted, label: _label });
+        saveOutcomeNotifier.recordLocalResult({ localOk: _localOk, cloudExpected: _cloudAttempted, label: _label });
     }
 
     // 📡 Emitir evento de guardado
