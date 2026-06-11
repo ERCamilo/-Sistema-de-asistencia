@@ -80,5 +80,41 @@
             "launch_type": "single-client"
         }
     ],
-    "screenshots": []
+    "screenshots": [
+        {
+            "src": "screenshots/screenshot_1_attendance.png",
+            "sizes": "500x855",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Control de asistencia diaria con estadísticas en tiempo real"
+        },
+        {
+            "src": "screenshots/screenshot_2_personal.png",
+            "sizes": "500x855",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Gestión de empleados, líderes y posiciones"
+        },
+        {
+            "src": "screenshots/screenshot_3_reportes.png",
+            "sizes": "500x855",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Reportes por posición con exportación a Excel"
+        },
+        {
+            "src": "screenshots/screenshot_4_nomina.png",
+            "sizes": "500x855",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Generador de nómina con deducciones y bonificaciones"
+        },
+        {
+            "src": "screenshots/screenshot_5_weekly.png",
+            "sizes": "500x855",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Vista semanal de asistencia por empleado"
+        }
+    ]
 }
