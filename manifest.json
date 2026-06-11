@@ -1,14 +1,14 @@
 {
     "name": "Sistema de Control de Asistencia",
     "short_name": "Asistencia",
-    "id": "/index.html",
+    "id": "https://asistencia.erlin.do/index.html",
     "description": "Sistema completo de control de asistencia para construcción con funcionalidad offline",
-    "start_url": "./index.html",
+    "start_url": "https://asistencia.erlin.do/index.html",
     "display": "standalone",
     "background_color": "#0f172a",
     "theme_color": "#06b6d4",
     "orientation": "any",
-    "scope": "./",
+    "scope": "https://asistencia.erlin.do/",
     "lang": "es-ES",
     "dir": "ltr",
     "icons": [
@@ -41,7 +41,7 @@
             "name": "Registrar Asistencia",
             "short_name": "Asistencia",
             "description": "Marcar asistencia del día",
-            "url": "./index.html?tab=attendance",
+            "url": "https://asistencia.erlin.do/index.html?tab=attendance",
             "icons": [
                 {
                     "src": "icon-192.png",
@@ -53,7 +53,7 @@
             "name": "Ver Dashboard",
             "short_name": "Dashboard",
             "description": "Ver estadísticas",
-            "url": "./index.html?tab=dashboard",
+            "url": "https://asistencia.erlin.do/index.html?tab=dashboard",
             "icons": [
                 {
                     "src": "icon-192.png",
