@@ -18,6 +18,10 @@ Thumbs.db
 # Claude Code local files (worktrees, launch.json, etc.)
 .claude/
 
+# Tool artifacts (knowledge graph output, skill registry cache)
+graphify-out/
+.atl/
+
 Planeamiento y analisis/
 
 # Handoff documents — solo locales, nunca en el remoto
