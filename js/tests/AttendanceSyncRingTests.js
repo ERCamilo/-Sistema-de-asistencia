@@ -95,6 +95,27 @@ testRunner.addSuite("AttendanceSyncTracker — anillo por check + contador agreg
         tracker.cloudFailed();
         testRunner.assertEquals(marks.length, 0, 'sin marcas');
         testRunner.assertEquals(toasts.length, 0, 'sin toasts');
+    },
+
+    "reapplyPending re-aplica el anillo a TODOS los pendientes (sobrevive renders)"() {
+        // Un render completo recrea las filas y borra las clases del DOM.
+        // El tracker debe poder re-aplicarlas (app.js lo llama en render:complete);
+        // sin esto el anillo amarillo desaparecía antes de poder verse.
+        const { tracker, marks } = makeTracker();
+        tracker.markPending('emp-1');
+        tracker.markPending('emp-2');
+        marks.length = 0; // simular que el render borró el DOM
+        tracker.reapplyPending();
+        const reapplied = marks.filter(m => m.state === 'pending').map(m => m.empId).sort();
+        testRunner.assertEquals(JSON.stringify(reapplied), JSON.stringify(['emp-1', 'emp-2']),
+            'ambos anillos re-aplicados');
+        testRunner.assertEquals(tracker.pendingCount(), 2, 'los pendientes no cambian');
+    },
+
+    "reapplyPending sin pendientes → no toca el DOM"() {
+        const { tracker, marks } = makeTracker();
+        tracker.reapplyPending();
+        testRunner.assertEquals(marks.length, 0, 'silencio');
     }
 
 });
@@ -124,11 +145,22 @@ testRunner.addSuite("Anillo de sync — cableado real (fuente + CSS)", {
             'y despachar confirm/fail al tracker');
     },
 
-    "el CSS define el anillo girando (pending) y el estado ámbar (failed)"() {
+    "app.js re-aplica los anillos tras cada render (no se pierden)"() {
+        testRunner.assert(/reapplyPending\(\)/.test(APP_SRC),
+            'render:complete debe re-aplicar las clases pendientes — un render completo las borraba');
+    },
+
+    "el CSS define el tubo amarillo circulando (pending) y el estado rojo (failed)"() {
         testRunner.assert(/\.check-container\.cloud-pending/.test(CSS_SRC),
             'clase del anillo en el contenedor (updateCheckboxOnly no la pisa)');
-        testRunner.assert(/cloud-ring-spin/.test(CSS_SRC), 'keyframes del giro');
-        testRunner.assert(/\.check-container\.cloud-failed/.test(CSS_SRC), 'estado ámbar');
+        // Efecto "líquido en el tubo": riel completo tenue + segmento brillante
+        // que circula vía conic-gradient con ángulo animado (@property).
+        testRunner.assert(/conic-gradient\(from var\(--cloud-angle\)/.test(CSS_SRC),
+            'el segmento circulante usa conic-gradient con ángulo animado');
+        testRunner.assert(/@property --cloud-angle/.test(CSS_SRC),
+            '@property registra el ángulo para poder animarlo');
+        testRunner.assert(/cloud-ring-spin/.test(CSS_SRC), 'keyframes del flujo');
+        testRunner.assert(/\.check-container\.cloud-failed/.test(CSS_SRC), 'estado de fallo');
     }
 
 });

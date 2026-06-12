@@ -66,6 +66,16 @@ export function createAttendanceSyncTracker({ applyMark, notify }) {
             }));
         },
 
+        /**
+         * Re-aplica la clase 'pending' a todos los pendientes. Un render
+         * completo recrea las filas y borra las clases del DOM — sin esto el
+         * anillo amarillo desaparecía antes de poder verse (app.js llama esto
+         * en cada render:complete).
+         */
+        reapplyPending() {
+            pending.forEach(empId => applyMark(empId, 'pending'));
+        },
+
         pendingCount() { return pending.size; }
     };
 }

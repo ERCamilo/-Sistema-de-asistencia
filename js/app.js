@@ -2141,6 +2141,12 @@ eventBus.on('sync:mirror-result', ({ ok } = {}) => {
     else attendanceSyncTracker.cloudFailed();
 });
 
+// 🔄 Un render completo recrea las filas y borra las clases del anillo en el
+// DOM — re-aplicarlas mantiene el amarillo visible mientras la nube responde.
+eventBus.on('render:complete', () => {
+    attendanceSyncTracker.reapplyPending();
+});
+
 eventBus.on('render:complete', () => {
     if (state.showEmployeeProfile && state.employeeProfile.activeTab === 'nomina') {
         updatePayrollSectionsTrigger();
