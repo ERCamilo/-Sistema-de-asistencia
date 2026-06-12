@@ -1,0 +1,10 @@
+# Cloudflare Pages security headers — applied to every response.
+# Tested by js/tests/HeadersFileTests.js (keep them in sync).
+#
+# camera/microphone/geolocation are denied because the app uses none of them.
+# When the in-app camera (getUserMedia) ships, relax to: camera=(self)
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
