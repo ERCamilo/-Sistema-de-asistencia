@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0611.201412';
+const CACHE_VERSION = '2026.0614.095737';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────

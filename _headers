@@ -3,8 +3,19 @@
 #
 # camera/microphone/geolocation are denied because the app uses none of them.
 # When the in-app camera (getUserMedia) ships, relax to: camera=(self)
+#
+# Content-Security-Policy is shipped Report-Only first (hardening 2026-06-14).
+# Report-Only does NOT block anything — it only reports violations to the
+# browser console — so it cannot break Google sign-in, weather, the OCR
+# webhook, or the CDN-loaded icons/Excel exporter in production. Watch the
+# console for "Refused to ..." reports for a few days, add any missing host
+# below, then PROMOTE to enforcement by renaming the header to
+# `Content-Security-Policy` (drop the `-Report-Only` suffix). The allowlist is
+# grounded in the actual external hosts the app calls; the long-term tightening
+# step is replacing 'unsafe-inline' in script-src with per-script hashes.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://www.gstatic.com https://ui-avatars.com https://lh3.googleusercontent.com https://*.googleapis.com https://*.firebasestorage.app; connect-src 'self' https://*.googleapis.com https://*.google.com https://*.firebaseio.com https://*.firebasestorage.app https://firebaseinstallations.googleapis.com https://*.gstatic.com https://api.weatherapi.com https://n8n.erlin.do https://ui-avatars.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com https://*.google.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
