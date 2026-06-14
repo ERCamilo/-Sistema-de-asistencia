@@ -131,10 +131,10 @@
                                     // con un botón en vez de pedir un F5 manual.
                                     if (window.Notification) {
                                         new window.Notification({
-                                            message: '🔄 Nueva versión disponible.',
+                                            message: 'Nueva versión disponible.',
                                             type: 'info',
                                             duration: 0,
-                                            actions: [{ label: 'Recargar', onClick: () => window.location.reload() }]
+                                            actions: [{ label: 'Recargar', icon: 'sync', onClick: () => window.location.reload() }]
                                         }).show();
                                     }
                                 }

@@ -85,7 +85,7 @@ export class Notification {
                 <span class="notification-message">${this.message}</span>
             </div>
             <div class="notification-actions">
-                ${this.actions.map((_, i) => `<button class="notification-action" data-action-index="${i}"></button>`).join('')}
+                ${this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${icons.get(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('')}
                 ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : ''}
             </div>
         `;
@@ -148,7 +148,7 @@ export class Notification {
         if (messageEl) messageEl.textContent = this.message;
         
         if (actionsEl) {
-            const actionBtns = this.actions.map((_, i) => `<button class="notification-action" data-action-index="${i}"></button>`).join('');
+            const actionBtns = this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${icons.get(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('');
             const closeBtn = this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : '';
             actionsEl.innerHTML = actionBtns + closeBtn;
             this._attachActionListeners();
@@ -188,7 +188,11 @@ export class Notification {
         this.actions.forEach((action, i) => {
             const btn = this.element.querySelector(`.notification-action[data-action-index="${i}"]`);
             if (!btn) return;
-            btn.textContent = action.label || 'OK';
+            // La etiqueta va con textContent (sin HTML); el ícono ya se renderizó
+            // en el markup vía icons.get (controlado por la app, igual que cerrar).
+            const labelEl = btn.querySelector('.notification-action-label');
+            if (labelEl) labelEl.textContent = action.label || 'OK';
+            else btn.textContent = action.label || 'OK';
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 try {

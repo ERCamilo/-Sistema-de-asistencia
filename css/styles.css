@@ -2697,6 +2697,9 @@
         }
 
         .notification-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             background: rgba(6, 182, 212, 0.15);
             border: 1px solid rgba(6, 182, 212, 0.4);
             color: #06b6d4;
@@ -2713,6 +2716,17 @@
         .notification-action:hover {
             background: rgba(6, 182, 212, 0.3);
             color: #ffffff;
+        }
+
+        .notification-action-icon {
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .notification-action-icon svg {
+            width: 16px;
+            height: 16px;
         }
 
         /* Animaciones y Estados */

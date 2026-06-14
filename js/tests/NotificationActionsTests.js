@@ -32,6 +32,21 @@ testRunner.addSuite("Notification — botones de acción", {
         cleanup();
     },
 
+    "con icon renderiza el ícono del IconSystem junto a la etiqueta"() {
+        cleanup();
+        const n = new Notification({
+            message: 'Nueva versión disponible.', type: 'info', duration: 0,
+            actions: [{ label: 'Recargar', icon: 'sync', onClick: () => {} }]
+        }).show();
+        const btn = n.element.querySelector('.notification-action');
+        const iconEl = btn.querySelector('.notification-action-icon');
+        testRunner.assert(!!iconEl, 'debe renderizar .notification-action-icon cuando se pasa icon');
+        testRunner.assert(iconEl.innerHTML.trim().length > 0, 'el ícono no debe quedar vacío');
+        const labelEl = btn.querySelector('.notification-action-label');
+        testRunner.assertEquals(labelEl.textContent, 'Recargar', 'la etiqueta se mantiene junto al ícono');
+        cleanup();
+    },
+
     "clic en la acción ejecuta onClick"() {
         cleanup();
         let called = 0;
