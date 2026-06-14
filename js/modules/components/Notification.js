@@ -32,6 +32,9 @@ export class Notification {
 
         this.position = options.position || 'top-center';
         this.closable = options.closable !== undefined ? options.closable : (this.type !== 'loading');
+        // Acciones opcionales: [{ label, onClick, closeOnClick }]. closeOnClick
+        // por defecto cierra la notificación tras ejecutar onClick.
+        this.actions = Array.isArray(options.actions) ? options.actions : [];
         this.element = null;
         this.container = null;
         this.dismissTimeout = null;
@@ -82,11 +85,13 @@ export class Notification {
                 <span class="notification-message">${this.message}</span>
             </div>
             <div class="notification-actions">
+                ${this.actions.map((_, i) => `<button class="notification-action" data-action-index="${i}"></button>`).join('')}
                 ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : ''}
             </div>
         `;
 
-        // Event listener para cerrar
+        // Event listeners (acciones primero, luego cerrar)
+        this._attachActionListeners();
         if (this.closable) {
             this._attachCloseListener();
         }
@@ -143,7 +148,10 @@ export class Notification {
         if (messageEl) messageEl.textContent = this.message;
         
         if (actionsEl) {
-            actionsEl.innerHTML = this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : '';
+            const actionBtns = this.actions.map((_, i) => `<button class="notification-action" data-action-index="${i}"></button>`).join('');
+            const closeBtn = this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : '';
+            actionsEl.innerHTML = actionBtns + closeBtn;
+            this._attachActionListeners();
             if (this.closable) this._attachCloseListener();
         }
 
@@ -170,6 +178,26 @@ export class Notification {
                 this.dismiss();
             });
         }
+    }
+
+    // Cablea los botones de acción. Las etiquetas se asignan con textContent
+    // (no innerHTML) para que no puedan inyectar markup. Por defecto la acción
+    // cierra la notificación tras ejecutar onClick (closeOnClick !== false).
+    _attachActionListeners() {
+        if (!this.element || !this.actions.length) return;
+        this.actions.forEach((action, i) => {
+            const btn = this.element.querySelector(`.notification-action[data-action-index="${i}"]`);
+            if (!btn) return;
+            btn.textContent = action.label || 'OK';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                try {
+                    if (typeof action.onClick === 'function') action.onClick();
+                } finally {
+                    if (action.closeOnClick !== false) this.dismiss();
+                }
+            });
+        });
     }
 
     _startDismissTimer() {

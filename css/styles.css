@@ -2696,6 +2696,25 @@
             transform: scale(1.1);
         }
 
+        .notification-action {
+            background: rgba(6, 182, 212, 0.15);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+            color: #06b6d4;
+            font-size: 0.85rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .notification-action:hover {
+            background: rgba(6, 182, 212, 0.3);
+            color: #ffffff;
+        }
+
         /* Animaciones y Estados */
         .notification-enter {
             opacity: 0;

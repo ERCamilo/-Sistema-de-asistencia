@@ -127,9 +127,15 @@
                                     const isShowingOnboarding = window.state && window.state.showOnboarding;
                                     if (isShowingOnboarding) return;
 
-                                    // Hay una nueva versión activa — notificar al usuario
-                                    if (window.Notification && typeof window.Notification.info === 'function') {
-                                        window.Notification.info('🔄 Nueva versión disponible. Recarga para actualizar.', 0);
+                                    // Hay una nueva versión activa — ofrecer recargar
+                                    // con un botón en vez de pedir un F5 manual.
+                                    if (window.Notification) {
+                                        new window.Notification({
+                                            message: '🔄 Nueva versión disponible.',
+                                            type: 'info',
+                                            duration: 0,
+                                            actions: [{ label: 'Recargar', onClick: () => window.location.reload() }]
+                                        }).show();
                                     }
                                 }
                             });
