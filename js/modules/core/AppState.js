@@ -253,10 +253,8 @@ const createRecursiveProxy = (obj, path = []) => {
                         if (record && record.date) dateKey = record.date;
                     }
 
-                    // ⚡ P3-OPT: Invalidación selectiva de caché
-                    if (employeeId && stateManager._state.statsCache.mtd[employeeId]) {
-                        delete stateManager._state.statsCache.mtd[employeeId];
-                    }
+                    // ⚡ P3-OPT: Invalidación selectiva de caché (coherencia explícita)
+                    invalidateEmployeeStats(employeeId);
 
                     if (dateKey) buildAttendanceIndex(dateKey);
                     else stateManager.markAttendanceDirty();
@@ -275,9 +273,7 @@ const createRecursiveProxy = (obj, path = []) => {
             if (result && !stateManager.isSilent()) {
                 const rootProp = path[0] || prop;
                 if (rootProp === 'attendance') {
-                    if (oldValue && oldValue.employeeId) {
-                        delete stateManager._state.statsCache.mtd[oldValue.employeeId];
-                    }
+                    invalidateEmployeeStats(oldValue && oldValue.employeeId);
                     if (oldValue && oldValue.date) buildAttendanceIndex(oldValue.date);
                     else stateManager.markAttendanceDirty();
                 }
@@ -294,6 +290,20 @@ const createRecursiveProxy = (obj, path = []) => {
 
 export const state = createRecursiveProxy(stateManager._state);
 window.state = state;
+
+/**
+ * ⚡ P3-OPT: Invalida la caché de estadísticas mensuales (MTD) de un empleado.
+ * Extraído del set/delete trap del proxy (Fase 4 — desacople del estado) para que
+ * la coherencia sea EXPLÍCITA y llamable, no un efecto escondido del proxy. Cualquier
+ * camino de escritura de asistencia que invoque esto mantiene las stats coherentes,
+ * aunque no pase por el proxy.
+ */
+export function invalidateEmployeeStats(empId) {
+    if (empId && stateManager._state.statsCache.mtd[empId]) {
+        delete stateManager._state.statsCache.mtd[empId];
+    }
+}
+window.invalidateEmployeeStats = invalidateEmployeeStats;
 
 
 
