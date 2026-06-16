@@ -8,7 +8,7 @@ import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
-import { state as _appState } from '../../core/AppState.js';
+import { state as _appState, stateManager } from '../../core/AppState.js';
 
 export let context = null;
 
@@ -534,53 +534,55 @@ export function changeFloatingMonth(delta) {
 
 export function changeProfileAsistenciaMonth(delta) {
     const state = getState();
-    if (!state.employeeProfile.assistanceMonth) state.employeeProfile.assistanceMonth = new Date();
-    state.employeeProfile.assistanceMonth.setMonth(state.employeeProfile.assistanceMonth.getMonth() + delta);
-    state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
-    context.render();
+    stateManager.batchSetState(() => {
+        if (!state.employeeProfile.assistanceMonth) state.employeeProfile.assistanceMonth = new Date();
+        state.employeeProfile.assistanceMonth.setMonth(state.employeeProfile.assistanceMonth.getMonth() + delta);
+        state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
+    });
 }
 
 export function changeProfileStartMonth(delta) {
     const state = getState();
-    if (!state.employeeProfile.startPickerMonth) state.employeeProfile.startPickerMonth = new Date();
-    state.employeeProfile.startPickerMonth.setMonth(state.employeeProfile.startPickerMonth.getMonth() + delta);
-    state.employeeProfile.startPickerMonth = new Date(state.employeeProfile.startPickerMonth);
-    context.render();
+    stateManager.batchSetState(() => {
+        if (!state.employeeProfile.startPickerMonth) state.employeeProfile.startPickerMonth = new Date();
+        state.employeeProfile.startPickerMonth.setMonth(state.employeeProfile.startPickerMonth.getMonth() + delta);
+        state.employeeProfile.startPickerMonth = new Date(state.employeeProfile.startPickerMonth);
+    });
 }
 
 export function changeProfileEndMonth(delta) {
     const state = getState();
-    if (!state.employeeProfile.endPickerMonth) state.employeeProfile.endPickerMonth = new Date();
-    state.employeeProfile.endPickerMonth.setMonth(state.employeeProfile.endPickerMonth.getMonth() + delta);
-    state.employeeProfile.endPickerMonth = new Date(state.employeeProfile.endPickerMonth);
-    context.render();
+    stateManager.batchSetState(() => {
+        if (!state.employeeProfile.endPickerMonth) state.employeeProfile.endPickerMonth = new Date();
+        state.employeeProfile.endPickerMonth.setMonth(state.employeeProfile.endPickerMonth.getMonth() + delta);
+        state.employeeProfile.endPickerMonth = new Date(state.employeeProfile.endPickerMonth);
+    });
 }
 
 export function openEmployeeProfile(employeeId) {
     const state = getState();
     const employee = state.employees.find(e => e.id === employeeId);
-    state.selectedEmployee = employee;
+    stateManager.batchSetState(() => {
+        state.selectedEmployee = employee;
 
-    state.employeeProfile = {
-        employeeId,
-        activeTab: 'resumen', // Empezar en resumen es más natural
-        periodStart: state.exportConfig?.periodStart || getDateKey(new Date(Date.now() - 14 * 86400000)),
-        periodEnd: state.exportConfig?.periodEnd || getDateKey(new Date()),
-        assistanceMonth: new Date(),
-        startPickerMonth: new Date(),
-        endPickerMonth: new Date(),
-        showStartPicker: false,
-        showEndPicker: false,
-        showPositionBreakdown: true,
-        // Cargar datos persistidos
-        advances: Array.isArray(employee?.advances) ? JSON.parse(JSON.stringify(employee.advances)) : [],
-        bonuses: Array.isArray(employee?.bonuses) ? JSON.parse(JSON.stringify(employee.bonuses)) : [],
-        deductions: Array.isArray(employee?.deductions) ? JSON.parse(JSON.stringify(employee.deductions)) : []
-    };
+        state.employeeProfile = {
+            employeeId,
+            activeTab: 'resumen', // Empezar en resumen es más natural
+            periodStart: state.exportConfig?.periodStart || getDateKey(new Date(Date.now() - 14 * 86400000)),
+            periodEnd: state.exportConfig?.periodEnd || getDateKey(new Date()),
+            assistanceMonth: new Date(),
+            startPickerMonth: new Date(),
+            endPickerMonth: new Date(),
+            showStartPicker: false,
+            showEndPicker: false,
+            showPositionBreakdown: true,
+            // Cargar datos persistidos
+            advances: Array.isArray(employee?.advances) ? JSON.parse(JSON.stringify(employee.advances)) : [],
+            bonuses: Array.isArray(employee?.bonuses) ? JSON.parse(JSON.stringify(employee.bonuses)) : [],
+            deductions: Array.isArray(employee?.deductions) ? JSON.parse(JSON.stringify(employee.deductions)) : []
+        };
 
-    state.showEmployeeProfile = true;
-    if (context && context.render) {
-        context.render();
-    }
+        state.showEmployeeProfile = true;
+    });
 }
 
