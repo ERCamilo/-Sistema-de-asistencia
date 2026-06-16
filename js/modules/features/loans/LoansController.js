@@ -16,7 +16,7 @@
  *   }
  */
 
-import { state } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -125,18 +125,20 @@ export function migrateAllAdvances() {
 
 export function selectLoansEmployee(employeeId) {
     ensureLedgerState();
-    state.loansLedger.selectedEmployeeId = employeeId;
-    state.loansLedger.showAddForm = false;
-    state.loansLedger.showPaymentFormForLoan = null;
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.selectedEmployeeId = employeeId;
+        state.loansLedger.showAddForm = false;
+        state.loansLedger.showPaymentFormForLoan = null;
+    });
 }
 
 export function clearLoansEmployee() {
     ensureLedgerState();
-    state.loansLedger.selectedEmployeeId = null;
-    state.loansLedger.showAddForm = false;
-    state.loansLedger.showPaymentFormForLoan = null;
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.selectedEmployeeId = null;
+        state.loansLedger.showAddForm = false;
+        state.loansLedger.showPaymentFormForLoan = null;
+    });
 }
 
 export function setLoansSearch(value) {
@@ -155,15 +157,17 @@ export function setLoansSearch(value) {
  */
 export function openLoansEmployeePicker() {
     ensureLedgerState();
-    state.loansLedger.showEmployeePicker = true;
-    state.loansLedger.pickerSearch = '';
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showEmployeePicker = true;
+        state.loansLedger.pickerSearch = '';
+    });
 }
 
 export function closeLoansEmployeePicker() {
     ensureLedgerState();
-    state.loansLedger.showEmployeePicker = false;
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showEmployeePicker = false;
+    });
 }
 
 export function setLoansPickerSearch(value) {
@@ -225,12 +229,13 @@ export function openLoansLedgerFor(employeeId) {
 export function pickEmployeeForNewLoan(employeeId) {
     if (!employeeId) return;
     ensureLedgerState();
-    state.loansLedger.showEmployeePicker = false;
-    state.loansLedger.selectedEmployeeId = employeeId;
-    state.loansLedger.showPaymentFormForLoan = null;
-    state.loansLedger.showAddForm = true;
-    state.loansLedger.newLoanDraft = createEmptyLoanDraft();
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showEmployeePicker = false;
+        state.loansLedger.selectedEmployeeId = employeeId;
+        state.loansLedger.showPaymentFormForLoan = null;
+        state.loansLedger.showAddForm = true;
+        state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+    });
 }
 
 /**
@@ -253,11 +258,12 @@ export function openProfileForLoan(employeeId) {
 
 export function toggleAddLoanForm() {
     ensureLedgerState();
-    state.loansLedger.showAddForm = !state.loansLedger.showAddForm;
-    if (state.loansLedger.showAddForm) {
-        state.loansLedger.newLoanDraft = createEmptyLoanDraft();
-    }
-    render();
+    stateManager.batchSetState(() => {
+        state.loansLedger.showAddForm = !state.loansLedger.showAddForm;
+        if (state.loansLedger.showAddForm) {
+            state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+        }
+    });
 }
 
 export function setLoanDraftField(field, value) {

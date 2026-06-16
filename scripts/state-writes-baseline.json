@@ -1,7 +1,7 @@
 {
   "js/app.js": 271,
-  "js/modules/features/loans/LoansController.js": 38,
   "js/modules/services/PersistenceService.js": 24,
+  "js/modules/features/loans/LoansController.js": 22,
   "js/modules/features/payroll/PayrollUI.js": 22,
   "js/modules/ui/Onboarding.js": 19,
   "js/modules/ui/Handlers.js": 14,
