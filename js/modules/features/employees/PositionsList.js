@@ -7,7 +7,7 @@
 
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
-import { state } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, enqueueCloudPositionDelete } from '../../services/PersistenceService.js';
 import { Modal } from '../../components/Modal.js';
@@ -126,12 +126,13 @@ export function togglePositionEmployees(positionId) {
 }
 
 export function setPositionStatusFilter(filter) {
-    state.positionStatusFilter = filter;
-    if (!state.positionFilters) {
-        state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
-    }
-    state.positionFilters.status = filter;
-    render();
+    stateManager.batchSetState(() => {
+        state.positionStatusFilter = filter;
+        if (!state.positionFilters) {
+            state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
+        }
+        state.positionFilters.status = filter;
+    });
 }
 
 export function setPositionSearchFilter(value) {
@@ -143,16 +144,18 @@ export function setPositionSearchFilter(value) {
 }
 
 export function setPositionLeaderFilter(leaderId) {
-    if (!state.positionFilters) {
-        state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
-    }
-    state.positionFilters.leaderId = leaderId;
-    render();
+    stateManager.batchSetState(() => {
+        if (!state.positionFilters) {
+            state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
+        }
+        state.positionFilters.leaderId = leaderId;
+    });
 }
 
 export function setPositionSortBy(sortBy) {
-    state.positionSortBy = sortBy;
-    render();
+    stateManager.batchSetState(() => {
+        state.positionSortBy = sortBy;
+    });
 }
 
 export function openPositionForm(positionId = null) {
