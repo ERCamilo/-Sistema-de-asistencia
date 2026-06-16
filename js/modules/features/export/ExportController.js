@@ -66,8 +66,9 @@ export function closeExportMenuHandler() {
 }
 
 export function toggleShareOptions() {
-    state.showShareOptions = !state.showShareOptions;
-    render();
+    stateManager.batchSetState(() => {
+        state.showShareOptions = !state.showShareOptions;
+    });
 }
 
 // ─── Download: save the current blob locally ─────────────────────────────────
@@ -199,15 +200,17 @@ export async function shareExportMini() {
 // ─── Import FULL: replace all state from pasted JSON ─────────────────────────
 
 export function openImportFullModal() {
-    state.showImportFullModal = true;
-    state.importFullText = '';
-    render();
+    stateManager.batchSetState(() => {
+        state.showImportFullModal = true;
+        state.importFullText = '';
+    });
 }
 
 export function closeImportFullModal() {
-    state.showImportFullModal = false;
-    state.importFullText = '';
-    render();
+    stateManager.batchSetState(() => {
+        state.showImportFullModal = false;
+        state.importFullText = '';
+    });
 }
 
 export function setImportFullText(value) {
