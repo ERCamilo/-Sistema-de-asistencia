@@ -26,6 +26,7 @@ import {
     voidPayment,
     writeOffLoan,
     reopenLoan,
+    deleteLoan,
     refinanceLoan,
     migrateAdvancesToLoans,
     getBalance,
@@ -421,6 +422,39 @@ export function reopenLoanHandler(loanId) {
     render();
 }
 
+/**
+ * Borra de forma PERMANENTE un préstamo anulado (written-off). A diferencia de
+ * writeOffLoan (que solo lo archiva), deleteLoan lo saca de emp.loans[] y deja
+ * un tombstone para que no reaparezca tras el sync. Acción irreversible, por eso
+ * pide confirmación explícita.
+ */
+export function deleteLoanWithConfirm(loanId) {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const doDelete = () => {
+        try {
+            deleteLoan(emp, loanId);
+            saveApplicationData({ immediate: true, announce: 'Préstamo eliminado' });
+            render();
+        } catch (err) {
+            alertMsg(`❌ ${err.message}`);
+        }
+    };
+
+    if (!window.showConfirm) { doDelete(); return; }
+    window.showConfirm({
+        title: 'Eliminar préstamo anulado',
+        message: 'El préstamo anulado se eliminará de forma PERMANENTE, junto con su historial de abonos. Esta acción no se puede deshacer. ¿Continuar?',
+        confirmText: 'Sí, eliminar',
+        cancelText: 'Cancelar',
+        type: 'warning',
+        onConfirm: doDelete
+    });
+}
+
 export function voidPaymentHandler(loanId, paymentId) {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
@@ -519,6 +553,7 @@ export function registerLegacyGlobals() {
     window.settleLoanByFullPayment = settleLoanByFullPayment;
     window.writeOffLoanWithConfirm = writeOffLoanWithConfirm;
     window.reopenLoanHandler = reopenLoanHandler;
+    window.deleteLoanWithConfirm = deleteLoanWithConfirm;
     window.voidPaymentHandler = voidPaymentHandler;
     window.openLoansEmployeePicker = openLoansEmployeePicker;
     window.closeLoansEmployeePicker = closeLoansEmployeePicker;

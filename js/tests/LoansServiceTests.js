@@ -17,6 +17,7 @@ import {
     voidPayment,
     writeOffLoan,
     reopenLoan,
+    deleteLoan,
     getBalance,
     getTotalDue,
     getPaidAmount,
@@ -502,6 +503,65 @@ testRunner.addSuite("LoansService — KPI Improved Metrics", {
         };
         testRunner.assertEquals(getClosedLoansCount(mockState), 2, "Should count 2 closed loans");
     }
+});
+
+// ─── deleteLoan (borrado permanente de anulados) ─────────────────────────────
+
+function buildWrittenOffLoan() {
+    const emp = buildEmployee();
+    const loan = createLoan(emp, { principal: 5000, interestRate: 0, startDate: '2026-05-20', concept: 'Test' });
+    writeOffLoan(emp, loan.id);
+    return { emp, loan };
+}
+
+testRunner.addSuite("LoansService — deleteLoan", {
+
+    "elimina un préstamo anulado de emp.loans"() {
+        const { emp, loan } = buildWrittenOffLoan();
+        testRunner.assertEquals(emp.loans.length, 1, "precondición: 1 préstamo");
+        deleteLoan(emp, loan.id);
+        testRunner.assertEquals(emp.loans.length, 0, "el préstamo debe salir de emp.loans");
+    },
+
+    "registra un tombstone para que no reaparezca en el sync"() {
+        const { emp, loan } = buildWrittenOffLoan();
+        deleteLoan(emp, loan.id);
+        testRunner.assert(!!emp.deletedItemIds, "debe crear deletedItemIds");
+        testRunner.assert(
+            Array.isArray(emp.deletedItemIds.loans) && emp.deletedItemIds.loans.includes(loan.id),
+            "el id del préstamo borrado debe quedar tombstoneado en deletedItemIds.loans"
+        );
+    },
+
+    "sube emp.updatedAt (gana el merge contra copias viejas)"() {
+        const { emp, loan } = buildWrittenOffLoan();
+        emp.updatedAt = 0;
+        deleteLoan(emp, loan.id);
+        testRunner.assert(emp.updatedAt > 0, "deleteLoan debe refrescar emp.updatedAt");
+    },
+
+    "rechaza eliminar un préstamo ACTIVO (guard de seguridad)"() {
+        const emp = buildEmployee();
+        const loan = createLoan(emp, { principal: 5000, interestRate: 0, startDate: '2026-05-20' });
+        let threw = false;
+        try { deleteLoan(emp, loan.id); } catch (_) { threw = true; }
+        testRunner.assert(threw, "no debe poder borrarse un préstamo activo");
+        testRunner.assertEquals(emp.loans.length, 1, "el préstamo activo sigue ahí");
+    },
+
+    "lanza si el préstamo no existe"() {
+        const emp = buildEmployee();
+        let threw = false;
+        try { deleteLoan(emp, 'LOAN-inexistente'); } catch (_) { threw = true; }
+        testRunner.assert(threw, "id inexistente debe lanzar");
+    },
+
+    "devuelve el préstamo eliminado"() {
+        const { emp, loan } = buildWrittenOffLoan();
+        const out = deleteLoan(emp, loan.id);
+        testRunner.assertEquals(out.id, loan.id, "debe devolver el préstamo eliminado");
+    }
+
 });
 
 console.log('🧪 LoansService tests cargados.');
