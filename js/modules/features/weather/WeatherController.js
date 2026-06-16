@@ -6,7 +6,7 @@
  * window.closeWeatherPanel for the data-app-fn dispatcher.
  */
 
-import { state } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { fetchCurrent, fetchForecast, fetchHourly } from './WeatherService.js';
@@ -74,12 +74,13 @@ export async function forceRefreshWeather() {
 
 export function toggleWeatherPanel() {
     ensureWeatherState();
-    state.weather.panelOpen = !state.weather.panelOpen;
+    stateManager.batchSetState(() => {
+        state.weather.panelOpen = !state.weather.panelOpen;
+    });
     // Opening the panel triggers a freshness check — fire-and-forget.
     // The initial render happens immediately with cached data; when the
     // fetch completes, refreshWeather() calls render() again with fresh data.
     if (state.weather.panelOpen) refreshWeather();
-    render();
 }
 
 /**
@@ -88,16 +89,18 @@ export function toggleWeatherPanel() {
  * chip-panel still available for other surfaces.
  */
 export function toggleWeatherExpanded() {
-    state.weatherExpanded = !state.weatherExpanded;
+    stateManager.batchSetState(() => {
+        state.weatherExpanded = !state.weatherExpanded;
+    });
     // Fire-and-forget: render immediately, update when fetch resolves.
     if (state.weatherExpanded) refreshWeather();
-    render();
 }
 
 export function closeWeatherPanel() {
     ensureWeatherState();
-    state.weather.panelOpen = false;
-    render();
+    stateManager.batchSetState(() => {
+        state.weather.panelOpen = false;
+    });
 }
 
 /**
