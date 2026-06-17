@@ -269,7 +269,10 @@ export class EmployeeModal {
         }
 
         applyFields(number);
-        finish(`${icons.get('check-circle')} Empleado ${name} ${existingEmp ? 'actualizado' : 'creado correctamente'}`);
+        // Label de ACCIÓN para el toast (el SaveOutcomeNotifier lo envuelve en
+        // "Guardando — … · en este equipo"). Sin "correctamente" ni ícono: el
+        // mensaje de éxito lo arma el notifier con el resultado real.
+        finish(`Empleado ${name} ${existingEmp ? 'actualizado' : 'creado'}`);
     }
 
     /**

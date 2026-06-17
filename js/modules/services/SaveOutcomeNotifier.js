@@ -224,13 +224,17 @@ const _notify = (o) => {
             _toast = null;
             return;
         }
-        // kind 'final': amarillo de nube fallida (SIEMPRE visible, aunque el
-        // provisional ya se haya cerrado), o verde local-only, o rojo.
-        if (o.level === 'warning' && _toastAlive()) {
-            _toast.update({ type: 'warning', message: o.message, duration: 8000 });
+        // kind 'final': verde local-only, amarillo de nube fallida, o rojo.
+        // 🐛 Si el spinner de la fase 0 sigue vivo, lo ACTUALIZAMOS en sitio para
+        // CUALQUIER nivel. Antes solo se actualizaba el caso 'warning'; el verde
+        // (local-only / sin sesión) y el rojo caían al else, que creaba un toast
+        // NUEVO y dejaba el spinner "Guardando…" colgado y sticky para siempre.
+        const finalDur = o.level === 'warning' ? 8000 : o.level === 'error' ? 15000 : 4000;
+        if (_toastAlive()) {
+            _toast.update({ type: o.level, message: o.message, duration: finalDur });
         } else {
             const fn = NotificationSystem[o.level] || NotificationSystem.info;
-            fn(o.message, o.level === 'warning' ? 8000 : undefined);
+            fn(o.message, finalDur);
         }
         _toast = null;
     } catch (e) {
