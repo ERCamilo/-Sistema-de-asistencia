@@ -4,6 +4,12 @@ import { getState, context } from '../../features/employees/EmployeesUI.js';
 import icons from '../../ui/IconSystem.js';
 import { slugify, generateUUID } from '../../utils/Helpers.js';
 import { HelpTooltip } from '../../components/HelpTooltip.js';
+import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
+
+// Texto de ayuda según el modo de carga del salario.
+const salaryHintFor = (mode, hours) => mode === 'daily'
+    ? `💡 Ingresá cuánto gana por DÍA (se divide por ${hours}h para guardar la tarifa por hora)`
+    : '💡 Ingresá cuánto cobra por cada HORA trabajada';
 
 export class PositionModal {
     static open(positionId = null) {
@@ -17,8 +23,12 @@ export class PositionModal {
         const activeLeaders = state.leaders.filter(l => l.active);
         const selectedColor = pos?.color || COLOR_PALETTE[0];
 
-        const hourlyRate = pos?.hourlyRate || '';
         const regularHours = state.settings.regularHoursPerDay || 8;
+        // Modo en que se cargó la tarifa (aditivo). Reabrimos el input en ese modo.
+        const savedMode = pos?.salaryInputMode === 'daily' ? 'daily' : 'hourly';
+        const displayRate = pos?.hourlyRate
+            ? Math.round(fromStoredHourly(pos.hourlyRate, savedMode, regularHours) * 100) / 100
+            : '';
         const overtimeFactor = state.settings.overtimeFactor || 1.5;
         const holidayFactor = state.settings.holidayFactor || 2;
 
@@ -37,20 +47,26 @@ export class PositionModal {
                     
                     <div class="form-group">
                         <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
-                            ⏱️ Tarifa por Hora *
+                            💵 Monto del Pago *
                             ${HelpTooltip.render('position.hourlyRate')}
                         </label>
+                        <!-- Toggle hora/día: define cómo se interpreta el monto. Siempre se guarda por hora. -->
+                        <input type="hidden" id="posSalaryMode" value="${savedMode}">
+                        <div id="posSalaryModeToggle" style="display:inline-flex; gap:4px; background:#0f172a; border:1px solid #334155; border-radius:8px; padding:4px; margin-bottom:8px;">
+                            <button type="button" data-mode="hourly" class="salary-mode-btn" style="padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:0.8rem; background:${savedMode === 'hourly' ? '#06b6d4' : 'transparent'}; color:${savedMode === 'hourly' ? '#04181d' : '#94a3b8'}; font-weight:${savedMode === 'hourly' ? '700' : '500'};">Por hora</button>
+                            <button type="button" data-mode="daily" class="salary-mode-btn" style="padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:0.8rem; background:${savedMode === 'daily' ? '#06b6d4' : 'transparent'}; color:${savedMode === 'daily' ? '#04181d' : '#94a3b8'}; font-weight:${savedMode === 'daily' ? '700' : '500'};">Por día</button>
+                        </div>
                         <input type="number" inputmode="decimal"
                                id="posHourlyRate"
                                class="form-input"
-                               value="${hourlyRate}"
+                               value="${displayRate}"
                                placeholder="150"
-                               min="1"
-                               step="1"
+                               min="0"
+                               step="any"
                                data-help-on-focus="position.hourlyRate"
                                required>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">
-                            💡 Ingresa cuánto cobra por cada hora trabajada
+                        <div id="posSalaryHint" style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">
+                            ${salaryHintFor(savedMode, regularHours)}
                         </div>
                     </div>
                     
@@ -152,6 +168,33 @@ export class PositionModal {
             rateInput.addEventListener('input', updatePreviewHandler);
         }
 
+        // Toggle hora/día: al cambiar de modo, convierte el monto mostrado para que el
+        // pago real no cambie (ej. $1000/día <-> $125/hora @8h), y actualiza hint/preview.
+        const modeInput = modal.element.querySelector('#posSalaryMode');
+        const modeBtns = modal.element.querySelectorAll('.salary-mode-btn');
+        modeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const newMode = btn.dataset.mode;
+                const oldMode = modeInput.value;
+                if (newMode === oldMode) return;
+                const cur = Number.parseFloat(rateInput.value);
+                if (Number.isFinite(cur)) {
+                    const hourly = toStoredHourly(cur, oldMode, regularHours);
+                    rateInput.value = Math.round(fromStoredHourly(hourly, newMode, regularHours) * 100) / 100;
+                }
+                modeInput.value = newMode;
+                modeBtns.forEach(b => {
+                    const on = b.dataset.mode === newMode;
+                    b.style.background = on ? '#06b6d4' : 'transparent';
+                    b.style.color = on ? '#04181d' : '#94a3b8';
+                    b.style.fontWeight = on ? '700' : '500';
+                });
+                const hint = modal.element.querySelector('#posSalaryHint');
+                if (hint) hint.textContent = salaryHintFor(newMode, regularHours);
+                updatePreviewHandler();
+            });
+        });
+
         checkboxes.forEach(cb => {
             cb.addEventListener('change', (e) => {
                 const label = e.target.closest('label');
@@ -186,8 +229,10 @@ export class PositionModal {
         const hourlyRateInput = modalEl.querySelector('#posHourlyRate');
         if (!hourlyRateInput) return;
 
-        const hourlyRate = Number.parseFloat(hourlyRateInput.value) || 0;
         const regularHours = state.settings.regularHoursPerDay || 8;
+        const mode = modalEl.querySelector('#posSalaryMode')?.value || 'hourly';
+        // El input puede estar en modo día; el preview siempre razona en por-hora.
+        const hourlyRate = toStoredHourly(Number.parseFloat(hourlyRateInput.value) || 0, mode, regularHours);
         const overtimeFactor = state.settings.overtimeFactor || 1.5;
         const holidayFactor = state.settings.holidayFactor || 2;
         
@@ -251,7 +296,8 @@ export class PositionModal {
     static save(modalInstance, existingPos) {
         const el = modalInstance.element;
         const name = el.querySelector('#posName').value.trim();
-        const rate = parseFloat(el.querySelector('#posHourlyRate').value);
+        const rawRate = parseFloat(el.querySelector('#posHourlyRate').value);
+        const salaryMode = el.querySelector('#posSalaryMode')?.value === 'daily' ? 'daily' : 'hourly';
         const leaderId = el.querySelector('#posLeader').value;
         const color = el.querySelector('input[name="posColor"]:checked')?.value || COLOR_PALETTE[0];
         const workingDays = Array.from(el.querySelectorAll('input[name="workingDay"]:checked')).map(cb => parseInt(cb.value));
@@ -261,12 +307,14 @@ export class PositionModal {
             return;
         }
 
-        if (isNaN(rate) || rate < 0) {
-            window.showAlert('La tarifa por hora debe ser un número válido >= 0', 'error');
+        if (isNaN(rawRate) || rawRate < 0) {
+            window.showAlert('El monto del pago debe ser un número válido >= 0', 'error');
             return;
         }
 
         const state = getState();
+        // Se guarda SIEMPRE por hora; si el modo es 'día', se convierte dividiendo por horas/día.
+        const rate = toStoredHourly(rawRate, salaryMode, state.settings.regularHoursPerDay || 8);
         // ⚡ Opción A (IDs estables): el id del puesto NO se deriva del nombre.
         // La unicidad se valida por nombre (slug), pero el id es inmutable, así
         // que renombrar actualiza el MISMO documento en la nube (sin duplicar
@@ -290,6 +338,7 @@ export class PositionModal {
                 // campos. No hay que migrar referencias porque el id no cambia.
                 posToEdit.name = name;
                 posToEdit.hourlyRate = rate;
+                posToEdit.salaryInputMode = salaryMode;
                 posToEdit.leaderId = leaderId || null;
                 posToEdit.color = color;
                 posToEdit.workingDays = workingDays;
@@ -303,6 +352,7 @@ export class PositionModal {
                 id: generateUUID(),
                 name: name,
                 hourlyRate: rate,
+                salaryInputMode: salaryMode,
                 workingDays: workingDays,
                 leaderId: leaderId || null,
                 color: color,
