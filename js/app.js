@@ -503,6 +503,10 @@ window.App.Sync = {
             if (typeof Leader !== 'undefined') state.leaders = (state.leaders || []).map(l => l instanceof Leader ? l : new Leader(l));
 
             state.attendance = cloudAttendance; // historial completo (todos los días)
+            // Reemplazo total del dataset → coherencia explícita (load-bearing tras Paso 4):
+            // render() lee stats/índice antes del reload, así que debe correr sincrónico ya.
+            invalidateAllStats();
+            buildAttendanceIndex();
             saveApplicationData();
             loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
             render();
@@ -1654,6 +1658,10 @@ window.restoreSnapshot = async (snapshotId) => {
                 if (snapshot.state.settings) {
                     state.settings = { ...state.settings, ...snapshot.state.settings };
                 }
+
+                // Reemplazo total del dataset → coherencia explícita antes del render().
+                invalidateAllStats();
+                buildAttendanceIndex();
 
                 // 3. Persistencia: IndexedDB + mirror.
                 await saveApplicationData();
@@ -3100,6 +3108,9 @@ window.downloadFromCloud = async function () {
             // Cargar historial completo
             const remoteAttendance = await FirebaseService.getAllAttendance();
             state.attendance = { ...state.attendance, ...remoteAttendance };
+            // Merge de fechas/empleados arbitrarios → coherencia total antes del render().
+            invalidateAllStats();
+            buildAttendanceIndex();
 
             render();
             await saveApplicationData();

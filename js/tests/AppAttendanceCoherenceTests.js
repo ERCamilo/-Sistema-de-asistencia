@@ -30,6 +30,15 @@ function countOccurrences(haystack, needle) {
     return haystack.split(needle).length - 1;
 }
 
+// Para sitios bulk: toma una ventana corta JUSTO después de la mutación y
+// verifica el patrón total (invalidateAllStats + buildAttendanceIndex SIN argumento).
+function sliceAfter(anchor, len) {
+    const i = SRC.indexOf(anchor);
+    if (i === -1) return '';
+    return SRC.slice(i, i + len);
+}
+const TOTAL_REBUILD = /buildAttendanceIndex\(\s*\)/; // sin arg = rebuild total (NO el granular (dateKey))
+
 testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 3)", {
 
     "importa los helpers de coherencia desde AppState"() {
@@ -180,6 +189,30 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 1,
             'saveQuickNoteFromDetail debe reconstruir el índice (un upsert puede crear el registro)'
         );
+    },
+
+    // ─── FAMILIA 6a: cargas bulk cloud/snapshot ───
+    // Reemplazos de TODO el dataset → patrón TOTAL: invalidateAllStats() + buildAttendanceIndex()
+    // SIN argumento, sincrónico justo tras la mutación (antes del render que lee derivados).
+    "downloadFromCloud (sobrescritura) mantiene coherencia total tras reemplazar la asistencia"() {
+        const s = sliceAfter('state.attendance = cloudAttendance', 600);
+        testRunner.assert(s.length > 0, 'debe existir la sobrescritura cloudAttendance');
+        testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
+        testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
+    },
+
+    "snapshot onRestore mantiene coherencia total tras reemplazar la asistencia"() {
+        const s = sliceAfter('state.attendance = snapshot.state.attendance', 700);
+        testRunner.assert(s.length > 0, 'debe existir el reemplazo del snapshot');
+        testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
+        testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
+    },
+
+    "downloadFromCloud (merge) mantiene coherencia total tras fusionar la asistencia remota"() {
+        const s = sliceAfter('...remoteAttendance };', 300);
+        testRunner.assert(s.length > 0, 'debe existir el merge de remoteAttendance');
+        testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
+        testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
     }
 });
 
