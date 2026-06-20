@@ -4988,64 +4988,6 @@ window.downloadBackupNow = function () {
     }
 };
 
-window.loadBackupFile = function (event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async function (e) {
-        try {
-            const backup = JSON.parse(e.target.result);
-
-            if (!backup.data) {
-                throw new Error('Formato de backup inválido');
-            }
-
-            const confirmed = await Modal.confirm({
-                title: '⚠️ ¿Cargar backup?',
-                message: `Archivo: ${file.name} — Fecha: ${new Date(backup.timestamp).toLocaleString()} — Empresa: ${backup.appName || 'N/A'}. Esto reemplazará los datos actuales. ¿Continuar?`,
-                confirmText: 'Cargar backup',
-                cancelText: 'Cancelar',
-                type: 'danger'
-            });
-
-            if (!confirmed) {
-                event.target.value = ''; // Reset input
-                return;
-            }
-
-            // Cargar datos
-            state.employees = backup.data.employees || [];
-            state.positions = backup.data.positions || [];
-            state.leaders = backup.data.leaders || [];
-            state.attendance = backup.data.attendance || {};
-
-            if (backup.data.settings) {
-                Object.assign(state.settings, backup.data.settings);
-            }
-
-            // Guardar en storage
-            saveApplicationData();
-
-            // Re-renderizar
-            render();
-
-            Notification.success('✅ Backup cargado correctamente');
-            debug.log('📤 Backup restaurado desde archivo');
-
-            // Reset input
-            event.target.value = '';
-
-        } catch (error) {
-            debug.error('❌ Error cargando backup:', error);
-            Notification.error('❌ Error al cargar backup. Verifica el archivo.');
-            event.target.value = '';
-        }
-    };
-
-    reader.readAsText(file);
-};
-
 window.toggleAutoBackup = function (enabled) {
     state.autoBackupEnabled = enabled;
     saveApplicationData();
