@@ -305,6 +305,16 @@ export function invalidateEmployeeStats(empId) {
 }
 window.invalidateEmployeeStats = invalidateEmployeeStats;
 
+/**
+ * Wholesale clear of the monthly stats cache. Use after a BULK attendance
+ * replace/load (backup restore, import, full reset) where every employee's
+ * cached monthly figure may be stale. The per-employee form is invalidateEmployeeStats.
+ */
+export function invalidateAllStats() {
+    stateManager._state.statsCache.mtd = {};
+}
+window.invalidateAllStats = invalidateAllStats;
+
 
 
 /**
