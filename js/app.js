@@ -4114,6 +4114,9 @@ window.saveAttendanceDetailHours = (empId) => {
         lastAccessed: Date.now(),
         _isDirty: true
     };
+    // Edita hoursWorked/present (financial) con objeto nuevo → coherencia completa.
+    invalidateEmployeeStats(emp.id);
+    buildAttendanceIndex(dateKey);
 
     if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey });
     if (window.showNotification) window.showNotification('Horas del día guardadas', 'success');
@@ -4160,6 +4163,11 @@ window.saveQuickNoteFromDetail = (empId) => {
         existing._isDirty = true;
         state.attendance[key] = existing;
     }
+    // El upsert puede CREAR un registro → debe entrar al índice (igual que
+    // NotesController). Las notas no tocan stats, pero la invalidación es
+    // idempotente y mantiene uniforme el patrón "escritura → coherencia".
+    invalidateEmployeeStats(empId);
+    buildAttendanceIndex(dateKey);
 
     // Toast honesto con el resultado real del guardado (local/nube).
     const _noteLabel = text ? 'Nota guardada' : 'Nota eliminada';

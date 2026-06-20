@@ -153,6 +153,33 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             countOccurrences(body, 'buildAttendanceIndex(dateStr)') >= 2,
             'removeAttendance debe reconstruir el índice en la baja + la closure de undo (>=2)'
         );
+    },
+
+    // ─── FAMILIA 5: detalle de horas y nota rápida ───
+    "saveAttendanceDetailHours mantiene coherencia tras escribir hoursWorked"() {
+        const body = between('window.saveAttendanceDetailHours = ', 'window.saveQuickNoteFromDetail');
+        testRunner.assert(body.length > 0 && body.length < 3500, 'el cuerpo de saveAttendanceDetailHours debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(emp.id)') >= 1,
+            'saveAttendanceDetailHours debe invalidar stats (edita hoursWorked)'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 1,
+            'saveAttendanceDetailHours debe reconstruir el índice del día'
+        );
+    },
+
+    "saveQuickNoteFromDetail mantiene coherencia (el upsert puede crear un registro)"() {
+        const body = between('window.saveQuickNoteFromDetail = ', 'Click delegation');
+        testRunner.assert(body.length > 0 && body.length < 2500, 'el cuerpo de saveQuickNoteFromDetail debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(empId)') >= 1,
+            'saveQuickNoteFromDetail debe invalidar stats (patrón uniforme con NotesController)'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 1,
+            'saveQuickNoteFromDetail debe reconstruir el índice (un upsert puede crear el registro)'
+        );
     }
 });
 
