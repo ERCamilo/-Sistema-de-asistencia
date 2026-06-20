@@ -63,6 +63,22 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             countOccurrences(body, 'buildAttendanceIndex(getDateKey(date))') >= 3,
             'toggleAttendance debe reconstruir el índice del día en alta/baja + las 2 closures de undo (>=3)'
         );
+    },
+
+    // ─── FAMILIA 2: borrado directo (window.deleteCurrentAttendance) ───
+    // Delete principal + closure de undo (restaurar) → 2 insertions de cada helper.
+    // Usa un dateKey capturado (estable para la closure).
+    "deleteCurrentAttendance mantiene coherencia en el delete y en la closure de undo"() {
+        const body = between('window.deleteCurrentAttendance = function', 'window.removePositionHours');
+        testRunner.assert(body.length > 0 && body.length < 4000, 'el cuerpo de deleteCurrentAttendance debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(emp.id)') >= 2,
+            'deleteCurrentAttendance debe invalidar stats en el delete + la closure de undo (>=2)'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 2,
+            'deleteCurrentAttendance debe reconstruir el índice en el delete + la closure de undo (>=2)'
+        );
     }
 });
 

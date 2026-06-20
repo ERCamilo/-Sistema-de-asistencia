@@ -1191,7 +1191,10 @@ window.deleteCurrentAttendance = function () {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
-    const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
+    // dateKey capturado una vez: estable para la closure de undo (si el usuario
+    // navega a otra fecha antes de deshacer, debe reconstruirse ESTE día, no el actual).
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${emp.id}-${dateKey}`;
 
     // ─── SNAPSHOT antes de eliminar ───
     const previousAtt = state.attendance[key]
@@ -1200,15 +1203,21 @@ window.deleteCurrentAttendance = function () {
 
     // Eliminar directamente — sin confirm(). El botón Deshacer es el safety net.
     delete state.attendance[key];
+    invalidateEmployeeStats(emp.id);
+    buildAttendanceIndex(dateKey);
 
-    // ─── Registrar Undo ───
+    // ─── Registrar Undo (la restauración también mantiene coherencia) ───
     UndoManager.push(
         previousAtt,
         `Eliminación de ${emp.name}`,
-        () => { if (previousAtt) state.attendance[key] = previousAtt; }
+        () => {
+            if (previousAtt) state.attendance[key] = previousAtt;
+            invalidateEmployeeStats(emp.id);
+            buildAttendanceIndex(dateKey);
+        }
     );
 
-    saveApplicationData({ dateKey: getDateKey(state.selectedDate) });
+    saveApplicationData({ dateKey });
     closeModal();
     render();
 };
