@@ -4,7 +4,6 @@
   "js/modules/features/loans/LoansController.js": 22,
   "js/modules/features/payroll/PayrollUI.js": 22,
   "js/modules/ui/Onboarding.js": 19,
-  "js/modules/ui/Handlers.js": 14,
   "js/modules/features/export/ExportController.js": 11,
   "js/modules/features/weather/WeatherService.js": 8,
   "js/modules/features/export/ExportMenuService.js": 6,
