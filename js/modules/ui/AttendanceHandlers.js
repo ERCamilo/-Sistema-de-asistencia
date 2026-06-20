@@ -3,7 +3,7 @@
  * Lógica para el Stepper de horas y Switch de feriado.
  */
 
-import { state } from '../core/AppState.js';
+import { state, invalidateEmployeeStats, buildAttendanceIndex } from '../core/AppState.js';
 import { render } from '../core/RenderManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { DateUtils, getDateKey } from '../utils/DateUtils.js';
@@ -60,13 +60,22 @@ export function toggleHoliday(providedDateKey = null) {
     state.settings.holidays = holidays;
     
     // 🔥 Sincronizar los registros existentes para este día
+    const touched = new Set();
     Object.keys(state.attendance).forEach(key => {
         const att = state.attendance[key];
         if (att && att.date === dateKey) {
             att.isHoliday = isNowHoliday;
             att.updatedAt = Date.now();
+            touched.add(att.employeeId); // por employeeId, NO split de la clave (ids con guion)
         }
     });
+
+    // These are IN-PLACE field mutations → the proxy traps never fire on them,
+    // so maintain coherence explicitly (load-bearing after Paso 4): isHoliday
+    // feeds payroll, so invalidate the touched employees' monthly stats + rebuild
+    // this day's index bucket.
+    touched.forEach(empId => invalidateEmployeeStats(empId));
+    buildAttendanceIndex(dateKey);
 
     // Guardar y refrescar
     saveApplicationData();
