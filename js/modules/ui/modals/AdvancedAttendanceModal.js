@@ -3,7 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
-import { state } from '../../core/AppState.js';
+import { state, invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { payrollService } from '../../services/index.js';
 import { getDateKey, formatDateShort, isDayHoliday } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
@@ -242,8 +242,9 @@ export function saveAdvancedAttendance() {
         lastAccessed: Date.now()
     };
 
-    // Guardar en el estado (Proxy activará la actualización del índice por fecha)
     state.attendance[key] = attendanceRecord;
+    invalidateEmployeeStats(emp.id);
+    buildAttendanceIndex(dateKey);
     
     // Sincronizar y renderizar (Zonal Sync). Toast honesto del resultado real.
     saveApplicationData({ dateKey, announce: 'Detalles guardados' });
