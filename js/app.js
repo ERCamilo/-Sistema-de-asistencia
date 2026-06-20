@@ -1103,6 +1103,8 @@ window.saveMultiPosition = function () {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
+    const dateKey = getDateKey(state.selectedDate);
+
     // ─── SNAPSHOT antes de mutar (para undo) ───
     const mpKey = `${emp.id}-${getDateKey(state.selectedDate)}`;
     const previousMpAtt = state.attendance[mpKey]
@@ -1163,9 +1165,11 @@ window.saveMultiPosition = function () {
 
     // Guardar en state
     att.updatedAt = Date.now();
-    // ⚡ FIX REACTIVIDAD: Usamos un spread {...att} para que la referencia sea nueva.
-    // Esto obliga al Proxy en AppState.js a detectar el cambio y reconstruir el índice de estadísticas.
+    // Spread {...att} → referencia nueva. Antes esto alcanzaba para que el Proxy
+    // reconstruyera el índice; tras Paso 4 la coherencia es explícita (abajo).
     state.attendance[key] = { ...att };
+    invalidateEmployeeStats(emp.id);
+    buildAttendanceIndex(dateKey);
 
     // ─── Registrar Undo: restaurar estado previo de multi-posición ───
     UndoManager.push(
@@ -1177,6 +1181,8 @@ window.saveMultiPosition = function () {
             } else {
                 delete state.attendance[mpKey];
             }
+            invalidateEmployeeStats(emp.id);
+            buildAttendanceIndex(dateKey);
         }
     );
 
@@ -1227,10 +1233,13 @@ window.removePositionHours = async function (index) {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
-    const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${emp.id}-${dateKey}`;
     const att = state.attendance[key];
 
     if (att && att.positionHours) {
+        // Quitar una posición NO toca att.hoursWorked (las stats mensuales suman
+        // hoursWorked, no positionHours) → sin coherencia salvo que se borre el registro.
         att.positionHours.splice(index, 1);
 
         // Si no quedan posiciones, eliminar toda la asistencia
@@ -1244,6 +1253,8 @@ window.removePositionHours = async function (index) {
             });
             if (confirmDelete) {
                 delete state.attendance[key];
+                invalidateEmployeeStats(emp.id);
+                buildAttendanceIndex(dateKey);
                 closeModal();
                 render();
                 return;

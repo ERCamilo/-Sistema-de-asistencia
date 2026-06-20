@@ -79,6 +79,51 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 2,
             'deleteCurrentAttendance debe reconstruir el índice en el delete + la closure de undo (>=2)'
         );
+    },
+
+    // ─── FAMILIA 3: multi-posición ───
+    // Solo el COMMIT (saveMultiPosition) y el DELETE (removePositionHours) tocan
+    // hoursWorked/las claves. Las ops de edición (add/update/splice) cambian
+    // positionHours pero NO hoursWorked → las stats mensuales (que suman hoursWorked)
+    // no cambian → NO llevan coherencia (decisión por evidencia, no por el mapa).
+    "saveMultiPosition mantiene coherencia en el commit y en la closure de undo"() {
+        const body = between('window.saveMultiPosition = function', 'window.deleteCurrentAttendance');
+        testRunner.assert(body.length > 0 && body.length < 5000, 'el cuerpo de saveMultiPosition debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(emp.id)') >= 2,
+            'saveMultiPosition debe invalidar stats en el commit + la closure de undo (>=2)'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 2,
+            'saveMultiPosition debe reconstruir el índice en el commit + la closure de undo (>=2)'
+        );
+    },
+
+    "removePositionHours mantiene coherencia solo en la rama de borrado del registro"() {
+        const body = between('window.removePositionHours = async function', 'LOCALSTORAGE - PERSISTENCIA');
+        testRunner.assert(body.length > 0 && body.length < 2500, 'el cuerpo de removePositionHours debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(emp.id)') >= 1,
+            'removePositionHours debe invalidar stats al borrar el registro completo'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateKey)') >= 1,
+            'removePositionHours debe reconstruir el índice al borrar el registro completo'
+        );
+    },
+
+    "las ops de edición de posiciones NO llevan coherencia (no tocan hoursWorked)"() {
+        const addBody = between('window.addPositionHours', 'window.updatePositionHours');
+        const updBody = between('window.updatePositionHours', 'window.updateTotalsDisplay');
+        testRunner.assert(addBody.length > 0 && updBody.length > 0, 'deben encontrarse addPositionHours y updatePositionHours');
+        testRunner.assert(
+            countOccurrences(addBody, 'invalidateEmployeeStats') === 0,
+            'addPositionHours NO debe invalidar stats (cambia positionHours, no hoursWorked)'
+        );
+        testRunner.assert(
+            countOccurrences(updBody, 'invalidateEmployeeStats') === 0,
+            'updatePositionHours NO debe invalidar stats (edición in-place de positionHours)'
+        );
     }
 });
 
