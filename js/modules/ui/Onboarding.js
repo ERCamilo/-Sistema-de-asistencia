@@ -2,7 +2,7 @@
  * 🚀 ONBOARDING WIZARD (Fase 3 - Modularización)
  * Gestiona el flujo de bienvenida y configuración inicial del sistema.
  */
-import { state } from '../core/AppState.js';
+import { state, buildAttendanceIndex, invalidateAllStats } from '../core/AppState.js';
 import { render } from '../core/RenderManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { FirebaseService } from '../services/index.js';
@@ -277,6 +277,11 @@ class OnboardingWizard {
             holidays: []
         };
         state.dayHoursConfig = {};
+        // Full domain reset → explicit attendance coherence (load-bearing once the
+        // proxy traps are removed in Paso 4): wholesale stats clear + total index
+        // rebuild (empty attendance yields an empty index).
+        invalidateAllStats();
+        buildAttendanceIndex();
     }
 
     async loadDemoData() {
