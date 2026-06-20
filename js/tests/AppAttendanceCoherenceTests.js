@@ -124,6 +124,35 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             countOccurrences(updBody, 'invalidateEmployeeStats') === 0,
             'updatePositionHours NO debe invalidar stats (edición in-place de positionHours)'
         );
+    },
+
+    // ─── FAMILIA 4: vista semanal (handleWeekCheck, removeAttendance) ───
+    // Cada uno: mutación principal + closure de undo → 2 insertions de cada helper.
+    // (dateStr ES el dateKey en esta vista.)
+    "handleWeekCheck mantiene coherencia en el alta y en la closure de undo"() {
+        const body = between('window.handleWeekCheck = ', 'window.handleWeekCheckClick');
+        testRunner.assert(body.length > 0 && body.length < 6000, 'el cuerpo de handleWeekCheck debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(empId)') >= 2,
+            'handleWeekCheck debe invalidar stats en el alta + la closure de undo (>=2)'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateStr)') >= 2,
+            'handleWeekCheck debe reconstruir el índice en el alta + la closure de undo (>=2)'
+        );
+    },
+
+    "removeAttendance mantiene coherencia en la baja in-place y en la closure de undo"() {
+        const body = between('window.removeAttendance = ', 'window.toggleLegend');
+        testRunner.assert(body.length > 0 && body.length < 2500, 'el cuerpo de removeAttendance debe acotarse bien');
+        testRunner.assert(
+            countOccurrences(body, 'invalidateEmployeeStats(empId)') >= 2,
+            'removeAttendance debe invalidar stats en la baja + la closure de undo (>=2)'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'buildAttendanceIndex(dateStr)') >= 2,
+            'removeAttendance debe reconstruir el índice en la baja + la closure de undo (>=2)'
+        );
     }
 });
 

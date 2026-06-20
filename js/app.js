@@ -2948,8 +2948,10 @@ window.handleWeekCheck = (empId, dateStr) => {
             : null;
 
         state.attendance[key] = newAttendance;
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateStr);
 
-        // ─── Registrar Undo ───
+        // ─── Registrar Undo (ambas ramas re-mutan asistencia → coherencia adentro) ───
         UndoManager.push(
             prevWeekAtt,
             `Asistencia de ${emp.name} (${dateStr})`,
@@ -2965,6 +2967,8 @@ window.handleWeekCheck = (empId, dateStr) => {
                         updatedAt: Date.now()
                     };
                 }
+                invalidateEmployeeStats(empId);
+                buildAttendanceIndex(dateStr);
             }
         );
 
@@ -2998,13 +3002,20 @@ window.removeAttendance = (empId, dateStr) => {
         att.updatedAt = Date.now();
         att._isDirty = true;
     }
+    // present:false/hoursWorked=0 cambian las stats mensuales → coherencia explícita.
+    invalidateEmployeeStats(empId);
+    buildAttendanceIndex(dateStr);
     state.contextMenu = null;
 
-    // ─── Registrar Undo ───
+    // ─── Registrar Undo (la restauración también mantiene coherencia) ───
     UndoManager.push(
         prevRemoveAtt,
         `Eliminación de ${emp?.name || empId} (${dateStr})`,
-        () => { if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt; }
+        () => {
+            if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt;
+            invalidateEmployeeStats(empId);
+            buildAttendanceIndex(dateStr);
+        }
     );
 
     saveApplicationData({ dateKey: dateStr });
