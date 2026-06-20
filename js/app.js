@@ -10,7 +10,8 @@ import { debug } from './modules/utils/Debug.js';
 
 // 📦 IMPORTACIÓN DEL ESTADO CENTRAL (Fase 4 - Modularización)
 import {
-    state, stateManager, renderOptimizer, calculateStats
+    state, stateManager, renderOptimizer, calculateStats,
+    invalidateEmployeeStats, buildAttendanceIndex, invalidateAllStats
 } from './modules/core/AppState.js';
 
 import {
@@ -1829,7 +1830,11 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         UndoManager.push(
             previousAtt,
             `Asistencia de ${emp.name}`,
-            () => { state.attendance[key] = previousAtt; }
+            () => {
+                state.attendance[key] = previousAtt;
+                invalidateEmployeeStats(empId);
+                buildAttendanceIndex(getDateKey(date));
+            }
         );
 
     } else {
@@ -1862,9 +1867,18 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         UndoManager.push(
             null,
             `Asistencia de ${emp.name}`,
-            () => { delete state.attendance[key]; }
+            () => {
+                delete state.attendance[key];
+                invalidateEmployeeStats(empId);
+                buildAttendanceIndex(getDateKey(date));
+            }
         );
     }
+
+    // Coherencia explícita tras la mutación (load-bearing tras Paso 4): cubre
+    // ambas ramas (alta y baja). empId/date están en scope; granular por día.
+    invalidateEmployeeStats(empId);
+    buildAttendanceIndex(getDateKey(date));
 
     // ✅ Guardar cambios con dateKey para sync granular
     saveApplicationData({ dateKey: getDateKey(date) });
