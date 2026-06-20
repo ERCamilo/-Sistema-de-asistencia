@@ -125,7 +125,7 @@ testRunner.addSuite("Caja chica — regeneración de ids para cuenta nueva (L7)"
     },
 
     "fuente: prepareDataForNewAccount integra la caja chica (regen + outbox limpia)"() {
-        const block = PS_SRC.match(/export async function prepareDataForNewAccount[\s\S]{0,5000}?\n\}/);
+        const block = PS_SRC.match(/export async function prepareDataForNewAccount[\s\S]{0,6000}?\n\}/);
         testRunner.assert(!!block, 'prepareDataForNewAccount debe existir');
         testRunner.assert(/regeneratePettyCashIds/.test(block[0]),
             'debe regenerar los ids de caja chica — la cuenta clonada no debe conservar ids viejos');

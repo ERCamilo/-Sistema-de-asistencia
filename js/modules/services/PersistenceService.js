@@ -4,7 +4,7 @@
  */
 
 import { state, stateManager } from '../core/AppState.js';
-import { buildAttendanceIndex } from '../core/AppState.js';
+import { buildAttendanceIndex, invalidateEmployeeStats, invalidateAllStats } from '../core/AppState.js';
 import FirebaseService from './FirebaseService.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
@@ -647,6 +647,10 @@ export async function loadApplicationData() {
             }
 
             stateManager.markAttendanceDirty(); // Asegurar reconstrucción total tras carga masiva
+            // Bulk load → the dirty flag covers the index lazily, but statsCache.mtd
+            // is NOT cleared by it. Wholesale-clear it (load-bearing after Paso 4):
+            // stale monthly stats from the previous dataset would corrupt payroll.
+            invalidateAllStats();
             return true;
         }
 
@@ -868,6 +872,10 @@ export async function prepareDataForNewAccount() {
         newAttendance[newKey] = att;
     });
     state.attendance = newAttendance;
+    // Full key rewrite (every empId/date key changed) → total index rebuild +
+    // wholesale stats clear: the old empIds' monthly stats are now meaningless.
+    invalidateAllStats();
+    buildAttendanceIndex();
 
     // 5. 🧾 Caja chica (L7): la cuenta clonada no debe conservar los ids de la
     // cuenta anterior. Regeneramos ids (con referencias cruzadas remapeadas),
@@ -973,6 +981,10 @@ export function restoreAutoBackup() {
             const parsed = JSON.parse(backup);
             if (parsed.data && state.employees.length === 0) {
                 Object.assign(state, parsed.data);
+                // Bulk replace → explicit coherence (this site had NONE before, and
+                // Object.assign bypasses the proxy): total index rebuild + stats clear.
+                invalidateAllStats();
+                buildAttendanceIndex();
                 NotificationSystem.success('✅ Sesión anterior restaurada');
                 return true;
             }
@@ -1310,6 +1322,13 @@ export function mergeEmployees(masterId, duplicateId) {
             delete state.attendance[oldKey];
         }
     });
+
+    // Key remap spanning multiple dates (assign + delete) touched master's
+    // hoursWorked/positionHours → explicit coherence after the loop: total index
+    // rebuild + invalidate BOTH employees' monthly stats (master changed, duplicate gone).
+    buildAttendanceIndex();
+    invalidateEmployeeStats(masterId);
+    invalidateEmployeeStats(duplicateId);
 
     // 2. Fusionar arreglos "log" del empleado usando unionById:
     //    - Loans, advances, bonuses, deductions → unión por id (en colisión
