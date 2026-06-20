@@ -5300,6 +5300,12 @@ async function applyBackupData(importedData) {
             sanitizePositions(state);
         }
 
+        // Reemplazo total del dataset (+ normalización + sanitización ya aplicadas) →
+        // coherencia explícita antes de persistir/render. invalidateAllStats() subsume
+        // la invalidación que pediría sanitizePositions (limpia TODO el statsCache).
+        invalidateAllStats();
+        buildAttendanceIndex();
+
         // Guardar en IndexedDB
         await saveToIndexedDB({ clearFirst: true });
 

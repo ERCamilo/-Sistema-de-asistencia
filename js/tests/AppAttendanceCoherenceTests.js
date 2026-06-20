@@ -213,6 +213,25 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         testRunner.assert(s.length > 0, 'debe existir el merge de remoteAttendance');
         testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
+    },
+
+    // ─── FAMILIA 6b: restore local (applyBackupData) ───
+    // Una sola coherencia bulk tras sanitizePositions y antes de persistir; subsume
+    // la invalidación de sanitize.
+    "applyBackupData mantiene coherencia total tras el restore (post-sanitize, pre-persist)"() {
+        const body = between('async function applyBackupData', 'window.importData');
+        testRunner.assert(body.length > 0 && body.length < 3000, 'el cuerpo de applyBackupData debe acotarse bien');
+        testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
+        testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
+        // Orden: coherencia DESPUÉS de sanitizePositions y ANTES de saveToIndexedDB.
+        const sanitizeIdx = body.indexOf('sanitizePositions(state)');
+        const coherenceIdx = body.search(/invalidateAllStats\(\)/);
+        const persistIdx = body.indexOf('saveToIndexedDB');
+        testRunner.assert(sanitizeIdx !== -1 && persistIdx !== -1, 'deben existir sanitizePositions y saveToIndexedDB');
+        testRunner.assert(
+            coherenceIdx > sanitizeIdx && coherenceIdx < persistIdx,
+            'la coherencia debe ir tras sanitizePositions y antes de saveToIndexedDB'
+        );
     }
 });
 

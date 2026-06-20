@@ -48,7 +48,7 @@ testRunner.addSuite("Backups locales — caja chica incluida (M3)", {
     },
 
     "applyBackupData restaura la caja chica cuando el backup la trae"() {
-        const block = APP_SRC.match(/async function applyBackupData[\s\S]{0,2500}?\n\}/);
+        const block = APP_SRC.match(/async function applyBackupData[\s\S]{0,3000}?\n\}/);
         testRunner.assert(!!block, 'applyBackupData debe existir');
         testRunner.assert(
             /PettyCashStore\.applyRemote/.test(block[0]),
