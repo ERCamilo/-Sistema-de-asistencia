@@ -244,16 +244,11 @@ const createRecursiveProxy = (obj, path = []) => {
             return result;
         },
         deleteProperty(target, prop) {
-            const oldValue = target[prop];
             const result = Reflect.deleteProperty(target, prop);
-            
+
             if (result && !stateManager.isSilent()) {
-                const rootProp = path[0] || prop;
-                if (rootProp === 'attendance') {
-                    invalidateEmployeeStats(oldValue && oldValue.employeeId);
-                    if (oldValue && oldValue.date) buildAttendanceIndex(oldValue.date);
-                    else stateManager.markAttendanceDirty();
-                }
+                // 🎯 Fase 4 Paso 4: proxy agnóstico — la coherencia de asistencia al borrar
+                // la mantienen ahora los handlers de forma EXPLÍCITA. El proxy sólo agenda render.
                 if (window.render) renderOptimizer.scheduleRender(window.render);
             }
             return result;
