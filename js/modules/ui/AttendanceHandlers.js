@@ -3,7 +3,7 @@
  * Lógica para el Stepper de horas y Switch de feriado.
  */
 
-import { state, invalidateEmployeeStats, buildAttendanceIndex } from '../core/AppState.js';
+import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../core/AppState.js';
 import { render } from '../core/RenderManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { DateUtils, getDateKey } from '../utils/DateUtils.js';
@@ -18,23 +18,26 @@ export function changeBaseHours(delta) {
         ? DateUtils.getWeekDates(state.selectedDate)
         : [getDateKey(state.selectedDate)];
     
-    datesToUpdate.forEach(dateKey => {
-        // Obtener horas actuales del día o las regulares
-        let currentHours = state.dayHoursConfig[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
-        
-        // Calcular nuevo valor
-        let newHours = Math.max(0, Math.min(24, currentHours + delta));
-        
-        // Actualizar configuración
-        if (!state.dayHoursConfig) state.dayHoursConfig = {};
-        state.dayHoursConfig[dateKey] = newHours;
+    // ⚡ Fase 4 Paso 5: las N escrituras de dayHoursConfig (hasta 7 en semana) se
+    // batchean → el proxy corre silencioso y batchSetState agenda 1 render al cerrar.
+    stateManager.batchSetState(() => {
+        datesToUpdate.forEach(dateKey => {
+            // Obtener horas actuales del día o las regulares
+            let currentHours = state.dayHoursConfig[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
+
+            // Calcular nuevo valor
+            let newHours = Math.max(0, Math.min(24, currentHours + delta));
+
+            // Actualizar configuración
+            if (!state.dayHoursConfig) state.dayHoursConfig = {};
+            state.dayHoursConfig[dateKey] = newHours;
+        });
     });
-    
+
     console.log(`⏱️ Horas base ajustadas para ${datesToUpdate.length} días. Último valor: ${state.dayHoursConfig[datesToUpdate[datesToUpdate.length-1]]}h`);
-    
-    // Guardar y refrescar
+
+    // Guardar; el render lo agenda batchSetState al cerrar (1 render en vez de N).
     saveApplicationData({ dateKey: datesToUpdate[0] });
-    render();
 }
 
 /**
@@ -93,14 +96,16 @@ export function setDayHours(val) {
         ? DateUtils.getWeekDates(state.selectedDate)
         : [getDateKey(state.selectedDate)];
 
-    datesToUpdate.forEach(dateKey => {
-        let currentHours = state.dayHoursConfig?.[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
-        if (!state.dayHoursConfig) state.dayHoursConfig = {};
-        state.dayHoursConfig[dateKey] = hours;
+    // ⚡ Fase 4 Paso 5: batchear las N escrituras → 1 render al cerrar el batch.
+    stateManager.batchSetState(() => {
+        datesToUpdate.forEach(dateKey => {
+            if (!state.dayHoursConfig) state.dayHoursConfig = {};
+            state.dayHoursConfig[dateKey] = hours;
+        });
     });
-    
+
+    // Guardar; el render lo agenda batchSetState al cerrar (1 render en vez de N).
     saveApplicationData({ dateKey: datesToUpdate[0] });
-    render();
 }
 
 // 🌐 Exponer a window para acceso desde el HTML generado por AttendanceUI

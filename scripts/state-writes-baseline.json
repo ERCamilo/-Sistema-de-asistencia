@@ -9,7 +9,6 @@
   "js/modules/features/export/ExportMenuService.js": 6,
   "js/modules/ui/components/EmployeeFloatingCard.js": 6,
   "js/modules/features/weather/WeatherController.js": 5,
-  "js/modules/ui/AttendanceHandlers.js": 5,
   "js/modules/components/SystemAlertsManager.js": 4,
   "js/modules/features/notes/NotesController.js": 4,
   "js/modules/components/HelpTooltip.js": 3,
@@ -26,5 +25,6 @@
   "js/modules/features/pettycash/PettyCashUI.js": 1,
   "js/modules/features/profile/ProfilePickers.js": 1,
   "js/modules/services/ConflictPlanner.js": 1,
+  "js/modules/ui/AttendanceHandlers.js": 1,
   "js/modules/utils/SWVersion.js": 1
 }
