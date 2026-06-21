@@ -232,6 +232,37 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             coherenceIdx > sanitizeIdx && coherenceIdx < persistIdx,
             'la coherencia debe ir tras sanitizePositions y antes de saveToIndexedDB'
         );
+    },
+
+    // ─── FAMILIA 6c: Firebase zonal ───
+    // onInitialLoad = muchas fechas → TOTAL; onModified = una fecha (hot path) → GRANULAR.
+    "Firebase onInitialLoad mantiene coherencia TOTAL tras la carga remota inicial"() {
+        const body = between('onInitialLoad: (allAttendance) =>', 'onModified:');
+        testRunner.assert(body.length > 0 && body.length < 3500, 'el cuerpo de onInitialLoad debe acotarse bien');
+        testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
+        testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
+        // Orden: coherencia DESPUÉS de validateDataIntegrity (que muta in-place) y ANTES del render.
+        const vdiIdx = body.indexOf('validateDataIntegrity()');
+        const cohIdx = body.search(/invalidateAllStats\(\)/);
+        const renderIdx = body.indexOf('render()');
+        testRunner.assert(vdiIdx !== -1 && renderIdx !== -1, 'deben existir validateDataIntegrity y render');
+        testRunner.assert(
+            cohIdx > vdiIdx && cohIdx < renderIdx,
+            'la coherencia total debe ir tras validateDataIntegrity y antes del render'
+        );
+    },
+
+    "Firebase onModified mantiene coherencia GRANULAR (por empleado + bucket del día, sin total)"() {
+        const body = between('onModified: (dateKey, records) =>', 'Iniciar primera suscripción');
+        testRunner.assert(body.length > 0 && body.length < 3000, 'el cuerpo de onModified debe acotarse bien');
+        testRunner.assert(body.includes('buildAttendanceIndex(dateKey)'), 'debe reconstruir GRANULAR el bucket del día');
+        testRunner.assert(body.includes('invalidateEmployeeStats('), 'debe invalidar stats por empleado tocado');
+        // Negativos: hot path → NUNCA bulk ni rebuild total.
+        testRunner.assert(!body.includes('invalidateAllStats('), 'onModified NO debe usar invalidateAllStats (hot path)');
+        testRunner.assert(!TOTAL_REBUILD.test(body), 'onModified NO debe usar buildAttendanceIndex() total (solo granular)');
+        // Hyphen-safety: deriva por employeeId, no por split de la clave.
+        testRunner.assert(body.includes('r.employeeId') || body.includes('record.employeeId'),
+            'debe derivar el empleado por employeeId, no por split de la clave compuesta');
     }
 });
 

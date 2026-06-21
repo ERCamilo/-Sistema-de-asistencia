@@ -6851,6 +6851,12 @@ function _initOutgoingConflictGuard() {
                                 }, 600);
                             }
 
+                            // Carga inicial = reemplazo de muchas fechas → coherencia TOTAL,
+                            // sincrónica antes del render y DESPUÉS de validateDataIntegrity
+                            // (que muta hoursWorked in-place). Nunca diferir a BatchedSaver.
+                            invalidateAllStats();
+                            buildAttendanceIndex();
+
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
@@ -6869,6 +6875,11 @@ function _initOutgoingConflictGuard() {
                             });
 
                             state.attendance = { ...state.attendance, ...records };
+                            // Una sola fecha (hot path por tick) → coherencia GRANULAR:
+                            // invalidar solo los empleados tocados (por employeeId, NO split de clave)
+                            // y reconstruir el bucket de ESTE día. NUNCA invalidateAllStats acá.
+                            Object.values(records).forEach(r => { if (r.employeeId) invalidateEmployeeStats(r.employeeId); });
+                            buildAttendanceIndex(dateKey);
                             // ⚡ Persistir vía BatchedSaver: si llegan N dateKeys en ráfaga
                             // (típico al arrancar), todos se persisten con una sola escritura.
                             window._attendanceBatchedSaver.add(dateKey);
