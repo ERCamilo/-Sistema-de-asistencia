@@ -3007,19 +3007,24 @@ window.removeAttendance = (empId, dateStr) => {
         ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
         : null;
 
-    const att = state.attendance[key];
-    if (att) {
-        att.present = false;
-        att.hoursWorked = 0;
-        att.overtimeHours = 0;
-        att.positionHours = [];
-        att.updatedAt = Date.now();
-        att._isDirty = true;
-    }
-    // present:false/hoursWorked=0 cambian las stats mensuales → coherencia explícita.
-    invalidateEmployeeStats(empId);
-    buildAttendanceIndex(dateStr);
-    state.contextMenu = null;
+    // ⚡ Fase 4 Paso 5: batchear la baja in-place (6 campos) + la coherencia + el cierre
+    // del contextMenu → 1 repintado (antes: uno por cada campo + el manual del final). La
+    // coherencia (financiera: present:false/hoursWorked=0 cambian las stats) va DENTRO del
+    // batch para que el repintado del cierre lea statsCache ya fresco.
+    stateManager.batchSetState(() => {
+        const att = state.attendance[key];
+        if (att) {
+            att.present = false;
+            att.hoursWorked = 0;
+            att.overtimeHours = 0;
+            att.positionHours = [];
+            att.updatedAt = Date.now();
+            att._isDirty = true;
+        }
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateStr);
+        state.contextMenu = null;
+    });
 
     // ─── Registrar Undo (la restauración también mantiene coherencia) ───
     UndoManager.push(
@@ -3032,8 +3037,8 @@ window.removeAttendance = (empId, dateStr) => {
         }
     );
 
+    // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual.
     saveApplicationData({ dateKey: dateStr });
-    render();
 };
 // Redefinición de markDayAsHoliday eliminada
 

@@ -179,6 +179,20 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         );
     },
 
+    // Render batching (Fase 4 Paso 5): la baja in-place + coherencia + contextMenu van en
+    // batchSetState y se suelta el render() manual. Contrato-de-fuente (jsdom no mide render).
+    "removeAttendance batchea la baja y NO llama render() a mano (Paso 5)"() {
+        const body = between('window.removeAttendance = ', 'window.toggleLegend');
+        testRunner.assert(
+            body.includes('stateManager.batchSetState'),
+            'la baja + la coherencia deben ir envueltas en stateManager.batchSetState'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'render()') === 0,
+            'ya NO debe llamar render() a mano: el repintado lo agenda batchSetState al cerrar'
+        );
+    },
+
     // ─── FAMILIA 5: detalle de horas y nota rápida ───
     "saveAttendanceDetailHours mantiene coherencia tras escribir hoursWorked"() {
         const body = between('window.saveAttendanceDetailHours = ', 'window.saveQuickNoteFromDetail');
