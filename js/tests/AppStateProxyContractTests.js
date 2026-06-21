@@ -23,6 +23,22 @@
  * Por qué importa: estos efectos son el ÚNICO disparador de coherencia de la cache
  * y el índice de asistencia. Un refactor del estado que los altere en silencio
  * desincroniza estadísticas y nómina sin tirar ningún error. Esta suite muerde antes.
+ *
+ * ───────────────────────────────────────────────────────────────────────────────
+ * 🧭 GUÍA DE CONVERSIÓN PARA FASE 4 PASO 4 (sacar la rama de asistencia de los traps)
+ * Cuando Paso 4 borre la coherencia de los traps (AppState.js set L241-263 / delete
+ * L275-279), ESTOS tests SE DAN VUELTA — es esperado, no un bug:
+ *   • Test 1 (escribir invalida statsCache)  → INVERTIR: una escritura DIRECTA cruda ya
+ *     NO debe invalidar (el proxy es agnóstico). La coherencia ahora la hacen los
+ *     handlers explícitamente (ver los *CoherenceTests.js).
+ *   • Test 2 (escribir reconstruye attendanceByDate) → INVERTIR igual (ya NO reconstruye).
+ *   • Test 4 (borrar invalida + reconstruye) → INVERTIR igual.
+ * Estos NO cambian (siguen verdes): Test 3 (agenda render — eso es Paso 5),
+ *   Test 5 (modo silencioso ya era agnóstico), Test 6 (toRaw).
+ * Antes de invertir, correr la suite COMPLETA: AttendanceCoherenceCoverageTests +
+ * los *CoherenceTests.js deben seguir verdes (prueban que la coherencia explícita
+ * cubre todo). Si alguno se pone rojo, falta un sitio de Paso 3 — ESE es el bug real.
+ * ───────────────────────────────────────────────────────────────────────────────
  */
 
 import { state, stateManager, renderOptimizer } from '../modules/core/AppState.js';
