@@ -263,6 +263,18 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         // Hyphen-safety: deriva por employeeId, no por split de la clave.
         testRunner.assert(body.includes('r.employeeId') || body.includes('record.employeeId'),
             'debe derivar el empleado por employeeId, no por split de la clave compuesta');
+    },
+
+    // ─── FAMILIA 6d: callers sueltos de sanitizePositions (init + mirror-sync) ───
+    // Patrón: if (sanitizePositions(state)) { invalidateAllStats(); ... } — SIN buildAttendanceIndex
+    // (remapeo in-place de positionId: afecta positionSalaries → stats, pero no claves/fechas).
+    "los callers guardados de sanitizePositions invalidan stats (sin rebuild de índice)"() {
+        const guarded = (SRC.match(/if \(sanitizePositions\(state\)\)/g) || []).length;
+        testRunner.assertEquals(guarded, 2, 'deben existir los 2 callers guardados (init + mirror-sync)');
+        const withInvalidate = (SRC.match(/if \(sanitizePositions\(state\)\) \{[\s\S]{0,300}?invalidateAllStats\(\)/g) || []).length;
+        testRunner.assertEquals(withInvalidate, 2, 'ambos callers guardados deben invalidar todas las stats');
+        const withRebuild = (SRC.match(/if \(sanitizePositions\(state\)\) \{[\s\S]{0,300}?buildAttendanceIndex\(/g) || []).length;
+        testRunner.assertEquals(withRebuild, 0, 'NO debe haber buildAttendanceIndex en los sanitize callers (no cambian claves)');
     }
 });
 

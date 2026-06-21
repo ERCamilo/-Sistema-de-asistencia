@@ -6428,6 +6428,9 @@ function _initOutgoingConflictGuard() {
 
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
+            // Remapeo de positionId in-place afecta positionSalaries (claves de pago por
+            // puesto) → invalidar stats. Sin buildAttendanceIndex (no cambian claves/fechas).
+            invalidateAllStats();
             debug.log('💾 Guardando cambios de sanitización inicial...');
             await saveApplicationData({ force: true });
             render();
@@ -6747,6 +6750,7 @@ function _initOutgoingConflictGuard() {
 
                     // 🛡️ Sanitización post-sincronización (Evita que la nube traiga basura vieja)
                     if (sanitizePositions(state)) {
+                        invalidateAllStats(); // positionId remap → stats stale (sin rebuild de índice)
                         debug.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
