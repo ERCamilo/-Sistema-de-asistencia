@@ -25,6 +25,5 @@
   "js/modules/features/pettycash/PettyCashUI.js": 1,
   "js/modules/features/profile/ProfilePickers.js": 1,
   "js/modules/services/ConflictPlanner.js": 1,
-  "js/modules/ui/AttendanceHandlers.js": 1,
   "js/modules/utils/SWVersion.js": 1
 }

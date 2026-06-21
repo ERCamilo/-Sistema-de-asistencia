@@ -4,7 +4,6 @@
  */
 
 import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../core/AppState.js';
-import { render } from '../core/RenderManager.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { DateUtils, getDateKey } from '../utils/DateUtils.js';
 import { Notification } from '../components/Notification.js';
@@ -60,29 +59,31 @@ export function toggleHoliday(providedDateKey = null) {
         Notification.success('Día marcado como FERIADO 🚩', { icon: 'gold' });
     }
     
-    state.settings.holidays = holidays;
-    
-    // 🔥 Sincronizar los registros existentes para este día
+    // ⚡ Fase 4 Paso 5: batchear settings.holidays + la sincronización por-registro +
+    // la coherencia → 1 render en vez de uno por registro tocado. isHoliday alimenta
+    // nómina, así que la coherencia (invalidateEmployeeStats + buildAttendanceIndex) va
+    // DENTRO del mismo batch: el único render del cierre lee statsCache.mtd ya fresco.
     const touched = new Set();
-    Object.keys(state.attendance).forEach(key => {
-        const att = state.attendance[key];
-        if (att && att.date === dateKey) {
-            att.isHoliday = isNowHoliday;
-            att.updatedAt = Date.now();
-            touched.add(att.employeeId); // por employeeId, NO split de la clave (ids con guion)
-        }
+    stateManager.batchSetState(() => {
+        state.settings.holidays = holidays;
+
+        // 🔥 Sincronizar los registros existentes para este día (mutación IN-PLACE: el
+        // proxy no dispara, por eso la coherencia es explícita y load-bearing tras Paso 4)
+        Object.keys(state.attendance).forEach(key => {
+            const att = state.attendance[key];
+            if (att && att.date === dateKey) {
+                att.isHoliday = isNowHoliday;
+                att.updatedAt = Date.now();
+                touched.add(att.employeeId); // por employeeId, NO split de la clave (ids con guion)
+            }
+        });
+
+        touched.forEach(empId => invalidateEmployeeStats(empId));
+        buildAttendanceIndex(dateKey);
     });
 
-    // These are IN-PLACE field mutations → the proxy traps never fire on them,
-    // so maintain coherence explicitly (load-bearing after Paso 4): isHoliday
-    // feeds payroll, so invalidate the touched employees' monthly stats + rebuild
-    // this day's index bucket.
-    touched.forEach(empId => invalidateEmployeeStats(empId));
-    buildAttendanceIndex(dateKey);
-
-    // Guardar y refrescar
+    // Guardar; el render lo agenda batchSetState al cerrar (1 render en vez de N).
     saveApplicationData();
-    render();
 }
 
 /**

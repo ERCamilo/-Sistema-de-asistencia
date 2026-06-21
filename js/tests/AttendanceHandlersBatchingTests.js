@@ -20,7 +20,7 @@
  */
 
 import { stateManager, renderOptimizer } from '../modules/core/AppState.js';
-import { changeBaseHours, setDayHours } from '../modules/ui/AttendanceHandlers.js';
+import { changeBaseHours, setDayHours, toggleHoliday } from '../modules/ui/AttendanceHandlers.js';
 
 let scheduleCallCount = 0;
 let originalScheduleRender = null;
@@ -61,7 +61,28 @@ function rendersFor(viewMode, fn) {
     return scheduleCallCount;
 }
 
-const MAX_RENDERS = 2; // batch (1) + a lo sumo 1 de saveApplicationData; constante, no por-día
+const MAX_RENDERS = 2; // batch (1) + a lo sumo 1 de saveApplicationData; constante, no por-día/registro
+
+/** Siembra `empCount` empleados con asistencia en DATE; devuelve DATE. */
+function setupHoliday(empCount) {
+    const raw = stateManager.getState();
+    raw.attendance = {};
+    raw.attendanceByDate = {};
+    raw.statsCache.mtd = {};
+    raw.settings.holidays = [];
+    raw.viewMode = 'day';
+    const DATE = '2026-06-19';
+    raw.selectedDate = DATE;
+    for (let i = 0; i < empCount; i++) {
+        const id = `emp${i}`;
+        raw.attendance[`${id}-${DATE}`] = { employeeId: id, date: DATE, present: true, hoursWorked: 8, isHoliday: false };
+    }
+    renderOptimizer._renderQueue.length = 0;
+    renderOptimizer._rendering = false;
+    renderOptimizer._lastRender = 0;
+    scheduleCallCount = 0;
+    return DATE;
+}
 
 testRunner.addSuite("AttendanceHandlers — Batching de render (Fase 4 Paso 5)", {
 
@@ -85,6 +106,25 @@ testRunner.addSuite("AttendanceHandlers — Batching de render (Fase 4 Paso 5)",
             testRunner.assert(
                 week <= MAX_RENDERS,
                 `setDayHours en semana debe agendar ≤${MAX_RENDERS} renders (batch + save), no 1 por día; agendó ${week} (pre-batch eran 9)`
+            );
+        } finally {
+            uninstallScheduleSpy();
+        }
+    },
+
+    "toggleHoliday agenda un número constante de renders, no 1 por registro tocado (FINANCIERO)"() {
+        installScheduleSpy();
+        try {
+            const date = setupHoliday(5); // 5 empleados con asistencia ese día
+            scheduleCallCount = 0;
+            toggleHoliday(date);
+            // Cota = batch(1) + los renders de saveApplicationData() sin arg (guardado
+            // completo, agenda 2; verificado: Notification no agenda render). Constante,
+            // NO por-registro: pre-batch eran 14 con 5 empleados (~2 por registro tocado).
+            const MAX_RENDERS_TOGGLE = 3;
+            testRunner.assert(
+                scheduleCallCount <= MAX_RENDERS_TOGGLE,
+                `toggleHoliday debe agendar ≤${MAX_RENDERS_TOGGLE} renders (batch + guardado), no 1 por registro; agendó ${scheduleCallCount} con 5 empleados (pre-batch 14)`
             );
         } finally {
             uninstallScheduleSpy();
