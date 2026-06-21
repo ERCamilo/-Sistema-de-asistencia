@@ -8,8 +8,9 @@
  * welcome — that is the ratchet: debt can only go down.
  *
  * It does NOT rewrite anything and adds no runtime dependency. It is a dev-time
- * fence against NEW direct-mutation debt while the existing ~429 writes are
- * migrated to the managed API (stateManager.batchSetState) incrementally.
+ * fence against NEW direct-mutation debt while the remaining direct writes (see
+ * scripts/state-writes-baseline.json) are migrated to the managed API
+ * (stateManager.batchSetState) incrementally.
  *
  * Usage:
  *   node scripts/check-state-writes.mjs                 # check against baseline (CI / pre-commit)
@@ -42,12 +43,12 @@ const WRITE_RE = /(^|[^.\w$])state\s*(\.[A-Za-z0-9_$]+|\[[^\]\n]+\])+\s*(\+\+|--
 const DELETE_RE = /(^|[^.\w$])delete\s+state\s*(\.[A-Za-z0-9_$]+|\[[^\]\n]+\])/;
 
 // A write is "managed" (not debt) when it sits inside a batchSetState/silentSetState
-// callback — the render scheduling is then controlled. EXCEPTION: attendance-record
-// writes (`state.attendance[...]` / `state.attendance =`) stay debt EVEN inside a
-// batch, because batchSetState runs silent and the proxy's attendance index rebuild
-// never fires (characterized by AppStateProxyContractTests). Those must wait for Fase 4.
+// callback — the render scheduling is then controlled. Since Fase 4 Paso 4 the proxy
+// is domain-agnostic and attendance coherence is maintained EXPLICITLY by the handlers
+// (invalidateEmployeeStats + buildAttendanceIndex), so an attendance write inside a
+// batch is just as managed as any other — no special case (the old EXCEPTION here that
+// kept batched attendance as debt was a pre-Paso-4 carryover and is now removed).
 const MANAGED_OPENER_RE = /\b(batchSetState|silentSetState)\s*\(/;
-const ATTENDANCE_WRITE_RE = /\bstate\s*\.\s*attendance\s*(\[|=(?!=))/;
 
 function walk(dir, acc = []) {
     for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -75,8 +76,7 @@ function countWrites(file) {
         const isComment = t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
         if (!isComment && (WRITE_RE.test(line) || DELETE_RE.test(line))) {
             const insideManaged = managed.length > 0;
-            const isAttendance = ATTENDANCE_WRITE_RE.test(line);
-            if (!insideManaged || isAttendance) n++;
+            if (!insideManaged) n++;
         }
         // Track brace balance for this line, closing managed blocks as they end.
         for (const ch of line) {
