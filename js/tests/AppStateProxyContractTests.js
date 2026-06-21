@@ -89,35 +89,39 @@ function reset() {
 
 testRunner.addSuite("AppState — Contrato de efectos del Proxy (red de seguridad)", {
 
-    "asistencia: escribir un registro invalida statsCache.mtd del empleado"() {
+    "AGNÓSTICO: una escritura directa de asistencia NO invalida statsCache.mtd (Paso 4)"() {
         reset();
         const raw = stateManager.getState();
         // Sembramos una entrada de cache (en crudo, sin disparar el trap)
         raw.statsCache.mtd['emp1'] = { days: 5, hours: 40, overtime: 0, monthKey: '2026-06' };
 
-        // Escritura a través del Proxy → debe invalidar la cache del empleado
+        // Escritura DIRECTA al Proxy, fuera de un handler. Tras Paso 4 el proxy es
+        // AGNÓSTICO: NO mantiene la coherencia de stats. Esa responsabilidad pasó a los
+        // handlers (invalidateEmployeeStats explícito; ver los *CoherenceTests.js).
         state.attendance['emp1-2026-06-15'] = {
             employeeId: 'emp1', date: '2026-06-15', present: true, hoursWorked: 8
         };
 
         testRunner.assert(
-            raw.statsCache.mtd['emp1'] === undefined,
-            "statsCache.mtd['emp1'] debe quedar invalidado tras escribir su asistencia"
+            raw.statsCache.mtd['emp1'] !== undefined,
+            "el proxy agnóstico NO debe invalidar statsCache.mtd: una escritura cruda no es coherencia"
         );
     },
 
-    "asistencia: escribir un registro reconstruye attendanceByDate del día"() {
+    "AGNÓSTICO: una escritura directa de asistencia NO reconstruye attendanceByDate (Paso 4)"() {
         reset();
         const raw = stateManager.getState();
 
+        // Escritura DIRECTA al Proxy: el índice por fecha lo reconstruye buildAttendanceIndex
+        // desde los handlers, ya NO el trap del proxy.
         state.attendance['emp1-2026-06-15'] = {
             employeeId: 'emp1', date: '2026-06-15', present: true, hoursWorked: 8
         };
 
-        const bucket = raw.attendanceByDate['2026-06-15'];
-        testRunner.assert(Array.isArray(bucket), "Debe existir el bucket del día en attendanceByDate");
-        testRunner.assertEquals(bucket.length, 1, "El bucket del día debe contener exactamente 1 registro");
-        testRunner.assertEquals(bucket[0].employeeId, 'emp1', "El registro indexado debe ser el del empleado escrito");
+        testRunner.assert(
+            raw.attendanceByDate['2026-06-15'] === undefined,
+            "el proxy agnóstico NO debe reconstruir el índice del día tras una escritura cruda"
+        );
     },
 
     "asistencia: escribir un registro agenda exactamente un render"() {

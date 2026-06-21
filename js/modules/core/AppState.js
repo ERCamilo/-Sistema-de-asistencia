@@ -235,33 +235,10 @@ const createRecursiveProxy = (obj, path = []) => {
             const result = Reflect.set(target, prop, rawValue);
 
             if (oldValue !== value && !stateManager.isSilent()) {
-                const fullPath = [...path, prop];
-                const rootProp = fullPath[0];
-
-                if (rootProp === 'attendance') {
-                    let dateKey = null;
-                    let employeeId = null;
-
-                    if (path.length === 1 && value && value.date) {
-                        dateKey = value.date;
-                        employeeId = value.employeeId;
-                    } else if (path.length > 1) {
-                        const recordKey = path[1];
-                        const parts = recordKey.split('-');
-                        employeeId = parts[0];
-                        const record = stateManager._state.attendance[recordKey];
-                        if (record && record.date) dateKey = record.date;
-                    }
-
-                    // ⚡ P3-OPT: Invalidación selectiva de caché (coherencia explícita)
-                    invalidateEmployeeStats(employeeId);
-
-                    if (dateKey) buildAttendanceIndex(dateKey);
-                    else stateManager.markAttendanceDirty();
-                } else if (['employees', 'positions', 'leaders', 'settings'].includes(rootProp)) {
-                    if (rootProp === 'attendance') stateManager.markAttendanceDirty();
-                }
-
+                // 🎯 Fase 4 Paso 4: el proxy es AGNÓSTICO al dominio. La coherencia de
+                // asistencia (statsCache.mtd / attendanceByDate) la mantienen ahora los
+                // handlers de forma EXPLÍCITA (invalidateEmployeeStats + buildAttendanceIndex;
+                // ver los *CoherenceTests.js). El proxy sólo agenda el render global.
                 if (window.render) renderOptimizer.scheduleRender(window.render);
             }
             return result;
