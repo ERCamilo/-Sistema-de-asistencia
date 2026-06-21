@@ -166,6 +166,20 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         );
     },
 
+    // Render batching (Fase 4 Paso 5): ambas ramas (menú UI y alta financiera) batchean
+    // sus writes y sueltan el render() manual. Contrato-de-fuente (jsdom no mide render).
+    "handleWeekCheck batchea ambas ramas y NO llama render() a mano (Paso 5)"() {
+        const body = between('window.handleWeekCheck = ', 'window.handleWeekCheckClick');
+        testRunner.assert(
+            countOccurrences(body, 'stateManager.batchSetState') >= 2,
+            'ambas ramas (UI y alta) deben envolver sus writes en stateManager.batchSetState'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'render()') === 0,
+            'ya NO debe llamar render() a mano en ninguna rama: lo agenda batchSetState al cerrar'
+        );
+    },
+
     "removeAttendance mantiene coherencia en la baja in-place y en la closure de undo"() {
         const body = between('window.removeAttendance = ', 'window.toggleLegend');
         testRunner.assert(body.length > 0 && body.length < 2500, 'el cuerpo de removeAttendance debe acotarse bien');

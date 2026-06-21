@@ -2887,33 +2887,35 @@ window.handleWeekCheck = (empId, dateStr) => {
 
     if (isPresent) {
         // Ya está marcado -> SOLO abrir menú contextual (NO desmarcar)
+        // ⚡ Fase 4 Paso 5: batchear los writes de UI (contextMenu + isProcessingClick) y
+        // soltar el repintado manual → 1 repintado. Rama UI: sin asistencia ni coherencia.
+        stateManager.batchSetState(() => {
+            // Si ya hay un menú abierto para este mismo checkbox, cerrarlo
+            if (state.contextMenu &&
+                state.contextMenu.employeeId === empId &&
+                state.contextMenu.date === dateStr) {
+                state.contextMenu = null;
+            } else {
+                // Abrir menú nuevo - Posición calculada cerca del centro
+                let menuX = Math.max(20, Math.min(window.innerWidth - 240, window.innerWidth / 2 - 110));
+                let menuY = Math.max(20, window.scrollY + 150);
 
-        // Si ya hay un menú abierto para este mismo checkbox, cerrarlo
-        if (state.contextMenu &&
-            state.contextMenu.employeeId === empId &&
-            state.contextMenu.date === dateStr) {
-            state.contextMenu = null;
-        } else {
-            // Abrir menú nuevo - Posición calculada cerca del centro
-            let menuX = Math.max(20, Math.min(window.innerWidth - 240, window.innerWidth / 2 - 110));
-            let menuY = Math.max(20, window.scrollY + 150);
+                // Ajustar si está muy abajo
+                if (menuY + 150 > window.scrollY + window.innerHeight) {
+                    menuY = window.scrollY + window.innerHeight - 170;
+                }
 
-            // Ajustar si está muy abajo
-            if (menuY + 150 > window.scrollY + window.innerHeight) {
-                menuY = window.scrollY + window.innerHeight - 170;
+                state.contextMenu = {
+                    type: 'week',
+                    employeeId: empId,
+                    date: dateStr,
+                    x: menuX,
+                    y: menuY
+                };
             }
 
-            state.contextMenu = {
-                type: 'week',
-                employeeId: empId,
-                date: dateStr,
-                x: menuX,
-                y: menuY
-            };
-        }
-
-        state.isProcessingClick = false;
-        render();
+            state.isProcessingClick = false;
+        });
 
     } else {
         // No está marcado -> Marcar asistencia
@@ -2961,9 +2963,13 @@ window.handleWeekCheck = (empId, dateStr) => {
             ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
             : null;
 
-        state.attendance[key] = newAttendance;
-        invalidateEmployeeStats(empId);
-        buildAttendanceIndex(dateStr);
+        // ⚡ Fase 4 Paso 5: batchear el alta + la coherencia → 1 repintado. FINANCIERO:
+        // hoursWorked/present alimentan stats, la coherencia va DENTRO del batch.
+        stateManager.batchSetState(() => {
+            state.attendance[key] = newAttendance;
+            invalidateEmployeeStats(empId);
+            buildAttendanceIndex(dateStr);
+        });
 
         // ─── Registrar Undo (ambas ramas re-mutan asistencia → coherencia adentro) ───
         UndoManager.push(
@@ -2988,8 +2994,8 @@ window.handleWeekCheck = (empId, dateStr) => {
 
         saveApplicationData({ dateKey: dateStr });
 
+        // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual.
         state.isProcessingClick = false;
-        render();
     }
 };
 
