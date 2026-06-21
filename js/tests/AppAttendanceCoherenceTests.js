@@ -90,6 +90,21 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         );
     },
 
+    // Render batching (Fase 4 Paso 5): el delete + la coherencia van en batchSetState y
+    // se suelta el render() manual (el delete-trap ya agenda el repintado). En jsdom el
+    // render-count no es medible (window.render es stub), por eso es contrato-de-fuente.
+    "deleteCurrentAttendance batchea el delete y NO llama render() a mano (Paso 5)"() {
+        const body = between('window.deleteCurrentAttendance = function', 'window.removePositionHours');
+        testRunner.assert(
+            body.includes('stateManager.batchSetState'),
+            'el delete + la coherencia deben ir envueltos en stateManager.batchSetState'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'render()') === 0,
+            'ya NO debe llamar render() a mano: el repintado lo agenda batchSetState al cerrar'
+        );
+    },
+
     // ─── FAMILIA 3: multi-posición ───
     // Solo el COMMIT (saveMultiPosition) y el DELETE (removePositionHours) tocan
     // hoursWorked/las claves. Las ops de edición (add/update/splice) cambian

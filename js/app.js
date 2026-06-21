@@ -1212,9 +1212,14 @@ window.deleteCurrentAttendance = function () {
         : null;
 
     // Eliminar directamente — sin confirm(). El botón Deshacer es el safety net.
-    delete state.attendance[key];
-    invalidateEmployeeStats(emp.id);
-    buildAttendanceIndex(dateKey);
+    // ⚡ Fase 4 Paso 5: el delete + la coherencia van en un batch → 1 repintado (antes:
+    // el del delete-trap + el manual del final). La coherencia (financiera) va DENTRO
+    // del batch para que el repintado del cierre lea statsCache ya fresco.
+    stateManager.batchSetState(() => {
+        delete state.attendance[key];
+        invalidateEmployeeStats(emp.id);
+        buildAttendanceIndex(dateKey);
+    });
 
     // ─── Registrar Undo (la restauración también mantiene coherencia) ───
     UndoManager.push(
@@ -1227,9 +1232,10 @@ window.deleteCurrentAttendance = function () {
         }
     );
 
+    // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual
+    // que duplicaba el repintado (concern de render, no de datos).
     saveApplicationData({ dateKey });
     closeModal();
-    render();
 };
 
 // Remover posición del modal
