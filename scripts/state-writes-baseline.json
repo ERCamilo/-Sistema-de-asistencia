@@ -20,10 +20,10 @@
   "js/modules/features/analytics/AnalyticsUI.js": 2,
   "js/modules/features/employees/EmployeesList.js": 2,
   "js/modules/features/notes/NotesService.js": 2,
-  "js/modules/ui/modals/AdvancedAttendanceModal.js": 2,
   "js/modules/ui/modals/LeaderModal.js": 2,
   "js/modules/features/pettycash/PettyCashUI.js": 1,
   "js/modules/features/profile/ProfilePickers.js": 1,
   "js/modules/services/ConflictPlanner.js": 1,
+  "js/modules/ui/modals/AdvancedAttendanceModal.js": 1,
   "js/modules/utils/SWVersion.js": 1
 }
