@@ -15,9 +15,13 @@
  * Incremento 1): con la zona registrada, parchea #day-stats en el lugar, sin anidar.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { renderManager, renderZone } from '../modules/core/RenderManager.js';
 import { StatsGrid } from '../modules/ui/AttendanceUI.js';
 import { stateManager } from '../modules/core/AppState.js';
+
+const APP_SRC = readFileSync(join(process.cwd(), 'js/app.js'), 'utf8');
 
 function setupState() {
     const raw = stateManager.getState();
@@ -76,6 +80,21 @@ testRunner.addSuite("RenderManager — Zona day-stats (Fase 4 Paso 5 pieza 3)", 
         } finally {
             resetZone();
         }
+    },
+
+    // Incremento 2: el cableado en app.js (no testeable conductualmente → contrato-de-fuente).
+    "CONTRATO (app.js boot): registra la zona day-stats con StatsGrid"() {
+        testRunner.assert(
+            /renderManager\.registerZone\(\s*['"]day-stats['"]\s*,\s*\(\)\s*=>\s*StatsGrid\(\)\s*\)/.test(APP_SRC),
+            "app.js debe registrar la zona day-stats en el boot con () => StatsGrid()"
+        );
+    },
+
+    "CONTRATO (call site): toggleAttendance llama renderZone('day-stats') usando el registro"() {
+        testRunner.assert(
+            /renderZone\(\s*['"]day-stats['"]\s*\)/.test(APP_SRC),
+            "el call site debe llamar renderZone('day-stats') (sin inline generator: usa el registrado)"
+        );
     }
 });
 

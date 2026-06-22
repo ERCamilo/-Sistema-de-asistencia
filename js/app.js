@@ -282,6 +282,12 @@ globalThis.offlineManager = offlineManager;
 globalThis.workerPool = workerPool;
 globalThis.renderManager = renderManager;
 globalThis.renderZone = renderManager.renderZone.bind(renderManager);
+
+// ⚡ Fase 4 Paso 5 (pieza 3): registrar la zona 'day-stats' para que renderZone la
+// repinte selectivamente. StatsGrid() devuelve <div id="day-stats">…, así que renderZone
+// la parchea EN EL LUGAR (patchSelf). Sin este registro renderZone es un no-op y el
+// refresco de stats se apoya en el render completo del proxy.
+renderManager.registerZone('day-stats', () => StatsGrid());
 globalThis.Notification = Notification;
 globalThis.Modal = Modal;
 globalThis.eventBus = eventBus;
@@ -1930,10 +1936,13 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         // 1. Actualizar solo el checkbox
         updateCheckboxOnly(empId);
 
-        // 2. Actualizar estadísticas (son independientes)
+        // 2. Actualizar estadísticas (son independientes) — zona registrada en el boot,
+        // renderZone usa el generador registrado y parchea #day-stats en el lugar.
+        // Si la zona no existe (o no está registrada), devuelve false y el render
+        // completo del proxy (ya agendado por la escritura) queda como red de seguridad.
         const statsElement = document.getElementById('day-stats');
         if (statsElement) {
-            renderZone('day-stats', () => StatsGrid());
+            renderZone('day-stats');
         }
 
         perfMonitor.end('toggleAttendance');
