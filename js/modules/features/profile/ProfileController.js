@@ -78,21 +78,23 @@ export function closeEmployeeProfile() {
 }
 
 export function changeProfileTab(tabName) {
-    state.employeeProfile.activeTab = tabName;
-    render();
+    stateManager.batchSetState(() => {
+        state.employeeProfile.activeTab = tabName;
+    });
 }
 
 // ─── Hire-date picker ────────────────────────────────────────────────────────
 
 export function changeProfileHireDateMonth(delta) {
-    if (!state.profileHireDatePickerMonth) {
-        state.profileHireDatePickerMonth = new Date();
-    }
-    state.profileHireDatePickerMonth.setMonth(
-        state.profileHireDatePickerMonth.getMonth() + parseInt(delta, 10)
-    );
-    state.profileHireDatePickerMonth = new Date(state.profileHireDatePickerMonth);
-    render();
+    stateManager.batchSetState(() => {
+        if (!state.profileHireDatePickerMonth) {
+            state.profileHireDatePickerMonth = new Date();
+        }
+        state.profileHireDatePickerMonth.setMonth(
+            state.profileHireDatePickerMonth.getMonth() + parseInt(delta, 10)
+        );
+        state.profileHireDatePickerMonth = new Date(state.profileHireDatePickerMonth);
+    });
 }
 
 export function selectProfileHireDate(empId, dateKey) {
@@ -135,30 +137,33 @@ export function toggleProfileEndPicker() {
 }
 
 export function changeProfileStartMonth(delta) {
-    state.employeeProfile.startPickerMonth.setMonth(
-        state.employeeProfile.startPickerMonth.getMonth() + parseInt(delta, 10)
-    );
-    state.employeeProfile.startPickerMonth = new Date(state.employeeProfile.startPickerMonth);
-    render();
+    stateManager.batchSetState(() => {
+        state.employeeProfile.startPickerMonth.setMonth(
+            state.employeeProfile.startPickerMonth.getMonth() + parseInt(delta, 10)
+        );
+        state.employeeProfile.startPickerMonth = new Date(state.employeeProfile.startPickerMonth);
+    });
 }
 
 export function changeProfileEndMonth(delta) {
-    state.employeeProfile.endPickerMonth.setMonth(
-        state.employeeProfile.endPickerMonth.getMonth() + parseInt(delta, 10)
-    );
-    state.employeeProfile.endPickerMonth = new Date(state.employeeProfile.endPickerMonth);
-    render();
+    stateManager.batchSetState(() => {
+        state.employeeProfile.endPickerMonth.setMonth(
+            state.employeeProfile.endPickerMonth.getMonth() + parseInt(delta, 10)
+        );
+        state.employeeProfile.endPickerMonth = new Date(state.employeeProfile.endPickerMonth);
+    });
 }
 
 export function changeProfileAsistenciaMonth(delta) {
-    if (!state.employeeProfile.assistanceMonth) {
-        state.employeeProfile.assistanceMonth = new Date();
-    }
-    state.employeeProfile.assistanceMonth.setMonth(
-        state.employeeProfile.assistanceMonth.getMonth() + parseInt(delta, 10)
-    );
-    state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
-    render();
+    stateManager.batchSetState(() => {
+        if (!state.employeeProfile.assistanceMonth) {
+            state.employeeProfile.assistanceMonth = new Date();
+        }
+        state.employeeProfile.assistanceMonth.setMonth(
+            state.employeeProfile.assistanceMonth.getMonth() + parseInt(delta, 10)
+        );
+        state.employeeProfile.assistanceMonth = new Date(state.employeeProfile.assistanceMonth);
+    });
 }
 
 export function selectProfileStartDate(dateKey) {

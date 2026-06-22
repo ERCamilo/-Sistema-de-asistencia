@@ -6,7 +6,7 @@
 
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
-import { state } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { payrollService as payroll } from '../../services/index.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
@@ -96,17 +96,19 @@ export function EmployeeCard(emp) {
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export function changeEmployeeViewMode(mode) {
-    state.employeeViewMode = mode;
-    render();
+    stateManager.batchSetState(() => {
+        state.employeeViewMode = mode;
+    });
 }
 
 export function setEmployeeStatusFilter(filter) {
-    state.employeeStatusFilter = filter;
-    if (!state.employeeFilters) {
-        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
-    }
-    state.employeeFilters.status = filter;
-    render();
+    stateManager.batchSetState(() => {
+        state.employeeStatusFilter = filter;
+        if (!state.employeeFilters) {
+            state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+        }
+        state.employeeFilters.status = filter;
+    });
 }
 
 export function setEmployeeSearchFilter(value) {
@@ -144,25 +146,28 @@ export function setEmployeeSearchFilter(value) {
 }
 
 export function setEmployeePositionFilter(positionId) {
-    if (!state.employeeFilters) {
-        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
-    }
-    state.employeeFilters.positionId = positionId;
-    render();
+    stateManager.batchSetState(() => {
+        if (!state.employeeFilters) {
+            state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+        }
+        state.employeeFilters.positionId = positionId;
+    });
 }
 
 export function setEmployeeLeaderFilter(leaderId) {
-    if (!state.employeeFilters) {
-        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
-    }
-    state.employeeFilters.leaderId = leaderId;
-    render();
+    stateManager.batchSetState(() => {
+        if (!state.employeeFilters) {
+            state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+        }
+        state.employeeFilters.leaderId = leaderId;
+    });
 }
 
 export function resetEmployeeFilters() {
-    state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
-    state.employeeStatusFilter = 'active';
-    render();
+    stateManager.batchSetState(() => {
+        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+        state.employeeStatusFilter = 'active';
+    });
 }
 
 export function openEmployeeForm(employeeId = null) {

@@ -10,6 +10,28 @@
 # Install once:  pnpm run install-hooks
 # (also runs automatically on `pnpm install` via the "prepare" script)
 
+# ── 0. State-write ratchet ───────────────────────────────────────────────────
+# Block commits that introduce NEW direct `state.x = ...` writes (the global-state
+# decoupling effort, Fase 2). Runs only when JS under js/ is staged, aborts BEFORE
+# the sw.js bump so a rejected commit leaves no side effects, and never blocks when
+# node is missing. Bypass: STATE_GUARD_OFF=1 git commit ...
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM \
+    | grep -E '^js/.*\.js$' \
+    | grep -v '\.test\.js$')
+
+if [ -n "$STAGED_JS" ]; then
+    if command -v node >/dev/null 2>&1; then
+        if ! node scripts/check-state-writes.mjs; then
+            echo ""
+            echo "  ✗ Commit bloqueado: deuda nueva de escrituras directas a state."
+            echo "    Arreglalo (usá stateManager.batchSetState), o salteá con: STATE_GUARD_OFF=1 git commit ..."
+            exit 1
+        fi
+    else
+        echo "  ⚠ node no encontrado — guard de escrituras a state omitido."
+    fi
+fi
+
 SW_FILE="sw.js"
 
 # ── 1. Skip if sw.js doesn't exist ───────────────────────────────────────────
