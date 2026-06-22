@@ -11,6 +11,9 @@ export class Employee {
         this.phone = data.phone || '';
         this.email = data.email || '';
         this.positionSalaries = data.positionSalaries || {}; // ⚡ NUEVO: { positionId: hourlyRate }
+        // ⚡ Aditivo: modo de carga por puesto { positionId: 'hourly' | 'daily' }. Solo
+        // afecta cómo se muestra/edita; positionSalaries sigue guardando por hora.
+        this.positionSalaryModes = data.positionSalaryModes || {};
         this.customWorkingDays = data.customWorkingDays || {}; // { positionId: [1,2,3,4,5] }
         this.notes = data.notes || '';
         this.advances = data.advances || [];
@@ -74,8 +77,9 @@ export class Employee {
             name: this.name,
             positions: this.positions,
             customSalary: this.customSalary,
-            positionSalaries: this.positionSalaries, 
-            customWorkingDays: this.customWorkingDays, 
+            positionSalaries: this.positionSalaries,
+            positionSalaryModes: this.positionSalaryModes,
+            customWorkingDays: this.customWorkingDays,
             active: this.active,
             hireDate: this.hireDate,
             phone: this.phone,

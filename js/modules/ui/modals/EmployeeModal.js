@@ -2,6 +2,7 @@ import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
 import icons from '../../ui/IconSystem.js';
 import { swapEmployeeNumbers, mergeEmployees, enqueueCloudEmployeeDelete } from '../../services/PersistenceService.js';
+import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
 
 export class EmployeeModal {
     static open(employeeId = null) {
@@ -19,9 +20,11 @@ export class EmployeeModal {
 
         // Estado temporal para sueldos personalizados (se limpia al cerrar o se aplica al guardar)
         state.tempPositionSalaries = emp?.positionSalaries || {};
+        state.tempPositionSalaryModes = emp?.positionSalaryModes || {};
         state.showOptionalFields = !!(emp?.phone || emp?.email || emp?.notes);
 
         const hireDateValue = emp?.hireDate || new Date().toISOString().split('T')[0];
+        const regularHours = state.settings.regularHoursPerDay || 8;
 
         const contentHTML = `
             <div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;" id="employee-modal-form">
@@ -55,7 +58,11 @@ export class EmployeeModal {
                         ${state.positions.filter(p => p.active || emp?.positions?.includes(p.id)).map(pos => {
                             const isChecked = emp?.positions?.includes(pos.id);
                             const posSalary = pos.hourlyRate || 0;
-                            const customSalary = state.tempPositionSalaries[pos.id] || '';
+                            const storedCustom = state.tempPositionSalaries[pos.id];
+                            const rowMode = state.tempPositionSalaryModes[pos.id] === 'daily' ? 'daily' : 'hourly';
+                            const customSalary = storedCustom
+                                ? Math.round(fromStoredHourly(storedCustom, rowMode, regularHours) * 100) / 100
+                                : '';
 
                             return `
                                 <div style="background: #1e293b; padding: 12px; border-radius: 10px; border: 1px solid ${isChecked ? '#334155' : '#1e293b'}; transition: all 0.2s;" class="position-selection-card">
@@ -71,16 +78,22 @@ export class EmployeeModal {
                                         <label style="font-size: 0.7rem; color: #64748b; display: block; margin-bottom: 6px;">
                                             💰 Tarifa personalizada p/ esta posición (opcional):
                                         </label>
-                                        <div style="position: relative;">
-                                            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.8rem;">$</span>
-                                            <input type="number" inputmode="decimal" 
-                                                   class="form-input custom-salary-input" 
-                                                   style="font-size: 0.8rem; padding: 6px 10px 6px 22px; background: #0f172a;"
-                                                   data-pos-id="${pos.id}"
-                                                   value="${customSalary}" 
-                                                   placeholder="Usar base: $${posSalary.toLocaleString()}" 
-                                                   min="0" 
-                                                   step="1">
+                                        <div style="display: flex; gap: 6px; align-items: center;">
+                                            <div style="position: relative; flex: 1;">
+                                                <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.8rem;">$</span>
+                                                <input type="number" inputmode="decimal"
+                                                       class="form-input custom-salary-input"
+                                                       style="font-size: 0.8rem; padding: 6px 10px 6px 22px; background: #0f172a; width: 100%;"
+                                                       data-pos-id="${pos.id}"
+                                                       value="${customSalary}"
+                                                       placeholder="Usar base: $${posSalary.toLocaleString()}"
+                                                       min="0"
+                                                       step="any">
+                                            </div>
+                                            <select class="custom-salary-mode" data-pos-id="${pos.id}" style="font-size: 0.72rem; padding: 6px 4px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #94a3b8;">
+                                                <option value="hourly" ${rowMode === 'hourly' ? 'selected' : ''}>por hora</option>
+                                                <option value="daily" ${rowMode === 'daily' ? 'selected' : ''}>por día</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
@@ -177,6 +190,21 @@ export class EmployeeModal {
             });
         });
 
+        // Toggle hora/día por puesto: al cambiar el modo, convierte el monto de esa fila
+        // para que el pago real no cambie. Se guarda siempre por hora.
+        body.querySelectorAll('.custom-salary-mode').forEach(sel => {
+            let prevMode = sel.value;
+            sel.addEventListener('change', () => {
+                const input = body.querySelector(`.custom-salary-input[data-pos-id="${sel.dataset.posId}"]`);
+                const cur = input ? Number.parseFloat(input.value) : NaN;
+                if (input && Number.isFinite(cur)) {
+                    const hourly = toStoredHourly(cur, prevMode, regularHours);
+                    input.value = Math.round(fromStoredHourly(hourly, sel.value, regularHours) * 100) / 100;
+                }
+                prevMode = sel.value;
+            });
+        });
+
         // Input de número (remediar el estilo si el usuario escribe)
         const numInput = body.querySelector('#empNumber');
         numInput.addEventListener('input', () => {
@@ -210,11 +238,18 @@ export class EmployeeModal {
         const state = getState();
 
         // Sueldos personalizados (común a todos los caminos)
+        const regularHours = state.settings.regularHoursPerDay || 8;
         const positionSalaries = {};
+        const positionSalaryModes = {};
         el.querySelectorAll('.custom-salary-input').forEach(input => {
-            const val = parseFloat(input.value);
-            if (!isNaN(val) && val > 0) {
-                positionSalaries[input.dataset.posId] = val;
+            const raw = parseFloat(input.value);
+            if (!isNaN(raw) && raw > 0) {
+                const posId = input.dataset.posId;
+                const modeSel = el.querySelector(`.custom-salary-mode[data-pos-id="${posId}"]`);
+                const mode = modeSel?.value === 'daily' ? 'daily' : 'hourly';
+                // Se guarda SIEMPRE por hora; si el modo es 'día', se convierte.
+                positionSalaries[posId] = toStoredHourly(raw, mode, regularHours);
+                if (mode === 'daily') positionSalaryModes[posId] = 'daily';
             }
         });
 
@@ -228,6 +263,7 @@ export class EmployeeModal {
                 empToEdit.name = name;
                 empToEdit.positions = selectedPositions;
                 empToEdit.positionSalaries = positionSalaries;
+                empToEdit.positionSalaryModes = positionSalaryModes;
                 empToEdit.hireDate = hireDate;
                 empToEdit.phone = phone;
                 empToEdit.email = email;
@@ -239,7 +275,7 @@ export class EmployeeModal {
             const newId = 'emp-' + Date.now();
             state.employees.push({
                 id: newId, key: newId, number: numberToUse, name,
-                positions: selectedPositions, positionSalaries, active: true,
+                positions: selectedPositions, positionSalaries, positionSalaryModes, active: true,
                 hireDate, phone, email, notes,
                 statusHistory: [{ date: hireDate, active: true, timestamp: Date.now() }],
                 updatedAt: Date.now(), _isDirty: true
@@ -269,7 +305,10 @@ export class EmployeeModal {
         }
 
         applyFields(number);
-        finish(`${icons.get('check-circle')} Empleado ${name} ${existingEmp ? 'actualizado' : 'creado correctamente'}`);
+        // Label de ACCIÓN para el toast (el SaveOutcomeNotifier lo envuelve en
+        // "Guardando — … · en este equipo"). Sin "correctamente" ni ícono: el
+        // mensaje de éxito lo arma el notifier con el resultado real.
+        finish(`Empleado ${name} ${existingEmp ? 'actualizado' : 'creado'}`);
     }
 
     /**
