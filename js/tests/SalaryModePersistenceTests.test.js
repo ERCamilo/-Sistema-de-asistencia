@@ -1,0 +1,1 @@
+import './SalaryModePersistenceTests.js';

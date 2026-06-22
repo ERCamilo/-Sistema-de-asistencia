@@ -24,6 +24,8 @@
  * numbers — for a payroll app of this scale, the precision is sufficient.
  */
 
+import { recordNestedTombstone } from '../../services/NestedTombstones.js';
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const LOAN_STATUS = Object.freeze({
@@ -417,6 +419,31 @@ export function reopenLoan(emp, loanId) {
     loan.closedAt = loan.status === LOAN_STATUS.PAID ? Date.now() : null;
     loan.updatedAt = Date.now();
     emp.updatedAt = Date.now();
+    return loan;
+}
+
+/**
+ * Hard-delete: elimina un préstamo ANULADO de emp.loans[] de forma permanente y
+ * registra un tombstone para que el borrado sobreviva al sync multi-dispositivo.
+ * Sin el tombstone, el merge por unión (EmployeeMerge.unionById) lo resucitaría
+ * desde la copia remota.
+ *
+ * Solo se permite sobre préstamos written-off: un préstamo activo o saldado
+ * conserva valor contable (saldo, historial de abonos) y no debe poder borrarse
+ * desde la UI. El llamador es responsable de saveApplicationData().
+ *
+ * @returns {object} el préstamo eliminado
+ * @throws si el préstamo no existe o no está anulado
+ */
+export function deleteLoan(emp, loanId) {
+    const loans = emp.loans || [];
+    const loan = loans.find(l => l.id === loanId);
+    if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
+    if (loan.status !== LOAN_STATUS.WRITTEN_OFF) {
+        throw new Error('Solo se pueden eliminar préstamos anulados');
+    }
+    emp.loans = loans.filter(l => l.id !== loanId);
+    recordNestedTombstone(emp, 'loans', loanId); // también sube emp.updatedAt
     return loan;
 }
 
