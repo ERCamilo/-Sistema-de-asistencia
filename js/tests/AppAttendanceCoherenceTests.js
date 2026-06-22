@@ -248,6 +248,20 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         );
     },
 
+    // Render batching (Fase 4 Paso 5): el upsert/clear + coherencia van en batchSetState
+    // y se suelta el render() manual. No-financiero pero igual gana 2→1 (tenía render() explícito).
+    "saveQuickNoteFromDetail batchea el upsert y NO llama render() a mano (Paso 5)"() {
+        const body = between('window.saveQuickNoteFromDetail = ', 'Click delegation');
+        testRunner.assert(
+            body.includes('stateManager.batchSetState'),
+            'el upsert/clear + la coherencia deben ir envueltos en stateManager.batchSetState'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'render()') === 0,
+            'ya NO debe llamar render() a mano: el repintado lo agenda batchSetState al cerrar'
+        );
+    },
+
     // ─── FAMILIA 6a: cargas bulk cloud/snapshot ───
     // Reemplazos de TODO el dataset → patrón TOTAL: invalidateAllStats() + buildAttendanceIndex()
     // SIN argumento, sincrónico justo tras la mutación (antes del render que lee derivados).

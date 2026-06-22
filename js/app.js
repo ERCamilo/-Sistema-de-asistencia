@@ -4170,41 +4170,43 @@ window.saveQuickNoteFromDetail = (empId) => {
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
 
-    if (!text) {
-        // Empty textarea = clear the note (if any existed).
-        if (state.attendance[key]) {
-            state.attendance[key].notes = '';
-            state.attendance[key].updatedAt = Date.now();
-            state.attendance[key]._isDirty = true;
+    // ⚡ Fase 4 Paso 5: el upsert/clear + la coherencia van en batchSetState → 1 repintado
+    // (antes: el del set-trap + el manual del final). Notas NO son financieras, pero la
+    // coherencia se mantiene uniforme (un upsert puede CREAR el registro → debe indexarse).
+    stateManager.batchSetState(() => {
+        if (!text) {
+            // Empty textarea = clear the note (if any existed).
+            if (state.attendance[key]) {
+                state.attendance[key].notes = '';
+                state.attendance[key].updatedAt = Date.now();
+                state.attendance[key]._isDirty = true;
+            }
+        } else {
+            const existing = state.attendance[key] || {
+                employeeId: empId,
+                date: dateKey,
+                present: false,
+                hoursWorked: 0,
+                overtimeHours: 0,
+                isHoliday: false,
+                selectedPosition: emp.positions?.[0] || null,
+                multiPosition: false,
+                positionHours: [],
+                notes: ''
+            };
+            existing.notes = text;
+            existing.updatedAt = Date.now();
+            existing._isDirty = true;
+            state.attendance[key] = existing;
         }
-    } else {
-        const existing = state.attendance[key] || {
-            employeeId: empId,
-            date: dateKey,
-            present: false,
-            hoursWorked: 0,
-            overtimeHours: 0,
-            isHoliday: false,
-            selectedPosition: emp.positions?.[0] || null,
-            multiPosition: false,
-            positionHours: [],
-            notes: ''
-        };
-        existing.notes = text;
-        existing.updatedAt = Date.now();
-        existing._isDirty = true;
-        state.attendance[key] = existing;
-    }
-    // El upsert puede CREAR un registro → debe entrar al índice (igual que
-    // NotesController). Las notas no tocan stats, pero la invalidación es
-    // idempotente y mantiene uniforme el patrón "escritura → coherencia".
-    invalidateEmployeeStats(empId);
-    buildAttendanceIndex(dateKey);
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateKey);
+    });
 
+    // El repintado lo agenda batchSetState al cerrar; se suelta la llamada manual.
     // Toast honesto con el resultado real del guardado (local/nube).
     const _noteLabel = text ? 'Nota guardada' : 'Nota eliminada';
     if (typeof saveApplicationData === 'function') saveApplicationData({ announce: _noteLabel });
-    if (typeof window.render === 'function') window.render();
 };
 
 // ⚡ Click delegation: select an employee for the right detail panel when the
