@@ -12,6 +12,7 @@ import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, enqueueCloudPositionDelete } from '../../services/PersistenceService.js';
 import { Modal } from '../../components/Modal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
+import { hourlyToDaily } from '../payroll/SalaryConversion.js';
 
 export function PositionCard(pos) {
     const ldr = pos.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
@@ -19,6 +20,14 @@ export function PositionCard(pos) {
     const totalAssigned = state.employees.filter(e => (e.positions || []).includes(pos.id)).length;
     const canDelete = totalAssigned === 0 && !pos.active;
     const employeesInPosition = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active);
+
+    // 💱 Equivalente por día junto a la tarifa por hora (la app guarda por hora).
+    // Solo se muestra si la tarifa es un número válido > 0, para no mostrar $0/día.
+    const hoursPerDay = state.settings?.regularHoursPerDay || 8;
+    const rateNum = Number(pos.hourlyRate);
+    const dailyHint = (Number.isFinite(rateNum) && rateNum > 0)
+        ? ` <span style="color:#64748b;">= $${Math.round(hourlyToDaily(rateNum, hoursPerDay)).toLocaleString()}/día</span>`
+        : '';
 
     return `
         <div class="employee-row" style="border-left: 4px solid ${pos.color}; ${!pos.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
@@ -28,7 +37,7 @@ export function PositionCard(pos) {
                     ${!pos.active ? '<span style="background: #475569; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">INACTIVA</span>' : ''}
                 </div>
                 <div class="employee-meta">
-                    <div class="employee-meta-item">${icons.get('payroll')} Tarifa: $${pos.hourlyRate}/hr</div>
+                    <div class="employee-meta-item">${icons.get('payroll')} Tarifa: $${pos.hourlyRate}/hr${dailyHint}</div>
                     <div class="employee-meta-divider"></div>
                      <div class="employee-meta-item">${icons.get('personnel')} ${empCount} empleados</div>
                     ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${escapeHTML(ldr.name)}</div>` : ''}
