@@ -78,6 +78,18 @@ export function setupHeaderHeightObserver() {
 }
 
 /**
+ * True si el HTML generado tiene como elemento raíz un nodo cuyo id es zoneId; es
+ * decir, el generador devuelve el PROPIO elemento de la zona (no sus hijos). En ese
+ * caso hay que parchear el nodo en el lugar (patchSelf) en vez de sus hijos (apply).
+ */
+function rootIdEquals(html, zoneId) {
+    if (typeof html !== 'string') return !!html && html.id === zoneId;
+    const template = document.createElement('template');
+    template.innerHTML = html.trim();
+    return template.content.firstElementChild?.id === zoneId;
+}
+
+/**
  * Clase para gestionar el renderizado de zonas específicas (Render Selectivo)
  */
 class RenderManager {
@@ -100,10 +112,18 @@ class RenderManager {
         try {
             perfMonitor.start(`renderZone:${zoneId}`);
             const html = typeof generator === 'function' ? generator(data) : generator;
-            
-            // ⚡ P4-OPT: Usar DOMDiff para actualizaciones de zona (Evita parpadeo y es más rápido)
-            DOMDiff.apply(element, html);
-            
+
+            // ⚡ Fase 4 Paso 5: si el HTML generado tiene como raíz el PROPIO elemento de la
+            // zona (su id coincide), parchear el nodo EN EL LUGAR con patchSelf. Usar apply
+            // (semántica de contenedor: parchea los HIJOS) sobre un generador que devuelve
+            // <div id="zoneId">… ANIDA un duplicado adentro. Si la raíz NO coincide, el
+            // generador devuelve hijos → apply() es lo correcto.
+            if (rootIdEquals(html, zoneId)) {
+                DOMDiff.patchSelf(element, html);
+            } else {
+                DOMDiff.apply(element, html);
+            }
+
             this.renderCount++;
             perfMonitor.end(`renderZone:${zoneId}`);
             return true;
