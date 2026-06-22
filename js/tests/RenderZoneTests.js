@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { renderManager, renderZone } from '../modules/core/RenderManager.js';
 import { StatsGrid } from '../modules/ui/AttendanceUI.js';
 import { stateManager } from '../modules/core/AppState.js';
+import { eventBus } from '../modules/core/Events.js';
 
 const APP_SRC = readFileSync(join(process.cwd(), 'js/app.js'), 'utf8');
 
@@ -95,6 +96,37 @@ testRunner.addSuite("RenderManager — Zona day-stats (Fase 4 Paso 5 pieza 3)", 
             /renderZone\(\s*['"]day-stats['"]\s*\)/.test(APP_SRC),
             "el call site debe llamar renderZone('day-stats') (sin inline generator: usa el registrado)"
         );
+    },
+
+    // Enfoque A: el paint zonal NO es un render completo. Clave de cara al futuro
+    // (Enfoque B): si alguien hiciera que el camino zonal emita 'render:complete',
+    // los 3 listeners (app.js ~2188/2192/6387) se dispararían como si fuera un
+    // repintado total. Este test prueba que el paint corre Y que no emite ese evento.
+    "CONTRATO: el paint zonal corre (renderCount++) pero NO emite 'render:complete'"() {
+        setupState();
+        mountHost();
+        resetZone();
+        renderManager.registerZone('day-stats', () => StatsGrid());
+
+        const emitted = [];
+        const originalEmit = eventBus.emit.bind(eventBus);
+        eventBus.emit = (name, ...args) => { emitted.push(name); return originalEmit(name, ...args); };
+        try {
+            const countBefore = renderManager.renderCount;
+            renderZone('day-stats');
+
+            testRunner.assertEquals(
+                renderManager.renderCount, countBefore + 1,
+                "renderZone debe haber pintado la zona (renderCount++)"
+            );
+            testRunner.assert(
+                !emitted.includes('render:complete'),
+                "el paint zonal NO debe emitir 'render:complete' (no es un render completo; los 3 listeners lo asumen total)"
+            );
+        } finally {
+            eventBus.emit = originalEmit;
+            resetZone();
+        }
     }
 });
 
