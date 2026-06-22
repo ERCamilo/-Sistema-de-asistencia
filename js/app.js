@@ -10,7 +10,8 @@ import { debug } from './modules/utils/Debug.js';
 
 // 📦 IMPORTACIÓN DEL ESTADO CENTRAL (Fase 4 - Modularización)
 import {
-    state, stateManager, renderOptimizer, calculateStats
+    state, stateManager, renderOptimizer, calculateStats,
+    invalidateEmployeeStats, buildAttendanceIndex, invalidateAllStats
 } from './modules/core/AppState.js';
 
 import {
@@ -281,6 +282,12 @@ globalThis.offlineManager = offlineManager;
 globalThis.workerPool = workerPool;
 globalThis.renderManager = renderManager;
 globalThis.renderZone = renderManager.renderZone.bind(renderManager);
+
+// ⚡ Fase 4 Paso 5 (pieza 3): registrar la zona 'day-stats' para que renderZone la
+// repinte selectivamente. StatsGrid() devuelve <div id="day-stats">…, así que renderZone
+// la parchea EN EL LUGAR (patchSelf). Sin este registro renderZone es un no-op y el
+// refresco de stats se apoya en el render completo del proxy.
+renderManager.registerZone('day-stats', () => StatsGrid());
 globalThis.Notification = Notification;
 globalThis.Modal = Modal;
 globalThis.eventBus = eventBus;
@@ -502,6 +509,10 @@ window.App.Sync = {
             if (typeof Leader !== 'undefined') state.leaders = (state.leaders || []).map(l => l instanceof Leader ? l : new Leader(l));
 
             state.attendance = cloudAttendance; // historial completo (todos los días)
+            // Reemplazo total del dataset → coherencia explícita (load-bearing tras Paso 4):
+            // render() lee stats/índice antes del reload, así que debe correr sincrónico ya.
+            invalidateAllStats();
+            buildAttendanceIndex();
             saveApplicationData();
             loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
             render();
@@ -1102,6 +1113,8 @@ window.saveMultiPosition = function () {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
+    const dateKey = getDateKey(state.selectedDate);
+
     // ─── SNAPSHOT antes de mutar (para undo) ───
     const mpKey = `${emp.id}-${getDateKey(state.selectedDate)}`;
     const previousMpAtt = state.attendance[mpKey]
@@ -1162,9 +1175,14 @@ window.saveMultiPosition = function () {
 
     // Guardar en state
     att.updatedAt = Date.now();
-    // ⚡ FIX REACTIVIDAD: Usamos un spread {...att} para que la referencia sea nueva.
-    // Esto obliga al Proxy en AppState.js a detectar el cambio y reconstruir el índice de estadísticas.
+    // Spread {...att} → referencia nueva. Antes esto alcanzaba para que el Proxy
+    // reconstruyera el índice; tras Paso 4 la coherencia es explícita (abajo).
+    // NO se batchea a propósito (a diferencia de los otros handlers de Paso 5): este no
+    // llama render() explícito → el set-trap del proxy ya colapsa a 1 repintado por dedup,
+    // y la coherencia corre síncrona acá, antes del render diferido (rAF) → statsCache fresco.
     state.attendance[key] = { ...att };
+    invalidateEmployeeStats(emp.id);
+    buildAttendanceIndex(dateKey);
 
     // ─── Registrar Undo: restaurar estado previo de multi-posición ───
     UndoManager.push(
@@ -1176,6 +1194,8 @@ window.saveMultiPosition = function () {
             } else {
                 delete state.attendance[mpKey];
             }
+            invalidateEmployeeStats(emp.id);
+            buildAttendanceIndex(dateKey);
         }
     );
 
@@ -1190,7 +1210,10 @@ window.deleteCurrentAttendance = function () {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
-    const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
+    // dateKey capturado una vez: estable para la closure de undo (si el usuario
+    // navega a otra fecha antes de deshacer, debe reconstruirse ESTE día, no el actual).
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${emp.id}-${dateKey}`;
 
     // ─── SNAPSHOT antes de eliminar ───
     const previousAtt = state.attendance[key]
@@ -1198,18 +1221,30 @@ window.deleteCurrentAttendance = function () {
         : null;
 
     // Eliminar directamente — sin confirm(). El botón Deshacer es el safety net.
-    delete state.attendance[key];
+    // ⚡ Fase 4 Paso 5: el delete + la coherencia van en un batch → 1 repintado (antes:
+    // el del delete-trap + el manual del final). La coherencia (financiera) va DENTRO
+    // del batch para que el repintado del cierre lea statsCache ya fresco.
+    stateManager.batchSetState(() => {
+        delete state.attendance[key];
+        invalidateEmployeeStats(emp.id);
+        buildAttendanceIndex(dateKey);
+    });
 
-    // ─── Registrar Undo ───
+    // ─── Registrar Undo (la restauración también mantiene coherencia) ───
     UndoManager.push(
         previousAtt,
         `Eliminación de ${emp.name}`,
-        () => { if (previousAtt) state.attendance[key] = previousAtt; }
+        () => {
+            if (previousAtt) state.attendance[key] = previousAtt;
+            invalidateEmployeeStats(emp.id);
+            buildAttendanceIndex(dateKey);
+        }
     );
 
-    saveApplicationData({ dateKey: getDateKey(state.selectedDate) });
+    // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual
+    // que duplicaba el repintado (concern de render, no de datos).
+    saveApplicationData({ dateKey });
     closeModal();
-    render();
 };
 
 // Remover posición del modal
@@ -1217,10 +1252,13 @@ window.removePositionHours = async function (index) {
     const emp = state.selectedEmployee;
     if (!emp) return;
 
-    const key = `${emp.id}-${getDateKey(state.selectedDate)}`;
+    const dateKey = getDateKey(state.selectedDate);
+    const key = `${emp.id}-${dateKey}`;
     const att = state.attendance[key];
 
     if (att && att.positionHours) {
+        // Quitar una posición NO toca att.hoursWorked (las stats mensuales suman
+        // hoursWorked, no positionHours) → sin coherencia salvo que se borre el registro.
         att.positionHours.splice(index, 1);
 
         // Si no quedan posiciones, eliminar toda la asistencia
@@ -1234,6 +1272,8 @@ window.removePositionHours = async function (index) {
             });
             if (confirmDelete) {
                 delete state.attendance[key];
+                invalidateEmployeeStats(emp.id);
+                buildAttendanceIndex(dateKey);
                 closeModal();
                 render();
                 return;
@@ -1634,6 +1674,10 @@ window.restoreSnapshot = async (snapshotId) => {
                     state.settings = { ...state.settings, ...snapshot.state.settings };
                 }
 
+                // Reemplazo total del dataset → coherencia explícita antes del render().
+                invalidateAllStats();
+                buildAttendanceIndex();
+
                 // 3. Persistencia: IndexedDB + mirror.
                 await saveApplicationData();
 
@@ -1829,7 +1873,11 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         UndoManager.push(
             previousAtt,
             `Asistencia de ${emp.name}`,
-            () => { state.attendance[key] = previousAtt; }
+            () => {
+                state.attendance[key] = previousAtt;
+                invalidateEmployeeStats(empId);
+                buildAttendanceIndex(getDateKey(date));
+            }
         );
 
     } else {
@@ -1862,9 +1910,22 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         UndoManager.push(
             null,
             `Asistencia de ${emp.name}`,
-            () => { delete state.attendance[key]; }
+            () => {
+                delete state.attendance[key];
+                invalidateEmployeeStats(empId);
+                buildAttendanceIndex(getDateKey(date));
+            }
         );
     }
+
+    // Coherencia explícita tras la mutación (load-bearing tras Paso 4): cubre
+    // ambas ramas (alta y baja). empId/date están en scope; granular por día.
+    // NO se batchea a propósito: toggleAttendance tiene DOS caminos de render (día = tail
+    // ultra-selectivo updateCheckboxOnly+renderZone; semana = render() completo) que no
+    // colapsan limpio en un solo batch. La coherencia corre síncrona acá, antes del render
+    // diferido (rAF), así que statsCache queda fresco igual.
+    invalidateEmployeeStats(empId);
+    buildAttendanceIndex(getDateKey(date));
 
     // ✅ Guardar cambios con dateKey para sync granular
     saveApplicationData({ dateKey: getDateKey(date) });
@@ -1882,10 +1943,13 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         // 1. Actualizar solo el checkbox
         updateCheckboxOnly(empId);
 
-        // 2. Actualizar estadísticas (son independientes)
+        // 2. Actualizar estadísticas (son independientes) — zona registrada en el boot,
+        // renderZone usa el generador registrado y parchea #day-stats en el lugar.
+        // Si la zona no existe (o no está registrada), devuelve false y el render
+        // completo del proxy (ya agendado por la escritura) queda como red de seguridad.
         const statsElement = document.getElementById('day-stats');
         if (statsElement) {
-            renderZone('day-stats', () => StatsGrid());
+            renderZone('day-stats');
         }
 
         perfMonitor.end('toggleAttendance');
@@ -2839,33 +2903,35 @@ window.handleWeekCheck = (empId, dateStr) => {
 
     if (isPresent) {
         // Ya está marcado -> SOLO abrir menú contextual (NO desmarcar)
+        // ⚡ Fase 4 Paso 5: batchear los writes de UI (contextMenu + isProcessingClick) y
+        // soltar el repintado manual → 1 repintado. Rama UI: sin asistencia ni coherencia.
+        stateManager.batchSetState(() => {
+            // Si ya hay un menú abierto para este mismo checkbox, cerrarlo
+            if (state.contextMenu &&
+                state.contextMenu.employeeId === empId &&
+                state.contextMenu.date === dateStr) {
+                state.contextMenu = null;
+            } else {
+                // Abrir menú nuevo - Posición calculada cerca del centro
+                let menuX = Math.max(20, Math.min(window.innerWidth - 240, window.innerWidth / 2 - 110));
+                let menuY = Math.max(20, window.scrollY + 150);
 
-        // Si ya hay un menú abierto para este mismo checkbox, cerrarlo
-        if (state.contextMenu &&
-            state.contextMenu.employeeId === empId &&
-            state.contextMenu.date === dateStr) {
-            state.contextMenu = null;
-        } else {
-            // Abrir menú nuevo - Posición calculada cerca del centro
-            let menuX = Math.max(20, Math.min(window.innerWidth - 240, window.innerWidth / 2 - 110));
-            let menuY = Math.max(20, window.scrollY + 150);
+                // Ajustar si está muy abajo
+                if (menuY + 150 > window.scrollY + window.innerHeight) {
+                    menuY = window.scrollY + window.innerHeight - 170;
+                }
 
-            // Ajustar si está muy abajo
-            if (menuY + 150 > window.scrollY + window.innerHeight) {
-                menuY = window.scrollY + window.innerHeight - 170;
+                state.contextMenu = {
+                    type: 'week',
+                    employeeId: empId,
+                    date: dateStr,
+                    x: menuX,
+                    y: menuY
+                };
             }
 
-            state.contextMenu = {
-                type: 'week',
-                employeeId: empId,
-                date: dateStr,
-                x: menuX,
-                y: menuY
-            };
-        }
-
-        state.isProcessingClick = false;
-        render();
+            state.isProcessingClick = false;
+        });
 
     } else {
         // No está marcado -> Marcar asistencia
@@ -2913,9 +2979,15 @@ window.handleWeekCheck = (empId, dateStr) => {
             ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
             : null;
 
-        state.attendance[key] = newAttendance;
+        // ⚡ Fase 4 Paso 5: batchear el alta + la coherencia → 1 repintado. FINANCIERO:
+        // hoursWorked/present alimentan stats, la coherencia va DENTRO del batch.
+        stateManager.batchSetState(() => {
+            state.attendance[key] = newAttendance;
+            invalidateEmployeeStats(empId);
+            buildAttendanceIndex(dateStr);
+        });
 
-        // ─── Registrar Undo ───
+        // ─── Registrar Undo (ambas ramas re-mutan asistencia → coherencia adentro) ───
         UndoManager.push(
             prevWeekAtt,
             `Asistencia de ${emp.name} (${dateStr})`,
@@ -2931,13 +3003,15 @@ window.handleWeekCheck = (empId, dateStr) => {
                         updatedAt: Date.now()
                     };
                 }
+                invalidateEmployeeStats(empId);
+                buildAttendanceIndex(dateStr);
             }
         );
 
         saveApplicationData({ dateKey: dateStr });
 
+        // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual.
         state.isProcessingClick = false;
-        render();
     }
 };
 
@@ -2955,26 +3029,38 @@ window.removeAttendance = (empId, dateStr) => {
         ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
         : null;
 
-    const att = state.attendance[key];
-    if (att) {
-        att.present = false;
-        att.hoursWorked = 0;
-        att.overtimeHours = 0;
-        att.positionHours = [];
-        att.updatedAt = Date.now();
-        att._isDirty = true;
-    }
-    state.contextMenu = null;
+    // ⚡ Fase 4 Paso 5: batchear la baja in-place (6 campos) + la coherencia + el cierre
+    // del contextMenu → 1 repintado (antes: uno por cada campo + el manual del final). La
+    // coherencia (financiera: present:false/hoursWorked=0 cambian las stats) va DENTRO del
+    // batch para que el repintado del cierre lea statsCache ya fresco.
+    stateManager.batchSetState(() => {
+        const att = state.attendance[key];
+        if (att) {
+            att.present = false;
+            att.hoursWorked = 0;
+            att.overtimeHours = 0;
+            att.positionHours = [];
+            att.updatedAt = Date.now();
+            att._isDirty = true;
+        }
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateStr);
+        state.contextMenu = null;
+    });
 
-    // ─── Registrar Undo ───
+    // ─── Registrar Undo (la restauración también mantiene coherencia) ───
     UndoManager.push(
         prevRemoveAtt,
         `Eliminación de ${emp?.name || empId} (${dateStr})`,
-        () => { if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt; }
+        () => {
+            if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt;
+            invalidateEmployeeStats(empId);
+            buildAttendanceIndex(dateStr);
+        }
     );
 
+    // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual.
     saveApplicationData({ dateKey: dateStr });
-    render();
 };
 // Redefinición de markDayAsHoliday eliminada
 
@@ -3055,6 +3141,9 @@ window.downloadFromCloud = async function () {
             // Cargar historial completo
             const remoteAttendance = await FirebaseService.getAllAttendance();
             state.attendance = { ...state.attendance, ...remoteAttendance };
+            // Merge de fechas/empleados arbitrarios → coherencia total antes del render().
+            invalidateAllStats();
+            buildAttendanceIndex();
 
             render();
             await saveApplicationData();
@@ -4059,26 +4148,33 @@ window.saveAttendanceDetailHours = (empId) => {
         }
     });
 
-    state.attendance[key] = {
-        ...existing,
-        employeeId: emp.id,
-        date: dateKey,
-        present: totalHours > 0 || totalOvertime > 0,
-        hoursWorked: totalHours,
-        overtimeHours: totalOvertime,
-        positionHours,
-        multiPosition: positionHours.length > 1,
-        selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
-        isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
-        notes: existing.notes || '',
-        updatedAt: Date.now(),
-        lastAccessed: Date.now(),
-        _isDirty: true
-    };
+    // ⚡ Fase 4 Paso 5: batchear el write + la coherencia → 1 repintado (antes: el del
+    // set-trap + el manual del final). FINANCIERO: hoursWorked/present alimentan stats,
+    // la coherencia va DENTRO del batch para que el repintado del cierre lea statsCache fresco.
+    stateManager.batchSetState(() => {
+        state.attendance[key] = {
+            ...existing,
+            employeeId: emp.id,
+            date: dateKey,
+            present: totalHours > 0 || totalOvertime > 0,
+            hoursWorked: totalHours,
+            overtimeHours: totalOvertime,
+            positionHours,
+            multiPosition: positionHours.length > 1,
+            selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
+            isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
+            notes: existing.notes || '',
+            updatedAt: Date.now(),
+            lastAccessed: Date.now(),
+            _isDirty: true
+        };
+        invalidateEmployeeStats(emp.id);
+        buildAttendanceIndex(dateKey);
+    });
 
+    // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual.
     if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey });
     if (window.showNotification) window.showNotification('Horas del día guardadas', 'success');
-    if (typeof window.render === 'function') window.render();
 };
 
 // Save handler for the quick-note textarea inside the AttendanceDetailPanel.
@@ -4096,36 +4192,43 @@ window.saveQuickNoteFromDetail = (empId) => {
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
 
-    if (!text) {
-        // Empty textarea = clear the note (if any existed).
-        if (state.attendance[key]) {
-            state.attendance[key].notes = '';
-            state.attendance[key].updatedAt = Date.now();
-            state.attendance[key]._isDirty = true;
+    // ⚡ Fase 4 Paso 5: el upsert/clear + la coherencia van en batchSetState → 1 repintado
+    // (antes: el del set-trap + el manual del final). Notas NO son financieras, pero la
+    // coherencia se mantiene uniforme (un upsert puede CREAR el registro → debe indexarse).
+    stateManager.batchSetState(() => {
+        if (!text) {
+            // Empty textarea = clear the note (if any existed).
+            if (state.attendance[key]) {
+                state.attendance[key].notes = '';
+                state.attendance[key].updatedAt = Date.now();
+                state.attendance[key]._isDirty = true;
+            }
+        } else {
+            const existing = state.attendance[key] || {
+                employeeId: empId,
+                date: dateKey,
+                present: false,
+                hoursWorked: 0,
+                overtimeHours: 0,
+                isHoliday: false,
+                selectedPosition: emp.positions?.[0] || null,
+                multiPosition: false,
+                positionHours: [],
+                notes: ''
+            };
+            existing.notes = text;
+            existing.updatedAt = Date.now();
+            existing._isDirty = true;
+            state.attendance[key] = existing;
         }
-    } else {
-        const existing = state.attendance[key] || {
-            employeeId: empId,
-            date: dateKey,
-            present: false,
-            hoursWorked: 0,
-            overtimeHours: 0,
-            isHoliday: false,
-            selectedPosition: emp.positions?.[0] || null,
-            multiPosition: false,
-            positionHours: [],
-            notes: ''
-        };
-        existing.notes = text;
-        existing.updatedAt = Date.now();
-        existing._isDirty = true;
-        state.attendance[key] = existing;
-    }
+        invalidateEmployeeStats(empId);
+        buildAttendanceIndex(dateKey);
+    });
 
+    // El repintado lo agenda batchSetState al cerrar; se suelta la llamada manual.
     // Toast honesto con el resultado real del guardado (local/nube).
     const _noteLabel = text ? 'Nota guardada' : 'Nota eliminada';
     if (typeof saveApplicationData === 'function') saveApplicationData({ announce: _noteLabel });
-    if (typeof window.render === 'function') window.render();
 };
 
 // ⚡ Click delegation: select an employee for the right detail panel when the
@@ -4941,64 +5044,6 @@ window.downloadBackupNow = function () {
     }
 };
 
-window.loadBackupFile = function (event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async function (e) {
-        try {
-            const backup = JSON.parse(e.target.result);
-
-            if (!backup.data) {
-                throw new Error('Formato de backup inválido');
-            }
-
-            const confirmed = await Modal.confirm({
-                title: '⚠️ ¿Cargar backup?',
-                message: `Archivo: ${file.name} — Fecha: ${new Date(backup.timestamp).toLocaleString()} — Empresa: ${backup.appName || 'N/A'}. Esto reemplazará los datos actuales. ¿Continuar?`,
-                confirmText: 'Cargar backup',
-                cancelText: 'Cancelar',
-                type: 'danger'
-            });
-
-            if (!confirmed) {
-                event.target.value = ''; // Reset input
-                return;
-            }
-
-            // Cargar datos
-            state.employees = backup.data.employees || [];
-            state.positions = backup.data.positions || [];
-            state.leaders = backup.data.leaders || [];
-            state.attendance = backup.data.attendance || {};
-
-            if (backup.data.settings) {
-                Object.assign(state.settings, backup.data.settings);
-            }
-
-            // Guardar en storage
-            saveApplicationData();
-
-            // Re-renderizar
-            render();
-
-            Notification.success('✅ Backup cargado correctamente');
-            debug.log('📤 Backup restaurado desde archivo');
-
-            // Reset input
-            event.target.value = '';
-
-        } catch (error) {
-            debug.error('❌ Error cargando backup:', error);
-            Notification.error('❌ Error al cargar backup. Verifica el archivo.');
-            event.target.value = '';
-        }
-    };
-
-    reader.readAsText(file);
-};
-
 window.toggleAutoBackup = function (enabled) {
     state.autoBackupEnabled = enabled;
     saveApplicationData();
@@ -5299,6 +5344,12 @@ async function applyBackupData(importedData) {
         if (typeof sanitizePositions === 'function') {
             sanitizePositions(state);
         }
+
+        // Reemplazo total del dataset (+ normalización + sanitización ya aplicadas) →
+        // coherencia explícita antes de persistir/render. invalidateAllStats() subsume
+        // la invalidación que pediría sanitizePositions (limpia TODO el statsCache).
+        invalidateAllStats();
+        buildAttendanceIndex();
 
         // Guardar en IndexedDB
         await saveToIndexedDB({ clearFirst: true });
@@ -6432,6 +6483,9 @@ function _initOutgoingConflictGuard() {
 
         // 1.1 Unificar puestos y limpiar IDs (Migración Opción A)
         if (sanitizePositions(state)) {
+            // Remapeo de positionId in-place afecta positionSalaries (claves de pago por
+            // puesto) → invalidar stats. Sin buildAttendanceIndex (no cambian claves/fechas).
+            invalidateAllStats();
             debug.log('💾 Guardando cambios de sanitización inicial...');
             await saveApplicationData({ force: true });
             render();
@@ -6751,6 +6805,7 @@ function _initOutgoingConflictGuard() {
 
                     // 🛡️ Sanitización post-sincronización (Evita que la nube traiga basura vieja)
                     if (sanitizePositions(state)) {
+                        invalidateAllStats(); // positionId remap → stats stale (sin rebuild de índice)
                         debug.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
@@ -6855,6 +6910,12 @@ function _initOutgoingConflictGuard() {
                                 }, 600);
                             }
 
+                            // Carga inicial = reemplazo de muchas fechas → coherencia TOTAL,
+                            // sincrónica antes del render y DESPUÉS de validateDataIntegrity
+                            // (que muta hoursWorked in-place). Nunca diferir a BatchedSaver.
+                            invalidateAllStats();
+                            buildAttendanceIndex();
+
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
@@ -6873,6 +6934,11 @@ function _initOutgoingConflictGuard() {
                             });
 
                             state.attendance = { ...state.attendance, ...records };
+                            // Una sola fecha (hot path por tick) → coherencia GRANULAR:
+                            // invalidar solo los empleados tocados (por employeeId, NO split de clave)
+                            // y reconstruir el bucket de ESTE día. NUNCA invalidateAllStats acá.
+                            Object.values(records).forEach(r => { if (r.employeeId) invalidateEmployeeStats(r.employeeId); });
+                            buildAttendanceIndex(dateKey);
                             // ⚡ Persistir vía BatchedSaver: si llegan N dateKeys en ráfaga
                             // (típico al arrancar), todos se persisten con una sola escritura.
                             window._attendanceBatchedSaver.add(dateKey);

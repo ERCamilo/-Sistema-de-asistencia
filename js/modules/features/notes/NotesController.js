@@ -10,7 +10,7 @@
  * for backwards-compat with the data-app-fn event delegation system.
  */
 
-import { state, stateManager } from '../../core/AppState.js';
+import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { render } from '../../core/RenderManager.js';
@@ -121,6 +121,9 @@ export function saveNoteModal() {
         return;
     }
 
+    // Fase 4: coherencia explícita (no depende del proxy ni del modo silencioso)
+    invalidateEmployeeStats(employeeId);
+    buildAttendanceIndex(dateKey);
     saveApplicationData({ announce: 'Nota guardada' });
     closeNoteModal();
     render();
@@ -142,6 +145,9 @@ export function deleteNoteModal() {
         type: 'warning',
         onConfirm: () => {
             clearNote(state, employeeId, dateKey);
+            // Fase 4: coherencia explícita (no depende del proxy ni del modo silencioso)
+            invalidateEmployeeStats(employeeId);
+            buildAttendanceIndex(dateKey);
             saveApplicationData();
             if (window.showNotification) window.showNotification('✅ Nota eliminada', 'success');
             closeNoteModal();

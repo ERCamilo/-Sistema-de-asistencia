@@ -1,10 +1,21 @@
 import icons from '../../ui/IconSystem.js';
 import { getDateKey, isDayHoliday } from '../../utils/DateUtils.js';
 import { getDeviceId } from '../../config/Config.js';
+import { invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 
 export class AttendanceService {
     constructor(state) {
         this.state = state;
+    }
+
+    /**
+     * Fase 4: mantiene la coherencia derivada (cache MTD + índice por día) de forma
+     * EXPLÍCITA, sin depender del trap del proxy ni del modo silencioso (batchSetState).
+     * Usa el employeeId REAL recibido — evita el bug de truncado por guion del proxy.
+     */
+    _maintainCoherence(employeeId, dateKey) {
+        invalidateEmployeeStats(employeeId);
+        buildAttendanceIndex(dateKey);
     }
 
     // Crear registro de asistencia
@@ -36,6 +47,7 @@ export class AttendanceService {
         };
 
         this.state.attendance[key] = record;
+        this._maintainCoherence(employeeId, dateKey);
         return record;
     }
 
@@ -56,6 +68,7 @@ export class AttendanceService {
             deviceId: getDeviceId()
         });
 
+        this._maintainCoherence(employeeId, dateKey);
         return record;
     }
 
@@ -76,6 +89,7 @@ export class AttendanceService {
 
         if (this.state.attendance[key]) {
             delete this.state.attendance[key];
+            this._maintainCoherence(employeeId, dateKey);
             if (window.debug) window.debug.log(`${icons.get('info')} Registro eliminado:`, key);
             return true;
         }

@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0619.180758';
+const CACHE_VERSION = '2026.0622.132408';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -87,14 +87,12 @@ const APP_SHELL = [
     './js/modules/utils/LegacyMigrator.js',
     './js/modules/utils/MemoCache.js',
     './js/modules/utils/Performance.js',
-    './js/modules/utils/RenderManager.js',
     './js/modules/utils/UndoManager.js',
     './js/modules/utils/WebWorkerPool.js',
 
     // UI
     './js/modules/ui/AttendanceHandlers.js',
     './js/modules/ui/AttendanceUI.js',
-    './js/modules/ui/Handlers.js',
     './js/modules/ui/Header.js',
     './js/modules/ui/IconSystem.js',
     './js/modules/ui/MaintenanceUI.js',

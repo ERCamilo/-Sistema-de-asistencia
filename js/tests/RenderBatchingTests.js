@@ -14,6 +14,13 @@
  *      Net effect: N mutations inside batchSetState → 0 schedule calls during
  *      the batch + 1 schedule call after = 1 schedule call total.
  *
+ *   3. ATTENDANCE writes batch like any other key. Before Fase 4 a `state.attendance`
+ *      write was a special case (the proxy rebuilt the index, so batching silenced
+ *      coherence). Since Paso 4 the proxy is agnostic and coherence is explicit in the
+ *      handlers, so N attendance mutations inside batchSetState collapse to 1 render —
+ *      this is the contract that Paso 5's handler-batching relies on (locked in here
+ *      BEFORE the handlers are batched, so the collapse is verifiable).
+ *
  * Why this matters: a regression here (e.g. someone removes the dedup, or
  * silent-mode stops suppressing the proxy) would cause render() to fire
  * once per state mutation. With 20+ mutations during attendance load, that
@@ -118,6 +125,62 @@ testRunner.addSuite("AppState — Render batching & dedup", {
                 scheduleCallCount,
                 1,
                 "Expected exactly 1 scheduleRender after 5 batched mutations"
+            );
+        } finally {
+            uninstallScheduleSpy();
+        }
+    },
+
+    "asistencia fuera de batch: N escrituras agendan N renders (lo que el batching de Paso 5 colapsa)"() {
+        installScheduleSpy();
+        try {
+            reset();
+            const raw = stateManager.getState();
+            raw.attendance = {};
+            raw.attendanceByDate = {};
+            scheduleCallCount = 0;
+
+            // Escrituras de asistencia SUELTAS, como un handler sin batchear. Tras Paso 4
+            // el proxy es agnóstico pero IGUAL agenda render por cada mutación (concern de
+            // Paso 5): cada set-trap dispara scheduleRender(window.render).
+            state.attendance['emp1-2026-06-15'] = { employeeId: 'emp1', date: '2026-06-15', present: true };
+            state.attendance['emp1-2026-06-15'].hoursWorked = 8;   // mutación in-place: otro trap
+            state.attendance['emp1-2026-06-16'] = { employeeId: 'emp1', date: '2026-06-16', present: true };
+
+            testRunner.assertEquals(
+                scheduleCallCount,
+                3,
+                "Tres mutaciones de asistencia sueltas deben agendar 3 renders (1 por trap)"
+            );
+        } finally {
+            uninstallScheduleSpy();
+        }
+    },
+
+    "asistencia en batch: N mutaciones colapsan a 1 render (contrato que habilita el batching de handlers)"() {
+        installScheduleSpy();
+        try {
+            reset();
+            const raw = stateManager.getState();
+            raw.attendance = {};
+            raw.attendanceByDate = {};
+            scheduleCallCount = 0;
+
+            // Las MISMAS mutaciones (más un delete) envueltas en batchSetState, tal como
+            // van a quedar los handlers de asistencia en Paso 5: el proxy corre silencioso
+            // (sin agendar) y el batch agenda UN solo render al cerrar. Antes de Paso 4 las
+            // escrituras de asistencia eran un caso especial; ahora batchean como cualquiera.
+            stateManager.batchSetState(() => {
+                state.attendance['emp1-2026-06-15'] = { employeeId: 'emp1', date: '2026-06-15', present: true };
+                state.attendance['emp1-2026-06-15'].hoursWorked = 8;
+                state.attendance['emp1-2026-06-16'] = { employeeId: 'emp1', date: '2026-06-16', present: true };
+                delete state.attendance['emp1-2026-06-16'];
+            });
+
+            testRunner.assertEquals(
+                scheduleCallCount,
+                1,
+                "Cuatro mutaciones de asistencia en batchSetState deben agendar exactamente 1 render"
             );
         } finally {
             uninstallScheduleSpy();

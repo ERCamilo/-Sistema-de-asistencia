@@ -1,28 +1,30 @@
 /**
  * 🛡️ AppStateProxyContractTests — Red de seguridad de los efectos del Proxy de estado.
  *
- * Caracteriza (lock-in) el comportamiento OCULTO de los set/delete traps del Proxy
- * de AppState.js, que hoy NO tiene cobertura de comportamiento y es lo más peligroso
- * de refactorizar (Fase 0 del plan de desacople del `state` global).
+ * Caracteriza (lock-in) el comportamiento de los set/delete traps del Proxy de
+ * AppState.js. Tras Fase 4 Paso 4 el proxy es AGNÓSTICO al dominio: ya NO mantiene
+ * la coherencia de asistencia. Esta suite fija ahora justamente esa frontera.
  *
  * Contratos que esta suite fija sobre el código actual:
  *
- *   1. Escribir un registro de asistencia (state.attendance[key] = rec) invalida
- *      statsCache.mtd[employeeId].
- *   2. La misma escritura reconstruye attendanceByDate[dateKey] vía buildAttendanceIndex.
- *   3. La misma escritura agenda exactamente un render.
- *   4. Borrar un registro (delete state.attendance[key]) invalida la cache y
- *      reconstruye el índice del día según el valor previo (oldValue).
+ *   1. (Paso 4) Una escritura DIRECTA de asistencia (state.attendance[key] = rec),
+ *      fuera de un handler, NO invalida statsCache.mtd[employeeId]. La coherencia
+ *      es responsabilidad explícita de los handlers (ver los *CoherenceTests.js).
+ *   2. (Paso 4) La misma escritura directa NO reconstruye attendanceByDate[dateKey].
+ *   3. La misma escritura agenda exactamente un render. (Sigue siendo concern del
+ *      proxy hasta Paso 5; por eso este contrato NO se invirtió.)
+ *   4. (Paso 4) Borrar un registro (delete state.attendance[key]) NO invalida la
+ *      cache ni reconstruye el índice del día.
  *   5. En modo silencioso (batchSetState) una escritura de asistencia NO ejecuta
- *      ninguno de esos efectos: la cache y el índice NO se tocan y sólo se agenda
- *      un render al cerrar el batch. (Documenta el acoplamiento que cualquier
- *      refactor debe preservar o reubicar explícitamente.)
+ *      efectos de dominio y sólo se agenda un render al cerrar el batch.
  *   6. El set-trap desenvuelve Proxies anidados con toRaw antes de almacenar
  *      (defensa anti-DataCloneError de IndexedDB).
  *
- * Por qué importa: estos efectos son el ÚNICO disparador de coherencia de la cache
- * y el índice de asistencia. Un refactor del estado que los altere en silencio
- * desincroniza estadísticas y nómina sin tirar ningún error. Esta suite muerde antes.
+ * Por qué importa: el proxy dejó de ser el motor de coherencia. Estos contratos
+ * blindan que una escritura cruda NO repare nada por arte de magia — si volviera a
+ * hacerlo, la lógica de dominio se estaría recolando al contenedor. La coherencia
+ * real (la que mantienen los handlers) la cubren AttendanceCoherenceCoverageTests
+ * y los *CoherenceTests.js, que deben seguir verdes.
  */
 
 import { state, stateManager, renderOptimizer } from '../modules/core/AppState.js';
@@ -73,35 +75,39 @@ function reset() {
 
 testRunner.addSuite("AppState — Contrato de efectos del Proxy (red de seguridad)", {
 
-    "asistencia: escribir un registro invalida statsCache.mtd del empleado"() {
+    "AGNÓSTICO: una escritura directa de asistencia NO invalida statsCache.mtd (Paso 4)"() {
         reset();
         const raw = stateManager.getState();
         // Sembramos una entrada de cache (en crudo, sin disparar el trap)
         raw.statsCache.mtd['emp1'] = { days: 5, hours: 40, overtime: 0, monthKey: '2026-06' };
 
-        // Escritura a través del Proxy → debe invalidar la cache del empleado
+        // Escritura DIRECTA al Proxy, fuera de un handler. Tras Paso 4 el proxy es
+        // AGNÓSTICO: NO mantiene la coherencia de stats. Esa responsabilidad pasó a los
+        // handlers (invalidateEmployeeStats explícito; ver los *CoherenceTests.js).
         state.attendance['emp1-2026-06-15'] = {
             employeeId: 'emp1', date: '2026-06-15', present: true, hoursWorked: 8
         };
 
         testRunner.assert(
-            raw.statsCache.mtd['emp1'] === undefined,
-            "statsCache.mtd['emp1'] debe quedar invalidado tras escribir su asistencia"
+            raw.statsCache.mtd['emp1'] !== undefined,
+            "el proxy agnóstico NO debe invalidar statsCache.mtd: una escritura cruda no es coherencia"
         );
     },
 
-    "asistencia: escribir un registro reconstruye attendanceByDate del día"() {
+    "AGNÓSTICO: una escritura directa de asistencia NO reconstruye attendanceByDate (Paso 4)"() {
         reset();
         const raw = stateManager.getState();
 
+        // Escritura DIRECTA al Proxy: el índice por fecha lo reconstruye buildAttendanceIndex
+        // desde los handlers, ya NO el trap del proxy.
         state.attendance['emp1-2026-06-15'] = {
             employeeId: 'emp1', date: '2026-06-15', present: true, hoursWorked: 8
         };
 
-        const bucket = raw.attendanceByDate['2026-06-15'];
-        testRunner.assert(Array.isArray(bucket), "Debe existir el bucket del día en attendanceByDate");
-        testRunner.assertEquals(bucket.length, 1, "El bucket del día debe contener exactamente 1 registro");
-        testRunner.assertEquals(bucket[0].employeeId, 'emp1', "El registro indexado debe ser el del empleado escrito");
+        testRunner.assert(
+            raw.attendanceByDate['2026-06-15'] === undefined,
+            "el proxy agnóstico NO debe reconstruir el índice del día tras una escritura cruda"
+        );
     },
 
     "asistencia: escribir un registro agenda exactamente un render"() {
@@ -123,24 +129,25 @@ testRunner.addSuite("AppState — Contrato de efectos del Proxy (red de segurida
         }
     },
 
-    "asistencia: borrar un registro invalida la cache y reconstruye el índice del día"() {
+    "AGNÓSTICO: borrar un registro de asistencia NO invalida la cache ni reconstruye el índice (Paso 4)"() {
         reset();
         const raw = stateManager.getState();
 
-        // Sembramos el registro vía Proxy y re-sembramos la cache en crudo
+        // Sembramos el registro vía Proxy (que ya no toca el índice) y la cache en crudo
         state.attendance['emp2-2026-06-20'] = { employeeId: 'emp2', date: '2026-06-20', present: true };
         raw.statsCache.mtd['emp2'] = { days: 1, hours: 8, overtime: 0, monthKey: '2026-06' };
 
+        // Borrado DIRECTO al Proxy, fuera de un handler. Tras Paso 4 el delete trap es
+        // AGNÓSTICO: la coherencia al borrar la hacen los handlers explícitamente.
         delete state.attendance['emp2-2026-06-20'];
 
         testRunner.assert(
-            raw.statsCache.mtd['emp2'] === undefined,
-            "Borrar asistencia debe invalidar statsCache.mtd del empleado (según oldValue)"
+            raw.statsCache.mtd['emp2'] !== undefined,
+            "el proxy agnóstico NO debe invalidar statsCache.mtd al borrar"
         );
-        const bucket = raw.attendanceByDate['2026-06-20'];
         testRunner.assert(
-            Array.isArray(bucket) && bucket.length === 0,
-            "Tras borrar, el bucket del día debe reconstruirse vacío"
+            raw.attendanceByDate['2026-06-20'] === undefined,
+            "el proxy agnóstico NO debe reconstruir el índice del día al borrar"
         );
     },
 

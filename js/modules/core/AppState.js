@@ -235,52 +235,20 @@ const createRecursiveProxy = (obj, path = []) => {
             const result = Reflect.set(target, prop, rawValue);
 
             if (oldValue !== value && !stateManager.isSilent()) {
-                const fullPath = [...path, prop];
-                const rootProp = fullPath[0];
-
-                if (rootProp === 'attendance') {
-                    let dateKey = null;
-                    let employeeId = null;
-
-                    if (path.length === 1 && value && value.date) {
-                        dateKey = value.date;
-                        employeeId = value.employeeId;
-                    } else if (path.length > 1) {
-                        const recordKey = path[1];
-                        const parts = recordKey.split('-');
-                        employeeId = parts[0];
-                        const record = stateManager._state.attendance[recordKey];
-                        if (record && record.date) dateKey = record.date;
-                    }
-
-                    // ⚡ P3-OPT: Invalidación selectiva de caché
-                    if (employeeId && stateManager._state.statsCache.mtd[employeeId]) {
-                        delete stateManager._state.statsCache.mtd[employeeId];
-                    }
-
-                    if (dateKey) buildAttendanceIndex(dateKey);
-                    else stateManager.markAttendanceDirty();
-                } else if (['employees', 'positions', 'leaders', 'settings'].includes(rootProp)) {
-                    if (rootProp === 'attendance') stateManager.markAttendanceDirty();
-                }
-
+                // 🎯 Fase 4 Paso 4: el proxy es AGNÓSTICO al dominio. La coherencia de
+                // asistencia (statsCache.mtd / attendanceByDate) la mantienen ahora los
+                // handlers de forma EXPLÍCITA (invalidateEmployeeStats + buildAttendanceIndex;
+                // ver los *CoherenceTests.js). El proxy sólo agenda el render global.
                 if (window.render) renderOptimizer.scheduleRender(window.render);
             }
             return result;
         },
         deleteProperty(target, prop) {
-            const oldValue = target[prop];
             const result = Reflect.deleteProperty(target, prop);
-            
+
             if (result && !stateManager.isSilent()) {
-                const rootProp = path[0] || prop;
-                if (rootProp === 'attendance') {
-                    if (oldValue && oldValue.employeeId) {
-                        delete stateManager._state.statsCache.mtd[oldValue.employeeId];
-                    }
-                    if (oldValue && oldValue.date) buildAttendanceIndex(oldValue.date);
-                    else stateManager.markAttendanceDirty();
-                }
+                // 🎯 Fase 4 Paso 4: proxy agnóstico — la coherencia de asistencia al borrar
+                // la mantienen ahora los handlers de forma EXPLÍCITA. El proxy sólo agenda render.
                 if (window.render) renderOptimizer.scheduleRender(window.render);
             }
             return result;
@@ -294,6 +262,30 @@ const createRecursiveProxy = (obj, path = []) => {
 
 export const state = createRecursiveProxy(stateManager._state);
 window.state = state;
+
+/**
+ * ⚡ P3-OPT: Invalida la caché de estadísticas mensuales (MTD) de un empleado.
+ * Extraído del set/delete trap del proxy (Fase 4 — desacople del estado) para que
+ * la coherencia sea EXPLÍCITA y llamable, no un efecto escondido del proxy. Cualquier
+ * camino de escritura de asistencia que invoque esto mantiene las stats coherentes,
+ * aunque no pase por el proxy.
+ */
+export function invalidateEmployeeStats(empId) {
+    if (empId && stateManager._state.statsCache.mtd[empId]) {
+        delete stateManager._state.statsCache.mtd[empId];
+    }
+}
+window.invalidateEmployeeStats = invalidateEmployeeStats;
+
+/**
+ * Wholesale clear of the monthly stats cache. Use after a BULK attendance
+ * replace/load (backup restore, import, full reset) where every employee's
+ * cached monthly figure may be stale. The per-employee form is invalidateEmployeeStats.
+ */
+export function invalidateAllStats() {
+    stateManager._state.statsCache.mtd = {};
+}
+window.invalidateAllStats = invalidateAllStats;
 
 
 

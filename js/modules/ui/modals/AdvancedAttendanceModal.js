@@ -3,7 +3,7 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
-import { state } from '../../core/AppState.js';
+import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { payrollService } from '../../services/index.js';
 import { getDateKey, formatDateShort, isDayHoliday } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
@@ -242,13 +242,19 @@ export function saveAdvancedAttendance() {
         lastAccessed: Date.now()
     };
 
-    // Guardar en el estado (Proxy activará la actualización del índice por fecha)
-    state.attendance[key] = attendanceRecord;
-    
-    // Sincronizar y renderizar (Zonal Sync). Toast honesto del resultado real.
-    saveApplicationData({ dateKey, announce: 'Detalles guardados' });
+    // ⚡ Fase 4 Paso 5: batchear el write + la coherencia → 1 render (antes eran 2: el
+    // del set-trap + el render() explícito). FINANCIERO: hoursWorked/overtimeHours/present
+    // alimentan nómina, así que invalidateEmployeeStats + buildAttendanceIndex van DENTRO
+    // del batch → el único render del cierre lee statsCache.mtd ya fresco.
+    stateManager.batchSetState(() => {
+        state.attendance[key] = attendanceRecord;
+        invalidateEmployeeStats(emp.id);
+        buildAttendanceIndex(dateKey);
+    });
 
-    if (window.render) window.render();
+    // Sincronizar (Zonal Sync). Toast honesto del resultado real. El render lo agenda
+    // batchSetState al cerrar; se suelta el render() manual que duplicaba el repintado.
+    saveApplicationData({ dateKey, announce: 'Detalles guardados' });
 
     return true;
 }

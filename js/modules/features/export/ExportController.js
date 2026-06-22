@@ -12,7 +12,7 @@
  * globals. registerLegacyGlobals() re-binds them for the data-app-fn dispatcher.
  */
 
-import { state, stateManager } from '../../core/AppState.js';
+import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, sanitizePositions } from '../../services/PersistenceService.js';
 import { openExportMenu, closeExportMenu } from './ExportMenuService.js';
@@ -234,6 +234,13 @@ function applyFullImport(importedData) {
     if (typeof sanitizePositions === 'function') {
         sanitizePositions(state);
     }
+
+    // The bulk replace ran inside batchSetState (proxy silent → no auto-rebuild), so
+    // maintain coherence explicitly before render/persist: total rebuild + wholesale
+    // stats clear (subsumes the sanitizePositions invalidation). render() below reads
+    // these before the 1.5s reload, so it must be synchronous here.
+    invalidateAllStats();
+    buildAttendanceIndex();
 
     saveApplicationData();
     notify('✅ Datos importados correctamente', 'success');

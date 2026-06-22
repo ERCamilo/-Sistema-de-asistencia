@@ -1,4 +1,4 @@
-import { state } from '../core/AppState.js';
+import { state, buildAttendanceIndex, invalidateAllStats } from '../core/AppState.js';
 import storageService from './StorageService.js';
 import indexedDBService from './IndexedDBService.js';
 import { clearLocalOwnership } from './LocalDataOwner.js';
@@ -81,6 +81,10 @@ export class DataService {
             Object.entries(data.attendance).forEach(([key, value]) => {
                 this.state.attendance[key] = value instanceof Attendance ? value : new Attendance(value);
             });
+            // Bulk replace → explicit coherence (load-bearing once the proxy traps
+            // are removed in Paso 4): total index rebuild + wholesale stats clear.
+            invalidateAllStats();
+            buildAttendanceIndex();
         }
 
         if (data.settings) {
