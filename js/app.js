@@ -1177,6 +1177,9 @@ window.saveMultiPosition = function () {
     att.updatedAt = Date.now();
     // Spread {...att} → referencia nueva. Antes esto alcanzaba para que el Proxy
     // reconstruyera el índice; tras Paso 4 la coherencia es explícita (abajo).
+    // NO se batchea a propósito (a diferencia de los otros handlers de Paso 5): este no
+    // llama render() explícito → el set-trap del proxy ya colapsa a 1 repintado por dedup,
+    // y la coherencia corre síncrona acá, antes del render diferido (rAF) → statsCache fresco.
     state.attendance[key] = { ...att };
     invalidateEmployeeStats(emp.id);
     buildAttendanceIndex(dateKey);
@@ -1917,6 +1920,10 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
 
     // Coherencia explícita tras la mutación (load-bearing tras Paso 4): cubre
     // ambas ramas (alta y baja). empId/date están en scope; granular por día.
+    // NO se batchea a propósito: toggleAttendance tiene DOS caminos de render (día = tail
+    // ultra-selectivo updateCheckboxOnly+renderZone; semana = render() completo) que no
+    // colapsan limpio en un solo batch. La coherencia corre síncrona acá, antes del render
+    // diferido (rAF), así que statsCache queda fresco igual.
     invalidateEmployeeStats(empId);
     buildAttendanceIndex(getDateKey(date));
 

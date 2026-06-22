@@ -27,5 +27,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Enforce the direct-state-write ratchet on CI too (not just the opt-in
+      # pre-commit hook) so the guard can't be bypassed on a PR from a machine
+      # without the hook installed.
+      - name: State-write ratchet (guard)
+        run: npm run lint:state
+
       - name: Run tests
         run: npm test
