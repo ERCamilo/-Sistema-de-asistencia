@@ -221,6 +221,20 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         );
     },
 
+    // Render batching (Fase 4 Paso 5): el write + la coherencia van en batchSetState y se
+    // suelta el render() manual. Contrato-de-fuente (jsdom no mide render).
+    "saveAttendanceDetailHours batchea el write y NO llama render() a mano (Paso 5)"() {
+        const body = between('window.saveAttendanceDetailHours = ', 'window.saveQuickNoteFromDetail');
+        testRunner.assert(
+            body.includes('stateManager.batchSetState'),
+            'el write + la coherencia deben ir envueltos en stateManager.batchSetState'
+        );
+        testRunner.assert(
+            countOccurrences(body, 'render()') === 0,
+            'ya NO debe llamar render() a mano: el repintado lo agenda batchSetState al cerrar'
+        );
+    },
+
     "saveQuickNoteFromDetail mantiene coherencia (el upsert puede crear un registro)"() {
         const body = between('window.saveQuickNoteFromDetail = ', 'Click delegation');
         testRunner.assert(body.length > 0 && body.length < 2500, 'el cuerpo de saveQuickNoteFromDetail debe acotarse bien');

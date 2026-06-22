@@ -4126,29 +4126,33 @@ window.saveAttendanceDetailHours = (empId) => {
         }
     });
 
-    state.attendance[key] = {
-        ...existing,
-        employeeId: emp.id,
-        date: dateKey,
-        present: totalHours > 0 || totalOvertime > 0,
-        hoursWorked: totalHours,
-        overtimeHours: totalOvertime,
-        positionHours,
-        multiPosition: positionHours.length > 1,
-        selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
-        isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
-        notes: existing.notes || '',
-        updatedAt: Date.now(),
-        lastAccessed: Date.now(),
-        _isDirty: true
-    };
-    // Edita hoursWorked/present (financial) con objeto nuevo → coherencia completa.
-    invalidateEmployeeStats(emp.id);
-    buildAttendanceIndex(dateKey);
+    // ⚡ Fase 4 Paso 5: batchear el write + la coherencia → 1 repintado (antes: el del
+    // set-trap + el manual del final). FINANCIERO: hoursWorked/present alimentan stats,
+    // la coherencia va DENTRO del batch para que el repintado del cierre lea statsCache fresco.
+    stateManager.batchSetState(() => {
+        state.attendance[key] = {
+            ...existing,
+            employeeId: emp.id,
+            date: dateKey,
+            present: totalHours > 0 || totalOvertime > 0,
+            hoursWorked: totalHours,
+            overtimeHours: totalOvertime,
+            positionHours,
+            multiPosition: positionHours.length > 1,
+            selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
+            isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
+            notes: existing.notes || '',
+            updatedAt: Date.now(),
+            lastAccessed: Date.now(),
+            _isDirty: true
+        };
+        invalidateEmployeeStats(emp.id);
+        buildAttendanceIndex(dateKey);
+    });
 
+    // El repintado lo agenda batchSetState al cerrar; se elimina la llamada manual.
     if (typeof saveApplicationData === 'function') saveApplicationData({ dateKey });
     if (window.showNotification) window.showNotification('Horas del día guardadas', 'success');
-    if (typeof window.render === 'function') window.render();
 };
 
 // Save handler for the quick-note textarea inside the AttendanceDetailPanel.
