@@ -438,10 +438,17 @@ function LoanCard(loan) {
                     </button>
                 </div>
             ` : isWrittenOff ? `
-                <button type="button" data-app-fn="reopenLoanHandler" data-arg="${loan.id}"
-                        style="padding: 8px 14px; background: transparent; color: #06b6d4; border: 1px solid #06b6d4; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer;">
-                    Reactivar
-                </button>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" data-app-fn="reopenLoanHandler" data-arg="${loan.id}"
+                            style="padding: 8px 14px; background: transparent; color: #06b6d4; border: 1px solid #06b6d4; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer;">
+                        Reactivar
+                    </button>
+                    <button type="button" data-app-fn="deleteLoanWithConfirm" data-arg="${loan.id}"
+                            style="padding: 8px 14px; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer;"
+                            title="Eliminar este préstamo de forma permanente">
+                        ${icons.get('delete', { size: 14 })} Eliminar
+                    </button>
+                </div>
             ` : ''}
         </div>
     `;
