@@ -61,7 +61,7 @@ import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
-import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange } from './modules/utils/DateUtils.js';
+import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
 // Local alias so the detail panel can use escapeHTML(...) without colliding
 // with any other escapeHTML helper defined later in this file.
@@ -3555,15 +3555,21 @@ function SidebarNavigation() {
  * on small screens via CSS to keep the mobile experience unchanged.
  */
 function AttendancePageTitle() {
-    const date = state.selectedDate instanceof Date ? state.selectedDate : new Date(state.selectedDate);
-    const dateLabel = date.toLocaleDateString('es', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
-    const dateLabelCap = dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1);
+    // 📌 La fecha del título es una COPIA EXACTA de la que muestra la píldora de
+    // navegación (DateControls): mismo formateador, misma lógica día/semana,
+    // sin ningún cálculo de fecha propio. Antes hacía `new Date(state.selectedDate)`
+    // que, con selectedDate como string, se parseaba en UTC y en zonas negativas
+    // (UTC-4, RD) mostraba el día anterior. Reusar formatDateShort/getWeekRangeText
+    // elimina cualquier divergencia posible con el resto de la pantalla.
+    const dateLabel = state.viewMode === 'week'
+        ? pillWeekRange(state.selectedDate)
+        : formatDateShort(state.selectedDate);
     const activeCount = (state.employees || []).filter(e => e.active !== false).length;
     const defaultHours = state.settings?.regularHoursPerDay || 8;
     const modeLabel = state.viewMode === 'week' ? 'Semanal' : 'Diaria';
     return `<div class="page-title-row">
                 <div>
-                    <h1 class="page-title">Asistencia ${modeLabel.toLowerCase()} · <span class="page-title-accent">${escapeHTML(dateLabelCap)}</span></h1>
+                    <h1 class="page-title">Asistencia ${modeLabel.toLowerCase()} · <span class="page-title-accent">${escapeHTML(dateLabel)}</span></h1>
                     <div class="page-title-sub">${activeCount} trabajadores activos · Horas por defecto: <b>${defaultHours}h</b></div>
                 </div>
             </div>`;
@@ -6193,14 +6199,24 @@ window.addEventListener('scroll', () => {
     }
 
     if (isScrolled !== state.isScrolled) {
-        // Usar requestAnimationFrame para evitar lag
         const now = Date.now();
         if (now - lastScrollTime > 50) { // Throttle de 50ms
-            state.isScrolled = isScrolled;
+            // state.isScrolled solo lo consume la vista de Asistencia (sus
+            // controles compactos). Escribirlo vía el proxy dispara un render,
+            // y ese render restaura el scroll (window.scrollTo) peleando con el
+            // dedo del usuario en pantallas táctiles → la pantalla "rebota"
+            // hacia arriba (bug visible en Préstamos al hacer scroll). Por eso:
+            //   - en Asistencia: escritura por proxy (necesita re-render);
+            //   - en el resto: escritura en crudo (valor correcto, sin render).
+            const onAttendance = state.activeTab === 'attendance';
+            if (onAttendance) {
+                state.isScrolled = isScrolled;
+            } else {
+                stateManager.getState().isScrolled = isScrolled;
+            }
             const compactControls = document.querySelector('.date-controls-compact');
             if (compactControls) {
-                const isWeekView = state.viewMode === 'week';
-                if (isScrolled && state.activeTab === 'attendance') {
+                if (isScrolled && onAttendance) {
                     compactControls.classList.add('visible');
                 } else {
                     compactControls.classList.remove('visible');

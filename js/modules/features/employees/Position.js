@@ -12,6 +12,9 @@ export class Position {
         this.baseSalary = this.salaryConfig.amount; // Compatibilidad
         this.workingDays = data.workingDays || [1, 2, 3, 4, 5]; // Lun-Vie por defecto (0=Dom, 1=Lun, ...)
         this.hourlyRate = data.hourlyRate || 0; // ⚡ NUEVO: Tarifa por hora
+        // ⚡ Aditivo: en qué modo se cargó la tarifa ('hourly' | 'daily'). Solo afecta
+        // cómo se MUESTRA/edita; lo guardado en hourlyRate sigue siendo por hora.
+        this.salaryInputMode = data.salaryInputMode === 'daily' ? 'daily' : 'hourly';
         this.leaderId = data.leaderId || null; // ⚡ NUEVO: ID del líder responsable
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
@@ -50,7 +53,8 @@ export class Position {
             active: this.active,
             salaryConfig: this.salaryConfig, // ⚡ CRÍTICO: Re-habilitado para persistencia
             baseSalary: this.baseSalary,
-            hourlyRate: this.hourlyRate, 
+            hourlyRate: this.hourlyRate,
+            salaryInputMode: this.salaryInputMode,
             leaderId: this.leaderId,
             workingDays: this.workingDays,
             lastStatusChange: this.lastStatusChange,
