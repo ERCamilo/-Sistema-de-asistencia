@@ -21,6 +21,7 @@ import {
     setLoansPickerSearch,
     openProfileForLoan
 } from '../modules/features/loans/LoansController.js';
+import { LOAN_STATUS } from '../modules/features/loans/LoansService.js';
 
 function resetState() {
     state.employees = [
@@ -53,6 +54,28 @@ testRunner.addSuite("LoansLedger UI — overview button", {
         resetState();
         const html = LoansLedger();
         testRunner.assert(!html.includes('role="dialog"'), "No dialog rendered when picker is closed");
+    }
+});
+
+testRunner.addSuite("LoansLedger UI — recuperar saldados", {
+
+    "un préstamo saldado muestra el ✕ para anular su abono (y reabrirlo)"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 0, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.PAID,
+            installmentMode: 'lump', installments: [], refinancings: [],
+            payments: [{ id: 'P1', amount: 500, date: '2026-01-10', voided: false }]
+        }];
+        state.loansLedger = { selectedEmployeeId: 'e1' };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('SALDADO'), "el préstamo se muestra como saldado");
+        testRunner.assert(
+            html.includes('data-app-fn="voidPaymentHandler" data-arg="L1" data-arg2="P1"'),
+            "el ✕ de anular abono aparece también en saldados");
+        testRunner.assert(html.includes('reabre el préstamo'),
+            "el tooltip aclara que anular el abono reabre el préstamo");
     }
 });
 

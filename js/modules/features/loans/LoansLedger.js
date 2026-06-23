@@ -301,6 +301,7 @@ function LoanCard(loan) {
     const totalDue = getTotalDue(loan);
     const paid = getPaidAmount(loan);
     const isActive = loan.status === LOAN_STATUS.ACTIVE;
+    const isPaid = loan.status === LOAN_STATUS.PAID;
     const isWrittenOff = loan.status === LOAN_STATUS.WRITTEN_OFF;
     const ledger = state.loansLedger || {};
     const showPay = ledger.showPaymentFormForLoan === loan.id;
@@ -381,9 +382,9 @@ function LoanCard(loan) {
                                 <span style="color: #94a3b8;">${formatDateShort(p.date)}</span>
                                 ${p.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(p.note)}"</span>` : ''}
                             </div>
-                            ${isActive ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
+                            ${(isActive || isPaid) ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
                                                   style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
-                                                  title="Anular este abono">✕</button>` : ''}
+                                                  title="${isPaid ? 'Anular este abono (reabre el préstamo)' : 'Anular este abono'}">✕</button>` : ''}
                         </div>
                     `).join('')}
                 </div>
