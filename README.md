@@ -158,4 +158,5 @@ URLs de los webhooks de caja chica.
 
 ## Licencia
 
+Software propietario — Todos los derechos reservados. © 2026 Erlin Camilo.
 Ver [`LICENSE`](LICENSE).
