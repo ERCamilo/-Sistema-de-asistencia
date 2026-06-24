@@ -361,13 +361,48 @@ export function refinanceLoan(emp, loanId, params = {}) {
             ? round2(Number(params.unpaidAmount)) : null,
         note: (params.note || '').trim(),
         createdBy: params.createdBy || null,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        // 🕒 updatedAt por-evento (espejo de payments): sin esto, una
+        // anulación hecha en un dispositivo perdía el merge contra una copia
+        // vieja no-anulada con el mismo id en otro dispositivo.
+        updatedAt: Date.now(),
+        voided: false,
+        voidedAt: null
     };
 
     if (!Array.isArray(loan.refinancings)) loan.refinancings = [];
     loan.refinancings.push(event);
     loan.updatedAt = Date.now();
     emp.updatedAt = Date.now();
+    return event;
+}
+
+/**
+ * Anula un refinanciamiento registrado por error. Soft-void: conserva el
+ * evento (auditoría) pero lo saca del cálculo de interés/saldo. Reversible a
+ * nivel datos. Refresca updatedAt para que la anulación gane el merge.
+ */
+export function voidRefinancing(emp, loanId, refinId, voidedBy = null) {
+    const loan = (emp.loans || []).find(l => l.id === loanId);
+    if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
+    const event = (loan.refinancings || []).find(r => r.id === refinId);
+    if (!event) throw new Error(`Refinanciamiento no encontrado: ${refinId}`);
+    if (event.voided) return event; // idempotent
+
+    event.voided = true;
+    event.voidedAt = Date.now();
+    event.voidedBy = voidedBy;
+    event.updatedAt = Date.now();
+    loan.updatedAt = Date.now();
+    emp.updatedAt = Date.now();
+
+    // Si al quitar este interés el préstamo queda sin saldo, se salda solo
+    // (espejo del auto-close de recordPayment).
+    if (loan.status === LOAN_STATUS.ACTIVE && getBalance(loan) <= 0.01) {
+        loan.status = LOAN_STATUS.PAID;
+        loan.closedAt = Date.now();
+        loan.closedBy = voidedBy;
+    }
     return event;
 }
 
@@ -457,15 +492,16 @@ export function getTotalDue(loan) {
     return round2(principal + interest + getRefinanceInterest(loan));
 }
 
-/** Total interest added by all refinancing events on this loan. */
+/** Total interest added by all NON-VOIDED refinancing events on this loan. */
 export function getRefinanceInterest(loan) {
     return round2((loan.refinancings || [])
+        .filter(r => !r.voided)
         .reduce((sum, r) => sum + Number(r.interestAmount || 0), 0));
 }
 
-/** Number of times this loan has been refinanced. */
+/** Number of times this loan has been refinanced (excludes voided events). */
 export function getRefinanceCount(loan) {
-    return (loan.refinancings || []).length;
+    return (loan.refinancings || []).filter(r => !r.voided).length;
 }
 
 /** Accrued total interest: original loan interest + all refinancing interest. */

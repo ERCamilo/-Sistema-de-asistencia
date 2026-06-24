@@ -26,12 +26,16 @@ import {
     writeOffLoanWithConfirm,
     reopenLoanHandler,
     voidPaymentHandler,
+    toggleRefinanceForm,
+    setRefinanceDraftField,
+    submitRefinance,
+    voidRefinanceHandler,
     openLoansEmployeePicker,
     closeLoansEmployeePicker,
     setLoansPickerSearch,
     openProfileForLoan
 } from '../modules/features/loans/LoansController.js';
-import { LOAN_STATUS, INSTALLMENT_MODE, getBalance } from '../modules/features/loans/LoansService.js';
+import { LOAN_STATUS, INSTALLMENT_MODE, getBalance, getRefinanceCount } from '../modules/features/loans/LoansService.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -337,6 +341,36 @@ testRunner.addSuite("LoansController — loan operations", {
         const emp = liveEmployee();
         testRunner.assertEquals(getBalance(emp.loans[0]), 500, "Post-void: balance restored to 500");
         testRunner.assert(emp.loans[0].payments[0].voided, "Payment marked voided");
+    },
+
+    "voidRefinanceHandler anula el refinanciamiento y baja el saldo"() {
+        resetState();
+        seedEmployee();
+        selectLoansEmployee('emp1');
+        toggleAddLoanForm();
+        setLoanDraftField('principal', 1000);
+        setLoanDraftField('startDate', '2026-05-20');
+        const restore1 = silenceNotifications();
+        try { submitNewLoan(); } finally { restore1(); }
+        const loanId = liveEmployee().loans[0].id;
+
+        // Refinanciar sobre capital al 10% → +100 de interés
+        toggleRefinanceForm(loanId);
+        setRefinanceDraftField('basis', 'principal');
+        setRefinanceDraftField('interestRate', 10);
+        const restore2 = silenceNotifications();
+        try { submitRefinance(loanId); } finally { restore2(); }
+        testRunner.assertEquals(getBalance(liveEmployee().loans[0]), 1100, "Pre-anular: 1000 + 100 = 1100");
+        const refinId = liveEmployee().loans[0].refinancings[0].id;
+
+        const restoreConfirm = installAutoConfirm();
+        const restoreNotif = silenceNotifications();
+        try { voidRefinanceHandler(loanId, refinId); } finally { restoreNotif(); restoreConfirm(); }
+
+        const emp = liveEmployee();
+        testRunner.assertEquals(getBalance(emp.loans[0]), 1000, "Post-anular: saldo vuelve a 1000");
+        testRunner.assertEquals(getRefinanceCount(emp.loans[0]), 0, "El refinanciamiento anulado no cuenta");
+        testRunner.assert(emp.loans[0].refinancings[0].voided, "Refinanciamiento marcado voided");
     }
 });
 

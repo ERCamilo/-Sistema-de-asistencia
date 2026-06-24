@@ -28,6 +28,7 @@ import {
     reopenLoan,
     deleteLoan,
     refinanceLoan,
+    voidRefinancing,
     migrateAdvancesToLoans,
     getBalance,
     LOAN_STATUS,
@@ -535,6 +536,37 @@ export function submitRefinance(loanId) {
     }
 }
 
+/**
+ * Anula un refinanciamiento cargado por error. Soft-void: conserva el evento
+ * pero lo saca del cálculo. Pide confirmación porque mueve el saldo.
+ */
+export function voidRefinanceHandler(loanId, refinId) {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp) return;
+
+    const doVoid = () => {
+        try {
+            voidRefinancing(emp, loanId, refinId);
+            saveApplicationData({ immediate: true, announce: 'Refinanciamiento anulado' });
+            render();
+        } catch (err) {
+            alertMsg(`❌ ${err.message}`);
+        }
+    };
+
+    if (!window.showConfirm) { doVoid(); return; }
+    window.showConfirm({
+        title: 'Anular refinanciamiento',
+        message: 'Se quitará el interés de este refinanciamiento y el saldo se recalculará. El registro queda en el historial. ¿Continuar?',
+        confirmText: 'Sí, anular',
+        cancelText: 'Cancelar',
+        type: 'warning',
+        onConfirm: doVoid
+    });
+}
+
 export function toggleInactiveHistory() {
     ensureLedgerState();
     state.loansLedger.showInactiveHistory = !state.loansLedger.showInactiveHistory;
@@ -571,6 +603,7 @@ export function registerLegacyGlobals() {
     window.toggleRefinanceForm = toggleRefinanceForm;
     window.setRefinanceDraftField = setRefinanceDraftField;
     window.submitRefinance = submitRefinance;
+    window.voidRefinanceHandler = voidRefinanceHandler;
     // Exposed so ProfileController.closeEmployeeProfile can pull freshly-
     // added legacy advances into emp.loans[] without an import cycle.
     window.migrateAllAdvances = migrateAllAdvances;

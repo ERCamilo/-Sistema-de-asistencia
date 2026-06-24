@@ -15,7 +15,7 @@
  */
 
 import {
-    createLoan, recordPayment, refinanceLoan,
+    createLoan, recordPayment, refinanceLoan, voidRefinancing,
     getTotalDue, getBalance, getRefinanceInterest, getRefinanceCount,
     getTotalInterestAccrued, LOAN_STATUS
 } from '../modules/features/loans/LoansService.js';
@@ -118,6 +118,105 @@ testRunner.addSuite("LoansService — refinanceLoan validaciones", {
         try { refinanceLoan(emp, 'NOPE', { basis: 'principal', interestRate: 10 }); }
         catch (e) { threw = true; }
         testRunner.assertEquals(threw, true);
+    }
+
+});
+
+testRunner.addSuite("LoansService — voidRefinancing (anular refinanciamiento por error)", {
+
+    "anular un refinanciamiento le quita su interés del total y del conteo"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        const ev = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 10 }); // +100
+        testRunner.assertEquals(getTotalDue(loan), 1100);
+        voidRefinancing(emp, loan.id, ev.id);
+        testRunner.assertEquals(getRefinanceCount(loan), 0, 'el anulado no cuenta');
+        testRunner.assertEquals(getRefinanceInterest(loan), 0, 'su interés sale del cálculo');
+        testRunner.assertEquals(getTotalDue(loan), 1000, 'totalDue vuelve al original');
+        testRunner.assertEquals(getBalance(loan), 1000);
+    },
+
+    "el evento de refinanciamiento lleva updatedAt al crearse (para ganar el merge)"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        const ev = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 10 });
+        testRunner.assert(typeof ev.updatedAt === 'number' && ev.updatedAt > 0,
+            'el evento debe nacer con updatedAt para el merge');
+    },
+
+    "al anular, el evento queda voided y refresca updatedAt"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        const ev = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 10 });
+        voidRefinancing(emp, loan.id, ev.id, 'admin');
+        const stored = loan.refinancings.find(r => r.id === ev.id);
+        testRunner.assertEquals(stored.voided, true);
+        testRunner.assert(stored.voidedAt > 0, 'voidedAt seteado');
+        testRunner.assertEquals(stored.voidedBy, 'admin');
+        testRunner.assert(stored.updatedAt > 0, 'updatedAt refrescado para el merge');
+    },
+
+    "anular es idempotente"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        const ev = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 10 });
+        voidRefinancing(emp, loan.id, ev.id);
+        voidRefinancing(emp, loan.id, ev.id);
+        testRunner.assertEquals(getRefinanceCount(loan), 0);
+        testRunner.assertEquals(getRefinanceInterest(loan), 0);
+    },
+
+    "anular un refinanciamiento que deja saldo 0 salda el préstamo"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        const ev = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 10 }); // totalDue 1100
+        recordPayment(emp, loan.id, { amount: 1000, date: '2026-01-15' }); // balance 100, activo
+        testRunner.assertEquals(loan.status, LOAN_STATUS.ACTIVE);
+        voidRefinancing(emp, loan.id, ev.id); // totalDue 1000, pagado 1000 → saldo 0
+        testRunner.assertEquals(getBalance(loan), 0);
+        testRunner.assertEquals(loan.status, LOAN_STATUS.PAID, 'sin saldo → se salda solo');
+    },
+
+    "actualiza updatedAt del préstamo y del empleado"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        const ev = refinanceLoan(emp, loan.id, { basis: 'principal', interestRate: 10 });
+        loan.updatedAt = 0; emp.updatedAt = 0;
+        voidRefinancing(emp, loan.id, ev.id);
+        testRunner.assert(loan.updatedAt > 0, 'loan.updatedAt');
+        testRunner.assert(emp.updatedAt > 0, 'emp.updatedAt (para sync)');
+    },
+
+    "refinanciamiento inexistente lanza error"() {
+        const emp = makeEmp();
+        const loan = createLoan(emp, { principal: 1000, interestRate: 0, startDate: '2026-01-01' });
+        let threw = false;
+        try { voidRefinancing(emp, loan.id, 'NOPE'); } catch (e) { threw = true; }
+        testRunner.assertEquals(threw, true);
+    }
+
+});
+
+testRunner.addSuite("EmployeeMerge — la anulación de un refinanciamiento gana el merge", {
+
+    "una anulación local (con updatedAt) le gana a la copia vieja del server"() {
+        // server: R1 NO anulado y sin updatedAt (copia vieja).
+        // local : R1 anulado con updatedAt nuevo (la corrección).
+        // El merge por id debe quedarse con la versión anulada.
+        const server = {
+            id: 'e1', updatedAt: 100,
+            loans: [{ id: 'L1', updatedAt: 100, principal: 1000,
+                refinancings: [{ id: 'R1', interestAmount: 100 }] }]
+        };
+        const local = {
+            id: 'e1', updatedAt: 200,
+            loans: [{ id: 'L1', updatedAt: 200, principal: 1000,
+                refinancings: [{ id: 'R1', interestAmount: 100, voided: true, updatedAt: 200 }] }]
+        };
+        const merged = mergeEmployees(server, local);
+        const loan = merged.loans.find(l => l.id === 'L1');
+        const r1 = loan.refinancings.find(r => r.id === 'R1');
+        testRunner.assertEquals(r1.voided, true, 'la anulación debe sobrevivir al sync');
     }
 
 });

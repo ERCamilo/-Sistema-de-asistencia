@@ -301,12 +301,13 @@ function LoanCard(loan) {
     const totalDue = getTotalDue(loan);
     const paid = getPaidAmount(loan);
     const isActive = loan.status === LOAN_STATUS.ACTIVE;
+    const isPaid = loan.status === LOAN_STATUS.PAID;
     const isWrittenOff = loan.status === LOAN_STATUS.WRITTEN_OFF;
     const ledger = state.loansLedger || {};
     const showPay = ledger.showPaymentFormForLoan === loan.id;
     const showRefin = ledger.showRefinanceFormForLoan === loan.id;
     const visiblePayments = (loan.payments || []).filter(p => !p.voided);
-    const refinancings = loan.refinancings || [];
+    const refinancings = (loan.refinancings || []).filter(r => !r.voided);
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
 
@@ -381,9 +382,9 @@ function LoanCard(loan) {
                                 <span style="color: #94a3b8;">${formatDateShort(p.date)}</span>
                                 ${p.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(p.note)}"</span>` : ''}
                             </div>
-                            ${isActive ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
+                            ${(isActive || isPaid) ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
                                                   style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
-                                                  title="Anular este abono">✕</button>` : ''}
+                                                  title="${isPaid ? 'Anular este abono (reabre el préstamo)' : 'Anular este abono'}">✕</button>` : ''}
                         </div>
                     `).join('')}
                 </div>
@@ -401,6 +402,9 @@ function LoanCard(loan) {
                                 <span style="color: #64748b; font-size: 0.72rem;">${r.interestRate}% sobre ${r.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(r.baseAmount)})</span>
                                 ${r.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(r.note)}"</span>` : ''}
                             </div>
+                            ${isActive ? `<button type="button" data-app-fn="voidRefinanceHandler" data-arg="${loan.id}" data-arg2="${r.id}"
+                                                  style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
+                                                  title="Anular este refinanciamiento">✕</button>` : ''}
                         </div>
                     `).join('')}
                 </div>
