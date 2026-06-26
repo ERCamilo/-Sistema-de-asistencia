@@ -6,6 +6,7 @@ import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
+import { clearAppCaches } from '../services/CacheManager.js';
 
 // ============================================
 // EVENT DELEGATION (data-settings-action)
@@ -44,7 +45,34 @@ const _SETTINGS_ACTION_MAP = {
             window.showNotification?.('Tooltips restablecidos. Aparecerán de nuevo al usar la app.', 'success');
         }
     },
-    'run-browser-tests': () => window.runBrowserTests?.()
+    'run-browser-tests': () => window.runBrowserTests?.(),
+    // Mantenimiento: limpiar el cache del navegador para forzar la última versión.
+    'clear-cache': () => {
+        const doClear = async () => {
+            try {
+                const { deletedCaches } = await clearAppCaches();
+                window.showNotification?.(
+                    `Cache limpiado (${deletedCaches}). Recargando para traer la última versión…`,
+                    'success'
+                );
+                setTimeout(() => window.location.reload(), 600);
+            } catch (err) {
+                window.showNotification?.(`No se pudo limpiar el cache: ${err.message}`, 'error');
+            }
+        };
+        if (window.showConfirm) {
+            window.showConfirm({
+                title: 'Limpiar cache y recargar',
+                message: 'Se borrarán los archivos cacheados del navegador para forzar la última versión de la app. Tus datos (empleados, asistencia, configuración) NO se borran. La app se va a recargar. ¿Continuar?',
+                confirmText: 'Sí, limpiar y recargar',
+                cancelText: 'Cancelar',
+                type: 'warning',
+                onConfirm: doClear
+            });
+        } else {
+            doClear();
+        }
+    }
 };
 
 function _handleSettingsClick(e) {

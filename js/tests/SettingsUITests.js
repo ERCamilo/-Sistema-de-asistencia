@@ -87,6 +87,36 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
         testRunner.assert(html.includes('companyName') || html.includes('Nombre de la Empresa'), 'Debe renderizar la pestaña General por defecto');
     },
 
+    "SettingsTab: la pestaña General incluye el botón de limpiar cache (Mantenimiento)"() {
+        const stateMock = {
+            settingsActiveTab: 'general',
+            settings: {
+                regularHoursPerDay: 8, syncEnabled: true, overtimeFactor: 1, holidayFactor: 2,
+                holidays: [], scrollbarMode: 'on-scroll', iconSet: 'default',
+                companyName: 'Empresa Test', backupFrequency: 'none', hideDuplicateAlerts: false,
+                weatherEnabled: false
+            },
+            employees: [], positions: [], attendance: {}, swVersion: '1.0.0'
+        };
+        const dependencies = {
+            state: stateMock,
+            icons: { get: (name) => `[icon:${name}]`, getAvailableSets: () => ['default'] },
+            holidayService: { renderSettingsCalendar: () => '' },
+            get currentUser() { return null; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({ percentage: 10, usedMB: 0.5, available: '4.5MB' })
+        };
+        initSettingsUI(dependencies);
+
+        const html = SettingsTab();
+        testRunner.assert(html.includes('data-settings-action="clear-cache"'),
+            'La pestaña General debe exponer el botón de limpiar cache');
+        testRunner.assert(html.includes('Limpiar cache y recargar'),
+            'El botón debe tener su etiqueta');
+        testRunner.assert(html.includes('No se borran tus datos'),
+            'Debe aclarar que NO se borran los datos del usuario');
+    },
+
     "SettingsTab: renderiza la pestaña correcta según el tab activo"() {
         const stateMock = {
             settingsActiveTab: 'data',
