@@ -37,14 +37,24 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
             'el watchdog debe consultar shouldReleaseApplyingFlag antes de liberar el flag');
     },
 
-    "cada seteo de _isApplyingRemoteData=true arma el watchdog"() {
-        const setTrue = (APP_SRC.match(/_isApplyingRemoteData\s*=\s*true/g) || []).length;
-        const arms = (APP_SRC.match(/armApplyingFlagWatchdog\s*\(\s*\)/g) || []).length;
-        // `arms` incluye la definición; debe haber al menos tantas llamadas como
-        // seteos a true para que ningún path quede sin red de seguridad.
-        testRunner.assert(setTrue >= 1, 'debe haber al menos un seteo de _isApplyingRemoteData=true');
-        testRunner.assert(arms >= setTrue,
-            `cada _isApplyingRemoteData=true (${setTrue}) debe ir acompañado de armApplyingFlagWatchdog() (encontradas ${arms})`);
+    "el path mirror (applyRemoteData) NO arma el watchdog"() {
+        // JD#1: el mirror NO usa el BatchedSaver, así que saver.isActive sería
+        // false durante un apply legítimo (lecturas de migración >4s en conexión
+        // lenta) y el watchdog liberaría el flag a mitad de camino → loop/
+        // sobrescritura. El mirror se libera solo vía su propio setTimeout.
+        const mirror = APP_SRC.match(/_isApplyingRemoteData\s*=\s*true;[\s\S]{0,600}?_pendingRemoteSave\s*=\s*true/);
+        testRunner.assert(!!mirror, 'debe existir el set-true del path mirror seguido de _pendingRemoteSave');
+        testRunner.assert(!/armApplyingFlagWatchdog/.test(mirror[0]),
+            'el path mirror NO debe armar el watchdog (lo liberaría a mitad de un apply lento)');
+    },
+
+    "los paths zonales (que usan el BatchedSaver) SÍ arman el watchdog"() {
+        // Conteo PRECISO de call-sites: `armApplyingFlagWatchdog();` con `;`
+        // excluye la definición `function armApplyingFlagWatchdog() {` y el alias
+        // `window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;`.
+        const calls = (APP_SRC.match(/armApplyingFlagWatchdog\s*\(\s*\)\s*;/g) || []).length;
+        testRunner.assertEquals(calls, 2,
+            'el watchdog debe armarse exactamente en los 2 paths zonales (onInitialLoad + onModified), no en el mirror');
     }
 
 });

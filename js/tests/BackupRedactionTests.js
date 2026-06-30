@@ -28,12 +28,15 @@ function sampleData() {
             {
                 id: 'e1', number: 7, name: 'Juan', active: true, positionId: 'p1', leaderId: 'l1',
                 customSalary: 150, positionSalaries: { p1: 150 }, phone: '809-555-1234',
+                email: 'juan@example.com',
                 advances: [{ id: 'a1', amount: 500 }],
+                bonuses: [{ id: 'b1', amount: 300, reason: 'productividad' }],
+                deductions: [{ id: 'd1', amount: 100, reason: 'uniforme' }],
                 loans: [{ id: 'LOAN-1', principal: 5000, payments: [{ id: 'PAY-1', amount: 500 }] }]
             }
         ],
         positions: [
-            { id: 'p1', name: 'Albañil', salaryConfig: { amount: 150 }, baseSalary: 150 }
+            { id: 'p1', name: 'Albañil', salaryConfig: { amount: 150 }, baseSalary: 150, hourlyRate: 150, salaryInputMode: 'hourly' }
         ],
         leaders: [{ id: 'l1', name: 'Pedro', number: 1 }],
         attendance: { 'e1-2026-06-30': { employeeId: 'e1', date: '2026-06-30', present: true } },
@@ -51,6 +54,9 @@ testRunner.addSuite("BackupRedaction — redactSensitiveBackup", {
         testRunner.assert(!('customSalary' in emp), 'debe quitar customSalary');
         testRunner.assert(!('positionSalaries' in emp), 'debe quitar positionSalaries');
         testRunner.assert(!('phone' in emp), 'debe quitar phone (PII)');
+        testRunner.assert(!('email' in emp), 'debe quitar email (PII) — JD#3');
+        testRunner.assert(!('bonuses' in emp), 'debe quitar bonuses (montos financieros) — JD#3');
+        testRunner.assert(!('deductions' in emp), 'debe quitar deductions (montos financieros) — JD#3');
     },
 
     "conserva lo necesario para recuperar la forma de la UI"() {
@@ -68,6 +74,8 @@ testRunner.addSuite("BackupRedaction — redactSensitiveBackup", {
         const pos = r.positions[0];
         testRunner.assert(!('salaryConfig' in pos), 'debe quitar salaryConfig');
         testRunner.assert(!('baseSalary' in pos), 'debe quitar baseSalary');
+        testRunner.assert(!('hourlyRate' in pos), 'debe quitar hourlyRate (la tarifa REAL del puesto) — JD#3');
+        testRunner.assert(!('salaryInputMode' in pos), 'debe quitar salaryInputMode — JD#3');
         testRunner.assertEquals(pos.id, 'p1', 'conserva id del puesto');
         testRunner.assertEquals(pos.name, 'Albañil', 'conserva nombre del puesto');
     },

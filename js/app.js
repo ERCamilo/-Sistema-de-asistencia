@@ -6722,7 +6722,11 @@ function _initOutgoingConflictGuard() {
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
-                    armApplyingFlagWatchdog(); // R3: red de seguridad si el clear nunca corre
+                    // JD#1: NO armar el watchdog acá. Este path (mirror/applyRemoteData)
+                    // NO usa el BatchedSaver y hace lecturas async de migración que en
+                    // conexión lenta superan los 4s; como saver.isActive sería false,
+                    // el watchdog liberaría el flag a mitad de un apply legítimo →
+                    // loop/sobrescritura. El mirror se libera solo vía su setTimeout.
                     window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
 
                     // Fusionar datos (con deduplicación por ID)

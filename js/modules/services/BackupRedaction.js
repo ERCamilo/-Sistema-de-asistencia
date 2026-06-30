@@ -15,14 +15,19 @@
  */
 
 // Campos financieros/PII a quitar de cada empleado.
+// JD#3: incluidos bonuses/deductions (montos) y email (PII), antes omitidos.
 export const EMPLOYEE_SENSITIVE_FIELDS = [
     'salary', 'dailyRate', 'customSalary', 'positionSalaries',
-    'loans', 'advances', 'phone', 'rnc', 'cedula'
+    'loans', 'advances', 'bonuses', 'deductions',
+    'phone', 'email', 'rnc', 'cedula'
 ];
 
 // Campos salariales a quitar de cada puesto.
+// JD#3: hourlyRate es la TARIFA REAL almacenada (baseSalary es solo alias
+// derivado); salaryInputMode revela el esquema salarial. Antes omitidos.
 export const POSITION_SENSITIVE_FIELDS = [
-    'salary', 'salario', 'salaryConfig', 'baseSalary', 'dailyRate'
+    'salary', 'salario', 'salaryConfig', 'baseSalary', 'dailyRate',
+    'hourlyRate', 'salaryInputMode'
 ];
 
 function stripFields(item, fields) {

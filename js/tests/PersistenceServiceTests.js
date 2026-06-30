@@ -13,7 +13,7 @@
  *   - loadApplicationData() always sets state.isDataLoaded = true
  */
 
-import { saveApplicationData, loadApplicationData, flushPendingSave } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, loadApplicationData, flushPendingSave, restoreAutoBackup } from '../modules/services/PersistenceService.js';
 import { state, stateManager } from '../modules/core/AppState.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import dataService from '../modules/services/DataService.js';
@@ -290,6 +290,43 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
             testRunner.assertEquals(result, false, "Should return false when no data exists");
             testRunner.assert(state.isDataLoaded, "isDataLoaded should still be true (don't block UI)");
         } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "JD#2: restoreAutoBackup reinfla empleados (loans/advances no quedan undefined tras redacción)"() {
+        const snap = snapshotState();
+        const prevBackup = sessionStorage.getItem('attendance-backup');
+        try {
+            clearAllMocks();
+            // Backup REDACTADO: empleado sin loans/advances (como lo deja
+            // redactSensitiveBackup). Sin reinflar, restore deja loans=undefined
+            // → un loans.reduce() posterior peta en el escenario de emergencia.
+            const redacted = {
+                version: '1.0.0',
+                timestamp: new Date().toISOString(),
+                data: {
+                    employees: [{ id: 'e1', name: 'Juan', number: 7, active: true }],
+                    positions: [{ id: 'p1', name: 'Albañil' }],
+                    leaders: [],
+                    attendance: {},
+                    settings: {}
+                }
+            };
+            sessionStorage.setItem('attendance-backup', JSON.stringify(redacted));
+            state.employees = []; // condición para que restoreAutoBackup actúe
+
+            const ok = restoreAutoBackup();
+
+            testRunner.assertEquals(ok, true, 'debe restaurar la sesión');
+            testRunner.assert(state.employees.length === 1, 'debe haber 1 empleado restaurado');
+            testRunner.assert(Array.isArray(state.employees[0].loans),
+                'el empleado restaurado debe tener loans como ARRAY (no undefined) tras reinflar por constructor');
+            testRunner.assert(Array.isArray(state.employees[0].advances),
+                'advances debe ser array tras reinflar');
+        } finally {
+            if (prevBackup === null) sessionStorage.removeItem('attendance-backup');
+            else sessionStorage.setItem('attendance-backup', prevBackup);
             restoreState(snap);
         }
     },

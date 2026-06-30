@@ -64,14 +64,14 @@ testRunner.addSuite("R4 — guard de tamaño del doc espejo (1MB)", {
 testRunner.addSuite("R4 — saveFullState cablea el guard antes del setDoc", {
 
     "saveFullState llama a checkMirrorDocSize"() {
-        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,6000}?\n {4}\}/);
+        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,8000}?\n {4}\}/);
         testRunner.assert(!!block, 'saveFullState debe existir');
         testRunner.assert(/checkMirrorDocSize\s*\(/.test(block[0]),
             'saveFullState debe consultar checkMirrorDocSize (R4)');
     },
 
     "el guard va ANTES del setDoc del doc espejo (gatea el write)"() {
-        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,6000}?\n {4}\}/);
+        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,8000}?\n {4}\}/);
         testRunner.assert(!!block, 'saveFullState debe existir');
         const guardIdx = block[0].indexOf('checkMirrorDocSize');
         const setDocIdx = block[0].indexOf('setDoc(');
@@ -81,12 +81,37 @@ testRunner.addSuite("R4 — saveFullState cablea el guard antes del setDoc", {
     },
 
     "ante exceso, NO recorta entidades: omite el write (return) y avisa"() {
-        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,500}/);
+        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1500}/);
         testRunner.assert(!!block, 'debe existir la rama needsMigration');
         testRunner.assert(/return/.test(block[0]),
             'ante exceso debe hacer return (omitir el write inline), no recortar entidades ni tirar');
         testRunner.assert(/mirror-too-large/.test(block[0]),
             'debe emitir/avisar el evento sync:mirror-too-large para solicitar migración');
+    }
+
+});
+
+testRunner.addSuite("R4/JD — saveFullState: guard solo legacy + settings + eventBus seguro", {
+
+    "el size-check solo corre para cuentas legacy/no-migradas (JD#8)"() {
+        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,8000}?\n {4}\}/);
+        testRunner.assert(!!block, 'saveFullState debe existir');
+        testRunner.assert(/if\s*\(\s*!isMigratedEmployees\s*\)[\s\S]{0,260}?checkMirrorDocSize/.test(block[0]),
+            'checkMirrorDocSize debe correr sólo si !isMigratedEmployees (evita doble serialize en cuentas migradas) — JD#8');
+    },
+
+    "ante exceso legacy igual sincroniza settings (JD#5)"() {
+        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1500}/);
+        testRunner.assert(!!block, 'debe existir la rama needsMigration');
+        testRunner.assert(/updateDoc\s*\(\s*docRef\s*,\s*\{\s*settings/.test(block[0]),
+            'aunque omita el inline, debe sincronizar settings vía updateDoc (write chico de un campo) — JD#5');
+    },
+
+    "el emit de eventBus está protegido contra subscribers que lancen (JD#6)"() {
+        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1500}/);
+        testRunner.assert(!!block, 'debe existir la rama needsMigration');
+        testRunner.assert(/try\s*\{[\s\S]{0,220}?eventBus[\s\S]{0,140}?emit/.test(block[0]),
+            'eventBus.emit debe ir en try/catch — un subscriber que lance no debe romper el save (JD#6)');
     }
 
 });

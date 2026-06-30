@@ -402,6 +402,14 @@ export function flushPendingSave() {
     // pierde de IndexedDB. Va antes del early-return porque normalmente NO hay un
     // _saveDebounceTimer pendiente cuando sólo se acumuló asistencia entrante.
     // Su saveToIndexedDB no depende de _isApplyingRemoteData, así que drena igual.
+    //
+    // JD#4 (best-effort honesto): flushNow() es async y NO se await-ea (no se puede:
+    // los handlers de pagehide/visibilitychange son síncronos). En visibilitychange
+    // (página viva) la escritura a IndexedDB completa sin problema. En un pagehide
+    // de cierre duro es best-effort, igual que el _executeSave del save principal —
+    // no existe un flush SÍNCRONO para IndexedDB (sendBeacon es sólo para red). Aun
+    // así es estrictamente mejor que antes, cuando el BatchedSaver no se drenaba en
+    // absoluto en pagehide.
     if (typeof window !== 'undefined' && window._attendanceBatchedSaver) {
         window._attendanceBatchedSaver.flushNow();
     }
@@ -1013,7 +1021,26 @@ export function restoreAutoBackup() {
         if (backup) {
             const parsed = JSON.parse(backup);
             if (parsed.data && state.employees.length === 0) {
-                Object.assign(state, parsed.data);
+                // JD#2: reinflar por constructor ANTES del Object.assign. El
+                // auto-backup viene REDACTADO (sin loans/advances/positionSalaries/
+                // salaryConfig...), así que un Object.assign crudo dejaría esos
+                // campos en `undefined` y un loans.reduce()/advances.forEach()
+                // posterior petaría justo en el escenario de emergencia. Los
+                // constructores restituyen los defaults ([]/{}); los datos sensibles
+                // se rehidratan luego desde la nube. Inflamos sobre parsed.data para
+                // no introducir escrituras directas a `state` (1 sola asignación vía
+                // Object.assign, igual que antes).
+                const d = parsed.data;
+                if (Array.isArray(d.employees)) {
+                    d.employees = d.employees.map(e => e instanceof Employee ? e : new Employee(e));
+                }
+                if (Array.isArray(d.positions)) {
+                    d.positions = d.positions.map(p => p instanceof Position ? p : new Position(p));
+                }
+                if (Array.isArray(d.leaders)) {
+                    d.leaders = d.leaders.map(l => l instanceof Leader ? l : new Leader(l));
+                }
+                Object.assign(state, d);
                 // Bulk replace → explicit coherence (this site had NONE before, and
                 // Object.assign bypasses the proxy): total index rebuild + stats clear.
                 invalidateAllStats();
