@@ -15,7 +15,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { syncFirebaseMirrorDebounced } from '../modules/services/PersistenceService.js';
+import { syncFirebaseMirrorDebounced, flushPendingSave } from '../modules/services/PersistenceService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
 
 const FB_SRC = fs.readFileSync(
@@ -60,10 +60,46 @@ testRunner.addSuite("Mirror — flush del debounce pendiente (M10)", {
         const PS_SRC = fs.readFileSync(
             path.resolve(__dirname, '../modules/services/PersistenceService.js'), 'utf8'
         );
-        const block = PS_SRC.match(/export function flushPendingSave[\s\S]{0,900}?\n\}/);
+        const block = PS_SRC.match(/export function flushPendingSave[\s\S]{0,1600}?\n\}/);
         testRunner.assert(!!block, 'flushPendingSave debe existir');
         testRunner.assert(/syncFirebaseMirrorDebounced\.flush\s*\(/.test(block[0]),
             'flushPendingSave debe llamar a syncFirebaseMirrorDebounced.flush() (M10)');
+    }
+
+});
+
+testRunner.addSuite("R3 — flush del BatchedSaver entrante en pagehide", {
+
+    "flushPendingSave vacía el BatchedSaver entrante aunque NO haya save local pendiente"() {
+        // R3: la asistencia que llega de Firebase se acumula en
+        // window._attendanceBatchedSaver (ventana idle de hasta 1000ms) por una
+        // vía SEPARADA del debounce local de 300ms. Si la pestaña se cierra dentro
+        // de esa ventana, esa asistencia entrante se pierde de IndexedDB. Por eso
+        // flushPendingSave (pagehide/visibilitychange) DEBE drenar el BatchedSaver
+        // aunque _saveDebounceTimer sea null (no hay save local pendiente).
+        const prev = window._attendanceBatchedSaver;
+        const flushNow = jest.fn(() => Promise.resolve());
+        window._attendanceBatchedSaver = { flushNow };
+        try {
+            flushPendingSave();
+            testRunner.assertEquals(flushNow.mock.calls.length, 1,
+                'flushPendingSave debe llamar a _attendanceBatchedSaver.flushNow() para no perder asistencia entrante al cerrar la pestaña (R3)');
+        } finally {
+            window._attendanceBatchedSaver = prev;
+        }
+    },
+
+    "flushPendingSave no peta si no existe el BatchedSaver"() {
+        const prev = window._attendanceBatchedSaver;
+        window._attendanceBatchedSaver = undefined;
+        try {
+            let threw = false;
+            try { flushPendingSave(); } catch (e) { threw = true; }
+            testRunner.assert(!threw,
+                'flushPendingSave no debe petar si _attendanceBatchedSaver no está definido');
+        } finally {
+            window._attendanceBatchedSaver = prev;
+        }
     }
 
 });

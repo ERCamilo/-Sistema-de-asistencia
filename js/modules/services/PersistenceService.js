@@ -390,6 +390,16 @@ export function saveApplicationData(options = {}) {
  * away (beforeunload) or after critical operations.
  */
 export function flushPendingSave() {
+    // R3: drenar PRIMERO el BatchedSaver de asistencia ENTRANTE (ventana idle de
+    // hasta 1000ms). Esa asistencia llega de Firebase por una vía separada del
+    // debounce local de 300ms y, si la pestaña se cierra dentro de la ventana, se
+    // pierde de IndexedDB. Va antes del early-return porque normalmente NO hay un
+    // _saveDebounceTimer pendiente cuando sólo se acumuló asistencia entrante.
+    // Su saveToIndexedDB no depende de _isApplyingRemoteData, así que drena igual.
+    if (typeof window !== 'undefined' && window._attendanceBatchedSaver) {
+        window._attendanceBatchedSaver.flushNow();
+    }
+
     // M10: vaciar también el mirror a Firestore pendiente (debounce de 2s),
     // no sólo el guardado local de 300ms. Así el último cambio llega a la nube
     // aunque la pestaña se cierre dentro de la ventana de debounce.
