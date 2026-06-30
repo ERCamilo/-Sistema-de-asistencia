@@ -166,6 +166,33 @@ testRunner.addSuite("PersistenceService — saveApplicationData", {
         }
     },
 
+    async "R2: en ConstraintError de IndexedDB cae a localStorage (no descarta el guardado)"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            // Colisión del índice único 'employeeDate' = error LOCAL de IndexedDB.
+            // Hoy se descarta el guardado (de IndexedDB Y de localStorage). Debe
+            // caer a localStorage para no perder el dato de AMBOS stores.
+            const constraintErr = new Error('Unable to add key to index employeeDate: already exists.');
+            constraintErr.name = 'ConstraintError';
+            indexedDBService.saveState.mockRejectedValueOnce(constraintErr);
+            dataService.saveAll.mockReturnValueOnce(true);
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            testRunner.assert(
+                dataService.saveAll.mock.calls.length >= 1,
+                "ante ConstraintError debe caer a dataService.saveAll (localStorage) para no perder el dato de AMBOS stores (R2)"
+            );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
     async "with dateKey, triggers granular Firebase sync"() {
         const snap = snapshotState();
         const prevUser = globalThis.currentUser;

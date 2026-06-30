@@ -550,9 +550,17 @@ async function _executeSave(options = {}) {
             const errorMessage = error?.message || 'Error desconocido';
 
             if (errorName === 'ConstraintError' || errorMessage.includes('ConstraintError')) {
-                console.warn('⚡ Conflicto de integridad en IndexedDB.');
-                _localOk = false;
-                NotificationSystem.error('❌ Conflicto de datos detectado');
+                // R2: el ConstraintError es una colisión LOCAL del índice único
+                // 'employeeDate'. NO descartar el guardado: caer a localStorage para
+                // que el dato NO se pierda de AMBOS stores (antes quedaba sólo el
+                // error y _localOk=false). La reconciliación del índice duplicado es
+                // un fix aparte; acá lo prioritario es no perder el guardado.
+                console.warn('⚡ Conflicto de integridad en IndexedDB; cayendo a localStorage para no perder el dato.');
+                const fallbackOk = dataService ? dataService.saveAll() : false;
+                _localOk = fallbackOk === true;
+                NotificationSystem.error(_localOk
+                    ? '⚠️ Conflicto de datos detectado — guardado en respaldo local'
+                    : '❌ Conflicto de datos detectado');
             } else {
                 console.error('❌ Error fatal en persistencia local:', error);
                 // Fallback a localStorage
