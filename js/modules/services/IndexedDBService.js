@@ -34,11 +34,26 @@ export class IndexedDBService {
 
             request.onblocked = () => {
                 console.warn('⚠️ Upgrade de IndexedDB bloqueado: cierra otras pestañas de la app para completar la actualización.');
+                // Avisar al usuario: sin cerrar la otra pestaña el upgrade no avanza
+                // y el boot (que espera init()) puede quedar colgado.
+                try {
+                    Notification?.warning?.('Hay otra pestaña de la app abierta. Ciérrala para completar la actualización de la base de datos.');
+                } catch (_) { /* Notification puede no estar disponible en algunos entornos */ }
             };
 
             request.onsuccess = () => {
                 this.db = request.result;
                 this.isInitialized = true;
+                // 🔧 Si OTRA pestaña dispara un upgrade de versión (p.ej. v10→v11),
+                // esta conexión abierta lo bloquearía indefinidamente y colgaría el
+                // boot de la otra pestaña. onversionchange nos avisa: cerramos esta
+                // conexión para cederle el paso, en vez de colgar ambas.
+                this.db.onversionchange = () => {
+                    console.warn('🔧 IndexedDB: otra pestaña solicitó un upgrade; cerrando esta conexión para no bloquearlo.');
+                    try { this.db.close(); } catch (_) { /* noop */ }
+                    this.db = null;
+                    this.isInitialized = false;
+                };
                 resolve(this.db);
             };
 
