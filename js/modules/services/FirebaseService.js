@@ -16,6 +16,7 @@ import { PositionRepository } from './PositionRepository.js';
 import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
+import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 
 class FirebaseService {
     constructor() {
@@ -121,6 +122,23 @@ class FirebaseService {
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
             const settingsMap = cleanState.settings;
+
+            // 🛡️ R4: guard de tamaño del doc espejo. En cuentas LEGACY (<v2) los
+            // empleados/posiciones/líderes siguen INLINE y una nómina grande con
+            // préstamos puede superar el límite de 1 MiB de Firestore → setDoc tira
+            // y el sync se pierde en silencio. Si excede el margen, NO recortamos
+            // entidades (perderíamos préstamos de la única copia espejo): omitimos
+            // el write inline y pedimos migración a per-doc. Las cuentas migradas
+            // ya escribieron sus entidades en subcolecciones arriba.
+            const sizeCheck = checkMirrorDocSize(cleanState, schemaVersion);
+            if (sizeCheck.needsMigration) {
+                console.warn(`⚠️ R4: doc espejo legacy demasiado grande (${sizeCheck.bytes} bytes, cerca del límite de 1 MiB). Se omite el write inline y se solicita migración a per-doc.`);
+                if (globalThis.eventBus) {
+                    globalThis.eventBus.emit('sync:mirror-too-large', { bytes: sizeCheck.bytes });
+                }
+                SyncStatus.markError(new Error('mirror-too-large'));
+                return; // no escribir un doc que excede 1 MiB ni recortar entidades
+            }
 
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
             // 🛡️ merge: true evita que un guardado parcial borre campos top-level

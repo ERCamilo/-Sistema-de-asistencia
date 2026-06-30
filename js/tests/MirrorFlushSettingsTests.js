@@ -107,7 +107,7 @@ testRunner.addSuite("R3 — flush del BatchedSaver entrante en pagehide", {
 testRunner.addSuite("Mirror — settings como mapa completo, sin drift (M9)", {
 
     "saveFullState reemplaza settings como mapa completo (updateDoc), no merge campo-a-campo"() {
-        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,5200}?\n    \}/);
+        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,6200}?\n    \}/);
         testRunner.assert(!!block, 'saveFullState debe existir');
         testRunner.assert(/updateDoc\s*\(/.test(block[0]),
             'saveFullState debe usar updateDoc para escribir settings como mapa completo (M9)');
@@ -116,7 +116,7 @@ testRunner.addSuite("Mirror — settings como mapa completo, sin drift (M9)", {
     },
 
     "el updateDoc de settings ocurre DESPUÉS del setDoc (para no romper el watermark)"() {
-        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,5200}?\n    \}/);
+        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,6200}?\n    \}/);
         testRunner.assert(!!block, 'saveFullState debe existir');
         const setDocIdx = block[0].indexOf('setDoc(');
         const updateIdx = block[0].indexOf('updateDoc(');
@@ -126,7 +126,7 @@ testRunner.addSuite("Mirror — settings como mapa completo, sin drift (M9)", {
     },
 
     "settings se captura del cleanState para reescribirse wholesale"() {
-        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,5200}?\n    \}/);
+        const block = FB_SRC.match(/async saveFullState\s*\([\s\S]{0,6200}?\n    \}/);
         testRunner.assert(!!block, 'saveFullState debe existir');
         testRunner.assert(/settingsMap\s*=\s*cleanState\.settings/.test(block[0]),
             'debe capturarse settingsMap = cleanState.settings para el updateDoc wholesale');
