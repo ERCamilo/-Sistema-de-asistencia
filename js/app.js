@@ -6729,6 +6729,11 @@ function _initOutgoingConflictGuard() {
                     // loop/sobrescritura. El mirror se libera solo vía su setTimeout.
                     window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
 
+                    // JD2#3: envolver el apply en try/catch. Si una lectura de
+                    // migración u otra operación async rechaza, el flag debe
+                    // liberarse igual; si no, queda trabado toda la sesión (el
+                    // watchdog del mirror se quitó en JD#1) y silencia los guardados.
+                    try {
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
 
@@ -6865,6 +6870,16 @@ function _initOutgoingConflictGuard() {
                         // Primera sync completada → datos mergeados → buen momento para preguntar.
                         _checkSanitizationCloudSyncPrompt();
                     }
+                    } catch (err) {
+                        // JD2#3: el apply falló (lectura de migración rechazada,
+                        // timeout de red, etc.). Liberar el flag para no trabar los
+                        // guardados de la sesión. El happy-path lo libera vía su
+                        // setTimeout; acá cubrimos la rama de error que antes quedaba
+                        // sin red tras quitar el watchdog del mirror (JD#1).
+                        console.warn('⚠️ applyRemoteData falló; liberando _isApplyingRemoteData:', err);
+                        window._isApplyingRemoteData = false;
+                        window._pendingRemoteSave = false;
+                    }
                     } // ← cierra applyRemoteData()
                 });
 
@@ -6915,7 +6930,11 @@ function _initOutgoingConflictGuard() {
                                 window._attendanceBatchedSaver.add(dateKey);
                             });
                             // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
-                            if (!window._attendanceBatchedSaver.hasScheduledFlush) {
+                            // JD2#1: isActive (no hasScheduledFlush) — también cubre
+                            // un flush EN VUELO (_isFlushing). hasScheduledFlush sólo
+                            // mira _idleHandle y daría false apenas arranca _doFlush,
+                            // liberando el flag mientras la escritura sigue en curso.
+                            if (!window._attendanceBatchedSaver.isActive) {
                                 window._isApplyingRemoteData = false;
                             }
 

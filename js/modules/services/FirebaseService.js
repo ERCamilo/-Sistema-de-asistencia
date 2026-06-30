@@ -143,9 +143,12 @@ class FirebaseService {
                     // único campo que no toca las entidades grandes.
                     if (settingsMap && typeof settingsMap === 'object') {
                         try {
-                            await updateDoc(docRef, { settings: settingsMap });
+                            // JD2#4: setDoc(merge:true), no updateDoc — updateDoc tira
+                            // NOT_FOUND si el doc nunca existió (cuenta nueva cuyo primer
+                            // save ya excede). setDoc(merge) lo crea y sólo toca settings.
+                            await setDoc(docRef, { settings: settingsMap }, { merge: true });
                         } catch (e) {
-                            console.warn('⚠️ R4: no se pudo sincronizar settings aparte (doc inexistente u otro error):', e?.message);
+                            console.warn('⚠️ R4: no se pudo sincronizar settings aparte:', e?.message);
                         }
                     }
                     // JD#6: un subscriber de eventBus que lance no debe romper el save.

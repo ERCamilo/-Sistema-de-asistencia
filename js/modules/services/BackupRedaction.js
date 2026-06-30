@@ -16,8 +16,9 @@
 
 // Campos financieros/PII a quitar de cada empleado.
 // JD#3: incluidos bonuses/deductions (montos) y email (PII), antes omitidos.
+// JD2#5: positionSalaryModes revela el esquema salarial por puesto.
 export const EMPLOYEE_SENSITIVE_FIELDS = [
-    'salary', 'dailyRate', 'customSalary', 'positionSalaries',
+    'salary', 'dailyRate', 'customSalary', 'positionSalaries', 'positionSalaryModes',
     'loans', 'advances', 'bonuses', 'deductions',
     'phone', 'email', 'rnc', 'cedula'
 ];
@@ -29,6 +30,10 @@ export const POSITION_SENSITIVE_FIELDS = [
     'salary', 'salario', 'salaryConfig', 'baseSalary', 'dailyRate',
     'hourlyRate', 'salaryInputMode'
 ];
+
+// JD2#2: los líderes también llevan PII de contacto (phone/email) que quedaba
+// en claro en el auto-backup de sessionStorage.
+export const LEADER_SENSITIVE_FIELDS = ['phone', 'email'];
 
 function stripFields(item, fields) {
     if (!item || typeof item !== 'object') return item;
@@ -56,6 +61,7 @@ export function redactSensitiveBackup(data) {
     return {
         ...data,
         employees: redactArray(data.employees, EMPLOYEE_SENSITIVE_FIELDS),
-        positions: redactArray(data.positions, POSITION_SENSITIVE_FIELDS)
+        positions: redactArray(data.positions, POSITION_SENSITIVE_FIELDS),
+        leaders: redactArray(data.leaders, LEADER_SENSITIVE_FIELDS)
     };
 }

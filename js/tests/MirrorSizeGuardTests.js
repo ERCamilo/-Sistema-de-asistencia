@@ -81,7 +81,7 @@ testRunner.addSuite("R4 — saveFullState cablea el guard antes del setDoc", {
     },
 
     "ante exceso, NO recorta entidades: omite el write (return) y avisa"() {
-        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1500}/);
+        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1900}/);
         testRunner.assert(!!block, 'debe existir la rama needsMigration');
         testRunner.assert(/return/.test(block[0]),
             'ante exceso debe hacer return (omitir el write inline), no recortar entidades ni tirar');
@@ -101,14 +101,14 @@ testRunner.addSuite("R4/JD — saveFullState: guard solo legacy + settings + eve
     },
 
     "ante exceso legacy igual sincroniza settings (JD#5)"() {
-        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1500}/);
+        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1900}/);
         testRunner.assert(!!block, 'debe existir la rama needsMigration');
-        testRunner.assert(/updateDoc\s*\(\s*docRef\s*,\s*\{\s*settings/.test(block[0]),
-            'aunque omita el inline, debe sincronizar settings vía updateDoc (write chico de un campo) — JD#5');
+        testRunner.assert(/setDoc\s*\(\s*docRef\s*,\s*\{\s*settings[\s\S]{0,60}?merge/.test(block[0]),
+            'aunque omita el inline, debe sincronizar settings vía setDoc(merge) — crea el doc si no existe (JD#5/JD2#4)');
     },
 
     "el emit de eventBus está protegido contra subscribers que lancen (JD#6)"() {
-        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1500}/);
+        const block = FB_SRC.match(/if \(sizeCheck\.needsMigration\)[\s\S]{0,1900}/);
         testRunner.assert(!!block, 'debe existir la rama needsMigration');
         testRunner.assert(/try\s*\{[\s\S]{0,220}?eventBus[\s\S]{0,140}?emit/.test(block[0]),
             'eventBus.emit debe ir en try/catch — un subscriber que lance no debe romper el save (JD#6)');

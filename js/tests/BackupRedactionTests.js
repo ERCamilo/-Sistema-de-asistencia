@@ -27,8 +27,8 @@ function sampleData() {
         employees: [
             {
                 id: 'e1', number: 7, name: 'Juan', active: true, positionId: 'p1', leaderId: 'l1',
-                customSalary: 150, positionSalaries: { p1: 150 }, phone: '809-555-1234',
-                email: 'juan@example.com',
+                customSalary: 150, positionSalaries: { p1: 150 }, positionSalaryModes: { p1: 'hourly' },
+                phone: '809-555-1234', email: 'juan@example.com',
                 advances: [{ id: 'a1', amount: 500 }],
                 bonuses: [{ id: 'b1', amount: 300, reason: 'productividad' }],
                 deductions: [{ id: 'd1', amount: 100, reason: 'uniforme' }],
@@ -38,7 +38,7 @@ function sampleData() {
         positions: [
             { id: 'p1', name: 'Albañil', salaryConfig: { amount: 150 }, baseSalary: 150, hourlyRate: 150, salaryInputMode: 'hourly' }
         ],
-        leaders: [{ id: 'l1', name: 'Pedro', number: 1 }],
+        leaders: [{ id: 'l1', name: 'Pedro', number: 1, phone: '809-555-9999', email: 'pedro@example.com' }],
         attendance: { 'e1-2026-06-30': { employeeId: 'e1', date: '2026-06-30', present: true } },
         settings: { theme: 'dark', schemaVersion: 3 }
     };
@@ -57,6 +57,7 @@ testRunner.addSuite("BackupRedaction — redactSensitiveBackup", {
         testRunner.assert(!('email' in emp), 'debe quitar email (PII) — JD#3');
         testRunner.assert(!('bonuses' in emp), 'debe quitar bonuses (montos financieros) — JD#3');
         testRunner.assert(!('deductions' in emp), 'debe quitar deductions (montos financieros) — JD#3');
+        testRunner.assert(!('positionSalaryModes' in emp), 'debe quitar positionSalaryModes (esquema salarial) — JD2#5');
     },
 
     "conserva lo necesario para recuperar la forma de la UI"() {
@@ -80,12 +81,21 @@ testRunner.addSuite("BackupRedaction — redactSensitiveBackup", {
         testRunner.assertEquals(pos.name, 'Albañil', 'conserva nombre del puesto');
     },
 
-    "no toca asistencia, settings ni líderes"() {
+    "no toca asistencia ni settings"() {
         const data = sampleData();
         const r = redactSensitiveBackup(data);
         testRunner.assertEquals(JSON.stringify(r.attendance), JSON.stringify(data.attendance), 'asistencia intacta');
         testRunner.assertEquals(JSON.stringify(r.settings), JSON.stringify(data.settings), 'settings intactos');
-        testRunner.assertEquals(JSON.stringify(r.leaders), JSON.stringify(data.leaders), 'líderes intactos');
+    },
+
+    "redacta phone/email de líderes, conserva id/nombre/número (JD2#2)"() {
+        const r = redactSensitiveBackup(sampleData());
+        const leader = r.leaders[0];
+        testRunner.assert(!('phone' in leader), 'debe quitar phone del líder (PII)');
+        testRunner.assert(!('email' in leader), 'debe quitar email del líder (PII)');
+        testRunner.assertEquals(leader.id, 'l1', 'conserva id del líder');
+        testRunner.assertEquals(leader.name, 'Pedro', 'conserva nombre del líder');
+        testRunner.assertEquals(leader.number, 1, 'conserva número del líder');
     },
 
     "no muta el input original (devuelve copia)"() {

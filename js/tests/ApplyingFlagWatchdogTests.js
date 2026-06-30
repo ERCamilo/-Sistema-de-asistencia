@@ -48,6 +48,21 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
             'el path mirror NO debe armar el watchdog (lo liberaría a mitad de un apply lento)');
     },
 
+    "applyRemoteData libera el flag en su catch si el apply tira (JD2#3)"() {
+        // Al quitar el watchdog del mirror (JD#1), si applyRemoteData rechaza antes
+        // de su setTimeout de clear, el flag quedaría trabado. El catch lo libera.
+        testRunner.assert(/applyRemoteData falló[\s\S]{0,260}?_isApplyingRemoteData\s*=\s*false/.test(APP_SRC),
+            'applyRemoteData debe liberar _isApplyingRemoteData en su catch (JD2#3)');
+    },
+
+    "el clear de cero-registros usa isActive, no hasScheduledFlush (JD2#1)"() {
+        // hasScheduledFlush sólo mira _idleHandle; isActive además cubre _isFlushing
+        // (flush en vuelo). Limpiar el flag con un flush en vuelo reabre el riesgo
+        // de loop/sobrescritura que isActive fue creado para cerrar.
+        testRunner.assert(!/_attendanceBatchedSaver\.hasScheduledFlush/.test(APP_SRC),
+            'app.js no debe usar _attendanceBatchedSaver.hasScheduledFlush para liberar el flag (ignora _isFlushing) — usar isActive');
+    },
+
     "los paths zonales (que usan el BatchedSaver) SÍ arman el watchdog"() {
         // Conteo PRECISO de call-sites: `armApplyingFlagWatchdog();` con `;`
         // excluye la definición `function armApplyingFlagWatchdog() {` y el alias
