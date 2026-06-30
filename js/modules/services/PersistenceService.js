@@ -16,6 +16,7 @@ import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
 import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
+import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
@@ -64,6 +65,10 @@ const _pendingCloudLeaderDeletes = new Set();
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _PENDING_DELETES_LS_KEY = 'asistencia_pending_cloud_deletes';
+// Marca DEVICE-LOCAL del último INTENTO de snapshot automático (no se mirror-ea
+// a la nube, a diferencia de state.settings.lastSnapshotTimestamp). Frena la
+// tormenta de reintentos cuando createSnapshot falla persistentemente.
+const _SNAPSHOT_ATTEMPT_LS_KEY = 'asistencia_last_snapshot_attempt';
 
 function _persistDeleteQueues() {
     if (typeof localStorage === 'undefined') return;
@@ -517,13 +522,18 @@ async function _executeSave(options = {}) {
         if (freq !== 'none') {
             const now = Date.now();
             const lastBackup = state.settings?.lastSnapshotTimestamp || 0;
-            const intervals = {
-                daily: 24 * 60 * 60 * 1000,
-                weekly: 7 * 24 * 60 * 60 * 1000,
-                monthly: 30 * 24 * 60 * 60 * 1000
-            };
+            // Cooldown DEVICE-LOCAL del último intento: sin esto, si createSnapshot
+            // falla persistentemente (cuota, doc >1MB, offline), el guard de horario
+            // seguía pasando en CADA save y se re-serializaba el estado completo una
+            // y otra vez. No usamos state.settings (se mirror-ea a la nube y
+            // suprimiría los backups de otros dispositivos).
+            let lastAttempt = 0;
+            try { lastAttempt = Number(localStorage.getItem(_SNAPSHOT_ATTEMPT_LS_KEY)) || 0; } catch (_) { /* noop */ }
 
-            if (now - lastBackup > (intervals[freq] || Infinity)) {
+            if (shouldAttemptAutoSnapshot({ freq, now, lastSuccess: lastBackup, lastAttempt })) {
+                // Estampar el intento ANTES de la llamada (device-local), así un
+                // fallo no dispara un reintento inmediato en el próximo save.
+                try { localStorage.setItem(_SNAPSHOT_ATTEMPT_LS_KEY, String(now)); } catch (_) { /* noop */ }
                 const rawState = stateManager.getState();
                 FirebaseService.createSnapshot(rawState, 'auto', 'daily-auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
