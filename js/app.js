@@ -1,7 +1,7 @@
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
-import { BatchedSaver } from './modules/utils/BatchedSaver.js';
+import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
 import { debug } from './modules/utils/Debug.js';
 
@@ -160,6 +160,24 @@ window._attendanceBatchedSaver = new BatchedSaver({
     maxWaitMs: 1000,
     onError: (err) => console.warn('⚠️ Error persistiendo batch de asistencia remota:', err)
 });
+
+// 🔧 Watchdog de _isApplyingRemoteData (R3)
+// Si el flush del BatchedSaver nunca llega a correr (excepción entre poner el flag
+// y add(), o la pestaña vuelve sin completar), el flag quedaría trabado en true y
+// silenciaría TODOS los guardados siguientes de la sesión. Este watchdog libera el
+// flag SÓLO cuando el saver está inactivo (sin flush programado ni en vuelo), para
+// no cortar un apply legítimo a mitad de camino. Se re-arma en cada apply remoto.
+const _APPLYING_FLAG_WATCHDOG_MS = 4000;
+function armApplyingFlagWatchdog() {
+    clearTimeout(window._applyingFlagWatchdogTimer);
+    window._applyingFlagWatchdogTimer = setTimeout(() => {
+        if (shouldReleaseApplyingFlag(window._isApplyingRemoteData, window._attendanceBatchedSaver)) {
+            window._isApplyingRemoteData = false;
+            console.warn('🔧 Watchdog: _isApplyingRemoteData estaba trabado; liberado para no perder guardados.');
+        }
+    }, _APPLYING_FLAG_WATCHDOG_MS);
+}
+window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;
 
 // ============================================
 // 🎯 EVENT DELEGATION MAESTRO (app.js)
@@ -6704,6 +6722,7 @@ function _initOutgoingConflictGuard() {
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
+                    armApplyingFlagWatchdog(); // R3: red de seguridad si el clear nunca corre
                     window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
 
                     // Fusionar datos (con deduplicación por ID)
@@ -6872,6 +6891,7 @@ function _initOutgoingConflictGuard() {
                                 return;
                             }
                             window._isApplyingRemoteData = true;
+                            armApplyingFlagWatchdog(); // R3: red de seguridad si el flush no corre
 
                             // 🛡️ LIMPIEZA DE ESTADO: Eliminar claves "cortas" (solo id) o inconsistentes
                             // Solo deben quedar claves con formato: employeeId-dateKey
@@ -6924,6 +6944,7 @@ function _initOutgoingConflictGuard() {
                                 return;
                             }
                             window._isApplyingRemoteData = true;
+                            armApplyingFlagWatchdog(); // R3: red de seguridad si el flush no corre
 
                             // 🛡️ LIMPIEZA DE ESTADO: Evitar duplicidad si Firebase envía claves incoherentes
                             Object.values(records).forEach(record => {

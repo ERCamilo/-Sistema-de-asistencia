@@ -6,7 +6,7 @@
  *   testRunner.runAll()
  */
 
-import { BatchedSaver, defaultIdleScheduler } from '../modules/utils/BatchedSaver.js';
+import { BatchedSaver, defaultIdleScheduler, shouldReleaseApplyingFlag } from '../modules/utils/BatchedSaver.js';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers de testing
@@ -58,6 +58,69 @@ testRunner.addSuite("BatchedSaver", {
             threw = e instanceof TypeError;
         }
         testRunner.assert(threw, 'Debe lanzar TypeError si falta "flush"');
+    },
+
+    // ── isActive: primitiva de seguridad para el watchdog de _isApplyingRemoteData (R3) ──
+    // El watchdog sólo puede limpiar el flag si el saver está INACTIVO (ni flush
+    // programado ni flush en vuelo); de lo contrario limpiaría a mitad de un apply
+    // legítimo. isActive es esa señal.
+
+    "isActive: false cuando está ocioso (sin adds)"() {
+        const ctrl = createManualScheduler();
+        const saver = new BatchedSaver({ flush: async () => {}, scheduler: ctrl.scheduler, cancel: ctrl.cancel });
+        testRunner.assert(saver.isActive === false, 'sin trabajo pendiente, isActive debe ser false');
+    },
+
+    "isActive: true mientras hay un flush programado"() {
+        const ctrl = createManualScheduler();
+        const saver = new BatchedSaver({ flush: async () => {}, scheduler: ctrl.scheduler, cancel: ctrl.cancel });
+        saver.add('2026-06-30');
+        testRunner.assert(saver.isActive === true, 'con un flush programado, isActive debe ser true');
+    },
+
+    async "isActive: true mientras el flush está EN VUELO, false al terminar"() {
+        const ctrl = createManualScheduler();
+        let resolveFlush;
+        const flushGate = new Promise(r => { resolveFlush = r; });
+        const saver = new BatchedSaver({
+            flush: async () => { await flushGate; },
+            scheduler: ctrl.scheduler,
+            cancel: ctrl.cancel
+        });
+        saver.add('2026-06-30');
+        const flushPromise = ctrl.triggerScheduled(); // arranca _doFlush (queda esperando flushGate)
+        await Promise.resolve();                       // dejar que _doFlush llegue al await
+        testRunner.assert(saver.isActive === true, 'durante el flush en vuelo, isActive debe seguir true');
+        resolveFlush();
+        await flushPromise;
+        testRunner.assert(saver.isActive === false, 'al terminar el flush, isActive debe volver a false');
+    },
+
+    // ── shouldReleaseApplyingFlag: decisión pura del watchdog (R3) ──
+
+    "shouldReleaseApplyingFlag: false si el flag no está puesto (nada que liberar)"() {
+        const saver = new BatchedSaver({ flush: async () => {} });
+        testRunner.assert(shouldReleaseApplyingFlag(false, saver) === false,
+            'sin flag puesto no hay nada que liberar');
+    },
+
+    "shouldReleaseApplyingFlag: false si el saver está ACTIVO (no cortar apply legítimo)"() {
+        const ctrl = createManualScheduler();
+        const saver = new BatchedSaver({ flush: async () => {}, scheduler: ctrl.scheduler, cancel: ctrl.cancel });
+        saver.add('2026-06-30'); // saver activo (flush programado)
+        testRunner.assert(shouldReleaseApplyingFlag(true, saver) === false,
+            'con saver activo el flag NO debe liberarse (apply en curso)');
+    },
+
+    "shouldReleaseApplyingFlag: true si el flag está puesto y el saver está INACTIVO (trabado)"() {
+        const saver = new BatchedSaver({ flush: async () => {} }); // inactivo
+        testRunner.assert(shouldReleaseApplyingFlag(true, saver) === true,
+            'flag puesto + saver inactivo = trabado, debe liberarse');
+    },
+
+    "shouldReleaseApplyingFlag: true si el flag está puesto y no hay saver"() {
+        testRunner.assert(shouldReleaseApplyingFlag(true, null) === true,
+            'flag puesto sin saver = debe liberarse');
     },
 
     "add: acumula items en el batch interno"() {
