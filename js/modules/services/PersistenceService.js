@@ -17,6 +17,7 @@ import { SyncStatus } from './SyncStatus.js';
 import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
+import { redactSensitiveBackup } from './BackupRedaction.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
@@ -961,16 +962,20 @@ export async function prepareDataForNewAccount() {
  */
 export function createAutoBackup() {
     try {
+        // 🔒 Redactar campos financieros/PII: el auto-backup es una red de
+        // emergencia que puede quedar legible en sessionStorage en un equipo
+        // compartido. Guardamos sólo la forma de la UI; salarios/préstamos/
+        // adelantos/teléfonos se rehidratan desde IndexedDB / la nube.
         const backupData = {
             version: '1.0.0',
             timestamp: new Date().toISOString(),
-            data: {
+            data: redactSensitiveBackup({
                 employees: state.employees,
                 positions: state.positions,
                 leaders: state.leaders,
                 attendance: state.attendance,
                 settings: state.settings
-            }
+            })
         };
         sessionStorage.setItem('attendance-backup', JSON.stringify(backupData));
     } catch (error) {
@@ -986,12 +991,12 @@ export function createAutoBackup() {
                     version: '1.0.0',
                     timestamp: new Date().toISOString(),
                     reduced: true,
-                    data: {
+                    data: redactSensitiveBackup({
                         employees: state.employees,
                         positions: state.positions,
                         leaders: state.leaders,
                         settings: state.settings
-                    }
+                    })
                 };
                 sessionStorage.setItem('attendance-backup', JSON.stringify(reduced));
                 console.warn('⚠️ Auto-backup: cuota de sessionStorage excedida — se guardó un respaldo REDUCIDO (sin asistencia).');
