@@ -309,7 +309,7 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     // onInitialLoad = muchas fechas → TOTAL; onModified = una fecha (hot path) → GRANULAR.
     "Firebase onInitialLoad mantiene coherencia TOTAL tras la carga remota inicial"() {
         const body = between('onInitialLoad: (allAttendance) =>', 'onModified:');
-        testRunner.assert(body.length > 0 && body.length < 4000, 'el cuerpo de onInitialLoad debe acotarse bien');
+        testRunner.assert(body.length > 0 && body.length < 3900, 'el cuerpo de onInitialLoad debe acotarse bien');
         testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
         // Orden: coherencia DESPUÉS de validateDataIntegrity (que muta in-place) y ANTES del render.

@@ -6733,6 +6733,9 @@ function _initOutgoingConflictGuard() {
                     // migración u otra operación async rechaza, el flag debe
                     // liberarse igual; si no, queda trabado toda la sesión (el
                     // watchdog del mirror se quitó en JD#1) y silencia los guardados.
+                    // JD3-A: el timer post-apply se declara fuera del try para poder
+                    // cancelarlo en el catch (no correr validate+save sobre estado parcial).
+                    let _applyMirrorTimer = null;
                     try {
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
@@ -6839,7 +6842,7 @@ function _initOutgoingConflictGuard() {
 
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta.
                     // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
-                    setTimeout(() => {
+                    _applyMirrorTimer = setTimeout(() => {
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
@@ -6877,8 +6880,19 @@ function _initOutgoingConflictGuard() {
                         // setTimeout; acá cubrimos la rama de error que antes quedaba
                         // sin red tras quitar el watchdog del mirror (JD#1).
                         console.warn('⚠️ applyRemoteData falló; liberando _isApplyingRemoteData:', err);
+                        // JD3-A: cancelar el timer post-apply si ya se encoló, para NO
+                        // correr validate+save sobre un estado parcialmente mergeado.
+                        if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
                         window._isApplyingRemoteData = false;
                         window._pendingRemoteSave = false;
+                        // JD3-B: si falló durante la carga inicial, restaurar el loader
+                        // y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
+                        if (isInitialLoad) {
+                            clearTimeout(loaderTimeout);
+                            hideLoader();
+                            isInitialLoad = false;
+                            render();
+                        }
                     }
                     } // ← cierra applyRemoteData()
                 });

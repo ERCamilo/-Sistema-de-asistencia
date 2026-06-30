@@ -51,8 +51,27 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
     "applyRemoteData libera el flag en su catch si el apply tira (JD2#3)"() {
         // Al quitar el watchdog del mirror (JD#1), si applyRemoteData rechaza antes
         // de su setTimeout de clear, el flag quedaría trabado. El catch lo libera.
-        testRunner.assert(/applyRemoteData falló[\s\S]{0,260}?_isApplyingRemoteData\s*=\s*false/.test(APP_SRC),
+        testRunner.assert(/applyRemoteData falló[\s\S]{0,450}?_isApplyingRemoteData\s*=\s*false/.test(APP_SRC),
             'applyRemoteData debe liberar _isApplyingRemoteData en su catch (JD2#3)');
+    },
+
+    "el catch de applyRemoteData cancela el apply-timer (no guarda estado parcial) (JD3-A)"() {
+        // El setTimeout post-apply (persist + validate + save) está dentro del try.
+        // Si algo tira DESPUÉS de encolarlo, el callback correría sobre estado
+        // parcial. El catch debe clearTimeout ese timer.
+        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,800}/);
+        testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
+        testRunner.assert(/clearTimeout/.test(block[0]),
+            'el catch debe clearTimeout el apply-timer para no correr validate+save sobre estado parcial (JD3-A)');
+    },
+
+    "el catch de applyRemoteData restaura el loader en carga inicial (JD3-B)"() {
+        // Si applyRemoteData tira durante la carga inicial, el catch debe ocultar el
+        // loader y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
+        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,800}/);
+        testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
+        testRunner.assert(/isInitialLoad[\s\S]{0,140}?hideLoader/.test(block[0]),
+            'el catch debe restaurar el loader (hideLoader) si isInitialLoad (JD3-B)');
     },
 
     "el clear de cero-registros usa isActive, no hasScheduledFlush (JD2#1)"() {
