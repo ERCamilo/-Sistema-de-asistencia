@@ -16,6 +16,14 @@ import { nextEntryState } from './SyncErrorClassifier.js';
 
 const OUTBOX = 'mainSyncOutbox';
 
+// Judgment Day #1 (CRÍTICO): flush() se dispara desde guardado normal, 'online'
+// y login/retry manual — pueden coincidir en el tiempo. Sin este guard, dos
+// flush() concurrentes leen el mismo pending y suben la MISMA entrada dos
+// veces; ante un fallo compartido, cada uno hace put() (last-write-wins) sobre
+// `attempts` con su propia copia stale y uno de los dos incrementos se pierde,
+// debilitando el dead-lettering. Mismo patrón que PettyCashStore ya usa.
+let _flushing = false;
+
 // Espeja PettyCashStore.MAX_FLUSH_ATTEMPTS: tras este número de intentos
 // fallidos, la entrada pasa a 'dead' y deja de bloquear el resto de la cola.
 export const MAX_FLUSH_ATTEMPTS = 5;
@@ -148,35 +156,41 @@ export const MainSyncStore = {
      *   vivo — este módulo no lee `state`/`globalThis` directamente.
      */
     async flush(guards) {
+        if (_flushing) return; // otro flush ya está en vuelo — evita duplicar subidas
         if (!guards.hasSession() || guards.isApplyingRemote() || guards.isPaused()) return;
 
-        const all = await _getAll();
-        const pending = all
-            .filter(e => e && e.status === 'pending')
-            .sort((a, b) => (a.key || 0) - (b.key || 0));
+        _flushing = true;
+        try {
+            const all = await _getAll();
+            const pending = all
+                .filter(e => e && e.status === 'pending')
+                .sort((a, b) => (a.key || 0) - (b.key || 0));
 
-        for (const entry of pending) {
-            const cloudCall = _resolveCloudCall(entry, guards);
-            if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
+            for (const entry of pending) {
+                const cloudCall = _resolveCloudCall(entry, guards);
+                if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
 
-            try {
-                await cloudCall();
-                await _deleteQuiet(entry.key);
-                // El 3er argumento (entry) es sólo CONTEXTO para que el caller
-                // decida qué hacer según el `kind` — MainSyncStore no conoce esa
-                // lógica de negocio (toasts, eventos de UI), sólo la reenvía.
-                guards.onCloudResult(true, null, entry);
-            } catch (err) {
-                // ☠️ M2 (mismo criterio que PettyCashStore): cada fallo suma un
-                // intento y guarda lastError. Un error PERMANENTE (permisos,
-                // argumento inválido) dead-letterea de inmediato sin gastar los
-                // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
-                guards.onCloudResult(false, err, entry);
-                const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
-                await indexedDBService.update(OUTBOX, { ...entry, ...next });
-                if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima
-                break; // fallo transitorio: cortar el ciclo para no martillar la red
+                try {
+                    await cloudCall();
+                    await _deleteQuiet(entry.key);
+                    // El 3er argumento (entry) es sólo CONTEXTO para que el caller
+                    // decida qué hacer según el `kind` — MainSyncStore no conoce esa
+                    // lógica de negocio (toasts, eventos de UI), sólo la reenvía.
+                    guards.onCloudResult(true, null, entry);
+                } catch (err) {
+                    // ☠️ M2 (mismo criterio que PettyCashStore): cada fallo suma un
+                    // intento y guarda lastError. Un error PERMANENTE (permisos,
+                    // argumento inválido) dead-letterea de inmediato sin gastar los
+                    // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
+                    guards.onCloudResult(false, err, entry);
+                    const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
+                    await indexedDBService.update(OUTBOX, { ...entry, ...next });
+                    if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima
+                    break; // fallo transitorio: cortar el ciclo para no martillar la red
+                }
             }
+        } finally {
+            _flushing = false;
         }
     },
 

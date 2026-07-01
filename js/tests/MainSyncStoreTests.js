@@ -471,3 +471,72 @@ testRunner.addSuite("MainSyncStore — lifecycle: drenado al volver la conexión
     }
 
 });
+
+testRunner.addSuite("MainSyncStore — flush: guard de re-entrancy (Judgment Day #1, CRÍTICO)", {
+    // MainSyncStore.flush() se dispara desde AL MENOS 3 sitios independientes
+    // que pueden coincidir en el tiempo (guardado normal, 'online', login/retry
+    // manual). Sin un guard, dos flush() concurrentes leen el mismo pending,
+    // suben la MISMA entrada dos veces, y ante un fallo compartido cada uno
+    // hace `put()` (last-write-wins) sobre `attempts` con su propia copia
+    // stale — uno de los dos incrementos se pierde, debilitando el
+    // dead-lettering. Mismo patrón que PettyCashStore.flush() ya resuelve con
+    // su `_flushing` de módulo.
+
+    async "un segundo flush() mientras el primero está en vuelo NO reprocesa la cola"() {
+        resetMocks();
+        let resolveSave;
+        const gate = new Promise(r => { resolveSave = r; });
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } })]);
+        const guards = makeGuards({ saveMirror: jest.fn(() => gate) }); // se queda "colgado" hasta que resolvemos
+
+        const firstFlush = MainSyncStore.flush(guards);
+        await Promise.resolve(); // dejar que el primer flush entre a cloudCall() y quede esperando `gate`
+
+        const secondFlush = MainSyncStore.flush(guards); // dispara mientras el primero sigue en vuelo
+
+        // Resolver ANTES de esperar: sin el guard, la segunda llamada engancha
+        // la MISMA promesa `gate` (mismo mock) — awaitear en el orden opuesto
+        // dead-lockearía hasta el timeout de Jest.
+        resolveSave();
+        await Promise.all([firstFlush, secondFlush]);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1,
+            'mientras el primer flush sigue en vuelo, el segundo NO debe volver a llamar a saveMirror (evita duplicar la subida)');
+    },
+
+    async "tras terminar el primer flush, uno nuevo SÍ puede correr (el guard no queda trabado)"() {
+        resetMocks();
+        // El mock no simula un store real (NEW-3): encadenamos Once para que la
+        // 2ª llamada a getAll() refleje que la entrada YA se drenó (delete real
+        // no persiste en este mock). Lo que se prueba acá es SOLO que _flushing
+        // no queda trabado en true — no la persistencia real (ya cubierta arriba).
+        indexedDBService.getAll
+            .mockResolvedValueOnce([outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } })])
+            .mockResolvedValueOnce([]); // 2º ciclo: ya no queda nada pendiente
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+        await MainSyncStore.flush(guards); // si _flushing quedara trabado, esto no llamaría a getAll() de nuevo
+
+        testRunner.assertEquals(indexedDBService.getAll.mock.calls.length, 2,
+            'el segundo flush() debe poder ejecutar su ciclo completo (el guard se liberó tras el primero)');
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1,
+            'con la cola ya vacía en el 2º ciclo, no debe volver a subir nada');
+    },
+
+    async "el guard se libera aunque el flush termine con un error inesperado"() {
+        resetMocks();
+        indexedDBService.getAll.mockRejectedValueOnce(new Error('IDB caído')); // falla ANTES del bucle
+        const guards = makeGuards();
+
+        let threw = false;
+        try { await MainSyncStore.flush(guards); } catch (_) { threw = true; }
+
+        // Sin importar si flush() propaga o traga el error, el guard NO debe
+        // quedar trabado en true para siempre (bloquearía todo flush futuro).
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(2, { kind: 'mirror', snapshot: { settings: {} } })]);
+        await MainSyncStore.flush(guards);
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1,
+            'tras un error inesperado, un flush posterior debe poder correr normalmente (guard liberado)');
+    }
+});
