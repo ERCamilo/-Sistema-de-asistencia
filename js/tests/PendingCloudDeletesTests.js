@@ -13,6 +13,14 @@
  *   - saveApplicationData drena la cola con EmployeeRepository.deleteOne
  *     SOLO si state.settings.schemaVersion >= 2.
  *   - Si un delete falla, los demás siguen y los fallidos se reencolan.
+ *
+ * U9 — ADEMÁS de la cola Set+localStorage (que sigue siendo el camino
+ * primario, drenado en cada save), cada enqueue TAMBIÉN encola en
+ * MainSyncStore: le da a los borrados la MISMA durabilidad extra que el
+ * resto (reintento en 'online' + dead-lettering de una entrada envenenada
+ * sin bloquear las demás para siempre). Ambos caminos conviven a propósito
+ * — un delete ya drenado por uno es un no-op inofensivo para el otro
+ * (deleteDoc sobre un doc ya borrado no falla).
  */
 
 import {
@@ -20,6 +28,7 @@ import {
     getPendingCloudDeletes,
     clearPendingCloudDeletes
 } from '../modules/services/PersistenceService.js';
+import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 
 testRunner.addSuite("PersistenceService — _pendingCloudDeletes (Tarea #18)", {
 
@@ -80,9 +89,10 @@ testRunner.addSuite("PersistenceService — _pendingCloudDeletes (Tarea #18)", {
 // ─────────────────────────────────────────────────────────────
 
 import { state } from '../modules/core/AppState.js';
-import { saveApplicationData, flushPendingSave } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, flushPendingSave, loadApplicationData } from '../modules/services/PersistenceService.js';
 import { deleteDoc } from '../modules/data/firebase.js';
 import { auth } from '../modules/data/firebase.js';
+import indexedDBService from '../modules/services/IndexedDBService.js';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -262,6 +272,90 @@ testRunner.addSuite("PersistenceService — drain cargos/líderes (v3)", {
         auth.currentUser = null;
         globalThis.currentUser = null;
         delete state.settings.schemaVersion;
+    }
+
+});
+
+testRunner.addSuite("PersistenceService — los borrados TAMBIÉN encolan en MainSyncStore (U9)", {
+
+    "enqueueCloudEmployeeDelete encola también en MainSyncStore con el schemaVersion actual"() {
+        clearPendingCloudDeletes();
+        const spy = jest.spyOn(MainSyncStore, 'enqueueDelete').mockResolvedValue(undefined);
+        state.settings = state.settings || {};
+        const prevSchema = state.settings.schemaVersion;
+        try {
+            state.settings.schemaVersion = 2;
+            enqueueCloudEmployeeDelete('eX1');
+            testRunner.assert(
+                spy.mock.calls.some(c => c[0] === 'employee' && c[1] === 'eX1' && c[2] === 2),
+                'debe encolar también en el outbox durable (entity, id, schemaVersion)'
+            );
+        } finally {
+            spy.mockRestore();
+            clearPendingCloudDeletes();
+            state.settings.schemaVersion = prevSchema;
+        }
+    },
+
+    "enqueueCloudPositionDelete y enqueueCloudLeaderDelete también encolan en MainSyncStore"() {
+        clearPendingCloudPositionDeletes();
+        clearPendingCloudLeaderDeletes();
+        const spy = jest.spyOn(MainSyncStore, 'enqueueDelete').mockResolvedValue(undefined);
+        state.settings = state.settings || {};
+        const prevSchema = state.settings.schemaVersion;
+        try {
+            state.settings.schemaVersion = 3;
+            enqueueCloudPositionDelete('pX1');
+            enqueueCloudLeaderDelete('lX1');
+            testRunner.assert(spy.mock.calls.some(c => c[0] === 'position' && c[1] === 'pX1' && c[2] === 3));
+            testRunner.assert(spy.mock.calls.some(c => c[0] === 'leader' && c[1] === 'lX1' && c[2] === 3));
+        } finally {
+            spy.mockRestore();
+            clearPendingCloudPositionDeletes();
+            clearPendingCloudLeaderDeletes();
+            state.settings.schemaVersion = prevSchema;
+        }
+    },
+
+    "un delete falsy/vacío NO llega a MainSyncStore.enqueueDelete (mismo guard que la cola legacy)"() {
+        clearPendingCloudDeletes();
+        const spy = jest.spyOn(MainSyncStore, 'enqueueDelete').mockResolvedValue(undefined);
+        try {
+            enqueueCloudEmployeeDelete('');
+            enqueueCloudEmployeeDelete(null);
+            testRunner.assertEquals(spy.mock.calls.length, 0);
+        } finally {
+            spy.mockRestore();
+        }
+    },
+
+    async "loadApplicationData siembra el outbox con los ids YA pendientes de antes de esta actualización"() {
+        // Un usuario que actualiza la app puede tener ids pendientes desde ANTES
+        // de que existiera el outbox (persistidos sólo en la cola Set+localStorage
+        // legacy). Sin esto, esos ids nunca ganarían el retry-en-'online' ni el
+        // dead-lettering — sólo drenarían en el próximo save (como siempre).
+        clearPendingCloudDeletes();
+        try { localStorage.setItem('asistencia_pending_cloud_deletes', JSON.stringify({
+            employees: ['eLegacyOld'], positions: [], leaders: []
+        })); } catch (_) { /* noop */ }
+
+        const spy = jest.spyOn(MainSyncStore, 'enqueueDelete').mockResolvedValue(undefined);
+        indexedDBService.loadFullState.mockResolvedValueOnce({
+            employees: [{ id: 'e1', name: 'Test', active: true, positions: [] }],
+            positions: [], leaders: [], attendance: {}, settings: { schemaVersion: 2 }
+        });
+        try {
+            await loadApplicationData();
+
+            testRunner.assert(
+                spy.mock.calls.some(c => c[0] === 'employee' && c[1] === 'eLegacyOld' && c[2] === 2),
+                'debe sembrar el outbox con el id legacy pendiente usando el schemaVersion recién cargado'
+            );
+        } finally {
+            spy.mockRestore();
+            clearPendingCloudDeletes();
+            try { localStorage.removeItem('asistencia_pending_cloud_deletes'); } catch (_) { /* noop */ }
+        }
     }
 
 });

@@ -165,6 +165,12 @@ export function enqueueCloudEmployeeDelete(id) {
     if (!key) return;
     _pendingCloudDeletes.add(key);
     _persistDeleteQueues();
+    // U9: TAMBIÉN encolar en el outbox durable — misma id, misma garantía
+    // extra que el resto (retry en 'online' + dead-lettering). La cola
+    // Set+localStorage sigue siendo el camino primario (drenado en cada
+    // save); esto sólo agrega la red de seguridad del outbox en paralelo.
+    MainSyncStore.enqueueDelete('employee', key, state?.settings?.schemaVersion)
+        .catch(e => console.warn('⚠️ Error encolando borrado de empleado en el outbox:', e));
 }
 
 /** Encola varios ids de empleados con una sola escritura a localStorage. */
@@ -195,6 +201,9 @@ export function enqueueCloudPositionDelete(id) {
     if (!key) return;
     _pendingCloudPositionDeletes.add(key);
     _persistDeleteQueues();
+    // U9: ver comentario en enqueueCloudEmployeeDelete.
+    MainSyncStore.enqueueDelete('position', key, state?.settings?.schemaVersion)
+        .catch(e => console.warn('⚠️ Error encolando borrado de cargo en el outbox:', e));
 }
 export function getPendingCloudPositionDeletes() {
     return [..._pendingCloudPositionDeletes];
@@ -210,6 +219,9 @@ export function enqueueCloudLeaderDelete(id) {
     if (!key) return;
     _pendingCloudLeaderDeletes.add(key);
     _persistDeleteQueues();
+    // U9: ver comentario en enqueueCloudEmployeeDelete.
+    MainSyncStore.enqueueDelete('leader', key, state?.settings?.schemaVersion)
+        .catch(e => console.warn('⚠️ Error encolando borrado de líder en el outbox:', e));
 }
 export function getPendingCloudLeaderDeletes() {
     return [..._pendingCloudLeaderDeletes];
@@ -303,6 +315,31 @@ function _mainSyncGuards() {
  */
 export function drainMainSyncOutbox() {
     return MainSyncStore.flush(_mainSyncGuards());
+}
+
+/**
+ * 🌱 U9: siembra el outbox durable con los ids YA pendientes de la cola
+ * legacy (Set + localStorage, rehidratada por loadDeleteQueuesFromStorage()
+ * antes de esta carga). Un usuario que actualiza la app puede tener ids
+ * pendientes de borrar desde ANTES de que existiera el outbox — sin esto,
+ * esos ids nunca ganarían el retry-en-'online' ni el dead-lettering; sólo
+ * drenarían en el próximo save (como ya hacían).
+ *
+ * Se llama DESPUÉS de que `state.settings` está poblado (para capturar el
+ * schemaVersion real), en ambas ramas de loadApplicationData. No toca la
+ * cola legacy — sólo la LEE (getPendingCloud*Deletes ya devuelve copias).
+ */
+function _seedMainSyncOutboxFromLegacyDeletes() {
+    const schemaVersion = state?.settings?.schemaVersion;
+    getPendingCloudDeletes().forEach(id =>
+        MainSyncStore.enqueueDelete('employee', id, schemaVersion).catch(() => { /* noop, ya está en la cola legacy */ })
+    );
+    getPendingCloudPositionDeletes().forEach(id =>
+        MainSyncStore.enqueueDelete('position', id, schemaVersion).catch(() => { /* noop */ })
+    );
+    getPendingCloudLeaderDeletes().forEach(id =>
+        MainSyncStore.enqueueDelete('leader', id, schemaVersion).catch(() => { /* noop */ })
+    );
 }
 
 /**
@@ -697,6 +734,8 @@ export async function loadApplicationData() {
             // U8: armar el drenado del outbox al volver la conexión. Idempotente
             // (un solo listener 'online' real por sesión, ver MainSyncStore).
             initMainSyncLifecycle(_mainSyncGuards);
+            // U9: ids de borrado pendientes de antes de esta actualización.
+            _seedMainSyncOutboxFromLegacyDeletes();
 
             // 🟢 Pre-cargar SyncStatus con el último timestamp persistido para
             // que el badge muestre "Sincronizado · hace Xm" desde el primer
@@ -734,6 +773,7 @@ export async function loadApplicationData() {
             state.isDataLoaded = true;
             initSyncPersistence();
             initMainSyncLifecycle(_mainSyncGuards); // U8: mismo cableado que la rama IndexedDB
+            _seedMainSyncOutboxFromLegacyDeletes(); // U9: mismo cableado que la rama IndexedDB
             warmUpSyncStatus(state.settings);
 
             // Si el navegador soporta IndexedDB, migramos de inmediato
