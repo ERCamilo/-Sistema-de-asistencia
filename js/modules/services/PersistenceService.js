@@ -592,7 +592,19 @@ async function _executeSave(options = {}) {
                     dayRecords[key] = record;
                 }
             });
-            _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, dayRecords));
+            // Judgment Day ronda 2 (Juez A): mismo hueco async que JD#6 cerró
+            // para el mirror — enqueueDaily también hace await antes de
+            // escribir a IndexedDB, y dayRecords guardaba referencias PROXY
+            // (vivas) a state.attendance[key], no una copia. Clon con el
+            // mismo fallback defensivo que el mirror: si algo no serializa,
+            // subir la referencia viva es mejor que abortar el guardado local.
+            let _dayRecords = dayRecords;
+            try {
+                _dayRecords = JSON.parse(JSON.stringify(dayRecords));
+            } catch (e) {
+                console.warn('⚠️ No se pudo clonar la asistencia diaria para la nube; se sube la referencia viva:', e);
+            }
+            _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, _dayRecords));
         }
         // Foto INMUTABLE capturada AHORA — MainSyncStore coalesce a una sola
         // entrada 'mirror' pendiente (la última gana). Judgment Day #6:
@@ -602,7 +614,22 @@ async function _executeSave(options = {}) {
         // acción) podía filtrarse en lo que termina subiendo a la nube. El
         // clon JSON (mismo patrón que ya usa FirebaseService.saveFullState al
         // subir) la hace inmutable de verdad, no sólo "raw sin proxy".
-        _outboxEnqueues.push(MainSyncStore.enqueueMirror(JSON.parse(JSON.stringify(stateManager.getState()))));
+        //
+        // Judgment Day ronda 2 (Juez A): ese JSON.stringify corre SÍNCRONO acá,
+        // sin try/catch, dentro de _executeSave (invocada fire-and-forget desde
+        // el debounce/flushPendingSave, sin .catch() en la cadena). Un valor no
+        // serializable (BigInt, etc.) tiraba una excepción que abortaba TODO el
+        // resto de _executeSave — incluido el guardado LOCAL, que va más abajo.
+        // Fallback a la referencia viva (el hueco angosto que JD#6 cerraba)
+        // antes que perder el guardado local entero.
+        let _mirrorSnapshot;
+        try {
+            _mirrorSnapshot = JSON.parse(JSON.stringify(stateManager.getState()));
+        } catch (e) {
+            console.warn('⚠️ No se pudo clonar el snapshot para la nube; se sube la referencia viva:', e);
+            _mirrorSnapshot = stateManager.getState();
+        }
+        _outboxEnqueues.push(MainSyncStore.enqueueMirror(_mirrorSnapshot));
 
         // Disparar el drenado recién DESPUÉS de que las entradas terminen de
         // encolarse (evita la carrera de que flush() lea el outbox antes de

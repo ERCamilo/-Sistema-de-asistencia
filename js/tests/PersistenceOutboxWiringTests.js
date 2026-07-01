@@ -178,6 +178,77 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             globalThis.currentUser = null;
             restoreState(snap);
         }
+    },
+
+    async "un error al clonar el snapshot (valor no serializable) NO debe abortar el guardado LOCAL (Judgment Day ronda 2, Juez A)"() {
+        // El fix de JD#6 agregó JSON.parse(JSON.stringify(...)) en el call site,
+        // SIN try/catch, dentro de _executeSave — que se invoca fire-and-forget
+        // (sin .catch()) desde el debounce y desde flushPendingSave. Si state
+        // tiene algo no serializable (p.ej. un BigInt — una referencia circular
+        // no puede sobrevivir a toRaw(), que ya la rechaza al asignarla), el
+        // throw síncrono de JSON.stringify aborta TODO el resto de _executeSave,
+        // incluido el guardado LOCAL (que va MÁS ABAJO en la función) —
+        // exactamente el escenario de pérdida de datos que esta feature entera
+        // existe para evitar.
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+            indexedDBService.saveState.mockClear();
+
+            state.employees = [{ id: 'e1', weirdValue: 10n }];
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            testRunner.assert(indexedDBService.saveState.mock.calls.length >= 1,
+                'el guardado LOCAL debe seguir ocurriendo aunque el clon del snapshot para la nube falle');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
+    },
+
+    async "los registros pasados a enqueueDaily son un clon, no una referencia viva de state.attendance (Judgment Day ronda 2, Juez A)"() {
+        // Mismo hueco async que JD#6 cerró para el mirror (enqueueDaily también
+        // hace await _getAll() antes de escribir a IndexedDB) pero no se había
+        // aplicado a la ruta 'daily' — dayRecords[key] = record guardaba la
+        // referencia PROXY (viva) de state.attendance[key], no una copia.
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            state.attendance = {
+                'emp1-2026-07-01': { employeeId: 'emp1', date: '2026-07-01', present: true, hoursWorked: 8 }
+            };
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+
+            saveApplicationData({ dateKey: '2026-07-01' });
+            await waitForSave();
+
+            testRunner.assert(spies.enqueueDaily.mock.calls.length >= 1, 'debe haber encolado la asistencia diaria');
+            const passedRecords = spies.enqueueDaily.mock.calls[0][1];
+
+            // Mutar state DESPUÉS de que ya se llamó a enqueueDaily.
+            state.attendance['emp1-2026-07-01'].hoursWorked = 999;
+
+            testRunner.assertEquals(passedRecords['emp1-2026-07-01'].hoursWorked, 8,
+                'los registros ya encolados no deben reflejar mutaciones posteriores de state.attendance — deben ser un clon, no una referencia viva');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
     }
 
 });

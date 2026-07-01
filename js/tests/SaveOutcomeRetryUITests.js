@@ -86,6 +86,30 @@ testRunner.addSuite("SaveOutcomeNotifier (singleton) — botón Reintentar (U12)
         } finally { reset(); }
     },
 
+    "el retry exitoso limpia el botón Reintentar del toast confirmado (Judgment Day ronda 2, Juez B)"() {
+        // La rama 'confirm' de _notify actualiza el toast a verde sin pasar
+        // actions: [] — Notification.update() sólo pisa this.actions si
+        // options.actions es un array, así que el botón Reintentar del fallo
+        // anterior sobrevivía VISUALMENTE en el toast de éxito. Mismo patrón
+        // que Judgment Day #5 corrigió para start/provisional, pero esa vez
+        // no cubrió la rama confirm.
+        reset();
+        saveOutcomeNotifier.setCloudRetryHandler(() => {
+            saveOutcomeNotifier.recordCloudResult(true);
+        });
+        try {
+            driveCloudFailure();
+            const toast = Notification.activeNotifications[0];
+            testRunner.assert(!!toast.element.querySelector('.notification-action'),
+                'precondición: el toast de fallo debe tener el botón Reintentar');
+
+            toast.element.querySelector('.notification-action').click();
+
+            testRunner.assert(!toast.element.querySelector('.notification-action'),
+                'el botón Reintentar viejo NO debe seguir visible en el toast confirmado en verde');
+        } finally { reset(); }
+    },
+
     "el retry fallido deja el MISMO toast en amarillo, con el botón disponible de nuevo"() {
         reset();
         saveOutcomeNotifier.setCloudRetryHandler(() => {

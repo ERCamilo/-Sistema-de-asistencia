@@ -305,8 +305,12 @@ const _notify = (o) => {
         if (o.kind === 'confirm') {
             // Fase 2 OK: actualizar el MISMO toast. Si ya se cerró, silencio
             // (sin noticias = todo bien; no apilamos un segundo toast).
+            // Judgment Day ronda 2 (Juez B): mismo motivo que JD#5 — si este
+            // toast venía de un fallo con botón Reintentar (p.ej. un retry que
+            // ahora tuvo éxito), sin actions: [] el botón sobrevivía visible
+            // en el toast ya confirmado en verde.
             if (_toastAlive()) {
-                _toast.update({ type: 'success', message: o.message });
+                _toast.update({ type: 'success', message: o.message, actions: [] });
             }
             _toast = null;
             return;
