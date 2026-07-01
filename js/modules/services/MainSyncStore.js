@@ -162,13 +162,16 @@ export const MainSyncStore = {
             try {
                 await cloudCall();
                 await _deleteQuiet(entry.key);
-                guards.onCloudResult(true);
+                // El 3er argumento (entry) es sólo CONTEXTO para que el caller
+                // decida qué hacer según el `kind` — MainSyncStore no conoce esa
+                // lógica de negocio (toasts, eventos de UI), sólo la reenvía.
+                guards.onCloudResult(true, null, entry);
             } catch (err) {
                 // ☠️ M2 (mismo criterio que PettyCashStore): cada fallo suma un
                 // intento y guarda lastError. Un error PERMANENTE (permisos,
                 // argumento inválido) dead-letterea de inmediato sin gastar los
                 // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
-                guards.onCloudResult(false);
+                guards.onCloudResult(false, err, entry);
                 const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
                 await indexedDBService.update(OUTBOX, { ...entry, ...next });
                 if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima

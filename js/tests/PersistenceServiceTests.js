@@ -18,6 +18,7 @@ import { state, stateManager } from '../modules/core/AppState.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import dataService from '../modules/services/DataService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
+import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers — snapshot & restore state between tests
@@ -193,9 +194,15 @@ testRunner.addSuite("PersistenceService — saveApplicationData", {
         }
     },
 
-    async "with dateKey, triggers granular Firebase sync"() {
+    async "with dateKey, encola la asistencia granular en el outbox (U7)"() {
+        // U7: ya NO llama a FirebaseService.saveDailyAttendance directo — encola
+        // en MainSyncStore (bandeja de pendientes durable) para que una subida a
+        // medio terminar sobreviva a cerrar la pestaña. La entrega real a
+        // Firestore ocurre en MainSyncStore.flush (cubierto en MainSyncStoreTests).
         const snap = snapshotState();
         const prevUser = globalThis.currentUser;
+        const enqueueSpy = jest.spyOn(MainSyncStore, 'enqueueDaily').mockResolvedValue(undefined);
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
         try {
             clearAllMocks();
             state.isDataLoaded = true;
@@ -210,19 +217,19 @@ testRunner.addSuite("PersistenceService — saveApplicationData", {
             saveApplicationData({ dateKey: '2026-05-15' });
             await waitForSave();
 
-            testRunner.assertEquals(
-                FirebaseService.saveDailyAttendance.mock.calls.length,
-                1,
-                "saveDailyAttendance should be called exactly once"
-            );
-            const [calledDateKey, calledRecords] = FirebaseService.saveDailyAttendance.mock.calls[0];
+            testRunner.assertEquals(enqueueSpy.mock.calls.length, 1, "enqueueDaily debe llamarse exactamente una vez");
+            const [calledDateKey, calledRecords] = enqueueSpy.mock.calls[0];
             testRunner.assertEquals(calledDateKey, '2026-05-15', "Called with the right dateKey");
             testRunner.assertEquals(
                 Object.keys(calledRecords).length,
                 2,
                 "Should pass only records ending in -2026-05-15 (2 of them)"
             );
+            testRunner.assertEquals(FirebaseService.saveDailyAttendance.mock.calls.length, 0,
+                'no debe llamarse directo — sólo el outbox lo hace al flushear');
         } finally {
+            enqueueSpy.mockRestore();
+            flushSpy.mockRestore();
             globalThis.currentUser = prevUser;
             restoreState(snap);
         }

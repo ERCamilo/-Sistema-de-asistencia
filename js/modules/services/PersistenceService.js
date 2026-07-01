@@ -17,6 +17,7 @@ import { SyncStatus } from './SyncStatus.js';
 import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
+import { MainSyncStore, initMainSyncLifecycle } from './MainSyncStore.js';
 import { redactSensitiveBackup } from './BackupRedaction.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
@@ -261,6 +262,40 @@ async function _drainPendingCloudDeletes() {
 }
 
 /**
+ * 🚚 Guards inyectados para MainSyncStore.flush() (U7 — bandeja de pendientes
+ * hacia la nube). Se construyen FRESCOS en cada llamada (no una vez y
+ * cacheados): sesión/pausa/estado pueden cambiar entre que una entrada se
+ * encoló y el momento en que efectivamente se vacía la cola.
+ */
+function _mainSyncGuards() {
+    const REPO_BY_ENTITY = { employee: EmployeeRepository, position: PositionRepository, leader: LeaderRepository };
+    return {
+        hasSession: () => !!globalThis.currentUser,
+        isApplyingRemote: () => !!globalThis._isApplyingRemoteData,
+        isPaused: () => SYNC_PAUSE_ENABLED && isSyncPaused(),
+        cloudWatermark: () => state._lastKnownCloudUpdatedAt || 0,
+        saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot),
+        saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
+        deleteEntity: (entity, id) => {
+            const repo = REPO_BY_ENTITY[entity];
+            return repo ? repo.deleteOne(id) : Promise.resolve();
+        },
+        // El feedback de UI (toast honesto + anillos de asistencia) sólo
+        // reaccionaba, antes del outbox, a la resolución del MIRROR completo —
+        // la asistencia granular y los borrados nunca lo tocaban (salvo el
+        // registro de error de sync). Se preserva ese comportamiento acá:
+        // sólo 'mirror' dispara recordCloudResult + el evento de anillos.
+        onCloudResult: (ok, err, entry) => {
+            if (entry?.kind === 'mirror') {
+                saveOutcomeNotifier.recordCloudResult(ok);
+                globalThis.eventBus?.emit?.('sync:mirror-result', { ok });
+            }
+            if (!ok && err) _notifySyncError(err);
+        }
+    };
+}
+
+/**
  * ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
  * Evita saturar la cuota de Firebase con guardados demasiado frecuentes
  */
@@ -500,7 +535,11 @@ async function _executeSave(options = {}) {
     // el resultado de la nube (verde/amarillo) o anunciar solo el local (verde).
     const _cloudAttempted = _canSyncFirebase && !_hasOutgoingConflict;
     if (_cloudAttempted) {
-        // 1. Sincronización Granular (si hay dateKey)
+        // 1+2. U7 — Bandeja de pendientes hacia la nube (MainSyncStore) en vez
+        // de llamar a Firestore directo. Si la pestaña se cierra antes de que
+        // la subida termine, la entrada sigue en IndexedDB y se reintenta sola
+        // al reconectar/volver a entrar (no se pierde).
+        const _outboxEnqueues = [];
         if (options.dateKey) {
             const dayRecords = {};
             const suffix = `-${options.dateKey}`;
@@ -509,14 +548,23 @@ async function _executeSave(options = {}) {
                     dayRecords[key] = record;
                 }
             });
-            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => {
-                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e);
-                _notifySyncError(e);
-            });
+            _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, dayRecords));
         }
+        // Foto INMUTABLE (raw, sin proxy) capturada AHORA — MainSyncStore
+        // coalesce a una sola entrada 'mirror' pendiente (la última gana).
+        _outboxEnqueues.push(MainSyncStore.enqueueMirror(stateManager.getState()));
 
-        // 2. Sincronización Espejo (Full State) - DEBOUNCED
-        syncFirebaseMirrorDebounced(state);
+        // Disparar el drenado recién DESPUÉS de que las entradas terminen de
+        // encolarse (evita la carrera de que flush() lea el outbox antes de
+        // que el enqueue haya escrito) — pero sin `await` acá: el guardado
+        // LOCAL (más abajo) nunca debe esperar a la nube.
+        Promise.all(_outboxEnqueues)
+            .catch(e => console.warn('⚠️ Error encolando al outbox:', e))
+            .finally(() => {
+                MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+                    console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
+                );
+            });
 
         // 2.b Drenar la cola de borrados pendientes en la nube.
         // Ocurre solo si schemaVersion >= 2 (cuentas migradas). Es seguro
