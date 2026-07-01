@@ -15,6 +15,16 @@ import { indexedDBService } from './IndexedDBService.js';
 
 const OUTBOX = 'mainSyncOutbox';
 
+// Mismo margen que el chequeo de conflicto saliente en PersistenceService
+// (_executeSave): si la nube es "más nueva" que el snapshot por menos que
+// esto, se considera ruido de reloj/latencia y se sube igual.
+const OUTGOING_CONFLICT_GRACE_MS = 10_000;
+
+// Requisitos de esquema para que el doc per-entidad exista en la nube
+// (mismos umbrales que FirebaseService.saveFullState). Bajo el umbral, el
+// path es "muerto" — nada lee ese doc todavía — y el borrado debe esperar.
+const DELETE_SCHEMA_MIN = { employee: 2, position: 3, leader: 3 };
+
 /** Lee todas las entradas del outbox (defensivo ante error). */
 async function _getAll() {
     try { return (await indexedDBService.getAll(OUTBOX)) || []; }
@@ -81,6 +91,70 @@ export const MainSyncStore = {
         await indexedDBService.update(OUTBOX, {
             kind: 'delete', entity, id, schemaVersion, ts: Date.now(), status: 'pending'
         });
+    },
+
+    /**
+     * Vacía el outbox hacia la nube. TODOS los chequeos de seguridad se
+     * re-evalúan ACÁ, al momento de vaciar — no alcanza con haber sido válidos
+     * cuando se encoló la entrada, porque puede haber pasado tiempo (landmine
+     * #2): sesión cerrada, sincronización pausada, un apply remoto en curso,
+     * o la nube haber avanzado más que el snapshot que se iba a subir.
+     *
+     * @param {{
+     *   hasSession: () => boolean,
+     *   isApplyingRemote: () => boolean,
+     *   isPaused: () => boolean,
+     *   cloudWatermark: () => number,
+     *   saveMirror: (snapshot) => Promise,
+     *   saveDaily: (dateKey, records) => Promise,
+     *   deleteEntity: (entity, id) => Promise,
+     *   onCloudResult: (ok) => void
+     * }} guards - inyectado por el caller (PersistenceService), evaluado en
+     *   vivo — este módulo no lee `state`/`globalThis` directamente.
+     */
+    async flush(guards) {
+        if (!guards.hasSession() || guards.isApplyingRemote() || guards.isPaused()) return;
+
+        const all = await _getAll();
+        const pending = all
+            .filter(e => e && e.status === 'pending')
+            .sort((a, b) => (a.key || 0) - (b.key || 0));
+
+        for (const entry of pending) {
+            if (entry.kind === 'mirror') {
+                const localTs = entry.snapshot?.settings?.localUpdatedAt || 0;
+                if (guards.cloudWatermark() > localTs + OUTGOING_CONFLICT_GRACE_MS) {
+                    // Diferir, NO es un fallo: la nube ya tiene algo más nuevo que
+                    // este snapshot. No incrementar attempts ni tocar la entrada.
+                    continue;
+                }
+                await guards.saveMirror(entry.snapshot);
+                await _deleteQuiet(entry.key);
+                guards.onCloudResult(true);
+                continue;
+            }
+
+            if (entry.kind === 'daily') {
+                // Sin gate de watermark: es un merge granular por día, no un
+                // overwrite wholesale que el watermark tenga que proteger.
+                await guards.saveDaily(entry.dateKey, entry.records);
+                await _deleteQuiet(entry.key);
+                guards.onCloudResult(true);
+                continue;
+            }
+
+            if (entry.kind === 'delete') {
+                const minSchema = DELETE_SCHEMA_MIN[entry.entity];
+                if (!minSchema || (entry.schemaVersion || 0) < minSchema) {
+                    // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
+                    // pendiente hasta que la cuenta migre — no es un fallo.
+                    continue;
+                }
+                await guards.deleteEntity(entry.entity, entry.id);
+                await _deleteQuiet(entry.key);
+                guards.onCloudResult(true);
+            }
+        }
     }
 
 };

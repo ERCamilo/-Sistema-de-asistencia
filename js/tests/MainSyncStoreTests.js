@@ -32,6 +32,21 @@ function updatesToOutbox() {
     return indexedDBService.update.mock.calls.filter(c => c[0] === 'mainSyncOutbox');
 }
 
+/** Guards "todo permitido" por defecto — cada test override sólo lo que necesita. */
+function makeGuards(overrides = {}) {
+    return {
+        hasSession: () => true,
+        isApplyingRemote: () => false,
+        isPaused: () => false,
+        cloudWatermark: () => 0,
+        saveMirror: jest.fn().mockResolvedValue(undefined),
+        saveDaily: jest.fn().mockResolvedValue(undefined),
+        deleteEntity: jest.fn().mockResolvedValue(undefined),
+        onCloudResult: jest.fn(),
+        ...overrides
+    };
+}
+
 testRunner.addSuite("MainSyncStore — enqueue y coalescing", {
 
     async "enqueueMirror con cola vacía crea una entrada mirror pending"() {
@@ -136,6 +151,161 @@ testRunner.addSuite("MainSyncStore — enqueue y coalescing", {
 
         testRunner.assertEquals(updatesToOutbox().length, 1,
             'un id igual mismo en OTRA entidad (position vs employee) no debe considerarse duplicado');
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — flush: guards re-evaluados al vaciar (landmine #2)", {
+
+    async "sin sesión no toca la nube y deja la entrada pending"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot: {} })]);
+        const guards = makeGuards({ hasSession: () => false });
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 0, 'sin sesión no debe intentar subir nada');
+        testRunner.assertEquals(indexedDBService.delete.mock.calls.length, 0, 'la entrada no debe drenarse');
+    },
+
+    async "_isApplyingRemoteData=true difiere el flush completo"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot: {} })]);
+        const guards = makeGuards({ isApplyingRemote: () => true });
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 0,
+            'mientras se están aplicando datos remotos, no debe subir nada (evita loop de sync)');
+    },
+
+    async "sincronización pausada difiere el flush completo"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot: {} })]);
+        const guards = makeGuards({ isPaused: () => true });
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 0, 'pausado no debe subir nada');
+    },
+
+    async "watermark saliente: nube más nueva que el snapshot difiere el mirror SIN incrementar attempts"() {
+        resetMocks();
+        const snapshot = { settings: { localUpdatedAt: 1000 } };
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot })]);
+        // Nube 11s más nueva que el snapshot (> OUTGOING_CONFLICT_GRACE_MS=10s) → diferir.
+        const guards = makeGuards({ cloudWatermark: () => 1000 + 11000 });
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 0,
+            'un snapshot más viejo que la nube (fuera de la gracia) no debe subirse — pisaría algo más nuevo');
+        testRunner.assertEquals(indexedDBService.delete.mock.calls.length, 0, 'la entrada sigue pendiente');
+        const updates = updatesToOutbox();
+        testRunner.assertEquals(updates.length, 0,
+            'diferir por watermark NO es un fallo — no debe incrementar attempts ni tocar la entrada');
+    },
+
+    async "watermark dentro de la gracia SÍ sube el mirror"() {
+        resetMocks();
+        const snapshot = { settings: { localUpdatedAt: 1000 } };
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot })]);
+        // Nube sólo 5s más "nueva" (< gracia de 10s) → se considera al día, sube igual.
+        const guards = makeGuards({ cloudWatermark: () => 1000 + 5000 });
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1, 'debe subir el mirror');
+        testRunner.assert(
+            indexedDBService.delete.mock.calls.some(c => c[0] === 'mainSyncOutbox' && c[1] === 1),
+            'debe drenar la entrada tras subirla con éxito'
+        );
+    },
+
+    async "la asistencia diaria NO se gatea por el watermark (merge granular, no wholesale)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'daily', dateKey: '2026-07-01', records: {} })]);
+        const guards = makeGuards({ cloudWatermark: () => 999999999 }); // nube "mucho más nueva"
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveDaily.mock.calls.length, 1,
+            'la asistencia diaria se sube siempre (merge por día, no hay wholesale overwrite que proteger)');
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — flush: dispatch por kind", {
+
+    async "mirror drena vía saveMirror y borra la entrada, reporta éxito"() {
+        resetMocks();
+        const snapshot = { settings: { localUpdatedAt: 1000 } };
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'mirror', snapshot })]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls[0][0], snapshot, 'debe pasar el snapshot capturado');
+        testRunner.assertEquals(guards.onCloudResult.mock.calls[0][0], true, 'debe reportar éxito');
+    },
+
+    async "daily drena vía saveDaily(dateKey, records)"() {
+        resetMocks();
+        const records = { 'e1-2026-07-01': {} };
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { kind: 'daily', dateKey: '2026-07-01', records })]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveDaily.mock.calls[0][0], '2026-07-01');
+        testRunner.assertEquals(guards.saveDaily.mock.calls[0][1], records);
+    },
+
+    async "delete de empleado con schemaVersion>=2 llama deleteEntity('employee', id)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'delete', entity: 'employee', id: 'e1', schemaVersion: 2 })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.deleteEntity.mock.calls[0][0], 'employee');
+        testRunner.assertEquals(guards.deleteEntity.mock.calls[0][1], 'e1');
+        testRunner.assert(indexedDBService.delete.mock.calls.some(c => c[1] === 1), 'debe drenarse tras el borrado');
+    },
+
+    async "delete de empleado con schemaVersion<2 queda pending (path muerto, no drena ni falla)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'delete', entity: 'employee', id: 'e1', schemaVersion: 1 })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.deleteEntity.mock.calls.length, 0,
+            'cuenta legacy: el doc per-empleado no existe, no debe intentar borrarlo');
+        testRunner.assertEquals(indexedDBService.delete.mock.calls.length, 0, 'la entrada NO debe drenarse (queda esperando la migración)');
+        testRunner.assertEquals(updatesToOutbox().length, 0, 'no es un fallo — no debe incrementar attempts');
+    },
+
+    async "delete de position con schemaVersion<3 queda pending; con >=3 drena"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'delete', entity: 'position', id: 'p1', schemaVersion: 2 })
+        ]);
+        let guards = makeGuards();
+        await MainSyncStore.flush(guards);
+        testRunner.assertEquals(guards.deleteEntity.mock.calls.length, 0, 'positions requieren schemaVersion>=3');
+
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'delete', entity: 'position', id: 'p1', schemaVersion: 3 })
+        ]);
+        guards = makeGuards();
+        await MainSyncStore.flush(guards);
+        testRunner.assertEquals(guards.deleteEntity.mock.calls.length, 1, 'con schemaVersion>=3 sí debe drenar');
     }
 
 });
