@@ -124,4 +124,47 @@ testRunner.addSuite("SyncStatus — subscribe / eventos (Fase 3.2)", {
 
 });
 
+testRunner.addSuite("SyncStatus — clearError() (U10)", {
+    // Un retry manual exitoso (botón "Reintentar", U12) debe poder apagar el
+    // badge rojo de error incluso cuando la operación que tuvo éxito no llama
+    // a markSynced() (p. ej. sólo se drenaron borrados del outbox).
+
+    "clearError limpia el error y notifica a los suscriptores"() {
+        SyncStatus.reset();
+        SyncStatus.markSynced(1000);
+        SyncStatus.markError(new Error('boom'));
+        testRunner.assert(SyncStatus.hasError(), 'precondición: debe haber error');
+
+        let notified = false;
+        const unsub = SyncStatus.subscribe(() => { notified = true; });
+        try {
+            SyncStatus.clearError();
+            testRunner.assertEquals(SyncStatus.hasError(), false, 'hasError debe volver a false');
+            testRunner.assert(notified, 'debe notificar a los suscriptores para que el badge se re-renderice');
+        } finally { unsub(); }
+    },
+
+    "clearError sin error pendiente es no-op (no notifica)"() {
+        SyncStatus.reset();
+        SyncStatus.markSynced(1000);
+        testRunner.assert(!SyncStatus.hasError(), 'precondición: sin error');
+
+        let notified = false;
+        const unsub = SyncStatus.subscribe(() => { notified = true; });
+        try {
+            SyncStatus.clearError();
+            testRunner.assertEquals(notified, false, 'sin error que limpiar, no debe notificar (evita re-renders de más)');
+        } finally { unsub(); }
+    },
+
+    "clearError preserva lastSyncedAt (no lo borra ni lo bumpa a ahora)"() {
+        SyncStatus.reset();
+        SyncStatus.markSynced(1234);
+        SyncStatus.markError(new Error('boom'));
+        SyncStatus.clearError();
+        testRunner.assertEquals(SyncStatus.getLastSyncedAt(), 1234,
+            'clearError es la versión que preserva el timestamp — a diferencia de markSynced, no lo actualiza a ahora');
+    }
+});
+
 console.log('🧪 SyncStatus tests cargados.');
