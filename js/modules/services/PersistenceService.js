@@ -594,9 +594,15 @@ async function _executeSave(options = {}) {
             });
             _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, dayRecords));
         }
-        // Foto INMUTABLE (raw, sin proxy) capturada AHORA — MainSyncStore
-        // coalesce a una sola entrada 'mirror' pendiente (la última gana).
-        _outboxEnqueues.push(MainSyncStore.enqueueMirror(stateManager.getState()));
+        // Foto INMUTABLE capturada AHORA — MainSyncStore coalesce a una sola
+        // entrada 'mirror' pendiente (la última gana). Judgment Day #6:
+        // enqueueMirror es async (await antes de escribir a IndexedDB), así
+        // que pasarle la referencia VIVA de stateManager.getState() dejaba una
+        // ventana donde una mutación posterior de state (otro guardado, otra
+        // acción) podía filtrarse en lo que termina subiendo a la nube. El
+        // clon JSON (mismo patrón que ya usa FirebaseService.saveFullState al
+        // subir) la hace inmutable de verdad, no sólo "raw sin proxy".
+        _outboxEnqueues.push(MainSyncStore.enqueueMirror(JSON.parse(JSON.stringify(stateManager.getState()))));
 
         // Disparar el drenado recién DESPUÉS de que las entradas terminen de
         // encolarse (evita la carrera de que flush() lea el outbox antes de

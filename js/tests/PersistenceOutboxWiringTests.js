@@ -139,6 +139,45 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
             restoreState(snap);
         }
+    },
+
+    async "el snapshot pasado a enqueueMirror es un clon, no la referencia viva de state (Judgment Day #6)"() {
+        // enqueueMirror es async (await _getAll() antes de escribir a IndexedDB)
+        // — si se le pasa la referencia VIVA de stateManager.getState(), una
+        // mutación de state que ocurra en ese hueco (otro guardado, otra
+        // acción del usuario) podría filtrarse en lo que termina subiendo a
+        // la nube, mezclando datos de dos momentos distintos. El comentario
+        // en el call site decía "foto INMUTABLE" pero era sólo una referencia
+        // raw (sin proxy), no un clon — este test exige que sea de verdad
+        // inmutable ante mutaciones posteriores.
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+
+            state.employees = [{ id: 'e1', name: 'Original' }];
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            testRunner.assert(spies.enqueueMirror.mock.calls.length >= 1, 'debe haber encolado el mirror');
+            const passedSnapshot = spies.enqueueMirror.mock.calls[0][0];
+
+            // Mutar state DESPUÉS de que ya se llamó a enqueueMirror.
+            state.employees[0].name = 'MUTADO';
+
+            testRunner.assertEquals(passedSnapshot.employees[0].name, 'Original',
+                'el snapshot ya encolado no debe reflejar mutaciones posteriores de state — debe ser un clon, no una referencia viva');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
     }
 
 });
