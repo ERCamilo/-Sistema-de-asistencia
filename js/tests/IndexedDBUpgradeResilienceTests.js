@@ -43,3 +43,34 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
     }
 
 });
+
+testRunner.addSuite("IndexedDB — schema v11: store mainSyncOutbox (bandeja de pendientes cloud)", {
+
+    "la versión de la DB subió a 11"() {
+        testRunner.assert(/version\s*=\s*11/.test(IDB_SRC),
+            'IndexedDBService debe abrir la DB en versión 11 (subida desde 10 para el nuevo store)');
+    },
+
+    "existe el store mainSyncOutbox con keyPath 'key' autoIncrement (NO reutiliza sync_queue)"() {
+        const block = IDB_SRC.match(/mainSyncOutbox['"][\s\S]{0,250}/);
+        testRunner.assert(!!block, 'debe existir la creación del store mainSyncOutbox');
+        testRunner.assert(/keyPath\s*:\s*['"]key['"]/.test(block[0]),
+            "mainSyncOutbox debe usar keyPath:'key' (autoIncrement), como pettyCashOutbox — NO 'id' como sync_queue");
+        testRunner.assert(/autoIncrement\s*:\s*true/.test(block[0]),
+            'mainSyncOutbox debe ser autoIncrement');
+    },
+
+    "mainSyncOutbox tiene índice 'status'"() {
+        const block = IDB_SRC.match(/mainSyncOutbox['"][\s\S]{0,400}/);
+        testRunner.assert(/createIndex\(\s*['"]status['"]/.test(block[0]),
+            "mainSyncOutbox debe indexar 'status' para separar pending/dead");
+    },
+
+    "mainSyncOutbox NO está en la lista ownStores de clearFirst (no debe borrarse en un restore)"() {
+        const block = IDB_SRC.match(/const ownStores\s*=\s*\[[^\]]*\]/);
+        testRunner.assert(!!block, 'debe existir la lista ownStores');
+        testRunner.assert(!/mainSyncOutbox/.test(block[0]),
+            'mainSyncOutbox NO debe estar en ownStores — un restore/demo/cuenta-nueva no debe borrar escrituras cloud pendientes (mismo criterio que pettyCashOutbox)');
+    }
+
+});

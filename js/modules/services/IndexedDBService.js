@@ -8,7 +8,7 @@ import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 10) {
+    constructor(dbName = 'attendance-app-db', version = 11) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -152,6 +152,16 @@ export class IndexedDBService {
                 if (!db.objectStoreNames.contains('pettyCashOutbox')) {
                     const oStore = db.createObjectStore('pettyCashOutbox', { keyPath: 'key', autoIncrement: true });
                     oStore.createIndex('status', 'status', { unique: false });
+                }
+
+                // Store: Outbox de sincronización principal (v11) — mirror snapshot,
+                // asistencia diaria y cloud-deletes en cola durable con dead-lettering.
+                // NO reutiliza sync_queue (keyPath 'id') porque saveState({clearFirst})
+                // lo BORRA en cada restore/demo/cuenta-nueva. Espeja pettyCashOutbox.
+                if (!db.objectStoreNames.contains('mainSyncOutbox')) {
+                    const mStore = db.createObjectStore('mainSyncOutbox', { keyPath: 'key', autoIncrement: true });
+                    mStore.createIndex('status', 'status', { unique: false });
+                    mStore.createIndex('kind', 'kind', { unique: false });
                 }
             };
         });
