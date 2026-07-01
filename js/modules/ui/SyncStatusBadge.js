@@ -56,8 +56,8 @@ function lucideIcon(name, color, size = 20) {
 function badgeHtml(state, text, extraAttr = '', compact = false) {
     const s = STATES[state] || STATES.pending;
     const icon = lucideIcon(s.icon, s.color, compact ? 21 : 15);
-    // Only the 'paused' state is actionable (clicking resumes uploads).
-    const cursor = state === 'paused' ? 'pointer' : 'default';
+    // 'paused' (clic reanuda) y 'error' (clic reintenta, U13) son accionables.
+    const cursor = (state === 'paused' || state === 'error') ? 'pointer' : 'default';
 
     if (compact) {
         const safeTitle = String(text || '').replace(/"/g, '&quot;');
@@ -166,15 +166,29 @@ export function attachLiveBadge(args = {}) {
         _activeInterval = setInterval(() => _refreshAllBadges(ctx), UPDATE_INTERVAL_MS);
     }
 
-    // Click delegation: only the paused badge is actionable (click → resume).
-    // We use event delegation so it survives the badge's periodic re-render.
-    if (typeof document !== 'undefined' && typeof ctx.onPausedClick === 'function') {
+    // Click delegation: 'paused' (click → resume) y 'error' (click → reintentar,
+    // U13) son los estados accionables. Delegación por evento para sobrevivir
+    // al re-render periódico del badge (outerHTML lo reemplaza cada 5s).
+    const hasPausedHandler = typeof ctx.onPausedClick === 'function';
+    const hasErrorHandler = typeof ctx.onErrorClick === 'function';
+    if (typeof document !== 'undefined' && (hasPausedHandler || hasErrorHandler)) {
         _activeClickHandler = (e) => {
-            const badge = e.target.closest && e.target.closest('[data-role="sync-badge"][data-state="paused"]');
-            if (badge) {
-                e.preventDefault();
-                try { ctx.onPausedClick(); }
-                catch (err) { console.error('Error en onPausedClick del badge:', err); }
+            if (hasPausedHandler) {
+                const pausedBadge = e.target.closest && e.target.closest('[data-role="sync-badge"][data-state="paused"]');
+                if (pausedBadge) {
+                    e.preventDefault();
+                    try { ctx.onPausedClick(); }
+                    catch (err) { console.error('Error en onPausedClick del badge:', err); }
+                    return;
+                }
+            }
+            if (hasErrorHandler) {
+                const errorBadge = e.target.closest && e.target.closest('[data-role="sync-badge"][data-state="error"]');
+                if (errorBadge) {
+                    e.preventDefault();
+                    try { ctx.onErrorClick(); }
+                    catch (err) { console.error('Error en onErrorClick del badge:', err); }
+                }
             }
         };
         document.addEventListener('click', _activeClickHandler);

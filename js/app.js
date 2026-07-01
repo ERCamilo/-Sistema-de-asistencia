@@ -3485,6 +3485,18 @@ if (typeof window !== 'undefined') {
                     showNotification('❌ Error al reanudar la subida', 'error');
                 }
             }
+        },
+        // U13: badge rojo "Error de sync" también accionable — mismo mecanismo
+        // que el botón "Reintentar" del toast (U12): drena el outbox ya mismo.
+        // El resultado real lo reflejan el badge (SyncStatus) y el toast
+        // honesto; este mensaje es sólo feedback de que se disparó el intento.
+        onErrorClick: async () => {
+            showNotification('🔄 Reintentando subida a la nube…', 'info');
+            try {
+                await drainMainSyncOutbox();
+            } catch (e) {
+                console.error('Error al reintentar desde el badge:', e);
+            }
         }
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.

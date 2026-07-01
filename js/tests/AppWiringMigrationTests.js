@@ -22,6 +22,16 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
         );
     },
 
+    "attachLiveBadge se cablea con onErrorClick que drena el outbox (U13)"() {
+        const idx = appSource.indexOf('attachLiveBadge({');
+        testRunner.assert(idx !== -1, 'debe existir la llamada a attachLiveBadge');
+        const block = appSource.slice(idx, idx + 2200);
+        testRunner.assert(/onErrorClick\s*:/.test(block),
+            'attachLiveBadge debe recibir onErrorClick para que el badge de error sea accionable (U13)');
+        testRunner.assert(/onErrorClick\s*:[\s\S]{0,200}?drainMainSyncOutbox\s*\(/.test(block),
+            'onErrorClick debe llamar a drainMainSyncOutbox (mismo mecanismo que el botón Reintentar del toast, U12)');
+    },
+
     "el login (onAuthStateChanged) drena el outbox después de claimLocalOwnership (U8)"() {
         // Cierra la pestaña antes de que una subida termine, luego reconectás
         // o volvés a entrar: el login es uno de los dos triggers documentados
