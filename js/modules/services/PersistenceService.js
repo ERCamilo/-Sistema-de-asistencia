@@ -311,6 +311,13 @@ function _mainSyncGuards() {
                 saveOutcomeNotifier.recordCloudResult(ok);
                 globalThis.eventBus?.emit?.('sync:mirror-result', { ok });
             }
+            // Judgment Day #3: deleteOne() y saveDailyAttendance() nunca llaman
+            // a SyncStatus.markSynced() (sólo saveFullState/saveOne lo hacen),
+            // así que sin esto un borrado o una asistencia granular que drena
+            // bien tras un fallo previo dejaba el badge en rojo para siempre.
+            // clearError() apaga el badge sin pisar lastSyncedAt (a diferencia
+            // de markSynced, que sí lo actualiza a ahora).
+            if (ok) SyncStatus.clearError();
             if (!ok && err) _notifySyncError(err);
         }
     };
