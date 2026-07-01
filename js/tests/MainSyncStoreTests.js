@@ -15,7 +15,7 @@
  * Jest (configurable por test), igual que PettyCashOutboxResilienceTests.
  */
 
-import { MainSyncStore, MAX_FLUSH_ATTEMPTS } from '../modules/services/MainSyncStore.js';
+import { MainSyncStore, MAX_FLUSH_ATTEMPTS, initMainSyncLifecycle } from '../modules/services/MainSyncStore.js';
 import indexedDBService from '../modules/services/IndexedDBService.js'; // → mock global
 
 function outboxEntry(key, overrides = {}) {
@@ -425,6 +425,49 @@ testRunner.addSuite("MainSyncStore — pendingCount/deadCount/requeueDeadEntries
         // No debe pasar: sólo debe re-encolar y devolver el conteo.
         const n = await MainSyncStore.requeueDeadEntries();
         testRunner.assertEquals(n, 1);
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — lifecycle: drenado al volver la conexión", {
+
+    async "initMainSyncLifecycle cablea 'online' y dispara flush(guardsFactory())"() {
+        resetMocks();
+        const guardsObj = makeGuards();
+        const guardsFactory = jest.fn(() => guardsObj);
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            initMainSyncLifecycle(guardsFactory);
+            window.dispatchEvent(new Event('online'));
+            await Promise.resolve(); // dejar correr el handler async
+
+            testRunner.assert(guardsFactory.mock.calls.length >= 1, 'debe pedir guards frescos al reconectar');
+            testRunner.assert(
+                flushSpy.mock.calls.some(c => c[0] === guardsObj),
+                "'online' debe disparar MainSyncStore.flush con los guards de la factory"
+            );
+        } finally {
+            flushSpy.mockRestore();
+        }
+    },
+
+    async "initMainSyncLifecycle es idempotente: llamarlo dos veces no duplica el listener"() {
+        resetMocks();
+        const guardsFactory = jest.fn(() => makeGuards());
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            initMainSyncLifecycle(guardsFactory);
+            initMainSyncLifecycle(guardsFactory); // segunda vez — no debe agregar otro listener
+            flushSpy.mockClear();
+
+            window.dispatchEvent(new Event('online'));
+            await Promise.resolve();
+
+            testRunner.assertEquals(flushSpy.mock.calls.length, 1,
+                'con el listener duplicado, un solo evento online dispararía flush dos veces — debe ser 1');
+        } finally {
+            flushSpy.mockRestore();
+        }
     }
 
 });

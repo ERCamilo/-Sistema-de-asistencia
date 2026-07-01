@@ -211,4 +211,27 @@ export const MainSyncStore = {
 
 };
 
+let _lifecycleInitialized = false;
+
+/**
+ * Cablea el drenado del outbox al volver la conexión. `guardsFactory` se
+ * llama en CADA evento 'online' (no una sola vez al init) para tomar guards
+ * frescos — session/estado pueden cambiar entre que se cablea esto y que
+ * efectivamente se reconecta.
+ *
+ * Idempotente: llamarlo más de una vez (p.ej. loadApplicationData corre en
+ * dos ramas) no debe duplicar el listener, o un solo 'online' dispararía
+ * flush() dos veces en paralelo.
+ *
+ * @param {() => Object} guardsFactory - construye el objeto `guards` de flush()
+ */
+export function initMainSyncLifecycle(guardsFactory) {
+    if (_lifecycleInitialized) return;
+    _lifecycleInitialized = true;
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+    window.addEventListener('online', () => {
+        try { MainSyncStore.flush(guardsFactory()); } catch { /* noop */ }
+    });
+}
+
 export default MainSyncStore;
