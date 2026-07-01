@@ -6,8 +6,14 @@
  * PersistenceService era código muerto. La asistencia (el dominio core)
  * podía fallar en sincronizar durante días con el badge en "Sincronizado".
  *
- * Contrato: saveDailyAttendance debe RE-LANZAR el error tras loggearlo,
- * y los callers deben mantener su .catch.
+ * Contrato: saveDailyAttendance debe RE-LANZAR el error tras loggearlo.
+ *
+ * U7: el caller directo (.catch inline en _executeSave) se reemplazó por el
+ * outbox — ahora es MainSyncStore.flush quien atrapa el error de CUALQUIER
+ * kind (mirror/daily/delete) y lo reenvía a _notifySyncError vía el guard
+ * onCloudResult (ver _mainSyncGuards en PersistenceService.js). El contrato
+ * "un fallo de sync SIEMPRE llega a _notifySyncError" se mantiene, sólo
+ * cambió el mecanismo (try/catch centralizado en vez de un .catch por sitio).
  */
 
 import fs from 'fs';
@@ -33,10 +39,13 @@ testRunner.addSuite("FirebaseService — saveDailyAttendance propaga errores (H6
         );
     },
 
-    "el caller en PersistenceService mantiene .catch con _notifySyncError"() {
+    "el guard onCloudResult (usado por MainSyncStore.flush) notifica CUALQUIER fallo vía _notifySyncError (U7)"() {
+        const block = PERSISTENCE_SRC.match(/onCloudResult\s*:\s*\([\s\S]{0,900}/);
+        testRunner.assert(!!block,
+            'debe existir el guard onCloudResult en _mainSyncGuards (U7 — reemplaza el .catch directo de saveDailyAttendance)');
         testRunner.assert(
-            /saveDailyAttendance\([\s\S]{0,200}?\.catch\([\s\S]{0,200}?_notifySyncError/.test(PERSISTENCE_SRC),
-            'PersistenceService debe capturar el error de saveDailyAttendance y notificar al usuario'
+            /_notifySyncError\s*\(/.test(block[0]),
+            'onCloudResult debe notificar el error vía _notifySyncError para CUALQUIER kind (mirror/daily/delete), no sólo el mirror'
         );
     }
 

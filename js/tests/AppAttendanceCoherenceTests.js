@@ -309,7 +309,7 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     // onInitialLoad = muchas fechas → TOTAL; onModified = una fecha (hot path) → GRANULAR.
     "Firebase onInitialLoad mantiene coherencia TOTAL tras la carga remota inicial"() {
         const body = between('onInitialLoad: (allAttendance) =>', 'onModified:');
-        testRunner.assert(body.length > 0 && body.length < 3500, 'el cuerpo de onInitialLoad debe acotarse bien');
+        testRunner.assert(body.length > 0 && body.length < 3900, 'el cuerpo de onInitialLoad debe acotarse bien');
         testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
         // Orden: coherencia DESPUÉS de validateDataIntegrity (que muta in-place) y ANTES del render.
@@ -325,7 +325,9 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
 
     "Firebase onModified mantiene coherencia GRANULAR (por empleado + bucket del día, sin total)"() {
         const body = between('onModified: (dateKey, records) =>', 'Iniciar primera suscripción');
-        testRunner.assert(body.length > 0 && body.length < 3000, 'el cuerpo de onModified debe acotarse bien');
+        // Cap 3200 (era 3000): +1 línea defensiva armApplyingFlagWatchdog() (R3).
+        // El contrato real (granular, sin total) lo cubren las aserciones de abajo.
+        testRunner.assert(body.length > 0 && body.length < 3200, 'el cuerpo de onModified debe acotarse bien');
         testRunner.assert(body.includes('buildAttendanceIndex(dateKey)'), 'debe reconstruir GRANULAR el bucket del día');
         testRunner.assert(body.includes('invalidateEmployeeStats('), 'debe invalidar stats por empleado tocado');
         // Negativos: hot path → NUNCA bulk ni rebuild total.

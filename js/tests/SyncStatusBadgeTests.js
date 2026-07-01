@@ -413,4 +413,75 @@ testRunner.addSuite("SyncStatusBadge — distinción visual pending vs paused", 
 
 });
 
+testRunner.addSuite("SyncStatusBadge — estado 'error' clickeable → reintentar (U13)", {
+
+    "el estado error tiene cursor:pointer (accionable, igual que paused)"() {
+        const html = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, hasError: true });
+        testRunner.assert(/cursor:\s*pointer/.test(html),
+            `el badge de error debe ser clickeable. HTML: ${html.slice(0, 300)}`);
+    },
+
+    "el estado synced sigue con cursor:default (no regresión)"() {
+        const html = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: Date.now() });
+        testRunner.assert(/cursor:\s*default/.test(html), 'un estado sano no debe ser clickeable');
+    },
+
+    "click en el badge en estado error invoca ctx.onErrorClick"() {
+        SyncStatus.reset();
+        document.body.innerHTML = '<span data-role="sync-badge">x</span>';
+        let called = 0;
+        const detach = attachLiveBadge({
+            getAuth: () => true, getOnline: () => true,
+            onErrorClick: () => { called++; }
+        });
+        try {
+            SyncStatus.markError(new Error('boom')); // dispara el refresh a estado 'error'
+            const badge = document.querySelector('[data-role="sync-badge"]');
+            testRunner.assertEquals(badge.dataset.state, 'error', 'precondición: el badge debe estar en error');
+
+            badge.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            testRunner.assertEquals(called, 1, 'el clic en el badge de error debe invocar onErrorClick');
+        } finally { detach(); SyncStatus.reset(); }
+    },
+
+    "click en el badge en estado synced NO invoca onErrorClick"() {
+        SyncStatus.reset();
+        document.body.innerHTML = '<span data-role="sync-badge">x</span>';
+        let called = 0;
+        const detach = attachLiveBadge({
+            getAuth: () => true, getOnline: () => true,
+            onErrorClick: () => { called++; }
+        });
+        try {
+            SyncStatus.markSynced();
+            const badge = document.querySelector('[data-role="sync-badge"]');
+            testRunner.assertEquals(badge.dataset.state, 'synced');
+
+            badge.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            testRunner.assertEquals(called, 0, 'un badge sano no debe disparar onErrorClick');
+        } finally { detach(); SyncStatus.reset(); }
+    },
+
+    "onPausedClick sigue funcionando (no regresión al agregar el handler de error)"() {
+        SyncStatus.reset();
+        document.body.innerHTML = '<span data-role="sync-badge">x</span>';
+        let pausedCalled = 0, errorCalled = 0;
+        const detach = attachLiveBadge({
+            getAuth: () => true, getOnline: () => true, getUploadPaused: () => true,
+            onPausedClick: () => { pausedCalled++; },
+            onErrorClick: () => { errorCalled++; }
+        });
+        try {
+            SyncStatus.reset(); // refrescar el badge con el nuevo ctx (getUploadPaused:true)
+            const badge = document.querySelector('[data-role="sync-badge"]');
+            testRunner.assertEquals(badge.dataset.state, 'paused');
+
+            badge.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            testRunner.assertEquals(pausedCalled, 1, 'debe seguir invocando onPausedClick');
+            testRunner.assertEquals(errorCalled, 0, 'no debe cruzarse con onErrorClick');
+        } finally { detach(); SyncStatus.reset(); }
+    }
+
+});
+
 console.log('🧪 SyncStatusBadge tests cargados.');

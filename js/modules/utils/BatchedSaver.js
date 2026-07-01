@@ -46,6 +46,27 @@ export function defaultIdleCancel(handle) {
     }
 }
 
+/**
+ * 🔧 Decisión pura del watchdog de `_isApplyingRemoteData` (R3).
+ *
+ * El flag bloquea los guardados mientras se aplican datos remotos. Si el flush
+ * del BatchedSaver nunca llega a correr (excepción entre poner el flag y add(),
+ * o la pestaña vuelve sin completar), el flag quedaría trabado en true y
+ * silenciaría TODOS los guardados siguientes de la sesión.
+ *
+ * El watchdog sólo debe liberar el flag cuando es seguro: el flag está puesto
+ * Y el saver NO está activo (ni flush programado ni en vuelo). Atarlo al ciclo
+ * de vida del saver — en vez de a un timer ciego — evita cortar un apply
+ * legítimo a mitad de camino en dispositivos lentos con cargas zonales grandes.
+ *
+ * @param {boolean} flagIsSet - valor actual de window._isApplyingRemoteData
+ * @param {{isActive: boolean}|null|undefined} saver - el BatchedSaver entrante
+ * @returns {boolean} true si es seguro liberar el flag
+ */
+export function shouldReleaseApplyingFlag(flagIsSet, saver) {
+    return flagIsSet === true && (!saver || saver.isActive !== true);
+}
+
 export class BatchedSaver {
     /**
      * @param {Object} options
@@ -68,6 +89,7 @@ export class BatchedSaver {
         this._batch = [];
         this._meta = {};
         this._idleHandle = null;
+        this._isFlushing = false;
         this._stats = { totalAdded: 0, totalFlushes: 0, lastBatchSize: 0 };
     }
 
@@ -114,10 +136,13 @@ export class BatchedSaver {
         this._stats.totalFlushes++;
         this._stats.lastBatchSize = currentBatch.length;
 
+        this._isFlushing = true;
         try {
             await this._flush(currentBatch, currentMeta);
         } catch (err) {
             this._onError(err);
+        } finally {
+            this._isFlushing = false;
         }
     }
 
@@ -145,6 +170,16 @@ export class BatchedSaver {
      */
     get hasScheduledFlush() {
         return this._idleHandle !== null;
+    }
+
+    /**
+     * @returns {boolean} true si el saver está ACTIVO: hay un flush programado
+     * O un flush en vuelo. Es la señal de seguridad para el watchdog de
+     * _isApplyingRemoteData: el flag sólo puede limpiarse cuando isActive es
+     * false, para no cortar un apply legítimo a mitad de camino (R3).
+     */
+    get isActive() {
+        return this._idleHandle !== null || this._isFlushing;
     }
 
     /**

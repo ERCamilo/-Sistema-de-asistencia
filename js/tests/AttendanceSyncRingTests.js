@@ -129,13 +129,18 @@ testRunner.addSuite("Anillo de sync — cableado real (fuente + CSS)", {
             'el announce de asistencia (toast por marca) debe eliminarse');
     },
 
-    "el mirror de PersistenceService emite sync:mirror-result (éxito y fallo)"() {
-        const block = PS_SRC.match(/const runSync = \(\) => \{[\s\S]{0,900}?\};/);
-        testRunner.assert(!!block, 'runSync debe existir');
+    "el mirror de PersistenceService emite sync:mirror-result (éxito y fallo) (U7/U8)"() {
+        // U7/U8: el resultado del mirror ya no se emite desde el runSync del
+        // viejo debounce en memoria — MainSyncStore.flush() llama a
+        // guards.onCloudResult(ok, err, entry), y _mainSyncGuards() sólo emite
+        // el evento de anillos para entries kind==='mirror' (igual que antes:
+        // la asistencia granular nunca disparaba este evento).
+        const block = PS_SRC.match(/onCloudResult\s*:\s*\([\s\S]{0,400}/);
+        testRunner.assert(!!block, 'debe existir el guard onCloudResult en _mainSyncGuards');
         testRunner.assert(/sync:mirror-result/.test(block[0]),
             'el resultado del espejo debe emitirse por eventBus');
-        testRunner.assert(/ok:\s*true/.test(block[0]) && /ok:\s*false/.test(block[0]),
-            'debe emitir tanto éxito como fallo');
+        testRunner.assert(/ok\s*\}/.test(block[0]) || /\{\s*ok\s*\}/.test(block[0]),
+            'debe emitir { ok } — el booleano recibido de onCloudResult, para éxito y fallo por igual');
     },
 
     "app.js conecta el evento del espejo con el tracker"() {

@@ -1,7 +1,7 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
-import { BatchedSaver } from './modules/utils/BatchedSaver.js';
+import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
 import { debug } from './modules/utils/Debug.js';
 
@@ -160,6 +160,24 @@ window._attendanceBatchedSaver = new BatchedSaver({
     maxWaitMs: 1000,
     onError: (err) => console.warn('⚠️ Error persistiendo batch de asistencia remota:', err)
 });
+
+// 🔧 Watchdog de _isApplyingRemoteData (R3)
+// Si el flush del BatchedSaver nunca llega a correr (excepción entre poner el flag
+// y add(), o la pestaña vuelve sin completar), el flag quedaría trabado en true y
+// silenciaría TODOS los guardados siguientes de la sesión. Este watchdog libera el
+// flag SÓLO cuando el saver está inactivo (sin flush programado ni en vuelo), para
+// no cortar un apply legítimo a mitad de camino. Se re-arma en cada apply remoto.
+const _APPLYING_FLAG_WATCHDOG_MS = 4000;
+function armApplyingFlagWatchdog() {
+    clearTimeout(window._applyingFlagWatchdogTimer);
+    window._applyingFlagWatchdogTimer = setTimeout(() => {
+        if (shouldReleaseApplyingFlag(window._isApplyingRemoteData, window._attendanceBatchedSaver)) {
+            window._isApplyingRemoteData = false;
+            console.warn('🔧 Watchdog: _isApplyingRemoteData estaba trabado; liberado para no perder guardados.');
+        }
+    }, _APPLYING_FLAG_WATCHDOG_MS);
+}
+window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;
 
 // ============================================
 // 🎯 EVENT DELEGATION MAESTRO (app.js)
@@ -3467,6 +3485,18 @@ if (typeof window !== 'undefined') {
                     showNotification('❌ Error al reanudar la subida', 'error');
                 }
             }
+        },
+        // U13: badge rojo "Error de sync" también accionable — mismo mecanismo
+        // que el botón "Reintentar" del toast (U12): drena el outbox ya mismo.
+        // El resultado real lo reflejan el badge (SyncStatus) y el toast
+        // honesto; este mensaje es sólo feedback de que se disparó el intento.
+        onErrorClick: async () => {
+            showNotification('🔄 Reintentando subida a la nube…', 'info');
+            try {
+                await drainMainSyncOutbox();
+            } catch (e) {
+                console.error('Error al reintentar desde el badge:', e);
+            }
         }
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
@@ -6574,6 +6604,11 @@ function _initOutgoingConflictGuard() {
                 }
                 claimLocalOwnership(user.uid);
 
+                // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
+                // sesión anterior (pestaña cerrada a medio subir). No espera a que
+                // el usuario haga otro cambio cualquiera para disparar la sync.
+                drainMainSyncOutbox().catch(e => console.warn('⚠️ Error drenando outbox al iniciar sesión:', e));
+
                 // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                 window.startPettyCashSync?.();
 
@@ -6704,8 +6739,21 @@ function _initOutgoingConflictGuard() {
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
                     window._isApplyingRemoteData = true;
+                    // JD#1: NO armar el watchdog acá. Este path (mirror/applyRemoteData)
+                    // NO usa el BatchedSaver y hace lecturas async de migración que en
+                    // conexión lenta superan los 4s; como saver.isActive sería false,
+                    // el watchdog liberaría el flag a mitad de un apply legítimo →
+                    // loop/sobrescritura. El mirror se libera solo vía su setTimeout.
                     window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
 
+                    // JD2#3: envolver el apply en try/catch. Si una lectura de
+                    // migración u otra operación async rechaza, el flag debe
+                    // liberarse igual; si no, queda trabado toda la sesión (el
+                    // watchdog del mirror se quitó en JD#1) y silencia los guardados.
+                    // JD3-A: el timer post-apply se declara fuera del try para poder
+                    // cancelarlo en el catch (no correr validate+save sobre estado parcial).
+                    let _applyMirrorTimer = null;
+                    try {
                     // Fusionar datos (con deduplicación por ID)
                     const dedup = (arr) => arr ? [...new Map(arr.map(item => [item.id, item])).values()] : [];
 
@@ -6811,7 +6859,7 @@ function _initOutgoingConflictGuard() {
 
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta.
                     // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
-                    setTimeout(() => {
+                    _applyMirrorTimer = setTimeout(() => {
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
@@ -6841,6 +6889,35 @@ function _initOutgoingConflictGuard() {
                         // 🛡️ Post-load sanitization prompt:
                         // Primera sync completada → datos mergeados → buen momento para preguntar.
                         _checkSanitizationCloudSyncPrompt();
+                    }
+                    } catch (err) {
+                        // JD2#3: el apply falló (lectura de migración rechazada,
+                        // timeout de red, etc.). Liberar el flag para no trabar los
+                        // guardados de la sesión. El happy-path lo libera vía su
+                        // setTimeout; acá cubrimos la rama de error que antes quedaba
+                        // sin red tras quitar el watchdog del mirror (JD#1).
+                        console.warn('⚠️ applyRemoteData falló; liberando _isApplyingRemoteData:', err);
+                        // JD3-A: cancelar el timer post-apply si ya se encoló, para NO
+                        // correr validate+save sobre un estado parcialmente mergeado.
+                        if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
+                        window._isApplyingRemoteData = false;
+                        window._pendingRemoteSave = false;
+                        // JD3-B: si falló durante la carga inicial, restaurar el loader
+                        // y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
+                        // JD4: try/catch propio — este bloque corre DENTRO del catch de
+                        // applyRemoteData, y el call site (Firebase onSnapshot, ~L6716)
+                        // no tiene try/catch envolvente. Si render() tirara sobre estado
+                        // parcial, escalaría a un unhandled rejection sin este guard.
+                        if (isInitialLoad) {
+                            try {
+                                clearTimeout(loaderTimeout);
+                                hideLoader();
+                                isInitialLoad = false;
+                                render();
+                            } catch (renderErr) {
+                                console.warn('⚠️ applyRemoteData catch: render() falló restaurando el loader:', renderErr);
+                            }
+                        }
                     }
                     } // ← cierra applyRemoteData()
                 });
@@ -6872,6 +6949,7 @@ function _initOutgoingConflictGuard() {
                                 return;
                             }
                             window._isApplyingRemoteData = true;
+                            armApplyingFlagWatchdog(); // R3: red de seguridad si el flush no corre
 
                             // 🛡️ LIMPIEZA DE ESTADO: Eliminar claves "cortas" (solo id) o inconsistentes
                             // Solo deben quedar claves con formato: employeeId-dateKey
@@ -6891,7 +6969,11 @@ function _initOutgoingConflictGuard() {
                                 window._attendanceBatchedSaver.add(dateKey);
                             });
                             // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
-                            if (!window._attendanceBatchedSaver.hasScheduledFlush) {
+                            // JD2#1: isActive (no hasScheduledFlush) — también cubre
+                            // un flush EN VUELO (_isFlushing). hasScheduledFlush sólo
+                            // mira _idleHandle y daría false apenas arranca _doFlush,
+                            // liberando el flag mientras la escritura sigue en curso.
+                            if (!window._attendanceBatchedSaver.isActive) {
                                 window._isApplyingRemoteData = false;
                             }
 
@@ -6924,6 +7006,7 @@ function _initOutgoingConflictGuard() {
                                 return;
                             }
                             window._isApplyingRemoteData = true;
+                            armApplyingFlagWatchdog(); // R3: red de seguridad si el flush no corre
 
                             // 🛡️ LIMPIEZA DE ESTADO: Evitar duplicidad si Firebase envía claves incoherentes
                             Object.values(records).forEach(record => {

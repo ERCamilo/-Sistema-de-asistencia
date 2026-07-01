@@ -8,7 +8,7 @@ import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 10) {
+    constructor(dbName = 'attendance-app-db', version = 11) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -34,11 +34,26 @@ export class IndexedDBService {
 
             request.onblocked = () => {
                 console.warn('⚠️ Upgrade de IndexedDB bloqueado: cierra otras pestañas de la app para completar la actualización.');
+                // Avisar al usuario: sin cerrar la otra pestaña el upgrade no avanza
+                // y el boot (que espera init()) puede quedar colgado.
+                try {
+                    Notification?.warning?.('Hay otra pestaña de la app abierta. Ciérrala para completar la actualización de la base de datos.');
+                } catch (_) { /* Notification puede no estar disponible en algunos entornos */ }
             };
 
             request.onsuccess = () => {
                 this.db = request.result;
                 this.isInitialized = true;
+                // 🔧 Si OTRA pestaña dispara un upgrade de versión (p.ej. v10→v11),
+                // esta conexión abierta lo bloquearía indefinidamente y colgaría el
+                // boot de la otra pestaña. onversionchange nos avisa: cerramos esta
+                // conexión para cederle el paso, en vez de colgar ambas.
+                this.db.onversionchange = () => {
+                    console.warn('🔧 IndexedDB: otra pestaña solicitó un upgrade; cerrando esta conexión para no bloquearlo.');
+                    try { this.db.close(); } catch (_) { /* noop */ }
+                    this.db = null;
+                    this.isInitialized = false;
+                };
                 resolve(this.db);
             };
 
@@ -137,6 +152,16 @@ export class IndexedDBService {
                 if (!db.objectStoreNames.contains('pettyCashOutbox')) {
                     const oStore = db.createObjectStore('pettyCashOutbox', { keyPath: 'key', autoIncrement: true });
                     oStore.createIndex('status', 'status', { unique: false });
+                }
+
+                // Store: Outbox de sincronización principal (v11) — mirror snapshot,
+                // asistencia diaria y cloud-deletes en cola durable con dead-lettering.
+                // NO reutiliza sync_queue (keyPath 'id') porque saveState({clearFirst})
+                // lo BORRA en cada restore/demo/cuenta-nueva. Espeja pettyCashOutbox.
+                if (!db.objectStoreNames.contains('mainSyncOutbox')) {
+                    const mStore = db.createObjectStore('mainSyncOutbox', { keyPath: 'key', autoIncrement: true });
+                    mStore.createIndex('status', 'status', { unique: false });
+                    mStore.createIndex('kind', 'kind', { unique: false });
                 }
             };
         });

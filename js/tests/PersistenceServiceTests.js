@@ -13,11 +13,17 @@
  *   - loadApplicationData() always sets state.isDataLoaded = true
  */
 
-import { saveApplicationData, loadApplicationData, flushPendingSave } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, loadApplicationData, flushPendingSave, restoreAutoBackup, drainMainSyncOutbox } from '../modules/services/PersistenceService.js';
 import { state, stateManager } from '../modules/core/AppState.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import dataService from '../modules/services/DataService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
+import { MainSyncStore } from '../modules/services/MainSyncStore.js';
+import { saveOutcomeNotifier } from '../modules/services/SaveOutcomeNotifier.js';
+import fs from 'fs';
+import path from 'path';
+
+const PS_SRC_U8 = fs.readFileSync(path.resolve(__dirname, '../modules/services/PersistenceService.js'), 'utf8');
 
 // ─────────────────────────────────────────────────────────────
 // Helpers — snapshot & restore state between tests
@@ -166,9 +172,42 @@ testRunner.addSuite("PersistenceService — saveApplicationData", {
         }
     },
 
-    async "with dateKey, triggers granular Firebase sync"() {
+    async "R2: en ConstraintError de IndexedDB cae a localStorage (no descarta el guardado)"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+
+            // Colisión del índice único 'employeeDate' = error LOCAL de IndexedDB.
+            // Hoy se descarta el guardado (de IndexedDB Y de localStorage). Debe
+            // caer a localStorage para no perder el dato de AMBOS stores.
+            const constraintErr = new Error('Unable to add key to index employeeDate: already exists.');
+            constraintErr.name = 'ConstraintError';
+            indexedDBService.saveState.mockRejectedValueOnce(constraintErr);
+            dataService.saveAll.mockReturnValueOnce(true);
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            testRunner.assert(
+                dataService.saveAll.mock.calls.length >= 1,
+                "ante ConstraintError debe caer a dataService.saveAll (localStorage) para no perder el dato de AMBOS stores (R2)"
+            );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "with dateKey, encola la asistencia granular en el outbox (U7)"() {
+        // U7: ya NO llama a FirebaseService.saveDailyAttendance directo — encola
+        // en MainSyncStore (bandeja de pendientes durable) para que una subida a
+        // medio terminar sobreviva a cerrar la pestaña. La entrega real a
+        // Firestore ocurre en MainSyncStore.flush (cubierto en MainSyncStoreTests).
         const snap = snapshotState();
         const prevUser = globalThis.currentUser;
+        const enqueueSpy = jest.spyOn(MainSyncStore, 'enqueueDaily').mockResolvedValue(undefined);
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
         try {
             clearAllMocks();
             state.isDataLoaded = true;
@@ -183,19 +222,19 @@ testRunner.addSuite("PersistenceService — saveApplicationData", {
             saveApplicationData({ dateKey: '2026-05-15' });
             await waitForSave();
 
-            testRunner.assertEquals(
-                FirebaseService.saveDailyAttendance.mock.calls.length,
-                1,
-                "saveDailyAttendance should be called exactly once"
-            );
-            const [calledDateKey, calledRecords] = FirebaseService.saveDailyAttendance.mock.calls[0];
+            testRunner.assertEquals(enqueueSpy.mock.calls.length, 1, "enqueueDaily debe llamarse exactamente una vez");
+            const [calledDateKey, calledRecords] = enqueueSpy.mock.calls[0];
             testRunner.assertEquals(calledDateKey, '2026-05-15', "Called with the right dateKey");
             testRunner.assertEquals(
                 Object.keys(calledRecords).length,
                 2,
                 "Should pass only records ending in -2026-05-15 (2 of them)"
             );
+            testRunner.assertEquals(FirebaseService.saveDailyAttendance.mock.calls.length, 0,
+                'no debe llamarse directo — sólo el outbox lo hace al flushear');
         } finally {
+            enqueueSpy.mockRestore();
+            flushSpy.mockRestore();
             globalThis.currentUser = prevUser;
             restoreState(snap);
         }
@@ -232,6 +271,32 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
         }
     },
 
+    async "loadApplicationData (rama IndexedDB) cablea initMainSyncLifecycle (U8)"() {
+        // Sin esto, un tab que arranca cargado desde IndexedDB nunca escucha
+        // 'online' para drenar el outbox — la reconexión no dispararía nada.
+        const snap = snapshotState();
+        const lifecycleSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            clearAllMocks();
+            indexedDBService.loadFullState.mockResolvedValueOnce({
+                employees: [{ id: 'e1', name: 'Test', active: true, positions: [] }],
+                positions: [], leaders: [], attendance: {}, settings: {}
+            });
+
+            await loadApplicationData();
+
+            // Disparar 'online' y verificar que el listener quedó armado.
+            window.dispatchEvent(new Event('online'));
+            await Promise.resolve();
+
+            testRunner.assert(lifecycleSpy.mock.calls.length >= 1,
+                'loadApplicationData debe armar el listener de online (initMainSyncLifecycle) al cargar desde IndexedDB');
+        } finally {
+            lifecycleSpy.mockRestore();
+            restoreState(snap);
+        }
+    },
+
     async "falls back to LocalStorage when IndexedDB is empty"() {
         const snap = snapshotState();
         try {
@@ -263,6 +328,101 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
             testRunner.assertEquals(result, false, "Should return false when no data exists");
             testRunner.assert(state.isDataLoaded, "isDataLoaded should still be true (don't block UI)");
         } finally {
+            restoreState(snap);
+        }
+    },
+
+    "loadApplicationData cablea initMainSyncLifecycle en AMBAS ramas (IndexedDB y LocalStorage) (U8)"() {
+        // Comportamiento ya cubierto behavioralmente arriba (rama IndexedDB);
+        // initMainSyncLifecycle es idempotente (un solo listener 'online' real
+        // para toda la sesión), así que la rama LocalStorage no puede verificarse
+        // con el mismo spy sin falsos negativos por orden de tests. Se confirma
+        // por código fuente que la llamada existe en LAS DOS ramas.
+        const calls = (PS_SRC_U8.match(/initMainSyncLifecycle\s*\(/g) || []).length;
+        testRunner.assert(calls >= 2,
+            `initMainSyncLifecycle debe llamarse en ambas ramas de loadApplicationData (encontradas ${calls})`);
+    },
+
+    async "drainMainSyncOutbox() vacía el outbox con los guards en vivo (U8)"() {
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            await drainMainSyncOutbox();
+            testRunner.assertEquals(flushSpy.mock.calls.length, 1,
+                'drainMainSyncOutbox debe llamar a MainSyncStore.flush exactamente una vez');
+        } finally {
+            flushSpy.mockRestore();
+        }
+    },
+
+    "PersistenceService cablea saveOutcomeNotifier.setCloudRetryHandler con drainMainSyncOutbox (U12)"() {
+        testRunner.assert(
+            /setCloudRetryHandler\s*\(\s*(drainMainSyncOutbox|\(\)\s*=>\s*drainMainSyncOutbox\(\))/.test(PS_SRC_U8),
+            'debe llamarse saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox) (o un wrapper que lo invoque) al cargar el módulo'
+        );
+    },
+
+    async "el botón Reintentar del toast (una vez cableado por el módulo real) drena el outbox (U12, end-to-end)"() {
+        // A diferencia del test anterior (source-introspection), esto prueba el
+        // EFECTO real: importar PersistenceService.js ya ejecutó el wiring de
+        // setCloudRetryHandler como side-effect de módulo. Disparamos un fallo
+        // de nube por el singleton REAL y verificamos que el botón invoca
+        // MainSyncStore.flush (lo que hace drainMainSyncOutbox por dentro).
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        const NotificationMod = await import('../modules/components/Notification.js');
+        NotificationMod.Notification.clearAll();
+        NotificationMod.Notification.activeNotifications = [];
+        try {
+            saveOutcomeNotifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'X' });
+            saveOutcomeNotifier.recordCloudResult(false);
+
+            // Encontrar el toast real recién creado por el singleton y clickear
+            // su botón — sin pasar por reset()/setCloudRetryHandler manual: éste
+            // es el handler que YA quedó cableado al cargar el módulo.
+            const toast = NotificationMod.Notification.activeNotifications[0];
+            const btn = toast?.element?.querySelector('.notification-action');
+            testRunner.assert(!!btn, 'el toast de fallo debe tener el botón Reintentar (handler cableado por el módulo)');
+
+            btn.click();
+            testRunner.assert(flushSpy.mock.calls.length >= 1,
+                'clickear Reintentar debe terminar llamando a MainSyncStore.flush (vía drainMainSyncOutbox)');
+        } finally {
+            flushSpy.mockRestore();
+        }
+    },
+
+    async "JD#2: restoreAutoBackup reinfla empleados (loans/advances no quedan undefined tras redacción)"() {
+        const snap = snapshotState();
+        const prevBackup = sessionStorage.getItem('attendance-backup');
+        try {
+            clearAllMocks();
+            // Backup REDACTADO: empleado sin loans/advances (como lo deja
+            // redactSensitiveBackup). Sin reinflar, restore deja loans=undefined
+            // → un loans.reduce() posterior peta en el escenario de emergencia.
+            const redacted = {
+                version: '1.0.0',
+                timestamp: new Date().toISOString(),
+                data: {
+                    employees: [{ id: 'e1', name: 'Juan', number: 7, active: true }],
+                    positions: [{ id: 'p1', name: 'Albañil' }],
+                    leaders: [],
+                    attendance: {},
+                    settings: {}
+                }
+            };
+            sessionStorage.setItem('attendance-backup', JSON.stringify(redacted));
+            state.employees = []; // condición para que restoreAutoBackup actúe
+
+            const ok = restoreAutoBackup();
+
+            testRunner.assertEquals(ok, true, 'debe restaurar la sesión');
+            testRunner.assert(state.employees.length === 1, 'debe haber 1 empleado restaurado');
+            testRunner.assert(Array.isArray(state.employees[0].loans),
+                'el empleado restaurado debe tener loans como ARRAY (no undefined) tras reinflar por constructor');
+            testRunner.assert(Array.isArray(state.employees[0].advances),
+                'advances debe ser array tras reinflar');
+        } finally {
+            if (prevBackup === null) sessionStorage.removeItem('attendance-backup');
+            else sessionStorage.setItem('attendance-backup', prevBackup);
             restoreState(snap);
         }
     },

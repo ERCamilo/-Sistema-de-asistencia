@@ -64,15 +64,34 @@ testRunner.addSuite("decideSaveOutcome — los 4 estados (puro)", {
 
 function makeHarness({ cloudTimeoutMs = 6000 } = {}) {
     const calls = [];
-    let timer = null;
-    const setTimer = (fn) => { timer = fn; return 'T'; };
-    const clearTimer = () => { timer = null; };
-    const fireTimer = () => { const t = timer; timer = null; if (t) t(); };
+    // Judgment Day #4: el fix separa el timer del retry del timer del guardado
+    // ordinario, así que el mock necesita soportar VARIOS timers concurrentes
+    // (con handles propios) en vez de una sola variable compartida. Sigue
+    // siendo compatible con los tests viejos: como esos flujos SIEMPRE tenían
+    // como máximo un timer activo a la vez, fireTimer() sin argumento (el
+    // último armado) se comporta igual que antes.
+    let nextHandle = 0;
+    const timers = new Map();
+    let setTimerCalls = 0;
+    const setTimer = (fn) => { setTimerCalls++; const h = ++nextHandle; timers.set(h, fn); return h; };
+    const clearTimer = (h) => { timers.delete(h); };
+    const fireTimer = (handle) => {
+        const h = (handle !== undefined) ? handle : [...timers.keys()].pop();
+        if (h === undefined) return;
+        const fn = timers.get(h);
+        timers.delete(h);
+        if (fn) fn();
+    };
     const notifier = createSaveOutcomeNotifier({
         notify: (o) => calls.push(o),
         setTimer, clearTimer, cloudTimeoutMs
     });
-    return { calls, notifier, fireTimer, hasTimer: () => timer !== null };
+    return {
+        calls, notifier, fireTimer,
+        hasTimer: () => timers.size > 0,
+        timerCount: () => timers.size,
+        setTimerCallCount: () => setTimerCalls
+    };
 }
 
 testRunner.addSuite("SaveOutcomeNotifier — feedback en DOS FASES (inmediato + nube)", {
@@ -190,6 +209,175 @@ testRunner.addSuite("SaveOutcomeNotifier — feedback en DOS FASES (inmediato + 
         testRunner.assertEquals(h.calls.length, 2, 'start + rojo');
         testRunner.assertEquals(h.calls[1].level, 'error', 'rojo final');
         testRunner.assert(!h.hasTimer(), 'sin timers colgados');
+    }
+
+});
+
+// ─── U12: retry inyectable (botón "Reintentar" en el toast amarillo) ────────
+
+testRunner.addSuite("SaveOutcomeNotifier — retry inyectable, aislado de PettyCash (U12)", {
+
+    "un final 'warning' (nube falló) con retry handler seteado incluye retry en el payload"() {
+        const h = makeHarness();
+        const retryFn = () => {};
+        h.notifier.setCloudRetryHandler(retryFn);
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+        testRunner.assertEquals(h.calls[1].level, 'warning');
+        testRunner.assertEquals(h.calls[1].retry, retryFn, 'el warning debe llevar el handler para el botón Reintentar');
+    },
+
+    "un final 'confirm' (nube OK) NO lleva retry"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(true);
+        testRunner.assertEquals(h.calls[1].kind, 'confirm');
+        testRunner.assert(!h.calls[1].retry, 'un éxito no debe llevar botón de reintentar — no hay nada que reintentar');
+    },
+
+    "sin setCloudRetryHandler, el warning NO lleva retry (caso PettyCash: sin botón)"() {
+        const h = makeHarness(); // nunca se llamó setCloudRetryHandler en este harness
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+        testRunner.assert(!h.calls[1].retry,
+            'sin handler inyectado (p. ej. el flujo de PettyCash, que tiene su propia recuperación) no debe aparecer el botón');
+    },
+
+    "setCloudRetryHandler(null) limpia el handler"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.setCloudRetryHandler(null);
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+        testRunner.assert(!h.calls[1].retry, 'null debe limpiar el handler previamente seteado');
+    },
+
+    "recordRetryStarted re-arma pending: el resultado del reintento SÍ actualiza el mismo toast"() {
+        // Landmine real: recordCloudResult tiene guard `if (!pending) return` para
+        // ignorar ecos de sync de fondo. Pero para cuando el usuario reintenta,
+        // ese flag YA se resolvió (a false) con el fallo original — sin re-armarlo,
+        // el resultado del retry (éxito o fallo) nunca llegaría al toast.
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false); // toast amarillo, pending ahora false
+
+        h.notifier.recordRetryStarted();     // el usuario clickeó "Reintentar"
+        h.notifier.recordCloudResult(true);  // el retry tuvo éxito
+
+        testRunner.assertEquals(h.calls.length, 3, 'debe haber una TERCERA resolución (la del retry)');
+        testRunner.assertEquals(h.calls[2].kind, 'confirm', 'el retry exitoso debe confirmar el MISMO toast en verde');
+    },
+
+    "sin recordRetryStarted, un recordCloudResult posterior a la resolución se ignora (documenta el guard existente)"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false); // resuelve (pending=false)
+
+        h.notifier.recordCloudResult(true);  // SIN recordRetryStarted antes
+
+        testRunner.assertEquals(h.calls.length, 2, 'sin re-armar pending, la segunda llamada debe ignorarse (guard pre-existente)');
+    },
+
+    "recordRetryStarted vuelve a fallar → el toast sigue amarillo CON retry (se puede reintentar de nuevo)"() {
+        const h = makeHarness();
+        const retryFn = () => {};
+        h.notifier.setCloudRetryHandler(retryFn);
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+
+        h.notifier.recordRetryStarted();
+        h.notifier.recordCloudResult(false); // el retry también falló
+
+        testRunner.assertEquals(h.calls.length, 3);
+        testRunner.assertEquals(h.calls[2].level, 'warning');
+        testRunner.assertEquals(h.calls[2].retry, retryFn, 'debe seguir ofreciendo reintentar tras un segundo fallo');
+    }
+
+});
+
+testRunner.addSuite("SaveOutcomeNotifier — retry aislado del guardado ordinario (Judgment Day #4)", {
+
+    "isRetryInFlight() refleja si hay un retry en vuelo"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'A' });
+        h.notifier.recordCloudResult(false);
+        testRunner.assertEquals(h.notifier.isRetryInFlight(), false, 'antes de clickear Reintentar no hay retry en vuelo');
+
+        h.notifier.recordRetryStarted();
+        testRunner.assertEquals(h.notifier.isRetryInFlight(), true, 'tras clickear debe reportar que hay un retry en vuelo');
+
+        h.notifier.recordCloudResult(true);
+        testRunner.assertEquals(h.notifier.isRetryInFlight(), false, 'tras resolver, deja de estar en vuelo');
+    },
+
+    "un segundo click de Reintentar mientras el primero sigue en vuelo es un no-op (no reinicia el timer)"() {
+        // Antes: recordRetryStarted() no tenía guard — un doble click volvía a
+        // limpiar y re-armar el MISMO timer compartido, aunque MainSyncStore.flush
+        // ya sea reentrante-seguro (JD#1) a nivel de red.
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'A' });
+        h.notifier.recordCloudResult(false);
+
+        const callsBefore = h.setTimerCallCount();
+        h.notifier.recordRetryStarted();
+        testRunner.assertEquals(h.setTimerCallCount(), callsBefore + 1, 'debe armar el timer del retry');
+
+        h.notifier.recordRetryStarted(); // doble click mientras sigue en vuelo
+        testRunner.assertEquals(h.setTimerCallCount(), callsBefore + 1,
+            'el doble click no debe rearmar el timer del retry — debe ser un no-op');
+    },
+
+    "un guardado nuevo mientras el retry sigue en vuelo NO le roba la resolución (Judgment Day #4, CRÍTICO)"() {
+        // Bug real: pending/pendingLabel/timerHandle eran COMPARTIDOS entre el
+        // ciclo de un retry manual y el de un guardado ordinario nuevo. Si el
+        // usuario reintentaba un fallo y, ANTES de que resolviera, hacía OTRO
+        // guardado, ese guardado nuevo pisaba pendingLabel — y cuando el
+        // resultado del retry finalmente llegaba, el toast mentía atribuyendo
+        // ese resultado al guardado nuevo (que en realidad seguía sin
+        // confirmar). El fix separa el estado del retry del guardado ordinario.
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+
+        // Ciclo 1: "Guardado A" falla en la nube → toast final con Reintentar.
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'Guardado A' });
+        h.notifier.recordCloudResult(false);
+        h.notifier.recordRetryStarted(); // el usuario clickea Reintentar
+
+        // Mientras el retry sigue en vuelo, el usuario hace OTRO guardado (B).
+        h.notifier.recordSaveStarted({ label: 'Guardado B' });
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'Guardado B' });
+
+        // Llega el resultado del retry (éxito).
+        h.notifier.recordCloudResult(true);
+        const retryResolution = h.calls[h.calls.length - 1];
+        testRunner.assertEquals(retryResolution.kind, 'confirm', 'debe resolver como éxito del retry');
+        testRunner.assert(!/Guardado B/.test(retryResolution.message),
+            'el resultado del retry NO debe atribuirse al guardado B, que sigue sin confirmar');
+
+        // El ciclo de "Guardado B" debe seguir vivo — su propia resolución
+        // (aunque fallara) debe llegar después, con SU propio label.
+        h.notifier.recordCloudResult(false);
+        const bResolution = h.calls[h.calls.length - 1];
+        testRunner.assert(/Guardado B/.test(bResolution.message),
+            'el guardado B debe resolverse por su cuenta, con su propio label, después del retry');
+    },
+
+    "el timer del retry no se resetea por un guardado ordinario nuevo"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'A' });
+        h.notifier.recordCloudResult(false);
+        h.notifier.recordRetryStarted();
+        testRunner.assertEquals(h.timerCount(), 1, 'debe haber un timer armado para el retry');
+
+        h.notifier.recordSaveStarted({ label: 'B' });
+        testRunner.assertEquals(h.timerCount(), 2,
+            'el guardado nuevo debe armar SU PROPIO timer sin tocar (ni reemplazar) el del retry');
     }
 
 });

@@ -16,6 +16,7 @@ import { PositionRepository } from './PositionRepository.js';
 import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
+import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 
 class FirebaseService {
     constructor() {
@@ -123,6 +124,45 @@ class FirebaseService {
             const settingsMap = cleanState.settings;
 
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+
+            // 🛡️ R4: guard de tamaño del doc espejo. En cuentas LEGACY (<v2) los
+            // empleados/posiciones/líderes siguen INLINE y una nómina grande con
+            // préstamos puede superar el límite de 1 MiB de Firestore → setDoc tira
+            // y el sync se pierde en silencio. Si excede el margen, NO recortamos
+            // entidades (perderíamos préstamos de la única copia espejo): omitimos
+            // el write inline y pedimos migración a per-doc.
+            // JD#8: las cuentas migradas (>=v2) ya escribieron sus entidades en
+            // subcolecciones arriba y nunca exceden inline, así que evitamos el
+            // doble JSON.stringify corriendo el check SÓLO para cuentas legacy.
+            if (!isMigratedEmployees) {
+                const sizeCheck = checkMirrorDocSize(cleanState, schemaVersion);
+                if (sizeCheck.needsMigration) {
+                    console.warn(`⚠️ R4: doc espejo legacy demasiado grande (${sizeCheck.bytes} bytes, cerca del límite de 1 MiB). Se omite el write inline y se solicita migración a per-doc.`);
+                    // JD#5: aunque no podamos escribir las entidades inline, sí
+                    // sincronizamos settings (preferencias) — es un write chico de un
+                    // único campo que no toca las entidades grandes.
+                    if (settingsMap && typeof settingsMap === 'object') {
+                        try {
+                            // JD2#4: setDoc(merge:true), no updateDoc — updateDoc tira
+                            // NOT_FOUND si el doc nunca existió (cuenta nueva cuyo primer
+                            // save ya excede). setDoc(merge) lo crea y sólo toca settings.
+                            await setDoc(docRef, { settings: settingsMap }, { merge: true });
+                        } catch (e) {
+                            console.warn('⚠️ R4: no se pudo sincronizar settings aparte:', e?.message);
+                        }
+                    }
+                    // JD#6: un subscriber de eventBus que lance no debe romper el save.
+                    try {
+                        if (globalThis.eventBus) {
+                            globalThis.eventBus.emit('sync:mirror-too-large', { bytes: sizeCheck.bytes });
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ subscriber de sync:mirror-too-large lanzó:', e?.message);
+                    }
+                    SyncStatus.markError(new Error('mirror-too-large'));
+                    return; // no escribir el doc inline que excede 1 MiB ni recortar entidades
+                }
+            }
             // 🛡️ merge: true evita que un guardado parcial borre campos top-level
             // que este dispositivo no conoce. Combinado con el split de empleados
             // arriba, esto cierra la ruta de pérdida de datos en multi-dispositivo

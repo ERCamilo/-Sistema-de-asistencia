@@ -129,6 +129,13 @@ export class Notification {
         if (options.message) this.message = options.message;
         if (options.duration !== undefined) this.duration = options.duration;
         if (options.closable !== undefined) this.closable = options.closable;
+        // U11: asignar this.actions desde options.actions. El bloque de abajo
+        // (actionsEl) YA re-renderizaba this.actions — pero nunca se asignaba
+        // fuera del constructor, así que un update() jamás podía AGREGAR (ni
+        // quitar) botones a un toast ya existente. Array.isArray cubre tanto
+        // "agregar" (array no vacío) como "vaciar explícitamente" ([]); si
+        // options.actions viene undefined, no se toca (preserva las previas).
+        if (Array.isArray(options.actions)) this.actions = options.actions;
 
         // Actualizar visualmente
         this.element.classList.add('notification-updating');

@@ -19,6 +19,7 @@ const APP    = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
 const HEADER = fs.readFileSync(path.resolve(__dirname, '../modules/ui/Header.js'), 'utf8');
 const FB     = fs.readFileSync(path.resolve(__dirname, '../modules/services/FirebaseService.js'), 'utf8');
 const REPO   = fs.readFileSync(path.resolve(__dirname, '../modules/services/EmployeeRepository.js'), 'utf8');
+const PERSISTENCE = fs.readFileSync(path.resolve(__dirname, '../modules/services/PersistenceService.js'), 'utf8');
 
 testRunner.addSuite("SyncBadgeWiring — Header (Fase 3.2)", {
 
@@ -119,6 +120,37 @@ testRunner.addSuite("SyncBadgeWiring — markSynced en escrituras (Fase 3.2)", {
             /from\s+['"]\.\/SyncStatus\.js['"]/.test(REPO),
             "EmployeeRepository debe importar SyncStatus"
         );
+    }
+
+});
+
+testRunner.addSuite("SyncBadgeWiring — onCloudResult limpia el error (Judgment Day #3)", {
+
+    "_mainSyncGuards().onCloudResult llama a SyncStatus.clearError() en CUALQUIER éxito"() {
+        // clearError() existía en SyncStatus.js pero nadie lo llamaba desde
+        // producción: deleteOne() y saveDailyAttendance() NUNCA invocan
+        // markSynced() (sólo saveFullState/saveOne lo hacen), así que un
+        // borrado o una asistencia granular que drenaba bien tras un fallo
+        // previo dejaba el badge en rojo para siempre — el usuario no tenía
+        // forma de saber que la nube ya estaba al día de nuevo.
+        const block = PERSISTENCE.match(/onCloudResult\s*:\s*\([\s\S]*?\n\s{8}\}/);
+        testRunner.assert(!!block, 'debe existir el guard onCloudResult en _mainSyncGuards');
+        testRunner.assert(
+            /SyncStatus\.clearError\s*\(\s*\)/.test(block[0]),
+            'onCloudResult debe llamar a SyncStatus.clearError() para apagar el badge rojo tras cualquier éxito (mirror/daily/delete)'
+        );
+    },
+
+    "clearError() se llama en la rama de ÉXITO, no en la de fallo"() {
+        const block = PERSISTENCE.match(/onCloudResult\s*:\s*\([\s\S]*?\n\s{8}\}/);
+        testRunner.assert(!!block, 'debe existir el guard onCloudResult en _mainSyncGuards');
+        // La llamada a clearError debe aparecer ANTES del chequeo `if (!ok`
+        // que dispara _notifySyncError — si apareciera después o dentro de
+        // ese if, se ejecutaría exactamente al revés de lo que hace falta.
+        const clearIdx = block[0].search(/SyncStatus\.clearError\s*\(\s*\)/);
+        const failIdx = block[0].search(/if\s*\(\s*!ok/);
+        testRunner.assert(clearIdx !== -1 && failIdx !== -1 && clearIdx < failIdx,
+            'clearError() debe ejecutarse en la rama de éxito, antes del chequeo de fallo');
     }
 
 });

@@ -70,6 +70,19 @@ export const SyncStatus = {
     },
 
     /**
+     * Limpia el error SIN tocar lastSyncedAt (a diferencia de markSynced, que
+     * también lo actualiza a ahora). Para cuando un retry manual (U12) tuvo
+     * éxito pero no fue una operación que llame a markSynced() — p. ej. sólo
+     * se drenaron borrados del outbox — y aun así hay que apagar el badge rojo.
+     * No-op (no notifica) si no había error, para no re-renderizar de más.
+     */
+    clearError() {
+        if (_lastError === null) return;
+        _lastError = null;
+        _notify(_lastSyncedAt);
+    },
+
+    /**
      * Suscríbete a cambios. El callback se invoca cada vez que markSynced
      * o reset son llamados, con el nuevo timestamp (o null en reset).
      * @returns {() => void} unsubscribe

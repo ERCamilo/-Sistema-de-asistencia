@@ -96,9 +96,25 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
     let pending = false;       // ¿hay un guardado anunciado esperando la nube?
     let timerHandle = null;
     let pendingLabel = null;   // etiqueta de la acción en espera (la última de la ráfaga)
+    let retryHandler = null;   // U12: inyectado por el dueño del outbox (PersistenceService)
+
+    // Judgment Day #4: un retry manual (recordRetryStarted) y un guardado
+    // ordinario nuevo (recordSaveStarted/recordLocalResult) compartían el
+    // MISMO pending/timerHandle/pendingLabel. Si el usuario reintentaba un
+    // fallo y, ANTES de que resolviera, hacía OTRO guardado, ese guardado
+    // nuevo pisaba pendingLabel y el timer del retry — cuando el resultado
+    // del retry finalmente llegaba, el toast lo atribuía (con el label
+    // equivocado) al guardado nuevo, que en realidad seguía sin confirmar.
+    // Se separa en su propio estado, ajeno al ciclo del guardado ordinario.
+    let retryPending = false;
+    let retryTimerHandle = null;
 
     function _clearTimer() {
         if (timerHandle != null) { clearTimer(timerHandle); timerHandle = null; }
+    }
+
+    function _clearRetryTimer() {
+        if (retryTimerHandle != null) { clearTimer(retryTimerHandle); retryTimerHandle = null; }
     }
 
     function _resolveCloud(cloudOk) {
@@ -107,7 +123,27 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
         const label = pendingLabel;
         pendingLabel = null;
         const outcome = decideSaveOutcome({ localOk: true, cloudConnected: true, cloudOk, label });
-        notify({ ...outcome, kind: cloudOk ? 'confirm' : 'final' });
+        // U12: el botón "Reintentar" sólo tiene sentido en un fallo de nube
+        // (level 'warning' — local ya está a salvo) y sólo si alguien inyectó
+        // un handler (PettyCash, p. ej., tiene su propia recuperación y no
+        // setea uno — sin retry, sin botón).
+        const retry = (!cloudOk && typeof retryHandler === 'function') ? retryHandler : null;
+        notify({ ...outcome, kind: cloudOk ? 'confirm' : 'final', retry });
+    }
+
+    /**
+     * Resuelve el ciclo del RETRY, aislado del guardado ordinario. Sin label
+     * propio a propósito: MainSyncStore.flush() drena TODA la cola pendiente,
+     * no una sola entrada puntual, así que no hay una acción específica que
+     * nombrar — mismo comportamiento genérico que ya tenía el retry antes de
+     * este fix (recordRetryStarted nunca seteó pendingLabel).
+     */
+    function _resolveRetry(cloudOk) {
+        _clearRetryTimer();
+        retryPending = false;
+        const outcome = decideSaveOutcome({ localOk: true, cloudConnected: true, cloudOk, label: null });
+        const retry = (!cloudOk && typeof retryHandler === 'function') ? retryHandler : null;
+        notify({ ...outcome, kind: cloudOk ? 'confirm' : 'final', retry });
     }
 
     return {
@@ -170,11 +206,56 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
          * Reporta el resultado de la escritura a la nube (fase 2). Se ignora si
          * no hay un guardado propio esperando (evita toasts por ecos de sync
          * entrante o flushes de fondo).
+         *
+         * Judgment Day #4: si hay un retry en vuelo, ES la explicación más
+         * relevante de este resultado — el usuario pidió explícitamente
+         * reintentar y está esperando ESA respuesta. Resolverlo por su cuenta
+         * evita atribuírselo al guardado ordinario que pudiera haber arrancado
+         * mientras tanto (que sigue esperando su PROPIA resolución).
          * @param {boolean} ok
          */
         recordCloudResult(ok) {
+            if (retryPending) { _resolveRetry(ok === true); return; }
             if (!pending) return;
             _resolveCloud(ok === true);
+        },
+
+        /**
+         * U12: registra (o limpia con null) la función a invocar cuando el
+         * usuario toque "Reintentar" en un toast de fallo de nube. Sólo el
+         * dueño del outbox (PersistenceService, vía drainMainSyncOutbox)
+         * debe setearlo — otros callers de este mismo singleton (PettyCash)
+         * simplemente no llaman este método, y sus fallos no llevan botón.
+         * @param {(() => void)|null} fn
+         */
+        setCloudRetryHandler(fn) {
+            retryHandler = (typeof fn === 'function') ? fn : null;
+        },
+
+        /**
+         * U12: arranca el ciclo de un reintento MANUAL, en SU PROPIO estado
+         * (retryPending/retryTimerHandle — Judgment Day #4), separado del
+         * guardado ordinario. Sin esto, recordCloudResult (llamado por el
+         * drenado del retry) se ignoraría — el flag ya se había resuelto a
+         * false con el fallo original. No cambia el toast visible: el de
+         * fallo (con su botón) sigue mostrándose hasta que este segundo
+         * ciclo resuelva.
+         *
+         * Guard contra doble click: si ya hay un retry en vuelo, es un no-op
+         * — no reinicia el timer ni pretende arrancar un segundo ciclo
+         * (MainSyncStore.flush ya es reentrante-seguro a nivel de red, esto
+         * sólo evita confundir el estado de ESTE módulo).
+         */
+        recordRetryStarted() {
+            if (retryPending) return;
+            retryPending = true;
+            _clearRetryTimer();
+            retryTimerHandle = setTimer(() => { _resolveRetry(false); }, cloudTimeoutMs);
+        },
+
+        /** Judgment Day #4: para que la UI pueda deshabilitar el botón Reintentar mientras el retry sigue en vuelo. */
+        isRetryInFlight() {
+            return retryPending;
         }
     };
 }
@@ -198,8 +279,13 @@ const _notify = (o) => {
         if (o.kind === 'start') {
             // Fase 0: spinner instantáneo. Sticky — las fases siguientes (o el
             // timeout de seguridad de la máquina) siempre lo resuelven.
+            // Judgment Day #5: Notification.update() sólo pisa this.actions si
+            // options.actions es un array — si el toast reciclado venía de un
+            // fallo previo CON botón Reintentar (que se conserva a propósito
+            // para que el retry lo pueda actualizar), un guardado ORDINARIO
+            // nuevo heredaba ese botón sin sentido. actions: [] lo limpia.
             if (_toastAlive()) {
-                _toast.update({ type: 'loading', message: o.message, duration: 0 });
+                _toast.update({ type: 'loading', message: o.message, duration: 0, actions: [] });
             } else {
                 _toast = NotificationSystem.loading(o.message);
             }
@@ -208,8 +294,9 @@ const _notify = (o) => {
         if (o.kind === 'provisional') {
             // Fase 1: crear (o reciclar) el toast verde inmediato. Duración
             // larga: la confirmación de nube lo actualizará en ~2-3s.
+            // Judgment Day #5: mismo motivo que 'start' — limpiar actions.
             if (_toastAlive()) {
-                _toast.update({ type: 'success', message: o.message, duration: 10000 });
+                _toast.update({ type: 'success', message: o.message, duration: 10000, actions: [] });
             } else {
                 _toast = NotificationSystem.success(o.message, 10000);
             }
@@ -218,8 +305,12 @@ const _notify = (o) => {
         if (o.kind === 'confirm') {
             // Fase 2 OK: actualizar el MISMO toast. Si ya se cerró, silencio
             // (sin noticias = todo bien; no apilamos un segundo toast).
+            // Judgment Day ronda 2 (Juez B): mismo motivo que JD#5 — si este
+            // toast venía de un fallo con botón Reintentar (p.ej. un retry que
+            // ahora tuvo éxito), sin actions: [] el botón sobrevivía visible
+            // en el toast ya confirmado en verde.
             if (_toastAlive()) {
-                _toast.update({ type: 'success', message: o.message });
+                _toast.update({ type: 'success', message: o.message, actions: [] });
             }
             _toast = null;
             return;
@@ -230,13 +321,31 @@ const _notify = (o) => {
         // (local-only / sin sesión) y el rojo caían al else, que creaba un toast
         // NUEVO y dejaba el spinner "Guardando…" colgado y sticky para siempre.
         const finalDur = o.level === 'warning' ? 8000 : o.level === 'error' ? 15000 : 4000;
+        // U12: si hay retry, el botón re-arma pending (recordRetryStarted) antes
+        // de invocar el handler — así la resolución del reintento (éxito o
+        // fallo) llega de vuelta a este MISMO ciclo de notify/_notify.
+        const actions = o.retry ? [{
+            label: 'Reintentar', icon: 'refresh-cw', closeOnClick: false,
+            onClick: () => {
+                // Judgment Day #4: si un doble click (u otro disparador) ya
+                // dejó un retry en vuelo, no reinvocamos drainMainSyncOutbox
+                // otra vez — recordRetryStarted() ya sería un no-op, pero
+                // evitamos también la llamada redundante a o.retry().
+                if (saveOutcomeNotifier.isRetryInFlight()) return;
+                saveOutcomeNotifier.recordRetryStarted();
+                try { o.retry(); } catch (_) { /* defensivo — drainMainSyncOutbox no debería rechazar */ }
+            }
+        }] : [];
         if (_toastAlive()) {
-            _toast.update({ type: o.level, message: o.message, duration: finalDur });
+            _toast.update({ type: o.level, message: o.message, duration: finalDur, actions });
         } else {
             const fn = NotificationSystem[o.level] || NotificationSystem.info;
-            fn(o.message, finalDur);
+            _toast = fn(o.message, { duration: finalDur, actions });
         }
-        _toast = null;
+        // Con retry, CONSERVAMOS la referencia — el próximo notify (tras el
+        // retry) necesita _toastAlive() para actualizar este MISMO toast, no
+        // crear uno nuevo. Sin retry, nadie más lo va a tocar: soltar.
+        if (!o.retry) _toast = null;
     } catch (e) {
         console.warn('⚠️ SaveOutcomeNotifier UI:', e);
     }

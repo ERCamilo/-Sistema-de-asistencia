@@ -16,6 +16,9 @@ import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
 import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
+import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
+import { MainSyncStore, initMainSyncLifecycle } from './MainSyncStore.js';
+import { redactSensitiveBackup } from './BackupRedaction.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
 import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
@@ -64,6 +67,10 @@ const _pendingCloudLeaderDeletes = new Set();
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _PENDING_DELETES_LS_KEY = 'asistencia_pending_cloud_deletes';
+// Marca DEVICE-LOCAL del último INTENTO de snapshot automático (no se mirror-ea
+// a la nube, a diferencia de state.settings.lastSnapshotTimestamp). Frena la
+// tormenta de reintentos cuando createSnapshot falla persistentemente.
+const _SNAPSHOT_ATTEMPT_LS_KEY = 'asistencia_last_snapshot_attempt';
 
 function _persistDeleteQueues() {
     if (typeof localStorage === 'undefined') return;
@@ -158,15 +165,30 @@ export function enqueueCloudEmployeeDelete(id) {
     if (!key) return;
     _pendingCloudDeletes.add(key);
     _persistDeleteQueues();
+    // U9: TAMBIÉN encolar en el outbox durable — misma id, misma garantía
+    // extra que el resto (retry en 'online' + dead-lettering). La cola
+    // Set+localStorage sigue siendo el camino primario (drenado en cada
+    // save); esto sólo agrega la red de seguridad del outbox en paralelo.
+    MainSyncStore.enqueueDelete('employee', key, state?.settings?.schemaVersion)
+        .catch(e => console.warn('⚠️ Error encolando borrado de empleado en el outbox:', e));
 }
 
 /** Encola varios ids de empleados con una sola escritura a localStorage. */
 export function enqueueCloudEmployeeDeleteBatch(ids) {
     if (!Array.isArray(ids) || ids.length === 0) return;
+    const schemaVersion = state?.settings?.schemaVersion;
     ids.forEach(id => {
         if (!id) return;
         const key = String(id).trim();
-        if (key) _pendingCloudDeletes.add(key);
+        if (!key) return;
+        _pendingCloudDeletes.add(key);
+        // Judgment Day #2: el wizard de duplicados fusiona varios ids a la vez
+        // con este batch (no con el singular) — sin esto, esos ids sólo tenían
+        // la durabilidad extra del outbox si sobrevivían hasta el próximo
+        // loadApplicationData (que los siembra desde la cola legacy). Misma
+        // paridad que enqueueCloudEmployeeDelete.
+        MainSyncStore.enqueueDelete('employee', key, schemaVersion)
+            .catch(e => console.warn('⚠️ Error encolando borrado de empleado (batch) en el outbox:', e));
     });
     _persistDeleteQueues();
 }
@@ -188,6 +210,9 @@ export function enqueueCloudPositionDelete(id) {
     if (!key) return;
     _pendingCloudPositionDeletes.add(key);
     _persistDeleteQueues();
+    // U9: ver comentario en enqueueCloudEmployeeDelete.
+    MainSyncStore.enqueueDelete('position', key, state?.settings?.schemaVersion)
+        .catch(e => console.warn('⚠️ Error encolando borrado de cargo en el outbox:', e));
 }
 export function getPendingCloudPositionDeletes() {
     return [..._pendingCloudPositionDeletes];
@@ -203,6 +228,9 @@ export function enqueueCloudLeaderDelete(id) {
     if (!key) return;
     _pendingCloudLeaderDeletes.add(key);
     _persistDeleteQueues();
+    // U9: ver comentario en enqueueCloudEmployeeDelete.
+    MainSyncStore.enqueueDelete('leader', key, state?.settings?.schemaVersion)
+        .catch(e => console.warn('⚠️ Error encolando borrado de líder en el outbox:', e));
 }
 export function getPendingCloudLeaderDeletes() {
     return [..._pendingCloudLeaderDeletes];
@@ -255,61 +283,118 @@ async function _drainPendingCloudDeletes() {
 }
 
 /**
- * ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
- * Evita saturar la cuota de Firebase con guardados demasiado frecuentes
+ * 🚚 Guards inyectados para MainSyncStore.flush() (U7 — bandeja de pendientes
+ * hacia la nube). Se construyen FRESCOS en cada llamada (no una vez y
+ * cacheados): sesión/pausa/estado pueden cambiar entre que una entrada se
+ * encoló y el momento en que efectivamente se vacía la cola.
+ */
+function _mainSyncGuards() {
+    const REPO_BY_ENTITY = { employee: EmployeeRepository, position: PositionRepository, leader: LeaderRepository };
+    return {
+        hasSession: () => !!globalThis.currentUser,
+        isApplyingRemote: () => !!globalThis._isApplyingRemoteData,
+        isPaused: () => SYNC_PAUSE_ENABLED && isSyncPaused(),
+        cloudWatermark: () => state._lastKnownCloudUpdatedAt || 0,
+        saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot),
+        saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
+        deleteEntity: (entity, id) => {
+            const repo = REPO_BY_ENTITY[entity];
+            return repo ? repo.deleteOne(id) : Promise.resolve();
+        },
+        // El feedback de UI (toast honesto + anillos de asistencia) sólo
+        // reaccionaba, antes del outbox, a la resolución del MIRROR completo —
+        // la asistencia granular y los borrados nunca lo tocaban (salvo el
+        // registro de error de sync). Se preserva ese comportamiento acá:
+        // sólo 'mirror' dispara recordCloudResult + el evento de anillos.
+        onCloudResult: (ok, err, entry) => {
+            if (entry?.kind === 'mirror') {
+                saveOutcomeNotifier.recordCloudResult(ok);
+                globalThis.eventBus?.emit?.('sync:mirror-result', { ok });
+            }
+            // Judgment Day #3: deleteOne() y saveDailyAttendance() nunca llaman
+            // a SyncStatus.markSynced() (sólo saveFullState/saveOne lo hacen),
+            // así que sin esto un borrado o una asistencia granular que drena
+            // bien tras un fallo previo dejaba el badge en rojo para siempre.
+            // clearError() apaga el badge sin pisar lastSyncedAt (a diferencia
+            // de markSynced, que sí lo actualiza a ahora).
+            if (ok) SyncStatus.clearError();
+            if (!ok && err) _notifySyncError(err);
+        }
+    };
+}
+
+/**
+ * 🚚 Fuerza el drenado de la bandeja de pendientes cloud AHORA, sin esperar
+ * al próximo 'online' o al próximo save. Se usa al iniciar sesión: si el
+ * usuario cerró la pestaña con subidas a medio terminar y vuelve a entrar
+ * (en vez de reconectar sin recargar), esto reanuda esas subidas.
+ */
+export function drainMainSyncOutbox() {
+    return MainSyncStore.flush(_mainSyncGuards());
+}
+
+// 🔘 U12: cablear el botón "Reintentar" del toast honesto (SaveOutcomeNotifier)
+// a drainMainSyncOutbox. Se hace acá (no dentro de SaveOutcomeNotifier.js) para
+// evitar un import circular — SaveOutcomeNotifier.js no necesita saber nada de
+// PersistenceService/MainSyncStore, sólo expone un setter genérico. PettyCash
+// (que importa el mismo singleton) NUNCA llama setCloudRetryHandler, así que
+// sus fallos siguen sin botón — no compite con este wiring.
+saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox);
+
+/**
+ * 🌱 U9: siembra el outbox durable con los ids YA pendientes de la cola
+ * legacy (Set + localStorage, rehidratada por loadDeleteQueuesFromStorage()
+ * antes de esta carga). Un usuario que actualiza la app puede tener ids
+ * pendientes de borrar desde ANTES de que existiera el outbox — sin esto,
+ * esos ids nunca ganarían el retry-en-'online' ni el dead-lettering; sólo
+ * drenarían en el próximo save (como ya hacían).
+ *
+ * Se llama DESPUÉS de que `state.settings` está poblado (para capturar el
+ * schemaVersion real), en ambas ramas de loadApplicationData. No toca la
+ * cola legacy — sólo la LEE (getPendingCloud*Deletes ya devuelve copias).
+ */
+function _seedMainSyncOutboxFromLegacyDeletes() {
+    const schemaVersion = state?.settings?.schemaVersion;
+    getPendingCloudDeletes().forEach(id =>
+        MainSyncStore.enqueueDelete('employee', id, schemaVersion).catch(() => { /* noop, ya está en la cola legacy */ })
+    );
+    getPendingCloudPositionDeletes().forEach(id =>
+        MainSyncStore.enqueueDelete('position', id, schemaVersion).catch(() => { /* noop */ })
+    );
+    getPendingCloudLeaderDeletes().forEach(id =>
+        MainSyncStore.enqueueDelete('leader', id, schemaVersion).catch(() => { /* noop */ })
+    );
+}
+
+/**
+ * ⚡ SINCRONIZACIÓN CON FIREBASE (Mirror Sync)
+ *
+ * U8: histórico debounce de 2s EN MEMORIA reemplazado por un shim que delega
+ * a la bandeja de pendientes durable (MainSyncStore, U1-U7). `debounced(state)`
+ * encola (coalescing propio de MainSyncStore, no hace falta debounce acá) y
+ * `.flush()` dispara el drenado ya mismo. Se mantiene esta función/forma
+ * (en vez de borrarla) para no romper la firma que flushPendingSave y
+ * cualquier caller remanente ya conocen.
  */
 export const syncFirebaseMirrorDebounced = (function() {
-    let timeout = null;
-    let pendingState = null;
-
-    // Dispara el guardado del mirror. `immediate` (flush en pagehide) salta el
-    // requestIdleCallback: la pestaña se está cerrando y no habrá idle time, así
-    // que despachamos la escritura ya mismo (el SDK de Firestore la maneja en
-    // best-effort aunque la pestaña muera).
-    const fire = (state, immediate = false) => {
-        if (!(globalThis.currentUser && !globalThis._isApplyingRemoteData)) return;
-        const runSync = () => {
-            FirebaseService.saveFullState(state)
-                .then(() => {
-                    saveOutcomeNotifier.recordCloudResult(true);
-                    // 📡 Señal para feedback por ítem (anillos de asistencia).
-                    globalThis.eventBus?.emit?.('sync:mirror-result', { ok: true });
-                })
-                .catch(e => {
-                    console.warn('⚠️ Error en sincronización debounced:', e);
-                    _notifySyncError(e);
-                    saveOutcomeNotifier.recordCloudResult(false);
-                    globalThis.eventBus?.emit?.('sync:mirror-result', { ok: false });
-                });
-        };
-        if (!immediate && window.requestIdleCallback) {
-            window.requestIdleCallback(runSync, { timeout: 1000 });
-        } else {
-            runSync();
-        }
-    };
-
     const debounced = function(state) {
-        pendingState = state;
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-            const s = pendingState;
-            pendingState = null;
-            timeout = null;
-            fire(s, false);
-        }, 2000); // 2 segundos de espera
+        MainSyncStore.enqueueMirror(state)
+            .catch(e => console.warn('⚠️ Error encolando el mirror:', e))
+            .finally(() => {
+                MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+                    console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
+                );
+            });
     };
 
-    // 🚿 M10: vacía el mirror pendiente de inmediato (pagehide/visibilitychange).
-    // Sin esto, un cambio hecho dentro de la ventana de 2s sólo llegaba a
-    // IndexedDB y no a la nube hasta la próxima sesión.
+    // 🚿 M10 (histórico) / U8: vacía el outbox de inmediato (pagehide/
+    // visibilitychange). La durabilidad real ya no depende de este flush —
+    // la entrada ya está en IndexedDB desde que se encoló — pero acelera el
+    // drenado en vez de esperar al próximo online/login.
     debounced.flush = function() {
-        if (timeout) { clearTimeout(timeout); timeout = null; }
-        if (pendingState != null) {
-            const s = pendingState;
-            pendingState = null;
-            fire(s, true);
-        }
+        MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+            console.warn('⚠️ Error vaciando la bandeja de pendientes cloud (flush):', e)
+        );
     };
 
     return debounced;
@@ -390,6 +475,24 @@ export function saveApplicationData(options = {}) {
  * away (beforeunload) or after critical operations.
  */
 export function flushPendingSave() {
+    // R3: drenar PRIMERO el BatchedSaver de asistencia ENTRANTE (ventana idle de
+    // hasta 1000ms). Esa asistencia llega de Firebase por una vía separada del
+    // debounce local de 300ms y, si la pestaña se cierra dentro de la ventana, se
+    // pierde de IndexedDB. Va antes del early-return porque normalmente NO hay un
+    // _saveDebounceTimer pendiente cuando sólo se acumuló asistencia entrante.
+    // Su saveToIndexedDB no depende de _isApplyingRemoteData, así que drena igual.
+    //
+    // JD#4 (best-effort honesto): flushNow() es async y NO se await-ea (no se puede:
+    // los handlers de pagehide/visibilitychange son síncronos). En visibilitychange
+    // (página viva) la escritura a IndexedDB completa sin problema. En un pagehide
+    // de cierre duro es best-effort, igual que el _executeSave del save principal —
+    // no existe un flush SÍNCRONO para IndexedDB (sendBeacon es sólo para red). Aun
+    // así es estrictamente mejor que antes, cuando el BatchedSaver no se drenaba en
+    // absoluto en pagehide.
+    if (typeof window !== 'undefined' && window._attendanceBatchedSaver) {
+        window._attendanceBatchedSaver.flushNow();
+    }
+
     // M10: vaciar también el mirror a Firestore pendiente (debounce de 2s),
     // no sólo el guardado local de 300ms. Así el último cambio llega a la nube
     // aunque la pestaña se cierre dentro de la ventana de debounce.
@@ -476,7 +579,11 @@ async function _executeSave(options = {}) {
     // el resultado de la nube (verde/amarillo) o anunciar solo el local (verde).
     const _cloudAttempted = _canSyncFirebase && !_hasOutgoingConflict;
     if (_cloudAttempted) {
-        // 1. Sincronización Granular (si hay dateKey)
+        // 1+2. U7 — Bandeja de pendientes hacia la nube (MainSyncStore) en vez
+        // de llamar a Firestore directo. Si la pestaña se cierra antes de que
+        // la subida termine, la entrada sigue en IndexedDB y se reintenta sola
+        // al reconectar/volver a entrar (no se pierde).
+        const _outboxEnqueues = [];
         if (options.dateKey) {
             const dayRecords = {};
             const suffix = `-${options.dateKey}`;
@@ -485,14 +592,56 @@ async function _executeSave(options = {}) {
                     dayRecords[key] = record;
                 }
             });
-            FirebaseService.saveDailyAttendance(options.dateKey, dayRecords).catch(e => {
-                console.error(`⚠️ Error en sync granular (${options.dateKey}):`, e);
-                _notifySyncError(e);
-            });
+            // Judgment Day ronda 2 (Juez A): mismo hueco async que JD#6 cerró
+            // para el mirror — enqueueDaily también hace await antes de
+            // escribir a IndexedDB, y dayRecords guardaba referencias PROXY
+            // (vivas) a state.attendance[key], no una copia. Clon con el
+            // mismo fallback defensivo que el mirror: si algo no serializa,
+            // subir la referencia viva es mejor que abortar el guardado local.
+            let _dayRecords = dayRecords;
+            try {
+                _dayRecords = JSON.parse(JSON.stringify(dayRecords));
+            } catch (e) {
+                console.warn('⚠️ No se pudo clonar la asistencia diaria para la nube; se sube la referencia viva:', e);
+            }
+            _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, _dayRecords));
         }
+        // Foto INMUTABLE capturada AHORA — MainSyncStore coalesce a una sola
+        // entrada 'mirror' pendiente (la última gana). Judgment Day #6:
+        // enqueueMirror es async (await antes de escribir a IndexedDB), así
+        // que pasarle la referencia VIVA de stateManager.getState() dejaba una
+        // ventana donde una mutación posterior de state (otro guardado, otra
+        // acción) podía filtrarse en lo que termina subiendo a la nube. El
+        // clon JSON (mismo patrón que ya usa FirebaseService.saveFullState al
+        // subir) la hace inmutable de verdad, no sólo "raw sin proxy".
+        //
+        // Judgment Day ronda 2 (Juez A): ese JSON.stringify corre SÍNCRONO acá,
+        // sin try/catch, dentro de _executeSave (invocada fire-and-forget desde
+        // el debounce/flushPendingSave, sin .catch() en la cadena). Un valor no
+        // serializable (BigInt, etc.) tiraba una excepción que abortaba TODO el
+        // resto de _executeSave — incluido el guardado LOCAL, que va más abajo.
+        // Fallback a la referencia viva (el hueco angosto que JD#6 cerraba)
+        // antes que perder el guardado local entero.
+        let _mirrorSnapshot;
+        try {
+            _mirrorSnapshot = JSON.parse(JSON.stringify(stateManager.getState()));
+        } catch (e) {
+            console.warn('⚠️ No se pudo clonar el snapshot para la nube; se sube la referencia viva:', e);
+            _mirrorSnapshot = stateManager.getState();
+        }
+        _outboxEnqueues.push(MainSyncStore.enqueueMirror(_mirrorSnapshot));
 
-        // 2. Sincronización Espejo (Full State) - DEBOUNCED
-        syncFirebaseMirrorDebounced(state);
+        // Disparar el drenado recién DESPUÉS de que las entradas terminen de
+        // encolarse (evita la carrera de que flush() lea el outbox antes de
+        // que el enqueue haya escrito) — pero sin `await` acá: el guardado
+        // LOCAL (más abajo) nunca debe esperar a la nube.
+        Promise.all(_outboxEnqueues)
+            .catch(e => console.warn('⚠️ Error encolando al outbox:', e))
+            .finally(() => {
+                MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+                    console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
+                );
+            });
 
         // 2.b Drenar la cola de borrados pendientes en la nube.
         // Ocurre solo si schemaVersion >= 2 (cuentas migradas). Es seguro
@@ -507,13 +656,18 @@ async function _executeSave(options = {}) {
         if (freq !== 'none') {
             const now = Date.now();
             const lastBackup = state.settings?.lastSnapshotTimestamp || 0;
-            const intervals = {
-                daily: 24 * 60 * 60 * 1000,
-                weekly: 7 * 24 * 60 * 60 * 1000,
-                monthly: 30 * 24 * 60 * 60 * 1000
-            };
+            // Cooldown DEVICE-LOCAL del último intento: sin esto, si createSnapshot
+            // falla persistentemente (cuota, doc >1MB, offline), el guard de horario
+            // seguía pasando en CADA save y se re-serializaba el estado completo una
+            // y otra vez. No usamos state.settings (se mirror-ea a la nube y
+            // suprimiría los backups de otros dispositivos).
+            let lastAttempt = 0;
+            try { lastAttempt = Number(localStorage.getItem(_SNAPSHOT_ATTEMPT_LS_KEY)) || 0; } catch (_) { /* noop */ }
 
-            if (now - lastBackup > (intervals[freq] || Infinity)) {
+            if (shouldAttemptAutoSnapshot({ freq, now, lastSuccess: lastBackup, lastAttempt })) {
+                // Estampar el intento ANTES de la llamada (device-local), así un
+                // fallo no dispara un reintento inmediato en el próximo save.
+                try { localStorage.setItem(_SNAPSHOT_ATTEMPT_LS_KEY, String(now)); } catch (_) { /* noop */ }
                 const rawState = stateManager.getState();
                 FirebaseService.createSnapshot(rawState, 'auto', 'daily-auto').then(() => {
                     state.settings.lastSnapshotTimestamp = now;
@@ -540,9 +694,17 @@ async function _executeSave(options = {}) {
             const errorMessage = error?.message || 'Error desconocido';
 
             if (errorName === 'ConstraintError' || errorMessage.includes('ConstraintError')) {
-                console.warn('⚡ Conflicto de integridad en IndexedDB.');
-                _localOk = false;
-                NotificationSystem.error('❌ Conflicto de datos detectado');
+                // R2: el ConstraintError es una colisión LOCAL del índice único
+                // 'employeeDate'. NO descartar el guardado: caer a localStorage para
+                // que el dato NO se pierda de AMBOS stores (antes quedaba sólo el
+                // error y _localOk=false). La reconciliación del índice duplicado es
+                // un fix aparte; acá lo prioritario es no perder el guardado.
+                console.warn('⚡ Conflicto de integridad en IndexedDB; cayendo a localStorage para no perder el dato.');
+                const fallbackOk = dataService ? dataService.saveAll() : false;
+                _localOk = fallbackOk === true;
+                NotificationSystem.error(_localOk
+                    ? '⚠️ Conflicto de datos detectado — guardado en respaldo local'
+                    : '❌ Conflicto de datos detectado');
             } else {
                 console.error('❌ Error fatal en persistencia local:', error);
                 // Fallback a localStorage
@@ -626,6 +788,11 @@ export async function loadApplicationData() {
             // Idempotente: llamadas múltiples (ej. hot-reload, demos) reemplazan
             // el listener anterior en lugar de apilarlo.
             initSyncPersistence();
+            // U8: armar el drenado del outbox al volver la conexión. Idempotente
+            // (un solo listener 'online' real por sesión, ver MainSyncStore).
+            initMainSyncLifecycle(_mainSyncGuards);
+            // U9: ids de borrado pendientes de antes de esta actualización.
+            _seedMainSyncOutboxFromLegacyDeletes();
 
             // 🟢 Pre-cargar SyncStatus con el último timestamp persistido para
             // que el badge muestre "Sincronizado · hace Xm" desde el primer
@@ -662,8 +829,10 @@ export async function loadApplicationData() {
             debug.log('✅ Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
             initSyncPersistence();
+            initMainSyncLifecycle(_mainSyncGuards); // U8: mismo cableado que la rama IndexedDB
+            _seedMainSyncOutboxFromLegacyDeletes(); // U9: mismo cableado que la rama IndexedDB
             warmUpSyncStatus(state.settings);
-            
+
             // Si el navegador soporta IndexedDB, migramos de inmediato
             if (indexedDBService.isSupported()) {
                 console.log('🚀 Migrando datos de LocalStorage a IndexedDB...');
@@ -933,16 +1102,20 @@ export async function prepareDataForNewAccount() {
  */
 export function createAutoBackup() {
     try {
+        // 🔒 Redactar campos financieros/PII: el auto-backup es una red de
+        // emergencia que puede quedar legible en sessionStorage en un equipo
+        // compartido. Guardamos sólo la forma de la UI; salarios/préstamos/
+        // adelantos/teléfonos se rehidratan desde IndexedDB / la nube.
         const backupData = {
             version: '1.0.0',
             timestamp: new Date().toISOString(),
-            data: {
+            data: redactSensitiveBackup({
                 employees: state.employees,
                 positions: state.positions,
                 leaders: state.leaders,
                 attendance: state.attendance,
                 settings: state.settings
-            }
+            })
         };
         sessionStorage.setItem('attendance-backup', JSON.stringify(backupData));
     } catch (error) {
@@ -958,12 +1131,12 @@ export function createAutoBackup() {
                     version: '1.0.0',
                     timestamp: new Date().toISOString(),
                     reduced: true,
-                    data: {
+                    data: redactSensitiveBackup({
                         employees: state.employees,
                         positions: state.positions,
                         leaders: state.leaders,
                         settings: state.settings
-                    }
+                    })
                 };
                 sessionStorage.setItem('attendance-backup', JSON.stringify(reduced));
                 console.warn('⚠️ Auto-backup: cuota de sessionStorage excedida — se guardó un respaldo REDUCIDO (sin asistencia).');
@@ -980,7 +1153,26 @@ export function restoreAutoBackup() {
         if (backup) {
             const parsed = JSON.parse(backup);
             if (parsed.data && state.employees.length === 0) {
-                Object.assign(state, parsed.data);
+                // JD#2: reinflar por constructor ANTES del Object.assign. El
+                // auto-backup viene REDACTADO (sin loans/advances/positionSalaries/
+                // salaryConfig...), así que un Object.assign crudo dejaría esos
+                // campos en `undefined` y un loans.reduce()/advances.forEach()
+                // posterior petaría justo en el escenario de emergencia. Los
+                // constructores restituyen los defaults ([]/{}); los datos sensibles
+                // se rehidratan luego desde la nube. Inflamos sobre parsed.data para
+                // no introducir escrituras directas a `state` (1 sola asignación vía
+                // Object.assign, igual que antes).
+                const d = parsed.data;
+                if (Array.isArray(d.employees)) {
+                    d.employees = d.employees.map(e => e instanceof Employee ? e : new Employee(e));
+                }
+                if (Array.isArray(d.positions)) {
+                    d.positions = d.positions.map(p => p instanceof Position ? p : new Position(p));
+                }
+                if (Array.isArray(d.leaders)) {
+                    d.leaders = d.leaders.map(l => l instanceof Leader ? l : new Leader(l));
+                }
+                Object.assign(state, d);
                 // Bulk replace → explicit coherence (this site had NONE before, and
                 // Object.assign bypasses the proxy): total index rebuild + stats clear.
                 invalidateAllStats();

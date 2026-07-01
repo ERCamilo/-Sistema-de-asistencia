@@ -15,6 +15,38 @@ const appSource = fs.readFileSync(APP_PATH, 'utf8');
 
 testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
 
+    "app.js importa drainMainSyncOutbox de PersistenceService (U8)"() {
+        testRunner.assert(
+            /import\s*\{[^}]*drainMainSyncOutbox[^}]*\}\s*from\s+['"]\.\/modules\/services\/PersistenceService\.js['"]/.test(appSource),
+            "app.js debe importar drainMainSyncOutbox"
+        );
+    },
+
+    "attachLiveBadge se cablea con onErrorClick que drena el outbox (U13)"() {
+        const idx = appSource.indexOf('attachLiveBadge({');
+        testRunner.assert(idx !== -1, 'debe existir la llamada a attachLiveBadge');
+        const block = appSource.slice(idx, idx + 2200);
+        testRunner.assert(/onErrorClick\s*:/.test(block),
+            'attachLiveBadge debe recibir onErrorClick para que el badge de error sea accionable (U13)');
+        testRunner.assert(/onErrorClick\s*:[\s\S]{0,200}?drainMainSyncOutbox\s*\(/.test(block),
+            'onErrorClick debe llamar a drainMainSyncOutbox (mismo mecanismo que el botón Reintentar del toast, U12)');
+    },
+
+    "el login (onAuthStateChanged) drena el outbox después de claimLocalOwnership (U8)"() {
+        // Cierra la pestaña antes de que una subida termine, luego reconectás
+        // o volvés a entrar: el login es uno de los dos triggers documentados
+        // (junto con 'online') para reanudar pendientes — no basta esperar a
+        // que el usuario haga OTRO cambio cualquiera.
+        // lastIndexOf: hay OTRA claimLocalOwnership en el flujo de wipe-and-reload
+        // (handleLocalOwnerMismatch), que recarga la página 900ms después — ahí
+        // drenar no tendría sentido (clearAll() ya vació también el outbox).
+        const idx = appSource.lastIndexOf('claimLocalOwnership(user.uid);');
+        testRunner.assert(idx !== -1, 'debe existir la llamada a claimLocalOwnership en el login');
+        const after = appSource.slice(idx, idx + 400);
+        testRunner.assert(/drainMainSyncOutbox\s*\(\s*\)/.test(after),
+            'debe llamarse drainMainSyncOutbox() después de claimLocalOwnership al iniciar sesión');
+    },
+
     "app.js importa loadAndMigrateEmployees"() {
         testRunner.assert(
             /from\s+['"]\.\/modules\/services\/EmployeeLoader\.js['"]/.test(appSource),
