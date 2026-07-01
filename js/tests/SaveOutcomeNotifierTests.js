@@ -193,3 +193,88 @@ testRunner.addSuite("SaveOutcomeNotifier — feedback en DOS FASES (inmediato + 
     }
 
 });
+
+// ─── U12: retry inyectable (botón "Reintentar" en el toast amarillo) ────────
+
+testRunner.addSuite("SaveOutcomeNotifier — retry inyectable, aislado de PettyCash (U12)", {
+
+    "un final 'warning' (nube falló) con retry handler seteado incluye retry en el payload"() {
+        const h = makeHarness();
+        const retryFn = () => {};
+        h.notifier.setCloudRetryHandler(retryFn);
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+        testRunner.assertEquals(h.calls[1].level, 'warning');
+        testRunner.assertEquals(h.calls[1].retry, retryFn, 'el warning debe llevar el handler para el botón Reintentar');
+    },
+
+    "un final 'confirm' (nube OK) NO lleva retry"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(true);
+        testRunner.assertEquals(h.calls[1].kind, 'confirm');
+        testRunner.assert(!h.calls[1].retry, 'un éxito no debe llevar botón de reintentar — no hay nada que reintentar');
+    },
+
+    "sin setCloudRetryHandler, el warning NO lleva retry (caso PettyCash: sin botón)"() {
+        const h = makeHarness(); // nunca se llamó setCloudRetryHandler en este harness
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+        testRunner.assert(!h.calls[1].retry,
+            'sin handler inyectado (p. ej. el flujo de PettyCash, que tiene su propia recuperación) no debe aparecer el botón');
+    },
+
+    "setCloudRetryHandler(null) limpia el handler"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.setCloudRetryHandler(null);
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+        testRunner.assert(!h.calls[1].retry, 'null debe limpiar el handler previamente seteado');
+    },
+
+    "recordRetryStarted re-arma pending: el resultado del reintento SÍ actualiza el mismo toast"() {
+        // Landmine real: recordCloudResult tiene guard `if (!pending) return` para
+        // ignorar ecos de sync de fondo. Pero para cuando el usuario reintenta,
+        // ese flag YA se resolvió (a false) con el fallo original — sin re-armarlo,
+        // el resultado del retry (éxito o fallo) nunca llegaría al toast.
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false); // toast amarillo, pending ahora false
+
+        h.notifier.recordRetryStarted();     // el usuario clickeó "Reintentar"
+        h.notifier.recordCloudResult(true);  // el retry tuvo éxito
+
+        testRunner.assertEquals(h.calls.length, 3, 'debe haber una TERCERA resolución (la del retry)');
+        testRunner.assertEquals(h.calls[2].kind, 'confirm', 'el retry exitoso debe confirmar el MISMO toast en verde');
+    },
+
+    "sin recordRetryStarted, un recordCloudResult posterior a la resolución se ignora (documenta el guard existente)"() {
+        const h = makeHarness();
+        h.notifier.setCloudRetryHandler(() => {});
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false); // resuelve (pending=false)
+
+        h.notifier.recordCloudResult(true);  // SIN recordRetryStarted antes
+
+        testRunner.assertEquals(h.calls.length, 2, 'sin re-armar pending, la segunda llamada debe ignorarse (guard pre-existente)');
+    },
+
+    "recordRetryStarted vuelve a fallar → el toast sigue amarillo CON retry (se puede reintentar de nuevo)"() {
+        const h = makeHarness();
+        const retryFn = () => {};
+        h.notifier.setCloudRetryHandler(retryFn);
+        h.notifier.recordLocalResult({ localOk: true, cloudExpected: true });
+        h.notifier.recordCloudResult(false);
+
+        h.notifier.recordRetryStarted();
+        h.notifier.recordCloudResult(false); // el retry también falló
+
+        testRunner.assertEquals(h.calls.length, 3);
+        testRunner.assertEquals(h.calls[2].level, 'warning');
+        testRunner.assertEquals(h.calls[2].retry, retryFn, 'debe seguir ofreciendo reintentar tras un segundo fallo');
+    }
+
+});

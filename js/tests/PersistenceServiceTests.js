@@ -19,6 +19,7 @@ import indexedDBService from '../modules/services/IndexedDBService.js';
 import dataService from '../modules/services/DataService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
+import { saveOutcomeNotifier } from '../modules/services/SaveOutcomeNotifier.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -348,6 +349,42 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
             await drainMainSyncOutbox();
             testRunner.assertEquals(flushSpy.mock.calls.length, 1,
                 'drainMainSyncOutbox debe llamar a MainSyncStore.flush exactamente una vez');
+        } finally {
+            flushSpy.mockRestore();
+        }
+    },
+
+    "PersistenceService cablea saveOutcomeNotifier.setCloudRetryHandler con drainMainSyncOutbox (U12)"() {
+        testRunner.assert(
+            /setCloudRetryHandler\s*\(\s*(drainMainSyncOutbox|\(\)\s*=>\s*drainMainSyncOutbox\(\))/.test(PS_SRC_U8),
+            'debe llamarse saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox) (o un wrapper que lo invoque) al cargar el módulo'
+        );
+    },
+
+    async "el botón Reintentar del toast (una vez cableado por el módulo real) drena el outbox (U12, end-to-end)"() {
+        // A diferencia del test anterior (source-introspection), esto prueba el
+        // EFECTO real: importar PersistenceService.js ya ejecutó el wiring de
+        // setCloudRetryHandler como side-effect de módulo. Disparamos un fallo
+        // de nube por el singleton REAL y verificamos que el botón invoca
+        // MainSyncStore.flush (lo que hace drainMainSyncOutbox por dentro).
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        const NotificationMod = await import('../modules/components/Notification.js');
+        NotificationMod.Notification.clearAll();
+        NotificationMod.Notification.activeNotifications = [];
+        try {
+            saveOutcomeNotifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'X' });
+            saveOutcomeNotifier.recordCloudResult(false);
+
+            // Encontrar el toast real recién creado por el singleton y clickear
+            // su botón — sin pasar por reset()/setCloudRetryHandler manual: éste
+            // es el handler que YA quedó cableado al cargar el módulo.
+            const toast = NotificationMod.Notification.activeNotifications[0];
+            const btn = toast?.element?.querySelector('.notification-action');
+            testRunner.assert(!!btn, 'el toast de fallo debe tener el botón Reintentar (handler cableado por el módulo)');
+
+            btn.click();
+            testRunner.assert(flushSpy.mock.calls.length >= 1,
+                'clickear Reintentar debe terminar llamando a MainSyncStore.flush (vía drainMainSyncOutbox)');
         } finally {
             flushSpy.mockRestore();
         }

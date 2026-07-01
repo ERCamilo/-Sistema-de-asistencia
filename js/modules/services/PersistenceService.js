@@ -317,6 +317,14 @@ export function drainMainSyncOutbox() {
     return MainSyncStore.flush(_mainSyncGuards());
 }
 
+// 🔘 U12: cablear el botón "Reintentar" del toast honesto (SaveOutcomeNotifier)
+// a drainMainSyncOutbox. Se hace acá (no dentro de SaveOutcomeNotifier.js) para
+// evitar un import circular — SaveOutcomeNotifier.js no necesita saber nada de
+// PersistenceService/MainSyncStore, sólo expone un setter genérico. PettyCash
+// (que importa el mismo singleton) NUNCA llama setCloudRetryHandler, así que
+// sus fallos siguen sin botón — no compite con este wiring.
+saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox);
+
 /**
  * 🌱 U9: siembra el outbox durable con los ids YA pendientes de la cola
  * legacy (Set + localStorage, rehidratada por loadDeleteQueuesFromStorage()
