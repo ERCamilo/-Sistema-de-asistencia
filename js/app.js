@@ -6887,11 +6887,19 @@ function _initOutgoingConflictGuard() {
                         window._pendingRemoteSave = false;
                         // JD3-B: si falló durante la carga inicial, restaurar el loader
                         // y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
+                        // JD4: try/catch propio — este bloque corre DENTRO del catch de
+                        // applyRemoteData, y el call site (Firebase onSnapshot, ~L6716)
+                        // no tiene try/catch envolvente. Si render() tirara sobre estado
+                        // parcial, escalaría a un unhandled rejection sin este guard.
                         if (isInitialLoad) {
-                            clearTimeout(loaderTimeout);
-                            hideLoader();
-                            isInitialLoad = false;
-                            render();
+                            try {
+                                clearTimeout(loaderTimeout);
+                                hideLoader();
+                                isInitialLoad = false;
+                                render();
+                            } catch (renderErr) {
+                                console.warn('⚠️ applyRemoteData catch: render() falló restaurando el loader:', renderErr);
+                            }
                         }
                     }
                     } // ← cierra applyRemoteData()

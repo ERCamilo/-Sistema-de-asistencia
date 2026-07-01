@@ -59,7 +59,7 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
         // El setTimeout post-apply (persist + validate + save) está dentro del try.
         // Si algo tira DESPUÉS de encolarlo, el callback correría sobre estado
         // parcial. El catch debe clearTimeout ese timer.
-        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,800}/);
+        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,1400}/);
         testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
         testRunner.assert(/clearTimeout/.test(block[0]),
             'el catch debe clearTimeout el apply-timer para no correr validate+save sobre estado parcial (JD3-A)');
@@ -68,10 +68,21 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
     "el catch de applyRemoteData restaura el loader en carga inicial (JD3-B)"() {
         // Si applyRemoteData tira durante la carga inicial, el catch debe ocultar el
         // loader y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
-        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,800}/);
+        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,1400}/);
         testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
         testRunner.assert(/isInitialLoad[\s\S]{0,140}?hideLoader/.test(block[0]),
             'el catch debe restaurar el loader (hideLoader) si isInitialLoad (JD3-B)');
+    },
+
+    "el bloque de restauración del loader tiene su propio try/catch (JD4)"() {
+        // El bloque JD3-B corre DENTRO del catch de applyRemoteData, cuyo call site
+        // (Firebase onSnapshot, ~L6716) no tiene try/catch envolvente. Si render()
+        // tirara sobre estado parcial, escalaría a un unhandled rejection sin este
+        // guard adicional (confirmado por ambos jueces en la ronda 4).
+        const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,1400}/);
+        testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
+        testRunner.assert(/isInitialLoad[\s\S]{0,60}?try\s*\{[\s\S]{0,220}?render\(\)[\s\S]{0,220}?catch/.test(block[0]),
+            'el bloque hideLoader/render dentro del catch debe tener su propio try/catch (JD4)');
     },
 
     "el clear de cero-registros usa isActive, no hasScheduledFlush (JD2#1)"() {
