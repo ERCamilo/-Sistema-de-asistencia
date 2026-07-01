@@ -98,8 +98,23 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
     let pendingLabel = null;   // etiqueta de la acción en espera (la última de la ráfaga)
     let retryHandler = null;   // U12: inyectado por el dueño del outbox (PersistenceService)
 
+    // Judgment Day #4: un retry manual (recordRetryStarted) y un guardado
+    // ordinario nuevo (recordSaveStarted/recordLocalResult) compartían el
+    // MISMO pending/timerHandle/pendingLabel. Si el usuario reintentaba un
+    // fallo y, ANTES de que resolviera, hacía OTRO guardado, ese guardado
+    // nuevo pisaba pendingLabel y el timer del retry — cuando el resultado
+    // del retry finalmente llegaba, el toast lo atribuía (con el label
+    // equivocado) al guardado nuevo, que en realidad seguía sin confirmar.
+    // Se separa en su propio estado, ajeno al ciclo del guardado ordinario.
+    let retryPending = false;
+    let retryTimerHandle = null;
+
     function _clearTimer() {
         if (timerHandle != null) { clearTimer(timerHandle); timerHandle = null; }
+    }
+
+    function _clearRetryTimer() {
+        if (retryTimerHandle != null) { clearTimer(retryTimerHandle); retryTimerHandle = null; }
     }
 
     function _resolveCloud(cloudOk) {
@@ -112,6 +127,21 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
         // (level 'warning' — local ya está a salvo) y sólo si alguien inyectó
         // un handler (PettyCash, p. ej., tiene su propia recuperación y no
         // setea uno — sin retry, sin botón).
+        const retry = (!cloudOk && typeof retryHandler === 'function') ? retryHandler : null;
+        notify({ ...outcome, kind: cloudOk ? 'confirm' : 'final', retry });
+    }
+
+    /**
+     * Resuelve el ciclo del RETRY, aislado del guardado ordinario. Sin label
+     * propio a propósito: MainSyncStore.flush() drena TODA la cola pendiente,
+     * no una sola entrada puntual, así que no hay una acción específica que
+     * nombrar — mismo comportamiento genérico que ya tenía el retry antes de
+     * este fix (recordRetryStarted nunca seteó pendingLabel).
+     */
+    function _resolveRetry(cloudOk) {
+        _clearRetryTimer();
+        retryPending = false;
+        const outcome = decideSaveOutcome({ localOk: true, cloudConnected: true, cloudOk, label: null });
         const retry = (!cloudOk && typeof retryHandler === 'function') ? retryHandler : null;
         notify({ ...outcome, kind: cloudOk ? 'confirm' : 'final', retry });
     }
@@ -176,9 +206,16 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
          * Reporta el resultado de la escritura a la nube (fase 2). Se ignora si
          * no hay un guardado propio esperando (evita toasts por ecos de sync
          * entrante o flushes de fondo).
+         *
+         * Judgment Day #4: si hay un retry en vuelo, ES la explicación más
+         * relevante de este resultado — el usuario pidió explícitamente
+         * reintentar y está esperando ESA respuesta. Resolverlo por su cuenta
+         * evita atribuírselo al guardado ordinario que pudiera haber arrancado
+         * mientras tanto (que sigue esperando su PROPIA resolución).
          * @param {boolean} ok
          */
         recordCloudResult(ok) {
+            if (retryPending) { _resolveRetry(ok === true); return; }
             if (!pending) return;
             _resolveCloud(ok === true);
         },
@@ -196,18 +233,29 @@ export function createSaveOutcomeNotifier({ notify, setTimer, clearTimer, cloudT
         },
 
         /**
-         * U12: re-arma `pending` para un reintento MANUAL. Sin esto,
-         * recordCloudResult (llamado por el drenado del retry) se ignoraría —
-         * el flag ya se había resuelto a false con el fallo original, y el
-         * guard de arriba está pensado para descartar ecos de sync de fondo,
-         * no un resultado que el usuario pidió explícitamente. No cambia el
-         * toast visible: el de fallo (con su botón) sigue mostrándose hasta
-         * que este segundo ciclo resuelva.
+         * U12: arranca el ciclo de un reintento MANUAL, en SU PROPIO estado
+         * (retryPending/retryTimerHandle — Judgment Day #4), separado del
+         * guardado ordinario. Sin esto, recordCloudResult (llamado por el
+         * drenado del retry) se ignoraría — el flag ya se había resuelto a
+         * false con el fallo original. No cambia el toast visible: el de
+         * fallo (con su botón) sigue mostrándose hasta que este segundo
+         * ciclo resuelva.
+         *
+         * Guard contra doble click: si ya hay un retry en vuelo, es un no-op
+         * — no reinicia el timer ni pretende arrancar un segundo ciclo
+         * (MainSyncStore.flush ya es reentrante-seguro a nivel de red, esto
+         * sólo evita confundir el estado de ESTE módulo).
          */
         recordRetryStarted() {
-            pending = true;
-            _clearTimer();
-            timerHandle = setTimer(() => { _resolveCloud(false); }, cloudTimeoutMs);
+            if (retryPending) return;
+            retryPending = true;
+            _clearRetryTimer();
+            retryTimerHandle = setTimer(() => { _resolveRetry(false); }, cloudTimeoutMs);
+        },
+
+        /** Judgment Day #4: para que la UI pueda deshabilitar el botón Reintentar mientras el retry sigue en vuelo. */
+        isRetryInFlight() {
+            return retryPending;
         }
     };
 }
@@ -269,6 +317,11 @@ const _notify = (o) => {
         const actions = o.retry ? [{
             label: 'Reintentar', icon: 'refresh-cw', closeOnClick: false,
             onClick: () => {
+                // Judgment Day #4: si un doble click (u otro disparador) ya
+                // dejó un retry en vuelo, no reinvocamos drainMainSyncOutbox
+                // otra vez — recordRetryStarted() ya sería un no-op, pero
+                // evitamos también la llamada redundante a o.retry().
+                if (saveOutcomeNotifier.isRetryInFlight()) return;
                 saveOutcomeNotifier.recordRetryStarted();
                 try { o.retry(); } catch (_) { /* defensivo — drainMainSyncOutbox no debería rechazar */ }
             }

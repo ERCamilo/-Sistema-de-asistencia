@@ -101,6 +101,28 @@ testRunner.addSuite("SaveOutcomeNotifier (singleton) — botón Reintentar (U12)
             testRunner.assert(!!toast.element.querySelector('.notification-action'),
                 'debe poder reintentarse de nuevo');
         } finally { reset(); }
+    },
+
+    "doble click en Reintentar mientras el primero sigue en vuelo NO reinvoca el handler (Judgment Day #4)"() {
+        reset();
+        let calls = 0;
+        // Handler que NUNCA resuelve durante el test — simula drainMainSyncOutbox
+        // en vuelo (una promesa de red real tarda; acá basta con no resolverla).
+        saveOutcomeNotifier.setCloudRetryHandler(() => {
+            calls++;
+            return new Promise(() => {});
+        });
+        try {
+            driveCloudFailure();
+            const toast = Notification.activeNotifications[0];
+            const btn = toast.element.querySelector('.notification-action');
+
+            btn.click(); // primer click — arranca el retry, sigue "en vuelo"
+            btn.click(); // doble click mientras el primero no resolvió
+
+            testRunner.assertEquals(calls, 1,
+                'el doble click no debe reinvocar el handler — el primero sigue en vuelo');
+        } finally { reset(); }
     }
 
 });
