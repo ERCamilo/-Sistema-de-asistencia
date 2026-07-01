@@ -103,6 +103,42 @@ testRunner.addSuite("SaveOutcomeNotifier (singleton) — botón Reintentar (U12)
         } finally { reset(); }
     },
 
+    "un guardado nuevo que recicla el toast de fallo limpia el botón Reintentar viejo (Judgment Day #5, fase 'start')"() {
+        // Notification.update() sólo pisa this.actions si options.actions es un
+        // array — si no se pasa nada, conserva las acciones PREVIAS. El toast
+        // amarillo con Reintentar seguía vivo (se conserva a propósito para
+        // que el retry lo pueda actualizar), así que un guardado ORDINARIO
+        // nuevo que lo recicla para "Guardando…" heredaba el botón viejo,
+        // aunque ya no tuviera sentido en ese contexto.
+        reset();
+        saveOutcomeNotifier.setCloudRetryHandler(() => {});
+        try {
+            driveCloudFailure();
+            const toast = Notification.activeNotifications[0];
+            testRunner.assert(!!toast.element.querySelector('.notification-action'),
+                'precondición: el toast de fallo debe tener el botón Reintentar');
+
+            saveOutcomeNotifier.recordSaveStarted({ label: 'Otro guardado' });
+
+            testRunner.assert(!toast.element.querySelector('.notification-action'),
+                'el botón Reintentar viejo NO debe seguir visible en el toast reciclado para "Guardando…"');
+        } finally { reset(); }
+    },
+
+    "la fase provisional de un guardado nuevo también limpia el botón Reintentar viejo (Judgment Day #5)"() {
+        reset();
+        saveOutcomeNotifier.setCloudRetryHandler(() => {});
+        try {
+            driveCloudFailure();
+            const toast = Notification.activeNotifications[0];
+
+            saveOutcomeNotifier.recordLocalResult({ localOk: true, cloudExpected: true, label: 'Otro guardado' });
+
+            testRunner.assert(!toast.element.querySelector('.notification-action'),
+                'el botón Reintentar viejo NO debe seguir visible en el toast reciclado en fase provisional');
+        } finally { reset(); }
+    },
+
     "doble click en Reintentar mientras el primero sigue en vuelo NO reinvoca el handler (Judgment Day #4)"() {
         reset();
         let calls = 0;

@@ -279,8 +279,13 @@ const _notify = (o) => {
         if (o.kind === 'start') {
             // Fase 0: spinner instantáneo. Sticky — las fases siguientes (o el
             // timeout de seguridad de la máquina) siempre lo resuelven.
+            // Judgment Day #5: Notification.update() sólo pisa this.actions si
+            // options.actions es un array — si el toast reciclado venía de un
+            // fallo previo CON botón Reintentar (que se conserva a propósito
+            // para que el retry lo pueda actualizar), un guardado ORDINARIO
+            // nuevo heredaba ese botón sin sentido. actions: [] lo limpia.
             if (_toastAlive()) {
-                _toast.update({ type: 'loading', message: o.message, duration: 0 });
+                _toast.update({ type: 'loading', message: o.message, duration: 0, actions: [] });
             } else {
                 _toast = NotificationSystem.loading(o.message);
             }
@@ -289,8 +294,9 @@ const _notify = (o) => {
         if (o.kind === 'provisional') {
             // Fase 1: crear (o reciclar) el toast verde inmediato. Duración
             // larga: la confirmación de nube lo actualizará en ~2-3s.
+            // Judgment Day #5: mismo motivo que 'start' — limpiar actions.
             if (_toastAlive()) {
-                _toast.update({ type: 'success', message: o.message, duration: 10000 });
+                _toast.update({ type: 'success', message: o.message, duration: 10000, actions: [] });
             } else {
                 _toast = NotificationSystem.success(o.message, 10000);
             }
