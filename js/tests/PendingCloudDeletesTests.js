@@ -25,6 +25,7 @@
 
 import {
     enqueueCloudEmployeeDelete,
+    enqueueCloudEmployeeDeleteBatch,
     getPendingCloudDeletes,
     clearPendingCloudDeletes
 } from '../modules/services/PersistenceService.js';
@@ -326,6 +327,33 @@ testRunner.addSuite("PersistenceService — los borrados TAMBIÉN encolan en Mai
             testRunner.assertEquals(spy.mock.calls.length, 0);
         } finally {
             spy.mockRestore();
+        }
+    },
+
+    "enqueueCloudEmployeeDeleteBatch también encola cada id en MainSyncStore (Judgment Day #2)"() {
+        // El wizard de duplicados usa el batch (no el singular) al fusionar varios
+        // a la vez — sin esto, esos ids sólo tenían la durabilidad extra del outbox
+        // si sobrevivían hasta el próximo loadApplicationData (que los siembra desde
+        // la cola legacy). Debe tener la MISMA paridad que enqueueCloudEmployeeDelete.
+        clearPendingCloudDeletes();
+        const spy = jest.spyOn(MainSyncStore, 'enqueueDelete').mockResolvedValue(undefined);
+        state.settings = state.settings || {};
+        const prevSchema = state.settings.schemaVersion;
+        try {
+            state.settings.schemaVersion = 2;
+            enqueueCloudEmployeeDeleteBatch(['eB1', 'eB2']);
+            testRunner.assert(
+                spy.mock.calls.some(c => c[0] === 'employee' && c[1] === 'eB1' && c[2] === 2),
+                'debe encolar eB1 en MainSyncStore'
+            );
+            testRunner.assert(
+                spy.mock.calls.some(c => c[0] === 'employee' && c[1] === 'eB2' && c[2] === 2),
+                'debe encolar eB2 en MainSyncStore'
+            );
+        } finally {
+            spy.mockRestore();
+            clearPendingCloudDeletes();
+            state.settings.schemaVersion = prevSchema;
         }
     },
 

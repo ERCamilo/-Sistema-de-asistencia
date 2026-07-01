@@ -176,10 +176,19 @@ export function enqueueCloudEmployeeDelete(id) {
 /** Encola varios ids de empleados con una sola escritura a localStorage. */
 export function enqueueCloudEmployeeDeleteBatch(ids) {
     if (!Array.isArray(ids) || ids.length === 0) return;
+    const schemaVersion = state?.settings?.schemaVersion;
     ids.forEach(id => {
         if (!id) return;
         const key = String(id).trim();
-        if (key) _pendingCloudDeletes.add(key);
+        if (!key) return;
+        _pendingCloudDeletes.add(key);
+        // Judgment Day #2: el wizard de duplicados fusiona varios ids a la vez
+        // con este batch (no con el singular) — sin esto, esos ids sólo tenían
+        // la durabilidad extra del outbox si sobrevivían hasta el próximo
+        // loadApplicationData (que los siembra desde la cola legacy). Misma
+        // paridad que enqueueCloudEmployeeDelete.
+        MainSyncStore.enqueueDelete('employee', key, schemaVersion)
+            .catch(e => console.warn('⚠️ Error encolando borrado de empleado (batch) en el outbox:', e));
     });
     _persistDeleteQueues();
 }
