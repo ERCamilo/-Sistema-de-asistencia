@@ -15,7 +15,7 @@
  * Jest (configurable por test), igual que PettyCashOutboxResilienceTests.
  */
 
-import { MainSyncStore } from '../modules/services/MainSyncStore.js';
+import { MainSyncStore, MAX_FLUSH_ATTEMPTS } from '../modules/services/MainSyncStore.js';
 import indexedDBService from '../modules/services/IndexedDBService.js'; // → mock global
 
 function outboxEntry(key, overrides = {}) {
@@ -306,6 +306,125 @@ testRunner.addSuite("MainSyncStore — flush: dispatch por kind", {
         guards = makeGuards();
         await MainSyncStore.flush(guards);
         testRunner.assertEquals(guards.deleteEntity.mock.calls.length, 1, 'con schemaVersion>=3 sí debe drenar');
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — dead-lettering (espeja PettyCash M2)", {
+
+    async "fallo transitorio incrementa attempts, status pending, y corta el ciclo"() {
+        resetMocks();
+        const snap1 = { settings: {} }, snap2 = { settings: {} };
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: snap1 }),
+            outboxEntry(2, { kind: 'mirror', snapshot: snap2 })
+        ]);
+        const guards = makeGuards();
+        guards.saveMirror.mockRejectedValueOnce({ code: 'unavailable' }).mockResolvedValue(undefined);
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1, 'sólo la primera entrada debe intentarse este ciclo');
+        const updates = updatesToOutbox();
+        const reSaved = updates.find(c => c[1].key === 1);
+        testRunner.assert(!!reSaved, 'la entrada fallida debe re-guardarse con su nuevo estado');
+        testRunner.assertEquals(reSaved[1].attempts, 1);
+        testRunner.assertEquals(reSaved[1].status, 'pending');
+        testRunner.assertEquals(guards.onCloudResult.mock.calls[0][0], false, 'debe reportar el fallo');
+    },
+
+    async "fallo permanente marca dead de inmediato y la cola CONTINÚA"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } }),
+            outboxEntry(2, { kind: 'mirror', snapshot: { settings: {} } })
+        ]);
+        const guards = makeGuards();
+        guards.saveMirror.mockRejectedValueOnce({ code: 'permission-denied' }).mockResolvedValue(undefined);
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 2,
+            'un fallo PERMANENTE no debe cortar el ciclo — la entrada sana siguiente debe intentarse');
+        const updates = updatesToOutbox();
+        const dead = updates.find(c => c[1].key === 1);
+        testRunner.assertEquals(dead[1].status, 'dead', 'permission-denied nunca se resuelve reintentando');
+        testRunner.assert(indexedDBService.delete.mock.calls.some(c => c[1] === 2),
+            'la entrada sana (key 2) debe drenarse aunque la anterior esté muerta');
+    },
+
+    async "tras MAX_FLUSH_ATTEMPTS un fallo transitorio pasa a dead y la cola continúa"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} }, attempts: MAX_FLUSH_ATTEMPTS - 1 }),
+            outboxEntry(2, { kind: 'mirror', snapshot: { settings: {} } })
+        ]);
+        const guards = makeGuards();
+        guards.saveMirror.mockRejectedValueOnce({ code: 'unavailable' }).mockResolvedValue(undefined);
+
+        await MainSyncStore.flush(guards);
+
+        const updates = updatesToOutbox();
+        const dead = updates.find(c => c[1].key === 1);
+        testRunner.assertEquals(dead[1].status, 'dead', `tras ${MAX_FLUSH_ATTEMPTS} intentos debe dead-letterear aunque sea transitorio`);
+        testRunner.assert(indexedDBService.delete.mock.calls.some(c => c[1] === 2), 'la siguiente entrada debe drenarse igual');
+    },
+
+    async "las entradas dead no se reintentan"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: {}, status: 'dead' })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 0, 'dead no debe tocar la nube');
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — pendingCount/deadCount/requeueDeadEntries", {
+
+    async "pendingCount cuenta solo pending"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { status: 'pending' }), outboxEntry(2, { status: 'dead' }), outboxEntry(3, { status: 'pending' })
+        ]);
+        testRunner.assertEquals(await MainSyncStore.pendingCount(), 2);
+    },
+
+    async "deadCount cuenta solo dead"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { status: 'dead' }), outboxEntry(2, { status: 'pending' }), outboxEntry(3, { status: 'dead' })
+        ]);
+        testRunner.assertEquals(await MainSyncStore.deadCount(), 2);
+    },
+
+    async "requeueDeadEntries pone dead→pending, attempts:0, y reporta cuántas revivió"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { status: 'dead', attempts: 7, lastError: 'x' })
+        ]);
+
+        const n = await MainSyncStore.requeueDeadEntries();
+
+        testRunner.assertEquals(n, 1);
+        const updates = updatesToOutbox();
+        testRunner.assertEquals(updates.length, 1);
+        testRunner.assertEquals(updates[0][1].status, 'pending');
+        testRunner.assertEquals(updates[0][1].attempts, 0);
+    },
+
+    async "requeueDeadEntries NO dispara flush por sí mismo (el caller decide, porque flush necesita guards)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([outboxEntry(1, { status: 'dead' })]);
+        // Sin guards inyectados acá — si requeueDeadEntries intentara auto-flushear
+        // necesitando guards, esto explotaría o requeriría un guards por defecto.
+        // No debe pasar: sólo debe re-encolar y devolver el conteo.
+        const n = await MainSyncStore.requeueDeadEntries();
+        testRunner.assertEquals(n, 1);
     }
 
 });

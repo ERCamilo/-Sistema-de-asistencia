@@ -12,8 +12,13 @@
  */
 
 import { indexedDBService } from './IndexedDBService.js';
+import { nextEntryState } from './SyncErrorClassifier.js';
 
 const OUTBOX = 'mainSyncOutbox';
+
+// Espeja PettyCashStore.MAX_FLUSH_ATTEMPTS: tras este número de intentos
+// fallidos, la entrada pasa a 'dead' y deja de bloquear el resto de la cola.
+export const MAX_FLUSH_ATTEMPTS = 5;
 
 // Mismo margen que el chequeo de conflicto saliente en PersistenceService
 // (_executeSave): si la nube es "más nueva" que el snapshot por menos que
@@ -34,6 +39,36 @@ async function _getAll() {
 /** Borra por key, sin propagar error (best-effort, igual que PettyCashStore). */
 async function _deleteQuiet(key) {
     try { await indexedDBService.delete(OUTBOX, key); } catch { /* noop */ }
+}
+
+/**
+ * Decide qué llamar a la nube para una entrada, según su `kind`, aplicando
+ * los gates que NO son errores (watermark del mirror, schemaVersion del
+ * delete). Separado de `flush()` para mantener el bucle simple.
+ * @returns {(() => Promise)|null} el thunk a ejecutar, o null si hay que
+ *   diferir esta entrada (dejarla pending sin tocarla ni contarla como fallo).
+ */
+function _resolveCloudCall(entry, guards) {
+    if (entry.kind === 'mirror') {
+        const localTs = entry.snapshot?.settings?.localUpdatedAt || 0;
+        // Diferir, NO es un fallo: la nube ya tiene algo más nuevo que este
+        // snapshot. No incrementar attempts ni tocar la entrada.
+        if (guards.cloudWatermark() > localTs + OUTGOING_CONFLICT_GRACE_MS) return null;
+        return () => guards.saveMirror(entry.snapshot);
+    }
+    if (entry.kind === 'daily') {
+        // Sin gate de watermark: es un merge granular por día, no un
+        // overwrite wholesale que el watermark tenga que proteger.
+        return () => guards.saveDaily(entry.dateKey, entry.records);
+    }
+    if (entry.kind === 'delete') {
+        const minSchema = DELETE_SCHEMA_MIN[entry.entity];
+        // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
+        // pendiente hasta que la cuenta migre — no es un fallo.
+        if (!minSchema || (entry.schemaVersion || 0) < minSchema) return null;
+        return () => guards.deleteEntity(entry.entity, entry.id);
+    }
+    return null; // kind desconocido — no debería pasar; no tocar la entrada
 }
 
 export const MainSyncStore = {
@@ -121,40 +156,57 @@ export const MainSyncStore = {
             .sort((a, b) => (a.key || 0) - (b.key || 0));
 
         for (const entry of pending) {
-            if (entry.kind === 'mirror') {
-                const localTs = entry.snapshot?.settings?.localUpdatedAt || 0;
-                if (guards.cloudWatermark() > localTs + OUTGOING_CONFLICT_GRACE_MS) {
-                    // Diferir, NO es un fallo: la nube ya tiene algo más nuevo que
-                    // este snapshot. No incrementar attempts ni tocar la entrada.
-                    continue;
-                }
-                await guards.saveMirror(entry.snapshot);
-                await _deleteQuiet(entry.key);
-                guards.onCloudResult(true);
-                continue;
-            }
+            const cloudCall = _resolveCloudCall(entry, guards);
+            if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
 
-            if (entry.kind === 'daily') {
-                // Sin gate de watermark: es un merge granular por día, no un
-                // overwrite wholesale que el watermark tenga que proteger.
-                await guards.saveDaily(entry.dateKey, entry.records);
+            try {
+                await cloudCall();
                 await _deleteQuiet(entry.key);
                 guards.onCloudResult(true);
-                continue;
-            }
-
-            if (entry.kind === 'delete') {
-                const minSchema = DELETE_SCHEMA_MIN[entry.entity];
-                if (!minSchema || (entry.schemaVersion || 0) < minSchema) {
-                    // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
-                    // pendiente hasta que la cuenta migre — no es un fallo.
-                    continue;
-                }
-                await guards.deleteEntity(entry.entity, entry.id);
-                await _deleteQuiet(entry.key);
-                guards.onCloudResult(true);
+            } catch (err) {
+                // ☠️ M2 (mismo criterio que PettyCashStore): cada fallo suma un
+                // intento y guarda lastError. Un error PERMANENTE (permisos,
+                // argumento inválido) dead-letterea de inmediato sin gastar los
+                // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
+                guards.onCloudResult(false);
+                const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
+                await indexedDBService.update(OUTBOX, { ...entry, ...next });
+                if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima
+                break; // fallo transitorio: cortar el ciclo para no martillar la red
             }
         }
+    },
+
+    /** ¿Cuántas escrituras quedan pendientes? (para UI/diagnóstico) */
+    async pendingCount() {
+        const all = await _getAll();
+        return all.filter(e => e && e.status === 'pending').length;
+    },
+
+    /** ¿Cuántas entradas quedaron muertas (descartadas tras N intentos o permanentes)? */
+    async deadCount() {
+        const all = await _getAll();
+        return all.filter(e => e && e.status === 'dead').length;
+    },
+
+    /**
+     * Revive las entradas 'dead' (attempts en cero) para reintentarlas — p.ej.
+     * después de corregir reglas de Firestore o migrar la cuenta. NO dispara
+     * flush por sí mismo (flush necesita `guards`, que este método no recibe);
+     * el caller decide cuándo llamar a flush(guards) después.
+     * @returns {Promise<number>} cuántas revivió
+     */
+    async requeueDeadEntries() {
+        const all = await _getAll();
+        let revived = 0;
+        for (const e of all) {
+            if (!e || e.status !== 'dead') continue;
+            try {
+                await indexedDBService.update(OUTBOX, { ...e, status: 'pending', attempts: 0, lastError: null });
+                revived++;
+            } catch { /* noop */ }
+        }
+        return revived;
     }
 
 };
