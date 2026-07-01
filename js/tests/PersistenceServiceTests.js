@@ -13,12 +13,16 @@
  *   - loadApplicationData() always sets state.isDataLoaded = true
  */
 
-import { saveApplicationData, loadApplicationData, flushPendingSave, restoreAutoBackup } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, loadApplicationData, flushPendingSave, restoreAutoBackup, drainMainSyncOutbox } from '../modules/services/PersistenceService.js';
 import { state, stateManager } from '../modules/core/AppState.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import dataService from '../modules/services/DataService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
+import fs from 'fs';
+import path from 'path';
+
+const PS_SRC_U8 = fs.readFileSync(path.resolve(__dirname, '../modules/services/PersistenceService.js'), 'utf8');
 
 // ─────────────────────────────────────────────────────────────
 // Helpers — snapshot & restore state between tests
@@ -266,6 +270,32 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
         }
     },
 
+    async "loadApplicationData (rama IndexedDB) cablea initMainSyncLifecycle (U8)"() {
+        // Sin esto, un tab que arranca cargado desde IndexedDB nunca escucha
+        // 'online' para drenar el outbox — la reconexión no dispararía nada.
+        const snap = snapshotState();
+        const lifecycleSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            clearAllMocks();
+            indexedDBService.loadFullState.mockResolvedValueOnce({
+                employees: [{ id: 'e1', name: 'Test', active: true, positions: [] }],
+                positions: [], leaders: [], attendance: {}, settings: {}
+            });
+
+            await loadApplicationData();
+
+            // Disparar 'online' y verificar que el listener quedó armado.
+            window.dispatchEvent(new Event('online'));
+            await Promise.resolve();
+
+            testRunner.assert(lifecycleSpy.mock.calls.length >= 1,
+                'loadApplicationData debe armar el listener de online (initMainSyncLifecycle) al cargar desde IndexedDB');
+        } finally {
+            lifecycleSpy.mockRestore();
+            restoreState(snap);
+        }
+    },
+
     async "falls back to LocalStorage when IndexedDB is empty"() {
         const snap = snapshotState();
         try {
@@ -298,6 +328,28 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
             testRunner.assert(state.isDataLoaded, "isDataLoaded should still be true (don't block UI)");
         } finally {
             restoreState(snap);
+        }
+    },
+
+    "loadApplicationData cablea initMainSyncLifecycle en AMBAS ramas (IndexedDB y LocalStorage) (U8)"() {
+        // Comportamiento ya cubierto behavioralmente arriba (rama IndexedDB);
+        // initMainSyncLifecycle es idempotente (un solo listener 'online' real
+        // para toda la sesión), así que la rama LocalStorage no puede verificarse
+        // con el mismo spy sin falsos negativos por orden de tests. Se confirma
+        // por código fuente que la llamada existe en LAS DOS ramas.
+        const calls = (PS_SRC_U8.match(/initMainSyncLifecycle\s*\(/g) || []).length;
+        testRunner.assert(calls >= 2,
+            `initMainSyncLifecycle debe llamarse en ambas ramas de loadApplicationData (encontradas ${calls})`);
+    },
+
+    async "drainMainSyncOutbox() vacía el outbox con los guards en vivo (U8)"() {
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            await drainMainSyncOutbox();
+            testRunner.assertEquals(flushSpy.mock.calls.length, 1,
+                'drainMainSyncOutbox debe llamar a MainSyncStore.flush exactamente una vez');
+        } finally {
+            flushSpy.mockRestore();
         }
     },
 

@@ -296,61 +296,44 @@ function _mainSyncGuards() {
 }
 
 /**
- * ⚡ SINCRONIZACIÓN DEBUNCED PARA FIREBASE (Mirror Sync)
- * Evita saturar la cuota de Firebase con guardados demasiado frecuentes
+ * 🚚 Fuerza el drenado de la bandeja de pendientes cloud AHORA, sin esperar
+ * al próximo 'online' o al próximo save. Se usa al iniciar sesión: si el
+ * usuario cerró la pestaña con subidas a medio terminar y vuelve a entrar
+ * (en vez de reconectar sin recargar), esto reanuda esas subidas.
+ */
+export function drainMainSyncOutbox() {
+    return MainSyncStore.flush(_mainSyncGuards());
+}
+
+/**
+ * ⚡ SINCRONIZACIÓN CON FIREBASE (Mirror Sync)
+ *
+ * U8: histórico debounce de 2s EN MEMORIA reemplazado por un shim que delega
+ * a la bandeja de pendientes durable (MainSyncStore, U1-U7). `debounced(state)`
+ * encola (coalescing propio de MainSyncStore, no hace falta debounce acá) y
+ * `.flush()` dispara el drenado ya mismo. Se mantiene esta función/forma
+ * (en vez de borrarla) para no romper la firma que flushPendingSave y
+ * cualquier caller remanente ya conocen.
  */
 export const syncFirebaseMirrorDebounced = (function() {
-    let timeout = null;
-    let pendingState = null;
-
-    // Dispara el guardado del mirror. `immediate` (flush en pagehide) salta el
-    // requestIdleCallback: la pestaña se está cerrando y no habrá idle time, así
-    // que despachamos la escritura ya mismo (el SDK de Firestore la maneja en
-    // best-effort aunque la pestaña muera).
-    const fire = (state, immediate = false) => {
-        if (!(globalThis.currentUser && !globalThis._isApplyingRemoteData)) return;
-        const runSync = () => {
-            FirebaseService.saveFullState(state)
-                .then(() => {
-                    saveOutcomeNotifier.recordCloudResult(true);
-                    // 📡 Señal para feedback por ítem (anillos de asistencia).
-                    globalThis.eventBus?.emit?.('sync:mirror-result', { ok: true });
-                })
-                .catch(e => {
-                    console.warn('⚠️ Error en sincronización debounced:', e);
-                    _notifySyncError(e);
-                    saveOutcomeNotifier.recordCloudResult(false);
-                    globalThis.eventBus?.emit?.('sync:mirror-result', { ok: false });
-                });
-        };
-        if (!immediate && window.requestIdleCallback) {
-            window.requestIdleCallback(runSync, { timeout: 1000 });
-        } else {
-            runSync();
-        }
-    };
-
     const debounced = function(state) {
-        pendingState = state;
-        clearTimeout(timeout);
-        timeout = setTimeout(() => {
-            const s = pendingState;
-            pendingState = null;
-            timeout = null;
-            fire(s, false);
-        }, 2000); // 2 segundos de espera
+        MainSyncStore.enqueueMirror(state)
+            .catch(e => console.warn('⚠️ Error encolando el mirror:', e))
+            .finally(() => {
+                MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+                    console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
+                );
+            });
     };
 
-    // 🚿 M10: vacía el mirror pendiente de inmediato (pagehide/visibilitychange).
-    // Sin esto, un cambio hecho dentro de la ventana de 2s sólo llegaba a
-    // IndexedDB y no a la nube hasta la próxima sesión.
+    // 🚿 M10 (histórico) / U8: vacía el outbox de inmediato (pagehide/
+    // visibilitychange). La durabilidad real ya no depende de este flush —
+    // la entrada ya está en IndexedDB desde que se encoló — pero acelera el
+    // drenado en vez de esperar al próximo online/login.
     debounced.flush = function() {
-        if (timeout) { clearTimeout(timeout); timeout = null; }
-        if (pendingState != null) {
-            const s = pendingState;
-            pendingState = null;
-            fire(s, true);
-        }
+        MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+            console.warn('⚠️ Error vaciando la bandeja de pendientes cloud (flush):', e)
+        );
     };
 
     return debounced;
@@ -711,6 +694,9 @@ export async function loadApplicationData() {
             // Idempotente: llamadas múltiples (ej. hot-reload, demos) reemplazan
             // el listener anterior en lugar de apilarlo.
             initSyncPersistence();
+            // U8: armar el drenado del outbox al volver la conexión. Idempotente
+            // (un solo listener 'online' real por sesión, ver MainSyncStore).
+            initMainSyncLifecycle(_mainSyncGuards);
 
             // 🟢 Pre-cargar SyncStatus con el último timestamp persistido para
             // que el badge muestre "Sincronizado · hace Xm" desde el primer
@@ -747,8 +733,9 @@ export async function loadApplicationData() {
             debug.log('✅ Datos cargados desde LocalStorage');
             state.isDataLoaded = true;
             initSyncPersistence();
+            initMainSyncLifecycle(_mainSyncGuards); // U8: mismo cableado que la rama IndexedDB
             warmUpSyncStatus(state.settings);
-            
+
             // Si el navegador soporta IndexedDB, migramos de inmediato
             if (indexedDBService.isSupported()) {
                 console.log('🚀 Migrando datos de LocalStorage a IndexedDB...');

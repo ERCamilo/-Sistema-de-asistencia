@@ -1,11 +1,19 @@
 /**
  * 🧪 MirrorFlushSettingsTests (Auditoría 2026-06-09, hallazgos M9 y M10)
  *
- * M10 — El mirror a Firestore se hace con un debounce de 2s. Si el usuario
- * cerraba la pestaña dentro de esa ventana, el timer moría con la pestaña: el
- * último cambio llegaba a IndexedDB pero NO a la nube hasta la próxima sesión.
- * Fix: syncFirebaseMirrorDebounced expone .flush() para disparar de inmediato
- * el guardado pendiente; flushPendingSave (pagehide/visibilitychange) lo llama.
+ * M10 (histórico) — El mirror a Firestore se hacía con un debounce de 2s en
+ * memoria. Si el usuario cerraba la pestaña dentro de esa ventana, el timer
+ * moría con la pestaña: el último cambio llegaba a IndexedDB pero NO a la
+ * nube hasta la próxima sesión.
+ *
+ * U8 — El debounce en memoria se reemplazó por la bandeja de pendientes
+ * durable (MainSyncStore, U1-U7): syncFirebaseMirrorDebounced ahora es un
+ * SHIM que delega — `debounced(state)` encola vía MainSyncStore.enqueueMirror
+ * y `.flush()` dispara MainSyncStore.flush(). La durabilidad real (sobrevivir
+ * a cerrar la pestaña) ya no depende de que flushPendingSave alcance a
+ * llamar `.flush()` a tiempo — la entrada YA está en IndexedDB desde que se
+ * encoló. flushPendingSave sigue llamando `.flush()` para acelerar el drenado
+ * en vez de esperar al próximo online/login.
  *
  * M9 — saveFullState escribía con merge:true, así que una clave de settings
  * BORRADA localmente sobrevivía en la nube y reaparecía en la próxima lectura
@@ -17,43 +25,43 @@ import fs from 'fs';
 import path from 'path';
 import { syncFirebaseMirrorDebounced, flushPendingSave } from '../modules/services/PersistenceService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
+import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 
 const FB_SRC = fs.readFileSync(
     path.resolve(__dirname, '../modules/services/FirebaseService.js'), 'utf8'
 );
 
-testRunner.addSuite("Mirror — flush del debounce pendiente (M10)", {
+testRunner.addSuite("Mirror — syncFirebaseMirrorDebounced delega al outbox (U8)", {
 
     "syncFirebaseMirrorDebounced expone .flush()"() {
         testRunner.assert(typeof syncFirebaseMirrorDebounced.flush === 'function',
             'debe existir syncFirebaseMirrorDebounced.flush() para vaciar el mirror antes de cerrar la pestaña');
     },
 
-    async "flush() dispara saveFullState de inmediato sin esperar los 2s"() {
-        FirebaseService.saveFullState.mockClear();
-        const prevUser = globalThis.currentUser;
-        const prevApplying = globalThis._isApplyingRemoteData;
-        globalThis.currentUser = { uid: 'm10' };
-        globalThis._isApplyingRemoteData = false;
+    async "syncFirebaseMirrorDebounced(state) encola el mirror en MainSyncStore (ya no debouncea 2s en memoria)"() {
+        const enqueueSpy = jest.spyOn(MainSyncStore, 'enqueueMirror').mockResolvedValue(undefined);
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
         try {
             const st = { settings: { theme: 'dark' } };
-            syncFirebaseMirrorDebounced(st);      // agenda el timer de 2s
-            testRunner.assertEquals(FirebaseService.saveFullState.mock.calls.length, 0,
-                'todavía no debe haber guardado (sigue en debounce)');
-            syncFirebaseMirrorDebounced.flush();  // pagehide → vaciar ya
-            testRunner.assert(FirebaseService.saveFullState.mock.calls.length >= 1,
-                'flush() debe disparar saveFullState inmediatamente');
+            syncFirebaseMirrorDebounced(st);
+            await Promise.resolve(); await Promise.resolve();
+            testRunner.assert(enqueueSpy.mock.calls.length >= 1,
+                'debe encolar en MainSyncStore en vez de agendar un setTimeout de 2s');
         } finally {
-            globalThis.currentUser = prevUser;
-            globalThis._isApplyingRemoteData = prevApplying;
+            enqueueSpy.mockRestore();
+            flushSpy.mockRestore();
         }
     },
 
-    async "flush() sin nada pendiente no hace nada (no peta)"() {
-        FirebaseService.saveFullState.mockClear();
-        syncFirebaseMirrorDebounced.flush();
-        testRunner.assertEquals(FirebaseService.saveFullState.mock.calls.length, 0,
-            'sin guardado pendiente, flush() es no-op');
+    "flush() dispara MainSyncStore.flush() de inmediato"() {
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            syncFirebaseMirrorDebounced.flush();
+            testRunner.assert(flushSpy.mock.calls.length >= 1,
+                'flush() debe disparar MainSyncStore.flush() de inmediato (pagehide → vaciar ya)');
+        } finally {
+            flushSpy.mockRestore();
+        }
     },
 
     "flushPendingSave vacía también el mirror (no sólo el debounce local)"() {

@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -6591,6 +6591,11 @@ function _initOutgoingConflictGuard() {
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
                 claimLocalOwnership(user.uid);
+
+                // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
+                // sesión anterior (pestaña cerrada a medio subir). No espera a que
+                // el usuario haga otro cambio cualquiera para disparar la sync.
+                drainMainSyncOutbox().catch(e => console.warn('⚠️ Error drenando outbox al iniciar sesión:', e));
 
                 // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                 window.startPettyCashSync?.();
