@@ -94,3 +94,79 @@ testRunner.addSuite("Notification — botones de acción", {
     }
 
 });
+
+testRunner.addSuite("Notification — update() acepta options.actions (U11)", {
+    // update() YA re-renderizaba this.actions (rebuild de actionsEl + listeners),
+    // pero nunca ASIGNABA this.actions desde options.actions — sólo el path del
+    // constructor lo hacía. Sin esto, un botón de Reintentar (U12) no puede
+    // agregarse a un toast YA existente (p. ej. el spinner que se actualiza a
+    // "falló" en el mismo elemento).
+
+    "update({actions}) asigna this.actions y renderiza el botón"() {
+        cleanup();
+        const n = new Notification({ message: 'Guardando…', type: 'info', duration: 0 }).show();
+        testRunner.assert(!n.element.querySelector('.notification-action'),
+            'precondición: sin actions al mostrar');
+
+        n.update({ type: 'warning', message: 'Falló', actions: [{ label: 'Reintentar', onClick: () => {} }] });
+
+        const btn = n.element.querySelector('.notification-action');
+        testRunner.assert(!!btn, 'update() debe renderizar el botón de acción');
+        testRunner.assertEquals(btn.textContent, 'Reintentar');
+        cleanup();
+    },
+
+    "clic en la acción agregada por update() ejecuta onClick"() {
+        cleanup();
+        let called = 0;
+        const n = new Notification({ message: 'Guardando…', type: 'info', duration: 0 }).show();
+        n.update({ type: 'warning', message: 'Falló', actions: [{ label: 'Reintentar', onClick: () => { called++; } }] });
+
+        n.element.querySelector('.notification-action').click();
+        testRunner.assertEquals(called, 1, 'onClick debe ejecutarse');
+        cleanup();
+    },
+
+    "closeOnClick:false en una acción agregada por update() NO cierra la notificación"() {
+        cleanup();
+        const n = new Notification({ message: 'Guardando…', type: 'info', duration: 0 }).show();
+        n.update({
+            type: 'warning', message: 'Falló',
+            actions: [{ label: 'Reintentar', onClick: () => {}, closeOnClick: false }]
+        });
+
+        n.element.querySelector('.notification-action').click();
+        testRunner.assert(Notification.activeNotifications.includes(n),
+            'con closeOnClick:false debe permanecer activa tras el clic');
+        cleanup();
+    },
+
+    "update() sin options.actions preserva las actions previas (no regresión)"() {
+        cleanup();
+        const n = new Notification({
+            message: 'x', type: 'info', duration: 0,
+            actions: [{ label: 'Reintentar', onClick: () => {} }]
+        }).show();
+
+        n.update({ message: 'y' }); // sin tocar actions
+
+        const btn = n.element.querySelector('.notification-action');
+        testRunner.assert(!!btn, 'las actions del constructor deben seguir renderizadas tras un update sin actions');
+        testRunner.assertEquals(btn.textContent, 'Reintentar');
+        cleanup();
+    },
+
+    "update({actions:[]}) SÍ reemplaza — vacía las actions previas"() {
+        cleanup();
+        const n = new Notification({
+            message: 'x', type: 'info', duration: 0,
+            actions: [{ label: 'Reintentar', onClick: () => {} }]
+        }).show();
+
+        n.update({ message: 'confirmado', actions: [] });
+
+        testRunner.assert(!n.element.querySelector('.notification-action'),
+            'pasar actions:[] explícitamente debe quitar los botones (p. ej. al confirmar éxito tras un retry)');
+        cleanup();
+    }
+});
