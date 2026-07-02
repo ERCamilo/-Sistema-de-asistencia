@@ -73,6 +73,7 @@ import { formatCurrency } from './modules/utils/Formatters.js';
 import { IndexedDBService, indexedDBService } from './modules/services/IndexedDBService.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
+import { replaceLocalWithCloud } from './modules/services/DataOps.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
@@ -489,56 +490,33 @@ window.App.Sync = {
         }
     },
 
+    // Fase 0.5 (U4): delega en DataOps.replaceLocalWithCloud — reemplazo REAL.
+    // El flujo viejo no purgaba el outbox ni las colas de borrado (el drenado
+    // del login siguiente subía datos PRE-descarga y pisaba la nube recién
+    // adoptada), contaminaba el state con metadata del doc espejo, trataba un
+    // fallo de lectura de entidades como lista vacía, y su saveApplicationData
+    // + reload dejaba una carrera con el pagehide. Todo eso vive ahora en
+    // DataOps con su propio contrato de tests (DataOpsReplaceLocalTests).
     downloadFromCloud: async () => {
         const confirmed = await Modal.confirm({
-            title: '⚠️ Sobrescribir datos locales',
-            message: '¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE? Esto borrará tus datos actuales y cargará los de Google Drive/Firebase.',
-            confirmText: 'Sí, sobrescribir',
+            title: '⚠️ Reemplazar datos locales con la nube',
+            message: 'Se BORRARÁN todos los datos de este dispositivo (incluidas las subidas pendientes) '
+                + 'y se reemplazarán por lo que hay en la nube. La nube queda como única fuente. '
+                + '¿Continuar?',
+            confirmText: 'Sí, reemplazar lo local',
             cancelText: 'Cancelar',
             type: 'danger'
         });
         if (!confirmed) return;
-        const loader = showNotification('📥 Conectando a la nube...', 'loading');
-        try {
-            loader.update({ message: '📥 Descargando metadatos...' });
-            const cloudState = await FirebaseService.getFullState();
-            loader.update({ message: '📥 Descargando historial...' });
-            const cloudAttendance = await FirebaseService.getAllAttendance();
-            if (!cloudState) {
-                loader.update({ message: '❌ No se encontraron datos en la nube', type: 'error', closable: true });
-                return;
-            }
-            Object.assign(state, cloudState);
-
-            // 🛡️ FIX: en el modelo migrado (schemaVersion>=2) empleados/cargos/
-            // líderes viven en subcolecciones per-doc; data/current los tiene
-            // vacíos. Object.assign de arriba dejó esos arreglos en []; los
-            // recuperamos de la fuente correcta para no perderlos.
-            const sv = (typeof state.settings?.schemaVersion === 'number') ? state.settings.schemaVersion : 0;
-            if (sv >= 2) {
-                // M1: loadAll() devuelve null ante fallo de lectura. `?? prev`
-                // conserva lo que ya teníamos en vez de blanquear con un error.
-                state.employees = (await EmployeeRepository.loadAll()) ?? state.employees;
-                state.positions = (sv >= 3) ? ((await PositionRepository.loadAll()) ?? state.positions) : (cloudState.positions || []);
-                state.leaders   = (sv >= 3) ? ((await LeaderRepository.loadAll())   ?? state.leaders)   : (cloudState.leaders || []);
-            }
-            if (typeof Employee !== 'undefined') state.employees = (state.employees || []).map(e => e instanceof Employee ? e : new Employee(e));
-            if (typeof Position !== 'undefined') state.positions = (state.positions || []).map(p => p instanceof Position ? p : new Position(p));
-            if (typeof Leader !== 'undefined') state.leaders = (state.leaders || []).map(l => l instanceof Leader ? l : new Leader(l));
-
-            state.attendance = cloudAttendance; // historial completo (todos los días)
-            // Reemplazo total del dataset → coherencia explícita (load-bearing tras Paso 4):
-            // render() lee stats/índice antes del reload, así que debe correr sincrónico ya.
-            invalidateAllStats();
-            buildAttendanceIndex();
-            saveApplicationData();
-            loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
-            render();
-            setTimeout(() => location.reload(), 1500);
-        } catch (e) {
-            console.error('Error al descargar de la nube:', e);
-            loader.update({ message: '❌ Error al descargar datos', type: 'error', closable: true });
-        }
+        const loader = showNotification('📥 Descargando datos de la nube...', 'loading');
+        const result = await replaceLocalWithCloud();
+        // Nota: en éxito nunca llegamos acá — replaceLocalWithCloud recarga la
+        // página. Todo lo de abajo es manejo de fallo (sin tocar nada local).
+        if (result.ok) return;
+        const msg = result.reason === 'no-cloud-data'
+            ? 'ℹ️ No se encontraron datos en la nube'
+            : '❌ No se pudo descargar de la nube. Tus datos locales quedaron intactos.';
+        loader.update({ message: msg, type: result.reason === 'no-cloud-data' ? 'info' : 'error', closable: true, duration: 8000 });
     },
 
     uploadToCloud: async () => {

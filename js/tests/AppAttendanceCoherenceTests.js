@@ -266,8 +266,12 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     // Reemplazos de TODO el dataset → patrón TOTAL: invalidateAllStats() + buildAttendanceIndex()
     // SIN argumento, sincrónico justo tras la mutación (antes del render que lee derivados).
     "downloadFromCloud (sobrescritura) mantiene coherencia total tras reemplazar la asistencia"() {
-        const s = sliceAfter('state.attendance = cloudAttendance', 600);
-        testRunner.assert(s.length > 0, 'debe existir la sobrescritura cloudAttendance');
+        // Fase 0.5 (U4): la sobrescritura vive ahora en DataOps.replaceLocalWithCloud
+        // (app.js sólo delega). El contrato de coherencia total es el mismo.
+        const dataOpsSrc = fs.readFileSync(path.resolve(__dirname, '../modules/services/DataOps.js'), 'utf8');
+        const i = dataOpsSrc.indexOf('state.attendance = attendance');
+        testRunner.assert(i !== -1, 'debe existir la sobrescritura de asistencia en DataOps');
+        const s = dataOpsSrc.slice(i, i + 600);
         testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
     },
