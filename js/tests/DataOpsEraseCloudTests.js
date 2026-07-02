@@ -69,16 +69,28 @@ testRunner.addSuite("DataOps — eraseCloudData (Fase 0.5, U6)", {
             'debe borrar ambos tipos — deleteSnapshotsByType ya ignora protegidos y pre-restore');
     },
 
-    async "pauseUpload: pausa la subida tras el borrado para que la nube quede vacía DE VERDAD"() {
-        const deps = makeDeps();
+    async "pauseUpload: la pausa corre ANTES del borrado — sin ventana de repoblado (JD-F8)"() {
+        // El borrado recorre hasta 7 colecciones con getDocs + batches: puede
+        // tardar segundos. Con la pausa DESPUÉS (orden viejo), un guardado
+        // concurrente en esa ventana re-subía el mirror y repoblaba la nube
+        // recién vaciada — rompiendo la promesa del checkbox.
+        const order = [];
+        const deps = makeDeps({
+            pauseUpload: jest.fn(() => order.push('pause')),
+            deleteCloud: jest.fn(async () => { order.push('delete'); return { deleted: 5 }; })
+        });
 
         await eraseCloudData({ pauseUpload: true }, deps);
 
-        testRunner.assertEquals(deps.pauseUpload.mock.calls.length, 1,
-            'sin pausa, el próximo guardado ordinario re-sube el estado local completo');
+        testRunner.assertEquals(deps.pauseUpload.mock.calls.length, 1);
+        testRunner.assertEquals(order.join('→'), 'pause→delete',
+            'la pausa debe cubrir TODA la duración del borrado, no llegar después');
     },
 
-    async "si el borrado falla, reporta el error y NO borra snapshots ni pausa"() {
+    async "si el borrado falla, no borra snapshots — y la pausa pedida QUEDA puesta (estado seguro, JD-F8)"() {
+        // Con la pausa antes del borrado (JD-F8), un fallo del borrado deja al
+        // usuario pausado con la nube intacta: el estado MÁS seguro posible
+        // tras una operación destructiva fallida. Reanudar es un click.
         const deps = makeDeps({
             deleteCloud: jest.fn().mockRejectedValue(new Error('permission-denied'))
         });
@@ -89,6 +101,17 @@ testRunner.addSuite("DataOps — eraseCloudData (Fase 0.5, U6)", {
         testRunner.assertEquals(result.reason, 'delete-failed');
         testRunner.assertEquals(deps.deleteSnapshotsOfType.mock.calls.length, 0,
             'no borrar la red de seguridad si el borrado principal falló');
+        testRunner.assertEquals(deps.pauseUpload.mock.calls.length, 1,
+            'la pausa ya corrió (antes del borrado) y se mantiene — estado seguro');
+    },
+
+    async "sin pauseUpload pedido, un borrado fallido NO pausa nada (control de JD-F8)"() {
+        const deps = makeDeps({
+            deleteCloud: jest.fn().mockRejectedValue(new Error('permission-denied'))
+        });
+
+        await eraseCloudData({}, deps);
+
         testRunner.assertEquals(deps.pauseUpload.mock.calls.length, 0);
     }
 

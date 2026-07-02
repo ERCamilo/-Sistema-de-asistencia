@@ -89,7 +89,11 @@ testRunner.addSuite("LocalWipeService — wipeAllLocalTraces (Fase 0.5, U3)", {
             'asistencia_cloud_upload_paused',
             'asistencia_cloud_download_paused',
             '_pettycash_local_v2',
-            '_pettycash_sel_v1'
+            '_pettycash_sel_v1',
+            // JD-F9: el set de íconos es un AJUSTE del usuario persistido en su
+            // propia clave (app.js ICON_SET_STORAGE_KEY) — 'Borrar Local'
+            // promete resetear "ajustes" y esta clave sobrevivía.
+            'icon-set'
         ];
         required.forEach(k => {
             testRunner.assert(LOCAL_TRACE_KEYS.includes(k), `el manifiesto debe incluir ${k}`);

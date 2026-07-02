@@ -814,6 +814,11 @@ class FirebaseService {
 
             // Doc espejo principal al final: si algo falla antes, el doc
             // sobrevive y la cuenta sigue siendo funcional/reintentable.
+            // ⚠️ JD-F13: el doc espejo se borra SIEMPRE, aunque
+            // options.collections acote las subcolecciones — contiene settings
+            // y los arreglos inline legacy, así que un borrado parcial que lo
+            // conservara dejaría datos "fantasma" del dataset viejo. Si algún
+            // caller futuro necesita conservarlo, que lo pida explícito.
             await deleteDoc(doc(db, 'users', uid, 'data', 'current'));
             deleted++;
 

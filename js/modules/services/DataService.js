@@ -8,7 +8,6 @@ import { Employee } from '../features/employees/Employee.js';
 import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
 import { Attendance } from '../features/attendance/Attendance.js';
-import { Modal } from '../components/Modal.js';
 import { Notification } from '../components/Notification.js';
 import icons from '../ui/IconSystem.js';
 // Fase 0.5 (U3): borrado local REAL — todo rastro, incluidas las colas de

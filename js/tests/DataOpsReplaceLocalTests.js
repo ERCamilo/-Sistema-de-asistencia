@@ -144,6 +144,67 @@ testRunner.addSuite("DataOps — replaceLocalWithCloud (Fase 0.5, U4)", {
         } finally { restoreState(snap); }
     },
 
+    async "la persistencia por defecto usa clearFirst:true — un wipe parcial no degrada el reemplazo a merge (JD-F7)"() {
+        // wipeAllLocalTraces es best-effort: si su clearAll de IndexedDB falla,
+        // el flujo continúa. saveState SIN clearFirst hace put() (upsert) y
+        // nunca borra registros ausentes — empleados/asistencia viejos
+        // sobrevivirían mezclados con el dataset de la nube tras el reload.
+        const snap = snapshotState();
+        const deps = makeDeps();
+        delete deps.persistState; // usar el default real
+        const idb = require('../modules/services/IndexedDBService.js').default;
+        try {
+            idb.saveState.mockClear();
+
+            const result = await replaceLocalWithCloud(deps);
+
+            testRunner.assertEquals(result.ok, true);
+            testRunner.assert(idb.saveState.mock.calls.length >= 1, 'el default debe persistir vía saveState');
+            testRunner.assertEquals(idb.saveState.mock.calls[0][1]?.clearFirst, true,
+                'debe escribir con clearFirst:true — reemplazo real aunque el wipe previo haya fallado');
+        } finally { restoreState(snap); }
+    },
+
+    async "si el wipe no pudo purgar el outbox por NINGUNA de sus dos vías, ABORTA antes de aplicar (JD-F10)"() {
+        // Doble red: la purga explícita (purge-pending-cloud-writes) y el
+        // clearAll de IndexedDB (que también vacía mainSyncOutbox). Si AMBAS
+        // fallaron, el outbox quedó vivo con entradas pre-descarga — continuar
+        // significaría que el drenado del login siguiente pise la nube recién
+        // adoptada (el bug ALTA #1 de vuelta). Abortar acá es seguro: el state
+        // en memoria aún no se tocó y endWipe reactiva el guardado normal.
+        const snap = snapshotState();
+        const deps = makeDeps({
+            wipeLocal: jest.fn().mockResolvedValue({
+                ok: false,
+                errors: [{ step: 'purge-pending-cloud-writes', error: 'x' }, { step: 'clear-indexeddb', error: 'y' }]
+            })
+        });
+        try {
+            const result = await replaceLocalWithCloud(deps);
+
+            testRunner.assertEquals(result.ok, false);
+            testRunner.assertEquals(result.reason, 'wipe-failed');
+            testRunner.assertEquals(deps.persistState.mock.calls.length, 0, 'no debe aplicar nada');
+            testRunner.assertEquals(deps.reload.mock.calls.length, 0, 'sin reload: el state en memoria sigue intacto');
+            testRunner.assertEquals(deps.endWipe.mock.calls.length, 1, 'debe reactivar el guardado normal');
+        } finally { restoreState(snap); }
+    },
+
+    async "un fallo de UNA sola vía de purga NO aborta (la otra vía cubrió el outbox) — control de JD-F10"() {
+        const snap = snapshotState();
+        const deps = makeDeps({
+            wipeLocal: jest.fn().mockResolvedValue({
+                ok: false,
+                errors: [{ step: 'purge-pending-cloud-writes', error: 'x' }]
+            })
+        });
+        try {
+            const result = await replaceLocalWithCloud(deps);
+            testRunner.assertEquals(result.ok, true,
+                'con clear-indexeddb exitoso el outbox quedó vacío igual — continuar es seguro');
+        } finally { restoreState(snap); }
+    },
+
     async "cuenta legacy (schemaVersion < 2): entidades salen del doc espejo, sin tocar los repos per-doc"() {
         const snap = snapshotState();
         const deps = makeDeps({

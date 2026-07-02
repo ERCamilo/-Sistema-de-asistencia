@@ -18,7 +18,11 @@
 import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '../core/AppState.js';
 import { indexedDBService } from './IndexedDBService.js';
 import { wipeAllLocalTraces } from './LocalWipeService.js';
-import { endLocalDataWipe } from './PersistenceService.js';
+// JD-F11: imports estáticos — este archivo ya importa PersistenceService en
+// el grafo estático (endLocalDataWipe); los import() dinámicos que había en
+// purgePending/pauseUpload eran complejidad innecesaria, no evitaban ciclo.
+import { endLocalDataWipe, purgeAllPendingCloudWrites } from './PersistenceService.js';
+import { pauseCloudUpload } from './SyncPauseService.js';
 import FirebaseService from './FirebaseService.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
 import { PositionRepository } from './PositionRepository.js';
@@ -61,7 +65,11 @@ export async function replaceLocalWithCloud(deps = {}) {
         loadLeaders = () => LeaderRepository.loadAll(),
         fetchAllAttendance = () => FirebaseService.getAllAttendance(),
         wipeLocal = () => wipeAllLocalTraces(),
-        persistState = (raw) => indexedDBService.saveState(raw, {}),
+        // JD-F7: clearFirst — el wipe previo es best-effort; sin clearFirst,
+        // saveState hace put() (upsert) y registros viejos que sobrevivieron a
+        // un wipe parcial se MEZCLARÍAN con el dataset de la nube (merge
+        // disfrazado de reemplazo).
+        persistState = (raw) => indexedDBService.saveState(raw, { clearFirst: true }),
         endWipe = endLocalDataWipe,
         reload = () => location.reload()
     } = deps;
@@ -110,6 +118,21 @@ export async function replaceLocalWithCloud(deps = {}) {
     try {
         const wipeResult = await wipeLocal();
         if (!wipeResult.ok) {
+            // JD-F10: el outbox tiene DOS vías de purga (la explícita y el
+            // clearAll de IndexedDB, que también vacía mainSyncOutbox). Si
+            // AMBAS fallaron, quedó vivo con entradas pre-descarga: continuar
+            // significaría que el drenado del próximo login pise la nube
+            // recién adoptada. Abortar acá es seguro — el state en memoria
+            // aún no se tocó y endWipe reactiva el guardado normal, que
+            // re-persiste todo en el próximo save.
+            const failedSteps = wipeResult.errors.map(e => e.step);
+            const outboxUnpurged = failedSteps.includes('purge-pending-cloud-writes')
+                && failedSteps.includes('clear-indexeddb');
+            if (outboxUnpurged) {
+                console.error('❌ replaceLocalWithCloud: el outbox no pudo purgarse por ninguna vía — se aborta:', wipeResult.errors);
+                endWipe();
+                return { ok: false, reason: 'wipe-failed', errors: wipeResult.errors };
+            }
             console.warn('⚠️ replaceLocalWithCloud: wipe parcial (se continúa):', wipeResult.errors);
         }
 
@@ -256,7 +279,7 @@ export async function snapshotCloudBeforeDestroy(deps = {}) {
 export async function replaceCloudWithLocal(deps = {}) {
     const {
         createSafetySnapshot = () => snapshotCloudBeforeDestroy(),
-        purgePending = () => import('./PersistenceService.js').then(m => m.purgeAllPendingCloudWrites()),
+        purgePending = () => purgeAllPendingCloudWrites(),
         deleteCloud = (collections) => FirebaseService.deleteCloudData({ collections }),
         uploadFullState = (frozenState) => FirebaseService.saveFullState(frozenState),
         uploadHistory = (frozenAttendance) => FirebaseService.syncHistory(frozenAttendance)
@@ -329,10 +352,10 @@ export async function replaceCloudWithLocal(deps = {}) {
  */
 export async function eraseCloudData(options = {}, deps = {}) {
     const {
-        purgePending = () => import('./PersistenceService.js').then(m => m.purgeAllPendingCloudWrites()),
+        purgePending = () => purgeAllPendingCloudWrites(),
         deleteCloud = () => FirebaseService.deleteCloudData(),
         deleteSnapshotsOfType = (type) => FirebaseService.deleteSnapshotsByType(type),
-        pauseUpload = () => import('./SyncPauseService.js').then(m => m.pauseCloudUpload('Nube borrada por el usuario.'))
+        pauseUpload = () => pauseCloudUpload('Nube borrada por el usuario.')
     } = deps;
 
     // Purga PRIMERO: un flush disparado durante el borrado (online/login)
@@ -342,6 +365,16 @@ export async function eraseCloudData(options = {}, deps = {}) {
     } catch (error) {
         console.error('❌ eraseCloudData: purga de pendientes falló:', error);
         return { ok: false, reason: 'purge-failed', error };
+    }
+
+    // JD-F8: la pausa va ANTES del borrado, no después. El borrado recorre
+    // hasta 7 colecciones (getDocs + batches — puede tardar segundos); con la
+    // pausa al final, un guardado concurrente en esa ventana re-subía el
+    // mirror y repoblaba la nube recién vaciada. Si el borrado luego falla,
+    // la pausa QUEDA puesta: es el estado más seguro tras una operación
+    // destructiva fallida, y reanudar es un click.
+    if (options.pauseUpload) {
+        try { await pauseUpload(); } catch (e) { console.warn('⚠️ eraseCloudData: no se pudo pausar la subida:', e); }
     }
 
     let deleted;
@@ -364,13 +397,6 @@ export async function eraseCloudData(options = {}, deps = {}) {
             console.warn('⚠️ eraseCloudData: los datos se borraron pero los snapshots no:', error);
             return { ok: false, reason: 'snapshots-failed', error, deleted };
         }
-    }
-
-    // Sin pausa, el próximo guardado ordinario re-sube el estado local
-    // completo (save loop). Con ella, la nube queda vacía DE VERDAD hasta
-    // que el usuario reanude.
-    if (options.pauseUpload) {
-        try { await pauseUpload(); } catch (e) { console.warn('⚠️ eraseCloudData: no se pudo pausar la subida:', e); }
     }
 
     return { ok: true, deleted };
