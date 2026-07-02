@@ -207,6 +207,25 @@ export const MainSyncStore = {
     },
 
     /**
+     * Vacía el outbox COMPLETO (pending + dead). Fase 0.5: las operaciones
+     * que adoptan una fuente de verdad nueva ("Descargar y Reemplazar",
+     * "Borrar Local", "Borrar Nube") deben purgar los pendientes viejos —
+     * si no, el drenado del próximo login/online sube datos de ANTES de la
+     * operación y pisa/borra justo lo que el usuario eligió conservar.
+     * @returns {Promise<boolean>} true si purgó; false si IndexedDB falló
+     *   (nunca lanza — el caller decide si advertir, pero no debe reventar).
+     */
+    async clearAll() {
+        try {
+            await indexedDBService.clear(OUTBOX);
+            return true;
+        } catch (e) {
+            console.warn('⚠️ No se pudo vaciar el outbox de sync:', e);
+            return false;
+        }
+    },
+
+    /**
      * Revive las entradas 'dead' (attempts en cero) para reintentarlas — p.ej.
      * después de corregir reglas de Firestore o migrar la cuenta. NO dispara
      * flush por sí mismo (flush necesita `guards`, que este método no recibe);

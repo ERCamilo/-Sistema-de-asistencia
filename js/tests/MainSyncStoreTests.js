@@ -540,3 +540,34 @@ testRunner.addSuite("MainSyncStore — flush: guard de re-entrancy (Judgment Day
             'tras un error inesperado, un flush posterior debe poder correr normalmente (guard liberado)');
     }
 });
+
+testRunner.addSuite("MainSyncStore — clearAll (Fase 0.5, U1)", {
+
+    async "clearAll vacía el store del outbox y resuelve true"() {
+        resetMocks();
+        indexedDBService.clear.mockReset().mockResolvedValue(undefined);
+
+        const ok = await MainSyncStore.clearAll();
+
+        testRunner.assertEquals(ok, true, 'debe reportar éxito');
+        testRunner.assert(
+            indexedDBService.clear.mock.calls.some(c => c[0] === 'mainSyncOutbox'),
+            'debe limpiar exactamente el store mainSyncOutbox'
+        );
+    },
+
+    async "clearAll ante un error de IndexedDB NO lanza — resuelve false"() {
+        // Los callers (Descargar y Reemplazar, Borrar Local) necesitan saber si
+        // la purga falló para poder advertir, pero nunca deben reventar por esto.
+        resetMocks();
+        indexedDBService.clear.mockReset().mockRejectedValue(new Error('IDB caído'));
+
+        let threw = false;
+        let ok = null;
+        try { ok = await MainSyncStore.clearAll(); } catch (_) { threw = true; }
+
+        testRunner.assertEquals(threw, false, 'no debe propagar el error');
+        testRunner.assertEquals(ok, false, 'debe reportar el fallo con false');
+    }
+
+});
