@@ -73,7 +73,7 @@ import { formatCurrency } from './modules/utils/Formatters.js';
 import { IndexedDBService, indexedDBService } from './modules/services/IndexedDBService.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
-import { replaceLocalWithCloud } from './modules/services/DataOps.js';
+import { replaceLocalWithCloud, replaceCloudWithLocal } from './modules/services/DataOps.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
@@ -519,27 +519,40 @@ window.App.Sync = {
         loader.update({ message: msg, type: result.reason === 'no-cloud-data' ? 'info' : 'error', closable: true, duration: 8000 });
     },
 
+    // Fase 0.5 (U5): delega en DataOps.replaceCloudWithLocal — reemplazo REAL.
+    // El flujo viejo prometía "exactamente lo que tienes aquí" pero era un
+    // merge (merge:true nunca borraba lo que sólo existía en la nube). Ahora:
+    // snapshot de seguridad → purga de pendientes → borrado acotado del
+    // dataset principal → subida completa. Caja chica no se toca (tiene su
+    // propio sync). Ver DataOpsReplaceCloudTests.
     uploadToCloud: async () => {
         const confirmed = await Modal.confirm({
-            title: '⚠️ Sobrescribir nube',
-            message: '¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES? Esto reemplazará tus archivos en la nube con lo que tienes actualmente.',
-            confirmText: 'Sí, subir',
+            title: '⚠️ Reemplazar la nube con estos datos',
+            message: 'Se BORRARÁN los empleados, cargos, líderes y asistencia de la nube y se reemplazarán '
+                + 'por lo que hay en este dispositivo. Antes se guarda un snapshot de seguridad en la nube. '
+                + 'La caja chica no se toca. ¿Continuar?',
+            confirmText: 'Sí, reemplazar la nube',
             cancelText: 'Cancelar',
             type: 'danger'
         });
         if (!confirmed) return;
-        const loader = showNotification('📤 Iniciando subida...', 'loading');
-        try {
-            loader.update({ message: '📤 Guardando estado general...' });
-            await FirebaseService.saveFullState(state);
-            loader.update({ message: '📤 Sincronizando historial...' });
-            await FirebaseService.syncHistory(state.attendance);
-            loader.update({ message: '✅ Datos subidos correctamente', type: 'success' });
+        const loader = showNotification('📤 Reemplazando datos en la nube...', 'loading');
+        const result = await replaceCloudWithLocal();
+        if (result.ok) {
+            loader.update({ message: '✅ La nube ahora es una copia exacta de este dispositivo', type: 'success', duration: 6000 });
             render();
-        } catch (e) {
-            console.error('Error al subir a la nube:', e);
-            loader.update({ message: '❌ Error al subir datos', type: 'error', closable: true });
+            return;
         }
+        const msgByReason = {
+            'snapshot-failed': '❌ No se pudo crear el snapshot de seguridad — no se tocó la nube. Reintenta más tarde.',
+            'purge-failed': '❌ No se pudieron purgar las subidas pendientes — no se tocó la nube.',
+            'delete-failed': '❌ No se pudo limpiar la nube — no se subió nada. Tus datos locales están intactos.',
+            'upload-failed': '⚠️ La nube se limpió pero la subida falló. Tus datos locales están intactos: reintenta esta misma opción para completar el reemplazo.'
+        };
+        loader.update({
+            message: msgByReason[result.reason] || '❌ Error al reemplazar la nube. Tus datos locales están intactos.',
+            type: 'error', closable: true, duration: 10000
+        });
     },
 
     deleteCloudData: async () => {

@@ -123,6 +123,23 @@ testRunner.addSuite("FirebaseService — Contrato deleteCloudData (C1)", {
             /deleteCloudData/.test(mockSrc),
             '__mocks__/FirebaseService.js debe incluir deleteCloudData para tests de app.js'
         );
+    },
+
+    "deleteCloudData acepta options.collections para borrado ACOTADO (Fase 0.5, U5)"() {
+        // 'Subir y Reemplazar' borra SÓLO el dataset principal — caja chica
+        // tiene su propio sync y ese flujo no la re-sube; borrarla sin
+        // reemplazo sería pérdida de datos. Sin argumento, el comportamiento
+        // por defecto (borrar TODO, para 'Borrar Nube') no cambia.
+        const block = FIREBASE_SRC.match(/async\s+deleteCloudData\s*\([\s\S]*?\n\s{4}\}/);
+        testRunner.assert(!!block, 'deleteCloudData debe existir');
+        testRunner.assert(
+            /options\.collections|collections\s*\}/.test(block[0]),
+            'deleteCloudData debe aceptar una lista opcional de colecciones a borrar'
+        );
+        testRunner.assert(
+            /ALL_CLOUD_COLLECTIONS|DEFAULT_COLLECTIONS|SUBCOLLECTIONS/.test(block[0]),
+            'sin el parámetro, debe caer al listado completo (comportamiento previo intacto)'
+        );
     }
 
 });

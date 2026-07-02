@@ -154,4 +154,82 @@ export async function replaceLocalWithCloud(deps = {}) {
     }
 }
 
-export default { replaceLocalWithCloud };
+/**
+ * Colecciones del dataset PRINCIPAL — lo que "Subir y Reemplazar" borra y
+ * re-sube. Caja chica (projects/cashPeriods/pettyCash) queda FUERA a
+ * propósito: tiene su propio ciclo de sync (PettyCashStore) y este flujo no
+ * la re-sube — borrarla sin reemplazo sería pérdida de datos en la nube.
+ */
+export const MAIN_DATA_COLLECTIONS = ['employees', 'positions', 'leaders', 'attendance'];
+
+/**
+ * Borra el dataset principal de la nube y lo sustituye por los datos locales
+ * — reemplazo REAL, no el merge del flujo viejo (merge:true nunca borraba lo
+ * que sólo existía en la nube).
+ *
+ * Contrato de seguridad (el orden ES el contrato):
+ *   1. Snapshot de seguridad — si falla, se aborta: nunca destruir la nube
+ *      sin red de seguridad (los snapshots sobreviven al borrado).
+ *   2. Purga de pendientes — una entrada stale del outbox drenando DESPUÉS
+ *      degradaría el estado recién subido.
+ *   3. Borrado acotado a MAIN_DATA_COLLECTIONS + doc espejo.
+ *   4. Subida completa (saveFullState empuja entidades per-doc en cuentas
+ *      migradas; syncHistory sube todos los días). Sobre nube vacía, el
+ *      merge:true interno equivale a un reemplazo limpio.
+ *
+ * No toca nada local: un fallo en cualquier paso deja lo local intacto y
+ * reintentar la operación entera es seguro (idempotente).
+ *
+ * @param {{
+ *   createSafetySnapshot?: () => Promise<*>,
+ *   purgePending?: () => Promise<boolean>,
+ *   deleteCloud?: (collections: string[]) => Promise<*>,
+ *   uploadFullState?: () => Promise<*>,
+ *   uploadHistory?: () => Promise<*>
+ * }} deps
+ * @returns {Promise<{ok: boolean, reason?: string, error?: *}>}
+ */
+export async function replaceCloudWithLocal(deps = {}) {
+    const {
+        createSafetySnapshot = () => FirebaseService.createSnapshot(state, 'auto', 'pre-replace-cloud'),
+        purgePending = () => import('./PersistenceService.js').then(m => m.purgeAllPendingCloudWrites()),
+        deleteCloud = (collections) => FirebaseService.deleteCloudData({ collections }),
+        uploadFullState = () => FirebaseService.saveFullState(state),
+        uploadHistory = () => FirebaseService.syncHistory(state.attendance)
+    } = deps;
+
+    try {
+        await createSafetySnapshot();
+    } catch (error) {
+        console.error('❌ replaceCloudWithLocal: snapshot de seguridad falló — se aborta sin tocar la nube:', error);
+        return { ok: false, reason: 'snapshot-failed', error };
+    }
+
+    try {
+        await purgePending();
+    } catch (error) {
+        // La purga legacy no puede fallar; el outbox reporta con boolean. Un
+        // throw acá sería excepcional — mejor abortar que arriesgar un drain
+        // stale sobre la nube recién reemplazada.
+        console.error('❌ replaceCloudWithLocal: purga de pendientes falló:', error);
+        return { ok: false, reason: 'purge-failed', error };
+    }
+
+    try {
+        await deleteCloud(MAIN_DATA_COLLECTIONS);
+    } catch (error) {
+        console.error('❌ replaceCloudWithLocal: borrado de nube falló — no se sube nada sobre un borrado a medias:', error);
+        return { ok: false, reason: 'delete-failed', error };
+    }
+
+    try {
+        await uploadFullState();
+        await uploadHistory();
+        return { ok: true };
+    } catch (error) {
+        console.error('❌ replaceCloudWithLocal: la subida falló — tus datos locales están intactos; reintentá la operación:', error);
+        return { ok: false, reason: 'upload-failed', error };
+    }
+}
+
+export default { replaceLocalWithCloud, replaceCloudWithLocal, MAIN_DATA_COLLECTIONS };

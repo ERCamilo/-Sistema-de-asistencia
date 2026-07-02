@@ -772,14 +772,24 @@ class FirebaseService {
      *
      * @returns {Promise<{deleted: number}>} cantidad de docs eliminados
      */
-    async deleteCloudData() {
+    async deleteCloudData(options = {}) {
         if (!auth.currentUser) return { deleted: 0 };
         const uid = auth.currentUser.uid;
 
-        const SUBCOLLECTIONS = [
+        const ALL_CLOUD_COLLECTIONS = [
             'employees', 'positions', 'leaders', 'attendance',
             'projects', 'cashPeriods', 'pettyCash'
         ];
+        // Fase 0.5 (U5): borrado ACOTADO opcional — 'Subir y Reemplazar' pasa
+        // sólo el dataset principal (caja chica tiene su propio sync y ese
+        // flujo no la re-sube; borrarla sin reemplazo sería pérdida de datos).
+        // Sin el parámetro, se borra TODO como siempre ('Borrar Nube'). El
+        // filtro contra el listado completo evita que un typo del caller
+        // borre colecciones fuera de este contrato (la red de seguridad de
+        // respaldos incluida — ver el test "NO toca los snapshots").
+        const SUBCOLLECTIONS = (Array.isArray(options.collections) && options.collections.length > 0)
+            ? options.collections.filter(c => ALL_CLOUD_COLLECTIONS.includes(c))
+            : ALL_CLOUD_COLLECTIONS;
 
         let deleted = 0;
         try {
