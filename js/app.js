@@ -74,6 +74,7 @@ import { IndexedDBService, indexedDBService } from './modules/services/IndexedDB
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
 import { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData } from './modules/services/DataOps.js';
+import { confirmDataOperation } from './modules/ui/DataOpsModals.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
@@ -498,16 +499,19 @@ window.App.Sync = {
     // + reload dejaba una carrera con el pagehide. Todo eso vive ahora en
     // DataOps con su propio contrato de tests (DataOpsReplaceLocalTests).
     downloadFromCloud: async () => {
-        const confirmed = await Modal.confirm({
-            title: '⚠️ Reemplazar datos locales con la nube',
-            message: 'Se BORRARÁN todos los datos de este dispositivo (incluidas las subidas pendientes) '
-                + 'y se reemplazarán por lo que hay en la nube. La nube queda como única fuente. '
-                + '¿Continuar?',
+        const confirmed = await confirmDataOperation({
+            title: '⚠️ Descargar y Reemplazar',
+            flow: 'cloud-to-device',
+            bullets: [
+                'Se borran TODOS los datos de este dispositivo (empleados, asistencia, ajustes).',
+                'Se descartan las subidas pendientes que aún no llegaron a la nube.',
+                'Los datos de la nube quedan como única fuente y la app se recarga.',
+                'Si la descarga falla, no se toca nada local.'
+            ],
             confirmText: 'Sí, reemplazar lo local',
-            cancelText: 'Cancelar',
-            type: 'danger'
+            cancelText: 'Cancelar'
         });
-        if (!confirmed) return;
+        if (confirmed === null) return;
         const loader = showNotification('📥 Descargando datos de la nube...', 'loading');
         const result = await replaceLocalWithCloud();
         // Nota: en éxito nunca llegamos acá — replaceLocalWithCloud recarga la
@@ -526,16 +530,20 @@ window.App.Sync = {
     // dataset principal → subida completa. Caja chica no se toca (tiene su
     // propio sync). Ver DataOpsReplaceCloudTests.
     uploadToCloud: async () => {
-        const confirmed = await Modal.confirm({
-            title: '⚠️ Reemplazar la nube con estos datos',
-            message: 'Se BORRARÁN los empleados, cargos, líderes y asistencia de la nube y se reemplazarán '
-                + 'por lo que hay en este dispositivo. Antes se guarda un snapshot de seguridad en la nube. '
-                + 'La caja chica no se toca. ¿Continuar?',
+        const confirmed = await confirmDataOperation({
+            title: '⚠️ Subir y Reemplazar',
+            flow: 'device-to-cloud',
+            bullets: [
+                'Se borran los empleados, cargos, líderes y asistencia DE LA NUBE.',
+                'Se reemplazan por lo que hay en este dispositivo, tal cual está.',
+                'Antes se guarda un snapshot de seguridad en la nube (recuperable).',
+                'La caja chica no se toca (tiene su propia sincronización).'
+            ],
+            requireTyping: 'REEMPLAZAR NUBE',
             confirmText: 'Sí, reemplazar la nube',
-            cancelText: 'Cancelar',
-            type: 'danger'
+            cancelText: 'Cancelar'
         });
-        if (!confirmed) return;
+        if (confirmed === null) return;
         const loader = showNotification('📤 Reemplazando datos en la nube...', 'loading');
         const result = await replaceCloudWithLocal();
         if (result.ok) {
@@ -560,40 +568,25 @@ window.App.Sync = {
     // datos en la nube recién borrada) y no avisaba que, con la subida
     // activa, el próximo guardado re-sube el estado local completo.
     deleteCloudData: async () => {
-        const confirm1 = await Modal.confirm({
-            title: '🚨 Advertencia crítica',
-            message: 'BORRAR NUBE: se eliminarán TODOS tus datos en la nube (empleados, asistencia, caja chica). '
-                + 'Tus datos locales no se tocan. Importante: si la subida sigue activa, el próximo guardado '
-                + 'volverá a subir lo que tienes en este dispositivo.',
-            confirmText: 'Continuar',
-            cancelText: 'Cancelar',
-            type: 'danger'
-        });
-        if (!confirm1) return;
-        const confirm2 = await Modal.prompt({
-            title: 'Confirmación final',
-            message: 'Para confirmar escriba exactamente: BORRAR NUBE',
-            placeholder: 'BORRAR NUBE',
+        const choice = await confirmDataOperation({
+            title: '🚨 Borrar datos de la nube',
+            flow: 'delete-cloud',
+            bullets: [
+                'Se eliminan TODOS tus datos en la nube (empleados, asistencia, caja chica).',
+                'Tus datos locales NO se tocan.',
+                'Si la subida sigue activa, el próximo guardado volverá a subir lo de este dispositivo.',
+                'Los respaldos protegidos se conservan siempre.'
+            ],
+            checkboxes: [
+                { id: 'alsoSnapshots', label: 'Borrar también los respaldos (snapshots) — son tu red de seguridad', checked: false },
+                { id: 'pauseUpload', label: 'Pausar la subida para que la nube quede vacía hasta que yo reanude', checked: false }
+            ],
+            requireTyping: 'BORRAR NUBE',
             confirmText: 'Borrar nube',
             cancelText: 'Cancelar'
         });
-        if (confirm2 !== 'BORRAR NUBE') return showNotification('❌ Cancelado', 'error');
-
-        const alsoSnapshots = await Modal.confirm({
-            title: '¿Borrar también los respaldos?',
-            message: 'Los snapshots (copias de seguridad en la nube) NO se borran por defecto — son tu red de '
-                + 'seguridad. ¿Quieres eliminarlos también? Los protegidos se conservan igual.',
-            confirmText: 'Sí, borrar respaldos',
-            cancelText: 'No, conservarlos',
-            type: 'danger'
-        });
-        const pauseUpload = await Modal.confirm({
-            title: '¿Pausar la subida a la nube?',
-            message: 'Si NO pausas la subida, el próximo guardado volverá a subir automáticamente los datos de '
-                + 'este dispositivo a la nube. Pausándola, la nube queda vacía hasta que tú reanudes.',
-            confirmText: 'Sí, pausar subida',
-            cancelText: 'No, seguir subiendo'
-        });
+        if (choice === null) return;
+        const { alsoSnapshots, pauseUpload } = choice;
 
         const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
         const result = await eraseCloudData({ alsoSnapshots, pauseUpload });

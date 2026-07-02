@@ -18,6 +18,9 @@ import icons from '../ui/IconSystem.js';
 // seguro: todas las referencias cruzadas ocurren dentro de funciones, nunca
 // durante la evaluación del módulo.
 import { wipeAllLocalTraces } from './LocalWipeService.js';
+// Fase 0.5 (U7): modal rico con flujo visual de iconos para las operaciones
+// de datos — la confirmación dice EXACTAMENTE qué va a pasar.
+import { confirmDataOperation } from '../ui/DataOpsModals.js';
 
 export class DataService {
     constructor() {
@@ -140,34 +143,36 @@ export class DataService {
     }
 
     async reset() {
-        // Fase 0.5 (U3): texto HONESTO — antes decía "los datos en la nube no
-        // se verán afectados" pero la cola de borrados pendientes sobrevivía
-        // en localStorage y ejecutaba borrados EN LA NUBE tras el re-login.
-        // wipeAllLocalTraces() purga todo pendiente antes de limpiar, y el
-        // mensaje aclara qué pasa después si seguís con la sesión iniciada.
-        Modal.confirm({
-            title: `${icons.get('info')} Borrar Información Local`,
-            message: '¿Eliminar TODOS los datos de ESTE dispositivo (empleados, asistencias, ajustes y subidas pendientes)? '
-                + 'Los datos en la nube NO se tocan. '
-                + 'Si mantienes la sesión iniciada, al recargar se descargarán de nuevo desde la nube.',
+        // Fase 0.5 (U3+U7): confirmación HONESTA con flujo visual — antes
+        // decía "los datos en la nube no se verán afectados" pero la cola de
+        // borrados pendientes sobrevivía en localStorage y ejecutaba borrados
+        // EN LA NUBE tras el re-login. wipeAllLocalTraces() purga todo
+        // pendiente antes de limpiar.
+        const confirmed = await confirmDataOperation({
+            title: '🗑️ Borrar Información Local',
+            flow: 'delete-local',
+            bullets: [
+                'Se elimina TODO lo de este dispositivo: empleados, asistencias, ajustes y subidas pendientes.',
+                'Los datos en la nube NO se tocan.',
+                'Lo que aún no se subió a la nube se pierde definitivamente.',
+                'Si mantienes la sesión iniciada, al recargar se descargará de nuevo lo que haya en la nube.'
+            ],
             confirmText: 'Sí, borrar local',
-            cancelText: 'Cancelar',
-            type: 'danger',
-            onConfirm: async () => {
-                // Borrado REAL de todo rastro (U3): bloquea guardados
-                // implícitos (U2), purga pendientes hacia la nube (U1) y
-                // limpia localStorage completo + sessionStorage + IndexedDB
-                // + propiedad del dispositivo. Best-effort: un fallo parcial
-                // se loguea y se sigue — ver LocalWipeService.
-                const result = await wipeAllLocalTraces();
-                if (!result.ok) {
-                    console.warn('⚠️ Borrado local parcial:', result.errors);
-                }
-
-                console.log('✅ Borrado local completo');
-                location.reload();
-            }
+            cancelText: 'Cancelar'
         });
+        if (confirmed === null) return;
+
+        // Borrado REAL de todo rastro (U3): bloquea guardados implícitos
+        // (U2), purga pendientes hacia la nube (U1) y limpia localStorage
+        // completo + sessionStorage + IndexedDB + propiedad del dispositivo.
+        // Best-effort: un fallo parcial se loguea y se sigue.
+        const result = await wipeAllLocalTraces();
+        if (!result.ok) {
+            console.warn('⚠️ Borrado local parcial:', result.errors);
+        }
+
+        console.log('✅ Borrado local completo');
+        location.reload();
     }
 
     // Exportar datos

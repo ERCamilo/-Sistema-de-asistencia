@@ -156,21 +156,21 @@ export function SettingsDataTab(context) {
                             </div>
 
                             <div class="stg-actions-grid">
-                                <!-- Override: Download -->
+                                <!-- Override: Download (reemplazo real, Fase 0.5 U4) -->
                                 <button type="button" data-settings-action="download-from-cloud" class="stg-action">
                                     <span class="stg-action-icon blue">&#8595;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Descargar de la Nube</strong>
-                                        <small>Reemplaza tus datos locales con lo que hay en la nube.</small>
+                                        <strong>Descargar y Reemplazar</strong>
+                                        <small>Borra lo de este equipo y deja la nube como única fuente.</small>
                                     </span>
                                 </button>
 
-                                <!-- Override: Upload -->
+                                <!-- Override: Upload (reemplazo real, Fase 0.5 U5) -->
                                 <button type="button" data-settings-action="upload-to-cloud" class="stg-action">
                                     <span class="stg-action-icon green">&#8593;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Subir a la Nube</strong>
-                                        <small>Fuerza que la nube guarde exactamente lo que tienes aquí.</small>
+                                        <strong>Subir y Reemplazar</strong>
+                                        <small>Borra lo de la nube y la deja igual a este equipo (con snapshot previo).</small>
                                     </span>
                                 </button>
                             </div>
