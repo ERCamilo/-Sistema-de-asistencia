@@ -73,7 +73,7 @@ import { formatCurrency } from './modules/utils/Formatters.js';
 import { IndexedDBService, indexedDBService } from './modules/services/IndexedDBService.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
-import { replaceLocalWithCloud, replaceCloudWithLocal } from './modules/services/DataOps.js';
+import { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData } from './modules/services/DataOps.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
@@ -555,10 +555,16 @@ window.App.Sync = {
         });
     },
 
+    // Fase 0.5 (U6): delega en DataOps.eraseCloudData. El flujo viejo no
+    // purgaba los pendientes (el drenado del próximo save/online re-creaba
+    // datos en la nube recién borrada) y no avisaba que, con la subida
+    // activa, el próximo guardado re-sube el estado local completo.
     deleteCloudData: async () => {
         const confirm1 = await Modal.confirm({
             title: '🚨 Advertencia crítica',
-            message: 'BORRAR NUBE: ¿Estás seguro de eliminar TODOS tus datos en la nube?',
+            message: 'BORRAR NUBE: se eliminarán TODOS tus datos en la nube (empleados, asistencia, caja chica). '
+                + 'Tus datos locales no se tocan. Importante: si la subida sigue activa, el próximo guardado '
+                + 'volverá a subir lo que tienes en este dispositivo.',
             confirmText: 'Continuar',
             cancelText: 'Cancelar',
             type: 'danger'
@@ -572,15 +578,41 @@ window.App.Sync = {
             cancelText: 'Cancelar'
         });
         if (confirm2 !== 'BORRAR NUBE') return showNotification('❌ Cancelado', 'error');
+
+        const alsoSnapshots = await Modal.confirm({
+            title: '¿Borrar también los respaldos?',
+            message: 'Los snapshots (copias de seguridad en la nube) NO se borran por defecto — son tu red de '
+                + 'seguridad. ¿Quieres eliminarlos también? Los protegidos se conservan igual.',
+            confirmText: 'Sí, borrar respaldos',
+            cancelText: 'No, conservarlos',
+            type: 'danger'
+        });
+        const pauseUpload = await Modal.confirm({
+            title: '¿Pausar la subida a la nube?',
+            message: 'Si NO pausas la subida, el próximo guardado volverá a subir automáticamente los datos de '
+                + 'este dispositivo a la nube. Pausándola, la nube queda vacía hasta que tú reanudes.',
+            confirmText: 'Sí, pausar subida',
+            cancelText: 'No, seguir subiendo'
+        });
+
         const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
-        try {
-            await FirebaseService.deleteCloudData();
-            loader.update({ message: '✅ Datos en la nube eliminados', type: 'success' });
+        const result = await eraseCloudData({ alsoSnapshots, pauseUpload });
+        if (result.ok) {
+            loader.update({
+                message: pauseUpload
+                    ? '✅ Nube eliminada. Subida en pausa: la nube quedará vacía hasta que reanudes.'
+                    : '✅ Nube eliminada. El próximo guardado volverá a subir tus datos locales.',
+                type: 'success', duration: 8000
+            });
             render();
-        } catch (e) {
-            console.error('Error al borrar la nube:', e);
-            loader.update({ message: '❌ Error al borrar datos', type: 'error', closable: true });
+            return;
         }
+        const msgByReason = {
+            'purge-failed': '❌ No se pudieron purgar las subidas pendientes — no se borró la nube.',
+            'delete-failed': '❌ Error al borrar los datos de la nube.',
+            'snapshots-failed': '⚠️ Los datos se borraron, pero los respaldos no. Puedes borrarlos desde Gestión de versiones.'
+        };
+        loader.update({ message: msgByReason[result.reason] || '❌ Error al borrar datos', type: 'error', closable: true, duration: 10000 });
     }
 };
 
@@ -3168,27 +3200,11 @@ window.downloadFromCloud = async function () {
     }
 };
 
-window.deleteCloudDataNow = async function () {
-    const confirm = await Modal.confirm({
-        title: '⚠️ Eliminar datos de la nube',
-        message: '¿ELIMINAR TODOS los datos de la nube? Esta acción no se puede deshacer y NO afectará tus datos locales.',
-        confirmText: 'Eliminar nube',
-        cancelText: 'Cancelar',
-        type: 'danger'
-    });
-    if (!confirm) return;
-
-    const loading = showNotification('🗑️ Eliminando datos remotos...', 'loading');
-    try {
-        await FirebaseService.deleteCloudData();
-        showNotification('✅ Datos remotos eliminados de Firebase', 'success');
-    } catch (e) {
-        console.error('Error al eliminar datos:', e);
-        showNotification('❌ Error al eliminar datos remotos', 'error');
-    } finally {
-        loading.dismiss();
-    }
-};
+// Fase 0.5 (U6): la redefinición débil de window.deleteCloudDataNow que vivía
+// acá PISABA al alias de App.Sync.deleteCloudData (definido arriba) — la doble
+// confirmación con "BORRAR NUBE" tipeado era código muerto y el botón de
+// Ajustes corría una versión de un solo confirm, sin purga de pendientes.
+// Eliminada: el alias de la línea ~593 es la única fuente de verdad.
 
 window.manualSync = window.uploadToCloud;
 window.toggleAutoSync = () => {

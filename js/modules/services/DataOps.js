@@ -232,4 +232,73 @@ export async function replaceCloudWithLocal(deps = {}) {
     }
 }
 
-export default { replaceLocalWithCloud, replaceCloudWithLocal, MAIN_DATA_COLLECTIONS };
+/**
+ * Borra TODOS los datos de la nube — el "Borrar Nube" honesto.
+ *
+ * Agujeros del flujo viejo que este contrato cierra:
+ *   - Sin purga previa, los pendientes del outbox/colas legacy drenaban en
+ *     el próximo save/online/login y RE-CREABAN datos en la nube recién
+ *     borrada ("la nube no se borra de verdad").
+ *   - No ofrecía borrar snapshots ni pausar la subida — sin pausa, el
+ *     próximo guardado ordinario re-sube el estado local completo (por
+ *     diseño del save loop; la UI debe decirlo y ofrecer la pausa).
+ *
+ * @param {{alsoSnapshots?: boolean, pauseUpload?: boolean}} options
+ * @param {{
+ *   purgePending?: () => Promise<boolean>,
+ *   deleteCloud?: () => Promise<*>,
+ *   deleteSnapshotsOfType?: (type: string) => Promise<*>,
+ *   pauseUpload?: () => void
+ * }} deps
+ * @returns {Promise<{ok: boolean, reason?: string, error?: *, deleted?: number}>}
+ */
+export async function eraseCloudData(options = {}, deps = {}) {
+    const {
+        purgePending = () => import('./PersistenceService.js').then(m => m.purgeAllPendingCloudWrites()),
+        deleteCloud = () => FirebaseService.deleteCloudData(),
+        deleteSnapshotsOfType = (type) => FirebaseService.deleteSnapshotsByType(type),
+        pauseUpload = () => import('./SyncPauseService.js').then(m => m.pauseCloudUpload('Nube borrada por el usuario.'))
+    } = deps;
+
+    // Purga PRIMERO: un flush disparado durante el borrado (online/login)
+    // subiría pendientes viejos a la nube recién vaciada.
+    try {
+        await purgePending();
+    } catch (error) {
+        console.error('❌ eraseCloudData: purga de pendientes falló:', error);
+        return { ok: false, reason: 'purge-failed', error };
+    }
+
+    let deleted;
+    try {
+        const r = await deleteCloud();
+        deleted = r?.deleted;
+    } catch (error) {
+        console.error('❌ eraseCloudData: borrado de nube falló:', error);
+        return { ok: false, reason: 'delete-failed', error };
+    }
+
+    // Los snapshots son la red de seguridad: sólo se borran si el usuario lo
+    // pidió explícitamente, y sólo tras un borrado principal exitoso. La capa
+    // de abajo (deleteSnapshotsByType) respeta protegidos y pre-restore.
+    if (options.alsoSnapshots) {
+        try {
+            await deleteSnapshotsOfType('auto');
+            await deleteSnapshotsOfType('manual');
+        } catch (error) {
+            console.warn('⚠️ eraseCloudData: los datos se borraron pero los snapshots no:', error);
+            return { ok: false, reason: 'snapshots-failed', error, deleted };
+        }
+    }
+
+    // Sin pausa, el próximo guardado ordinario re-sube el estado local
+    // completo (save loop). Con ella, la nube queda vacía DE VERDAD hasta
+    // que el usuario reanude.
+    if (options.pauseUpload) {
+        try { await pauseUpload(); } catch (e) { console.warn('⚠️ eraseCloudData: no se pudo pausar la subida:', e); }
+    }
+
+    return { ok: true, deleted };
+}
+
+export default { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData, MAIN_DATA_COLLECTIONS };
