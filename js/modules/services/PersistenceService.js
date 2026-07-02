@@ -221,6 +221,29 @@ export function clearPendingCloudPositionDeletes() {
     _pendingCloudPositionDeletes.clear();
 }
 
+/**
+ * Fase 0.5 (U1): purga TODO lo pendiente hacia la nube — las 3 colas legacy
+ * (Sets + su clave de localStorage) y el outbox durable de MainSyncStore.
+ *
+ * La llaman las operaciones que adoptan una fuente de verdad nueva ("Borrar
+ * Local", "Descargar y Reemplazar", "Borrar Nube"): sin esta purga, el
+ * drenado del próximo login/online sube escrituras y borrados de ANTES de
+ * la operación, pisando o borrando justo lo que el usuario eligió conservar
+ * (bugs ALTA #1 y #2 de la auditoría 2026-07-01).
+ *
+ * Best-effort deliberado: las colas legacy se limpian SIEMPRE (son síncronas
+ * y no pueden fallar); si la purga del outbox falla, se reporta con false
+ * pero nunca se lanza — el caller decide si advertir al usuario.
+ * @returns {Promise<boolean>} true si TODO se purgó; false si el outbox falló
+ */
+export async function purgeAllPendingCloudWrites() {
+    _pendingCloudDeletes.clear();
+    _pendingCloudPositionDeletes.clear();
+    _pendingCloudLeaderDeletes.clear();
+    try { localStorage.removeItem(_PENDING_DELETES_LS_KEY); } catch (_) { /* noop */ }
+    return MainSyncStore.clearAll();
+}
+
 /** Encolar un id de LÍDER para borrar de la subcolección en el próximo save. */
 export function enqueueCloudLeaderDelete(id) {
     if (!id) return;
@@ -415,11 +438,37 @@ export async function saveToIndexedDB(options = {}) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🧹 Fase 0.5 (U2): guard de "borrado local en curso"
+// "Borrar Local" y "Descargar y Reemplazar" limpian los stores y llaman
+// location.reload(). El reload dispara pagehide → flushPendingSave() → que
+// RE-PERSISTÍA el estado en memoria (BatchedSaver, debounce pendiente) y
+// RE-ENCOLABA un mirror pre-borrado en el outbox recién purgado, deshaciendo
+// parcialmente el borrado. Con el flag levantado, todo guardado implícito es
+// un no-op hasta el reload (o hasta endLocalDataWipe, para flujos que abortan
+// a mitad de camino — p.ej. red caída en "Descargar y Reemplazar").
+// ─────────────────────────────────────────────────────────────────────────────
+let _localDataWipeInProgress = false;
+
+/** Bloquea todo guardado implícito (debounce, pagehide) durante un borrado local. */
+export function beginLocalDataWipe() { _localDataWipeInProgress = true; }
+
+/** Restaura el guardado normal — para flujos de borrado/reemplazo que abortan. */
+export function endLocalDataWipe() { _localDataWipeInProgress = false; }
+
+/** ¿Hay un borrado local en curso? (para diagnósticos y otros guards) */
+export function isLocalDataWipeInProgress() { return _localDataWipeInProgress; }
+
 /**
  * 💾 FUNCIÓN PRINCIPAL DE PERSISTENCIA
  * Orquesta el guardado local y la sincronización con la nube.
  */
 export function saveApplicationData(options = {}) {
+    // 🧹 U2: durante un borrado local, NADA debe re-persistir el estado en
+    // memoria — re-escribiría a IndexedDB/localStorage justo lo que el
+    // usuario acaba de borrar.
+    if (_localDataWipeInProgress) return;
+
     // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
     // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
     // locales durante la ventana de 300 ms en que el guardado aún está en cola.
@@ -475,6 +524,12 @@ export function saveApplicationData(options = {}) {
  * away (beforeunload) or after critical operations.
  */
 export function flushPendingSave() {
+    // 🧹 U2: durante un borrado local NO drenar nada — este es exactamente el
+    // pagehide del location.reload() del borrado, y drenar acá re-persistiría
+    // asistencia recién borrada y re-encolaría un mirror pre-borrado en el
+    // outbox recién purgado.
+    if (_localDataWipeInProgress) return false;
+
     // R3: drenar PRIMERO el BatchedSaver de asistencia ENTRANTE (ventana idle de
     // hasta 1000ms). Esa asistencia llega de Firebase por una vía separada del
     // debounce local de 300ms y, si la pestaña se cierra dentro de la ventana, se
