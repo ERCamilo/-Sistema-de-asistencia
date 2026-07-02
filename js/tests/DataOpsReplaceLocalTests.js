@@ -226,6 +226,45 @@ testRunner.addSuite("DataOps — replaceLocalWithCloud (Fase 0.5, U4)", {
 
 });
 
+testRunner.addSuite("app.js — mensajería honesta por reason (ronda 2)", {
+
+    "wipe-failed tiene mensaje propio y dispara un guardado de re-asentado (R2-2)"() {
+        // Sin entrada propia, 'wipe-failed' caía al genérico "tus datos
+        // locales quedaron intactos" — impreciso: el wipe parcial YA corrió
+        // (la clave principal de localStorage puede estar borrada). El state
+        // en memoria sigue intacto y endWipe reactivó el guardado, así que el
+        // remedio correcto es re-persistir ya (saveApplicationData), no
+        // esperar a que el usuario haga otro cambio.
+        const fs = require('fs');
+        const path = require('path');
+        const appSource = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
+        const idx = appSource.indexOf('downloadFromCloud: async () =>');
+        const block = appSource.slice(idx, idx + 3000);
+        testRunner.assert(/'wipe-failed'\s*:/.test(block),
+            'msgByReason debe tener entrada propia para wipe-failed');
+        testRunner.assert(/wipe-failed[\s\S]{0,600}saveApplicationData\s*\(/.test(block),
+            'tras un wipe-failed debe dispararse un guardado para re-asentar localStorage/IndexedDB desde la memoria');
+    },
+
+    "restoreSnapshot restaura también leaders y reinstancia las clases (R2-3)"() {
+        // El único flujo de restauración vivo nunca leía snapshot.state.leaders
+        // (y dejaba employees como objetos planos): para una cuenta v3, el
+        // respaldo pre-reemplazo se restauraba SIN líderes — la red de
+        // seguridad de R2-1/JD-F2 no era completamente restaurable.
+        const fs = require('fs');
+        const path = require('path');
+        const appSource = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
+        const idx = appSource.indexOf('window.restoreSnapshot');
+        testRunner.assert(idx !== -1, 'debe existir window.restoreSnapshot');
+        const block = appSource.slice(idx, idx + 3500);
+        testRunner.assert(/state\.leaders\s*=\s*[\s\S]{0,80}snapshot\.state\.leaders/.test(block),
+            'onRestore debe restaurar snapshot.state.leaders');
+        testRunner.assert(/new Employee\s*\(/.test(block),
+            'los empleados restaurados deben reinstanciarse como Employee (objetos planos rompen los métodos de clase)');
+    }
+
+});
+
 testRunner.addSuite("app.js — App.Sync.downloadFromCloud delega en DataOps (U4)", {
 
     "el handler de Ajustes usa replaceLocalWithCloud, no el flujo viejo inline"() {

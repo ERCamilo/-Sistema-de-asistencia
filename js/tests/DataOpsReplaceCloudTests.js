@@ -142,6 +142,33 @@ testRunner.addSuite("DataOps — replaceCloudWithLocal (Fase 0.5, U5)", {
         }
     },
 
+    async "si la foto congelada no se puede serializar, reporta 'freeze-failed' SIN tocar la nube ni colgar al caller (R2-4)"() {
+        // Misma clase de bug que ya nos mordió con el clon del mirror (ronda 2
+        // de la fase anterior): JSON.stringify del state completo corre
+        // síncrono; un valor no serializable (BigInt) lanzaba ANTES del try
+        // propio de la función, la promesa rechazaba, y el caller de app.js
+        // (sin try/catch) dejaba el loader 'Reemplazando...' colgado para
+        // siempre en una operación destructiva.
+        const { state } = require('../modules/core/AppState.js');
+        const prevEmployees = state.employees;
+        const deps = makeDeps();
+        try {
+            state.employees = [{ id: 'eBig', weird: 10n }];
+
+            let threw = false;
+            let result = null;
+            try { result = await replaceCloudWithLocal(deps); } catch (_) { threw = true; }
+
+            testRunner.assertEquals(threw, false, 'nunca debe rechazar — el caller no tiene try/catch');
+            testRunner.assertEquals(result.ok, false);
+            testRunner.assertEquals(result.reason, 'freeze-failed');
+            testRunner.assertEquals(deps.createSafetySnapshot.mock.calls.length, 0, 'no debe tocar nada de la nube');
+            testRunner.assertEquals(deps.deleteCloud.mock.calls.length, 0);
+        } finally {
+            state.employees = prevEmployees;
+        }
+    },
+
     async "si la subida falla tras el borrado, reporta 'upload-failed' — lo local queda intacto y reintentar es seguro"() {
         const deps = makeDeps({
             uploadFullState: jest.fn().mockRejectedValue(new Error('offline'))
@@ -181,8 +208,22 @@ testRunner.addSuite("DataOps — snapshotCloudBeforeDestroy (JD-F2, CRÍTICO)", 
         testRunner.assertEquals(data.settings.businessName, 'NUBE SA', 'debe snapshotear lo que hay EN LA NUBE');
         testRunner.assertEquals(data.employees[0].id, 'eCloud');
         testRunner.assert(Object.keys(data.attendance).length === 1, 'debe incluir la asistencia de la nube');
-        testRunner.assertEquals(type, 'auto');
+        // R2-1 (ronda 2): con type 'auto' el snapshot quedaba isProtected:false
+        // — borrable por eraseCloudData({alsoSnapshots}) y por el botón
+        // 'Borrar Todos los Autos'. Una red de seguridad borrable no es una
+        // red de seguridad. Debe ir como 'pre-restore' (protegido), igual que
+        // pre-bulk-delete / pre-import / pre-cloud-dedup.
+        testRunner.assertEquals(type, 'pre-restore',
+            'el respaldo pre-destructivo debe ser tipo pre-restore (protegido), no auto (borrable)');
         testRunner.assert(/pre-replace/.test(reason), 'la razón debe identificar el respaldo pre-reemplazo');
+    },
+
+    "la razón 'pre-replace-cloud-backup' está registrada en el catálogo como protegida (R2-1)"() {
+        const { SNAPSHOT_REASONS } = require('../modules/services/SnapshotReasons.js');
+        const info = SNAPSHOT_REASONS['pre-replace-cloud-backup'];
+        testRunner.assert(!!info, 'la razón debe existir en SNAPSHOT_REASONS (sin registro, la UI la muestra sin etiqueta)');
+        testRunner.assertEquals(info.protected, true, 'debe estar marcada protected');
+        testRunner.assertEquals(info.type, 'pre-restore', 'su tipo de catálogo debe ser pre-restore');
     },
 
     async "cuenta migrada: las entidades salen de las subcolecciones (el doc espejo las tiene vacías)"() {

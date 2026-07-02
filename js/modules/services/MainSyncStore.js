@@ -195,6 +195,11 @@ export const MainSyncStore = {
                     // argumento inválido) dead-letterea de inmediato sin gastar los
                     // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
                     guards.onCloudResult(false, err, entry);
+                    // R2-5 (ronda 2): si hubo una purga mientras esta entrada
+                    // estaba en vuelo, NO re-escribirla — el update la
+                    // resucitaría en el store recién vaciado y el próximo
+                    // flush subiría exactamente lo que la purga debía impedir.
+                    if (generationAtStart !== _purgeGeneration) break;
                     const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
                     await indexedDBService.update(OUTBOX, { ...entry, ...next });
                     if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima

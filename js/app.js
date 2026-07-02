@@ -525,11 +525,21 @@ window.App.Sync = {
         // ese caso; si corre (reload bloqueado), el mensaje debe ser honesto.
         const msgByReason = {
             'no-cloud-data': 'ℹ️ No se encontraron datos en la nube',
-            'apply-failed': '⚠️ Los datos locales se borraron pero el reemplazo no terminó. Recarga la página para descargar la nube.'
+            'apply-failed': '⚠️ Los datos locales se borraron pero el reemplazo no terminó. Recarga la página para descargar la nube.',
+            // R2-2: en wipe-failed el borrado parcial YA corrió (la clave
+            // principal de localStorage puede estar borrada), pero el state en
+            // memoria sigue intacto y el guardado quedó reactivado.
+            'wipe-failed': '⚠️ No se pudo preparar el dispositivo — no se aplicó nada de la nube. Tus datos siguen cargados y se re-guardan ahora.'
         };
         const msg = msgByReason[result.reason]
             || '❌ No se pudo descargar de la nube. Tus datos locales quedaron intactos.';
         loader.update({ message: msg, type: result.reason === 'no-cloud-data' ? 'info' : 'error', closable: true, duration: 10000 });
+        if (result.reason === 'wipe-failed') {
+            // R2-2: re-asentar localStorage/IndexedDB desde la memoria YA — no
+            // esperar a que el usuario haga otro cambio para recuperar el
+            // almacenamiento parcialmente borrado.
+            saveApplicationData({ skipValidation: true });
+        }
     },
 
     // Fase 0.5 (U5): delega en DataOps.replaceCloudWithLocal — reemplazo REAL.
@@ -561,6 +571,7 @@ window.App.Sync = {
             return;
         }
         const msgByReason = {
+            'freeze-failed': '❌ No se pudo preparar la copia de tus datos — no se tocó la nube. Reintenta; si persiste, exporta un backup.',
             'snapshot-failed': '❌ No se pudo crear el snapshot de seguridad — no se tocó la nube. Reintenta más tarde.',
             'purge-failed': '❌ No se pudieron purgar las subidas pendientes — no se tocó la nube.',
             'delete-failed': '❌ No se pudo limpiar la nube — no se subió nada. Tus datos locales están intactos.',
@@ -1708,8 +1719,18 @@ window.restoreSnapshot = async (snapshotId) => {
                 Notification.info('⏳ Restaurando sistema...', 0);
 
                 // 2. Aplicar datos al estado global.
-                state.employees = snapshot.state.employees || [];
-                state.positions = snapshot.state.positions || [];
+                // R2-3 (Judgment Day F0.5 ronda 2): también leaders — el único
+                // flujo de restauración vivo nunca los leía, así que restaurar
+                // el respaldo pre-reemplazo (o cualquier snapshot v3) devolvía
+                // todo MENOS los líderes. Y reinstanciar las clases: los
+                // objetos planos del snapshot rompen los métodos de Employee/
+                // Position/Leader en el resto de la app.
+                state.employees = (snapshot.state.employees || [])
+                    .map(e => e instanceof Employee ? e : new Employee(e));
+                state.positions = (snapshot.state.positions || [])
+                    .map(p => p instanceof Position ? p : new Position(p));
+                state.leaders = (snapshot.state.leaders || [])
+                    .map(l => l instanceof Leader ? l : new Leader(l));
                 state.attendance = snapshot.state.attendance || {};
 
                 // Mezclar settings con precaución (mantener flags de sesión si existen)

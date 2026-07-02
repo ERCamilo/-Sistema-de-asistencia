@@ -617,3 +617,49 @@ testRunner.addSuite("MainSyncStore — clearAll aborta un flush en vuelo (JD-F5,
     }
 
 });
+
+testRunner.addSuite("MainSyncStore — la purga también protege el camino de FALLO (JD ronda 2, R2-5)", {
+
+    async "una entrada que FALLA después de la purga NO se re-escribe al store recién vaciado"() {
+        // El chequeo de generación de R1 sólo cubría el avance entre entradas
+        // (camino de éxito). Si la entrada en vuelo FALLABA tras la purga, el
+        // catch hacía update(OUTBOX, ...) incondicional — resucitando la
+        // entrada en el store que clearAll acababa de vaciar; el próximo
+        // flush (login/online) la subía igual.
+        resetMocks();
+        let failFirst;
+        const gate = new Promise((_, reject) => { failFirst = reject; });
+        gate.catch(() => { /* pre-manejada: evita unhandled rejection si el reject gana la carrera */ });
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } })
+        ]);
+        indexedDBService.clear.mockReset().mockResolvedValue(undefined);
+        const guards = makeGuards({ saveMirror: jest.fn(() => gate) });
+
+        const flushing = MainSyncStore.flush(guards);
+        await new Promise(r => setTimeout(r, 0)); // tick real: el flush llega a await cloudCall()
+
+        await MainSyncStore.clearAll();           // purga mientras vuela
+        failFirst(new Error('unavailable'));      // y la red FALLA después
+        await flushing;
+
+        const outboxUpdates = indexedDBService.update.mock.calls.filter(c => c[0] === 'mainSyncOutbox');
+        testRunner.assertEquals(outboxUpdates.length, 0,
+            'el catch NO debe resucitar la entrada purgada re-escribiéndola a IndexedDB');
+    },
+
+    async "sin purga de por medio, el catch SÍ persiste el attempts/lastError (control)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } })
+        ]);
+        const guards = makeGuards({ saveMirror: jest.fn().mockRejectedValue(new Error('unavailable')) });
+
+        await MainSyncStore.flush(guards);
+
+        const outboxUpdates = indexedDBService.update.mock.calls.filter(c => c[0] === 'mainSyncOutbox');
+        testRunner.assertEquals(outboxUpdates.length, 1,
+            'control: el dead-lettering normal (sin purga) debe seguir persistiendo el intento fallido');
+    }
+
+});

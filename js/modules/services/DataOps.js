@@ -241,9 +241,12 @@ export async function snapshotCloudBeforeDestroy(deps = {}) {
     }
     const attendance = await fetchAllAttendance();
 
+    // R2-1: tipo 'pre-restore' (protegido) — con 'auto' este respaldo era
+    // borrable por eraseCloudData({alsoSnapshots}) y por 'Borrar Todos los
+    // Autos'. Una red de seguridad borrable no es una red de seguridad.
     await snapshot(
         { ...cloud, employees, positions, leaders, attendance: attendance || {} },
-        'auto',
+        'pre-restore',
         'pre-replace-cloud-backup'
     );
     return { skipped: false };
@@ -291,10 +294,20 @@ export async function replaceCloudWithLocal(deps = {}) {
     // filtran ecos propios) rebotan ese borrado a state.employees = [] antes
     // de que la subida corra — leyendo el state VIVO se subían listas vacías
     // con éxito falso y la nube quedaba vaciada permanentemente.
-    const frozen = JSON.parse(JSON.stringify({
-        ...state,
-        snapshots: undefined, isLoadingSnapshots: undefined, currentUser: undefined
-    }));
+    // R2-4 (ronda 2): con try/catch propio — el JSON.stringify del state
+    // completo es síncrono y un valor no serializable lanzaba ANTES del try
+    // de la función; la promesa rechazaba y el caller (sin try/catch) dejaba
+    // el loader colgado para siempre en una operación destructiva.
+    let frozen;
+    try {
+        frozen = JSON.parse(JSON.stringify({
+            ...state,
+            snapshots: undefined, isLoadingSnapshots: undefined, currentUser: undefined
+        }));
+    } catch (error) {
+        console.error('❌ replaceCloudWithLocal: no se pudo congelar el estado local — no se tocó la nube:', error);
+        return { ok: false, reason: 'freeze-failed', error };
+    }
 
     try {
         await createSafetySnapshot();
