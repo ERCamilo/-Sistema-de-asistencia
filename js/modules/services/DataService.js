@@ -1,7 +1,6 @@
 import { state, buildAttendanceIndex, invalidateAllStats } from '../core/AppState.js';
 import storageService from './StorageService.js';
 import indexedDBService from './IndexedDBService.js';
-import { clearLocalOwnership } from './LocalDataOwner.js';
 // L4: imports explícitos — antes estos símbolos se resolvían vía globals que
 // app.js cuelga de globalThis; un cambio en el orden de carga rompía
 // loadAll()/reset() con ReferenceError silencioso.
@@ -12,6 +11,13 @@ import { Attendance } from '../features/attendance/Attendance.js';
 import { Modal } from '../components/Modal.js';
 import { Notification } from '../components/Notification.js';
 import icons from '../ui/IconSystem.js';
+// Fase 0.5 (U3): borrado local REAL — todo rastro, incluidas las colas de
+// borrado pendientes hacia la nube (bug ALTA #2: sobrevivían al reset y
+// ejecutaban borrados viejos EN LA NUBE tras el siguiente login). El ciclo
+// DataService → LocalWipeService → PersistenceService → DataService es
+// seguro: todas las referencias cruzadas ocurren dentro de funciones, nunca
+// durante la evaluación del módulo.
+import { wipeAllLocalTraces } from './LocalWipeService.js';
 
 export class DataService {
     constructor() {
@@ -134,30 +140,29 @@ export class DataService {
     }
 
     async reset() {
+        // Fase 0.5 (U3): texto HONESTO — antes decía "los datos en la nube no
+        // se verán afectados" pero la cola de borrados pendientes sobrevivía
+        // en localStorage y ejecutaba borrados EN LA NUBE tras el re-login.
+        // wipeAllLocalTraces() purga todo pendiente antes de limpiar, y el
+        // mensaje aclara qué pasa después si seguís con la sesión iniciada.
         Modal.confirm({
             title: `${icons.get('info')} Borrar Información Local`,
-            message: '¿Estás seguro de eliminar TODOS los datos locales (empleados, asistencias, etc.)? Los datos en la nube no se verán afectados.',
+            message: '¿Eliminar TODOS los datos de ESTE dispositivo (empleados, asistencias, ajustes y subidas pendientes)? '
+                + 'Los datos en la nube NO se tocan. '
+                + 'Si mantienes la sesión iniciada, al recargar se descargarán de nuevo desde la nube.',
             confirmText: 'Sí, borrar local',
             cancelText: 'Cancelar',
             type: 'danger',
             onConfirm: async () => {
-                // 1. Limpiar LocalStorage
-                this.storage.clear();
-                
-                // 2. Limpiar IndexedDB si está disponible
-                if (this.indexedDBService) {
-                    await this.indexedDBService.clearAll();
-                } else if (window.indexedDBService) {
-                    await window.indexedDBService.clearAll();
+                // Borrado REAL de todo rastro (U3): bloquea guardados
+                // implícitos (U2), purga pendientes hacia la nube (U1) y
+                // limpia localStorage completo + sessionStorage + IndexedDB
+                // + propiedad del dispositivo. Best-effort: un fallo parcial
+                // se loguea y se sigue — ver LocalWipeService.
+                const result = await wipeAllLocalTraces();
+                if (!result.ok) {
+                    console.warn('⚠️ Borrado local parcial:', result.errors);
                 }
-                
-                // 3. Limpiar banderas de migración
-                localStorage.removeItem('migrated-to-idb');
-                localStorage.removeItem('onboardingCompleted');
-
-                // 4. Sin datos locales ya no hay dueño que proteger (C2):
-                // el próximo login reclama el dispositivo sin fricción.
-                clearLocalOwnership();
 
                 console.log('✅ Borrado local completo');
                 location.reload();
