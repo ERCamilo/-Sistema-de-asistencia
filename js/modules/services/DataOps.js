@@ -148,8 +148,15 @@ export async function replaceLocalWithCloud(deps = {}) {
         reload();
         return { ok: true };
     } catch (error) {
-        console.error('❌ replaceLocalWithCloud: fallo aplicando el reemplazo:', error);
-        endWipe(); // restaurar el guardado normal — sin esto la sesión queda muda
+        // JD-F3 (CRÍTICO): en este punto lo local YA está borrado. Quedarse en
+        // la sesión reportando un error (contrato viejo) era la peor opción:
+        // si el usuario cerraba la pestaña, perdía todo. La recarga con local
+        // vacío + sesión activa dispara la re-adopción normal de la nube — la
+        // recarga ES la recuperación. endWipe antes por si reload es no-op
+        // (tests/entornos raros): la sesión no debe quedar muda.
+        console.error('❌ replaceLocalWithCloud: fallo aplicando el reemplazo — se recarga para re-adoptar la nube:', error);
+        endWipe();
+        reload();
         return { ok: false, reason: 'apply-failed', error };
     }
 }
@@ -161,6 +168,63 @@ export async function replaceLocalWithCloud(deps = {}) {
  * la re-sube — borrarla sin reemplazo sería pérdida de datos en la nube.
  */
 export const MAIN_DATA_COLLECTIONS = ['employees', 'positions', 'leaders', 'attendance'];
+
+/**
+ * 🛟 JD-F2 (CRÍTICO): respaldo de LO QUE HAY EN LA NUBE antes de destruirla.
+ *
+ * El "snapshot de seguridad" original hacía createSnapshot(state, ...) — una
+ * copia redundante del state LOCAL (lo que se estaba por subir), no de la
+ * nube (lo que se estaba por borrar). La promesa "recuperable" era falsa en
+ * el caso real: un dispositivo con datos viejos fuerza "Subir y Reemplazar"
+ * y los datos buenos de la nube desaparecían sin respaldo restaurable.
+ *
+ * Lee el estado actual de la nube (doc espejo + entidades per-doc en cuentas
+ * migradas + asistencia completa) y lo guarda como snapshot. Nube vacía →
+ * skipped (no hay nada que proteger). Una lectura de entidades fallida LANZA:
+ * un respaldo incompleto no es un respaldo, y el caller debe abortar.
+ *
+ * @returns {Promise<{skipped: boolean}>}
+ */
+export async function snapshotCloudBeforeDestroy(deps = {}) {
+    const {
+        fetchFullState = () => FirebaseService.getFullState(),
+        fetchAllAttendance = () => FirebaseService.getAllAttendance(),
+        loadEmployees = () => EmployeeRepository.loadAll(),
+        loadPositions = () => PositionRepository.loadAll(),
+        loadLeaders = () => LeaderRepository.loadAll(),
+        snapshot = (data, type, reason) => FirebaseService.createSnapshot(data, type, reason)
+    } = deps;
+
+    const cloud = await fetchFullState();
+    if (!cloud) return { skipped: true };
+
+    const sv = (typeof cloud.settings?.schemaVersion === 'number')
+        ? cloud.settings.schemaVersion
+        : (typeof cloud.schemaVersion === 'number' ? cloud.schemaVersion : 0);
+
+    let employees = cloud.employees || [];
+    let positions = cloud.positions || [];
+    let leaders = cloud.leaders || [];
+    if (sv >= 2) {
+        employees = await loadEmployees();
+        if (!Array.isArray(employees)) throw new Error('backup-read-failed: employees');
+    }
+    if (sv >= 3) {
+        positions = await loadPositions();
+        leaders = await loadLeaders();
+        if (!Array.isArray(positions) || !Array.isArray(leaders)) {
+            throw new Error('backup-read-failed: positions/leaders');
+        }
+    }
+    const attendance = await fetchAllAttendance();
+
+    await snapshot(
+        { ...cloud, employees, positions, leaders, attendance: attendance || {} },
+        'auto',
+        'pre-replace-cloud-backup'
+    );
+    return { skipped: false };
+}
 
 /**
  * Borra el dataset principal de la nube y lo sustituye por los datos locales
@@ -191,12 +255,23 @@ export const MAIN_DATA_COLLECTIONS = ['employees', 'positions', 'leaders', 'atte
  */
 export async function replaceCloudWithLocal(deps = {}) {
     const {
-        createSafetySnapshot = () => FirebaseService.createSnapshot(state, 'auto', 'pre-replace-cloud'),
+        createSafetySnapshot = () => snapshotCloudBeforeDestroy(),
         purgePending = () => import('./PersistenceService.js').then(m => m.purgeAllPendingCloudWrites()),
         deleteCloud = (collections) => FirebaseService.deleteCloudData({ collections }),
-        uploadFullState = () => FirebaseService.saveFullState(state),
-        uploadHistory = () => FirebaseService.syncHistory(state.attendance)
+        uploadFullState = (frozenState) => FirebaseService.saveFullState(frozenState),
+        uploadHistory = (frozenAttendance) => FirebaseService.syncHistory(frozenAttendance)
     } = deps;
+
+    // 🧊 JD-F1 (CRÍTICO): FOTO CONGELADA de lo que se va a subir, capturada
+    // ANTES de tocar la nube. deleteCloudData borra los docs per-entidad y
+    // los listeners en vivo (EmployeeRepository.subscribe y compañía NO
+    // filtran ecos propios) rebotan ese borrado a state.employees = [] antes
+    // de que la subida corra — leyendo el state VIVO se subían listas vacías
+    // con éxito falso y la nube quedaba vaciada permanentemente.
+    const frozen = JSON.parse(JSON.stringify({
+        ...state,
+        snapshots: undefined, isLoadingSnapshots: undefined, currentUser: undefined
+    }));
 
     try {
         await createSafetySnapshot();
@@ -223,8 +298,8 @@ export async function replaceCloudWithLocal(deps = {}) {
     }
 
     try {
-        await uploadFullState();
-        await uploadHistory();
+        await uploadFullState(frozen);
+        await uploadHistory(frozen.attendance || {});
         return { ok: true };
     } catch (error) {
         console.error('❌ replaceCloudWithLocal: la subida falló — tus datos locales están intactos; reintentá la operación:', error);
@@ -301,4 +376,4 @@ export async function eraseCloudData(options = {}, deps = {}) {
     return { ok: true, deleted };
 }
 
-export default { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData, MAIN_DATA_COLLECTIONS };
+export default { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData, snapshotCloudBeforeDestroy, MAIN_DATA_COLLECTIONS };

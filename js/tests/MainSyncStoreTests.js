@@ -571,3 +571,49 @@ testRunner.addSuite("MainSyncStore — clearAll (Fase 0.5, U1)", {
     }
 
 });
+
+testRunner.addSuite("MainSyncStore — clearAll aborta un flush en vuelo (JD-F5, ALTO)", {
+
+    async "las entradas leídas ANTES de la purga no se suben DESPUÉS de ella"() {
+        // flush() lee la lista pending a memoria UNA vez y la itera awaiteando
+        // la red por entrada. Sin coordinación, un clearAll() disparado a mitad
+        // (usuario tocó Borrar Local / Descargar y Reemplazar) purgaba el store
+        // pero el bucle seguía subiendo su copia stale en memoria — re-subiendo
+        // exactamente lo que la purga debía impedir (bug ALTA #1 en ventana).
+        resetMocks();
+        let releaseFirst;
+        const gate = new Promise(r => { releaseFirst = r; });
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } }),
+            outboxEntry(2, { kind: 'daily', dateKey: '2026-07-01', records: {} })
+        ]);
+        indexedDBService.clear.mockReset().mockResolvedValue(undefined);
+        const guards = makeGuards({ saveMirror: jest.fn(() => gate) });
+
+        const flushing = MainSyncStore.flush(guards);
+        await Promise.resolve(); // dejar que el flush entre a la entrada 1 (bloqueada en la red)
+
+        await MainSyncStore.clearAll(); // purga mientras la entrada 1 sigue en vuelo
+        releaseFirst();
+        await flushing;
+
+        testRunner.assertEquals(guards.saveDaily.mock.calls.length, 0,
+            'la entrada 2 (leída antes de la purga) NO debe subirse después del clearAll');
+    },
+
+    async "sin purga de por medio, el mismo flush procesa TODAS las entradas (control)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } }),
+            outboxEntry(2, { kind: 'daily', dateKey: '2026-07-01', records: {} })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1);
+        testRunner.assertEquals(guards.saveDaily.mock.calls.length, 1,
+            'control: el corte del test anterior debe deberse SOLO al clearAll');
+    }
+
+});

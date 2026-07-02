@@ -20,7 +20,7 @@
  *     (reintentar la operación es seguro e idempotente).
  */
 
-import { replaceCloudWithLocal, MAIN_DATA_COLLECTIONS } from '../modules/services/DataOps.js';
+import { replaceCloudWithLocal, snapshotCloudBeforeDestroy, MAIN_DATA_COLLECTIONS } from '../modules/services/DataOps.js';
 
 function makeDeps(overrides = {}) {
     return {
@@ -102,6 +102,46 @@ testRunner.addSuite("DataOps — replaceCloudWithLocal (Fase 0.5, U5)", {
             'no debe subir nada sobre un borrado incompleto');
     },
 
+    async "la subida usa una FOTO CONGELADA previa al borrado — inmune al eco de LiveSync que vacía state (JD-F1, CRÍTICO)"() {
+        // Bug real: deleteCloudData borra los docs de empleados/cargos/líderes
+        // y los listeners en vivo (EmployeeRepository.subscribe NO filtra ecos
+        // propios) rebotan ese borrado a state.employees = [] ANTES de que
+        // uploadFullState corra. Como saveFullState leía el state VIVO, subía
+        // listas vacías y reportaba éxito — nube vaciada permanentemente.
+        // El contrato nuevo: uploadFullState/uploadHistory reciben la foto
+        // congelada capturada ANTES de tocar la nube.
+        const { state } = require('../modules/core/AppState.js');
+        const prevEmployees = state.employees;
+        const prevAttendance = state.attendance;
+        try {
+            state.employees = [{ id: 'eF1', name: 'Congelado' }];
+            state.attendance = { 'eF1-2026-07-01': { employeeId: 'eF1', present: true } };
+
+            const deps = makeDeps({
+                // El borrado simula el eco de LiveSync: vacía el state vivo.
+                deleteCloud: jest.fn(async () => {
+                    state.employees = [];
+                    state.attendance = {};
+                    return { deleted: 3 };
+                })
+            });
+
+            const result = await replaceCloudWithLocal(deps);
+
+            testRunner.assertEquals(result.ok, true);
+            const uploadedState = deps.uploadFullState.mock.calls[0][0];
+            testRunner.assert(uploadedState && uploadedState.employees?.length === 1,
+                'uploadFullState debe recibir la foto congelada pre-borrado, no el state vivo vaciado por el eco');
+            testRunner.assertEquals(uploadedState.employees[0].id, 'eF1');
+            const uploadedAttendance = deps.uploadHistory.mock.calls[0][0];
+            testRunner.assert(uploadedAttendance && Object.keys(uploadedAttendance).length === 1,
+                'uploadHistory debe recibir la asistencia congelada pre-borrado');
+        } finally {
+            state.employees = prevEmployees;
+            state.attendance = prevAttendance;
+        }
+    },
+
     async "si la subida falla tras el borrado, reporta 'upload-failed' — lo local queda intacto y reintentar es seguro"() {
         const deps = makeDeps({
             uploadFullState: jest.fn().mockRejectedValue(new Error('offline'))
@@ -113,6 +153,90 @@ testRunner.addSuite("DataOps — replaceCloudWithLocal (Fase 0.5, U5)", {
         testRunner.assertEquals(result.reason, 'upload-failed');
         testRunner.assertEquals(deps.uploadHistory.mock.calls.length, 0,
             'si el estado general no subió, no tiene sentido subir el historial');
+    }
+
+});
+
+testRunner.addSuite("DataOps — snapshotCloudBeforeDestroy (JD-F2, CRÍTICO)", {
+
+    // El "snapshot de seguridad" viejo respaldaba el state LOCAL — o sea, una
+    // copia redundante de lo que se estaba por SUBIR, no de la nube que se
+    // estaba por DESTRUIR. La promesa "recuperable" era falsa justo en el caso
+    // real: dispositivo con datos viejos fuerza "Subir y Reemplazar" y los
+    // datos buenos de la nube se pierden sin respaldo restaurable.
+
+    async "respalda los datos DE LA NUBE (no el state local)"() {
+        const snapshot = jest.fn().mockResolvedValue(undefined);
+        const deps = {
+            fetchFullState: jest.fn().mockResolvedValue({ settings: { schemaVersion: 0, businessName: 'NUBE SA' }, employees: [{ id: 'eCloud' }], positions: [], leaders: [] }),
+            fetchAllAttendance: jest.fn().mockResolvedValue({ 'eCloud-2026-07-01': { present: true } }),
+            loadEmployees: jest.fn(), loadPositions: jest.fn(), loadLeaders: jest.fn(),
+            snapshot
+        };
+
+        const result = await snapshotCloudBeforeDestroy(deps);
+
+        testRunner.assertEquals(result.skipped, false);
+        const [data, type, reason] = snapshot.mock.calls[0];
+        testRunner.assertEquals(data.settings.businessName, 'NUBE SA', 'debe snapshotear lo que hay EN LA NUBE');
+        testRunner.assertEquals(data.employees[0].id, 'eCloud');
+        testRunner.assert(Object.keys(data.attendance).length === 1, 'debe incluir la asistencia de la nube');
+        testRunner.assertEquals(type, 'auto');
+        testRunner.assert(/pre-replace/.test(reason), 'la razón debe identificar el respaldo pre-reemplazo');
+    },
+
+    async "cuenta migrada: las entidades salen de las subcolecciones (el doc espejo las tiene vacías)"() {
+        const snapshot = jest.fn().mockResolvedValue(undefined);
+        const deps = {
+            fetchFullState: jest.fn().mockResolvedValue({ settings: { schemaVersion: 3 }, employees: [], positions: [], leaders: [] }),
+            fetchAllAttendance: jest.fn().mockResolvedValue({}),
+            loadEmployees: jest.fn().mockResolvedValue([{ id: 'eSub' }]),
+            loadPositions: jest.fn().mockResolvedValue([{ id: 'pSub' }]),
+            loadLeaders: jest.fn().mockResolvedValue([]),
+            snapshot
+        };
+
+        await snapshotCloudBeforeDestroy(deps);
+
+        const data = snapshot.mock.calls[0][0];
+        testRunner.assertEquals(data.employees[0].id, 'eSub', 'empleados desde la subcolección');
+        testRunner.assertEquals(data.positions[0].id, 'pSub', 'cargos desde la subcolección');
+    },
+
+    async "nube vacía → skipped:true sin crear snapshot (no hay nada que proteger)"() {
+        const snapshot = jest.fn();
+        const result = await snapshotCloudBeforeDestroy({
+            fetchFullState: jest.fn().mockResolvedValue(null),
+            fetchAllAttendance: jest.fn(), loadEmployees: jest.fn(),
+            loadPositions: jest.fn(), loadLeaders: jest.fn(), snapshot
+        });
+
+        testRunner.assertEquals(result.skipped, true);
+        testRunner.assertEquals(snapshot.mock.calls.length, 0);
+    },
+
+    async "una lectura de entidades fallida (null) LANZA — un respaldo incompleto no es un respaldo"() {
+        let threw = false;
+        try {
+            await snapshotCloudBeforeDestroy({
+                fetchFullState: jest.fn().mockResolvedValue({ settings: { schemaVersion: 2 } }),
+                fetchAllAttendance: jest.fn().mockResolvedValue({}),
+                loadEmployees: jest.fn().mockResolvedValue(null),
+                loadPositions: jest.fn(), loadLeaders: jest.fn(), snapshot: jest.fn()
+            });
+        } catch (_) { threw = true; }
+        testRunner.assert(threw,
+            'debe lanzar para que replaceCloudWithLocal aborte — nunca destruir la nube con un respaldo a medias');
+    },
+
+    "replaceCloudWithLocal usa snapshotCloudBeforeDestroy como default (no el state local)"() {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.resolve(__dirname, '../modules/services/DataOps.js'), 'utf8');
+        const idx = src.indexOf('export async function replaceCloudWithLocal');
+        const block = src.slice(idx, idx + 800);
+        testRunner.assert(/createSafetySnapshot\s*=\s*\(\)\s*=>\s*snapshotCloudBeforeDestroy\s*\(/.test(block),
+            'el default debe respaldar la nube — createSnapshot(state,...) respaldaba el lado equivocado');
     }
 
 });

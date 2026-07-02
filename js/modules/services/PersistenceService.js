@@ -427,6 +427,12 @@ export const syncFirebaseMirrorDebounced = (function() {
  * 💾 GUARDADO SEGURO EN INDEXEDDB
  */
 export async function saveToIndexedDB(options = {}) {
+    // 🧹 JD-F4 (ALTO): el guard U2 va en la PRIMITIVA, no sólo en sus callers.
+    // El flush del BatchedSaver (app.js) llama saveToIndexedDB directo — un
+    // flush ya agendado por requestIdleCallback podía dispararse dentro de la
+    // ventana del wipe y re-escribir el state en memoria a IndexedDB,
+    // resucitando datos recién borrados.
+    if (_localDataWipeInProgress) return false;
     try {
         // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
         const rawState = stateManager.getState();

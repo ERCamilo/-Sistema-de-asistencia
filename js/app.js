@@ -74,6 +74,7 @@ import { IndexedDBService, indexedDBService } from './modules/services/IndexedDB
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
 import { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData } from './modules/services/DataOps.js';
+import { wipeAllLocalTraces } from './modules/services/LocalWipeService.js';
 import { confirmDataOperation } from './modules/ui/DataOpsModals.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
@@ -517,10 +518,18 @@ window.App.Sync = {
         // Nota: en éxito nunca llegamos acá — replaceLocalWithCloud recarga la
         // página. Todo lo de abajo es manejo de fallo (sin tocar nada local).
         if (result.ok) return;
-        const msg = result.reason === 'no-cloud-data'
-            ? 'ℹ️ No se encontraron datos en la nube'
-            : '❌ No se pudo descargar de la nube. Tus datos locales quedaron intactos.';
-        loader.update({ message: msg, type: result.reason === 'no-cloud-data' ? 'info' : 'error', closable: true, duration: 8000 });
+        // JD-F3: "tus datos locales quedaron intactos" sólo es verdad para los
+        // fallos de la fase de FETCH (que abortan antes de tocar nada). Un
+        // 'apply-failed' ocurre DESPUÉS del wipe — DataOps ya recargó la página
+        // para re-adoptar la nube, así que este código casi nunca corre para
+        // ese caso; si corre (reload bloqueado), el mensaje debe ser honesto.
+        const msgByReason = {
+            'no-cloud-data': 'ℹ️ No se encontraron datos en la nube',
+            'apply-failed': '⚠️ Los datos locales se borraron pero el reemplazo no terminó. Recarga la página para descargar la nube.'
+        };
+        const msg = msgByReason[result.reason]
+            || '❌ No se pudo descargar de la nube. Tus datos locales quedaron intactos.';
+        loader.update({ message: msg, type: result.reason === 'no-cloud-data' ? 'info' : 'error', closable: true, duration: 10000 });
     },
 
     // Fase 0.5 (U5): delega en DataOps.replaceCloudWithLocal — reemplazo REAL.
@@ -6556,18 +6565,19 @@ function _initOutgoingConflictGuard() {
             });
 
             if (wipeAndContinue) {
-                try {
-                    await indexedDBService.clearAll();
-                } catch (e) {
-                    console.error('❌ Error limpiando IndexedDB en cambio de cuenta:', e);
+                // JD-F6 (ALTO, hallazgo mutuo de ambos jueces): la limpieza
+                // manual vieja (3 claves sueltas + clearAll) no purgaba el
+                // outbox durable — un mirror pendiente de la cuenta VIEJA
+                // podía drenarse después y subirse al data/current de la
+                // cuenta NUEVA. Tampoco levantaba el guard anti-pagehide: el
+                // reload podía disparar flushPendingSave y escribir guardados
+                // de la cuenta vieja con auth.currentUser ya apuntando a la
+                // nueva. wipeAllLocalTraces cubre ambas cosas + el manifiesto
+                // completo (la pausa de subida heredada, caché de caja chica…).
+                const wipeResult = await wipeAllLocalTraces();
+                if (!wipeResult.ok) {
+                    console.warn('⚠️ Wipe de cambio de cuenta parcial:', wipeResult.errors);
                 }
-                try {
-                    localStorage.removeItem('asistencia-data');
-                    localStorage.removeItem('migrated-to-idb');
-                    localStorage.removeItem('asistencia_pending_cloud_deletes');
-                    sessionStorage.removeItem('attendance-backup');
-                } catch (e) { /* noop */ }
-                clearLocalOwnership();
                 claimLocalOwnership(user.uid);
                 showNotification('🧹 Datos locales borrados. Cargando los datos de tu cuenta...', 'info');
                 setTimeout(() => location.reload(), 900);

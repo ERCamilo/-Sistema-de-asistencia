@@ -24,6 +24,14 @@ const OUTBOX = 'mainSyncOutbox';
 // debilitando el dead-lettering. Mismo patrón que PettyCashStore ya usa.
 let _flushing = false;
 
+// JD-F5 (ALTO): flush() lee la lista pending a memoria UNA vez y la itera
+// awaiteando la red por entrada. clearAll() incrementa esta generación; el
+// bucle la re-chequea entre entradas y corta si cambió — sin esto, una purga
+// disparada a mitad de un flush en vuelo (usuario tocó Borrar Local /
+// Descargar y Reemplazar) vaciaba el store pero la copia stale en memoria
+// seguía subiéndose, re-creando exactamente lo que la purga debía impedir.
+let _purgeGeneration = 0;
+
 // Espeja PettyCashStore.MAX_FLUSH_ATTEMPTS: tras este número de intentos
 // fallidos, la entrada pasa a 'dead' y deja de bloquear el resto de la cola.
 export const MAX_FLUSH_ATTEMPTS = 5;
@@ -161,12 +169,16 @@ export const MainSyncStore = {
 
         _flushing = true;
         try {
+            const generationAtStart = _purgeGeneration; // JD-F5: foto de la generación
             const all = await _getAll();
             const pending = all
                 .filter(e => e && e.status === 'pending')
                 .sort((a, b) => (a.key || 0) - (b.key || 0));
 
             for (const entry of pending) {
+                // JD-F5: si hubo una purga desde que arrancó este flush, la
+                // lista en memoria es stale — cortar sin subir nada más.
+                if (generationAtStart !== _purgeGeneration) break;
                 const cloudCall = _resolveCloudCall(entry, guards);
                 if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
 
@@ -216,6 +228,9 @@ export const MainSyncStore = {
      *   (nunca lanza — el caller decide si advertir, pero no debe reventar).
      */
     async clearAll() {
+        // JD-F5: incrementar la generación ANTES de limpiar, para que un flush
+        // en vuelo corte su iteración stale aunque el clear tarde o falle.
+        _purgeGeneration++;
         try {
             await indexedDBService.clear(OUTBOX);
             return true;

@@ -16,6 +16,7 @@
 
 import {
     saveApplicationData,
+    saveToIndexedDB,
     flushPendingSave,
     beginLocalDataWipe,
     endLocalDataWipe,
@@ -84,6 +85,29 @@ testRunner.addSuite("PersistenceService — guard de borrado local en curso (Fas
             endLocalDataWipe();
             enqueueSpy.mockRestore();
             state.isDataLoaded = prevLoaded;
+            state.useIndexedDB = prevIdb;
+        }
+    },
+
+    async "con el wipe en curso, saveToIndexedDB DIRECTO también es no-op (JD-F4, ALTO)"() {
+        // El guard U2 cubría saveApplicationData y flushPendingSave, pero el
+        // flush del BatchedSaver (app.js) llama saveToIndexedDB DIRECTO —
+        // bypass total. Un flush ya agendado por requestIdleCallback (hasta
+        // 1000ms antes) podía dispararse DENTRO de la ventana del wipe y
+        // re-escribir el state en memoria a IndexedDB, resucitando datos
+        // recién borrados. El guard va en la primitiva, no sólo en callers.
+        const prevIdb = state.useIndexedDB;
+        try {
+            state.useIndexedDB = true;
+            indexedDBService.saveState.mockClear();
+            beginLocalDataWipe();
+
+            await saveToIndexedDB({ skipValidation: true });
+
+            testRunner.assertEquals(indexedDBService.saveState.mock.calls.length, 0,
+                'la primitiva de persistencia NO debe escribir durante un borrado local');
+        } finally {
+            endLocalDataWipe();
             state.useIndexedDB = prevIdb;
         }
     },

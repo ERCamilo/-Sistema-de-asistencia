@@ -124,16 +124,23 @@ testRunner.addSuite("DataOps — replaceLocalWithCloud (Fase 0.5, U4)", {
         } finally { restoreState(snap); }
     },
 
-    async "si el wipe o la persistencia fallan a MITAD, restaura el guardado normal (endWipe) y reporta el error"() {
+    async "si la persistencia falla DESPUÉS del wipe, recarga igual — la recarga ES la recuperación (JD-F3, CRÍTICO)"() {
+        // Contrato viejo (equivocado): reportaba el error SIN recargar. Pero en
+        // ese punto lo local ya está borrado y la persistencia falló: si el
+        // usuario cerraba la pestaña (reacción natural ante un toast de error),
+        // perdía todo. La recarga con local vacío + sesión activa dispara la
+        // re-adopción normal de la nube — ese es el camino de recuperación.
         const snap = snapshotState();
         const deps = makeDeps({ persistState: jest.fn().mockRejectedValue(new Error('IDB caído')) });
         try {
             const result = await replaceLocalWithCloud(deps);
 
             testRunner.assertEquals(result.ok, false);
+            testRunner.assertEquals(result.reason, 'apply-failed');
             testRunner.assertEquals(deps.endWipe.mock.calls.length, 1,
-                'debe liberar el guard de wipe — si no, la sesión queda muda (sin guardar) hasta el F5');
-            testRunner.assertEquals(deps.reload.mock.calls.length, 0, 'no debe recargar sobre un estado a medias');
+                'libera el guard antes de recargar (inofensivo, y protege entornos donde reload es no-op)');
+            testRunner.assertEquals(deps.reload.mock.calls.length, 1,
+                'DEBE recargar: quedarse en una sesión con local borrado y sin persistir es la peor opción');
         } finally { restoreState(snap); }
     },
 
