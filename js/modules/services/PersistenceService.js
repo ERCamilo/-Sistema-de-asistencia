@@ -953,6 +953,14 @@ export async function loadDemoDataIntoDB() {
 }
 
 /**
+ * 🪦 Fase 1 (U2d): ventana de retención de tombstones de asistencia. Más larga
+ * que cualquier desconexión razonable de un dispositivo — si se compactara
+ * antes, un equipo que vuelve tras una ausencia larga podría revivir un
+ * borrado que todavía no terminó de propagarse a todos los dispositivos.
+ */
+export const TOMBSTONE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000; // 60 días
+
+/**
  * 🛡️ VALIDACIÓN DE INTEGRIDAD
  * Limpia referencias huérfanas para evitar crashes en la UI.
  */
@@ -1024,6 +1032,27 @@ export function validateDataIntegrity() {
                 }
             }
         });
+
+    // 5. Compactar tombstones de asistencia vencidos (Fase 1, U2d). Solo borra
+    //    la copia LOCAL — el field en la nube no se toca acá (fuera de
+    //    alcance de esta fase; para entonces ya se propagó a todos los
+    //    dispositivos que estuvieran conectados dentro de la ventana).
+    const now = Date.now();
+    let compactedTombstones = 0;
+    stateManager.batchSetState(() => {
+        Object.entries(state.attendance).forEach(([key, att]) => {
+            if (att.deletedAt != null && (now - att.deletedAt) > TOMBSTONE_RETENTION_MS) {
+                delete state.attendance[key];
+                compactedTombstones++;
+            }
+        });
+        if (compactedTombstones > 0) {
+            buildAttendanceIndex(); // el índice no debe referenciar claves ya compactadas
+        }
+    });
+    if (compactedTombstones > 0) {
+        fixes += compactedTombstones;
+    }
 
     if (fixes > 0) {
         console.log(`🛡️ PersistenceService: ${fixes} referencia(s) huérfana(s) corregida(s)`);
