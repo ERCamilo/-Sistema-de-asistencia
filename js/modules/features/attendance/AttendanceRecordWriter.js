@@ -19,15 +19,45 @@
 
 /**
  * Devuelve una copia del registro con `updatedAt` estampado al momento de la
- * escritura local. Preserva el resto de los campos tal cual (incluido
- * `deletedAt` si el caller lo trae — el manejo de tombstones es U2).
+ * escritura local. Preserva el resto de los campos tal cual.
+ *
+ * U2a — REVIVIR: si la escritura marca el registro como presente
+ * (`present === true`), LIMPIA el tombstone (`deletedAt = null`). Marcar
+ * presente un día es, por definición, revivirlo: no puede quedar a la vez
+ * presente y borrado. Cualquier otra escritura (nota, present=false) PRESERVA
+ * el `deletedAt` que traiga el registro — editar una nota en un día borrado no
+ * lo revive.
  *
  * @param {object} record - el registro de asistencia a escribir
  * @param {number} [now] - timestamp de la escritura (default Date.now())
- * @returns {object} copia con updatedAt fresco
+ * @returns {object} copia con updatedAt fresco (y deletedAt=null si revive)
  */
 export function stampAttendanceWrite(record, now = Date.now()) {
-    return { ...record, updatedAt: now };
+    const stamped = { ...record, updatedAt: now };
+    if (record.present === true) stamped.deletedAt = null; // revivir: presente ⇒ sin tombstone
+    return stamped;
+}
+
+/**
+ * U2a — TOMBSTONE: marca un registro como borrado en vez de sacar la clave del
+ * mapa. Un `delete state.attendance[key]` local NUNCA se propaga a la nube
+ * (`setDoc merge:true` no borra claves de mapa) → el borrado resucita vía el
+ * eco de otro dispositivo. Marcarlo `deletedAt` hace que el borrado viaje como
+ * DATO y sobreviva el merge.
+ *
+ * - `present = false`: los ~30 sitios que filtran `.present` lo tratan como
+ *   ausente sin un solo cambio (incluida la nómina — no se paga un día borrado).
+ * - `deletedAt = now`: el tombstone. La UI/coherencia que mira EXISTENCIA (no
+ *   `.present`) debe filtrarlo aparte (U2c).
+ * - `updatedAt = now`: un borrado local es una escritura local → frescura para
+ *   ganarle en el merge LWW (U3) a un registro vivo más viejo de otro equipo.
+ *
+ * @param {object} record - el registro a tombstonear (se preservan sus campos)
+ * @param {number} [now] - timestamp del borrado (default Date.now())
+ * @returns {object} copia tombstoneada
+ */
+export function tombstoneAttendanceWrite(record, now = Date.now()) {
+    return { ...record, present: false, deletedAt: now, updatedAt: now };
 }
 
 export default stampAttendanceWrite;

@@ -6,7 +6,7 @@
  * para escrituras entrantes (documentado, no forzable por código).
  */
 
-import { stampAttendanceWrite } from '../modules/features/attendance/AttendanceRecordWriter.js';
+import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../modules/features/attendance/AttendanceRecordWriter.js';
 
 testRunner.addSuite("AttendanceRecordWriter — stampAttendanceWrite (Fase 1, U1b)", {
 
@@ -86,6 +86,54 @@ testRunner.addSuite("AttendanceRecordWriter — contrato de ruteo en app.js (Fas
             testRunner.assert(!/stampAttendanceWrite/.test(l),
                 'el merge entrante NO debe estampar — el timestamp de la nube manda para el LWW');
         });
+    }
+
+});
+
+// ─── U2a: tombstone (borrado marcado) + revivir al marcar presente ────────────
+
+testRunner.addSuite("AttendanceRecordWriter — tombstone + revivir (Fase 1, U2a)", {
+
+    "tombstoneAttendanceWrite marca deletedAt=now, present=false y updatedAt=now"() {
+        const out = tombstoneAttendanceWrite({ employeeId: 'e1', date: '2026-07-01', present: true, hoursWorked: 8 }, 12345);
+        testRunner.assertEquals(out.deletedAt, 12345, 'el tombstone marca deletedAt con el now');
+        testRunner.assertEquals(out.present, false, 'un registro tombstoneado no está presente (lo tratan como ausente los ~30 filtros .present)');
+        testRunner.assertEquals(out.updatedAt, 12345, 'un borrado local ES una escritura local → updatedAt fresco para ganar el LWW (U3)');
+    },
+
+    "tombstoneAttendanceWrite preserva los demás campos (el registro viaja como dato, no se borra la clave)"() {
+        const out = tombstoneAttendanceWrite({ employeeId: 'e1', date: '2026-07-01', hoursWorked: 8, notes: 'x', positionHours: [{ positionId: 'p1', hours: 8 }] }, 1);
+        testRunner.assertEquals(out.employeeId, 'e1');
+        testRunner.assertEquals(out.date, '2026-07-01');
+        testRunner.assertEquals(out.hoursWorked, 8);
+        testRunner.assertEquals(out.notes, 'x');
+        testRunner.assertEquals(out.positionHours[0].positionId, 'p1');
+    },
+
+    "tombstoneAttendanceWrite usa Date.now() cuando no se inyecta now"() {
+        const before = Date.now();
+        const out = tombstoneAttendanceWrite({ employeeId: 'e1' });
+        const after = Date.now();
+        testRunner.assert(out.deletedAt >= before && out.deletedAt <= after, 'sin now explícito usa Date.now()');
+        testRunner.assertEquals(out.updatedAt, out.deletedAt, 'updatedAt y deletedAt comparten el mismo now');
+    },
+
+    "tombstoneAttendanceWrite es puro: no muta el original"() {
+        const rec = { employeeId: 'e1', present: true, deletedAt: null };
+        tombstoneAttendanceWrite(rec, 999);
+        testRunner.assertEquals(rec.present, true, 'el original no debe mutarse');
+        testRunner.assertEquals(rec.deletedAt, null, 'el original no debe mutarse');
+    },
+
+    "stampAttendanceWrite LIMPIA deletedAt cuando present===true (revivir un día tombstoneado)"() {
+        const out = stampAttendanceWrite({ employeeId: 'e1', present: true, deletedAt: 555 }, 999);
+        testRunner.assertEquals(out.deletedAt, null, 're-marcar presente limpia el tombstone (revive)');
+        testRunner.assertEquals(out.present, true);
+    },
+
+    "stampAttendanceWrite PRESERVA deletedAt cuando present!==true (una nota en un día borrado no lo revive)"() {
+        const out = stampAttendanceWrite({ employeeId: 'e1', present: false, deletedAt: 555, notes: 'tarde' }, 999);
+        testRunner.assertEquals(out.deletedAt, 555, 'escribir sin marcar present NO revive el tombstone');
     }
 
 });
