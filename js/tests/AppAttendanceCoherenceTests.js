@@ -284,7 +284,8 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     },
 
     "downloadFromCloud (merge) mantiene coherencia total tras fusionar la asistencia remota"() {
-        const s = sliceAfter('...remoteAttendance };', 300);
+        // Fase 1 (U3): el spread ciego se ruteó por mergeAttendanceRecords (LWW puro).
+        const s = sliceAfter('mergeAttendanceRecords(state.attendance, remoteAttendance)', 300);
         testRunner.assert(s.length > 0, 'debe existir el merge de remoteAttendance');
         testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');

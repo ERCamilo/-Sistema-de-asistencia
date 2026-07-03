@@ -82,15 +82,23 @@ testRunner.addSuite("AttendanceRecordWriter — contrato de ruteo en app.js (Fas
             'escrituras locales de asistencia sin rutear por el choke point:\n  ' + offenders.join('\n  '));
     },
 
-    "el merge ENTRANTE (state.attendance = {...}) NO se estampa — conserva el updatedAt de la nube"() {
-        // Los 3 sitios de merge zonal/mirror reciben registros de otro
-        // dispositivo con su propio updatedAt; re-estamparlos con `now`
-        // destruiría la frescura que el merge LWW (U3) necesita comparar.
-        const mergeLines = APP_SRC.split('\n').filter(l => /state\.attendance\s*=\s*\{\s*\.\.\.state\.attendance/.test(l));
-        testRunner.assert(mergeLines.length >= 3, 'deben existir los sitios de merge entrante (spread)');
+    "el merge ENTRANTE pasa por mergeAttendanceRecords (Fase 1 U3) — ya no hay spread ciego"() {
+        // Los 3 sitios de merge zonal/mirror recibían registros de otro
+        // dispositivo con un spread ciego (`{...local, ...incoming}`) que no
+        // comparaba frescura. U3 los ruteó por mergeAttendanceRecords (LWW
+        // puro, en AttendanceMerge.js) — acá solo verificamos que NINGUNO
+        // quedó como spread ciego crudo, y que ninguno re-estampa con
+        // stamp/tombstoneAttendanceWrite (destruiría el updatedAt de la nube
+        // que el merge necesita comparar).
+        const blindSpreadLines = APP_SRC.split('\n').filter(l => /state\.attendance\s*=\s*\{\s*\.\.\.state\.attendance/.test(l));
+        testRunner.assertEquals(blindSpreadLines.length, 0,
+            'no debe quedar ningún spread ciego de merge entrante sin rutear:\n  ' + blindSpreadLines.join('\n  '));
+
+        const mergeLines = APP_SRC.split('\n').filter(l => /state\.attendance\s*=\s*mergeAttendanceRecords\s*\(/.test(l));
+        testRunner.assert(mergeLines.length >= 3, 'deben existir los 3 sitios de merge entrante rutedos por mergeAttendanceRecords');
         mergeLines.forEach(l => {
-            testRunner.assert(!/stampAttendanceWrite/.test(l),
-                'el merge entrante NO debe estampar — el timestamp de la nube manda para el LWW');
+            testRunner.assert(!/(?:stamp|tombstone)AttendanceWrite/.test(l),
+                'el merge entrante NO debe re-estampar — mergeAttendanceRecords ya decide por updatedAt');
         });
     }
 

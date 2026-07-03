@@ -62,6 +62,7 @@ import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
@@ -3204,7 +3205,7 @@ window.downloadFromCloud = async function () {
 
             // Cargar historial completo
             const remoteAttendance = await FirebaseService.getAllAttendance();
-            state.attendance = { ...state.attendance, ...remoteAttendance };
+            state.attendance = mergeAttendanceRecords(state.attendance, remoteAttendance); // U3: merge LWW por-registro
             // Merge de fechas/empleados arbitrarios → coherencia total antes del render().
             invalidateAllStats();
             buildAttendanceIndex();
@@ -6994,7 +6995,7 @@ function _initOutgoingConflictGuard() {
                                 }
                             });
 
-                            state.attendance = { ...state.attendance, ...allAttendance };
+                            state.attendance = mergeAttendanceRecords(state.attendance, allAttendance); // U3: merge LWW por-registro
                             // ⚡ Persistir asistencia remota usando BatchedSaver
                             // (acumula con onModified si llegan también en ráfaga)
                             Object.keys(allAttendance).forEach(key => {
@@ -7049,7 +7050,7 @@ function _initOutgoingConflictGuard() {
                                 }
                             });
 
-                            state.attendance = { ...state.attendance, ...records };
+                            state.attendance = mergeAttendanceRecords(state.attendance, records); // U3: merge LWW por-registro
                             // Una sola fecha (hot path por tick) → coherencia GRANULAR:
                             // invalidar solo los empleados tocados (por employeeId, NO split de clave)
                             // y reconstruir el bucket de ESTE día. NUNCA invalidateAllStats acá.
