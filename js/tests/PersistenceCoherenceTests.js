@@ -48,10 +48,18 @@ testRunner.addSuite("PersistenceService.mergeEmployees — Coherencia (Fase 4 Pa
 
         stateManager.batchSetState(() => { mergeEmployees('master', 'dup-01'); });
 
-        // El índice debe reflejar las claves remapeadas a master, sin el proxy.
-        testRunner.assertEquals((raw.attendanceByDate['2026-06-18'] || []).length, 1, "fecha 18 indexada");
-        testRunner.assertEquals((raw.attendanceByDate['2026-06-19'] || []).length, 1, "fecha 19 indexada");
-        testRunner.assertEquals(raw.attendanceByDate['2026-06-18'][0].employeeId, 'master', "el registro quedó bajo master");
+        // Fase 1 (U2b): la clave vieja del duplicado se TOMBSTONEA, no se borra
+        // (setDoc merge:true nunca borra claves de mapa en la nube — un delete
+        // resucitaría vía eco). Por eso sigue indexada: el índice todavía no
+        // filtra tombstones (eso es U2c). Cada fecha queda con 2 entradas: el
+        // registro vivo bajo master y el tombstone bajo la clave vieja.
+        const day18 = raw.attendanceByDate['2026-06-18'] || [];
+        testRunner.assertEquals(day18.length, 2, "fecha 18 indexada (vivo + tombstone; U2c filtrará)");
+        const liveDay18 = day18.find(r => r.present);
+        const tombstonedDay18 = day18.find(r => !r.present);
+        testRunner.assertEquals(liveDay18 && liveDay18.employeeId, 'master', "el registro vivo quedó bajo master");
+        testRunner.assert(tombstonedDay18 && tombstonedDay18.deletedAt != null, "la clave vieja del duplicado quedó tombstoneada, no borrada");
+        testRunner.assertEquals((raw.attendanceByDate['2026-06-19'] || []).length, 2, "fecha 19 indexada (vivo + tombstone)");
         // Stats de ambos invalidadas (por employeeId, no split de la clave con guion).
         testRunner.assert(!raw.statsCache.mtd['master'], "stats de master invalidadas");
         testRunner.assert(!raw.statsCache.mtd['dup-01'], "stats del duplicado con guion invalidadas");

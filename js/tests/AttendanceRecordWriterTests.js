@@ -65,11 +65,17 @@ testRunner.addSuite("AttendanceRecordWriter — contrato de ruteo en app.js (Fas
         const lines = APP_SRC.split('\n');
         const offenders = [];
         lines.forEach((line, i) => {
-            // Asignación por-CLAVE (no el merge entrante `state.attendance = {...}`).
-            if (!/state\.attendance\[[^\]]+\]\s*=/.test(line)) return;
+            // Asignación por-CLAVE (no el merge entrante `state.attendance = {...}`)
+            // O un delete por-clave — desde U2b un delete suelto es justamente lo
+            // que este test debe cazar (antes de U2b este filtro de entrada exigía
+            // un '=' literal y por eso nunca veía un `delete` puro: el test
+            // "protegía" contra deletes sin rutear pero nunca podía dar rojo).
+            const isAssignment = /state\.attendance\[[^\]]+\]\s*=/.test(line);
+            const isDelete = /delete\s+state\.attendance\[/.test(line);
+            if (!isAssignment && !isDelete) return;
             if (/state\.attendance\[[^\]]+\]\s*=\s*=/.test(line)) return; // comparación, no asignación
-            if (/delete\s+state\.attendance\[/.test(line)) return;       // borrado (U2)
-            if (/stampAttendanceWrite\s*\(/.test(line)) return;          // ruteado ✅
+            if (/delete\s+state\.attendance\[shortKey\]/.test(line)) return; // limpieza de claves malformadas (bare employeeId), no un unmark de usuario
+            if (/(?:stamp|tombstone)AttendanceWrite\s*\(/.test(line)) return; // ruteado ✅
             offenders.push(`app.js:${i + 1}: ${line.trim()}`);
         });
         testRunner.assertEquals(offenders.length, 0,

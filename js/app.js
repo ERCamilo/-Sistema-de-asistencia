@@ -61,7 +61,7 @@ import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
-import { stampAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import { stampAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
@@ -1246,7 +1246,7 @@ window.saveMultiPosition = function () {
             if (previousMpAtt) {
                 state.attendance[mpKey] = stampAttendanceWrite(previousMpAtt); // U1b: el undo es una mutación de ahora
             } else {
-                delete state.attendance[mpKey];
+                state.attendance[mpKey] = tombstoneAttendanceWrite(state.attendance[mpKey]);
             }
             invalidateEmployeeStats(emp.id);
             buildAttendanceIndex(dateKey);
@@ -1279,7 +1279,7 @@ window.deleteCurrentAttendance = function () {
     // el del delete-trap + el manual del final). La coherencia (financiera) va DENTRO
     // del batch para que el repintado del cierre lea statsCache ya fresco.
     stateManager.batchSetState(() => {
-        delete state.attendance[key];
+        state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
         invalidateEmployeeStats(emp.id);
         buildAttendanceIndex(dateKey);
     });
@@ -1325,9 +1325,10 @@ window.removePositionHours = async function (index) {
                 type: 'danger'
             });
             if (confirmDelete) {
-                delete state.attendance[key];
+                state.attendance[key] = tombstoneAttendanceWrite(att);
                 invalidateEmployeeStats(emp.id);
                 buildAttendanceIndex(dateKey);
+                saveApplicationData({ dateKey }); // GAP encontrado en el mapeo: esta rama nunca guardaba (el commit normal pasa por saveMultiPosition, que acá no corre) — sin esto el tombstone no sube a la nube
                 closeModal();
                 render();
                 return;
@@ -1927,7 +1928,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
 
     if (att && att.present) {
         if (state.viewMode === 'week') return;
-        delete state.attendance[key];
+        state.attendance[key] = tombstoneAttendanceWrite(att);
         // Limpiar selección temporal
         if (state.tempPositionSelection) {
             delete state.tempPositionSelection[key];
@@ -1975,7 +1976,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             null,
             `Asistencia de ${emp.name}`,
             () => {
-                delete state.attendance[key];
+                state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
                 invalidateEmployeeStats(empId);
                 buildAttendanceIndex(getDateKey(date));
             }

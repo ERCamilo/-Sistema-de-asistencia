@@ -152,6 +152,33 @@ testRunner.addSuite("Legacy mergeEmployees — préstamos, posiciones y position
         const master = state.employees.find(e => e.id === 'A');
         testRunner.assert(master.updatedAt > 100,
             'master.updatedAt debe avanzar para que cloud reciba el cambio');
+    },
+
+    "asistencia del duplicate: la clave vieja se tombstonea, no se borra (Fase 1, U2b)"() {
+        // setDoc({merge:true}) nunca borra claves de un mapa — un `delete` local
+        // no se propaga a la nube y el registro resucita al hacer eco. El remap
+        // de asistencia debe dejar la clave vieja como tombstone viajando como dato.
+        const attendance = {
+            'B-2026-06-01': { employeeId: 'B', date: '2026-06-01', present: true, hoursWorked: 8 }
+        };
+        resetState([
+            { id: 'A', loans: [] },
+            { id: 'B', loans: [] }
+        ], attendance);
+
+        mergeEmployees('A', 'B');
+
+        const oldRecord = state.attendance['B-2026-06-01'];
+        testRunner.assert(!!oldRecord, 'la clave vieja B-2026-06-01 NO debe borrarse — debe seguir existiendo como tombstone');
+        testRunner.assert(oldRecord.deletedAt !== null && oldRecord.deletedAt !== undefined,
+            'la clave vieja debe quedar tombstoneada (deletedAt seteado)');
+        testRunner.assertEquals(oldRecord.present, false, 'el tombstone marca present=false');
+
+        const movedRecord = state.attendance['A-2026-06-01'];
+        testRunner.assert(!!movedRecord, 'el registro debe existir bajo la clave nueva A-2026-06-01');
+        testRunner.assertEquals(movedRecord.present, true, 'el registro movido conserva sus datos (present=true)');
+        testRunner.assert(movedRecord.deletedAt === null || movedRecord.deletedAt === undefined,
+            'el registro movido NO debe quedar con un deletedAt residual del tombstone');
     }
 
 });

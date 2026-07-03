@@ -24,6 +24,7 @@ import { generateUUID, slugify } from '../utils/Helpers.js';
 import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
 import { PettyCashStore } from '../features/pettycash/PettyCashStore.js';
 import { debug } from '../utils/Debug.js';
+import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -1546,12 +1547,17 @@ export function mergeEmployees(masterId, duplicateId) {
             const newKey = `${masterId}-${datePart}`;
             const oldRecord = state.attendance[oldKey];
             const existingRecord = state.attendance[newKey];
+            // Fase 1 U2b: foto ANTES de la mutación in-place de abajo — si tombstoneáramos oldKey
+            // con el objeto ya mutado, el tombstone heredaría employeeId=masterId (la clave vieja
+            // quedaría con datos del master). El tombstone debe reflejar el registro tal como
+            // estaba bajo oldKey.
+            const oldRecordSnapshot = { ...oldRecord };
 
             if (!existingRecord) {
                 // Simplemente mover
                 oldRecord.employeeId = masterId;
                 oldRecord.key = newKey;
-                state.attendance[newKey] = oldRecord;
+                state.attendance[newKey] = stampAttendanceWrite(oldRecord);
             } else {
                 // Fusionar inteligentemente
                 existingRecord.present = existingRecord.present || oldRecord.present;
@@ -1572,7 +1578,7 @@ export function mergeEmployees(masterId, duplicateId) {
                     });
                 }
             }
-            delete state.attendance[oldKey];
+            state.attendance[oldKey] = tombstoneAttendanceWrite(oldRecordSnapshot);
         }
     });
 
