@@ -55,7 +55,9 @@ const ALLOWLIST = new Map([
     // el MISMO objeto a la MISMA clave. Cambia positionHours pero NO hoursWorked → las stats
     // mensuales (que suman hoursWorked) no cambian, y el índice sigue apuntando a la misma
     // referencia → no necesita coherencia. El commit real (saveMultiPosition) sí la tiene.
-    ['app.js::state.attendance[key] = att;', 'editing-buffer: positionHours, no hoursWorked'],
+    // Fase 1 (U1b): el texto cambió al rutear por el choke point stampAttendanceWrite;
+    // la justificación (editing-buffer, no toca hoursWorked → sin coherencia) sigue igual.
+    ['app.js::state.attendance[key] = { ...stampAttendanceWrite(att), _isDirty: true };', 'editing-buffer: positionHours, no hoursWorked'],
 ]);
 
 function scan(relPath) {

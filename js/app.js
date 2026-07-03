@@ -61,6 +61,7 @@ import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
+import { stampAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
@@ -1113,9 +1114,8 @@ window.addPositionHours = function () {
             overtimeHours: 0
         });
 
-        state.attendance[key] = att;
-        att.updatedAt = Date.now();
-        att._isDirty = true;
+        // Fase 1 (U1b): estampado por el choke point en vez de mutar updatedAt a mano.
+        state.attendance[key] = { ...stampAttendanceWrite(att), _isDirty: true };
         render();
 
         // Actualizar totales después de render
@@ -1234,7 +1234,7 @@ window.saveMultiPosition = function () {
     // NO se batchea a propósito (a diferencia de los otros handlers de Paso 5): este no
     // llama render() explícito → el set-trap del proxy ya colapsa a 1 repintado por dedup,
     // y la coherencia corre síncrona acá, antes del render diferido (rAF) → statsCache fresco.
-    state.attendance[key] = { ...att };
+    state.attendance[key] = stampAttendanceWrite(att); // U1b: choke point
     invalidateEmployeeStats(emp.id);
     buildAttendanceIndex(dateKey);
 
@@ -1244,7 +1244,7 @@ window.saveMultiPosition = function () {
         `Multi-posición de ${emp.name}`,
         () => {
             if (previousMpAtt) {
-                state.attendance[mpKey] = previousMpAtt;
+                state.attendance[mpKey] = stampAttendanceWrite(previousMpAtt); // U1b: el undo es una mutación de ahora
             } else {
                 delete state.attendance[mpKey];
             }
@@ -1289,7 +1289,7 @@ window.deleteCurrentAttendance = function () {
         previousAtt,
         `Eliminación de ${emp.name}`,
         () => {
-            if (previousAtt) state.attendance[key] = previousAtt;
+            if (previousAtt) state.attendance[key] = stampAttendanceWrite(previousAtt); // U1b
             invalidateEmployeeStats(emp.id);
             buildAttendanceIndex(dateKey);
         }
@@ -1938,7 +1938,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             previousAtt,
             `Asistencia de ${emp.name}`,
             () => {
-                state.attendance[key] = previousAtt;
+                state.attendance[key] = stampAttendanceWrite(previousAtt); // U1b
                 invalidateEmployeeStats(empId);
                 buildAttendanceIndex(getDateKey(date));
             }
@@ -1951,7 +1951,8 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         // Obtener posición seleccionada temporalmente o usar la primera
         const selectedPos = state.tempPositionSelection?.[key] || emp.positions?.[0] || null;
 
-        state.attendance[key] = {
+        // Fase 1 (U1b): estampado por el choke point.
+        state.attendance[key] = stampAttendanceWrite({
             employeeId: empId,
             date: getDateKey(date),
             present: true,
@@ -1961,9 +1962,8 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
-            notes: '',
-            updatedAt: Date.now()
-        };
+            notes: ''
+        });
 
         // Limpiar selección temporal después de usarla
         if (state.tempPositionSelection) {
@@ -3046,7 +3046,7 @@ window.handleWeekCheck = (empId, dateStr) => {
         // ⚡ Fase 4 Paso 5: batchear el alta + la coherencia → 1 repintado. FINANCIERO:
         // hoursWorked/present alimentan stats, la coherencia va DENTRO del batch.
         stateManager.batchSetState(() => {
-            state.attendance[key] = newAttendance;
+            state.attendance[key] = stampAttendanceWrite(newAttendance); // U1b: choke point
             invalidateEmployeeStats(empId);
             buildAttendanceIndex(dateStr);
         });
@@ -3057,15 +3057,14 @@ window.handleWeekCheck = (empId, dateStr) => {
             `Asistencia de ${emp.name} (${dateStr})`,
             () => {
                 if (prevWeekAtt) {
-                    state.attendance[key] = prevWeekAtt;
+                    state.attendance[key] = stampAttendanceWrite(prevWeekAtt); // U1b
                 } else {
-                    state.attendance[key] = {
+                    state.attendance[key] = stampAttendanceWrite({
                         employeeId: empId,
                         date: dateStr,
                         present: false,
-                        _isDirty: true,
-                        updatedAt: Date.now()
-                    };
+                        _isDirty: true
+                    });
                 }
                 invalidateEmployeeStats(empId);
                 buildAttendanceIndex(dateStr);
@@ -3117,7 +3116,7 @@ window.removeAttendance = (empId, dateStr) => {
         prevRemoveAtt,
         `Eliminación de ${emp?.name || empId} (${dateStr})`,
         () => {
-            if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt;
+            if (prevRemoveAtt) state.attendance[key] = stampAttendanceWrite(prevRemoveAtt); // U1b
             invalidateEmployeeStats(empId);
             buildAttendanceIndex(dateStr);
         }
@@ -4212,7 +4211,7 @@ window.saveAttendanceDetailHours = (empId) => {
     // set-trap + el manual del final). FINANCIERO: hoursWorked/present alimentan stats,
     // la coherencia va DENTRO del batch para que el repintado del cierre lea statsCache fresco.
     stateManager.batchSetState(() => {
-        state.attendance[key] = {
+        state.attendance[key] = stampAttendanceWrite({
             ...existing,
             employeeId: emp.id,
             date: dateKey,
@@ -4224,10 +4223,9 @@ window.saveAttendanceDetailHours = (empId) => {
             selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
             isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
             notes: existing.notes || '',
-            updatedAt: Date.now(),
             lastAccessed: Date.now(),
             _isDirty: true
-        };
+        });
         invalidateEmployeeStats(emp.id);
         buildAttendanceIndex(dateKey);
     });
@@ -4277,9 +4275,8 @@ window.saveQuickNoteFromDetail = (empId) => {
                 notes: ''
             };
             existing.notes = text;
-            existing.updatedAt = Date.now();
             existing._isDirty = true;
-            state.attendance[key] = existing;
+            state.attendance[key] = stampAttendanceWrite(existing); // U1b: choke point (antes updatedAt a mano)
         }
         invalidateEmployeeStats(empId);
         buildAttendanceIndex(dateKey);
