@@ -12,6 +12,7 @@ import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
 import { notifySnapshotCreated } from './SnapshotNotifier.js';
 import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
+import { mergeAttendanceRecords } from '../features/attendance/AttendanceMerge.js';
 import { PositionRepository } from './PositionRepository.js';
 import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
@@ -651,9 +652,32 @@ class FirebaseService {
         if (!auth.currentUser) return;
 
         try {
-            const cleanAttendance = JSON.parse(JSON.stringify(dayAttendance));
+            let cleanAttendance = JSON.parse(JSON.stringify(dayAttendance));
             const docRef = doc(db, 'users', auth.currentUser.uid, 'attendance', dateKey);
-            
+
+            // Fase 1 (U4): read-merge-write por-registro (mismo patrón que
+            // EmployeeRepository.saveOne con mergeRemote). setDoc({merge:true})
+            // hace deep-merge CAMPO A CAMPO dentro de `records` — un registro
+            // local con menos campos que el remoto heredaba campos viejos
+            // (franken-merge: horas de hoy + notas de la semana pasada en el
+            // mismo registro). Leer primero y resolver con mergeAttendanceRecords
+            // (LWW por updatedAt) asegura que cada clave se escriba COMPLETA de
+            // un solo lado — nunca mezclada — y de paso preserva registros de
+            // otros empleados/dispositivos ese mismo día que este dispositivo
+            // no conoce localmente.
+            try {
+                const remoteSnap = await getDoc(docRef);
+                if (remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists()) {
+                    const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
+                    const remoteRecords = (remoteData && remoteData.records) || {};
+                    cleanAttendance = mergeAttendanceRecords(cleanAttendance, remoteRecords);
+                }
+            } catch (e) {
+                // Si el read falla (offline, permisos), fallback al fast-path.
+                // Mejor un save sin merge que perder el save del usuario.
+                console.warn(`⚠️ saveDailyAttendance(${dateKey}): read remoto falló, escribiendo sin merge:`, e);
+            }
+
             await setDoc(docRef, {
                 records: cleanAttendance,
                 updatedAt: serverTimestamp(),

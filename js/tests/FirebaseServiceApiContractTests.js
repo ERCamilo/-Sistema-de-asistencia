@@ -143,3 +143,65 @@ testRunner.addSuite("FirebaseService — Contrato deleteCloudData (C1)", {
     }
 
 });
+
+// FirebaseService.js está mockeado GLOBALMENTE por jest.config.js
+// (moduleNameMapper '(^|/)FirebaseService\.js$' → __mocks__/FirebaseService.js),
+// así que su lógica interna real no es testeable conductualmente en este
+// harness — por eso este contrato es sobre el TEXTO FUENTE, mismo patrón
+// que el resto de este archivo (deleteCloudData arriba). La lógica de merge
+// en sí (mergeAttendanceRecords) SÍ está testeada conductualmente y a fondo
+// en AttendanceMergeTests.js (Fase 1, U3).
+function saveDailyAttendanceBlock() {
+    return FIREBASE_SRC.match(/async\s+saveDailyAttendance\s*\([\s\S]*?\n\s{4}\}/);
+}
+
+testRunner.addSuite("FirebaseService — Contrato saveDailyAttendance read-merge-write (Fase 1, U4)", {
+
+    "saveDailyAttendance lee el doc remoto (getDoc) antes de escribir"() {
+        const b = saveDailyAttendanceBlock();
+        testRunner.assert(!!b, 'saveDailyAttendance debe existir');
+        testRunner.assert(/getDoc\s*\(/.test(b[0]), 'debe leer el doc remoto antes de mergear');
+    },
+
+    "saveDailyAttendance resuelve con mergeAttendanceRecords (LWW por-registro, U3)"() {
+        const b = saveDailyAttendanceBlock();
+        testRunner.assert(/mergeAttendanceRecords\s*\(/.test(b[0]),
+            'debe rutear por mergeAttendanceRecords en vez de un setDoc directo — evita el franken-merge de Firestore');
+    },
+
+    "el getDoc va ANTES del mergeAttendanceRecords, y éste ANTES del setDoc final"() {
+        const b = saveDailyAttendanceBlock()[0];
+        const getDocIdx = b.search(/getDoc\s*\(/);
+        const mergeIdx = b.search(/mergeAttendanceRecords\s*\(/);
+        const setDocIdx = b.lastIndexOf('setDoc(');
+        testRunner.assert(getDocIdx !== -1 && mergeIdx !== -1 && setDocIdx !== -1,
+            'deben existir las 3 llamadas');
+        testRunner.assert(getDocIdx < mergeIdx && mergeIdx < setDocIdx,
+            'orden incorrecto: debe ser getDoc → mergeAttendanceRecords → setDoc');
+    },
+
+    "el read remoto tiene su propio catch, y NO re-lanza (si falla, igual escribe sin merge)"() {
+        const b = saveDailyAttendanceBlock()[0];
+        const getDocIdx = b.search(/getDoc\s*\(/);
+        const setDocIdx = b.lastIndexOf('setDoc(');
+        const between = b.slice(getDocIdx, setDocIdx);
+        testRunner.assert(/catch\s*\(/.test(between),
+            'debe haber un catch entre el getDoc y el setDoc final (fallback al fast-path)');
+        testRunner.assert(!/catch\s*\([^)]*\)\s*\{[^}]*throw/.test(between),
+            'el catch del read remoto NO debe re-lanzar — perdería el save del usuario si el read falla');
+    },
+
+    "sigue escribiendo el documento con { merge: true } (protege campos de nivel-doc desconocidos)"() {
+        const b = saveDailyAttendanceBlock()[0];
+        testRunner.assert(/\{\s*merge:\s*true\s*\}/.test(b), 'debe conservar merge:true a nivel de documento');
+    },
+
+    "el mock de tests expone saveDailyAttendance (paridad de API)"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/saveDailyAttendance/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir saveDailyAttendance para tests de app.js/PersistenceService');
+    }
+
+});
