@@ -228,8 +228,9 @@ function SettingsDashboard() {
     const syncStatus = {
         connected: !!window.currentUser,
         localEmployees: state.employees.length,
-        localAttendance: Object.keys(state.attendance).length,
-        localDays: new Set(Object.values(state.attendance).map(a => a.date || '')).size
+        // Fase 1 (U2c): un tombstone no cuenta como asistencia local real.
+        localAttendance: Object.values(state.attendance).filter(a => a.deletedAt == null).length,
+        localDays: new Set(Object.values(state.attendance).filter(a => a.deletedAt == null).map(a => a.date || '')).size
     };
 
     const freeSpace = Math.round(100 - storage.percentage);

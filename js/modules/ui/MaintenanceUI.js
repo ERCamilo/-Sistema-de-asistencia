@@ -1161,8 +1161,11 @@ export class MaintenanceUI {
                 if (conflictEmpRaw) {
                     // Calculamos los metadatos de completeness/attendance de conflictEmpRaw para que el Visualizador no explote
                     const idPrefix = `${conflictEmpRaw.id}-`;
-                    const attendanceKeys = Object.keys(state.attendance || {}).filter(k => k.startsWith(idPrefix));
-                    
+                    // Fase 1 (U2c): un tombstone no cuenta como asistencia real.
+                    const attendanceKeys = Object.entries(state.attendance || {})
+                        .filter(([k, v]) => k.startsWith(idPrefix) && v.deletedAt == null)
+                        .map(([k]) => k);
+
                     let lastDate = 'Nunca';
                     if (attendanceKeys.length > 0) {
                         const sortedDates = attendanceKeys.map(k => k.substring(idPrefix.length)).sort();

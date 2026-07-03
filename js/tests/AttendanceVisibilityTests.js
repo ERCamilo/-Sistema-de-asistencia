@@ -15,7 +15,7 @@
  *   - Normaliza fechas a YYYY-MM-DD (tolera ISO con hora en hireDate, etc).
  */
 
-import { wasEmployeeActiveOnDate, isEmployeeVisibleOnDate } from '../modules/utils/DateUtils.js';
+import { wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, wasEmployeeActiveInRange } from '../modules/utils/DateUtils.js';
 
 function emp(over = {}) {
     return { id: 'e1', number: '1', name: 'X', active: true, statusHistory: [], ...over };
@@ -63,6 +63,15 @@ testRunner.addSuite("wasEmployeeActiveOnDate — correctness", {
     "fecha anterior a cualquier cambio registrado → activo (estaba activo antes de desactivarse)"() {
         const e = emp({ active: false, statusHistory: [{ date: '2026-05-20', active: false, timestamp: 5 }], hireDate: '2026-01-01' });
         testRunner.assertEquals(wasEmployeeActiveOnDate(e, '2026-05-10'), true);
+    },
+
+    "tombstone ese día (Fase 1 U2c) → NO cuenta como activo (el historial manda)"() {
+        // Inactivo hoy, historial confirma inactivo ese día. La clave de asistencia
+        // sigue viva (tombstone), pero present:false + deletedAt → no es una
+        // asistencia explícita real, así que no debe forzar "activo".
+        const e = emp({ active: false, statusHistory: [{ date: '2026-05-01', active: false, timestamp: 1 }] });
+        const att = { 'e1-2026-05-10': { present: false, deletedAt: 12345 } };
+        testRunner.assertEquals(wasEmployeeActiveOnDate(e, '2026-05-10', att), false);
     }
 
 });
@@ -107,6 +116,35 @@ testRunner.addSuite("isEmployeeVisibleOnDate — lista + marcador", {
         const e = emp({ active: false, statusHistory: [{ date: '2026-05-01', active: false, timestamp: 1 }] });
         const r = isEmployeeVisibleOnDate(e, '2026-05-10');
         testRunner.assertEquals(r.visible, false);
+    }
+
+});
+
+testRunner.addSuite("wasEmployeeActiveInRange — correctness", {
+
+    "asistencia explícita dentro del rango → activo"() {
+        const e = emp({ active: false, statusHistory: [{ date: '2026-05-01', active: false, timestamp: 1 }] });
+        const att = { 'e1-2026-05-12': { present: true } };
+        testRunner.assertEquals(wasEmployeeActiveInRange(e, '2026-05-10', '2026-05-15', att), true);
+    },
+
+    "sin asistencia en el rango, usa el estado en los límites (activo)"() {
+        const e = emp({ active: true });
+        testRunner.assertEquals(wasEmployeeActiveInRange(e, '2026-05-10', '2026-05-15', {}), true);
+    },
+
+    "sin asistencia en el rango, inactivo en ambos límites → false"() {
+        const e = emp({ active: false, statusHistory: [{ date: '2026-05-01', active: false, timestamp: 1 }] });
+        testRunner.assertEquals(wasEmployeeActiveInRange(e, '2026-05-10', '2026-05-15', {}), false);
+    },
+
+    "tombstone dentro del rango (Fase 1 U2c) → NO cuenta como activo por sí solo"() {
+        // Inactivo hoy, historial confirma inactivo en todo el rango. Un registro
+        // tombstoneado dentro del rango NO debe forzar "activo": es un borrado,
+        // no una asistencia real.
+        const e = emp({ active: false, statusHistory: [{ date: '2026-05-01', active: false, timestamp: 1 }] });
+        const att = { 'e1-2026-05-12': { present: false, deletedAt: 999 } };
+        testRunner.assertEquals(wasEmployeeActiveInRange(e, '2026-05-10', '2026-05-15', att), false);
     }
 
 });

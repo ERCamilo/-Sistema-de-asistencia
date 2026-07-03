@@ -353,7 +353,12 @@ export class EmployeeModal {
                 const editedId = applyFields(intendedNumber);
                 if (!editedId) { this.close(); return; }
                 // Master = el de más asistencia (conserva la identidad más completa).
-                const attCount = (id) => Object.keys(state.attendance || {}).filter(k => k.startsWith(`${id}-`)).length;
+                // Fase 1 (U2c): un tombstone no cuenta como asistencia real.
+                const attCount = (id) => {
+                    const prefix = `${id}-`;
+                    return Object.entries(state.attendance || {})
+                        .filter(([k, v]) => k.startsWith(prefix) && v.deletedAt == null).length;
+                };
                 let masterId = duplicate.id, dupId = editedId;
                 if (attCount(editedId) >= attCount(duplicate.id)) { masterId = editedId; dupId = duplicate.id; }
                 mergeEmployees(masterId, dupId);

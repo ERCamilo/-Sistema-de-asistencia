@@ -87,7 +87,8 @@ export function clearNote(state, employeeId, dateKey) {
  */
 export function listNotes(state, employeeId = null) {
     const records = Object.values(state.attendance || {})
-        .filter(att => att.notes && att.notes.trim().length > 0);
+        // Fase 1 (U2c): un tombstone no debe mostrar su nota vieja.
+        .filter(att => att.deletedAt == null && att.notes && att.notes.trim().length > 0);
 
     const filtered = employeeId
         ? records.filter(r => r.employeeId === employeeId)

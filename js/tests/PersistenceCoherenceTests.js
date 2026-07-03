@@ -50,16 +50,16 @@ testRunner.addSuite("PersistenceService.mergeEmployees — Coherencia (Fase 4 Pa
 
         // Fase 1 (U2b): la clave vieja del duplicado se TOMBSTONEA, no se borra
         // (setDoc merge:true nunca borra claves de mapa en la nube — un delete
-        // resucitaría vía eco). Por eso sigue indexada: el índice todavía no
-        // filtra tombstones (eso es U2c). Cada fecha queda con 2 entradas: el
-        // registro vivo bajo master y el tombstone bajo la clave vieja.
+        // resucitaría vía eco). La clave sigue existiendo en state.attendance,
+        // pero Fase 1 (U2c) hizo que buildAttendanceIndex FILTRE los tombstones:
+        // el índice por fecha solo debe quedar con el registro vivo.
         const day18 = raw.attendanceByDate['2026-06-18'] || [];
-        testRunner.assertEquals(day18.length, 2, "fecha 18 indexada (vivo + tombstone; U2c filtrará)");
-        const liveDay18 = day18.find(r => r.present);
-        const tombstonedDay18 = day18.find(r => !r.present);
-        testRunner.assertEquals(liveDay18 && liveDay18.employeeId, 'master', "el registro vivo quedó bajo master");
-        testRunner.assert(tombstonedDay18 && tombstonedDay18.deletedAt != null, "la clave vieja del duplicado quedó tombstoneada, no borrada");
-        testRunner.assertEquals((raw.attendanceByDate['2026-06-19'] || []).length, 2, "fecha 19 indexada (vivo + tombstone)");
+        testRunner.assertEquals(day18.length, 1, "fecha 18 indexada (U2c: el índice ya filtra tombstones)");
+        testRunner.assertEquals(day18[0] && day18[0].employeeId, 'master', "el registro vivo quedó bajo master");
+        testRunner.assertEquals((raw.attendanceByDate['2026-06-19'] || []).length, 1, "fecha 19 indexada (U2c: tombstone filtrado)");
+        // El tombstone de la clave vieja SIGUE existiendo en state.attendance (fuera del índice) — U2b.
+        const oldTombstone = raw.attendance['dup-01-2026-06-18'];
+        testRunner.assert(oldTombstone && oldTombstone.deletedAt != null, "la clave vieja del duplicado sigue tombstoneada en state.attendance (fuera del índice)");
         // Stats de ambos invalidadas (por employeeId, no split de la clave con guion).
         testRunner.assert(!raw.statsCache.mtd['master'], "stats de master invalidadas");
         testRunner.assert(!raw.statsCache.mtd['dup-01'], "stats del duplicado con guion invalidadas");

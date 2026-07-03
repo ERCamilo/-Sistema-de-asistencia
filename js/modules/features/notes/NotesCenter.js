@@ -20,6 +20,7 @@ export function NotesCenter() {
     const notesByEmployee = new Map();
 
     attendanceItems.forEach(att => {
+        if (att.deletedAt != null) return; // Fase 1 (U2c): un día borrado no muestra su nota vieja
         const note = (att.notes || '').trim();
         if (!note) return;
         if (!notesByEmployee.has(att.employeeId)) {

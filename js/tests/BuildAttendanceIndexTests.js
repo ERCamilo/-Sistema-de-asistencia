@@ -65,6 +65,32 @@ testRunner.addSuite("buildAttendanceIndex — contrato del primitivo (refuerzo P
         buildAttendanceIndex('2026-06-18');
 
         testRunner.assertEquals((raw.attendanceByDate['2026-06-18'] || []).length, 2, "ambos empleados deben caer en el bucket del día");
+    },
+
+    "granular(dateKey) excluye tombstones del bucket (Fase 1 U2c)"() {
+        const raw = seed({
+            'e1-2026-06-18': { employeeId: 'e1', date: '2026-06-18', present: true },
+            'e2-2026-06-18': { employeeId: 'e2', date: '2026-06-18', present: false, deletedAt: 12345 },
+        });
+
+        buildAttendanceIndex('2026-06-18');
+
+        const bucket = raw.attendanceByDate['2026-06-18'] || [];
+        testRunner.assertEquals(bucket.length, 1, "el tombstone no debe entrar al bucket");
+        testRunner.assertEquals(bucket[0] && bucket[0].employeeId, 'e1', "solo el registro vivo debe quedar indexado");
+    },
+
+    "total() excluye tombstones del índice (Fase 1 U2c)"() {
+        const raw = seed({
+            'e1-2026-06-18': { employeeId: 'e1', date: '2026-06-18', present: true },
+            'e2-2026-06-18': { employeeId: 'e2', date: '2026-06-18', present: false, deletedAt: 12345 },
+        });
+
+        buildAttendanceIndex(); // total
+
+        const bucket = raw.attendanceByDate['2026-06-18'] || [];
+        testRunner.assertEquals(bucket.length, 1, "el tombstone no debe entrar al bucket (rebuild total)");
+        testRunner.assertEquals(bucket[0] && bucket[0].employeeId, 'e1', "solo el registro vivo debe quedar indexado");
     }
 });
 
