@@ -744,7 +744,7 @@ async function _executeSave(options = {}) {
         try {
             // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados granulares
             if (!options.dateKey && !options.skipValidation) {
-                validateDataIntegrity();
+                await validateDataIntegrity();
             }
 
             // ⚡ FIX: Usar el estado "raw" (sin proxy) para evitar DataCloneError en IndexedDB
@@ -866,7 +866,7 @@ export async function loadApplicationData() {
             // Se guarda un contador en state para que app.js le pregunte al
             // usuario si desea subir las correcciones a la nube después del
             // primer render (ver _checkSanitizationCloudSyncPrompt en app.js).
-            const fixesOnLoad = validateDataIntegrity();
+            const fixesOnLoad = await validateDataIntegrity();
             if (fixesOnLoad > 0) {
                 debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad (solo local)...`);
                 // localOnly:true → escribe IndexedDB pero omite el bloque de Firebase.
@@ -910,8 +910,8 @@ export async function loadApplicationData() {
                     debug.log('🧹 Copia legacy de localStorage eliminada tras migración a IndexedDB');
                 } catch (_) { /* noop */ }
             }
-            
-            validateDataIntegrity();
+
+            await validateDataIntegrity();
             return true;
         }
 
@@ -964,7 +964,7 @@ export const TOMBSTONE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000; // 60 días
  * 🛡️ VALIDACIÓN DE INTEGRIDAD
  * Limpia referencias huérfanas para evitar crashes en la UI.
  */
-export function validateDataIntegrity() {
+export async function validateDataIntegrity() {
     let fixes = 0;
 
     // 0. Backfill missing ids in loans / advances / bonuses / deductions
@@ -1037,11 +1037,16 @@ export function validateDataIntegrity() {
     //    la copia LOCAL — el field en la nube no se toca acá (fuera de
     //    alcance de esta fase; para entonces ya se propagó a todos los
     //    dispositivos que estuvieran conectados dentro de la ventana).
+    // Judgment Day Fase 1 R1: NO compactar un tombstone cuya subida diaria
+    // sigue pendiente/muerta en el outbox — borrarlo ahí destruiría la única
+    // evidencia local del borrado antes de que llegara a propagarse a la nube.
     const now = Date.now();
+    const unconfirmedDateKeys = await MainSyncStore.getUnconfirmedDailyDateKeys();
     let compactedTombstones = 0;
     stateManager.batchSetState(() => {
         Object.entries(state.attendance).forEach(([key, att]) => {
             if (att.deletedAt != null && (now - att.deletedAt) > TOMBSTONE_RETENTION_MS) {
+                if (unconfirmedDateKeys.has(att.date)) return; // subida sin confirmar — no compactar todavía
                 delete state.attendance[key];
                 compactedTombstones++;
             }
@@ -1569,46 +1574,61 @@ export function mergeEmployees(masterId, duplicateId) {
     console.log(`🤝 Fusionando: ${duplicate.name} -> ${master.name}`);
 
     // 1. Remapear Asistencia
+    // Judgment Day Fase 1 R3: el remapeo multi-clave va en UN batch — todas
+    // las escrituras a la raíz de state.attendance quedan gestionadas (un solo
+    // repintado; la coherencia explícita corre después del loop, como siempre).
+    // batchSetState es reentrante (guarda/restaura _silent), así que los tests
+    // que envuelven mergeEmployees en un batch externo no se ven afectados.
     const idPrefix = `${duplicateId}-`;
-    Object.keys(state.attendance || {}).forEach(oldKey => {
-        if (oldKey.startsWith(idPrefix)) {
-            const datePart = oldKey.substring(idPrefix.length);
-            const newKey = `${masterId}-${datePart}`;
-            const oldRecord = state.attendance[oldKey];
-            const existingRecord = state.attendance[newKey];
-            // Fase 1 U2b: foto ANTES de la mutación in-place de abajo — si tombstoneáramos oldKey
-            // con el objeto ya mutado, el tombstone heredaría employeeId=masterId (la clave vieja
-            // quedaría con datos del master). El tombstone debe reflejar el registro tal como
-            // estaba bajo oldKey.
-            const oldRecordSnapshot = { ...oldRecord };
+    const touchedDateKeys = new Set(); // Judgment Day Fase 1 R1: para reencolar la subida granular
+    stateManager.batchSetState(() => {
+        Object.keys(state.attendance || {}).forEach(oldKey => {
+            if (oldKey.startsWith(idPrefix)) {
+                const datePart = oldKey.substring(idPrefix.length);
+                touchedDateKeys.add(datePart);
+                const newKey = `${masterId}-${datePart}`;
+                const oldRecord = state.attendance[oldKey];
+                const existingRecord = state.attendance[newKey];
+                // Fase 1 U2b: foto ANTES de la mutación in-place de abajo — si tombstoneáramos oldKey
+                // con el objeto ya mutado, el tombstone heredaría employeeId=masterId (la clave vieja
+                // quedaría con datos del master). El tombstone debe reflejar el registro tal como
+                // estaba bajo oldKey.
+                const oldRecordSnapshot = { ...oldRecord };
 
-            if (!existingRecord) {
-                // Simplemente mover
-                oldRecord.employeeId = masterId;
-                oldRecord.key = newKey;
-                state.attendance[newKey] = stampAttendanceWrite(oldRecord);
-            } else {
-                // Fusionar inteligentemente
-                existingRecord.present = existingRecord.present || oldRecord.present;
-                existingRecord.hoursWorked = Math.max(existingRecord.hoursWorked || 0, oldRecord.hoursWorked || 0);
-                if (oldRecord.note && (!existingRecord.note || !existingRecord.note.includes(oldRecord.note))) {
-                    existingRecord.note = existingRecord.note ? `${existingRecord.note} | ${oldRecord.note}` : oldRecord.note;
+                if (!existingRecord) {
+                    // Simplemente mover
+                    oldRecord.employeeId = masterId;
+                    oldRecord.key = newKey;
+                    state.attendance[newKey] = stampAttendanceWrite(oldRecord);
+                } else {
+                    // Fusionar inteligentemente
+                    existingRecord.present = existingRecord.present || oldRecord.present;
+                    existingRecord.hoursWorked = Math.max(existingRecord.hoursWorked || 0, oldRecord.hoursWorked || 0);
+                    if (oldRecord.note && (!existingRecord.note || !existingRecord.note.includes(oldRecord.note))) {
+                        existingRecord.note = existingRecord.note ? `${existingRecord.note} | ${oldRecord.note}` : oldRecord.note;
+                    }
+                    // Fusionar horas por posición si existen
+                    if (oldRecord.positionHours) {
+                        existingRecord.positionHours = existingRecord.positionHours || [];
+                        oldRecord.positionHours.forEach(oph => {
+                            const existingPh = existingRecord.positionHours.find(eph => eph.positionId === oph.positionId);
+                            if (existingPh) {
+                                existingPh.hours = Math.max(existingPh.hours, oph.hours);
+                            } else {
+                                existingRecord.positionHours.push(oph);
+                            }
+                        });
+                    }
+                    // Judgment Day Fase 1 R1: el merge recién cambió el contenido de
+                    // existingRecord — debe pasar por el choke point para frescura (LWW) y
+                    // para que revivir (present:true) limpie un deletedAt viejo si el
+                    // master estaba tombstoneado (si no, queda present:true + deletedAt
+                    // seteado — contradictorio: nómina lo paga, todo el resto lo ghostea).
+                    state.attendance[newKey] = stampAttendanceWrite(existingRecord);
                 }
-                // Fusionar horas por posición si existen
-                if (oldRecord.positionHours) {
-                    existingRecord.positionHours = existingRecord.positionHours || [];
-                    oldRecord.positionHours.forEach(oph => {
-                        const existingPh = existingRecord.positionHours.find(eph => eph.positionId === oph.positionId);
-                        if (existingPh) {
-                            existingPh.hours = Math.max(existingPh.hours, oph.hours);
-                        } else {
-                            existingRecord.positionHours.push(oph);
-                        }
-                    });
-                }
+                state.attendance[oldKey] = tombstoneAttendanceWrite(oldRecordSnapshot);
             }
-            state.attendance[oldKey] = tombstoneAttendanceWrite(oldRecordSnapshot);
-        }
+        });
     });
 
     // Key remap spanning multiple dates (assign + delete) touched master's
@@ -1618,50 +1638,104 @@ export function mergeEmployees(masterId, duplicateId) {
     invalidateEmployeeStats(masterId);
     invalidateEmployeeStats(duplicateId);
 
-    // 2. Fusionar arreglos "log" del empleado usando unionById:
-    //    - Loans, advances, bonuses, deductions → unión por id (en colisión
-    //      gana el de mayor updatedAt). Items sin id reciben uno sintético
-    //      y se preservan (defensa en profundidad sobre el fix de unionById).
-    //    - Antes solo se concatenaban advances/bonuses/deductions y se
-    //      perdían los loans del duplicate. El caso real del usuario:
-    //      master(5 asist, 0 préstamos, [a,b]) absorbiendo
-    //      duplicate(0 asist, 3 préstamos, [a,c]) ahora termina como
-    //      (5 asist, 3 préstamos, [a,b,c]).
-    master.loans      = unionById(master.loans,      duplicate.loans);
-    master.advances   = unionById(master.advances,   duplicate.advances);
-    master.bonuses    = unionById(master.bonuses,    duplicate.bonuses);
-    master.deductions = unionById(master.deductions, duplicate.deductions);
+    // Judgment Day Fase 1 R3 (endurecimiento): los pasos 2-7 van en un try
+    // cuyo finally reencola las fechas tocadas. Tras reubicar el reencolado al
+    // final (R2-1), una excepción en cualquiera de estos pasos abortaba la
+    // función ANTES del forEach — y la asistencia ya remapeada/tombstoneada en
+    // el paso 1 quedaba solo-local para siempre (el borrado nunca llegaba a la
+    // nube). La excepción se sigue propagando (el caller debe enterarse); solo
+    // se garantiza que la subida granular no se pierda. Si el finally corre por
+    // una excepción, el mirror que dispara _executeSave refleja el estado a
+    // medio fusionar — correcto: ES el estado local real en ese momento.
+    try {
+        // 2. Fusionar arreglos "log" del empleado usando unionById:
+        //    - Loans, advances, bonuses, deductions → unión por id (en colisión
+        //      gana el de mayor updatedAt). Items sin id reciben uno sintético
+        //      y se preservan (defensa en profundidad sobre el fix de unionById).
+        //    - Antes solo se concatenaban advances/bonuses/deductions y se
+        //      perdían los loans del duplicate. El caso real del usuario:
+        //      master(5 asist, 0 préstamos, [a,b]) absorbiendo
+        //      duplicate(0 asist, 3 préstamos, [a,c]) ahora termina como
+        //      (5 asist, 3 préstamos, [a,b,c]).
+        master.loans      = unionById(master.loans,      duplicate.loans);
+        master.advances   = unionById(master.advances,   duplicate.advances);
+        master.bonuses    = unionById(master.bonuses,    duplicate.bonuses);
+        master.deductions = unionById(master.deductions, duplicate.deductions);
 
-    // 3. Posiciones (lista de strings) → unión deduplicada
-    {
-        const set = new Set();
-        (Array.isArray(master.positions) ? master.positions : []).forEach(p => { if (p) set.add(p); });
-        (Array.isArray(duplicate.positions) ? duplicate.positions : []).forEach(p => { if (p) set.add(p); });
-        master.positions = [...set];
+        // 3. Posiciones (lista de strings) → unión deduplicada
+        {
+            const set = new Set();
+            (Array.isArray(master.positions) ? master.positions : []).forEach(p => { if (p) set.add(p); });
+            (Array.isArray(duplicate.positions) ? duplicate.positions : []).forEach(p => { if (p) set.add(p); });
+            master.positions = [...set];
+        }
+
+        // 4. positionSalaries (mapa por positionId) → unión por clave.
+        //    Master gana en colisión (el usuario lo eligió como verdad);
+        //    las claves que solo existen en el duplicate se traen al master.
+        if (duplicate.positionSalaries && typeof duplicate.positionSalaries === 'object') {
+            const ms = (master.positionSalaries && typeof master.positionSalaries === 'object')
+                ? master.positionSalaries : {};
+            const merged = { ...duplicate.positionSalaries, ...ms };
+            master.positionSalaries = merged;
+        }
+
+        // 5. Completar campos del maestro si están vacíos
+        ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
+            if (!master[field] && duplicate[field]) master[field] = duplicate[field];
+        });
+
+        // 6. Refrescar updatedAt para que el siguiente saveMany propague el
+        //    estado fusionado al doc remoto del master.
+        master.updatedAt = Date.now();
+        master._isDirty = true;
+
+        // 7. Eliminar el duplicado del estado
+        state.employees = state.employees.filter(e => e.id !== duplicateId);
+    } finally {
+        // Judgment Day Fase 1 R2 (2026-07-03): este bloque estaba ANTES de los
+        // pasos 2-7 (loans/posiciones/positionSalaries/duplicado). Como
+        // saveApplicationData({ immediate: true }) corre _executeSave()
+        // SÍNCRONAMENTE hasta su primer await propio (que no llega antes de
+        // capturar el snapshot completo del mirror), disparar esto antes de
+        // terminar el merge subía una foto a mitad de camino: con el duplicate
+        // todavía en state.employees y los loans/posiciones del master sin
+        // fusionar. Se reubica acá, después del paso 7, para que el snapshot
+        // refleje el estado YA fusionado.
+        //
+        // Judgment Day Fase 1 R1: sin esto, la asistencia fusionada queda
+        // solo-local — el save wholesale de los callers (sin dateKey) no sube
+        // el campo attendance (el mirror lo excluye) y nadie encola la subida
+        // granular por día. Fire-and-forget: mergeEmployees es síncrona.
+        //
+        // Desviación del fix propuesto: se usa `immediate: true` (no sólo
+        // `{ dateKey }`) por dos motivos verificados en el código real de
+        // saveApplicationData:
+        //   1. En el camino NO-immediate, saveApplicationData() no retorna una
+        //      Promise (sólo agenda un setTimeout) — encadenarle `.catch()`
+        //      directo revienta con TypeError ("Cannot read properties of
+        //      undefined (reading 'catch')").
+        //   2. `_pendingSaveOptions` sólo trackea UN `dateKey` a la vez; varias
+        //      llamadas sin `immediate` en el mismo tick (multi-fecha) colapsan
+        //      en un solo debounce y sólo la ÚLTIMA fecha sobrevive — las
+        //      fechas anteriores nunca se encolan. `immediate:true` ejecuta
+        //      cada `_executeSave` de inmediato con sus propias opciones,
+        //      evitando el colapso, y sí retorna una Promise real.
+        //
+        // Judgment Day Fase 1 R2: saveApplicationData() también puede retornar
+        // `undefined` (p.ej. si hay un borrado local en curso —
+        // _localDataWipeInProgress) sin importar `immediate`. Encadenar
+        // `.catch()` directo sobre `undefined` revienta con TypeError síncrono
+        // dentro del forEach, y ningún caller de mergeEmployees lo envuelve en
+        // try/catch — abortaría la función entera. Se guarda la promesa y solo
+        // se encadena `.catch()` si es realmente una promesa.
+        touchedDateKeys.forEach(dateKey => {
+            const savePromise = saveApplicationData({ dateKey, immediate: true });
+            if (savePromise && typeof savePromise.catch === 'function') {
+                savePromise.catch(e => console.error('Error subiendo asistencia fusionada:', e));
+            }
+        });
     }
-
-    // 4. positionSalaries (mapa por positionId) → unión por clave.
-    //    Master gana en colisión (el usuario lo eligió como verdad);
-    //    las claves que solo existen en el duplicate se traen al master.
-    if (duplicate.positionSalaries && typeof duplicate.positionSalaries === 'object') {
-        const ms = (master.positionSalaries && typeof master.positionSalaries === 'object')
-            ? master.positionSalaries : {};
-        const merged = { ...duplicate.positionSalaries, ...ms };
-        master.positionSalaries = merged;
-    }
-
-    // 5. Completar campos del maestro si están vacíos
-    ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
-        if (!master[field] && duplicate[field]) master[field] = duplicate[field];
-    });
-
-    // 6. Refrescar updatedAt para que el siguiente saveMany propague el
-    //    estado fusionado al doc remoto del master.
-    master.updatedAt = Date.now();
-    master._isDirty = true;
-
-    // 7. Eliminar el duplicado del estado
-    state.employees = state.employees.filter(e => e.id !== duplicateId);
 
     return true;
 }

@@ -3094,19 +3094,22 @@ window.removeAttendance = (empId, dateStr) => {
         ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
         : null;
 
-    // ⚡ Fase 4 Paso 5: batchear la baja in-place (6 campos) + la coherencia + el cierre
+    // ⚡ Fase 4 Paso 5: batchear la baja in-place + la coherencia + el cierre
     // del contextMenu → 1 repintado (antes: uno por cada campo + el manual del final). La
-    // coherencia (financiera: present:false/hoursWorked=0 cambian las stats) va DENTRO del
+    // coherencia (financiera: present:false cambia las stats) va DENTRO del
     // batch para que el repintado del cierre lea statsCache ya fresco.
+    // Judgment Day Fase 1 R1: antes esto era una mutación in-place sin tombstone
+    // (deletedAt nunca se seteaba) — mismo intento del usuario que toggleAttendance
+    // (uncheck) y deleteCurrentAttendance, que SÍ tombstonean. Sin deletedAt, las
+    // notas seguían visibles (NotesCenter/detalle del día filtran por deletedAt, no
+    // por .present — U2c) y el registro nunca entraba a la compactación de 60 días
+    // (U2d, que sólo mira deletedAt != null). tombstoneAttendanceWrite no zerea
+    // hoursWorked/overtimeHours/positionHours a propósito — un registro tombstoneado
+    // (present:false + deletedAt) ya se filtra como ausente en todos lados, igual
+    // que el patrón existente en toggleAttendance (línea ~1932).
     stateManager.batchSetState(() => {
-        const att = state.attendance[key];
-        if (att) {
-            att.present = false;
-            att.hoursWorked = 0;
-            att.overtimeHours = 0;
-            att.positionHours = [];
-            att.updatedAt = Date.now();
-            att._isDirty = true;
+        if (state.attendance[key]) {
+            state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
         }
         invalidateEmployeeStats(empId);
         buildAttendanceIndex(dateStr);
@@ -6893,7 +6896,9 @@ function _initOutgoingConflictGuard() {
 
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta.
                     // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
-                    _applyMirrorTimer = setTimeout(() => {
+                    // Judgment Day Fase 1 R1: validateDataIntegrity() es ahora async (U2d consulta
+                    // el outbox antes de compactar tombstones) — el callback pasa a async/await.
+                    _applyMirrorTimer = setTimeout(async () => {
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
@@ -6907,7 +6912,7 @@ function _initOutgoingConflictGuard() {
                         // entries to be "corrected" repeatedly. Now we validate AFTER applying
                         // remote data and push the cleaned state back up — within a few sync
                         // cycles, both local and cloud converge to a clean state.
-                        const remoteFixes = validateDataIntegrity();
+                        const remoteFixes = await validateDataIntegrity();
                         if (remoteFixes > 0) {
                             debug.log(`🛡️ Mirror sync: ${remoteFixes} orphan(s) sanitized after remote apply`);
                             saveApplicationData({ force: true });
@@ -6977,7 +6982,11 @@ function _initOutgoingConflictGuard() {
                     window._attendanceUnsubscribe = FirebaseService.subscribeToAttendanceZonal({
                         startDate,
                         endDate,
-                        onInitialLoad: (allAttendance) => {
+                        // Judgment Day Fase 1 R1: validateDataIntegrity() es ahora async
+                        // (U2d consulta el outbox antes de compactar tombstones) — este
+                        // callback pasa a async/await. subscribeToAttendanceZonal invoca
+                        // onInitialLoad(allAttendance) fire-and-forget (no espera su retorno).
+                        onInitialLoad: async (allAttendance) => {
                             if (isDownloadPaused()) {
                                 debug.log('⏸️ Descarga pausada — carga inicial de asistencia ignorada.');
                                 return;
@@ -7002,20 +7011,22 @@ function _initOutgoingConflictGuard() {
                                 const dateKey = key.split('-').slice(-3).join('-'); // YYYY-MM-DD
                                 window._attendanceBatchedSaver.add(dateKey);
                             });
-                            // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
-                            // JD2#1: isActive (no hasScheduledFlush) — también cubre
-                            // un flush EN VUELO (_isFlushing). hasScheduledFlush sólo
-                            // mira _idleHandle y daría false apenas arranca _doFlush,
-                            // liberando el flag mientras la escritura sigue en curso.
-                            if (!window._attendanceBatchedSaver.isActive) {
-                                window._isApplyingRemoteData = false;
-                            }
 
                             // 🛡️ POST-SYNC INTEGRITY GUARD (2026-05-20)
                             // Attendance records may carry orphan positionHours / selectedPosition
                             // from before the position was deleted. Clean them here so the next
                             // mirror-sync save uploads a sanitized version to the cloud.
-                            const attendanceFixes = validateDataIntegrity();
+                            //
+                            // Judgment Day Fase 1 R3: re-armar el watchdog ANTES de la
+                            // suspensión. Su timer de 4s arrancó al inicio del handler y el
+                            // trabajo síncrono previo (limpieza shortKey + merge LWW + loop
+                            // del BatchedSaver) ya consumió parte del presupuesto — si el
+                            // await de abajo (lectura de IndexedDB del outbox, U2d) tardara
+                            // más que el resto, el watchdog liberaría _isApplyingRemoteData
+                            // a MITAD de la sección crítica, reabriendo la ventana que el
+                            // fix R2 cerró. Re-armar acá le da presupuesto completo.
+                            armApplyingFlagWatchdog();
+                            const attendanceFixes = await validateDataIntegrity();
                             if (attendanceFixes > 0) {
                                 debug.log(`🛡️ Zonal initial load: ${attendanceFixes} orphan(s) sanitized in attendance`);
                                 // Use a one-tick delay so the flag clears first via BatchedSaver
@@ -7031,6 +7042,24 @@ function _initOutgoingConflictGuard() {
                             // (que muta hoursWorked in-place). Nunca diferir a BatchedSaver.
                             invalidateAllStats();
                             buildAttendanceIndex();
+
+                            // Judgment Day Fase 1 Ronda 2: reubicado desde justo después del
+                            // BatchedSaver.add loop (antes del `await validateDataIntegrity()`
+                            // de arriba). validateDataIntegrity() es async y suspende acá de
+                            // verdad — bajar el flag ANTES de ese await dejaba una ventana real
+                            // (sin necesitar timing adversarial) donde otro código podía leer
+                            // `_isApplyingRemoteData === false` y asumir "seguro leer" mientras
+                            // state.attendance ya tenía los registros zonales fusionados pero
+                            // state.attendanceByDate / los caches de stats todavía eran viejos
+                            // (invalidateAllStats/buildAttendanceIndex corren recién acá abajo).
+                            // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
+                            // JD2#1: isActive (no hasScheduledFlush) — también cubre
+                            // un flush EN VUELO (_isFlushing). hasScheduledFlush sólo
+                            // mira _idleHandle y daría false apenas arranca _doFlush,
+                            // liberando el flag mientras la escritura sigue en curso.
+                            if (!window._attendanceBatchedSaver.isActive) {
+                                window._isApplyingRemoteData = false;
+                            }
 
                             if (!isInitialLoad) render();
                         },

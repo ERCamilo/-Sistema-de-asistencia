@@ -425,6 +425,34 @@ testRunner.addSuite("MainSyncStore — pendingCount/deadCount/requeueDeadEntries
         // No debe pasar: sólo debe re-encolar y devolver el conteo.
         const n = await MainSyncStore.requeueDeadEntries();
         testRunner.assertEquals(n, 1);
+    },
+
+    // Judgment Day Fase 1 R1: U2d (compactación de tombstones) necesita saber
+    // qué fechas de asistencia todavía no confirmaron su subida diaria en la
+    // nube, para NO borrar el tombstone local de esa fecha (destruiría la
+    // única evidencia del borrado antes de que se propagara).
+    async "getUnconfirmedDailyDateKeys devuelve las fechas 'daily' pending o dead, ignorando otros kinds y confirmadas"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'daily', dateKey: '2026-04-01', status: 'pending' }),
+            outboxEntry(2, { kind: 'daily', dateKey: '2026-04-02', status: 'dead' }),
+            outboxEntry(3, { kind: 'mirror', dateKey: '2026-04-01', status: 'pending' }), // otro kind: ignorar
+            outboxEntry(4, { kind: 'delete', entity: 'employee', id: 'e1', status: 'pending' }) // otro kind: ignorar
+        ]);
+
+        const dateKeys = await MainSyncStore.getUnconfirmedDailyDateKeys();
+
+        testRunner.assert(dateKeys instanceof Set, 'debe devolver un Set');
+        testRunner.assertEquals(dateKeys.size, 2, 'sólo las 2 entradas daily (pending+dead) deben contarse');
+        testRunner.assert(dateKeys.has('2026-04-01'), 'debe incluir la fecha daily pending');
+        testRunner.assert(dateKeys.has('2026-04-02'), 'debe incluir la fecha daily dead');
+    },
+
+    async "getUnconfirmedDailyDateKeys devuelve un Set vacío si no hay entradas 'daily' sin confirmar"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([]);
+        const dateKeys = await MainSyncStore.getUnconfirmedDailyDateKeys();
+        testRunner.assertEquals(dateKeys.size, 0);
     }
 
 });

@@ -224,6 +224,21 @@ export const MainSyncStore = {
     },
 
     /**
+     * Judgment Day Fase 1 R1: fechas de asistencia con una subida diaria todavía
+     * sin confirmar en la nube (pending o dead). U2d (compactación de
+     * tombstones) debe consultar esto antes de borrar un tombstone vencido —
+     * si su fecha está acá, borrarlo destruiría la única evidencia local del
+     * borrado antes de que llegara a propagarse.
+     */
+    async getUnconfirmedDailyDateKeys() {
+        const all = await _getAll();
+        return new Set(
+            all.filter(e => e && e.kind === 'daily' && (e.status === 'pending' || e.status === 'dead'))
+               .map(e => e.dateKey)
+        );
+    },
+
+    /**
      * Vacía el outbox COMPLETO (pending + dead). Fase 0.5: las operaciones
      * que adoptan una fuente de verdad nueva ("Descargar y Reemplazar",
      * "Borrar Local", "Borrar Nube") deben purgar los pendientes viejos —
