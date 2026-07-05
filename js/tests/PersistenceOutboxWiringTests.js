@@ -12,7 +12,7 @@
  * depender de regex frágiles sobre el código fuente.
  */
 
-import { saveApplicationData, drainMainSyncOutbox } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, drainMainSyncOutbox, retryFailedCloudSync } from '../modules/services/PersistenceService.js';
 import { state } from '../modules/core/AppState.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
@@ -325,6 +325,45 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             globalThis.currentUser = null;
             globalThis._isApplyingRemoteData = prevApplyingRemote;
             state._lastKnownCloudUpdatedAt = prevCloudWatermark;
+        }
+    }
+
+});
+
+// Hallazgo del test de campo (2026-07-05, cuota de Firestore agotada): con
+// MAX_FLUSH_ATTEMPTS=5, una entrada que falla repetidamente contra un error
+// transitorio (ej. resource-exhausted) termina 'dead' — y flush() SOLO
+// procesa entradas 'pending' (MainSyncStore.js:205), nunca 'dead'. El botón
+// "Reintentar" (badge + toast) llamaba a drainMainSyncOutbox() crudo, que
+// jamás revivía esas entradas: el usuario podía tocar "Reintentar" para
+// siempre sin que la subida vencida volviera a intentarse.
+testRunner.addSuite("PersistenceService — retryFailedCloudSync revive entradas 'dead' antes de drenar", {
+
+    async "llama a MainSyncStore.requeueDeadEntries() ANTES de flush()"() {
+        const order = [];
+        const requeue = jest.spyOn(MainSyncStore, 'requeueDeadEntries')
+            .mockImplementation(async () => { order.push('requeue'); return 2; });
+        const flush = jest.spyOn(MainSyncStore, 'flush')
+            .mockImplementation(async () => { order.push('flush'); });
+        try {
+            await retryFailedCloudSync();
+            testRunner.assertEquals(order.join(','), 'requeue,flush',
+                'requeueDeadEntries debe completarse ANTES de que arranque flush — si no, las entradas recién revividas a "pending" podrían no alcanzar a subirse en este mismo ciclo');
+        } finally {
+            requeue.mockRestore();
+            flush.mockRestore();
+        }
+    },
+
+    async "sigue drenando aunque no haya ninguna entrada 'dead' (requeueDeadEntries devuelve 0)"() {
+        const requeue = jest.spyOn(MainSyncStore, 'requeueDeadEntries').mockResolvedValue(0);
+        const flush = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            await retryFailedCloudSync();
+            testRunner.assertEquals(flush.mock.calls.length, 1, 'flush debe correr igual, para las pending normales');
+        } finally {
+            requeue.mockRestore();
+            flush.mockRestore();
         }
     }
 

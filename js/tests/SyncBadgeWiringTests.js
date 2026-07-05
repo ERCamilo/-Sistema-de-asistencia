@@ -155,4 +155,34 @@ testRunner.addSuite("SyncBadgeWiring — onCloudResult limpia el error (Judgment
 
 });
 
+// Hallazgo del test de campo (2026-07-05): el click en el badge rojo llamaba
+// a drainMainSyncOutbox() crudo, que jamás revive entradas 'dead' (flush()
+// sólo procesa 'pending'). Con la cuota de Firestore agotada, una entrada
+// podía morir tras MAX_FLUSH_ATTEMPTS y quedar atascada para siempre, aunque
+// el usuario tocara "Reintentar" repetidamente.
+testRunner.addSuite("SyncBadgeWiring — onErrorClick revive entradas dead (fix cuota)", {
+
+    "app.js importa retryFailedCloudSync de PersistenceService.js"() {
+        testRunner.assert(
+            /import\s*\{[^}]*retryFailedCloudSync[^}]*\}\s*from\s+['"]\.\/modules\/services\/PersistenceService\.js['"]/.test(APP),
+            "app.js debe importar retryFailedCloudSync"
+        );
+    },
+
+    "onErrorClick del badge llama a retryFailedCloudSync, NO a drainMainSyncOutbox crudo"() {
+        const idx = APP.indexOf('onErrorClick:');
+        testRunner.assert(idx !== -1, 'debe existir el handler onErrorClick');
+        const block = APP.slice(idx, idx + 400);
+        testRunner.assert(
+            /await\s+retryFailedCloudSync\s*\(\s*\)/.test(block),
+            'onErrorClick debe llamar a retryFailedCloudSync() para revivir entradas dead antes de drenar'
+        );
+        testRunner.assert(
+            !/await\s+drainMainSyncOutbox\s*\(\s*\)/.test(block),
+            'onErrorClick NO debe seguir llamando a drainMainSyncOutbox() crudo — no revive las entradas dead'
+        );
+    }
+
+});
+
 console.log('🧪 SyncBadgeWiring contract tests cargados.');

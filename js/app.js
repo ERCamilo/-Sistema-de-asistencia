@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, retryFailedCloudSync } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -3522,13 +3522,17 @@ if (typeof window !== 'undefined') {
             }
         },
         // U13: badge rojo "Error de sync" también accionable — mismo mecanismo
-        // que el botón "Reintentar" del toast (U12): drena el outbox ya mismo.
+        // que el botón "Reintentar" del toast (U12): revive entradas 'dead' y
+        // drena el outbox ya mismo (retryFailedCloudSync — ver PersistenceService.js:
+        // sin revivirlas, una entrada que agotó sus reintentos contra un error
+        // que ya se resolvió —p.ej. cuota de Firestore repuesta— quedaba
+        // atascada para siempre, aunque el usuario tocara "Reintentar").
         // El resultado real lo reflejan el badge (SyncStatus) y el toast
         // honesto; este mensaje es sólo feedback de que se disparó el intento.
         onErrorClick: async () => {
             showNotification('🔄 Reintentando subida a la nube…', 'info');
             try {
-                await drainMainSyncOutbox();
+                await retryFailedCloudSync();
             } catch (e) {
                 console.error('Error al reintentar desde el badge:', e);
             }

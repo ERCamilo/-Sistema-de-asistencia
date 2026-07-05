@@ -363,13 +363,36 @@ export function drainMainSyncOutbox() {
     return MainSyncStore.flush(_mainSyncGuards());
 }
 
+/**
+ * 🔁 Reintento EXPLÍCITO del usuario (botón "Reintentar" del badge/toast):
+ * revive primero las entradas 'dead' (agotaron MAX_FLUSH_ATTEMPTS contra un
+ * error que en su momento parecía transitorio — ej. cuota de Firestore
+ * agotada) y RECIÉN DESPUÉS drena. Sin esto, drainMainSyncOutbox() crudo
+ * jamás las toca (flush() sólo procesa 'pending', MainSyncStore.js) — el
+ * usuario podía tocar "Reintentar" para siempre sin que la subida vencida
+ * volviera a intentarse, aunque la causa raíz (ej. la cuota) ya se hubiera
+ * resuelto.
+ *
+ * Deliberadamente NO se llama desde el drenado automático (login, 'online',
+ * cada guardado) — requeueDeadEntries() resetea attempts a 0, así que
+ * revivir automáticamente una entrada con un error REALMENTE permanente
+ * (permisos, etc.) la haría re-morir en cada ciclo pasivo para siempre. Acá
+ * es una acción consciente del usuario, sabiendo que puede estar reintentando
+ * algo que ya falló varias veces.
+ */
+export async function retryFailedCloudSync() {
+    await MainSyncStore.requeueDeadEntries();
+    return drainMainSyncOutbox();
+}
+
 // 🔘 U12: cablear el botón "Reintentar" del toast honesto (SaveOutcomeNotifier)
-// a drainMainSyncOutbox. Se hace acá (no dentro de SaveOutcomeNotifier.js) para
-// evitar un import circular — SaveOutcomeNotifier.js no necesita saber nada de
-// PersistenceService/MainSyncStore, sólo expone un setter genérico. PettyCash
-// (que importa el mismo singleton) NUNCA llama setCloudRetryHandler, así que
-// sus fallos siguen sin botón — no compite con este wiring.
-saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox);
+// a retryFailedCloudSync (revive 'dead' + drena). Se hace acá (no dentro de
+// SaveOutcomeNotifier.js) para evitar un import circular — SaveOutcomeNotifier.js
+// no necesita saber nada de PersistenceService/MainSyncStore, sólo expone un
+// setter genérico. PettyCash (que importa el mismo singleton) NUNCA llama
+// setCloudRetryHandler, así que sus fallos siguen sin botón — no compite con
+// este wiring.
+saveOutcomeNotifier.setCloudRetryHandler(retryFailedCloudSync);
 
 /**
  * 🌱 U9: siembra el outbox durable con los ids YA pendientes de la cola
