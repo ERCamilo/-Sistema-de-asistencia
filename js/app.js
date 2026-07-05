@@ -31,6 +31,7 @@ import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitiz
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
 import { translateError } from './modules/services/ErrorTranslator.js';
+import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
@@ -350,6 +351,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     } catch (error) {
         console.error('❌ Error inicializando sistema:', error);
+        logError(error, 'iniciar la aplicación');
         showNotification(`🚨 Fallo de arranque: ${translateError(error, { fallbackContext: 'iniciar la aplicación' })}`, 'error', 0);
     }
 });
@@ -1693,6 +1695,7 @@ window.restoreSnapshot = async (snapshotId) => {
     } catch (e) {
         Notification.clearAll();
         console.error('Error descargando snapshot:', e);
+        logError(e, 'cargar el snapshot');
         Notification.error('❌ No se pudo cargar el snapshot: ' + translateError(e, { fallbackContext: 'cargar el snapshot' }));
         return;
     }
@@ -1755,6 +1758,7 @@ window.restoreSnapshot = async (snapshotId) => {
                 render();
             } catch (e) {
                 console.error('Error fatal en restauración:', e);
+                logError(e, 'restaurar el sistema');
                 Notification.clearAll();
                 Notification.error('❌ Error al restaurar: ' + translateError(e, { fallbackContext: 'restaurar el sistema' }));
                 state.isLoadingSnapshots = false;
@@ -5447,6 +5451,7 @@ async function applyBackupData(importedData) {
         return true;
     } catch (error) {
         console.error("Error aplicando backup:", error);
+        logError(error, 'aplicar el backup local');
         showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
         return false;
     }
@@ -5536,6 +5541,7 @@ window.loadBackupFromFile = function (file) {
             });
 
         } catch (err) {
+            logError(err, 'leer el backup');
             showNotification('❌ Error al leer el backup: ' + translateError(err, { fallbackContext: 'leer el backup' }), 'error');
         }
     };
@@ -5545,6 +5551,29 @@ window.loadBackupFromFile = function (file) {
 window.deleteAllData = function () {
     // Usar el nuevo sistema robusto de DataService (Borrado Local)
     dataService.reset();
+};
+
+/**
+ * 📋 Exporta el registro local de errores técnicos (ErrorLog.js) como un
+ * archivo .txt descargable/compartible — para que el usuario pueda mandarlo
+ * a soporte sin copiar pantallazos de la consola del navegador.
+ */
+window.exportErrorLog = function () {
+    const entries = getAllErrors();
+    if (entries.length === 0) {
+        showNotification('No hay errores registrados para exportar.', 'info');
+        return;
+    }
+    const text = formatErrorLogAsText(entries);
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `log-errores-${dateStr}.txt`;
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
+    showExportMenu({
+        filename,
+        blob,
+        title: 'Log de errores',
+        text: `Registro de errores técnicos exportado el ${new Date().toLocaleDateString('es-DO')}`
+    });
 };
 
 
