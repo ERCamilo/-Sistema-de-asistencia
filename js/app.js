@@ -29,6 +29,7 @@ import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
@@ -6845,11 +6846,16 @@ function _initOutgoingConflictGuard() {
                             subscribe: (cb) => EmployeeRepository.subscribe(cb),
                             onApply: (emps) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync empleados ignorado.'); return; }
-                                const merged = dedup(emps || []);
+                                // Fase 2 U2: fusión por-registro en vez de reemplazo mayorista —
+                                // un cambio remoto a OTRO empleado ya no pisa ediciones locales
+                                // (préstamos, adelantos, etc.) todavía no subidas. Ver
+                                // EmployeesIncomingMerge.js para las reglas de LWW + detección
+                                // de borrado remoto.
+                                const merged = mergeIncomingEmployees(state.employees, emps || []);
                                 state.employees = (typeof Employee !== 'undefined')
                                     ? merged.map(e => e instanceof Employee ? e : new Employee(e))
                                     : merged;
-                                debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube`);
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube (merge por-registro)`);
                                 if (typeof render === 'function') render();
                             }
                         });

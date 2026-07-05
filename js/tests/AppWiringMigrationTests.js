@@ -151,4 +151,29 @@ testRunner.addSuite("app.js — Cableado de live sync de empleados (Fase 2.1)", 
 
 });
 
+testRunner.addSuite("app.js — LiveSync de empleados usa merge por-registro (Fase 2, U2)", {
+
+    "app.js importa mergeIncomingEmployees de EmployeesIncomingMerge.js"() {
+        testRunner.assert(
+            /import\s*\{[^}]*mergeIncomingEmployees[^}]*\}\s*from\s+['"]\.\/modules\/services\/EmployeesIncomingMerge\.js['"]/.test(appSource),
+            "app.js debe importar mergeIncomingEmployees"
+        );
+    },
+
+    "el onApply de EmployeesLiveSync usa mergeIncomingEmployees, NO un reemplazo mayorista"() {
+        const match = appSource.match(/EmployeesLiveSync\.start\s*\(\s*\{[\s\S]*?\n\s{24}\}\)\s*;/);
+        testRunner.assert(!!match, "Debe localizarse la llamada completa a EmployeesLiveSync.start");
+        const block = match[0];
+        testRunner.assert(
+            /mergeIncomingEmployees\s*\(\s*state\.employees\s*,\s*emps/.test(block),
+            "El onApply debe fusionar state.employees (local) con emps (entrante) vía mergeIncomingEmployees"
+        );
+        testRunner.assert(
+            !/const\s+merged\s*=\s*dedup\s*\(\s*emps/.test(block),
+            "El onApply NO debe seguir haciendo el reemplazo mayorista dedup(emps) — U2 lo reemplazó por merge por-registro"
+        );
+    }
+
+});
+
 console.log('🧪 App wiring migration contract tests cargados.');
