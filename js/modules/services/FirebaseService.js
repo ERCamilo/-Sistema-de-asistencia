@@ -18,6 +18,18 @@ import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
+import { createEntityUploadTracker } from './EntityUploadTracker.js';
+
+// Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
+// TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
+// relacionado (una nota, un día de asistencia). Con mergeRemote:true (lectura
+// + escritura por entidad) eso agotó la cuota diaria de Firestore en horas.
+// Un tracker POR TIPO de entidad (no uno compartido — mezclaría ids entre
+// empleados/puestos/líderes) filtra a solo lo que cambió desde la última
+// subida exitosa.
+const _employeeUploadTracker = createEntityUploadTracker();
+const _positionUploadTracker = createEntityUploadTracker();
+const _leaderUploadTracker = createEntityUploadTracker();
 
 class FirebaseService {
     constructor() {
@@ -212,26 +224,37 @@ class FirebaseService {
      * pero cada saveOne/saveMany ya hace su propio LWW por updatedAt, así que
      * ese gate grueso sólo difería en silencio ediciones que el merge fino
      * sabe resolver bien (ver MainSyncStore.enqueueEntities).
+     *
+     * Fix crítico (test de campo 2026-07-05): este método se llama en CADA
+     * guardado (MainSyncStore encola 'entities' junto con 'mirror' en cada
+     * _executeSave), sin importar si algo relacionado a empleados/puestos/
+     * líderes cambió. Sin el filtro de _employeeUploadTracker (et al.), un
+     * guardado de asistencia o una nota volvía a subir TODAS las entidades
+     * — con mergeRemote:true eso es lectura+escritura por entidad, y agotó
+     * la cuota diaria de Firestore en horas con una cuenta de tamaño normal.
      */
     async saveEntities(employees, positions, leaders, schemaVersion) {
         const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
         const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
 
         if (isMigratedEmployees) {
-            const emps = Array.isArray(employees) ? employees : [];
+            const emps = _employeeUploadTracker.filterChanged(Array.isArray(employees) ? employees : []);
             if (emps.length > 0) {
                 await EmployeeRepository.saveMany(emps, { mergeRemote: true });
+                _employeeUploadTracker.markUploaded(emps);
             }
         }
 
         if (isMigratedGranular) {
-            const pos = Array.isArray(positions) ? positions : [];
+            const pos = _positionUploadTracker.filterChanged(Array.isArray(positions) ? positions : []);
             if (pos.length > 0) {
                 await PositionRepository.saveMany(pos, { mergeRemote: true });
+                _positionUploadTracker.markUploaded(pos);
             }
-            const leads = Array.isArray(leaders) ? leaders : [];
+            const leads = _leaderUploadTracker.filterChanged(Array.isArray(leaders) ? leaders : []);
             if (leads.length > 0) {
                 await LeaderRepository.saveMany(leads, { mergeRemote: true });
+                _leaderUploadTracker.markUploaded(leads);
             }
         }
     }

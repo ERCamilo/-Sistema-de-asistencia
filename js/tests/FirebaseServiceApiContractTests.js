@@ -315,3 +315,56 @@ testRunner.addSuite("FirebaseService — saveFullState restaura el write de enti
     }
 
 });
+
+// Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities subía
+// TODAS las entidades en CADA guardado (mergeRemote:true = lectura+escritura
+// por entidad) sin importar si algo había cambiado. Con 28 empleados + 20
+// puestos + 6 líderes, un guardado no relacionado (una nota, un día de
+// asistencia) agotaba cuota de Firestore en horas. Fix: EntityUploadTracker
+// filtra a solo lo que cambió desde la última subida exitosa.
+testRunner.addSuite("FirebaseService — saveEntities NO re-sube entidades sin cambios (fix crítico de cuota)", {
+
+    "FirebaseService.js importa createEntityUploadTracker de EntityUploadTracker.js"() {
+        testRunner.assert(
+            /import\s*\{[^}]*createEntityUploadTracker[^}]*\}\s*from\s+['"]\.\/EntityUploadTracker\.js['"]/.test(FIREBASE_SRC),
+            "FirebaseService.js debe importar createEntityUploadTracker"
+        );
+    },
+
+    "saveEntities filtra employees con un tracker antes de EmployeeRepository.saveMany"() {
+        const b = saveEntitiesBlock();
+        testRunner.assert(!!b, 'saveEntities debe existir');
+        testRunner.assert(
+            /filterChanged\s*\([\s\S]{0,80}\)[\s\S]{0,120}EmployeeRepository\.saveMany/.test(b[0]),
+            'debe filtrar employees con el tracker (filterChanged) antes de subirlos'
+        );
+    },
+
+    "saveEntities filtra positions y leaders con sus propios trackers"() {
+        const b = saveEntitiesBlock();
+        testRunner.assert(
+            /filterChanged\s*\([\s\S]{0,80}\)[\s\S]{0,120}PositionRepository\.saveMany/.test(b[0]),
+            'positions debe filtrarse antes de PositionRepository.saveMany'
+        );
+        testRunner.assert(
+            /filterChanged\s*\([\s\S]{0,80}\)[\s\S]{0,120}LeaderRepository\.saveMany/.test(b[0]),
+            'leaders debe filtrarse antes de LeaderRepository.saveMany'
+        );
+    },
+
+    "saveEntities marca como subidas las entidades tras un saveMany exitoso"() {
+        const b = saveEntitiesBlock();
+        testRunner.assert(
+            (b[0].match(/markUploaded\s*\(/g) || []).length >= 3,
+            'debe llamar markUploaded tras cada saveMany exitoso (employees, positions, leaders)'
+        );
+    },
+
+    "cada tipo de entidad usa un tracker INDEPENDIENTE (no un solo tracker compartido)"() {
+        testRunner.assert(
+            (FIREBASE_SRC.match(/createEntityUploadTracker\s*\(\s*\)/g) || []).length >= 3,
+            'debe crearse un tracker separado para employees, positions y leaders — compartir uno solo mezclaría sus ids'
+        );
+    }
+
+});
