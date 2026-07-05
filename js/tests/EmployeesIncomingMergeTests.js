@@ -150,6 +150,25 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
         );
         testRunner.assertEquals(result.length, 1,
             'Un updatedAt NaN en la línea de base no debe bloquear para siempre una edición local genuina');
+    },
+
+    "un id '__proto__' (backup crafteado) se rastrea como cualquier otro — su borrado remoto se propaga (revisión 2)"() {
+        resetIncomingMergeBaseline();
+        // Con un objeto plano como línea de base, baseline['__proto__'] = ts es
+        // un no-op silencioso y la lectura devuelve Object.prototype (no
+        // finito) — el id quedaría como "nunca visto" para siempre y sus
+        // borrados remotos jamás se propagarían. Alcanzable vía import de un
+        // backup con ids crafteados.
+        mergeIncomingEmployees(
+            [{ id: '__proto__', name: 'Crafteado', updatedAt: 100 }],
+            [{ id: '__proto__', name: 'Crafteado', updatedAt: 100 }]
+        );
+        const result = mergeIncomingEmployees(
+            [{ id: '__proto__', name: 'Crafteado', updatedAt: 100 }],
+            []
+        );
+        testRunner.assertEquals(result.length, 0,
+            'El borrado remoto de un empleado con id __proto__ debe propagarse igual que cualquier otro');
     }
 
 });

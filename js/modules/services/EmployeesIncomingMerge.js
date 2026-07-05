@@ -46,7 +46,11 @@
 
 import { mergeEmployees } from './EmployeeMerge.js';
 
-let _lastKnownIncomingById = {};
+// Map, no objeto plano: con {} un id "__proto__" (alcanzable vía import de un
+// backup crafteado) hace la asignación un no-op silencioso y la lectura
+// devuelve Object.prototype — ese id quedaría como "nunca visto" para siempre
+// y sus borrados remotos jamás se propagarían.
+let _lastKnownIncomingById = new Map();
 
 /**
  * Fusiona la lista local de empleados con el snapshot entrante de Firestore.
@@ -75,7 +79,7 @@ export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
     localById.forEach((localRecord, id) => {
         if (incomingById.has(id)) return; // ya resuelto arriba (fusionado)
 
-        const lastKnownUpdatedAt = _lastKnownIncomingById[id];
+        const lastKnownUpdatedAt = _lastKnownIncomingById.get(id);
         if (!Number.isFinite(lastKnownUpdatedAt)) {
             // Nunca visto en un snapshot entrante (o la línea de base para
             // este id es NaN/corrupta, lo cual NO cuenta como confirmación
@@ -96,9 +100,9 @@ export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
 
     // Nueva línea de base: SIEMPRE refleja el snapshot entrante actual
     // completo (no acumula ids que ya salieron de la nube).
-    const nextBaseline = {};
+    const nextBaseline = new Map();
     incomingById.forEach((rec, id) => {
-        nextBaseline[id] = Number.isFinite(rec?.updatedAt) ? rec.updatedAt : 0;
+        nextBaseline.set(id, Number.isFinite(rec?.updatedAt) ? rec.updatedAt : 0);
     });
     _lastKnownIncomingById = nextBaseline;
 
@@ -107,7 +111,7 @@ export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
 
 /** Utilidad de test: reinicia la línea de base entre casos. */
 export function resetIncomingMergeBaseline() {
-    _lastKnownIncomingById = {};
+    _lastKnownIncomingById = new Map();
 }
 
 export default mergeIncomingEmployees;
