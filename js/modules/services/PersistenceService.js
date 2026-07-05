@@ -319,8 +319,14 @@ function _mainSyncGuards() {
         isApplyingRemote: () => !!globalThis._isApplyingRemoteData,
         isPaused: () => SYNC_PAUSE_ENABLED && isSyncPaused(),
         cloudWatermark: () => state._lastKnownCloudUpdatedAt || 0,
-        saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot),
+        // Fase 2 U1 (fix de regresión): saveFullState vuelve a escribir las
+        // entidades por default (ver FirebaseService.saveFullState) — pero acá
+        // se saltan con skipEntities:true porque la entrada 'entities' del
+        // outbox (encolada aparte en _executeSave, sin gate de watermark) YA
+        // las escribe por su cuenta; sin este flag se subirían dos veces.
+        saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot, { skipEntities: true }),
         saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
+        saveEntities: (employees, positions, leaders, schemaVersion) => FirebaseService.saveEntities(employees, positions, leaders, schemaVersion),
         deleteEntity: (entity, id) => {
             const repo = REPO_BY_ENTITY[entity];
             return repo ? repo.deleteOne(id) : Promise.resolve();
@@ -692,6 +698,19 @@ async function _executeSave(options = {}) {
             _mirrorSnapshot = stateManager.getState();
         }
         _outboxEnqueues.push(MainSyncStore.enqueueMirror(_mirrorSnapshot));
+
+        // Judgment Day / Fase 2 U1: las entidades (empleados/puestos/líderes) se
+        // encolan APARTE del mirror — mismo snapshot ya clonado (_mirrorSnapshot),
+        // sin re-serializar. Este canal NO tiene el gate de watermark del mirror
+        // (ver MainSyncStore._resolveCloudCall): un dispositivo que estuvo offline
+        // y edita un préstamo ya no queda atrapado detrás de "la nube parece más
+        // nueva" — cada entidad se mergea fino por su propio updatedAt.
+        _outboxEnqueues.push(MainSyncStore.enqueueEntities(
+            _mirrorSnapshot.employees || [],
+            _mirrorSnapshot.positions || [],
+            _mirrorSnapshot.leaders || [],
+            _mirrorSnapshot.settings?.schemaVersion
+        ));
 
         // Disparar el drenado recién DESPUÉS de que las entradas terminen de
         // encolarse (evita la carrera de que flush() lea el outbox antes de

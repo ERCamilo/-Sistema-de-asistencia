@@ -12,7 +12,7 @@
  * depender de regex frágiles sobre el código fuente.
  */
 
-import { saveApplicationData } from '../modules/services/PersistenceService.js';
+import { saveApplicationData, drainMainSyncOutbox } from '../modules/services/PersistenceService.js';
 import { state } from '../modules/core/AppState.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
@@ -37,6 +37,7 @@ function spyMainSyncStore() {
     return {
         enqueueMirror: jest.spyOn(MainSyncStore, 'enqueueMirror').mockResolvedValue(undefined),
         enqueueDaily: jest.spyOn(MainSyncStore, 'enqueueDaily').mockResolvedValue(undefined),
+        enqueueEntities: jest.spyOn(MainSyncStore, 'enqueueEntities').mockResolvedValue(undefined),
         flush: jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined)
     };
 }
@@ -62,7 +63,7 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             testRunner.assertEquals(FirebaseService.saveFullState.mock.calls.length, 0,
                 '_executeSave NO debe llamar a FirebaseService.saveFullState directo — sólo el outbox lo hace al flushear');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             globalThis.currentUser = null;
             restoreState(snap);
         }
@@ -95,7 +96,45 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             testRunner.assertEquals(FirebaseService.saveDailyAttendance.mock.calls.length, 0,
                 '_executeSave NO debe llamar a FirebaseService.saveDailyAttendance directo');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
+    },
+
+    async "_executeSave encola las entidades (no llama FirebaseService.saveEntities directo) — Fase 2 U1"() {
+        // Las entidades (empleados/puestos/líderes) viajan APARTE del mirror,
+        // desacopladas de su gate de watermark (ver MainSyncStore.enqueueEntities).
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            state.employees = [{ id: 'e1', name: 'Ana' }];
+            state.positions = [{ id: 'p1', name: 'Cajero' }];
+            state.leaders = [{ id: 'l1', name: 'Jefe' }];
+            state.settings = { ...state.settings, schemaVersion: 3 };
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+            FirebaseService.saveEntities.mockClear();
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            testRunner.assert(spies.enqueueEntities.mock.calls.length >= 1,
+                'debe encolar las entidades vía MainSyncStore.enqueueEntities');
+            const [empArg, posArg, leadArg, schemaArg] = spies.enqueueEntities.mock.calls[0];
+            testRunner.assertEquals(empArg.length, 1, 'debe pasar los empleados actuales');
+            testRunner.assertEquals(empArg[0].id, 'e1');
+            testRunner.assertEquals(posArg[0].id, 'p1', 'debe pasar los puestos actuales');
+            testRunner.assertEquals(leadArg[0].id, 'l1', 'debe pasar los líderes actuales');
+            testRunner.assertEquals(schemaArg, 3, 'debe pasar el schemaVersion actual');
+            testRunner.assertEquals(FirebaseService.saveEntities.mock.calls.length, 0,
+                '_executeSave NO debe llamar a FirebaseService.saveEntities directo — sólo el outbox lo hace al flushear');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             globalThis.currentUser = null;
             restoreState(snap);
         }
@@ -117,7 +156,7 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
 
             testRunner.assert(spies.flush.mock.calls.length >= 1, 'debe disparar flush() para que el drenado ocurra ya, no sólo en el próximo online/login');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             globalThis.currentUser = null;
             restoreState(snap);
         }
@@ -136,7 +175,7 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
 
             testRunner.assertEquals(spies.enqueueMirror.mock.calls.length, 0, 'sin sesión no hay nada que subir a la nube');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             restoreState(snap);
         }
     },
@@ -174,7 +213,7 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             testRunner.assertEquals(passedSnapshot.employees[0].name, 'Original',
                 'el snapshot ya encolado no debe reflejar mutaciones posteriores de state — debe ser un clon, no una referencia viva');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             globalThis.currentUser = null;
             restoreState(snap);
         }
@@ -209,7 +248,7 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             testRunner.assert(indexedDBService.saveState.mock.calls.length >= 1,
                 'el guardado LOCAL debe seguir ocurriendo aunque el clon del snapshot para la nube falle');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             globalThis.currentUser = null;
             restoreState(snap);
         }
@@ -245,9 +284,47 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             testRunner.assertEquals(passedRecords['emp1-2026-07-01'].hoursWorked, 8,
                 'los registros ya encolados no deben reflejar mutaciones posteriores de state.attendance — deben ser un clon, no una referencia viva');
         } finally {
-            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.flush.mockRestore();
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
             globalThis.currentUser = null;
             restoreState(snap);
+        }
+    },
+
+    // Fase 2 U1 — fix de regresión: saveFullState volvió a escribir las
+    // entidades ella misma (para los 5 llamadores DIRECTOS que la invocan
+    // fuera del outbox). Pero el thunk 'mirror' del outbox (_mainSyncGuards().
+    // saveMirror) NO debe pedirle eso — la entrada 'entities' (encolada aparte
+    // en _executeSave, ver arriba) ya escribe las entidades por su cuenta; sin
+    // {skipEntities:true} acá, cada guardado normal las subiría DOS veces.
+    // A diferencia de los tests de arriba, este NO mockea MainSyncStore.flush:
+    // usa el flush REAL para ejercitar de verdad el guard saveMirror interno.
+    async "_mainSyncGuards().saveMirror pasa {skipEntities:true} a FirebaseService.saveFullState (Fase 2 U1, fix de regresión)"() {
+        const prevCloudWatermark = state._lastKnownCloudUpdatedAt;
+        const prevApplyingRemote = globalThis._isApplyingRemoteData;
+        const snapshot = { employees: [{ id: 'e1' }], settings: { schemaVersion: 3, localUpdatedAt: 1 } };
+        globalThis.currentUser = { uid: 'u1' };
+        globalThis._isApplyingRemoteData = false;
+        state._lastKnownCloudUpdatedAt = 0;
+        indexedDBService.getAll.mockReset().mockResolvedValue([
+            { key: 1, kind: 'mirror', snapshot, status: 'pending' }
+        ]);
+        indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+        FirebaseService.saveFullState.mockClear().mockResolvedValue(undefined);
+
+        try {
+            await drainMainSyncOutbox();
+
+            testRunner.assertEquals(FirebaseService.saveFullState.mock.calls.length, 1,
+                'debe llamar a saveFullState exactamente una vez al drenar la entrada mirror pendiente');
+            testRunner.assertEquals(FirebaseService.saveFullState.mock.calls[0][0], snapshot,
+                'debe pasar el snapshot encolado');
+            const optsArg = FirebaseService.saveFullState.mock.calls[0][1];
+            testRunner.assert(!!optsArg && optsArg.skipEntities === true,
+                'saveMirror debe pasar {skipEntities:true} — la entrada "entities" (aparte) ya escribe per-entidad; sin esto se duplicaría el write');
+        } finally {
+            globalThis.currentUser = null;
+            globalThis._isApplyingRemoteData = prevApplyingRemote;
+            state._lastKnownCloudUpdatedAt = prevCloudWatermark;
         }
     }
 

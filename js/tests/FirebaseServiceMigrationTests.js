@@ -122,8 +122,13 @@ testRunner.addSuite("FirebaseService — Contrato saveFullState con schemaVersio
         );
     },
 
-    "saveFullState invoca EmployeeRepository cuando schemaVersion>=2"() {
-        const block = fbSource.match(/async\s+saveFullState[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+    // Fase 2 U1: este write per-entidad se extrajo de saveFullState a
+    // saveEntities() (encolado APARTE del mirror por MainSyncStore, sin su
+    // gate de watermark) — ver FirebaseServiceApiContractTests.js para el
+    // contrato completo de saveEntities.
+    "saveEntities invoca EmployeeRepository cuando schemaVersion>=2 (movido de saveFullState, Fase 2 U1)"() {
+        const block = fbSource.match(/async\s+saveEntities[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        testRunner.assert(!!block, "Método saveEntities debe ser localizable");
         const txt = block[0];
         testRunner.assert(
             /EmployeeRepository\.saveMany/.test(txt) || /EmployeeRepository\.saveOne/.test(txt),
@@ -144,15 +149,17 @@ testRunner.addSuite("FirebaseService — Contrato saveFullState con schemaVersio
 
 });
 
-testRunner.addSuite("FirebaseService — saveFullState pasa mergeRemote (Fase 2.2)", {
+// Fase 2 U1: el write per-entidad (y su mergeRemote:true) se movió de
+// saveFullState a saveEntities — mismo comportamiento, nueva ubicación.
+testRunner.addSuite("FirebaseService — saveEntities pasa mergeRemote (Fase 2.2, movido en Fase 2 U1)", {
 
-    "saveFullState llama a saveMany con { mergeRemote: true }"() {
-        const block = fbSource.match(/async\s+saveFullState[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
-        testRunner.assert(!!block, "Método localizable");
+    "saveEntities llama a saveMany con { mergeRemote: true }"() {
+        const block = fbSource.match(/async\s+saveEntities[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        testRunner.assert(!!block, "Método saveEntities debe ser localizable");
         const txt = block[0];
         testRunner.assert(
             /saveMany\([^)]*mergeRemote[\s\S]{0,80}true/.test(txt),
-            "saveFullState debe pasar mergeRemote:true a saveMany para que cada saveOne haga read-merge-write"
+            "saveEntities debe pasar mergeRemote:true a saveMany para que cada saveOne haga read-merge-write"
         );
     }
 

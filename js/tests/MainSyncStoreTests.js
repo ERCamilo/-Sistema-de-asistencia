@@ -41,6 +41,7 @@ function makeGuards(overrides = {}) {
         cloudWatermark: () => 0,
         saveMirror: jest.fn().mockResolvedValue(undefined),
         saveDaily: jest.fn().mockResolvedValue(undefined),
+        saveEntities: jest.fn().mockResolvedValue(undefined),
         deleteEntity: jest.fn().mockResolvedValue(undefined),
         onCloudResult: jest.fn(),
         ...overrides
@@ -151,6 +152,58 @@ testRunner.addSuite("MainSyncStore — enqueue y coalescing", {
 
         testRunner.assertEquals(updatesToOutbox().length, 1,
             'un id igual mismo en OTRA entidad (position vs employee) no debe considerarse duplicado');
+    },
+
+    // Fase 2 U1: las entidades (empleados/puestos/líderes) se encolan APARTE
+    // del mirror — el gate de watermark del mirror sólo debía proteger el
+    // doc espejo, pero de arrastre también difería estos writes per-entidad,
+    // que ya hacen su propio LWW por updatedAt (ver PositionRepository.saveOne).
+    async "enqueueEntities con cola vacía crea una entrada entities pending"() {
+        resetMocks();
+        const employees = [{ id: 'e1' }];
+        const positions = [{ id: 'p1' }];
+        const leaders = [{ id: 'l1' }];
+        await MainSyncStore.enqueueEntities(employees, positions, leaders, 3);
+
+        const updates = updatesToOutbox();
+        testRunner.assertEquals(updates.length, 1, 'debe crear exactamente una entrada');
+        testRunner.assertEquals(updates[0][1].kind, 'entities');
+        testRunner.assertEquals(updates[0][1].status, 'pending');
+        testRunner.assertEquals(updates[0][1].employees, employees);
+        testRunner.assertEquals(updates[0][1].positions, positions);
+        testRunner.assertEquals(updates[0][1].leaders, leaders);
+        testRunner.assertEquals(updates[0][1].schemaVersion, 3);
+    },
+
+    async "enqueueEntities coalesce: borra la entrada entities pending anterior y deja una sola"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(4, { kind: 'entities', employees: [{ id: 'old' }] })
+        ]);
+        await MainSyncStore.enqueueEntities([], [], [], 3);
+
+        testRunner.assert(
+            indexedDBService.delete.mock.calls.some(c => c[0] === 'mainSyncOutbox' && c[1] === 4),
+            'debe borrar la entrada entities pending anterior (key 4)'
+        );
+        const updates = updatesToOutbox();
+        const entitiesUpdates = updates.filter(c => c[1].kind === 'entities');
+        testRunner.assertEquals(entitiesUpdates.length, 1, 'solo debe quedar UNA entrada entities pendiente (última gana)');
+    },
+
+    async "enqueueEntities NO borra entradas de OTROS kinds (mirror/daily/delete)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(7, { kind: 'mirror', snapshot: {} }),
+            outboxEntry(8, { kind: 'daily', dateKey: '2026-07-01' }),
+            outboxEntry(9, { kind: 'delete', entity: 'employee', id: 'e1' })
+        ]);
+        await MainSyncStore.enqueueEntities([], [], [], 3);
+
+        testRunner.assert(
+            !indexedDBService.delete.mock.calls.some(c => c[1] === 7 || c[1] === 8 || c[1] === 9),
+            'entradas mirror/daily/delete pendientes no deben tocarse al encolar entities'
+        );
     }
 
 });
@@ -231,6 +284,19 @@ testRunner.addSuite("MainSyncStore — flush: guards re-evaluados al vaciar (lan
 
         testRunner.assertEquals(guards.saveDaily.mock.calls.length, 1,
             'la asistencia diaria se sube siempre (merge por día, no hay wholesale overwrite que proteger)');
+    },
+
+    async "las entidades (empleados/puestos/líderes) NO se gatean por el watermark (LWW fino por-entidad, no wholesale)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'entities', employees: [{ id: 'e1' }], positions: [], leaders: [], schemaVersion: 3 })
+        ]);
+        const guards = makeGuards({ cloudWatermark: () => 999999999 }); // nube "mucho más nueva"
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveEntities.mock.calls.length, 1,
+            'las entidades se suben siempre (cada saveOne/saveMany ya hace su propio LWW por updatedAt)');
     }
 
 });
@@ -259,6 +325,25 @@ testRunner.addSuite("MainSyncStore — flush: dispatch por kind", {
 
         testRunner.assertEquals(guards.saveDaily.mock.calls[0][0], '2026-07-01');
         testRunner.assertEquals(guards.saveDaily.mock.calls[0][1], records);
+    },
+
+    async "entities drena vía saveEntities(employees, positions, leaders, schemaVersion)"() {
+        resetMocks();
+        const employees = [{ id: 'e1' }];
+        const positions = [{ id: 'p1' }];
+        const leaders = [{ id: 'l1' }];
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'entities', employees, positions, leaders, schemaVersion: 3 })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][0], employees, 'debe pasar los empleados encolados');
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][1], positions, 'debe pasar los puestos encolados');
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][2], leaders, 'debe pasar los líderes encolados');
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][3], 3, 'debe pasar el schemaVersion encolado');
+        testRunner.assert(indexedDBService.delete.mock.calls.some(c => c[1] === 1), 'debe drenar la entrada tras el éxito');
     },
 
     async "delete de empleado con schemaVersion>=2 llama deleteEntity('employee', id)"() {

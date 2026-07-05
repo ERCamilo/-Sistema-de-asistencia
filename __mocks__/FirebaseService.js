@@ -5,6 +5,7 @@ const FirebaseService = {
     saveFullState: jest.fn().mockResolvedValue(undefined),
     loadFullState: jest.fn().mockResolvedValue(null),
     saveDailyAttendance: jest.fn().mockResolvedValue(undefined),
+    saveEntities: jest.fn().mockResolvedValue(undefined),
     createSnapshot: jest.fn().mockResolvedValue(undefined),
     signIn: jest.fn().mockResolvedValue(null),
     signOut: jest.fn().mockResolvedValue(undefined),

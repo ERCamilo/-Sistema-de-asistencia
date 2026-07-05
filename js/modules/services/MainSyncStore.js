@@ -77,6 +77,11 @@ function _resolveCloudCall(entry, guards) {
         // overwrite wholesale que el watermark tenga que proteger.
         return () => guards.saveDaily(entry.dateKey, entry.records);
     }
+    if (entry.kind === 'entities') {
+        // Sin gate de watermark: cada saveOne per-entidad hace su propio LWW por
+        // updatedAt — el gate grueso del espejo no debe frenar estos writes.
+        return () => guards.saveEntities(entry.employees, entry.positions, entry.leaders, entry.schemaVersion);
+    }
     if (entry.kind === 'delete') {
         const minSchema = DELETE_SCHEMA_MIN[entry.entity];
         // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
@@ -128,6 +133,30 @@ export const MainSyncStore = {
     },
 
     /**
+     * Encola las entidades (empleados/puestos/líderes) para su escritura
+     * per-doc, DESACOPLADA del espejo. Coalescing: sólo queda UNA entrada
+     * 'entities' pendiente a la vez (la más reciente reemplaza a la anterior).
+     *
+     * A diferencia de 'mirror', esta entrada NO se gatea por el watermark en
+     * _resolveCloudCall — cada saveOne/saveMany per-entidad ya hace su propio
+     * LWW por updatedAt (ver PositionRepository.saveOne), así que el gate
+     * grueso del espejo sólo difería en silencio ediciones (p.ej. préstamos)
+     * que el merge fino ya sabe resolver bien.
+     *
+     * `employees`/`positions`/`leaders` deben ser arrays INMUTABLES ya
+     * clonados por el caller (mismo contrato que `enqueueMirror`).
+     */
+    async enqueueEntities(employees, positions, leaders, schemaVersion) {
+        const all = await _getAll();
+        const stalePending = all.filter(e => e && e.kind === 'entities' && e.status === 'pending');
+        for (const e of stalePending) await _deleteQuiet(e.key);
+
+        await indexedDBService.update(OUTBOX, {
+            kind: 'entities', employees, positions, leaders, schemaVersion, ts: Date.now(), status: 'pending'
+        });
+    },
+
+    /**
      * Encola el borrado de una entidad en la nube. Dedup: si ya hay un
      * borrado pendiente para la MISMA entidad+id, no duplica.
      *
@@ -158,6 +187,7 @@ export const MainSyncStore = {
      *   cloudWatermark: () => number,
      *   saveMirror: (snapshot) => Promise,
      *   saveDaily: (dateKey, records) => Promise,
+     *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
      *   deleteEntity: (entity, id) => Promise,
      *   onCloudResult: (ok) => void
      * }} guards - inyectado por el caller (PersistenceService), evaluado en

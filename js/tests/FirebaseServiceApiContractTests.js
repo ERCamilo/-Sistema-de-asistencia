@@ -205,3 +205,113 @@ testRunner.addSuite("FirebaseService — Contrato saveDailyAttendance read-merge
     }
 
 });
+
+// Fase 2 U1: los writes per-entidad (empleados/puestos/líderes) se extraen de
+// saveFullState a un método propio, saveEntities, para que MainSyncStore los
+// encole APARTE del mirror y no queden atrapados detrás de su gate de
+// watermark (ver MainSyncStore._resolveCloudCall, kind === 'entities').
+function saveFullStateBlock() {
+    return FIREBASE_SRC.match(/async\s+saveFullState\s*\([\s\S]*?\n\s{4}\}/);
+}
+function saveEntitiesBlock() {
+    return FIREBASE_SRC.match(/async\s+saveEntities\s*\([\s\S]*?\n\s{4}\}/);
+}
+
+testRunner.addSuite("FirebaseService — Contrato saveEntities (Fase 2, U1)", {
+
+    "FirebaseService define un método async saveEntities()"() {
+        testRunner.assert(
+            !!saveEntitiesBlock(),
+            'FirebaseService debe definir async saveEntities(employees, positions, leaders, schemaVersion)'
+        );
+    },
+
+    "saveEntities gatea empleados en schemaVersion>=2 y puestos/líderes en >=3, igual que saveFullState antes"() {
+        const b = saveEntitiesBlock();
+        testRunner.assert(!!b, 'saveEntities debe existir');
+        testRunner.assert(/schemaVersion\s*>=\s*2/.test(b[0]),
+            'debe gatear el write de empleados en schemaVersion >= 2 (mismo umbral que saveFullState tenía)');
+        testRunner.assert(/schemaVersion\s*>=\s*3/.test(b[0]),
+            'debe gatear el write de puestos/líderes en schemaVersion >= 3 (mismo umbral que saveFullState tenía)');
+    },
+
+    "saveEntities llama a EmployeeRepository.saveMany/PositionRepository.saveMany/LeaderRepository.saveMany"() {
+        const b = saveEntitiesBlock();
+        testRunner.assert(!!b, 'saveEntities debe existir');
+        testRunner.assert(/EmployeeRepository\.saveMany\s*\(/.test(b[0]), 'debe escribir empleados via EmployeeRepository.saveMany');
+        testRunner.assert(/PositionRepository\.saveMany\s*\(/.test(b[0]), 'debe escribir puestos via PositionRepository.saveMany');
+        testRunner.assert(/LeaderRepository\.saveMany\s*\(/.test(b[0]), 'debe escribir líderes via LeaderRepository.saveMany');
+    },
+
+    "saveFullState YA NO llama a EmployeeRepository/PositionRepository/LeaderRepository.saveMany (se movió a saveEntities)"() {
+        const b = saveFullStateBlock();
+        testRunner.assert(!!b, 'saveFullState debe existir');
+        testRunner.assert(!/EmployeeRepository\.saveMany\s*\(/.test(b[0]),
+            'saveFullState ya no debe escribir empleados inline — eso ahora lo hace saveEntities via el outbox');
+        testRunner.assert(!/PositionRepository\.saveMany\s*\(/.test(b[0]),
+            'saveFullState ya no debe escribir puestos inline — eso ahora lo hace saveEntities via el outbox');
+        testRunner.assert(!/LeaderRepository\.saveMany\s*\(/.test(b[0]),
+            'saveFullState ya no debe escribir líderes inline — eso ahora lo hace saveEntities via el outbox');
+    },
+
+    "saveFullState sigue excluyendo employees/positions/leaders del doc espejo cuando la cuenta migró"() {
+        const b = saveFullStateBlock();
+        testRunner.assert(!!b, 'saveFullState debe existir');
+        testRunner.assert(/delete\s+snapshotContext\.employees/.test(b[0]),
+            'el doc espejo no debe llevar employees inline en cuentas migradas (>=v2)');
+        testRunner.assert(/delete\s+snapshotContext\.positions/.test(b[0]),
+            'el doc espejo no debe llevar positions inline en cuentas migradas (>=v3)');
+        testRunner.assert(/delete\s+snapshotContext\.leaders/.test(b[0]),
+            'el doc espejo no debe llevar leaders inline en cuentas migradas (>=v3)');
+    },
+
+    "el mock de tests expone saveEntities (paridad de API)"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/saveEntities/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir saveEntities para tests de PersistenceService/MainSyncStore');
+    }
+
+});
+
+// Fase 2 U1 — fix de regresión: al mover el write per-entidad fuera de
+// saveFullState (arriba), se rompieron 5 llamadores DIRECTOS que invocan
+// FirebaseService.saveFullState(state) sin pasar por el outbox/MainSyncStore
+// (Reemplazo Total de la Nube, Subir y Reemplazar, Sync Now manual,
+// uploadToCloud, la migración de primera vez): esos callers dependían de que
+// saveFullState escribiera las entidades ella misma. saveFullState debe
+// volver a llamar a this.saveEntities(...) internamente, salvo que el caller
+// pida saltarlo con opts.skipEntities (sólo _mainSyncGuards().saveMirror lo
+// hace, porque el outbox ya escribe las entidades aparte vía su propia
+// entrada 'entities').
+testRunner.addSuite("FirebaseService — saveFullState restaura el write de entidades (Fase 2 U1, fix de regresión)", {
+
+    "saveFullState acepta un segundo parámetro opts (para poder recibir { skipEntities: true })"() {
+        testRunner.assert(
+            /async\s+saveFullState\s*\(\s*state\s*,\s*opts\s*=\s*\{\s*\}\s*\)/.test(FIREBASE_SRC),
+            'saveFullState debe declararse como saveFullState(state, opts = {})'
+        );
+    },
+
+    "saveFullState llama a this.saveEntities(...) salvo que opts.skipEntities sea true"() {
+        const b = saveFullStateBlock();
+        testRunner.assert(!!b, 'saveFullState debe existir');
+        testRunner.assert(/this\.saveEntities\s*\(/.test(b[0]),
+            'saveFullState debe volver a invocar this.saveEntities(...) — todo llamador DIRECTO (fuera del outbox) dependía de que saveFullState escribiera las entidades');
+        testRunner.assert(/if\s*\(\s*!opts\.skipEntities\s*\)[\s\S]{0,120}this\.saveEntities\s*\(/.test(b[0]),
+            'la llamada a this.saveEntities debe estar gateada por !opts.skipEntities, para que SOLO el thunk saveMirror del outbox pueda saltarla');
+    },
+
+    "saveFullState pasa employees/positions/leaders/schemaVersion a saveEntities"() {
+        const b = saveFullStateBlock();
+        testRunner.assert(!!b, 'saveFullState debe existir');
+        const callMatch = b[0].match(/this\.saveEntities\s*\(([^)]*)\)/);
+        testRunner.assert(!!callMatch, 'debe poder localizarse la llamada a this.saveEntities(...)');
+        testRunner.assert(/state\.employees/.test(callMatch[1]), 'debe pasar state.employees');
+        testRunner.assert(/state\.positions/.test(callMatch[1]), 'debe pasar state.positions');
+        testRunner.assert(/state\.leaders/.test(callMatch[1]), 'debe pasar state.leaders');
+        testRunner.assert(/schemaVersion/.test(callMatch[1]), 'debe pasar schemaVersion');
+    }
+
+});

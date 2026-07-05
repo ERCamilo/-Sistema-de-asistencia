@@ -75,8 +75,14 @@ class FirebaseService {
     /**
      * Guarda el estado completo de la aplicación (Mirror Sync)
      * @param {object} state El objeto de estado global
+     * @param {object} [opts] { skipEntities?: boolean } — SOLO lo usa
+     *   _mainSyncGuards().saveMirror (PersistenceService.js): en el camino
+     *   normal de guardado (_executeSave), la entrada 'entities' del outbox
+     *   (sin gate de watermark, ver MainSyncStore._resolveCloudCall) YA
+     *   escribe las entidades por separado — llamar a saveEntities() acá
+     *   TAMBIÉN las escribiría dos veces por guardado.
      */
-    async saveFullState(state) {
+    async saveFullState(state, opts = {}) {
         if (!auth.currentUser) return;
 
         try {
@@ -93,31 +99,32 @@ class FirebaseService {
             // base64 que harían superar el límite de 1 MB del doc espejo.
             delete snapshotContext.pettyCash;
 
-            // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular,
-            // escribimos las entidades en sus propias colecciones.
             const schemaVersion = state?.settings?.schemaVersion;
             const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
             const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
 
+            // Fase 2 U1 (fix de regresión): saveFullState vuelve a escribir las
+            // entidades ella misma — U1 la había sacado por completo, rompiendo a
+            // TODO llamador directo de saveFullState que no pasa por el outbox
+            // (Reemplazo Total de la Nube, Subir y Reemplazar, Sync Now manual,
+            // uploadToCloud, la migración de primera vez). opts.skipEntities sólo
+            // lo usa _mainSyncGuards().saveMirror: en el camino normal de guardado
+            // (_executeSave), el nuevo outbox kind 'entities' (sin gate de
+            // watermark) YA escribe las entidades por separado — llamarlo acá
+            // TAMBIÉN las escribiría dos veces por guardado.
+            if (!opts.skipEntities) {
+                await this.saveEntities(state.employees, state.positions, state.leaders, schemaVersion);
+            }
+
+            // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular, el
+            // doc espejo no lleva estas entidades inline — se escriben en sus
+            // propias colecciones (arriba, vía saveEntities).
             if (isMigratedEmployees) {
-                const emps = Array.isArray(state.employees) ? state.employees : [];
-                if (emps.length > 0) {
-                    await EmployeeRepository.saveMany(emps, { mergeRemote: true });
-                }
                 delete snapshotContext.employees;
             }
 
             if (isMigratedGranular) {
-                const positions = Array.isArray(state.positions) ? state.positions : [];
-                if (positions.length > 0) {
-                    await PositionRepository.saveMany(positions, { mergeRemote: true });
-                }
                 delete snapshotContext.positions;
-
-                const leaders = Array.isArray(state.leaders) ? state.leaders : [];
-                if (leaders.length > 0) {
-                    await LeaderRepository.saveMany(leaders, { mergeRemote: true });
-                }
                 delete snapshotContext.leaders;
             }
 
@@ -195,6 +202,37 @@ class FirebaseService {
         } catch (error) {
             console.error('❌ Error sincronizando estado:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Fase 2 U1: escribe empleados/puestos/líderes en sus colecciones per-doc,
+     * DESACOPLADO del write del espejo. Antes vivía inline dentro de
+     * saveFullState, atado al MISMO gate de watermark que protege el espejo —
+     * pero cada saveOne/saveMany ya hace su propio LWW por updatedAt, así que
+     * ese gate grueso sólo difería en silencio ediciones que el merge fino
+     * sabe resolver bien (ver MainSyncStore.enqueueEntities).
+     */
+    async saveEntities(employees, positions, leaders, schemaVersion) {
+        const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
+        const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
+
+        if (isMigratedEmployees) {
+            const emps = Array.isArray(employees) ? employees : [];
+            if (emps.length > 0) {
+                await EmployeeRepository.saveMany(emps, { mergeRemote: true });
+            }
+        }
+
+        if (isMigratedGranular) {
+            const pos = Array.isArray(positions) ? positions : [];
+            if (pos.length > 0) {
+                await PositionRepository.saveMany(pos, { mergeRemote: true });
+            }
+            const leads = Array.isArray(leaders) ? leaders : [];
+            if (leads.length > 0) {
+                await LeaderRepository.saveMany(leads, { mergeRemote: true });
+            }
         }
     }
 
