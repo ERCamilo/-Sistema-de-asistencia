@@ -30,6 +30,7 @@ import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
+import { translateError } from './modules/services/ErrorTranslator.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
@@ -349,7 +350,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     } catch (error) {
         console.error('❌ Error inicializando sistema:', error);
-        showNotification(`🚨 Fallo de arranque: ${error.message}`, 'error', 0);
+        showNotification(`🚨 Fallo de arranque: ${translateError(error, { fallbackContext: 'iniciar la aplicación' })}`, 'error', 0);
     }
 });
 
@@ -1692,7 +1693,7 @@ window.restoreSnapshot = async (snapshotId) => {
     } catch (e) {
         Notification.clearAll();
         console.error('Error descargando snapshot:', e);
-        Notification.error('❌ No se pudo cargar el snapshot: ' + e.message);
+        Notification.error('❌ No se pudo cargar el snapshot: ' + translateError(e, { fallbackContext: 'cargar el snapshot' }));
         return;
     }
 
@@ -1755,7 +1756,7 @@ window.restoreSnapshot = async (snapshotId) => {
             } catch (e) {
                 console.error('Error fatal en restauración:', e);
                 Notification.clearAll();
-                Notification.error('❌ Error al restaurar: ' + e.message);
+                Notification.error('❌ Error al restaurar: ' + translateError(e, { fallbackContext: 'restaurar el sistema' }));
                 state.isLoadingSnapshots = false;
                 render();
             }
@@ -5446,7 +5447,7 @@ async function applyBackupData(importedData) {
         return true;
     } catch (error) {
         console.error("Error aplicando backup:", error);
-        showNotification('❌ Error al aplicar backup local: ' + error.message, 'error');
+        showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
         return false;
     }
 }
@@ -5535,7 +5536,7 @@ window.loadBackupFromFile = function (file) {
             });
 
         } catch (err) {
-            showNotification('❌ Error al leer el backup: ' + err.message, 'error');
+            showNotification('❌ Error al leer el backup: ' + translateError(err, { fallbackContext: 'leer el backup' }), 'error');
         }
     };
     reader.readAsText(file);
