@@ -264,7 +264,12 @@ testRunner.addSuite("EmployeeMerge — positions y positionSalaries (Fase 2.2)",
             "Las posiciones asignadas se preservan de ambos lados");
     },
 
-    "positionSalaries (mapa por posición) → se unen, gana mayor updatedAt"() {
+    // 🔁 Semántica cambiada por el fix del bucle de sanitización (2026-07-06):
+    // con un lado ESTRICTAMENTE más nuevo, su mapa gana COMPLETO (antes se
+    // unían y las claves borradas resucitaban desde la copia vieja — el
+    // bucle infinito de corregir-y-resubir). La unión quedó solo para el
+    // empate — ver MergePositionsLWWTests para el contrato completo.
+    "positionSalaries: con un lado estrictamente más nuevo, su mapa gana completo (LWW)"() {
         const server = {
             id: 'e1',
             positionSalaries: { p1: 100, p2: 200 },
@@ -276,10 +281,18 @@ testRunner.addSuite("EmployeeMerge — positions y positionSalaries (Fase 2.2)",
             updatedAt: 300
         };
         const result = mergeEmployees(server, local);
-        testRunner.assertEquals(result.positionSalaries.p1, 100, "p1 viene de server");
-        testRunner.assertEquals(result.positionSalaries.p3, 300, "p3 viene de local");
-        // p2 colisiona — gana el lado con mayor updatedAt (local en este caso)
-        testRunner.assertEquals(result.positionSalaries.p2, 250);
+        testRunner.assert(!('p1' in result.positionSalaries),
+            'p1 solo existía en el lado VIEJO — mantenerlo resucitaría claves borradas (bucle de sanitización)');
+        testRunner.assertEquals(result.positionSalaries.p2, 250, 'p2 del lado nuevo');
+        testRunner.assertEquals(result.positionSalaries.p3, 300, 'p3 del lado nuevo');
+    },
+
+    "positionSalaries: en EMPATE de updatedAt se unen (comportamiento clásico preservado)"() {
+        const server = { id: 'e1', positionSalaries: { p1: 100, p2: 200 }, updatedAt: 100 };
+        const local  = { id: 'e1', positionSalaries: { p2: 250, p3: 300 }, updatedAt: 100 };
+        const result = mergeEmployees(server, local);
+        testRunner.assertEquals(result.positionSalaries.p1, 100, 'p1 sobrevive en empate');
+        testRunner.assertEquals(result.positionSalaries.p3, 300, 'p3 sobrevive en empate');
     }
 
 });

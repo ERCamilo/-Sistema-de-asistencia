@@ -1031,23 +1031,40 @@ export async function validateDataIntegrity() {
     const leaderIds = new Set(state.leaders.map(l => l.id));
 
     // 1. Limpiar posiciones en empleados
+    // 🔁 Fix del bucle de sanitización (test de campo 2026-07-06): TODA
+    // corrección dentro de un empleado/puesto DEBE estampar updatedAt (la
+    // misma regla del choke point de préstamos). Sin la estampa,
+    // EntityUploadTracker filtra el registro ("nada cambió"), la corrección
+    // nunca sube, la nube queda sucia, y el merge entrante (mergePositions es
+    // UNIÓN, no LWW) resucita el huérfano → corregir → guardar → espejo →
+    // el otro dispositivo valida → corrige → ... ping-pong infinito quemando
+    // cuota. La estampa hace que la corrección gane el merge y converja.
+    // Y la inversa importa igual: si NO hubo corrección, NO estampar —
+    // estampar de más re-subiría a todos los empleados en cada validación.
     state.employees.forEach(emp => {
+        let empFixed = false;
         if (emp.positions) {
             const validPositions = emp.positions.filter(pid => positionIds.has(pid));
             if (validPositions.length !== emp.positions.length) {
                 emp.positions = validPositions;
                 fixes++;
+                empFixed = true;
             }
         }
-        
+
         // 2. Limpiar positionSalaries con IDs que ya no existen
         if (emp.positionSalaries) {
             Object.keys(emp.positionSalaries).forEach(posId => {
                 if (!positionIds.has(posId)) {
                     delete emp.positionSalaries[posId];
                     fixes++;
+                    empFixed = true;
                 }
             });
+        }
+
+        if (empFixed) {
+            emp.updatedAt = Date.now();
         }
     });
 
@@ -1055,6 +1072,7 @@ export async function validateDataIntegrity() {
     state.positions.forEach(pos => {
         if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
             pos.leaderId = null;
+            pos.updatedAt = Date.now(); // misma regla — sin estampa no sube ni converge
             fixes++;
         }
     });

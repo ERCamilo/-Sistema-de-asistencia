@@ -198,15 +198,36 @@ export function mergeEmployees(server, local) {
     // 3. statusHistory por timestamp.
     out.statusHistory = mergeStatusHistory(server.statusHistory, local.statusHistory);
 
-    // 4. positions (lista de strings) → unión.
-    out.positions = mergePositions(server.positions, local.positions);
+    // 4 y 5. positions (lista de strings) y positionSalaries (mapa).
+    // 🔁 Fix del bucle de sanitización (test de campo 2026-07-06): la UNIÓN
+    // incondicional resucitaba las REMOCIONES — un huérfano corregido (o un
+    // puesto desasignado a propósito) volvía desde la copia vieja del otro
+    // lado en CADA merge, incluso en la SUBIDA (saveOne mergeRemote fusiona
+    // con el doc remoto antes de escribir), así que la nube nunca convergía.
+    // Si un lado es ESTRICTAMENTE más nuevo por updatedAt, su lista/mapa
+    // ganan COMPLETOS (post-Fase-1 toda mutación legítima estampa updatedAt,
+    // así que "más nuevo" = "esta es la verdad actual"). La unión queda SOLO
+    // para el empate o cuando falta updatedAt: sin información de frescura,
+    // no perder nada sigue siendo lo seguro.
+    const sTs = ts(server);
+    const lTs = ts(local);
+    const strictWinner = (sTs !== null && lTs !== null && sTs !== lTs)
+        ? (sTs > lTs ? server : local)
+        : null;
 
-    // 5. positionSalaries (mapa) → unión, ganador escalar decide colisiones.
-    out.positionSalaries = mergePositionSalaries(
-        server.positionSalaries,
-        local.positionSalaries,
-        winnerSide === 'server'
-    );
+    if (strictWinner) {
+        out.positions = Array.isArray(strictWinner.positions) ? [...strictWinner.positions] : [];
+        out.positionSalaries = (strictWinner.positionSalaries && typeof strictWinner.positionSalaries === 'object')
+            ? { ...strictWinner.positionSalaries }
+            : {};
+    } else {
+        out.positions = mergePositions(server.positions, local.positions);
+        out.positionSalaries = mergePositionSalaries(
+            server.positionSalaries,
+            local.positionSalaries,
+            winnerSide === 'server'
+        );
+    }
 
     // 6. updatedAt: el mayor.
     const sT = ts(server) ?? -Infinity;

@@ -32,6 +32,7 @@ import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
 import { translateError } from './modules/services/ErrorTranslator.js';
 import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
+import { recordSanitizeRound } from './modules/services/SanitizeLoopBreaker.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
@@ -6952,8 +6953,12 @@ function _initOutgoingConflictGuard() {
                         // entries to be "corrected" repeatedly. Now we validate AFTER applying
                         // remote data and push the cleaned state back up — within a few sync
                         // cycles, both local and cloud converge to a clean state.
+                        // 🔌 Fix del bucle de sanitización (test de campo 2026-07-06):
+                        // recordSanitizeRound corta la re-subida si este guard corrige
+                        // sin converger demasiadas rondas seguidas (episodio registrado
+                        // en el ErrorLog). Una ronda con 0 correcciones lo resetea.
                         const remoteFixes = await validateDataIntegrity();
-                        if (remoteFixes > 0) {
+                        if (recordSanitizeRound(remoteFixes)) {
                             debug.log(`🛡️ Mirror sync: ${remoteFixes} orphan(s) sanitized after remote apply`);
                             saveApplicationData({ force: true });
                         }
