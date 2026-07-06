@@ -173,4 +173,51 @@ testRunner.addSuite("EmployeesIncomingMerge — fusión por-registro (Fase 2, U2
 
 });
 
+testRunner.addSuite("EmployeesIncomingMerge — tombstones de empleado (borrado robusto)", {
+
+    "un empleado que llega con deletedAt NO entra a state (se filtra)"() {
+        resetIncomingMergeBaseline();
+        const result = mergeIncomingEmployees(
+            [],
+            [{ id: 'e1', name: 'Borrado en otro device', updatedAt: 200, deletedAt: 200 }]
+        );
+        testRunner.assertEquals(result.length, 0, 'un tombstone entrante no debe mostrarse como empleado vivo');
+    },
+
+    "un empleado VIVO local que llega tombstoneado (más nuevo) desaparece de state"() {
+        resetIncomingMergeBaseline();
+        const result = mergeIncomingEmployees(
+            [{ id: 'e1', name: 'Ana', updatedAt: 100 }],               // vivo local
+            [{ id: 'e1', name: 'Ana', updatedAt: 200, deletedAt: 200 }] // borrado remoto más nuevo
+        );
+        testRunner.assertEquals(result.length, 0,
+            'el borrado remoto más nuevo debe sacar al empleado de la vista local');
+    },
+
+    "un empleado EDITADO local (más nuevo que el tombstone) sobrevive vivo (reactivación por edición)"() {
+        resetIncomingMergeBaseline();
+        const result = mergeIncomingEmployees(
+            [{ id: 'e1', name: 'Ana editada offline', updatedAt: 300 }], // edición local más nueva
+            [{ id: 'e1', name: 'Ana', updatedAt: 200, deletedAt: 200 }]  // tombstone más viejo
+        );
+        testRunner.assertEquals(result.length, 1, 'la edición posterior al borrado revive al empleado');
+        testRunner.assertEquals(result[0].name, 'Ana editada offline');
+        testRunner.assert(!('deletedAt' in result[0]) || result[0].deletedAt == null);
+    },
+
+    "los empleados vivos del mismo snapshot no se ven afectados por un tombstone de otro"() {
+        resetIncomingMergeBaseline();
+        const result = mergeIncomingEmployees(
+            [],
+            [
+                { id: 'e1', name: 'Vivo', updatedAt: 100 },
+                { id: 'e2', name: 'Borrado', updatedAt: 200, deletedAt: 200 }
+            ]
+        );
+        testRunner.assertEquals(result.length, 1);
+        testRunner.assertEquals(result[0].id, 'e1');
+    }
+
+});
+
 console.log('🧪 EmployeesIncomingMerge tests cargados.');

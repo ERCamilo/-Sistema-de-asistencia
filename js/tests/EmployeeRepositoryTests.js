@@ -83,6 +83,41 @@ testRunner.addSuite("EmployeeRepository — loadAll (Fase 4.1)", {
         const result = await EmployeeRepository.loadAll();
         testRunner.assertEquals(result.length, 0);
         auth.currentUser = null;
+    },
+
+    async "filtra los empleados con tombstone (deletedAt) — no deben cargarse a la vista"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-3' };
+        getDocs.mockResolvedValueOnce({
+            forEach: (fn) => {
+                [
+                    { data: () => ({ id: 'e1', name: 'Vivo' }) },
+                    { data: () => ({ id: 'e2', name: 'Borrado', deletedAt: 200 }) }
+                ].forEach(fn);
+            },
+            docs: []
+        });
+        const result = await EmployeeRepository.loadAll();
+        testRunner.assertEquals(result.length, 1, 'el tombstoneado NO debe cargarse');
+        testRunner.assertEquals(result[0].id, 'e1');
+        auth.currentUser = null;
+    },
+
+    async "loadAll({ includeDeleted: true }) SÍ trae los tombstoneados (para compactación)"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-4' };
+        getDocs.mockResolvedValueOnce({
+            forEach: (fn) => {
+                [
+                    { data: () => ({ id: 'e1', name: 'Vivo' }) },
+                    { data: () => ({ id: 'e2', name: 'Borrado', deletedAt: 200 }) }
+                ].forEach(fn);
+            },
+            docs: []
+        });
+        const result = await EmployeeRepository.loadAll({ includeDeleted: true });
+        testRunner.assertEquals(result.length, 2);
+        auth.currentUser = null;
     }
 
 });

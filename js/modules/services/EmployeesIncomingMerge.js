@@ -106,7 +106,13 @@ export function mergeIncomingEmployees(localEmployees, incomingEmployees) {
     });
     _lastKnownIncomingById = nextBaseline;
 
-    return result;
+    // 🪦 Tombstones de empleado: state.employees se mantiene SIEMPRE limpio
+    // (sin tombstoneados), así ninguna vista/lógica tiene que filtrar deletedAt.
+    // El merge de arriba ya produjo deletedAt donde correspondía (un empleado
+    // vivo local + un tombstone entrante más nuevo → mergeEmployees puso
+    // deletedAt); acá se filtran esos registros. Una edición local más nueva
+    // que el tombstone NO tiene deletedAt (revivió) y pasa el filtro.
+    return result.filter(e => !Number.isFinite(e?.deletedAt));
 }
 
 /** Utilidad de test: reinicia la línea de base entre casos. */

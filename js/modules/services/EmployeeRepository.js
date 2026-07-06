@@ -48,15 +48,23 @@ export const EmployeeRepository = {
      *   vacía; **null si la lectura FALLA** (M1: distinguible de "vacío" para
      *   que el caller no blanquee el estado con un error transitorio).
      */
-    async loadAll() {
+    async loadAll(opts = {}) {
         const ref = userEmployeesRef();
         if (!ref) return [];
+        // 🪦 Por defecto se filtran los tombstoneados (deletedAt): así la carga
+        // inicial y el wizard de duplicados ven state.employees limpio, sin que
+        // cada consumidor tenga que recordar filtrar. includeDeleted:true los
+        // trae (para la compactación de tombstones vencidos). subscribe() NO
+        // usa esto: entrega todo y mergeIncomingEmployees hace su propio filtro.
+        const includeDeleted = opts.includeDeleted === true;
         try {
             const snap = await getDocs(ref);
             const result = [];
             snap.forEach(d => {
                 const data = typeof d.data === 'function' ? d.data() : d;
-                if (data) result.push(data);
+                if (!data) return;
+                if (!includeDeleted && Number.isFinite(data.deletedAt)) return;
+                result.push(data);
             });
             return result;
         } catch (e) {

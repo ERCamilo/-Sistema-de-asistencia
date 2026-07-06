@@ -172,6 +172,19 @@ export function mergeEmployees(server, local) {
     // 1. Base: escalares del ganador.
     const out = { ...loser, ...winner };
 
+    // 1.b 🪦 Tombstone de EMPLEADO (deletedAt): lo decide el ganador escalar,
+    // INCLUYENDO su ausencia. El spread de arriba NO borra claves que el
+    // winner no tenga, así que un empleado reactivado (winner sin deletedAt)
+    // heredaría el tombstone viejo del loser y quedaría borrado para siempre.
+    // Explícito: winner con deletedAt → borrado gana (aunque el loser esté
+    // vivo con más datos); winner sin deletedAt → revive (edición/reactivación
+    // posterior al borrado).
+    if (Number.isFinite(winner.deletedAt)) {
+        out.deletedAt = winner.deletedAt;
+    } else {
+        delete out.deletedAt;
+    }
+
     // 2. Arrays "tipo log" por id (loans tiene merge anidado).
     out.loans = unionById(server.loans, local.loans, 'id',
         (winLoan, loseLoan, sL, lL) => mergeLoan(winLoan, loseLoan, sL, lL));
