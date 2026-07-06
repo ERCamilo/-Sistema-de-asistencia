@@ -9,10 +9,12 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { payrollService as payroll } from '../../services/index.js';
 import { render } from '../../core/RenderManager.js';
-import { saveApplicationData } from '../../services/PersistenceService.js';
+import { saveApplicationData, enqueueEmployeeTombstone } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
+import { canDeleteEmployee } from '../../services/EmployeeDeletionGuard.js';
+import { deleteEmployeePermanently } from '../../services/EmployeeDeletion.js';
 
 export function EmployeeCard(emp) {
 
@@ -87,6 +89,11 @@ export function EmployeeCard(emp) {
                 <button class="view-btn ${emp.active ? '' : 'active'}" type="button" data-action="toggle-employee-status" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
                     ${emp.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
                 </button>
+                ${!emp.active ? `
+                <button class="view-btn" type="button" data-action="delete-employee" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem; border-color: rgba(239,68,68,0.4); color: #fca5a5;" aria-label="Eliminar empleado permanentemente" title="Eliminar permanentemente">
+                    ${icons.get('delete')}
+                </button>
+                ` : ''}
             </div>
         </div>
     `;
@@ -207,6 +214,53 @@ export function toggleEmployeeStatus(employeeId) {
                 window.showAlert(`${icons.get('info')} Empleado ${emp.name} ${actionPast} correctamente`, 'success');
             }
             render();
+        }
+    });
+}
+
+/**
+ * 🗑️ Eliminar un empleado de forma PERMANENTE (borrado robusto con tombstone).
+ * Solo se ofrece para empleados pausados (ver EmployeeCard). Antes de pedir
+ * confirmación se re-valida el guard (canDeleteEmployee): desactivado hace
+ * >=30 días y sin préstamos con saldo pendiente. El diálogo pide una
+ * declaración consciente de que ya se le pagó el período actual (no
+ * verificable automáticamente).
+ */
+export function deleteEmployeeHandler(employeeId) {
+    const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
+    if (!emp) return;
+
+    const check = canDeleteEmployee(emp);
+    if (!check.ok) {
+        if (window.showAlert) window.showAlert(`No se puede eliminar: ${check.reason}`, 'warning');
+        else Modal.alert({ title: 'No se puede eliminar', message: check.reason });
+        return;
+    }
+
+    Modal.confirm({
+        title: `${icons.get('delete')} Eliminar empleado permanentemente`,
+        message: `Vas a ELIMINAR de forma permanente a <strong>${escapeHTML(emp.name)}</strong>.<br><br>` +
+            `Al confirmar declarás que ya se le pagaron los días trabajados del período actual y que no queda ninguna cuenta pendiente con este empleado.<br><br>` +
+            `El empleado desaparecerá de todos tus dispositivos y no se puede deshacer fácilmente.`,
+        confirmText: 'Sí, eliminar definitivamente',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            const r = deleteEmployeePermanently(emp, {
+                enqueueTombstone: (id, deletedAt) => enqueueEmployeeTombstone(id, deletedAt),
+                removeFromState: (id) => {
+                    stateManager.batchSetState(() => {
+                        state.employees = state.employees.filter(e => e.id !== id);
+                    });
+                },
+                persist: () => saveApplicationData({ immediate: true })
+            });
+            if (r.ok) {
+                if (window.showAlert) window.showAlert(`${icons.get('info')} Empleado ${emp.name} eliminado`, 'success');
+                render();
+            } else if (window.showAlert) {
+                window.showAlert(`No se pudo eliminar: ${r.reason}`, 'warning');
+            }
         }
     });
 }

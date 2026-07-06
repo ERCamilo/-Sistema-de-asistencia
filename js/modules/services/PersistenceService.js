@@ -175,6 +175,24 @@ export function enqueueCloudEmployeeDelete(id) {
         .catch(e => console.warn('⚠️ Error encolando borrado de empleado en el outbox:', e));
 }
 
+/**
+ * 🪦 Encola el TOMBSTONE (soft-delete) de un empleado en el outbox durable.
+ * A diferencia de enqueueCloudEmployeeDelete (hard-delete, usado por el wizard
+ * de fusión), este pasa `deletedAt` para que el flush escriba una lápida en
+ * vez de borrar el doc — el borrado sobrevive al multi-dispositivo y no
+ * resucita desde un dispositivo que estaba offline. El `deletedAt` es el
+ * momento REAL del borrado (no el del flush): el LWW lo necesita para que una
+ * edición posterior pueda revivir al empleado.
+ */
+export function enqueueEmployeeTombstone(id, deletedAt) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    const ts = Number.isFinite(deletedAt) ? deletedAt : Date.now();
+    MainSyncStore.enqueueDelete('employee', key, state?.settings?.schemaVersion, { deletedAt: ts })
+        .catch(e => console.warn('⚠️ Error encolando tombstone de empleado en el outbox:', e));
+}
+
 /** Encola varios ids de empleados con una sola escritura a localStorage. */
 export function enqueueCloudEmployeeDeleteBatch(ids) {
     if (!Array.isArray(ids) || ids.length === 0) return;
@@ -328,9 +346,16 @@ function _mainSyncGuards() {
         saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot, { skipEntities: true }),
         saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
         saveEntities: (employees, positions, leaders, schemaVersion) => FirebaseService.saveEntities(employees, positions, leaders, schemaVersion),
-        deleteEntity: (entity, id) => {
+        deleteEntity: (entity, id, deletedAt) => {
             const repo = REPO_BY_ENTITY[entity];
-            return repo ? repo.deleteOne(id) : Promise.resolve();
+            if (!repo) return Promise.resolve();
+            // 🪦 Empleados con deletedAt → tombstone (soft-delete robusto: no
+            // resucita desde un dispositivo que estaba offline al borrar).
+            // Cargos/líderes y borrados legacy sin deletedAt → hard-delete.
+            if (entity === 'employee' && Number.isFinite(deletedAt) && typeof repo.tombstoneOne === 'function') {
+                return repo.tombstoneOne(id, deletedAt);
+            }
+            return repo.deleteOne(id);
         },
         // El feedback de UI (toast honesto + anillos de asistencia) sólo
         // reaccionaba, antes del outbox, a la resolución del MIRROR completo —

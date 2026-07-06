@@ -262,6 +262,52 @@ testRunner.addSuite("EmployeeRepository — deleteOne (Fase 4.1)", {
 
 });
 
+testRunner.addSuite("EmployeeRepository — tombstoneOne (borrado robusto)", {
+
+    // Nota: en el mock de firebase-data, setDoc y deleteDoc son la MISMA
+    // jest.fn (asyncNoop), así que no se pueden distinguir por conteo. Que
+    // tombstoneOne NO hace hard-delete se garantiza por el código (usa setDoc
+    // con merge, no deleteDoc); acá verificamos el payload del tombstone.
+    async "tombstoneOne escribe deletedAt/updatedAt/active con merge"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-t1' };
+        await EmployeeRepository.tombstoneOne('e1', 5000);
+        testRunner.assertEquals(setDoc.mock.calls.length, 1, 'debe escribir el tombstone con setDoc(merge)');
+        const [, payload, options] = setDoc.mock.calls[0];
+        testRunner.assertEquals(payload.deletedAt, 5000);
+        testRunner.assertEquals(payload.updatedAt, 5000, 'updatedAt = deletedAt para que el LWW propague el borrado');
+        testRunner.assertEquals(payload.active, false);
+        testRunner.assert(options && options.merge === true, 'merge:true — conserva name/loans/etc del doc para un posible undelete');
+        auth.currentUser = null;
+    },
+
+    async "tombstoneOne sin id no escribe"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-t2' };
+        await EmployeeRepository.tombstoneOne('', 5000);
+        testRunner.assertEquals(setDoc.mock.calls.length, 0);
+        auth.currentUser = null;
+    },
+
+    async "tombstoneOne sin usuario no escribe"() {
+        clearAllMocks();
+        auth.currentUser = null;
+        await EmployeeRepository.tombstoneOne('e1', 5000);
+        testRunner.assertEquals(setDoc.mock.calls.length, 0);
+    },
+
+    async "tombstoneOne con deletedAt no finito usa un timestamp propio (no rompe)"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-t3' };
+        await EmployeeRepository.tombstoneOne('e1', undefined);
+        testRunner.assertEquals(setDoc.mock.calls.length, 1);
+        const [, payload] = setDoc.mock.calls[0];
+        testRunner.assert(Number.isFinite(payload.deletedAt), 'debe generar un deletedAt válido');
+        auth.currentUser = null;
+    }
+
+});
+
 testRunner.addSuite("EmployeeRepository — subscribe (Fase 4.1)", {
 
     "subscribe sin usuario retorna función noop sin reventar"() {

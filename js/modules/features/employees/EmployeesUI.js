@@ -20,6 +20,7 @@ const _ACTION_MAP = {
     'open-employee-form': (id) => window.openEmployeeForm?.(id || undefined),
     'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
     'toggle-employee-status': (id) => window.toggleEmployeeStatus?.(id),
+    'delete-employee': (id) => window.deleteEmployeeHandler?.(id),
     'open-leader-form': (id) => window.openLeaderForm?.(id || undefined),
     'toggle-leader-status': (id) => window.toggleLeaderStatus?.(id),
     'toggle-leader-employees': (id) => window.toggleLeaderEmployees?.(id),
@@ -498,7 +499,8 @@ export {
     setEmployeeLeaderFilter,
     resetEmployeeFilters,
     openEmployeeForm,
-    toggleEmployeeStatus
+    toggleEmployeeStatus,
+    deleteEmployeeHandler
 } from './EmployeesList.js';
 
 export {

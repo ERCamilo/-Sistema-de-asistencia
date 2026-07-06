@@ -87,7 +87,10 @@ function _resolveCloudCall(entry, guards) {
         // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
         // pendiente hasta que la cuenta migre — no es un fallo.
         if (!minSchema || (entry.schemaVersion || 0) < minSchema) return null;
-        return () => guards.deleteEntity(entry.entity, entry.id);
+        // deletedAt (opcional): si viene, el borrado es un tombstone (soft) en
+        // vez de un hard-delete — el guard decide según la entidad. Empleados
+        // usan tombstone (no resucitan); cargos/líderes siguen con hard-delete.
+        return () => guards.deleteEntity(entry.entity, entry.id, entry.deletedAt);
     }
     return null; // kind desconocido — no debería pasar; no tocar la entrada
 }
@@ -163,14 +166,20 @@ export const MainSyncStore = {
      * `schemaVersion` se captura AHORA (al enqueuear) para que flush() pueda
      * gatear el drenado sin depender del estado en vivo en ese momento futuro.
      */
-    async enqueueDelete(entity, id, schemaVersion) {
+    async enqueueDelete(entity, id, schemaVersion, opts = {}) {
         const all = await _getAll();
         const dup = all.some(e => e && e.kind === 'delete' && e.status === 'pending' && e.entity === entity && e.id === id);
         if (dup) return;
 
-        await indexedDBService.update(OUTBOX, {
+        // deletedAt (opcional): marca el borrado como tombstone durable (soft).
+        // Persistido en la entrada para que el flush escriba el tombstone con
+        // el ts del BORRADO (no el del flush) — el LWW necesita el momento real
+        // para que una edición posterior pueda revivir al empleado.
+        const entry = {
             kind: 'delete', entity, id, schemaVersion, ts: Date.now(), status: 'pending'
-        });
+        };
+        if (Number.isFinite(opts.deletedAt)) entry.deletedAt = opts.deletedAt;
+        await indexedDBService.update(OUTBOX, entry);
     },
 
     /**

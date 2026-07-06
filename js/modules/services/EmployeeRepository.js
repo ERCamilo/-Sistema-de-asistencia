@@ -152,6 +152,29 @@ export const EmployeeRepository = {
     },
 
     /**
+     * 🪦 Marca el empleado como eliminado (soft-delete / lápida) en vez de
+     * borrar el doc. A diferencia de deleteOne (hard), el tombstone SOBREVIVE
+     * al multi-dispositivo: un dispositivo que estaba offline al borrar recibe
+     * el doc con deletedAt y lo saca de su vista, en vez de re-subir el
+     * empleado vivo y resucitarlo. merge:true conserva name/loans/etc por si
+     * hiciera falta un undelete. updatedAt = deletedAt para que el LWW del
+     * merge propague el borrado (una edición POSTERIOR lo revive).
+     */
+    async tombstoneOne(employeeId, deletedAt) {
+        const id = String(employeeId || '').trim();
+        const ref = employeeDocRef(id);
+        if (!ref) return;
+        const ts = Number.isFinite(deletedAt) ? deletedAt : Date.now();
+        try {
+            await setDoc(ref, { deletedAt: ts, updatedAt: ts, active: false }, { merge: true });
+            SyncStatus.markSynced();
+        } catch (e) {
+            console.error(`❌ EmployeeRepository.tombstoneOne(${id}) error:`, e);
+            throw e;
+        }
+    },
+
+    /**
      * Borra el documento de un empleado.
      * No-op si no hay sesión o falta id.
      */

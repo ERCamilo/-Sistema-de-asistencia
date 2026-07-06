@@ -1016,6 +1016,7 @@ window.openLeaderForm = EmployeesUI.openLeaderForm;
 window.saveEmployee = EmployeesUI.saveEmployee;
 window.saveLeader = EmployeesUI.saveLeader;
 window.toggleEmployeeStatus = EmployeesUI.toggleEmployeeStatus;
+window.deleteEmployeeHandler = EmployeesUI.deleteEmployeeHandler;
 window.toggleLeaderStatus = EmployeesUI.toggleLeaderStatus;
 window.setPositionStatusFilter = EmployeesUI.setPositionStatusFilter;
 window.setPositionSearchFilter = EmployeesUI.setPositionSearchFilter;
@@ -7180,6 +7181,7 @@ function _initOutgoingConflictGuard() {
         window.openPositionForm = EmployeesUI.openPositionForm;
         window.changeEmployeeViewMode = EmployeesUI.changeEmployeeViewMode;
         window.toggleEmployeeStatus = EmployeesUI.toggleEmployeeStatus;
+        window.deleteEmployeeHandler = EmployeesUI.deleteEmployeeHandler;
         window.toggleLeaderStatus = EmployeesUI.toggleLeaderStatus;
         window.togglePositionStatus = EmployeesUI.togglePositionStatus;
         window.setEmployeeSearchFilter = EmployeesUI.setEmployeeSearchFilter;
