@@ -36,6 +36,8 @@ import {
     VALIDATION
 } from './LoansService.js';
 import { findSimilarExistingLoan } from './LoanDuplicateDetector.js';
+import { resolveDuplicateAsDistinct, resolveDuplicateByDeleting } from './LoanDuplicateResolver.js';
+import { escapeHTML } from '../../utils/Sanitize.js';
 
 // ─── State scaffolding ───────────────────────────────────────────────────────
 
@@ -291,7 +293,8 @@ function _doCreateLoan(emp) {
         state.loansLedger.showAddForm = false;
         state.loansLedger.newLoanDraft = createEmptyLoanDraft();
         // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.
-        saveApplicationData({ immediate: true, announce: `Préstamo registrado: ${loan.concept}` });
+        // concept escapado: el toast lo renderiza por innerHTML (Notification.render).
+        saveApplicationData({ immediate: true, announce: `Préstamo registrado: ${escapeHTML(loan.concept)}` });
         render();
     } catch (err) {
         alertMsg(`❌ ${err.message}`);
@@ -322,7 +325,7 @@ export function submitNewLoan() {
         window.showConfirm({
             title: 'Préstamo parecido ya registrado',
             message: `Este empleado ya tiene un préstamo por el MISMO monto con fecha cercana ` +
-                `("${similar.concept || 'Préstamo'}", ${similar.startDate}). ` +
+                `("${escapeHTML(similar.concept || 'Préstamo')}", ${escapeHTML(similar.startDate)}). ` +
                 `Puede que ya esté anotado — quizá desde otro dispositivo.<br><br>` +
                 `¿Registrar este préstamo de todas formas?`,
             confirmText: 'Sí, registrar igual',
@@ -600,6 +603,70 @@ export function toggleInactiveHistory() {
     render();
 }
 
+// ─── Duplicate resolution (Fase 2, U5) ───────────────────────────────────────
+
+function _selectedEmployee() {
+    ensureLedgerState();
+    const empId = state.loansLedger.selectedEmployeeId;
+    return state.employees.find(e => e.id === empId) || null;
+}
+
+/**
+ * "Son distintos, quedan los dos": renumera el perdedor del desempate al
+ * siguiente seq disponible. No es destructivo → sin diálogo de confirmación.
+ */
+export function resolveDupKeepBoth(loanIdA, loanIdB) {
+    const emp = _selectedEmployee();
+    if (!emp) {
+        alertMsg('Empleado no encontrado');
+        return;
+    }
+    try {
+        resolveDuplicateAsDistinct(emp, loanIdA, loanIdB);
+        saveApplicationData({ immediate: true, announce: 'Duplicado resuelto: son préstamos distintos' });
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
+}
+
+/**
+ * "Eliminar este": anula si hace falta y borra con tombstone. DESTRUCTIVO →
+ * exige confirmación; sin window.showConfirm disponible NO borra (a
+ * diferencia del guard suave de creación, acá el default seguro es no
+ * hacer nada).
+ */
+export function resolveDupDeleteLoan(loanId) {
+    const emp = _selectedEmployee();
+    if (!emp) {
+        alertMsg('Empleado no encontrado');
+        return;
+    }
+    if (typeof window === 'undefined' || typeof window.showConfirm !== 'function') {
+        alertMsg('No se pudo abrir el diálogo de confirmación. Intenta de nuevo.');
+        return;
+    }
+    const loan = (emp.loans || []).find(l => l.id === loanId);
+    window.showConfirm({
+        title: 'Eliminar préstamo duplicado',
+        message: `Se anulará y eliminará el préstamo "${escapeHTML(loan?.concept || 'Préstamo')}" ` +
+            `(${escapeHTML(loan?.startDate || '')}) de forma permanente. El otro préstamo del par queda intacto. ` +
+            `Esta acción se propaga a los demás dispositivos. ¿Continuar?`,
+        confirmText: 'Sí, eliminar este',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            try {
+                resolveDuplicateByDeleting(emp, loanId);
+                saveApplicationData({ immediate: true, announce: 'Duplicado eliminado' });
+                render();
+            } catch (err) {
+                alertMsg(`❌ ${err.message}`);
+            }
+        }
+    });
+}
+
 /**
  * Register handlers on window.* for the data-app-fn dispatcher used by the
  * Ledger UI. Called once at app boot from app.js.
@@ -627,6 +694,8 @@ export function registerLegacyGlobals() {
     window.pickEmployeeForNewLoan = pickEmployeeForNewLoan;
     window.openLoansLedgerFor = openLoansLedgerFor;
     window.toggleInactiveHistory = toggleInactiveHistory;
+    window.resolveDupKeepBoth = resolveDupKeepBoth;
+    window.resolveDupDeleteLoan = resolveDupDeleteLoan;
     window.toggleRefinanceForm = toggleRefinanceForm;
     window.setRefinanceDraftField = setRefinanceDraftField;
     window.submitRefinance = submitRefinance;

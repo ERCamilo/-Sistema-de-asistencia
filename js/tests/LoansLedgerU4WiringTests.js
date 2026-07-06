@@ -74,4 +74,42 @@ testRunner.addSuite("LoansLedger — cableado del badge pendiente de subir (Fase
 
 });
 
+const CONTROLLER_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/features/loans/LoansController.js'), 'utf8');
+
+testRunner.addSuite("LoansLedger — cableado del resolutor de duplicados (Fase 2, U5)", {
+
+    "el banner tiene el botón 'Eliminar este' por préstamo (resolveDupDeleteLoan con data-arg)"() {
+        testRunner.assert(
+            /data-app-fn="resolveDupDeleteLoan"\s+data-arg=/.test(LEDGER_SRC),
+            "cada préstamo del par debe tener su botón de eliminar con el id como data-arg"
+        );
+    },
+
+    "el banner tiene el botón 'conservar ambos' (resolveDupKeepBoth con data-arg y data-arg2)"() {
+        testRunner.assert(
+            /data-app-fn="resolveDupKeepBoth"\s+data-arg=[\s\S]{0,60}data-arg2=/.test(LEDGER_SRC),
+            "el par debe tener el botón de 'son distintos' con ambos ids"
+        );
+    },
+
+    "el banner muestra el monto abonado de cada préstamo (elección informada)"() {
+        testRunner.assert(
+            /getPaidAmount\s*\(\s*l\s*\)/.test(LEDGER_SRC),
+            "el usuario debe ver cuánto se abonó a cada uno antes de decidir cuál eliminar"
+        );
+    },
+
+    "registerLegacyGlobals expone resolveDupKeepBoth y resolveDupDeleteLoan en window"() {
+        testRunner.assert(
+            /window\.resolveDupKeepBoth\s*=\s*resolveDupKeepBoth/.test(CONTROLLER_SRC),
+            "resolveDupKeepBoth debe registrarse para el dispatcher data-app-fn"
+        );
+        testRunner.assert(
+            /window\.resolveDupDeleteLoan\s*=\s*resolveDupDeleteLoan/.test(CONTROLLER_SRC),
+            "resolveDupDeleteLoan debe registrarse para el dispatcher data-app-fn"
+        );
+    }
+
+});
+
 console.log('🧪 LoansLedgerU4Wiring contract tests cargados.');

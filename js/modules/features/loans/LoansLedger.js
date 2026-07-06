@@ -261,12 +261,32 @@ function EmployeeLoansDetail(empId) {
             ${duplicateCandidates.length > 0 ? `
                 <div style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.5); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
                     <div style="color: #fca5a5; font-weight: 800; font-size: 0.85rem; margin-bottom: 6px;">⚠️ Posibles préstamos duplicados</div>
-                    <div style="color: #cbd5e1; font-size: 0.78rem; line-height: 1.5;">
-                        ${duplicateCandidates.map(c => `
-                            <div>• "${escapeHTML(c.a.concept || 'Préstamo')}" (${formatDateShort(c.a.startDate)}) y "${escapeHTML(c.b.concept || 'Préstamo')}" (${formatDateShort(c.b.startDate)}) — mismo monto (${formatCurrency(c.a.principal)}) y mismo número de secuencia. Pueden ser el MISMO préstamo anotado desde dos dispositivos.</div>
-                        `).join('')}
-                        <div style="margin-top: 6px; color: #94a3b8;">Si uno de los dos está de más, anulalo y eliminalo. Si son préstamos distintos, no hace falta hacer nada.</div>
+                    <div style="color: #cbd5e1; font-size: 0.78rem; line-height: 1.5; margin-bottom: 4px;">
+                        Estos pares tienen el mismo monto, fecha cercana y el mismo número de secuencia — pueden ser el MISMO préstamo anotado desde dos dispositivos.
                     </div>
+                    ${duplicateCandidates.map(c => `
+                        <div style="background: rgba(15,23,42,0.6); border-radius: 8px; padding: 10px 12px; margin-top: 8px;">
+                            <div style="display: flex; flex-direction: column; gap: 6px;">
+                                ${[c.a, c.b].map(l => `
+                                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                        <span style="color: #e2e8f0; font-size: 0.78rem;">
+                                            "${escapeHTML(l.concept || 'Préstamo')}" · ${formatDateShort(l.startDate)} · ${formatCurrency(l.principal)}
+                                            ${getPaidAmount(l) > 0 ? ` · <span style="color:#6ee7b7;">abonado ${formatCurrency(getPaidAmount(l))}</span>` : ''}
+                                        </span>
+                                        <button type="button" data-app-fn="resolveDupDeleteLoan" data-arg="${escapeAttr(l.id)}"
+                                                style="padding: 4px 10px; background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.6); color: #fca5a5; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer; white-space: nowrap;">
+                                            🗑️ Eliminar este
+                                        </button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <button type="button" data-app-fn="resolveDupKeepBoth" data-arg="${escapeAttr(c.a.id)}" data-arg2="${escapeAttr(c.b.id)}"
+                                    style="margin-top: 8px; width: 100%; padding: 6px 10px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.5); color: #6ee7b7; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;">
+                                ✓ Son préstamos distintos — conservar ambos
+                            </button>
+                        </div>
+                    `).join('')}
+                    <div style="margin-top: 8px; color: #94a3b8; font-size: 0.72rem;">Si abonaron cuotas sobre uno de los dos, conservá ese — el monto abonado se muestra en verde.</div>
                 </div>
             ` : ''}
 

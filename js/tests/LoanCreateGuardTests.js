@@ -141,6 +141,22 @@ testRunner.addSuite("LoanCreateGuard — submitNewLoan pregunta ante un préstam
         });
     },
 
+    "el concept del préstamo parecido se ESCAPA en el mensaje del diálogo (XSS vía innerHTML)"() {
+        resetState();
+        seedEmployeeWithLoan({ concept: '<img src=x onerror=alert(1)>' });
+        silence(() => {
+            fillDraft({ principal: 500, startDate: '2026-07-01' });
+            withConfirmSpy((calls) => {
+                submitNewLoan();
+                testRunner.assertEquals(calls.length, 1);
+                testRunner.assert(
+                    !/<img src=x onerror/.test(calls[0].message),
+                    'el concept crudo NO debe aparecer sin escapar en el mensaje del guard'
+                );
+            });
+        });
+    },
+
     "si window.showConfirm no existe, crea directo (el guard es suave, nunca bloquea)"() {
         resetState();
         seedEmployeeWithLoan();
