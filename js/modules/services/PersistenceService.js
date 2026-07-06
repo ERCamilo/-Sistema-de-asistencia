@@ -14,6 +14,7 @@ import { LeaderRepository } from './LeaderRepository.js';
 import { unionById } from './EmployeeMerge.js';
 import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
+import { recordEntitiesSyncOk } from './EntitiesSyncStamp.js';
 import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
@@ -340,6 +341,13 @@ function _mainSyncGuards() {
             if (entry?.kind === 'mirror') {
                 saveOutcomeNotifier.recordCloudResult(ok);
                 globalThis.eventBus?.emit?.('sync:mirror-result', { ok });
+            }
+            // Fase 2 U4: marca de agua para el badge "pendiente de subir" del
+            // ledger de préstamos. Se estampa con el ts del ENQUEUE (momento
+            // de la foto del snapshot), no Date.now() — lo editado después de
+            // encolar no estaba en esa foto y sigue pendiente.
+            if (ok && entry?.kind === 'entities') {
+                recordEntitiesSyncOk(entry.ts);
             }
             // Judgment Day #3: deleteOne() y saveDailyAttendance() nunca llaman
             // a SyncStatus.markSynced() (sólo saveFullState/saveOne lo hacen),

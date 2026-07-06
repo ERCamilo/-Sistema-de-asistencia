@@ -66,6 +66,28 @@ function genId(prefix) {
     return `${prefix}-${Date.now().toString(36)}-${_idCounter.toString(36)}-${rand}`;
 }
 
+// ─── Loan sequence number (Fase 2, U4) ───────────────────────────────────────
+
+/**
+ * El número que el dispositivo cree que corresponde al próximo préstamo del
+ * empleado. `seq` es una SEÑAL de detección de creaciones concurrentes, NO
+ * una identidad (la PK sigue siendo el UUID): dos dispositivos offline que
+ * crean "el 4to préstamo" generan UUIDs distintos pero el MISMO seq=4 — esa
+ * coincidencia es la primera señal del detector de duplicados
+ * (LoanDuplicateDetector.js).
+ *
+ * max(seq)+1 y NO count+1: tras un hard-delete (deleteLoan) el conteo
+ * retrocede y count+1 reciclaría el seq de un préstamo vivo, generando
+ * falsas señales de duplicado. Sin ningún seq finito (datos legacy),
+ * fallback a cantidad + 1.
+ */
+export function nextLoanSeq(loans) {
+    const arr = Array.isArray(loans) ? loans : [];
+    const seqs = arr.map(l => l?.seq).filter(Number.isFinite);
+    if (seqs.length > 0) return Math.max(...seqs) + 1;
+    return arr.length + 1;
+}
+
 // ─── Validation ──────────────────────────────────────────────────────────────
 
 /**
@@ -169,6 +191,8 @@ export function migrateAdvancesToLoans(emp) {
 
         emp.loans.push({
             id: genId('LOAN'),
+            // Fase 2 U4: los migrados también llevan seq (señal de detección).
+            seq: nextLoanSeq(emp.loans),
             _migratedFromAdvanceId: adv.id || null,
             principal: round2(adv.amount || 0),
             interestRate: Number(adv.interest || 0),
@@ -229,6 +253,8 @@ export function createLoan(emp, params) {
 
     const loan = {
         id: genId('LOAN'),
+        // Fase 2 U4: señal de detección de creaciones concurrentes, no PK.
+        seq: nextLoanSeq(emp.loans),
         principal: round2(params.principal),
         interestRate: Number(params.interestRate || 0),
         interestType: params.interestType || 'simple',

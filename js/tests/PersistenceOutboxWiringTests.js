@@ -330,6 +330,61 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
 
 });
 
+// Fase 2 U4 — badge "pendiente de subir": cuando una entrada 'entities' del
+// outbox se sube con éxito, onCloudResult debe estampar la marca de agua
+// (EntitiesSyncStamp.recordEntitiesSyncOk con el ts del ENQUEUE de la
+// entrada, no Date.now del flush). El ledger usa esa marca para saber qué
+// préstamos tienen cambios sin confirmar en la nube.
+testRunner.addSuite("PersistenceService — onCloudResult estampa la marca de entities subidas (Fase 2, U4)", {
+
+    async "un flush exitoso de una entrada 'entities' registra su ts como última subida confirmada"() {
+        const { clearEntitiesSyncStamp, getLastEntitiesSyncOk } = await import('../modules/services/EntitiesSyncStamp.js');
+        const prevApplyingRemote = globalThis._isApplyingRemoteData;
+        clearEntitiesSyncStamp();
+        globalThis.currentUser = { uid: 'u1' };
+        globalThis._isApplyingRemoteData = false;
+        indexedDBService.getAll.mockReset().mockResolvedValue([
+            { key: 1, kind: 'entities', employees: [{ id: 'e1' }], positions: [], leaders: [], schemaVersion: 3, ts: 777001, status: 'pending' }
+        ]);
+        indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+        FirebaseService.saveEntities.mockClear().mockResolvedValue(undefined);
+
+        try {
+            await drainMainSyncOutbox();
+            testRunner.assertEquals(getLastEntitiesSyncOk(), 777001,
+                'debe estamparse el ts del ENQUEUE de la entrada subida — todo lo editado después de ese momento sigue pendiente');
+        } finally {
+            clearEntitiesSyncStamp();
+            globalThis.currentUser = null;
+            globalThis._isApplyingRemoteData = prevApplyingRemote;
+        }
+    },
+
+    async "un flush FALLIDO de 'entities' NO estampa la marca"() {
+        const { clearEntitiesSyncStamp, getLastEntitiesSyncOk } = await import('../modules/services/EntitiesSyncStamp.js');
+        const prevApplyingRemote = globalThis._isApplyingRemoteData;
+        clearEntitiesSyncStamp();
+        globalThis.currentUser = { uid: 'u1' };
+        globalThis._isApplyingRemoteData = false;
+        indexedDBService.getAll.mockReset().mockResolvedValue([
+            { key: 1, kind: 'entities', employees: [], positions: [], leaders: [], schemaVersion: 3, ts: 888001, status: 'pending' }
+        ]);
+        indexedDBService.update.mockReset().mockResolvedValue(1);
+        FirebaseService.saveEntities.mockClear().mockRejectedValue(Object.assign(new Error('quota'), { code: 'resource-exhausted' }));
+
+        try {
+            await drainMainSyncOutbox();
+            testRunner.assertEquals(getLastEntitiesSyncOk(), 0,
+                'una subida fallida no confirma nada — la marca no debe moverse');
+        } finally {
+            clearEntitiesSyncStamp();
+            globalThis.currentUser = null;
+            globalThis._isApplyingRemoteData = prevApplyingRemote;
+        }
+    }
+
+});
+
 // Hallazgo del test de campo (2026-07-05, cuota de Firestore agotada): con
 // MAX_FLUSH_ATTEMPTS=5, una entrada que falla repetidamente contra un error
 // transitorio (ej. resource-exhausted) termina 'dead' — y flush() SOLO

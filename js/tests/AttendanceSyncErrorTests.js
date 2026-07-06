@@ -40,7 +40,9 @@ testRunner.addSuite("FirebaseService — saveDailyAttendance propaga errores (H6
     },
 
     "el guard onCloudResult (usado por MainSyncStore.flush) notifica CUALQUIER fallo vía _notifySyncError (U7)"() {
-        const block = PERSISTENCE_SRC.match(/onCloudResult\s*:\s*\([\s\S]{0,900}/);
+        // 1400 y no 900: el guard creció con el estampado de EntitiesSyncStamp
+        // (Fase 2 U4) y _notifySyncError quedaba fuera de la ventana vieja.
+        const block = PERSISTENCE_SRC.match(/onCloudResult\s*:\s*\([\s\S]{0,1400}/);
         testRunner.assert(!!block,
             'debe existir el guard onCloudResult en _mainSyncGuards (U7 — reemplaza el .catch directo de saveDailyAttendance)');
         testRunner.assert(

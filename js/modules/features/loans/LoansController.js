@@ -35,6 +35,7 @@ import {
     INSTALLMENT_MODE,
     VALIDATION
 } from './LoansService.js';
+import { findSimilarExistingLoan } from './LoanDuplicateDetector.js';
 
 // ─── State scaffolding ───────────────────────────────────────────────────────
 
@@ -283,6 +284,20 @@ export function setLoanDraftField(field, value) {
     if (draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) render();
 }
 
+function _doCreateLoan(emp) {
+    const draft = state.loansLedger.newLoanDraft;
+    try {
+        const loan = createLoan(emp, draft);
+        state.loansLedger.showAddForm = false;
+        state.loansLedger.newLoanDraft = createEmptyLoanDraft();
+        // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.
+        saveApplicationData({ immediate: true, announce: `Préstamo registrado: ${loan.concept}` });
+        render();
+    } catch (err) {
+        alertMsg(`❌ ${err.message}`);
+    }
+}
+
 export function submitNewLoan() {
     ensureLedgerState();
     const empId = state.loansLedger.selectedEmployeeId;
@@ -296,17 +311,29 @@ export function submitNewLoan() {
         return;
     }
 
-    const draft = state.loansLedger.newLoanDraft;
-    try {
-        const loan = createLoan(emp, draft);
-        state.loansLedger.showAddForm = false;
-        state.loansLedger.newLoanDraft = createEmptyLoanDraft();
-        // Toast honesto: lo emite SaveOutcomeNotifier con el resultado REAL.
-        saveApplicationData({ immediate: true, announce: `Préstamo registrado: ${loan.concept}` });
-        render();
-    } catch (err) {
-        alertMsg(`❌ ${err.message}`);
+    // Fase 2 U4 — guard SUAVE anti doble-registro: si ya existe un préstamo
+    // muy parecido (mismo monto, fecha cercana, no anulado), preguntar antes
+    // de crear. Cubre el doble click en un dispositivo Y el caso cross-device
+    // (el préstamo del otro dispositivo ya llegó por LiveSync y el usuario
+    // está por anotarlo de nuevo). Suave a propósito: si no hay mecanismo de
+    // confirmación disponible, crea directo — nunca bloquea el trabajo.
+    const similar = findSimilarExistingLoan(emp, state.loansLedger.newLoanDraft);
+    if (similar && typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
+        window.showConfirm({
+            title: 'Préstamo parecido ya registrado',
+            message: `Este empleado ya tiene un préstamo por el MISMO monto con fecha cercana ` +
+                `("${similar.concept || 'Préstamo'}", ${similar.startDate}). ` +
+                `Puede que ya esté anotado — quizá desde otro dispositivo.<br><br>` +
+                `¿Registrar este préstamo de todas formas?`,
+            confirmText: 'Sí, registrar igual',
+            cancelText: 'Cancelar',
+            type: 'warning',
+            onConfirm: () => _doCreateLoan(emp)
+        });
+        return;
     }
+
+    _doCreateLoan(emp);
 }
 
 // ─── Payment (abono) form ────────────────────────────────────────────────────

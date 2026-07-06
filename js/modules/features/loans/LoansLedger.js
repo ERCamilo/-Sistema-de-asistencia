@@ -37,6 +37,8 @@ import {
     VALIDATION,
     generateInstallmentSchedule
 } from './LoansService.js';
+import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
+import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
 
 export function LoansLedger() {
     const ledger = state.loansLedger || {};
@@ -233,6 +235,11 @@ function EmployeeLoansDetail(empId) {
     const ledger = state.loansLedger || {};
     const showAddForm = !!ledger.showAddForm;
 
+    // Fase 2 U4: detector post-merge de posibles duplicados por creación
+    // concurrente (doble señal: mismo seq + monto igual + fechas cercanas).
+    // U4 solo avisa; el wizard de resolución es U5.
+    const duplicateCandidates = detectLoanDuplicateCandidates(emp);
+
     return `
         <div style="max-width: 1000px; margin: 0 auto;">
             <!-- Header with back button -->
@@ -250,6 +257,18 @@ function EmployeeLoansDetail(empId) {
                     <div style="font-size: 1.5rem; font-weight: 900; color: #f59e0b;">${formatCurrency(totalBalance)}</div>
                 </div>
             </div>
+
+            ${duplicateCandidates.length > 0 ? `
+                <div style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.5); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
+                    <div style="color: #fca5a5; font-weight: 800; font-size: 0.85rem; margin-bottom: 6px;">⚠️ Posibles préstamos duplicados</div>
+                    <div style="color: #cbd5e1; font-size: 0.78rem; line-height: 1.5;">
+                        ${duplicateCandidates.map(c => `
+                            <div>• "${escapeHTML(c.a.concept || 'Préstamo')}" (${formatDateShort(c.a.startDate)}) y "${escapeHTML(c.b.concept || 'Préstamo')}" (${formatDateShort(c.b.startDate)}) — mismo monto (${formatCurrency(c.a.principal)}) y mismo número de secuencia. Pueden ser el MISMO préstamo anotado desde dos dispositivos.</div>
+                        `).join('')}
+                        <div style="margin-top: 6px; color: #94a3b8;">Si uno de los dos está de más, anulalo y eliminalo. Si son préstamos distintos, no hace falta hacer nada.</div>
+                    </div>
+                </div>
+            ` : ''}
 
             <!-- New loan button / form -->
             ${showAddForm ? NewLoanForm() : `
@@ -315,6 +334,15 @@ function LoanCard(loan) {
         ? `<span title="${refinancings.map(r => `${formatDateShort(r.date)}: +${formatCurrency(r.interestAmount)}`).join(' | ')}" style="background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.6); color: #d8b4fe; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">♻️ Refinanciado ${refinCount}×</span>`
         : '';
 
+    // Fase 2 U4: badge "pendiente de subir" — el préstamo tiene cambios con
+    // updatedAt POSTERIOR a la última subida de entidades confirmada
+    // (EntitiesSyncStamp). Solo con sesión: sin cuenta conectada, "pendiente
+    // de subir" no significa nada y sería ruido.
+    const hasSession = typeof window !== 'undefined' && !!window.currentUser;
+    const pendingUploadBadge = (hasSession && isPendingUpload(loan.updatedAt))
+        ? `<span title="Los últimos cambios de este préstamo todavía no se confirmaron en la nube. Se suben solos al sincronizar." style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.55); color: #fcd34d; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">☁️ Pendiente de subir</span>`
+        : '';
+
     const statusBadge = isActive
         ? `<span style="background: #f59e0b; color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ACTIVO</span>`
         : loan.status === LOAN_STATUS.PAID
@@ -340,6 +368,7 @@ function LoanCard(loan) {
                 <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
                     ${statusBadge}
                     ${refinBadge}
+                    ${pendingUploadBadge}
                 </div>
             </div>
 
