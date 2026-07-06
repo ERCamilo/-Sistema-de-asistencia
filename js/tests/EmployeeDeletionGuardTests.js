@@ -15,7 +15,7 @@
  * verificable automáticamente, se pide como confirmación consciente en la UI.
  */
 
-import { canDeleteEmployee, DEFAULT_MIN_INACTIVE_DAYS } from '../modules/services/EmployeeDeletionGuard.js';
+import { canDeleteEmployee, canDeleteDuplicateEmployee, DEFAULT_MIN_INACTIVE_DAYS } from '../modules/services/EmployeeDeletionGuard.js';
 import { createLoan, recordPayment } from '../modules/features/loans/LoansService.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -94,6 +94,34 @@ testRunner.addSuite("EmployeeDeletionGuard — canDeleteEmployee", {
             loans: [{ id: 'L1', status: 'written-off', principal: 500, payments: [], refinancings: [] }] });
         const r = canDeleteEmployee(emp, { now: NOW });
         testRunner.assertEquals(r.ok, true);
+    }
+
+});
+
+testRunner.addSuite("EmployeeDeletionGuard — canDeleteDuplicateEmployee (wizard, solo saldo)", {
+
+    "un duplicado ACTIVO y reciente SÍ se puede eliminar (sin requisito de pausado/días)"() {
+        const emp = { id: 'e1', name: 'Dup', active: true, loans: [] };
+        const r = canDeleteDuplicateEmployee(emp);
+        testRunner.assertEquals(r.ok, true, 'en el wizard no importa que esté activo ni la antigüedad');
+    },
+
+    "un duplicado con préstamo activo con saldo pendiente NO se puede eliminar (proteger la plata)"() {
+        const emp = { id: 'e1', name: 'Dup',
+            loans: [{ id: 'L1', status: 'active', principal: 1000, interestRate: 0, payments: [], refinancings: [] }] };
+        const r = canDeleteDuplicateEmployee(emp);
+        testRunner.assertEquals(r.ok, false);
+        testRunner.assert(/saldo|pr[eé]stamo|deuda/i.test(r.reason));
+    },
+
+    "un duplicado cuyo préstamo está saldado SÍ se puede eliminar"() {
+        const emp = { id: 'e1', name: 'Dup',
+            loans: [{ id: 'L1', status: 'paid', principal: 1000, payments: [], refinancings: [] }] };
+        testRunner.assertEquals(canDeleteDuplicateEmployee(emp).ok, true);
+    },
+
+    "defensivo: emp null → no ok, sin lanzar"() {
+        testRunner.assertEquals(canDeleteDuplicateEmployee(null).ok, false);
     }
 
 });

@@ -15,8 +15,11 @@ import { EmployeeRepository } from '../services/EmployeeRepository.js';
 import { validateManualGroup } from '../services/ManualGroupValidator.js';
 import { reconcileCloudFromLocal } from '../services/CloudReconcile.js';
 import { classifyEmployeeId, idFormatLabel } from '../services/IdFormat.js';
-import { state } from '../core/AppState.js';
+import { state, stateManager } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
+import { canDeleteDuplicateEmployee } from '../services/EmployeeDeletionGuard.js';
+import { enqueueEmployeeTombstone } from '../services/PersistenceService.js';
+import { escapeHTML } from '../utils/Sanitize.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-maint-action)
@@ -563,7 +566,8 @@ export class MaintenanceUI {
         const ROLE_STYLES = {
             master:   { label: 'Perfil principal', description: 'Se conserva', className: 'is-master' },
             absorb:   { label: 'Se unirá', description: 'Misma persona', className: 'is-absorb' },
-            separate: { label: 'Cambiar ficha', description: 'Otra persona', className: 'is-separate' }
+            separate: { label: 'Cambiar ficha', description: 'Otra persona', className: 'is-separate' },
+            delete:   { label: 'Se eliminará', description: 'Registro de más', className: 'is-delete' }
         };
         const style = ROLE_STYLES[role] || { label: 'Sin decidir', description: 'Elige una acción', className: '' };
 
@@ -656,6 +660,7 @@ export class MaintenanceUI {
                     ${btn('set-member-role', 'Conservar', 'perfil principal', 'master')}
                     ${btn('set-member-role', 'Unir con este', 'es la misma persona', 'absorb')}
                     ${btn('set-member-role', 'Cambiar ficha', 'es otra persona', 'separate')}
+                    ${btn('set-member-role', 'Eliminar', 'registro de más (se borra)', 'delete')}
                 </div>
             </div>
         `;
@@ -804,6 +809,55 @@ export class MaintenanceUI {
      * Si en la 500 ya había otro Jean, aparece un nuevo grupo al
      * final de la cola para resolver a continuación.
      */
+    /**
+     * Feature #2: valida y confirma los borrados del wizard antes de aplicar.
+     * - Bloquea (y avisa) si algún registro a eliminar tiene saldo pendiente.
+     * - Advierte qué asistencia/préstamos se perderán y pide confirmación.
+     * @returns {Promise<boolean>} true si se puede proceder.
+     */
+    async _confirmDuplicateDeletes(deleteIds, group) {
+        const members = deleteIds
+            .map(id => (group.members || []).find(m => m.id === id))
+            .filter(Boolean);
+
+        // Guard de saldo (proteger la plata) — bloquea todo el apply.
+        for (const m of members) {
+            const check = canDeleteDuplicateEmployee(m);
+            if (!check.ok) {
+                NotificationSystem.error(`No se puede eliminar "${m.name || m.id}": ${check.reason}`);
+                return false;
+            }
+        }
+
+        // Advertencia de datos que se pierden (asistencia / préstamos).
+        const withData = members
+            .map(m => ({
+                name: m.name || '(sin nombre)',
+                att: m.attendanceCount || 0,
+                loans: (m.loans || []).length
+            }))
+            .filter(x => x.att > 0 || x.loans > 0);
+
+        const lines = members.map(m => `• ${escapeHTML(m.name || '(sin nombre)')}`).join('<br>');
+        let message = `Vas a ELIMINAR de forma permanente ${members.length} registro${members.length === 1 ? '' : 's'}:<br>${lines}<br><br>`;
+        if (withData.length > 0) {
+            const dataLines = withData
+                .map(x => `• ${escapeHTML(x.name)}: ${x.att} asistencia${x.att === 1 ? '' : 's'}, ${x.loans} préstamo${x.loans === 1 ? '' : 's'}`)
+                .join('<br>');
+            message += `⚠️ Se PERDERÁN estos datos:<br>${dataLines}<br><br>` +
+                `Si querés conservarlos, cancelá y usá "Unir con el principal" en vez de "Eliminar".<br><br>`;
+        }
+        message += `El borrado se propaga a todos tus dispositivos. ¿Continuar?`;
+
+        return Modal.confirm({
+            title: 'Eliminar registros duplicados',
+            message,
+            confirmText: 'Sí, eliminar',
+            cancelText: 'Cancelar',
+            type: 'danger'
+        });
+    }
+
     async applyManualGroup() {
         const group = this.conflicts[this.currentConflictIndex];
         if (!group) return;
@@ -814,7 +868,15 @@ export class MaintenanceUI {
             return;
         }
 
-        const { masterId, absorbIds, separateIds } = validation;
+        const { masterId, absorbIds, separateIds, deleteIds } = validation;
+
+        // Feature #2: confirmar los borrados ANTES de ejecutar nada. Bloquea si
+        // algún registro a eliminar tiene saldo pendiente (proteger la plata);
+        // avisa si se perderán asistencia/préstamos.
+        if (deleteIds && deleteIds.length > 0) {
+            const proceed = await this._confirmDuplicateDeletes(deleteIds, group);
+            if (!proceed) return;
+        }
 
         // 1. Fusionar absorbs en el master usando executeMergePlan (que ya
         //    sabe manejar cloud-only y encolar borrados remotos).
@@ -832,6 +894,20 @@ export class MaintenanceUI {
             };
             const r = executeMergePlan([planItem]);
             this.mergeCount += (r.merged || 0);
+        }
+
+        // 1.b Feature #2: ejecutar los tombstones de los eliminados. Robusto
+        //     (soft-delete): el borrado sobrevive al multi-dispositivo. Se saca
+        //     de state ANTES del save (paso 3) para que el snapshot no los
+        //     re-suba, y se encola el tombstone durable con el ts del borrado.
+        if (deleteIds && deleteIds.length > 0) {
+            const now = Date.now();
+            stateManager.batchSetState(() => {
+                state.employees = state.employees.filter(e => !deleteIds.includes(e.id));
+            });
+            for (const delId of deleteIds) {
+                enqueueEmployeeTombstone(delId, now);
+            }
         }
 
         // 2. Reasignar separates. Materializar miembros cloud-only antes.

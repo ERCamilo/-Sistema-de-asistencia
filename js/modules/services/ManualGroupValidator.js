@@ -23,7 +23,7 @@
 
 export function validateManualGroup(members) {
     const errors = [];
-    const result = { ok: false, errors, masterId: null, absorbIds: [], separateIds: [] };
+    const result = { ok: false, errors, masterId: null, absorbIds: [], separateIds: [], deleteIds: [] };
 
     if (!Array.isArray(members) || members.length === 0) {
         errors.push('No hay miembros que validar.');
@@ -33,6 +33,7 @@ export function validateManualGroup(members) {
     const masters  = [];
     const absorbs  = [];
     const separates = [];
+    const deletes  = [];   // Feature #2: 'delete' → tombstone (independiente; no requiere master)
     const undecided = [];
 
     members.forEach(m => {
@@ -41,6 +42,7 @@ export function validateManualGroup(members) {
             case 'master':   masters.push(m.id);   break;
             case 'absorb':   absorbs.push(m.id);   break;
             case 'separate': separates.push(m.id); break;
+            case 'delete':   deletes.push(m.id);   break;
             default:         undecided.push(m.id); break;
         }
     });
@@ -63,6 +65,7 @@ export function validateManualGroup(members) {
         result.masterId   = masters[0] || null;
         result.absorbIds  = absorbs;
         result.separateIds = separates;
+        result.deleteIds  = deletes;
     }
 
     return result;

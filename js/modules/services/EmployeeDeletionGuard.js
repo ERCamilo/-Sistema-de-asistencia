@@ -65,4 +65,22 @@ export function canDeleteEmployee(emp, opts = {}) {
     return { ok: true };
 }
 
+/**
+ * Guard MÁS LIVIANO para el wizard de duplicados (Feature #2): un duplicado
+ * recién detectado no suele estar pausado ni llevar 30 días, así que acá SOLO
+ * se protege la plata — no se puede eliminar si tiene préstamos activos con
+ * saldo pendiente. Sin requisito de inactividad ni antigüedad.
+ * @param {object|null} emp
+ * @returns {{ok: boolean, reason?: string}}
+ */
+export function canDeleteDuplicateEmployee(emp) {
+    if (!emp || typeof emp !== 'object') {
+        return { ok: false, reason: 'Empleado no válido.' };
+    }
+    if (hasOutstandingBalance(emp)) {
+        return { ok: false, reason: 'Tiene préstamos activos con saldo pendiente. Saldá o anulá esos préstamos, o unilo al principal en vez de eliminarlo.' };
+    }
+    return { ok: true };
+}
+
 export default canDeleteEmployee;
