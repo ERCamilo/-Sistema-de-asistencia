@@ -27,9 +27,11 @@ import { createEntityUploadTracker } from './EntityUploadTracker.js';
 // Un tracker POR TIPO de entidad (no uno compartido — mezclaría ids entre
 // empleados/puestos/líderes) filtra a solo lo que cambió desde la última
 // subida exitosa.
-const _employeeUploadTracker = createEntityUploadTracker();
-const _positionUploadTracker = createEntityUploadTracker();
-const _leaderUploadTracker = createEntityUploadTracker();
+// storageKey por tipo: el watermark se persiste y sobrevive al reload (sin
+// esto, el primer guardado tras recargar re-subía el roster entero).
+const _employeeUploadTracker = createEntityUploadTracker('entityUpload.employees.v1');
+const _positionUploadTracker = createEntityUploadTracker('entityUpload.positions.v1');
+const _leaderUploadTracker = createEntityUploadTracker('entityUpload.leaders.v1');
 
 class FirebaseService {
     constructor() {

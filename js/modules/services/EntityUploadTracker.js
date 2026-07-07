@@ -17,10 +17,47 @@
  *
  * Map, no objeto plano: mismo motivo que EmployeesIncomingMerge.js — un id
  * "__proto__" sobre un objeto plano es un no-op silencioso.
+ *
+ * Persistencia (Judgment Day Fase 2A): con `storageKey`, el watermark se
+ * guarda en localStorage y SOBREVIVE al reload. Sin persistir, cada
+ * relanzamiento de la PWA olvidaba todo y el primer guardado re-subía el
+ * roster entero (read+write por entidad) — la misma amplificación de cuota que este
+ * módulo vino a cortar, re-escalada de "cada guardado" a "cada reload".
+ * Sin `storageKey` el tracker es solo-memoria (retrocompatible con los tests).
+ *
+ * @param {string} [storageKey] clave de localStorage donde persistir el
+ *   watermark. Distinta por tipo de entidad (employees/positions/leaders).
  */
-
-export function createEntityUploadTracker() {
+export function createEntityUploadTracker(storageKey) {
     let lastUploadedById = new Map();
+
+    function _load() {
+        if (!storageKey || typeof localStorage === 'undefined') return;
+        try {
+            const raw = localStorage.getItem(storageKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                // [[id, updatedAt], ...] → sólo pares válidos con updatedAt finito.
+                lastUploadedById = new Map(
+                    parsed.filter(e => Array.isArray(e) && e.length === 2 && Number.isFinite(e[1]))
+                );
+            }
+        } catch (e) {
+            // Storage corrupto / no disponible → arrancar vacío (no romper el arranque).
+        }
+    }
+
+    function _persist() {
+        if (!storageKey || typeof localStorage === 'undefined') return;
+        try {
+            localStorage.setItem(storageKey, JSON.stringify([...lastUploadedById.entries()]));
+        } catch (e) {
+            // Cuota de storage llena / no disponible → seguir en memoria.
+        }
+    }
+
+    _load();
 
     return {
         /**
@@ -42,16 +79,22 @@ export function createEntityUploadTracker() {
 
         /** Registrar como subidos con éxito. Llamar SOLO tras un saveMany exitoso. */
         markUploaded(items) {
+            let touched = false;
             (Array.isArray(items) ? items : []).forEach(item => {
                 if (!item || item.id == null) return;
                 const current = Number.isFinite(item.updatedAt) ? item.updatedAt : 0;
                 lastUploadedById.set(String(item.id), current);
+                touched = true;
             });
+            if (touched) _persist();
         },
 
-        /** Utilidad de test / logout: olvida todo lo rastreado. */
+        /** Utilidad de test / logout: olvida todo lo rastreado (memoria + storage). */
         reset() {
             lastUploadedById = new Map();
+            if (storageKey && typeof localStorage !== 'undefined') {
+                try { localStorage.removeItem(storageKey); } catch (e) { /* noop */ }
+            }
         }
     };
 }

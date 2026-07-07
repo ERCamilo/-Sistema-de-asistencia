@@ -360,11 +360,16 @@ testRunner.addSuite("FirebaseService — saveEntities NO re-sube entidades sin c
         );
     },
 
-    "cada tipo de entidad usa un tracker INDEPENDIENTE (no un solo tracker compartido)"() {
-        testRunner.assert(
-            (FIREBASE_SRC.match(/createEntityUploadTracker\s*\(\s*\)/g) || []).length >= 3,
-            'debe crearse un tracker separado para employees, positions y leaders — compartir uno solo mezclaría sus ids'
-        );
+    "cada tipo de entidad usa un tracker INDEPENDIENTE con su propia storageKey persistente"() {
+        // Cada tracker se crea con una storageKey DISTINTA: independientes (no
+        // mezclan ids entre employees/positions/leaders) Y persistentes (el
+        // watermark sobrevive al reload en vez de re-subir todo el roster).
+        const calls = FIREBASE_SRC.match(/createEntityUploadTracker\s*\(\s*'[^']+'\s*\)/g) || [];
+        testRunner.assert(calls.length >= 3,
+            'deben crearse 3 trackers, cada uno con su storageKey (employees, positions, leaders)');
+        const keys = calls.map(c => c.match(/'([^']+)'/)[1]);
+        testRunner.assertEquals(new Set(keys).size, keys.length,
+            'las storageKeys deben ser DISTINTAS entre tipos — compartir una mezclaría ids');
     }
 
 });

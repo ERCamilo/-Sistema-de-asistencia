@@ -115,6 +115,53 @@ testRunner.addSuite("EntityUploadTracker — evita re-subir entidades sin cambio
         tracker.markUploaded([{ id: '__proto__', updatedAt: 100 }]);
         const changed = tracker.filterChanged([{ id: '__proto__', updatedAt: 100 }]);
         testRunner.assertEquals(changed.length, 0, 'debe reconocerse como ya subido, no como "nunca visto"');
+    },
+
+    // 🐛 Judgment Day Fase 2A: el watermark vivía SOLO en memoria (let Map), así
+    // que cada reload/relanzamiento de la PWA lo perdía y el primer guardado
+    // tras recargar re-subía TODO el roster (read+write por entidad) — la misma
+    // amplificación de cuota, re-escalada de "cada guardado" a "cada reload".
+    // Con storageKey, el watermark se persiste y sobrevive al reload.
+    "con storageKey, markUploaded persiste y un tracker nuevo rehidrata (sobrevive al reload)"() {
+        const key = 'test.entityUpload.employees';
+        try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+        const t1 = createEntityUploadTracker(key);
+        t1.markUploaded([{ id: 'e1', updatedAt: 100 }, { id: 'e2', updatedAt: 200 }]);
+        // Simular reload: un tracker NUEVO con la misma storageKey.
+        const t2 = createEntityUploadTracker(key);
+        const changed = t2.filterChanged([{ id: 'e1', updatedAt: 100 }, { id: 'e2', updatedAt: 200 }]);
+        testRunner.assertEquals(changed.length, 0,
+            'tras "reload" (tracker nuevo, misma storageKey) no debe re-subir lo ya subido');
+        try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+    },
+
+    "sin storageKey el tracker no persiste (retrocompatible: cada instancia arranca vacía)"() {
+        const t1 = createEntityUploadTracker();
+        t1.markUploaded([{ id: 'e1', updatedAt: 100 }]);
+        const t2 = createEntityUploadTracker();
+        testRunner.assertEquals(t2.filterChanged([{ id: 'e1', updatedAt: 100 }]).length, 1,
+            'sin storageKey, un tracker nuevo NO ve lo que subió otro (comportamiento en memoria)');
+    },
+
+    "reset() con storageKey también borra lo persistido"() {
+        const key = 'test.entityUpload.reset';
+        try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+        const t1 = createEntityUploadTracker(key);
+        t1.markUploaded([{ id: 'e1', updatedAt: 100 }]);
+        t1.reset();
+        const t2 = createEntityUploadTracker(key);
+        testRunner.assertEquals(t2.filterChanged([{ id: 'e1', updatedAt: 100 }]).length, 1,
+            'tras reset, ni un tracker nuevo debe considerarlo ya subido');
+        try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+    },
+
+    "un JSON corrupto en storageKey no rompe: arranca vacío"() {
+        const key = 'test.entityUpload.corrupt';
+        try { localStorage.setItem(key, '{no es json válido'); } catch (e) { /* noop */ }
+        const t = createEntityUploadTracker(key);
+        testRunner.assertEquals(t.filterChanged([{ id: 'e1', updatedAt: 100 }]).length, 1,
+            'con storage corrupto debe arrancar como si nada estuviera subido');
+        try { localStorage.removeItem(key); } catch (e) { /* noop */ }
     }
 
 });
