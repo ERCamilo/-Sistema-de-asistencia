@@ -5563,7 +5563,16 @@ window.deleteAllData = function () {
  * borrado se propaga (no revive). Pide confirmación (destructivo).
  */
 window.purgeOrphanAttendanceHandler = function () {
-    const liveIds = new Set((state.employees || []).map(e => String(e.id)));
+    // 🛡️ Guardia anti-borrado-masivo: si los empleados no cargaron todavía (o
+    // su carga falló), liveIds queda vacío y TODA la asistencia se vería como
+    // "huérfana". No se puede distinguir con certeza "no cargó" de "no hay
+    // empleados", así que ante lista vacía se aborta — el costo de un falso
+    // positivo es el borrado de todo el historial.
+    if (!state.isDataLoaded || !Array.isArray(state.employees) || state.employees.length === 0) {
+        showNotification('No se puede limpiar ahora: la lista de empleados no está disponible. Recargá e intentá de nuevo.', 'warning');
+        return;
+    }
+    const liveIds = new Set(state.employees.map(e => String(e.id)));
     const orphanCount = collectOrphanAttendanceKeys(state.attendance, liveIds).length;
     if (orphanCount === 0) {
         showNotification('No hay historial de empleados borrados para limpiar.', 'info');

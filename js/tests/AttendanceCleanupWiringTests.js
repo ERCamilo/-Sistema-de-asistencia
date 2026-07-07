@@ -72,7 +72,7 @@ testRunner.addSuite("AttendanceCleanupWiring — acción de Ajustes/Datos (huér
     "app.js define window.purgeOrphanAttendanceHandler con confirmación y usa purgeOrphanAttendance"() {
         testRunner.assert(/window\.purgeOrphanAttendanceHandler\s*=\s*function/.test(APP_SRC));
         const idx = APP_SRC.indexOf('window.purgeOrphanAttendanceHandler');
-        const block = APP_SRC.slice(idx, idx + 1300);
+        const block = APP_SRC.slice(idx, idx + 1800);
         testRunner.assert(/collectOrphanAttendanceKeys\s*\(/.test(block), 'debe contar los huérfanos antes de confirmar');
         testRunner.assert(/showConfirm/.test(block), 'debe pedir confirmación (destructivo)');
         testRunner.assert(/purgeOrphanAttendance\s*\(\s*\)/.test(block), 'debe ejecutar la limpieza');
@@ -80,8 +80,24 @@ testRunner.addSuite("AttendanceCleanupWiring — acción de Ajustes/Datos (huér
 
     "si no hay huérfanos, avisa sin abrir el diálogo destructivo"() {
         const idx = APP_SRC.indexOf('window.purgeOrphanAttendanceHandler');
-        const block = APP_SRC.slice(idx, idx + 1300);
+        const block = APP_SRC.slice(idx, idx + 1800);
         testRunner.assert(/orphanCount\s*===\s*0/.test(block));
+    },
+
+    // 🐛 Judgment Day Fase 2A: si state.employees no cargó (o falló su carga),
+    // liveIds queda vacío y collectOrphanAttendanceKeys marca TODA la asistencia
+    // como huérfana → el usuario podría confirmar el borrado de todo el
+    // historial. La guardia aborta ante lista de empleados vacía / datos no
+    // cargados, ANTES de computar los huérfanos.
+    "el handler aborta si los empleados no cargaron (guardia anti-borrado-masivo)"() {
+        const idx = APP_SRC.indexOf('window.purgeOrphanAttendanceHandler');
+        const block = APP_SRC.slice(idx, idx + 1600);
+        testRunner.assert(
+            /isDataLoaded[\s\S]{0,160}employees[\s\S]{0,400}collectOrphanAttendanceKeys/.test(block),
+            'debe chequear isDataLoaded + employees vacío ANTES de computar orphanCount'
+        );
+        testRunner.assert(/length\s*===\s*0/.test(block),
+            'debe abortar explícitamente cuando la lista de empleados está vacía');
     }
 
 });
