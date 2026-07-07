@@ -373,3 +373,25 @@ testRunner.addSuite("FirebaseService — saveEntities NO re-sube entidades sin c
     }
 
 });
+
+testRunner.addSuite("FirebaseService — deleteCloudData invalida el watermark de subida (Ronda 2)", {
+
+    // 🐛 Judgment Day Fase 2A Ronda 2 (CRITICAL): con el watermark ahora
+    // PERSISTENTE, borrar la nube y re-subir (Borrar Nube / Subir y Reemplazar /
+    // Reemplazo Total, todos vía deleteCloudData) dejaba el watermark diciendo
+    // "ya subí X" contra una nube vacía → saveEntities filtraba y las entidades
+    // nunca volvían a subir. deleteCloudData debe resetear los trackers de las
+    // entidades que borra para que la re-subida no quede filtrada.
+    "deleteCloudData resetea los trackers de subida de las entidades que borra"() {
+        const idx = FIREBASE_SRC.indexOf('async deleteCloudData');
+        testRunner.assert(idx !== -1, 'debe existir deleteCloudData');
+        const block = FIREBASE_SRC.slice(idx, idx + 2400);
+        testRunner.assert(/_employeeUploadTracker\.reset\(\)/.test(block),
+            'debe resetear el tracker de empleados al borrar la nube');
+        testRunner.assert(/_positionUploadTracker\.reset\(\)/.test(block),
+            'debe resetear el tracker de puestos');
+        testRunner.assert(/_leaderUploadTracker\.reset\(\)/.test(block),
+            'debe resetear el tracker de líderes');
+    }
+
+});

@@ -881,6 +881,16 @@ class FirebaseService {
             ? options.collections.filter(c => ALL_CLOUD_COLLECTIONS.includes(c))
             : ALL_CLOUD_COLLECTIONS;
 
+        // 🚦 Invalidar el watermark de subida de las entidades que se borran: el
+        // tracker es persistente, así que sin esto un "Borrar Nube"/"Subir y
+        // Reemplazar" dejaría el watermark diciendo "ya subí X" contra una nube
+        // vacía → el próximo saveEntities filtraría esas entidades y jamás las
+        // re-subiría. Reset por colección borrada → la re-subida ve todo como
+        // "nunca subido" y repuebla la nube.
+        if (SUBCOLLECTIONS.includes('employees')) _employeeUploadTracker.reset();
+        if (SUBCOLLECTIONS.includes('positions')) _positionUploadTracker.reset();
+        if (SUBCOLLECTIONS.includes('leaders')) _leaderUploadTracker.reset();
+
         let deleted = 0;
         try {
             for (const colName of SUBCOLLECTIONS) {
