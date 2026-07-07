@@ -249,7 +249,11 @@ export function deleteEmployeeHandler(employeeId) {
         type: 'danger',
         onConfirm: () => {
             const empId = emp.id;
-            const r = deleteEmployeePermanently(emp, {
+            // Modal.confirm es async: LiveSync pudo reemplazar state.employees
+            // mientras el diálogo estaba abierto (otro dispositivo agregó un
+            // préstamo). El guard de saldo debe validar sobre datos frescos.
+            const freshEmp = state.employees.find(e => e.id === empId) || emp;
+            const r = deleteEmployeePermanently(freshEmp, {
                 enqueueTombstone: (id, deletedAt) => enqueueEmployeeTombstone(id, deletedAt),
                 removeFromState: (id) => {
                     stateManager.batchSetState(() => {

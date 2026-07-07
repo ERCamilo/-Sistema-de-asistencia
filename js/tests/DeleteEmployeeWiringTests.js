@@ -59,9 +59,27 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
         });
     },
 
+    // 🐛 Judgment Day Fase 2A: el `emp` se captura al abrir el handler, pero
+    // Modal.confirm es async. Entre abrir el diálogo y confirmar, LiveSync
+    // puede reemplazar state.employees (otro dispositivo agrega un préstamo).
+    // El guard de saldo (dentro de deleteEmployeePermanently) validaba sobre
+    // el emp stale del closure → podía borrar un empleado con saldo nuevo.
+    "onConfirm re-lee el empleado del state vivo antes de borrar (no usa el emp stale)"() {
+        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const block = LIST_SRC.slice(idx, idx + 2000);
+        testRunner.assert(
+            /onConfirm[\s\S]{0,500}state\.employees\.find\(\s*e\s*=>\s*e\.id\s*===\s*empId\s*\)/.test(block),
+            'onConfirm debe re-buscar el empleado por empId en el state vivo'
+        );
+        testRunner.assert(
+            /deleteEmployeePermanently\(\s*freshEmp\b/.test(block),
+            'debe pasar el empleado fresco al orquestador, no el emp capturado al abrir'
+        );
+    },
+
     "el handler encola el tombstone (no un hard-delete) vía enqueueEmployeeTombstone"() {
         const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
-        const block = LIST_SRC.slice(idx, idx + 1400);
+        const block = LIST_SRC.slice(idx, idx + 2000);
         testRunner.assert(/enqueueEmployeeTombstone\s*\(/.test(block),
             'debe encolar el tombstone durable, no hard-delete');
         testRunner.assert(/deleteEmployeePermanently\s*\(/.test(block),
