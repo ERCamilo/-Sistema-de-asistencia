@@ -77,6 +77,29 @@ testRunner.addSuite("IntegrityFixStamps — las correcciones estampan updatedAt 
         } finally { restoreState(snap); }
     },
 
+    // 🐛 Judgment Day Fase 2A: el LWW de puestos ahora usa positionsUpdatedAt
+    // (frescura específica de puestos). Una corrección de integridad que toca
+    // positions/positionSalaries debe estampar TAMBIÉN positionsUpdatedAt, o el
+    // merge no reconocería la corrección como "más fresca en puestos" y el
+    // huérfano podría resucitar en el próximo merge.
+    async "corregir un emp.positions huérfano estampa emp.positionsUpdatedAt"() {
+        const snap = snapshotState();
+        try {
+            state.positions = [{ id: 'pos-viva', name: 'Válida' }];
+            state.leaders = [];
+            state.attendance = {};
+            state.employees = [{
+                id: 'e1', name: 'Ana', updatedAt: 1000, positionsUpdatedAt: 1000,
+                positions: ['pos-viva', 'pos-borrada']
+            }];
+            const before = Date.now() - 1;
+            await validateDataIntegrity();
+            const emp = state.employees.find(e => e.id === 'e1');
+            testRunner.assert(emp.positionsUpdatedAt > before,
+                'la corrección de puestos DEBE estampar positionsUpdatedAt para ganar el LWW fino de puestos');
+        } finally { restoreState(snap); }
+    },
+
     async "un empleado SIN huérfanos NO recibe estampa (estampar de más re-sube a todos = bug de cuota)"() {
         const snap = snapshotState();
         try {

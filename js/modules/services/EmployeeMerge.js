@@ -37,6 +37,17 @@ function ts(x) {
     return typeof x?.updatedAt === 'number' ? x.updatedAt : null;
 }
 
+// Frescura ESPECÍFICA de los puestos (positions/positionSalaries). Sólo sube
+// cuando se tocan los puestos, así que una edición de otro campo (teléfono,
+// nombre) NO la mueve — por eso el LWW de puestos usa esto y no el updatedAt
+// general (Judgment Day Fase 2A: editar un campo ajeno pisaba los puestos del
+// otro dispositivo). Fallback a updatedAt para empleados aún no migrados.
+function positionsTs(x) {
+    if (typeof x?.positionsUpdatedAt === 'number') return x.positionsUpdatedAt;
+    if (typeof x?.updatedAt === 'number') return x.updatedAt;
+    return null;
+}
+
 function pickNewerScalar(server, local) {
     // Devuelve el lado "ganador" para escalares según updatedAt.
     const s = ts(server);
@@ -212,20 +223,21 @@ export function mergeEmployees(server, local) {
     out.statusHistory = mergeStatusHistory(server.statusHistory, local.statusHistory);
 
     // 4 y 5. positions (lista de strings) y positionSalaries (mapa).
-    // 🔁 Fix del bucle de sanitización (test de campo 2026-07-06): la UNIÓN
-    // incondicional resucitaba las REMOCIONES — un huérfano corregido (o un
-    // puesto desasignado a propósito) volvía desde la copia vieja del otro
-    // lado en CADA merge, incluso en la SUBIDA (saveOne mergeRemote fusiona
-    // con el doc remoto antes de escribir), así que la nube nunca convergía.
-    // Si un lado es ESTRICTAMENTE más nuevo por updatedAt, su lista/mapa
-    // ganan COMPLETOS (post-Fase-1 toda mutación legítima estampa updatedAt,
-    // así que "más nuevo" = "esta es la verdad actual"). La unión queda SOLO
-    // para el empate o cuando falta updatedAt: sin información de frescura,
-    // no perder nada sigue siendo lo seguro.
-    const sTs = ts(server);
-    const lTs = ts(local);
-    const strictWinner = (sTs !== null && lTs !== null && sTs !== lTs)
-        ? (sTs > lTs ? server : local)
+    // 🔁 Fix del bucle de sanitización (2026-07-06) + Judgment Day Fase 2A:
+    // la UNIÓN incondicional resucitaba las REMOCIONES (un huérfano corregido o
+    // un puesto desasignado volvía desde la copia vieja del otro lado en cada
+    // merge, incluso al subir). El fix inicial usaba el updatedAt GENERAL para
+    // el LWW, pero eso hacía que editar un campo NO relacionado (teléfono)
+    // pisara los puestos del otro dispositivo. Ahora el LWW usa positionsTs
+    // (positionsUpdatedAt, la frescura ESPECÍFICA de puestos, con fallback a
+    // updatedAt): si un lado tocó los puestos más recientemente, su lista/mapa
+    // ganan COMPLETOS; una edición de otro campo no mueve positionsUpdatedAt y
+    // por lo tanto no gana los puestos. La unión queda SOLO para el empate o
+    // cuando falta la frescura: sin información, no perder nada es lo seguro.
+    const sPos = positionsTs(server);
+    const lPos = positionsTs(local);
+    const strictWinner = (sPos !== null && lPos !== null && sPos !== lPos)
+        ? (sPos > lPos ? server : local)
         : null;
 
     if (strictWinner) {
@@ -241,6 +253,14 @@ export function mergeEmployees(server, local) {
             winnerSide === 'server'
         );
     }
+
+    // Propagar la frescura fina de puestos (el mayor), para que futuros merges
+    // sigan distinguiendo "quién tocó los puestos más tarde".
+    const sPosRaw = typeof server.positionsUpdatedAt === 'number' ? server.positionsUpdatedAt : -Infinity;
+    const lPosRaw = typeof local.positionsUpdatedAt === 'number' ? local.positionsUpdatedAt : -Infinity;
+    const maxPos = Math.max(sPosRaw, lPosRaw);
+    if (maxPos > -Infinity) out.positionsUpdatedAt = maxPos;
+    else delete out.positionsUpdatedAt;
 
     // 6. updatedAt: el mayor.
     const sT = ts(server) ?? -Infinity;

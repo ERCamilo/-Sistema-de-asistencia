@@ -24,6 +24,10 @@ export class Employee {
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
+        // Frescura ESPECÍFICA de puestos (LWW fino en EmployeeMerge). Se preserva
+        // tal cual (sin default): undefined hasta que se toquen los puestos, para
+        // que el merge caiga al fallback updatedAt en empleados aún no migrados.
+        this.positionsUpdatedAt = data.positionsUpdatedAt;
     }
 
     // Métodos de negocio
@@ -92,11 +96,37 @@ export class Employee {
             createdDate: this.createdDate,
             lastStatusChange: this.lastStatusChange,
             statusHistory: this.statusHistory,
-            updatedAt: this.updatedAt
+            updatedAt: this.updatedAt,
+            positionsUpdatedAt: this.positionsUpdatedAt
         };
     }
 
     static fromJSON(json) {
         return new Employee(json);
     }
+}
+
+/**
+ * Detecta si los puestos o sus salarios cambiaron de verdad entre dos versiones.
+ * EmployeeModal re-asigna emp.positions en CADA guardado (aunque sólo cambie el
+ * teléfono), así que la estampa de positionsUpdatedAt debe ser CONDICIONAL: sin
+ * esto, editar un campo ajeno movería la frescura de puestos y pisaría los
+ * puestos del otro dispositivo en el merge. Compara positions como conjunto (el
+ * orden no importa) y positionSalaries como mapa (claves y valores).
+ *
+ * @returns {boolean} true si difieren.
+ */
+export function positionsChanged(prevPositions, newPositions, prevSalaries, newSalaries) {
+    const prevP = Array.isArray(prevPositions) ? prevPositions.map(String) : [];
+    const newP = Array.isArray(newPositions) ? newPositions.map(String) : [];
+    if (prevP.length !== newP.length) return true;
+    const prevSet = new Set(prevP);
+    if (newP.some(p => !prevSet.has(p))) return true;
+
+    const ps = (prevSalaries && typeof prevSalaries === 'object') ? prevSalaries : {};
+    const ns = (newSalaries && typeof newSalaries === 'object') ? newSalaries : {};
+    const psKeys = Object.keys(ps);
+    const nsKeys = Object.keys(ns);
+    if (psKeys.length !== nsKeys.length) return true;
+    return nsKeys.some(k => ps[k] !== ns[k]);
 }

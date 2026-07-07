@@ -205,13 +205,25 @@ export function cleanupPositionReferences(positionId) {
 
     // 1. Clean on employees (positions array + positionSalaries map)
     state.employees.forEach(emp => {
+        let empTouched = false;
         if (emp.positions && emp.positions.includes(positionId)) {
             emp.positions = emp.positions.filter(pid => pid !== positionId);
             cleaned++;
+            empTouched = true;
         }
         if (emp.positionSalaries && emp.positionSalaries[positionId] !== undefined) {
             delete emp.positionSalaries[positionId];
             cleaned++;
+            empTouched = true;
+        }
+        // Estampar SOLO los empleados realmente tocados: updatedAt para que el
+        // cambio suba, y positionsUpdatedAt para que el borrado del puesto gane
+        // el LWW fino de puestos (EmployeeMerge) y no resucite. Estampar de más
+        // re-subiría a todos los empleados = bug de cuota.
+        if (empTouched) {
+            const now = Date.now();
+            emp.updatedAt = now;
+            emp.positionsUpdatedAt = now;
         }
     });
 

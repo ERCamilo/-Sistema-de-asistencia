@@ -88,6 +88,58 @@ testRunner.addSuite("MergePositionsLWW — positionSalaries", {
 
 });
 
+testRunner.addSuite("MergePositionsLWW — positionsUpdatedAt (frescura fina de puestos)", {
+
+    // 🐛 Judgment Day Fase 2A: usar el updatedAt GENERAL para el LWW de puestos
+    // hacía que editar un campo NO relacionado (teléfono) pisara los puestos del
+    // otro dispositivo. positionsUpdatedAt es la frescura ESPECÍFICA de puestos:
+    // sólo sube cuando se tocan puestos, así que una edición ajena no gana.
+    "positionsUpdatedAt manda sobre updatedAt: editar un campo no relacionado no pisa los puestos del otro lado"() {
+        // server agregó 'Barra' tocando puestos (positionsUpdatedAt=200).
+        // local editó el teléfono (updatedAt=300) SIN tocar puestos (positionsUpdatedAt=100).
+        const server = { id: 'e1', updatedAt: 200, positionsUpdatedAt: 200, positions: ['Cocina', 'Barra'], positionSalaries: { Cocina: 10, Barra: 20 } };
+        const local  = { id: 'e1', updatedAt: 300, positionsUpdatedAt: 100, positions: ['Cocina'], positionSalaries: { Cocina: 10 } };
+        const out = mergeEmployees(server, local);
+        testRunner.assert(out.positions.includes('Barra'),
+            'server tocó los puestos más recientemente → su lista gana, aunque local tenga updatedAt mayor por editar el teléfono');
+        testRunner.assertEquals(out.positionSalaries.Barra, 20, 'el salario del puesto agregado también debe sobrevivir');
+    },
+
+    "la remoción de un puesto (positionsUpdatedAt nuevo) no resucita desde el lado stale"() {
+        const server = { id: 'e1', updatedAt: 100, positionsUpdatedAt: 100, positions: ['Cocina', 'Caja'] };
+        const local  = { id: 'e1', updatedAt: 300, positionsUpdatedAt: 200, positions: ['Cocina'] }; // removió Caja
+        const out = mergeEmployees(server, local);
+        testRunner.assertEquals(out.positions.join(','), 'Cocina',
+            'local removió Caja más recientemente (positionsUpdatedAt mayor) → no debe resucitar');
+    },
+
+    "el resultado propaga el mayor positionsUpdatedAt (para futuros merges)"() {
+        const server = { id: 'e1', updatedAt: 100, positionsUpdatedAt: 150, positions: ['a'] };
+        const local  = { id: 'e1', updatedAt: 100, positionsUpdatedAt: 250, positions: ['a', 'b'] };
+        const out = mergeEmployees(server, local);
+        testRunner.assertEquals(out.positionsUpdatedAt, 250,
+            'debe propagarse el positionsUpdatedAt más nuevo');
+    },
+
+    "empate de positionsUpdatedAt: unión (no perder puestos agregados en paralelo)"() {
+        const server = { id: 'e1', updatedAt: 500, positionsUpdatedAt: 200, positions: ['a', 'b'] };
+        const local  = { id: 'e1', updatedAt: 100, positionsUpdatedAt: 200, positions: ['a', 'c'] };
+        const out = mergeEmployees(server, local);
+        testRunner.assertEquals([...out.positions].sort().join(','), 'a,b,c',
+            'sin diferencia de frescura de puestos, la unión evita perder adiciones concurrentes');
+    },
+
+    "un lado con positionsUpdatedAt gana sobre el otro que sólo tiene updatedAt (fallback) menor"() {
+        // Transición: local ya migró a positionsUpdatedAt, server es viejo (solo updatedAt).
+        const server = { id: 'e1', updatedAt: 100, positions: ['Cocina', 'Caja'] }; // fallback → 100
+        const local  = { id: 'e1', updatedAt: 100, positionsUpdatedAt: 200, positions: ['Cocina'] };
+        const out = mergeEmployees(server, local);
+        testRunner.assertEquals(out.positions.join(','), 'Cocina',
+            'local tocó puestos en 200 > fallback 100 del server → gana la remoción');
+    }
+
+});
+
 testRunner.addSuite("MergePositionsLWW — convergencia del bucle (integración)", {
 
     "escenario del bucle real: remoto sucio VIEJO + local corregido NUEVO → el merge queda limpio en ambas direcciones"() {

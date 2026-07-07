@@ -1089,7 +1089,13 @@ export async function validateDataIntegrity() {
         }
 
         if (empFixed) {
-            emp.updatedAt = Date.now();
+            const now = Date.now();
+            emp.updatedAt = now;
+            // El fix tocó positions/positionSalaries → estampar también la
+            // frescura fina de puestos, para que el LWW de puestos (positionsTs
+            // en EmployeeMerge) reconozca la corrección como la más reciente y
+            // el huérfano no resucite en el próximo merge.
+            emp.positionsUpdatedAt = now;
         }
     });
 
