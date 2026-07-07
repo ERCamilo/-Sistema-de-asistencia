@@ -16,6 +16,7 @@ const MAINT_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/Mainten
 const APP_SRC = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
 const UI_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/SettingsUI.js'), 'utf8');
 const DATA_TAB_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/settings/SettingsDataTab.js'), 'utf8');
+const RUNNER_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/services/AttendanceCleanupRunner.js'), 'utf8');
 
 testRunner.addSuite("AttendanceCleanupWiring — modal extra al eliminar (lista)", {
 
@@ -81,6 +82,28 @@ testRunner.addSuite("AttendanceCleanupWiring — acción de Ajustes/Datos (huér
         const idx = APP_SRC.indexOf('window.purgeOrphanAttendanceHandler');
         const block = APP_SRC.slice(idx, idx + 1300);
         testRunner.assert(/orphanCount\s*===\s*0/.test(block));
+    }
+
+});
+
+testRunner.addSuite("AttendanceCleanupRunner — la propagación multi-fecha no colapsa en el debounce", {
+
+    // 🐛 Judgment Day Fase 2A: _purgeKeys subía cada fecha con
+    // saveApplicationData({dateKey}) SIN `immediate:true`. Pero
+    // _pendingSaveOptions sólo trackea UN dateKey a la vez (ver
+    // PersistenceService: "varias llamadas sin immediate en el mismo tick
+    // colapsan en un solo debounce y sólo la ÚLTIMA fecha sobrevive"). Al
+    // borrar el historial de un empleado con asistencia en varias fechas,
+    // sólo la última fecha se tombstoneaba en la nube; el resto revivía
+    // desde otro dispositivo. Mismo bug ya arreglado en mergeEmployees.
+    "_purgeKeys sube cada fecha tocada con immediate:true (no colapsa multi-fecha)"() {
+        const idx = RUNNER_SRC.indexOf('function _purgeKeys');
+        const block = RUNNER_SRC.slice(idx, idx + 1600);
+        testRunner.assert(/touched\.forEach/.test(block), 'debe recorrer cada fecha tocada');
+        testRunner.assert(
+            /saveApplicationData\(\s*\{[^}]*dateKey[^}]*immediate:\s*true[^}]*\}\s*\)/.test(block),
+            'cada fecha debe subirse con immediate:true para no colapsar en el debounce'
+        );
     }
 
 });
