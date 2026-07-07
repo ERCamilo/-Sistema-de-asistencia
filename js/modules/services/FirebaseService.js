@@ -237,24 +237,27 @@ class FirebaseService {
         const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
         const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
 
+        // markUploaded recibe SOLO las entidades que escribieron OK (res.saved),
+        // no las candidatas: si un write falla, ese id sigue siendo candidato el
+        // próximo guardado (no se pierde en silencio) y los demás no se re-suben.
         if (isMigratedEmployees) {
             const emps = _employeeUploadTracker.filterChanged(Array.isArray(employees) ? employees : []);
             if (emps.length > 0) {
-                await EmployeeRepository.saveMany(emps, { mergeRemote: true });
-                _employeeUploadTracker.markUploaded(emps);
+                const res = await EmployeeRepository.saveMany(emps, { mergeRemote: true });
+                _employeeUploadTracker.markUploaded(res.saved);
             }
         }
 
         if (isMigratedGranular) {
             const pos = _positionUploadTracker.filterChanged(Array.isArray(positions) ? positions : []);
             if (pos.length > 0) {
-                await PositionRepository.saveMany(pos, { mergeRemote: true });
-                _positionUploadTracker.markUploaded(pos);
+                const res = await PositionRepository.saveMany(pos, { mergeRemote: true });
+                _positionUploadTracker.markUploaded(res.saved);
             }
             const leads = _leaderUploadTracker.filterChanged(Array.isArray(leaders) ? leaders : []);
             if (leads.length > 0) {
-                await LeaderRepository.saveMany(leads, { mergeRemote: true });
-                _leaderUploadTracker.markUploaded(leads);
+                const res = await LeaderRepository.saveMany(leads, { mergeRemote: true });
+                _leaderUploadTracker.markUploaded(res.saved);
             }
         }
     }

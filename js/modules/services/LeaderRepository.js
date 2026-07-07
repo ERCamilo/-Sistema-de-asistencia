@@ -104,13 +104,16 @@ export const LeaderRepository = {
      */
     async saveMany(leaders, opts = {}) {
         if (!Array.isArray(leaders) || leaders.length === 0) {
-            return { written: 0 };
+            return { written: 0, saved: [] };
         }
-        if (!auth.currentUser) return { written: 0 };
+        if (!auth.currentUser) return { written: 0, saved: [] };
 
         const valid = leaders.filter(l => l && typeof l === 'object' && String(l.id || '').trim());
-        await Promise.all(valid.map(l => this.saveOne(l, opts)));
-        return { written: valid.length };
+        // allSettled (no Promise.all): un write fallido no debe descartar el
+        // crédito de "subido" de los demás ni forzar la re-subida de todos.
+        const results = await Promise.allSettled(valid.map(l => this.saveOne(l, opts)));
+        const saved = valid.filter((_, i) => results[i].status === 'fulfilled');
+        return { written: saved.length, saved };
     },
 
     /**

@@ -138,17 +138,21 @@ export const EmployeeRepository = {
      *   saveOne. Útil para el camino de guardado normal (Fase 2.2).
      *   Por defecto false porque saveMany se usa también en la
      *   migración inicial donde no hay versión remota.
-     * @returns {Promise<{written: number}>}
+     * @returns {Promise<{written: number, saved: Array<object>}>} `saved` son
+     *   las entidades cuyo write resolvió OK — el caller marca como subidas
+     *   SOLO esas. allSettled (no Promise.all): si un write falla, los demás
+     *   ya escritos no deben perder su crédito de "subido" ni re-subirse todos.
      */
     async saveMany(employees, opts = {}) {
         if (!Array.isArray(employees) || employees.length === 0) {
-            return { written: 0 };
+            return { written: 0, saved: [] };
         }
-        if (!auth.currentUser) return { written: 0 };
+        if (!auth.currentUser) return { written: 0, saved: [] };
 
         const valid = employees.filter(e => e && typeof e === 'object' && String(e.id || '').trim());
-        await Promise.all(valid.map(e => this.saveOne(e, opts)));
-        return { written: valid.length };
+        const results = await Promise.allSettled(valid.map(e => this.saveOne(e, opts)));
+        const saved = valid.filter((_, i) => results[i].status === 'fulfilled');
+        return { written: saved.length, saved };
     },
 
     /**

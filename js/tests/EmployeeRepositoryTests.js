@@ -231,6 +231,37 @@ testRunner.addSuite("EmployeeRepository — saveMany (Fase 4.1)", {
         testRunner.assertEquals(result.written, 0);
         testRunner.assertEquals(setDoc.mock.calls.length, 0);
         auth.currentUser = null;
+    },
+
+    // 🐛 Judgment Day Fase 2A: saveMany usaba Promise.all → si UN write fallaba,
+    // rechazaba todo el lote y el caller (saveEntities) NO llamaba markUploaded
+    // para NINGUNO, aunque N-1 ya se habían escrito. En cada guardado siguiente
+    // se re-subían todos (read+write) hasta que el lote entero pasara una vez —
+    // la misma amplificación de cuota que esta fase vino a cortar. Ahora usa
+    // Promise.allSettled y devuelve `saved` con solo los que escribieron OK.
+    async "saveMany con un write que falla no rechaza y devuelve saved solo con los exitosos"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-settle' };
+        setDoc.mockImplementation((ref, payload) =>
+            payload && payload.id === 'e2'
+                ? Promise.reject(new Error('boom'))
+                : Promise.resolve());
+        const emps = [
+            { id: 'e1', name: 'Ana' },
+            { id: 'e2', name: 'Bob' },
+            { id: 'e3', name: 'Carlos' }
+        ];
+        let result;
+        try {
+            result = await EmployeeRepository.saveMany(emps);
+        } catch (e) {
+            testRunner.assert(false, 'saveMany NO debe rechazar por un write fallido: ' + e.message);
+        }
+        const savedIds = (result.saved || []).map(e => e.id).sort();
+        testRunner.assertEquals(savedIds.join(','), 'e1,e3', 'saved excluye al que falló');
+        testRunner.assertEquals(result.written, 2, 'written cuenta solo los escritos con éxito');
+        setDoc.mockImplementation(() => Promise.resolve()); // restaurar mock benigno
+        auth.currentUser = null;
     }
 
 });
