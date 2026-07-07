@@ -37,17 +37,6 @@ function ts(x) {
     return typeof x?.updatedAt === 'number' ? x.updatedAt : null;
 }
 
-// Frescura ESPECÍFICA de los puestos (positions/positionSalaries). Sólo sube
-// cuando se tocan los puestos, así que una edición de otro campo (teléfono,
-// nombre) NO la mueve — por eso el LWW de puestos usa esto y no el updatedAt
-// general (Judgment Day Fase 2A: editar un campo ajeno pisaba los puestos del
-// otro dispositivo). Fallback a updatedAt para empleados aún no migrados.
-function positionsTs(x) {
-    if (typeof x?.positionsUpdatedAt === 'number') return x.positionsUpdatedAt;
-    if (typeof x?.updatedAt === 'number') return x.updatedAt;
-    return null;
-}
-
 function pickNewerScalar(server, local) {
     // Devuelve el lado "ganador" para escalares según updatedAt.
     const s = ts(server);
@@ -228,17 +217,33 @@ export function mergeEmployees(server, local) {
     // un puesto desasignado volvía desde la copia vieja del otro lado en cada
     // merge, incluso al subir). El fix inicial usaba el updatedAt GENERAL para
     // el LWW, pero eso hacía que editar un campo NO relacionado (teléfono)
-    // pisara los puestos del otro dispositivo. Ahora el LWW usa positionsTs
-    // (positionsUpdatedAt, la frescura ESPECÍFICA de puestos, con fallback a
-    // updatedAt): si un lado tocó los puestos más recientemente, su lista/mapa
-    // ganan COMPLETOS; una edición de otro campo no mueve positionsUpdatedAt y
-    // por lo tanto no gana los puestos. La unión queda SOLO para el empate o
-    // cuando falta la frescura: sin información, no perder nada es lo seguro.
-    const sPos = positionsTs(server);
-    const lPos = positionsTs(local);
-    const strictWinner = (sPos !== null && lPos !== null && sPos !== lPos)
-        ? (sPos > lPos ? server : local)
-        : null;
+    // pisara los puestos del otro dispositivo. Se usa positionsUpdatedAt, la
+    // frescura ESPECÍFICA de puestos (sube sólo cuando se tocan puestos):
+    //   - ambos lados con sello → LWW por positionsUpdatedAt (empate → unión);
+    //   - ASIMÉTRICO (sólo un lado tiene sello) → gana el lado con sello. NO
+    //     comparar su sello contra el updatedAt GENERAL del otro (Ronda 2,
+    //     Juez A): ese updatedAt sube por cualquier edición y una edición ajena
+    //     pisaría los puestos, reabriendo el bug;
+    //   - ninguno con sello (legacy puro) → updatedAt, para que una remoción
+    //     legacy no resucite (fix del bucle). Degrada al caso R1 sólo para
+    //     empleados que nunca tocaron puestos post-fix; se corrige al primer
+    //     cambio de puestos. La unión queda para empates y para "sin info".
+    const sHasPos = typeof server.positionsUpdatedAt === 'number';
+    const lHasPos = typeof local.positionsUpdatedAt === 'number';
+    let strictWinner = null;
+    if (sHasPos && lHasPos) {
+        if (server.positionsUpdatedAt !== local.positionsUpdatedAt) {
+            strictWinner = server.positionsUpdatedAt > local.positionsUpdatedAt ? server : local;
+        }
+    } else if (sHasPos !== lHasPos) {
+        strictWinner = sHasPos ? server : local;
+    } else {
+        const sT2 = ts(server);
+        const lT2 = ts(local);
+        if (sT2 !== null && lT2 !== null && sT2 !== lT2) {
+            strictWinner = sT2 > lT2 ? server : local;
+        }
+    }
 
     if (strictWinner) {
         out.positions = Array.isArray(strictWinner.positions) ? [...strictWinner.positions] : [];

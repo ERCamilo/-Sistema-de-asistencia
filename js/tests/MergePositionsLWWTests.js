@@ -136,6 +136,28 @@ testRunner.addSuite("MergePositionsLWW — positionsUpdatedAt (frescura fina de 
         const out = mergeEmployees(server, local);
         testRunner.assertEquals(out.positions.join(','), 'Cocina',
             'local tocó puestos en 200 > fallback 100 del server → gana la remoción');
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 2 (CRITICAL, Juez A): la ASIMETRÍA reabría
+    // el bug. Cuando UN lado tiene positionsUpdatedAt real y el otro sólo cae al
+    // fallback updatedAt, comparar magnitudes no comparables deja que editar un
+    // campo ajeno (que sube updatedAt) en el lado SIN sello gane los puestos.
+    "el lado que tocó puestos (tiene positionsUpdatedAt) gana aunque el otro tenga updatedAt MAYOR por editar otro campo"() {
+        // server agregó 'Barra' tocando puestos (positionsUpdatedAt=1000).
+        // local es legacy (sin positionsUpdatedAt) y editó el teléfono → updatedAt=2000.
+        const server = { id: 'e1', updatedAt: 1000, positionsUpdatedAt: 1000, positions: ['Cocina', 'Barra'] };
+        const local  = { id: 'e1', updatedAt: 2000, positions: ['Cocina'] };
+        const out = mergeEmployees(server, local);
+        testRunner.assert(out.positions.includes('Barra'),
+            'el lado con frescura ESPECÍFICA de puestos gana; el fallback updatedAt del legacy NO debe pisar los puestos');
+    },
+
+    "simétrico inverso: el lado sin sello NO gana los puestos por subir updatedAt"() {
+        const server = { id: 'e1', updatedAt: 5000, positions: ['Cocina'] }; // legacy, editó otro campo
+        const local  = { id: 'e1', updatedAt: 1000, positionsUpdatedAt: 1000, positions: ['Cocina', 'Barra'] };
+        const out = mergeEmployees(server, local);
+        testRunner.assert(out.positions.includes('Barra'),
+            'local tocó puestos (tiene sello) → gana sobre el server legacy con updatedAt mayor');
     }
 
 });
