@@ -118,11 +118,12 @@ export class Employee {
  * @returns {boolean} true si difieren.
  */
 export function positionsChanged(prevPositions, newPositions, prevSalaries, newSalaries) {
-    const prevP = Array.isArray(prevPositions) ? prevPositions.map(String) : [];
-    const newP = Array.isArray(newPositions) ? newPositions.map(String) : [];
-    if (prevP.length !== newP.length) return true;
-    const prevSet = new Set(prevP);
-    if (newP.some(p => !prevSet.has(p))) return true;
+    const prevSet = new Set(Array.isArray(prevPositions) ? prevPositions.map(String) : []);
+    const newSet = new Set(Array.isArray(newPositions) ? newPositions.map(String) : []);
+    // Comparar como CONJUNTOS en ambos lados: robusto a duplicados (corrupción
+    // previa) — ['A','B'] vs ['A','A'] tiene igual longitud pero perdió 'B'.
+    if (prevSet.size !== newSet.size) return true;
+    for (const p of newSet) if (!prevSet.has(p)) return true;
 
     const ps = (prevSalaries && typeof prevSalaries === 'object') ? prevSalaries : {};
     const ns = (newSalaries && typeof newSalaries === 'object') ? newSalaries : {};

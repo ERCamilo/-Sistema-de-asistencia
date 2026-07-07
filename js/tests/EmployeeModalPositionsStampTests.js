@@ -47,6 +47,16 @@ testRunner.addSuite("positionsChanged — detecta cambios reales de puestos/sala
     "defensivo: null/undefined se tratan como vacío"() {
         testRunner.assertEquals(positionsChanged(null, [], undefined, {}), false);
         testRunner.assertEquals(positionsChanged(null, ['a'], {}, { a: 1 }), true);
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 2 (teórico): con duplicados en el array
+    // (corrupción previa), la comparación por longitud + "todos los nuevos
+    // están en el set previo" daba false-negative: ['A','B'] vs ['A','A'] tiene
+    // igual longitud y 'A' está en {A,B}, pero 'B' se cayó. Comparar por
+    // conjuntos en ambos lados lo detecta.
+    "detecta la caída de un puesto aunque el otro lado tenga duplicados"() {
+        testRunner.assertEquals(positionsChanged(['A', 'B'], ['A', 'A'], {}, {}), true,
+            "['A','B'] → ['A','A'] perdió el puesto B: debe detectarse como cambio");
     }
 
 });
