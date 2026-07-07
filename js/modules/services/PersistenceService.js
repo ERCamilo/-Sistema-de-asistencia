@@ -708,9 +708,17 @@ async function _executeSave(options = {}) {
         // la subida termine, la entrada sigue en IndexedDB y se reintenta sola
         // al reconectar/volver a entrar (no se pierde).
         const _outboxEnqueues = [];
-        if (options.dateKey) {
+        // Un solo guardado puede subir VARIAS fechas (options.dateKeys, p.ej. el
+        // purge de historial multi-fecha) o una sola (options.dateKey). Se
+        // procesan en UN _executeSave → un daily por fecha pero UN solo mirror/
+        // entities/flush, en vez de N _executeSave (Judgment Day Ronda 2: N
+        // llamadas immediate encolaban N mirrors completos = write amplification).
+        const _dailyDateKeys = Array.isArray(options.dateKeys)
+            ? options.dateKeys.filter(Boolean)
+            : (options.dateKey ? [options.dateKey] : []);
+        for (const dk of _dailyDateKeys) {
             const dayRecords = {};
-            const suffix = `-${options.dateKey}`;
+            const suffix = `-${dk}`;
             Object.entries(state.attendance).forEach(([key, record]) => {
                 if (key.endsWith(suffix)) {
                     dayRecords[key] = record;
@@ -728,7 +736,7 @@ async function _executeSave(options = {}) {
             } catch (e) {
                 console.warn('⚠️ No se pudo clonar la asistencia diaria para la nube; se sube la referencia viva:', e);
             }
-            _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, _dayRecords));
+            _outboxEnqueues.push(MainSyncStore.enqueueDaily(dk, _dayRecords));
         }
         // Foto INMUTABLE capturada AHORA — MainSyncStore coalesce a una sola
         // entrada 'mirror' pendiente (la última gana). Judgment Day #6:

@@ -102,23 +102,24 @@ testRunner.addSuite("AttendanceCleanupWiring — acción de Ajustes/Datos (huér
 
 });
 
-testRunner.addSuite("AttendanceCleanupRunner — la propagación multi-fecha no colapsa en el debounce", {
+testRunner.addSuite("AttendanceCleanupRunner — la propagación multi-fecha no colapsa ni amplifica", {
 
     // 🐛 Judgment Day Fase 2A: _purgeKeys subía cada fecha con
-    // saveApplicationData({dateKey}) SIN `immediate:true`. Pero
-    // _pendingSaveOptions sólo trackea UN dateKey a la vez (ver
-    // PersistenceService: "varias llamadas sin immediate en el mismo tick
-    // colapsan en un solo debounce y sólo la ÚLTIMA fecha sobrevive"). Al
-    // borrar el historial de un empleado con asistencia en varias fechas,
-    // sólo la última fecha se tombstoneaba en la nube; el resto revivía
-    // desde otro dispositivo. Mismo bug ya arreglado en mergeEmployees.
-    "_purgeKeys sube cada fecha tocada con immediate:true (no colapsa multi-fecha)"() {
+    // saveApplicationData({dateKey}) SIN `immediate:true` → colapso del debounce
+    // (sólo la última fecha sobrevivía). El fix con immediate:true POR fecha
+    // (Ronda 1) resolvió el colapso pero disparaba N mirrors completos = write
+    // amplification (Ronda 2). Ahora se sube TODO en un solo save con dateKeys:
+    // un daily por fecha, un solo mirror/entities.
+    "_purgeKeys sube TODAS las fechas en UN solo save con dateKeys + immediate"() {
         const idx = RUNNER_SRC.indexOf('function _purgeKeys');
         const block = RUNNER_SRC.slice(idx, idx + 1600);
-        testRunner.assert(/touched\.forEach/.test(block), 'debe recorrer cada fecha tocada');
         testRunner.assert(
-            /saveApplicationData\(\s*\{[^}]*dateKey[^}]*immediate:\s*true[^}]*\}\s*\)/.test(block),
-            'cada fecha debe subirse con immediate:true para no colapsar en el debounce'
+            /saveApplicationData\(\s*\{[^}]*dateKeys:\s*touched[^}]*immediate:\s*true[^}]*\}\s*\)/.test(block),
+            'debe subir todas las fechas en un solo save con dateKeys + immediate:true'
+        );
+        testRunner.assert(
+            !/touched\.forEach\s*\([^)]*saveApplicationData/.test(block),
+            'no debe hacer un saveApplicationData por fecha (eso amplifica los mirrors)'
         );
     }
 

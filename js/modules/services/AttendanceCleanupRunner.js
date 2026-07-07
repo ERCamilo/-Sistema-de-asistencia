@@ -27,23 +27,22 @@ function _purgeKeys(keys) {
         touched = tombstoneAttendanceKeys(state.attendance, keys).dateKeys;
         buildAttendanceIndex(); // muchas fechas → rebuild total
     });
-    // Subir cada fecha tocada en el canal 'daily' (granular, con tombstone).
-    // `immediate: true` es OBLIGATORIO en el loop multi-fecha: sin él,
-    // `_pendingSaveOptions` sólo trackea UN dateKey a la vez y varias llamadas
-    // en el mismo tick colapsan en un solo debounce → sólo la ÚLTIMA fecha se
-    // encola y el resto de los tombstones nunca sube (revive desde otro
-    // dispositivo). Mismo fix que mergeEmployees ya aplicó en PersistenceService.
-    // saveApplicationData puede retornar una Promise o `undefined` (p.ej. si hay
-    // un borrado local en curso): se encadena `.catch()` sólo si es promesa,
-    // para no reventar con un TypeError síncrono dentro del forEach.
-    touched.forEach(dateKey => {
+    // Subir TODAS las fechas tocadas en UN solo guardado: dateKeys encola un
+    // 'daily' por fecha (granular, con tombstone) pero un solo mirror/entities.
+    // `immediate: true` evita el debounce (que además colapsaría a una sola
+    // fecha). Antes se hacía un saveApplicationData({dateKey, immediate}) POR
+    // fecha, lo que disparaba N mirrors completos = write amplification contra
+    // la cuota (Judgment Day Ronda 2). saveApplicationData puede retornar una
+    // Promise o `undefined` (p.ej. borrado local en curso): se encadena
+    // `.catch()` sólo si es promesa, para no reventar con un TypeError síncrono.
+    if (touched.length > 0) {
         try {
-            const savePromise = saveApplicationData({ dateKey, immediate: true });
+            const savePromise = saveApplicationData({ dateKeys: touched, immediate: true });
             if (savePromise && typeof savePromise.catch === 'function') {
-                savePromise.catch(e => console.warn('⚠️ purge asistencia: fallo al subir', dateKey, e));
+                savePromise.catch(e => console.warn('⚠️ purge asistencia: fallo al subir', e));
             }
-        } catch (e) { console.warn('⚠️ purge asistencia: fallo al subir', dateKey, e); }
-    });
+        } catch (e) { console.warn('⚠️ purge asistencia: fallo al subir', e); }
+    }
     return keys.length;
 }
 

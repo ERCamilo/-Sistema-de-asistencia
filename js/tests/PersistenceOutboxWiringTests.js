@@ -102,6 +102,42 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
         }
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 2: el purge multi-fecha hacía N
+    // saveApplicationData({dateKey, immediate:true}) → N _executeSave → N
+    // enqueueMirror completos (write amplification). Con dateKeys (array), un
+    // solo _executeSave encola un daily por fecha y UN solo mirror/entities.
+    async "_executeSave con dateKeys encola un daily por fecha y UN solo mirror (no amplifica)"() {
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            state.attendance = {
+                'emp1-2026-07-01': { employeeId: 'emp1', date: '2026-07-01' },
+                'emp1-2026-06-30': { employeeId: 'emp1', date: '2026-06-30' },
+                'emp1-2026-06-29': { employeeId: 'emp1', date: '2026-06-29' }
+            };
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+
+            await saveApplicationData({ dateKeys: ['2026-07-01', '2026-06-30', '2026-06-29'], immediate: true });
+            await waitForSave();
+
+            testRunner.assertEquals(spies.enqueueDaily.mock.calls.length, 3,
+                'un enqueueDaily por fecha (3), sin colapso de debounce');
+            const dates = spies.enqueueDaily.mock.calls.map(c => c[0]).sort();
+            testRunner.assertEquals(dates.join(','), '2026-06-29,2026-06-30,2026-07-01');
+            testRunner.assertEquals(spies.enqueueMirror.mock.calls.length, 1,
+                'UN solo mirror para todo el lote (no N — sin amplificación de escritura)');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
+    },
+
     async "_executeSave encola las entidades (no llama FirebaseService.saveEntities directo) — Fase 2 U1"() {
         // Las entidades (empleados/puestos/líderes) viajan APARTE del mirror,
         // desacopladas de su gate de watermark (ver MainSyncStore.enqueueEntities).
