@@ -164,7 +164,7 @@ export class MaintenanceUI {
                 </div>
                 <ul class="maintenance-plan-list">
                     ${needsManual.map(p => {
-                        const names = p.members.map(m => `"${m.name}"`).join(' vs ');
+                        const names = p.members.map(m => `"${escapeHTML(m.name)}"`).join(' vs ');
                         return `<li>Ficha ${p.number} · ${names}</li>`;
                     }).join('')}
                 </ul>
@@ -325,7 +325,7 @@ export class MaintenanceUI {
 
         // 2. Confirmación con detalle
         const orphanPreview = orphans.slice(0, 6)
-            .map(o => `<li><code>${o.id}</code> · ${o.name || '?'}</li>`)
+            .map(o => `<li><code>${escapeHTML(o.id)}</code> · ${escapeHTML(o.name || '?')}</li>`)
             .join('');
         const more = orphans.length > 6 ? `<li>… y ${orphans.length - 6} más</li>` : '';
         const confirm = await Modal.confirm({
@@ -633,7 +633,7 @@ export class MaintenanceUI {
                     <div class="maintenance-avatar">
                         ${(emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
                     </div>
-                    <h4>${emp.name || '(sin nombre)'}</h4>
+                    <h4>${escapeHTML(emp.name || '(sin nombre)')}</h4>
                     <div class="maintenance-meta-row">
                         <span class="maintenance-id-tag" title="ID completo: ${emp.id || ''}">ID ${emp.id || '(sin id)'}</span>
                         ${formatTag}
@@ -1082,7 +1082,7 @@ export class MaintenanceUI {
                     <div style="width: 50px; height: 50px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; color: #f8fafc; font-weight: bold;">
                         ${emp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
                     </div>
-                    <h4 style="margin: 0; color: #f8fafc; font-size: 1rem;">${emp.name}</h4>
+                    <h4 style="margin: 0; color: #f8fafc; font-size: 1rem;">${escapeHTML(emp.name)}</h4>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; padding: 8px; background: #020617; border-radius: 8px;">

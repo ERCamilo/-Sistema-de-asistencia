@@ -192,7 +192,7 @@ export function toggleEmployeeStatus(employeeId) {
 
     Modal.confirm({
         title: emp.active ? `${icons.get('x-circle')} Desactivar Empleado` : `${icons.get('info')} Activar Empleado`,
-        message: `¿Estás seguro de ${action} a ${emp.name}?`,
+        message: `¿Estás seguro de ${action} a ${escapeHTML(emp.name)}?`,
         confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
         cancelText: 'Cancelar',
         type: emp.active ? 'warning' : 'info',
