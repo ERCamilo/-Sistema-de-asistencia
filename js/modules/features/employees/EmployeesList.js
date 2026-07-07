@@ -213,7 +213,7 @@ export function toggleEmployeeStatus(employeeId) {
 
             saveApplicationData();
             if (window.showAlert) {
-                window.showAlert(`${icons.get('info')} Empleado ${emp.name} ${actionPast} correctamente`, 'success');
+                window.showAlert(`${icons.get('info')} Empleado ${escapeHTML(emp.name)} ${actionPast} correctamente`, 'success');
             }
             render();
         }
@@ -262,7 +262,7 @@ export function deleteEmployeeHandler(employeeId) {
                 if (window.showAlert) window.showAlert(`No se pudo eliminar: ${r.reason}`, 'warning');
                 return;
             }
-            if (window.showAlert) window.showAlert(`${icons.get('info')} Empleado ${emp.name} eliminado`, 'success');
+            if (window.showAlert) window.showAlert(`${icons.get('info')} Empleado ${escapeHTML(emp.name)} eliminado`, 'success');
             render();
 
             // Modal EXTRA: preguntar por el historial de asistencia. Si el

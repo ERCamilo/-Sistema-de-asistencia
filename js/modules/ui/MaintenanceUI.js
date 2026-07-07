@@ -825,7 +825,7 @@ export class MaintenanceUI {
         for (const m of members) {
             const check = canDeleteDuplicateEmployee(m);
             if (!check.ok) {
-                NotificationSystem.error(`No se puede eliminar "${m.name || m.id}": ${check.reason}`);
+                NotificationSystem.error(`No se puede eliminar "${escapeHTML(m.name || m.id)}": ${check.reason}`);
                 return false;
             }
         }

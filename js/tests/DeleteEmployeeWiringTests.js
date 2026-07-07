@@ -46,6 +46,19 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
             'el nombre va por Modal.confirm (innerHTML) — debe escaparse');
     },
 
+    // 🐛 Judgment Day Fase 2A: los toasts de showAlert también van por
+    // Notification.innerHTML (sin escape propio), pero interpolaban emp.name
+    // crudo (toggle activar/pausar y "empleado eliminado"). Un nombre con
+    // <img onerror> ejecuta script en cualquier dispositivo que sincronice.
+    "todo toast de showAlert que muestra el nombre del empleado lo escapa (XSS)"() {
+        const alertsWithName = LIST_SRC.match(/showAlert\(`[^`]*\$\{[^}]*emp\.name[^}]*\}[^`]*`/g) || [];
+        testRunner.assert(alertsWithName.length > 0, 'debe haber al menos un toast que muestra emp.name');
+        alertsWithName.forEach(call => {
+            testRunner.assert(/escapeHTML\(\s*emp\.name\s*\)/.test(call),
+                `el nombre en el toast debe ir por escapeHTML (innerHTML de Notification): ${call}`);
+        });
+    },
+
     "el handler encola el tombstone (no un hard-delete) vía enqueueEmployeeTombstone"() {
         const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 1400);

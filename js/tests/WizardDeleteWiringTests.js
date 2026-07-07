@@ -49,6 +49,18 @@ testRunner.addSuite("WizardDeleteWiring — botón y ejecución", {
         testRunner.assert(/escapeHTML\s*\(/.test(block), 'debe escapar los nombres (innerHTML de Modal.confirm)');
     },
 
+    // 🐛 Judgment Day Fase 2A: el mensaje de bloqueo del guard pasa por
+    // NotificationSystem.error -> Notification.innerHTML (sin escape propio),
+    // pero interpolaba "${m.name || m.id}" crudo. Debe escaparse como el resto.
+    "el error de guard de saldo escapa el nombre del duplicado (XSS)"() {
+        const idx = MAINT_SRC.indexOf('async _confirmDuplicateDeletes');
+        const block = MAINT_SRC.slice(idx, idx + 2400);
+        testRunner.assert(
+            /NotificationSystem\.error\([\s\S]{0,160}escapeHTML\(\s*m\.name/.test(block),
+            'el mensaje de bloqueo va por Notification (innerHTML) — debe escapar m.name'
+        );
+    },
+
     "el guard bloquea el apply entero si algún borrado tiene saldo (return sin ejecutar)"() {
         const idx = MAINT_SRC.indexOf('if (deleteIds && deleteIds.length > 0)');
         testRunner.assert(idx !== -1, 'debe gatear la ejecución por deleteIds');
