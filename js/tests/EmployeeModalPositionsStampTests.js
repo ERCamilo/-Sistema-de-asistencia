@@ -14,7 +14,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { positionsChanged } from '../modules/features/employees/Employee.js';
+import { positionsChanged, Employee } from '../modules/features/employees/Employee.js';
 
 const MODAL_SRC = fs.readFileSync(path.resolve(__dirname, '../modules/ui/modals/EmployeeModal.js'), 'utf8');
 
@@ -47,6 +47,33 @@ testRunner.addSuite("positionsChanged — detecta cambios reales de puestos/sala
     "defensivo: null/undefined se tratan como vacío"() {
         testRunner.assertEquals(positionsChanged(null, [], undefined, {}), false);
         testRunner.assertEquals(positionsChanged(null, ['a'], {}, { a: 1 }), true);
+    }
+
+});
+
+testRunner.addSuite("Employee — positionsUpdatedAt nunca queda undefined (Firestore lo rechaza)", {
+
+    // 🐛 Judgment Day Fase 2A Ronda 2: setDoc real de Firestore rechaza campos
+    // con valor undefined ("Unsupported field value: undefined"). EmployeeRepository
+    // hace payload = {...employee} sin limpiar undefined, así que un empleado no
+    // migrado con positionsUpdatedAt undefined rompía el write granular. Cada
+    // campo del Employee tiene default defensivo; este también debe tenerlo.
+    "un empleado sin positionsUpdatedAt lo deja en null, no undefined"() {
+        const emp = new Employee({ id: 'e1', name: 'Ana' });
+        testRunner.assertEquals(emp.positionsUpdatedAt, null,
+            'sin dato, positionsUpdatedAt debe ser null (no undefined) — Firestore rechaza undefined');
+    },
+
+    "toJSON no emite positionsUpdatedAt undefined"() {
+        const json = new Employee({ id: 'e1', name: 'Ana' }).toJSON();
+        testRunner.assert(!('positionsUpdatedAt' in json) || json.positionsUpdatedAt === null,
+            'toJSON no debe llevar positionsUpdatedAt undefined al payload');
+    },
+
+    "preserva un positionsUpdatedAt numérico real"() {
+        const emp = new Employee({ id: 'e1', name: 'Ana', positionsUpdatedAt: 12345 });
+        testRunner.assertEquals(emp.positionsUpdatedAt, 12345);
+        testRunner.assertEquals(emp.toJSON().positionsUpdatedAt, 12345);
     }
 
 });

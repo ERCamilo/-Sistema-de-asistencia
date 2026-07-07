@@ -24,10 +24,11 @@ export class Employee {
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
-        // Frescura ESPECÍFICA de puestos (LWW fino en EmployeeMerge). Se preserva
-        // tal cual (sin default): undefined hasta que se toquen los puestos, para
-        // que el merge caiga al fallback updatedAt en empleados aún no migrados.
-        this.positionsUpdatedAt = data.positionsUpdatedAt;
+        // Frescura ESPECÍFICA de puestos (LWW fino en EmployeeMerge). null (no
+        // undefined) cuando falta: Firestore rechaza campos con valor undefined
+        // y saveOne hace payload = {...employee} sin limpiarlos. positionsTs
+        // trata null igual que ausente, así que la semántica del merge no cambia.
+        this.positionsUpdatedAt = typeof data.positionsUpdatedAt === 'number' ? data.positionsUpdatedAt : null;
     }
 
     // Métodos de negocio
