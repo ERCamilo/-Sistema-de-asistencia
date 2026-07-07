@@ -49,6 +49,7 @@ const _SETTINGS_ACTION_MAP = {
     },
     'run-browser-tests': () => window.runBrowserTests?.(),
     'export-error-log': () => window.exportErrorLog?.(),
+    'purge-orphan-attendance': () => window.purgeOrphanAttendanceHandler?.(),
     // Mantenimiento: limpiar el cache del navegador para forzar la última versión.
     'clear-cache': () => {
         const doClear = async () => {

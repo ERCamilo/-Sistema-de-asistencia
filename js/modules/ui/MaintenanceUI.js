@@ -20,6 +20,7 @@ import { Notification as NotificationSystem } from '../components/Notification.j
 import { canDeleteDuplicateEmployee } from '../services/EmployeeDeletionGuard.js';
 import { enqueueEmployeeTombstone } from '../services/PersistenceService.js';
 import { escapeHTML } from '../utils/Sanitize.js';
+import { purgeEmployeeAttendanceHistory } from '../services/AttendanceCleanupRunner.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-maint-action)
@@ -907,6 +908,10 @@ export class MaintenanceUI {
             });
             for (const delId of deleteIds) {
                 enqueueEmployeeTombstone(delId, now);
+                // El wizard borra duplicados "de más": su historial de
+                // asistencia se elimina también (la confirmación ya lo
+                // advirtió). Para conservarlo, el usuario usa "Unir".
+                purgeEmployeeAttendanceHistory(delId);
             }
         }
 

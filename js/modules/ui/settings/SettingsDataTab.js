@@ -204,6 +204,23 @@ export function SettingsDataTab(context) {
                         </div>
                         ` : ''}
                     </div>
+
+                    <!-- Limpieza de datos locales (aparece siempre) -->
+                    <div class="stg-panel">
+                        <div class="stg-header">
+                            <div>
+                                <h3>Limpieza de datos</h3>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
+                                Elimina el historial de asistencia de empleados que ya <strong style="color:#cbd5e1;">fueron borrados</strong> y cuyos registros quedaron sueltos. No afecta a los empleados actuales.
+                            </span>
+                            <button type="button" data-settings-action="purge-orphan-attendance" class="btn-secondary" style="padding: 8px 16px; font-size: 0.8rem; white-space: nowrap; border-color: rgba(239,68,68,0.3); color: #fca5a5;">
+                                Eliminar historial de empleados borrados
+                            </button>
+                        </div>
+                    </div>
             `;
 }
 

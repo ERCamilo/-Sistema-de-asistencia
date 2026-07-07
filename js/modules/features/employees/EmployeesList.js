@@ -15,6 +15,8 @@ import { Modal } from '../../components/Modal.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { canDeleteEmployee } from '../../services/EmployeeDeletionGuard.js';
 import { deleteEmployeePermanently } from '../../services/EmployeeDeletion.js';
+import { countLiveAttendance } from '../../services/AttendanceCleanup.js';
+import { purgeEmployeeAttendanceHistory } from '../../services/AttendanceCleanupRunner.js';
 
 export function EmployeeCard(emp) {
 
@@ -246,6 +248,7 @@ export function deleteEmployeeHandler(employeeId) {
         cancelText: 'Cancelar',
         type: 'danger',
         onConfirm: () => {
+            const empId = emp.id;
             const r = deleteEmployeePermanently(emp, {
                 enqueueTombstone: (id, deletedAt) => enqueueEmployeeTombstone(id, deletedAt),
                 removeFromState: (id) => {
@@ -255,11 +258,31 @@ export function deleteEmployeeHandler(employeeId) {
                 },
                 persist: () => saveApplicationData({ immediate: true })
             });
-            if (r.ok) {
-                if (window.showAlert) window.showAlert(`${icons.get('info')} Empleado ${emp.name} eliminado`, 'success');
-                render();
-            } else if (window.showAlert) {
-                window.showAlert(`No se pudo eliminar: ${r.reason}`, 'warning');
+            if (!r.ok) {
+                if (window.showAlert) window.showAlert(`No se pudo eliminar: ${r.reason}`, 'warning');
+                return;
+            }
+            if (window.showAlert) window.showAlert(`${icons.get('info')} Empleado ${emp.name} eliminado`, 'success');
+            render();
+
+            // Modal EXTRA: preguntar por el historial de asistencia. Si el
+            // empleado tenía asistencia, ofrecer borrarla también (queda como
+            // registro si el usuario elige conservarla).
+            const attCount = countLiveAttendance(state.attendance, empId);
+            if (attCount > 0) {
+                Modal.confirm({
+                    title: `${icons.get('delete')} ¿Eliminar también su historial?`,
+                    message: `<strong>${escapeHTML(emp.name)}</strong> tiene <strong>${attCount}</strong> registro${attCount === 1 ? '' : 's'} de asistencia.<br><br>` +
+                        `¿Querés eliminar también su historial? Si elegís "No", el empleado se elimina pero su asistencia queda como registro histórico.`,
+                    confirmText: 'Sí, eliminar historial',
+                    cancelText: 'No, conservar historial',
+                    type: 'warning'
+                }).then((alsoHistory) => {
+                    if (!alsoHistory) return;
+                    const removed = purgeEmployeeAttendanceHistory(empId);
+                    if (window.showAlert) window.showAlert(`${icons.get('info')} ${removed} registro(s) de asistencia eliminados`, 'success');
+                    render();
+                });
             }
         }
     });

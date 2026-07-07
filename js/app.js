@@ -33,6 +33,8 @@ import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerg
 import { translateError } from './modules/services/ErrorTranslator.js';
 import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
 import { recordSanitizeRound } from './modules/services/SanitizeLoopBreaker.js';
+import { collectOrphanAttendanceKeys } from './modules/services/AttendanceCleanup.js';
+import { purgeOrphanAttendance } from './modules/services/AttendanceCleanupRunner.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
@@ -5553,6 +5555,34 @@ window.loadBackupFromFile = function (file) {
 window.deleteAllData = function () {
     // Usar el nuevo sistema robusto de DataService (Borrado Local)
     dataService.reset();
+};
+
+/**
+ * 🧹 Ajustes/Datos → "Eliminar historial de empleados borrados": tombstonea
+ * la asistencia HUÉRFANA (de empleados que ya no existen). Robusto: el
+ * borrado se propaga (no revive). Pide confirmación (destructivo).
+ */
+window.purgeOrphanAttendanceHandler = function () {
+    const liveIds = new Set((state.employees || []).map(e => String(e.id)));
+    const orphanCount = collectOrphanAttendanceKeys(state.attendance, liveIds).length;
+    if (orphanCount === 0) {
+        showNotification('No hay historial de empleados borrados para limpiar.', 'info');
+        return;
+    }
+    if (!window.showConfirm) return;
+    window.showConfirm({
+        title: '🧹 Eliminar historial de empleados borrados',
+        message: `Se eliminarán <strong>${orphanCount}</strong> registro(s) de asistencia que pertenecían a empleados ya borrados.<br><br>` +
+            `No afecta a ningún empleado actual. El borrado se propaga a tus otros dispositivos. ¿Continuar?`,
+        confirmText: 'Sí, eliminar',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            const removed = purgeOrphanAttendance();
+            showNotification(`🧹 ${removed} registro(s) de asistencia huérfana eliminados.`, 'success');
+            render();
+        }
+    });
 };
 
 /**
