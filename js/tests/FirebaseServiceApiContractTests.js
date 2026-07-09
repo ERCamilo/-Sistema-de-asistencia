@@ -422,6 +422,26 @@ testRunner.addSuite("FirebaseService — deleteCloudData invalida el watermark d
             'debe resetear el watermark de empleados (borra sellos de ids que ya no existen)');
         testRunner.assert(/_employeeUploadTracker\.markUploaded\(/.test(block),
             'debe marcar como subidos los empleados que el saveMany escribió OK');
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 4 (Juez A): migrateIfNeeded re-sube el
+    // roster por fuera de saveEntities en la migración de esquema, sin tocar el
+    // tracker → el próximo saveEntities re-subía todo una vez. Los callbacks
+    // deben marcar el watermark de cada tipo.
+    "migrateIfNeeded marca el watermark de cada tipo tras el saveMany de la migración"() {
+        const idx = FIREBASE_SRC.indexOf('async migrateIfNeeded');
+        testRunner.assert(idx !== -1, 'debe existir migrateIfNeeded');
+        const block = FIREBASE_SRC.slice(idx, idx + 1400);
+        testRunner.assert(/_employeeUploadTracker\.markUploaded\(/.test(block), 'empleados');
+        testRunner.assert(/_positionUploadTracker\.markUploaded\(/.test(block), 'puestos');
+        testRunner.assert(/_leaderUploadTracker\.markUploaded\(/.test(block), 'líderes');
+    },
+
+    // Seam público para flujos que escriben empleados por fuera de saveEntities
+    // (CloudReconcile).
+    "expone markEmployeesUploaded como seam público del watermark"() {
+        testRunner.assert(/markEmployeesUploaded\s*\(/.test(FIREBASE_SRC),
+            'FirebaseService debe exponer markEmployeesUploaded');
     }
 
 });

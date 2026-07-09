@@ -265,6 +265,16 @@ class FirebaseService {
     }
 
     /**
+     * Marca empleados como subidos en el watermark del EntityUploadTracker.
+     * Seam público para flujos que escriben empleados por FUERA de saveEntities
+     * (p.ej. CloudReconcile): sin esto el watermark queda stale y el próximo
+     * saveEntities re-sube todo (cuota). Recibe la lista efectivamente escrita.
+     */
+    markEmployeesUploaded(list) {
+        _employeeUploadTracker.markUploaded(list);
+    }
+
+    /**
      * 🔄 TRUE OVERWRITE: Replace cloud data entirely with local state.
      *
      * Unlike saveFullState (which uses merge:true and leaves cloud-only
@@ -473,12 +483,24 @@ class FirebaseService {
             isDemo: !!opts.isDemo,
             createSnapshot: () =>
                 this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v3'),
-            saveEmployees: (employees) =>
-                EmployeeRepository.saveMany(employees),
-            savePositions: (positions) =>
-                PositionRepository.saveMany(positions),
-            saveLeaders: (leaders) =>
-                LeaderRepository.saveMany(leaders),
+            // Tras el saveMany de la migración (por fuera de saveEntities), se
+            // marca el watermark para que el próximo saveEntities no re-suba el
+            // roster entero (cuota).
+            saveEmployees: async (employees) => {
+                const res = await EmployeeRepository.saveMany(employees);
+                _employeeUploadTracker.markUploaded(res.saved);
+                return res;
+            },
+            savePositions: async (positions) => {
+                const res = await PositionRepository.saveMany(positions);
+                _positionUploadTracker.markUploaded(res.saved);
+                return res;
+            },
+            saveLeaders: async (leaders) => {
+                const res = await LeaderRepository.saveMany(leaders);
+                _leaderUploadTracker.markUploaded(res.saved);
+                return res;
+            },
             markSchemaVersion: async (version) => {
                 const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
                 // lastChangedBy garantiza que el listener filtre este eco.

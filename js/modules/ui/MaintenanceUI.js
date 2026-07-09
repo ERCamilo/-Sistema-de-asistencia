@@ -12,6 +12,7 @@ import { Modal } from '../components/Modal.js';
 import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNumber, saveApplicationData } from '../services/PersistenceService.js';
 import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner.js';
 import { EmployeeRepository } from '../services/EmployeeRepository.js';
+import FirebaseService from '../services/FirebaseService.js';
 import { validateManualGroup } from '../services/ManualGroupValidator.js';
 import { reconcileCloudFromLocal } from '../services/CloudReconcile.js';
 import { classifyEmployeeId, idFormatLabel } from '../services/IdFormat.js';
@@ -356,7 +357,10 @@ export class MaintenanceUI {
         // 4. Ejecutar reconciliación
         try {
             const res = await reconcileCloudFromLocal(state.employees, {
-                repository: EmployeeRepository
+                repository: EmployeeRepository,
+                // Mantener el watermark en sincronía con lo re-empujado (este
+                // flujo escribe por fuera de saveEntities).
+                onUploaded: (saved) => FirebaseService.markEmployeesUploaded(saved)
             });
             const summary = `${res.deleted.length} huérfanos borrados · ${res.written} empleados re-empujados`;
             if (res.errors.length > 0) {
