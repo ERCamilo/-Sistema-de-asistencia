@@ -314,7 +314,14 @@ class FirebaseService {
                 // Save all local employees (no mergeRemote — local wins entirely).
                 const emps = Array.isArray(state.employees) ? state.employees : [];
                 if (emps.length > 0) {
-                    await EmployeeRepository.saveMany(emps, { mergeRemote: false });
+                    const res = await EmployeeRepository.saveMany(emps, { mergeRemote: false });
+                    // El watermark debe reflejar EXACTAMENTE lo re-subido: reset
+                    // (borra sellos de ids que ya no existen) + markUploaded de
+                    // lo que escribió OK. Sin esto, esta subida ocurre por fuera
+                    // de saveEntities y el próximo guardado re-subiría el roster
+                    // entero (cuota) o filtraría entidades legítimas.
+                    _employeeUploadTracker.reset();
+                    _employeeUploadTracker.markUploaded(res.saved);
                 }
             }
 
@@ -881,19 +888,21 @@ class FirebaseService {
             ? options.collections.filter(c => ALL_CLOUD_COLLECTIONS.includes(c))
             : ALL_CLOUD_COLLECTIONS;
 
-        // 🚦 Invalidar el watermark de subida de las entidades que se borran: el
-        // tracker es persistente, así que sin esto un "Borrar Nube"/"Subir y
-        // Reemplazar" dejaría el watermark diciendo "ya subí X" contra una nube
-        // vacía → el próximo saveEntities filtraría esas entidades y jamás las
-        // re-subiría. Reset por colección borrada → la re-subida ve todo como
-        // "nunca subido" y repuebla la nube.
-        if (SUBCOLLECTIONS.includes('employees')) _employeeUploadTracker.reset();
-        if (SUBCOLLECTIONS.includes('positions')) _positionUploadTracker.reset();
-        if (SUBCOLLECTIONS.includes('leaders')) _leaderUploadTracker.reset();
-
         let deleted = 0;
         try {
             for (const colName of SUBCOLLECTIONS) {
+                // 🚦 Invalidar el watermark de subida ANTES de borrar ESTA
+                // colección (el tracker es persistente; sin esto la re-subida
+                // posterior quedaría filtrada como "ya subido" contra una nube
+                // vacía). Por-colección y no upfront: si el borrado aborta en
+                // una excepción, las colecciones que nunca se tocaron conservan
+                // su watermark. Antes y no después: si el borrado falla a
+                // mitad, watermark limpio = re-subida benigna; watermark stale
+                // sobre una colección a medio borrar = docs que nunca vuelven.
+                if (colName === 'employees') _employeeUploadTracker.reset();
+                else if (colName === 'positions') _positionUploadTracker.reset();
+                else if (colName === 'leaders') _leaderUploadTracker.reset();
+
                 const colRef = collection(db, 'users', uid, colName);
                 const snap = await getDocs(colRef);
 

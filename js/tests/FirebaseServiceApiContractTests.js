@@ -385,13 +385,43 @@ testRunner.addSuite("FirebaseService — deleteCloudData invalida el watermark d
     "deleteCloudData resetea los trackers de subida de las entidades que borra"() {
         const idx = FIREBASE_SRC.indexOf('async deleteCloudData');
         testRunner.assert(idx !== -1, 'debe existir deleteCloudData');
-        const block = FIREBASE_SRC.slice(idx, idx + 2400);
+        const block = FIREBASE_SRC.slice(idx, idx + 2600);
         testRunner.assert(/_employeeUploadTracker\.reset\(\)/.test(block),
             'debe resetear el tracker de empleados al borrar la nube');
         testRunner.assert(/_positionUploadTracker\.reset\(\)/.test(block),
             'debe resetear el tracker de puestos');
         testRunner.assert(/_leaderUploadTracker\.reset\(\)/.test(block),
             'debe resetear el tracker de líderes');
+    },
+
+    // 🐛 Ronda 3 (Juez A): los resets corrían upfront para TODAS las
+    // colecciones antes de tocar Firestore — si el borrado abortaba en la
+    // primera, los watermarks de colecciones jamás tocadas quedaban limpios
+    // (re-subida completa innecesaria = cuota). El reset va POR colección,
+    // justo antes de borrar ESA colección (antes y no después: si el borrado
+    // falla a mitad, watermark limpio = re-subida benigna; watermark stale
+    // sobre una colección parcialmente borrada = docs que nunca vuelven).
+    "el reset del tracker vive DENTRO del loop por colección (no upfront para todas)"() {
+        const idx = FIREBASE_SRC.indexOf('async deleteCloudData');
+        const block = FIREBASE_SRC.slice(idx, idx + 2600);
+        testRunner.assert(
+            /for\s*\(const colName of SUBCOLLECTIONS\)[\s\S]{0,1000}\.reset\(\)/.test(block),
+            'el reset debe ejecutarse dentro del loop, por la colección que se está borrando'
+        );
+    },
+
+    // 🐛 Ronda 3 (Juez A): replaceCloudFull re-sube el roster entero por fuera
+    // de saveEntities, sin tocar el tracker — el watermark quedaba stale y el
+    // próximo saveEntities re-subía todo de nuevo (cuota). Tras el saveMany,
+    // el watermark debe reflejar exactamente lo escrito.
+    "replaceCloudFull deja el watermark reflejando lo re-subido (reset + markUploaded)"() {
+        const idx = FIREBASE_SRC.indexOf('async replaceCloudFull');
+        testRunner.assert(idx !== -1, 'debe existir replaceCloudFull');
+        const block = FIREBASE_SRC.slice(idx, idx + 3200);
+        testRunner.assert(/_employeeUploadTracker\.reset\(\)/.test(block),
+            'debe resetear el watermark de empleados (borra sellos de ids que ya no existen)');
+        testRunner.assert(/_employeeUploadTracker\.markUploaded\(/.test(block),
+            'debe marcar como subidos los empleados que el saveMany escribió OK');
     }
 
 });
