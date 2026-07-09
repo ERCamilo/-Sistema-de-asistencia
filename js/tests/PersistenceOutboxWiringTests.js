@@ -249,6 +249,41 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
         }
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 4 (Juez B): el filtro incremental de
+    // IndexedDBService.saveState acepta sufijos con guion (-) y guion bajo (_),
+    // pero el enqueue diario de _executeSave solo aceptaba guion → un registro
+    // con clave de guion bajo se guardaba local pero NUNCA se encolaba a la
+    // nube. Los dos filtros deben ser simétricos.
+    async "_executeSave encola también la asistencia con sufijo de guion BAJO (simetría con saveState)"() {
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            state.attendance = {
+                'emp1_2026-07-01': { employeeId: 'emp1', date: '2026-07-01' }, // guion BAJO
+                'emp2-2026-07-01': { employeeId: 'emp2', date: '2026-07-01' }  // guion normal
+            };
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+
+            await saveApplicationData({ dateKey: '2026-07-01', immediate: true });
+            await waitForSave();
+
+            testRunner.assert(spies.enqueueDaily.mock.calls.length >= 1, 'debe encolar la fecha');
+            const records = spies.enqueueDaily.mock.calls[0][1];
+            const keys = Object.keys(records).sort();
+            testRunner.assertEquals(keys.join(','), 'emp1_2026-07-01,emp2-2026-07-01',
+                'ambos registros (guion y guion bajo) de la fecha deben encolarse a la nube');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
+    },
+
     async "_executeSave encola las entidades (no llama FirebaseService.saveEntities directo) — Fase 2 U1"() {
         // Las entidades (empleados/puestos/líderes) viajan APARTE del mirror,
         // desacopladas de su gate de watermark (ver MainSyncStore.enqueueEntities).

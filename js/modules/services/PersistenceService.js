@@ -741,9 +741,12 @@ async function _executeSave(options = {}) {
             : (options.dateKey ? [options.dateKey] : []);
         for (const dk of _dailyDateKeys) {
             const dayRecords = {};
-            const suffix = `-${dk}`;
+            // Guion (-) y guion bajo (_): simétrico con IndexedDBService.saveState.
+            // Sin el guion bajo, un registro con esa clave se guardaría local
+            // pero jamás se encolaría a la nube (el mirror excluye attendance).
+            const suffixes = [`-${dk}`, `_${dk}`];
             Object.entries(state.attendance).forEach(([key, record]) => {
-                if (key.endsWith(suffix)) {
+                if (suffixes.some(s => key.endsWith(s))) {
                     dayRecords[key] = record;
                 }
             });
