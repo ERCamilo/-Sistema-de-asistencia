@@ -75,6 +75,26 @@ testRunner.addSuite("XSS — nombres escapados en confirmaciones y tarjetas (Ron
     "MaintenanceUI: el id del empleado en la tarjeta va escapado"() {
         testRunner.assert(!/ID completo: \$\{emp\.id \|\| ''\}/.test(MAINT),
             'emp.id crudo en el title del tag de ID');
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 4 (ambos jueces): residuos de inyección por
+    // ATRIBUTO en las mismas tarjetas. _reassignTo es texto tecleado por el
+    // usuario (CRITICAL, Juez B); emp.id y el número sobreviven a un import de
+    // backup con contenido arbitrario. escapeHTML también codifica comillas, así
+    // que sirve para contexto de atributo. Un `x" onerror=...` rompe el atributo.
+    "MaintenanceUI: los atributos con _reassignTo / emp.id / número van escapados"() {
+        const rawPatterns = [
+            /value="\$\{emp\._reassignTo/,            // input de nueva ficha (tecleado)
+            /"reassign-input-\$\{emp\.id\}"/,          // for= / id=
+            /data-id="\$\{emp\.id\}"/,                 // botones/inputs de rol
+            /data-emp-id="\$\{emp\.id\}"/,             // tarjeta de reasignación
+            /data-original="\$\{originalNumber\}"/,
+            /value="\$\{originalNumber\}"/,
+            /placeholder="\$\{suggestedNumber\}"/
+        ];
+        const stillRaw = rawPatterns.filter(re => re.test(MAINT)).map(re => re.source);
+        testRunner.assertEquals(stillRaw.length, 0,
+            `atributos con valor crudo (inyección por atributo): ${stillRaw.join(' | ')}`);
     }
 
 });

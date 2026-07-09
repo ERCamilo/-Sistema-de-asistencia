@@ -580,19 +580,19 @@ export class MaintenanceUI {
         const reassignBlock = role === 'separate'
             ? `
                 <div class="maintenance-reassign-input-wrap" role="group" aria-label="Nueva ficha para este empleado">
-                    <label for="reassign-input-${emp.id}">Nueva ficha:</label>
+                    <label for="reassign-input-${escapeHTML(emp.id)}">Nueva ficha:</label>
                     <input type="text"
-                           id="reassign-input-${emp.id}"
+                           id="reassign-input-${escapeHTML(emp.id)}"
                            class="maintenance-reassign-input"
-                           value="${emp._reassignTo || ''}"
+                           value="${escapeHTML(emp._reassignTo || '')}"
                            placeholder="Nro. de ficha"
-                           data-id="${emp.id}"
+                           data-id="${escapeHTML(emp.id)}"
                            autocomplete="off"
                            inputmode="numeric">
                     <button type="button"
                             class="maintenance-reassign-confirm"
                             data-maint-action="commit-reassign-ficha"
-                            data-id="${emp.id}"
+                            data-id="${escapeHTML(emp.id)}"
                             title="Confirmar nueva ficha (Enter)">
                         Confirmar
                     </button>
@@ -602,7 +602,7 @@ export class MaintenanceUI {
 
         const btn = (action, label, helper, dataRole) => `
             <button type="button" class="maintenance-role-btn ${role === dataRole ? 'is-selected' : ''}" data-maint-action="${action}"
-                    data-id="${emp.id}" data-role="${dataRole}"
+                    data-id="${escapeHTML(emp.id)}" data-role="${dataRole}"
                     data-role-choice="${dataRole}"
                     aria-pressed="${role === dataRole ? 'true' : 'false'}">
                 <span>${label}</span>
@@ -1100,15 +1100,15 @@ export class MaintenanceUI {
                     <label style="font-size: 0.7rem; color: #64748b; display: block; margin-bottom: 6px; font-weight: 600;">
                         🔢 Número de ficha:
                     </label>
-                    <input type="text" 
-                           class="form-input reassign-number-input" 
-                           data-emp-id="${emp.id}" 
-                           data-original="${originalNumber}"
-                           value="${originalNumber}" 
-                           placeholder="${suggestedNumber}"
+                    <input type="text"
+                           class="form-input reassign-number-input"
+                           data-emp-id="${escapeHTML(emp.id)}"
+                           data-original="${escapeHTML(originalNumber)}"
+                           value="${escapeHTML(originalNumber)}"
+                           placeholder="${escapeHTML(suggestedNumber)}"
                            maxlength="10"
                            style="font-size: 0.9rem; text-align: center; padding: 8px; font-weight: 700;">
-                    <div class="reassign-status" data-emp-id="${emp.id}" 
+                    <div class="reassign-status" data-emp-id="${escapeHTML(emp.id)}"
                          style="font-size: 0.7rem; margin-top: 4px; text-align: center; min-height: 1.2em; color: #64748b;">
                         Sin cambios
                     </div>
