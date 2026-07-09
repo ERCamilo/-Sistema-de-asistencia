@@ -548,11 +548,24 @@ export function saveApplicationData(options = {}) {
         state.settings.localUpdatedAt = Date.now();
     }
 
-    // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
-    if (options.dateKey && _pendingSaveOptions.dateKey) {
-        _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
-    } else {
-        _pendingSaveOptions = { ...options }; // Guardado completo o primer call
+    // Acumular opciones. Las FECHAS pendientes (dateKey/dateKeys) se UNEN, no
+    // se pisan: una llamada nueva dentro de la ventana de debounce — o un save
+    // inmediato que la corta — no debe cancelar la subida diaria de otra fecha
+    // ya pendiente (Judgment Day R3: un purge con dateKeys+immediate pisaba el
+    // dateKey debounced y esa fecha nunca subía; el mirror excluye attendance,
+    // así que nada la reintentaba). Para el resto de opciones gana la última
+    // llamada (mismo criterio que el overwrite original); `announce` es
+    // pegajoso y se maneja aparte, abajo.
+    const _pendingDates = new Set([
+        ...(Array.isArray(_pendingSaveOptions.dateKeys) ? _pendingSaveOptions.dateKeys : []),
+        ...(_pendingSaveOptions.dateKey ? [_pendingSaveOptions.dateKey] : []),
+        ...(Array.isArray(options.dateKeys) ? options.dateKeys : []),
+        ...(options.dateKey ? [options.dateKey] : [])
+    ]);
+    _pendingSaveOptions = { ...options };
+    if (_pendingDates.size > 0) {
+        _pendingSaveOptions.dateKeys = [..._pendingDates];
+        delete _pendingSaveOptions.dateKey; // canal unificado: _executeSave lee dateKeys
     }
     // `announce` es PEGAJOSO dentro de la ventana de debounce: si CUALQUIER
     // llamada pidió anunciar el resultado, el guardado colapsado lo anuncia.
@@ -637,7 +650,8 @@ async function _executeSave(options = {}) {
         return;
     }
 
-    console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
+    const _logDates = Array.isArray(options.dateKeys) ? options.dateKeys.join(', ') : options.dateKey;
+    console.log('🔵 PersistenceService: _executeSave() iniciado', _logDates ? `para fecha(s): ${_logDates}` : '');
 
     // ──────────────────────────────────────────────────────────
     // 🛡️ OUTGOING CONFLICT CHECK
@@ -825,8 +839,14 @@ async function _executeSave(options = {}) {
     let _localOk = true;
     if (state.useIndexedDB && !globalThis._isApplyingRemoteData) {
         try {
-            // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados granulares
-            if (!options.dateKey && !options.skipValidation) {
+            // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados
+            // granulares — tanto dateKey singular como dateKeys (el canal
+            // unificado multi-fecha). Sin el chequeo de dateKeys, cada purge
+            // corría la validación completa (puede estampar/re-subir empleados
+            // no relacionados = costo de cuota).
+            const _isGranularSave = !!options.dateKey ||
+                (Array.isArray(options.dateKeys) && options.dateKeys.length > 0);
+            if (!_isGranularSave && !options.skipValidation) {
                 await validateDataIntegrity();
             }
 

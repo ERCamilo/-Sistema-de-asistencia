@@ -69,6 +69,20 @@ testRunner.addSuite("Backups locales — caja chica incluida (M3)", {
         );
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 3: el canal de guardado se unificó a
+    // options.dateKeys (array). saveState decidía "granular vs completo" y el
+    // filtro incremental de asistencia SOLO con options.dateKey singular — con
+    // dateKeys degradaba a guardado completo (deduplicación + reescritura de
+    // todos los stores en cada purge multi-fecha).
+    "saveState reconoce options.dateKeys como guardado granular multi-fecha"() {
+        const block = IDB_SRC.match(/async\s+saveState\s*\([\s\S]{0,5200}/);
+        testRunner.assert(!!block, 'saveState debe existir');
+        testRunner.assert(/options\.dateKeys/.test(block[0]),
+            'saveState debe reconocer options.dateKeys (no solo dateKey singular)');
+        testRunner.assert(/\.some\(/.test(block[0]),
+            'el filtro incremental de asistencia debe aceptar los sufijos de TODAS las fechas del lote');
+    },
+
     "exportDB incluye los stores de caja chica"() {
         const block = IDB_SRC.match(/async\s+exportDB\s*\([\s\S]{0,1200}?\n\s{4}\}/);
         testRunner.assert(!!block, 'exportDB debe existir');
