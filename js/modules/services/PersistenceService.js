@@ -562,6 +562,11 @@ export function saveApplicationData(options = {}) {
         ...(Array.isArray(options.dateKeys) ? options.dateKeys : []),
         ...(options.dateKey ? [options.dateKey] : [])
     ]);
+    // Preservar el `announce` pegajoso ANTES del overwrite: los FLAGS
+    // (immediate/clearFirst/skipValidation/force) siguen la última llamada (no
+    // deben arrastrarse: p.ej. un clearFirst previo no debe colarse en un save
+    // de asistencia), pero `announce` y las FECHAS sí son pegajosos.
+    const _prevAnnounce = _pendingSaveOptions.announce;
     _pendingSaveOptions = { ...options };
     if (_pendingDates.size > 0) {
         _pendingSaveOptions.dateKeys = [..._pendingDates];
@@ -569,7 +574,6 @@ export function saveApplicationData(options = {}) {
     }
     // `announce` es PEGAJOSO dentro de la ventana de debounce: si CUALQUIER
     // llamada pidió anunciar el resultado, el guardado colapsado lo anuncia.
-    // Preservamos el valor (true o string-label) para no perder la etiqueta.
     if (options.announce) {
         _pendingSaveOptions.announce = options.announce;
         // 💬 Fase 0 del toast honesto: reconocimiento INSTANTÁNEO ("guardando…")
@@ -580,6 +584,11 @@ export function saveApplicationData(options = {}) {
                 label: typeof options.announce === 'string' ? options.announce : null
             });
         }
+    } else if (_prevAnnounce) {
+        // Esta llamada no anuncia, pero una previa de la misma ventana sí:
+        // conservar la etiqueta para que el guardado colapsado igual reporte su
+        // resultado. NO se re-dispara recordSaveStarted (ya corrió en la 1ra).
+        _pendingSaveOptions.announce = _prevAnnounce;
     }
 
     // ⚡ Immediate-save mode: bypass the 300ms debounce for critical operations

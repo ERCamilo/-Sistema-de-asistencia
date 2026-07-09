@@ -17,6 +17,7 @@ import { state } from '../modules/core/AppState.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
+import { saveOutcomeNotifier } from '../modules/services/SaveOutcomeNotifier.js';
 
 function snapshotState() {
     return JSON.parse(JSON.stringify({
@@ -172,6 +173,42 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
             state.employees = prevEmployees;
             state.positions = prevPositions;
             state.leaders = prevLeaders;
+            restoreState(snap);
+        }
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 4 (ambos jueces): la reescritura del
+    // accumulate (para unir dateKeys) pisaba el `announce` pegajoso. Si una
+    // llamada previa de la misma ventana pidió anunciar y la siguiente no,
+    // el label se perdía → _executeSave no reportaba el resultado local → el
+    // toast "Guardando…" quedaba colgado hasta el failsafe de 12s (que puede
+    // mostrar un estado FALSO). announce debe sobrevivir (los flags NO — eso
+    // arrastraría clearFirst/immediate a un save de asistencia).
+    async "el announce pegajoso sobrevive a una segunda llamada sin announce en la misma ventana"() {
+        const snap = snapshotState();
+        const startedSpy = jest.spyOn(saveOutcomeNotifier, 'recordSaveStarted').mockImplementation(() => {});
+        const localSpy = jest.spyOn(saveOutcomeNotifier, 'recordLocalResult').mockImplementation(() => {});
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            globalThis.currentUser = { uid: 'u1' };
+            globalThis._isApplyingRemoteData = false;
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+
+            saveApplicationData({ dateKey: '2026-07-01', announce: 'Cambio con anuncio' }); // debounced, anuncia
+            saveApplicationData({ dateKey: '2026-06-30' }); // sin announce, misma ventana
+            await sleep(450);
+
+            testRunner.assert(localSpy.mock.calls.length >= 1,
+                'el resultado local debe reportarse — el announce de la 1ra llamada no debe perderse por la 2da');
+            testRunner.assertEquals(localSpy.mock.calls[0][0].label, 'Cambio con anuncio',
+                'conserva la etiqueta del announce original');
+        } finally {
+            startedSpy.mockRestore();
+            localSpy.mockRestore();
+            globalThis.currentUser = null;
             restoreState(snap);
         }
     },
