@@ -148,7 +148,7 @@ export class MaintenanceUI {
                     ${autoMerges.map(p => {
                         const masterName = (p.members.find(m => m.id === p.proposedMasterId) || {}).name || '?';
                         const cloudTag = p.hasCloudLosers ? ' <span>Incluye nube</span>' : '';
-                        return `<li>Ficha ${p.number} · <strong>${masterName}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
+                        return `<li>Ficha ${p.number} · <strong>${escapeHTML(masterName)}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
                     }).join('')}
                 </ul>
             </div>
@@ -631,11 +631,11 @@ export class MaintenanceUI {
 
                 <div class="maintenance-employee-head">
                     <div class="maintenance-avatar">
-                        ${(emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                        ${escapeHTML((emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase())}
                     </div>
                     <h4>${escapeHTML(emp.name || '(sin nombre)')}</h4>
                     <div class="maintenance-meta-row">
-                        <span class="maintenance-id-tag" title="ID completo: ${emp.id || ''}">ID ${emp.id || '(sin id)'}</span>
+                        <span class="maintenance-id-tag" title="ID completo: ${escapeHTML(emp.id || '')}">ID ${escapeHTML(emp.id || '(sin id)')}</span>
                         ${formatTag}
                         ${srcTag}
                     </div>
@@ -1080,7 +1080,7 @@ export class MaintenanceUI {
             <div class="reassign-card" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px;">
                 <div style="text-align: center;">
                     <div style="width: 50px; height: 50px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; color: #f8fafc; font-weight: bold;">
-                        ${emp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                        ${escapeHTML(emp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase())}
                     </div>
                     <h4 style="margin: 0; color: #f8fafc; font-size: 1rem;">${escapeHTML(emp.name)}</h4>
                 </div>

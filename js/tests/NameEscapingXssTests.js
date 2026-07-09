@@ -51,6 +51,30 @@ testRunner.addSuite("XSS — nombres escapados en confirmaciones y tarjetas (Ron
         const stillRaw = patterns.filter(re => re.test(MAINT)).map(re => re.source);
         testRunner.assertEquals(stillRaw.length, 0,
             `estos sitios aún interpolan el nombre crudo: ${stillRaw.join(' | ')}`);
+    },
+
+    // 🐛 Ronda 3: los dos jueces cazaron residuos de la MISMA clase en el mismo
+    // archivo que la Ronda 2 "cubrió": el nombre maestro del plan de fusiones
+    // seguras (showPlanPreview) y las iniciales del avatar (derivadas del
+    // nombre crudo — el primer carácter de '<img...' es '<' y entra al innerHTML).
+    "MaintenanceUI: el nombre maestro del plan de fusiones seguras va escapado"() {
+        testRunner.assert(!/<strong>\$\{masterName\}/.test(MAINT),
+            'masterName se interpola crudo en el plan de fusiones seguras (innerHTML)');
+        testRunner.assert(/escapeHTML\(masterName\)/.test(MAINT),
+            'masterName debe pasar por escapeHTML');
+    },
+
+    "MaintenanceUI: las iniciales del avatar derivan de un nombre escapado"() {
+        const initials = MAINT.match(/\$\{[^{}]*\.split\(' '\)[^{}]*\}/g) || [];
+        testRunner.assert(initials.length >= 2, 'deben existir las expresiones de iniciales del avatar');
+        const unescaped = initials.filter(x => !/escapeHTML\(/.test(x));
+        testRunner.assertEquals(unescaped.length, 0,
+            `iniciales sin escapar (innerHTML): ${unescaped.join(' | ')}`);
+    },
+
+    "MaintenanceUI: el id del empleado en la tarjeta va escapado"() {
+        testRunner.assert(!/ID completo: \$\{emp\.id \|\| ''\}/.test(MAINT),
+            'emp.id crudo en el title del tag de ID');
     }
 
 });
