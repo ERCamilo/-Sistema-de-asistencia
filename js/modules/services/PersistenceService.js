@@ -1500,27 +1500,48 @@ export function sanitizePositions(state) {
     // 2. Actualizar empleados (sus arreglos de positions)
     if (state.employees) {
         state.employees.forEach(emp => {
+            let empRemapped = false;
             if (Array.isArray(emp.positions)) {
                 const mapped = emp.positions.map(pid => idMap.get(pid) || pid);
                 const unique = [...new Set(mapped)];
                 if (JSON.stringify(emp.positions) !== JSON.stringify(unique)) {
                     emp.positions = unique;
                     hasChanges = true;
+                    empRemapped = true;
                 }
             }
-            // También actualizar positionSalaries si existen
+            // También actualizar positionSalaries si existen (solo si algo se
+            // remapeó de verdad — reasignar sin cambios no debe estampar).
             if (emp.positionSalaries) {
                 const newSalaries = {};
+                let salariesRemapped = false;
                 Object.entries(emp.positionSalaries).forEach(([pid, val]) => {
                     const newId = idMap.get(pid) || pid;
+                    if (newId !== pid) salariesRemapped = true;
                     newSalaries[newId] = val;
                 });
-                emp.positionSalaries = newSalaries;
+                if (salariesRemapped) {
+                    emp.positionSalaries = newSalaries;
+                    hasChanges = true;
+                    empRemapped = true;
+                }
             }
-            
+
             // Especial: Sueldo por posición en el sistema viejo
             if (emp.positionId && idMap.has(emp.positionId)) {
                 emp.positionId = idMap.get(emp.positionId);
+                empRemapped = true;
+            }
+
+            // 🕐 Misma disciplina de choke-point que validateDataIntegrity: la
+            // corrección DEBE estampar updatedAt (sin él, EntityUploadTracker la
+            // filtra y nunca sube) Y positionsUpdatedAt (sin él, pierde el LWW
+            // fino de puestos contra un sello stale del otro dispositivo). Solo
+            // en los empleados realmente tocados — estampar de más re-sube todo.
+            if (empRemapped) {
+                const now = Date.now();
+                emp.updatedAt = now;
+                emp.positionsUpdatedAt = now;
             }
         });
     }
@@ -1813,8 +1834,13 @@ export function mergeEmployees(masterId, duplicateId) {
         });
 
         // 6. Refrescar updatedAt para que el siguiente saveMany propague el
-        //    estado fusionado al doc remoto del master.
-        master.updatedAt = Date.now();
+        //    estado fusionado al doc remoto del master. También
+        //    positionsUpdatedAt: la unión de puestos del paso 3-4 debe ganar el
+        //    LWW fino de puestos (sin el sello, un positionsUpdatedAt stale del
+        //    otro dispositivo la pisaría en el próximo merge).
+        const _mergeNow = Date.now();
+        master.updatedAt = _mergeNow;
+        master.positionsUpdatedAt = _mergeNow;
         master._isDirty = true;
 
         // 7. Eliminar el duplicado del estado

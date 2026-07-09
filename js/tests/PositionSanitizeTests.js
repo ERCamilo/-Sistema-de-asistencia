@@ -66,6 +66,37 @@ testRunner.addSuite("sanitizePositions — IDs estables (Opción A)", {
         testRunner.assert(state.positions[0].id.length > 0);
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 3: sanitizePositions remapeaba
+    // emp.positions/positionSalaries SIN estampar nada. Sin updatedAt el
+    // EntityUploadTracker filtra al empleado y la corrección nunca sube; sin
+    // positionsUpdatedAt la corrección pierde el LWW fino de puestos contra un
+    // sello stale del otro dispositivo (misma disciplina de choke-point que
+    // validateDataIntegrity ya aplica).
+    "remapear los puestos de un empleado estampa updatedAt y positionsUpdatedAt (solo en los tocados)"() {
+        const state = {
+            positions: [
+                { id: 'pos-uuid-1', name: 'Albañil' },
+                { id: 'pos-uuid-2', name: 'Albañil' } // duplicado → se fusiona al master
+            ],
+            employees: [
+                { id: 'e1', positions: ['pos-uuid-2'], positionSalaries: { 'pos-uuid-2': 50 }, updatedAt: 1000, positionsUpdatedAt: 1000 },
+                { id: 'e2', positions: ['pos-uuid-1'], positionSalaries: {}, updatedAt: 1000, positionsUpdatedAt: 1000 }
+            ],
+            attendance: {}
+        };
+        const before = Date.now() - 1;
+        sanitizePositions(state);
+        const e1 = state.employees.find(e => e.id === 'e1');
+        const e2 = state.employees.find(e => e.id === 'e2');
+        testRunner.assert(e1.updatedAt > before,
+            'e1 fue remapeado → debe estampar updatedAt (sin esto la corrección nunca sube)');
+        testRunner.assert(e1.positionsUpdatedAt > before,
+            'e1 → debe estampar positionsUpdatedAt (sin esto pierde el LWW de puestos)');
+        testRunner.assertEquals(e2.updatedAt, 1000,
+            'e2 no fue tocado → sin estampa (estampar de más re-sube a todos)');
+        testRunner.assertEquals(e2.positionsUpdatedAt, 1000, 'e2 → positionsUpdatedAt intacto');
+    },
+
     "puestos con nombres distintos NO se tocan (no-op)"() {
         const state = {
             positions: [

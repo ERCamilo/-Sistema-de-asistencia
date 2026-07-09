@@ -106,6 +106,22 @@ testRunner.addSuite("Legacy mergeEmployees — préstamos, posiciones y position
         testRunner.assertEquals(master.positionSalaries.pos3, 300);
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 3 (Juez A): el merge de duplicados une
+    // positions/positionSalaries y estampa updatedAt, pero NO estampaba
+    // positionsUpdatedAt — con el LWW asimétrico de puestos, la unión podía
+    // perder contra un sello stale del otro dispositivo en el próximo merge.
+    "el merge estampa positionsUpdatedAt en el master (la unión debe ganar el LWW de puestos)"() {
+        resetState([
+            { id: 'A', positions: ['a'], positionsUpdatedAt: 1000, updatedAt: 1000 },
+            { id: 'B', positions: ['a', 'c'] }
+        ]);
+        const before = Date.now() - 1;
+        mergeEmployees('A', 'B');
+        const master = state.employees.find(e => e.id === 'A');
+        testRunner.assert(master.positionsUpdatedAt > before,
+            'el master absorbe puestos del duplicado → positionsUpdatedAt debe estamparse junto con updatedAt');
+    },
+
     "advances/bonuses/deductions: ahora dedup por id (antes concatenaba ciegamente)"() {
         // Antes la concatenación creaba duplicados si el mismo advance
         // estaba en ambos lados (caso real cuando se importaba mal).
