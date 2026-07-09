@@ -26,8 +26,9 @@ export class Employee {
         this.updatedAt = data.updatedAt || Date.now();
         // Frescura ESPECÍFICA de puestos (LWW fino en EmployeeMerge). null (no
         // undefined) cuando falta: Firestore rechaza campos con valor undefined
-        // y saveOne hace payload = {...employee} sin limpiarlos. positionsTs
-        // trata null igual que ausente, así que la semántica del merge no cambia.
+        // y saveOne hace payload = {...employee} sin limpiarlos. El merge trata
+        // null igual que ausente (cae al fallback updatedAt), así que la
+        // semántica no cambia.
         this.positionsUpdatedAt = typeof data.positionsUpdatedAt === 'number' ? data.positionsUpdatedAt : null;
     }
 
