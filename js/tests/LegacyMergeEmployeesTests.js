@@ -282,6 +282,48 @@ testRunner.addSuite("Legacy mergeEmployees — reencola en el outbox las fechas 
             state.isDataLoaded = prevIsDataLoaded;
             state.useIndexedDB = prevUseIndexedDB;
         }
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 3 (Juez A): el reencolado corría un
+    // saveApplicationData({dateKey, immediate}) POR fecha — cada uno encola un
+    // mirror COMPLETO (write amplification, mismo patrón que el purge ya
+    // corrigió). Con el canal dateKeys, un merge multi-fecha debe subir en UN
+    // solo save: un daily por fecha, un solo mirror.
+    "un merge multi-fecha encola UN solo mirror (no uno por fecha)"() {
+        const prevUser = globalThis.currentUser;
+        const prevIsDataLoaded = state.isDataLoaded;
+        const prevUseIndexedDB = state.useIndexedDB;
+        const enqueueDailySpy = jest.spyOn(MainSyncStore, 'enqueueDaily').mockResolvedValue(undefined);
+        const enqueueMirrorSpy = jest.spyOn(MainSyncStore, 'enqueueMirror').mockResolvedValue(undefined);
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            globalThis.currentUser = { uid: 'test-user' };
+
+            const attendance = {
+                'B-2026-06-11': { employeeId: 'B', date: '2026-06-11', present: true, hoursWorked: 8 },
+                'B-2026-06-12': { employeeId: 'B', date: '2026-06-12', present: true, hoursWorked: 8 }
+            };
+            resetState([
+                { id: 'A', loans: [] },
+                { id: 'B', loans: [] }
+            ], attendance);
+
+            mergeEmployees('A', 'B');
+
+            testRunner.assertEquals(enqueueDailySpy.mock.calls.length, 2,
+                'un daily por fecha tocada (el contrato de Fase 1 R1 se preserva)');
+            testRunner.assertEquals(enqueueMirrorSpy.mock.calls.length, 1,
+                'UN solo mirror para todo el merge — N mirrors por N fechas es write amplification');
+        } finally {
+            enqueueDailySpy.mockRestore();
+            enqueueMirrorSpy.mockRestore();
+            flushSpy.mockRestore();
+            globalThis.currentUser = prevUser;
+            state.isDataLoaded = prevIsDataLoaded;
+            state.useIndexedDB = prevUseIndexedDB;
+        }
     }
 
 });

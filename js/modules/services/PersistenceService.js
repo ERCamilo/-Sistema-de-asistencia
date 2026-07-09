@@ -1861,33 +1861,26 @@ export function mergeEmployees(masterId, duplicateId) {
         // el campo attendance (el mirror lo excluye) y nadie encola la subida
         // granular por día. Fire-and-forget: mergeEmployees es síncrona.
         //
-        // Desviación del fix propuesto: se usa `immediate: true` (no sólo
-        // `{ dateKey }`) por dos motivos verificados en el código real de
-        // saveApplicationData:
-        //   1. En el camino NO-immediate, saveApplicationData() no retorna una
-        //      Promise (sólo agenda un setTimeout) — encadenarle `.catch()`
-        //      directo revienta con TypeError ("Cannot read properties of
-        //      undefined (reading 'catch')").
-        //   2. `_pendingSaveOptions` sólo trackea UN `dateKey` a la vez; varias
-        //      llamadas sin `immediate` en el mismo tick (multi-fecha) colapsan
-        //      en un solo debounce y sólo la ÚLTIMA fecha sobrevive — las
-        //      fechas anteriores nunca se encolan. `immediate:true` ejecuta
-        //      cada `_executeSave` de inmediato con sus propias opciones,
-        //      evitando el colapso, y sí retorna una Promise real.
-        //
-        // Judgment Day Fase 1 R2: saveApplicationData() también puede retornar
-        // `undefined` (p.ej. si hay un borrado local en curso —
-        // _localDataWipeInProgress) sin importar `immediate`. Encadenar
-        // `.catch()` directo sobre `undefined` revienta con TypeError síncrono
-        // dentro del forEach, y ningún caller de mergeEmployees lo envuelve en
-        // try/catch — abortaría la función entera. Se guarda la promesa y solo
-        // se encadena `.catch()` si es realmente una promesa.
-        touchedDateKeys.forEach(dateKey => {
-            const savePromise = saveApplicationData({ dateKey, immediate: true });
+        // Judgment Day Fase 2A Ronda 3: antes esto era un
+        // saveApplicationData({dateKey, immediate}) POR fecha — cada uno
+        // encolaba un mirror COMPLETO (write amplification, el mismo patrón
+        // que el purge de historial ya corrigió). El canal dateKeys sube TODO
+        // el lote en un solo _executeSave: un 'daily' por fecha, un solo
+        // mirror/entities. `immediate: true` sigue siendo necesario (el camino
+        // debounced no retorna Promise y el guardado no debe perderse en un
+        // F5). saveApplicationData también puede retornar `undefined` (p.ej.
+        // borrado local en curso), así que `.catch()` se encadena solo si es
+        // realmente una promesa (Judgment Day Fase 1 R2 — ningún caller de
+        // mergeEmployees envuelve esto en try/catch).
+        // touchedDateKeys es un Set → convertir a array (dateKeys espera Array;
+        // Array.isArray(Set) es false y .length es undefined).
+        const _touchedDates = [...touchedDateKeys];
+        if (_touchedDates.length > 0) {
+            const savePromise = saveApplicationData({ dateKeys: _touchedDates, immediate: true });
             if (savePromise && typeof savePromise.catch === 'function') {
                 savePromise.catch(e => console.error('Error subiendo asistencia fusionada:', e));
             }
-        });
+        }
     }
 
     return true;
