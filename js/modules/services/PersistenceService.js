@@ -1527,10 +1527,16 @@ export function sanitizePositions(state) {
                 }
             }
 
-            // Especial: Sueldo por posición en el sistema viejo
-            if (emp.positionId && idMap.has(emp.positionId)) {
-                emp.positionId = idMap.get(emp.positionId);
-                empRemapped = true;
+            // Especial: Sueldo por posición en el sistema viejo. idMap tiene
+            // entradas IDENTIDAD para cada master, así que solo se marca
+            // remapeado si el id REALMENTE cambia (si no, estampar de más
+            // dispara un positionsUpdatedAt espurio que pisa el LWW real).
+            if (emp.positionId) {
+                const newPositionId = idMap.get(emp.positionId);
+                if (newPositionId !== undefined && newPositionId !== emp.positionId) {
+                    emp.positionId = newPositionId;
+                    empRemapped = true;
+                }
             }
 
             // 🕐 Misma disciplina de choke-point que validateDataIntegrity: la

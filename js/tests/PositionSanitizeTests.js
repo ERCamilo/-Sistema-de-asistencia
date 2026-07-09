@@ -97,6 +97,49 @@ testRunner.addSuite("sanitizePositions — IDs estables (Opción A)", {
         testRunner.assertEquals(e2.positionsUpdatedAt, 1000, 'e2 → positionsUpdatedAt intacto');
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 4 (ambos jueces): idMap tiene entradas
+    // IDENTIDAD para cada master (idMap.set(pos.id, pos.id)), así que
+    // idMap.has(emp.positionId) es true para CUALQUIER positionId legacy válido
+    // — remapeado o no. El branch estampaba empRemapped=true incondicional →
+    // positionsUpdatedAt espurio → gana el LWW y descarta una edición real no
+    // sincronizada del otro dispositivo (pérdida de datos).
+    "un empleado con positionId legacy YA correcto NO se re-estampa (no over-stamp)"() {
+        const state = {
+            positions: [
+                { id: 'pos-uuid-1', name: 'Albañil' },
+                { id: 'pos-uuid-2', name: 'Albañil' } // dispara hasChanges (dedup por nombre)
+            ],
+            employees: [
+                // positionId apunta a un master cuyo id NO cambia.
+                { id: 'e-legacy', positions: [], positionSalaries: {}, positionId: 'pos-uuid-1', updatedAt: 1000, positionsUpdatedAt: 1000 }
+            ],
+            attendance: {}
+        };
+        sanitizePositions(state);
+        const emp = state.employees.find(e => e.id === 'e-legacy');
+        testRunner.assertEquals(emp.updatedAt, 1000,
+            'positionId sin cambio real (idMap.get === mismo id) NO debe re-estampar');
+        testRunner.assertEquals(emp.positionsUpdatedAt, 1000, 'ni positionsUpdatedAt (evita pisar un LWW real)');
+    },
+
+    "un empleado con positionId legacy de un DUPLICADO se remapea y SÍ se estampa"() {
+        const state = {
+            positions: [
+                { id: 'pos-uuid-1', name: 'Albañil' },
+                { id: 'pos-uuid-2', name: 'Albañil' }
+            ],
+            employees: [
+                { id: 'e-dup', positions: [], positionSalaries: {}, positionId: 'pos-uuid-2', updatedAt: 1000, positionsUpdatedAt: 1000 }
+            ],
+            attendance: {}
+        };
+        const before = Date.now() - 1;
+        sanitizePositions(state);
+        const emp = state.employees.find(e => e.id === 'e-dup');
+        testRunner.assertEquals(emp.positionId, 'pos-uuid-1', 'el positionId del duplicado se migra al master');
+        testRunner.assert(emp.updatedAt > before, 'un cambio real de positionId SÍ debe estampar');
+    },
+
     "puestos con nombres distintos NO se tocan (no-op)"() {
         const state = {
             positions: [
