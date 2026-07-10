@@ -4,6 +4,9 @@ import { positionsChanged } from '../../features/employees/Employee.js';
 import icons from '../../ui/IconSystem.js';
 import { swapEmployeeNumbers, mergeEmployees, enqueueCloudEmployeeDelete } from '../../services/PersistenceService.js';
 import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
+import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
+import { escapeHTML } from '../../utils/Sanitize.js';
+import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
 
 export class EmployeeModal {
     static open(employeeId = null) {
@@ -254,6 +257,13 @@ export class EmployeeModal {
             }
         });
 
+        // Decisiones del modal de impacto por posiciones removidas con
+        // historial (llenadas por _showPositionRemovalImpact). Viven acá para
+        // que TODOS los caminos de guardado (normal, intercambio, fusión) las
+        // apliquen exactamente una vez, dentro de applyFields.
+        let _reassignDecisions = [];
+        const _reassignTouchedDates = [];
+
         // Aplica los campos del formulario al empleado (existente o nuevo) con
         // el número indicado. Devuelve el id del empleado afectado.
         const applyFields = (numberToUse) => {
@@ -281,6 +291,23 @@ export class EmployeeModal {
                 empToEdit.updatedAt = now;
                 if (posChanged) empToEdit.positionsUpdatedAt = now;
                 empToEdit._isDirty = true;
+
+                // Reasignación de días decidida en el modal de impacto: los
+                // días trabajados con la posición removida se reescriben a la
+                // posición elegida, dentro de batchSetState y con rebuild del
+                // índice (mismo contrato que el purge de historial). Las
+                // fechas tocadas se acumulan para subirlas por el canal daily.
+                if (_reassignDecisions.length > 0) {
+                    stateManager.batchSetState(() => {
+                        for (const d of _reassignDecisions) {
+                            const r = reassignPositionDays(state.attendance, {
+                                employeeId: empToEdit.id, fromId: d.fromId, toId: d.toId
+                            });
+                            _reassignTouchedDates.push(...r.dateKeys);
+                        }
+                        buildAttendanceIndex();
+                    });
+                }
                 return empToEdit.id;
             }
             const newId = 'emp-' + Date.now();
@@ -301,28 +328,60 @@ export class EmployeeModal {
             // El toast lo emite SaveOutcomeNotifier con el resultado REAL del
             // guardado. El msg (puede traer HTML del icono) se usa como label.
             const label = msg ? String(msg).replace(/<[^>]*>/g, '').trim() : null;
-            context.saveToLocalStorage(label ? { announce: label } : undefined);
+            const opts = label ? { announce: label } : {};
+            // Fechas reasignadas → suben por el canal daily en el MISMO
+            // guardado (un daily por fecha, un solo mirror). immediate: un
+            // cambio de montos históricos no debe perderse en un F5 dentro
+            // de la ventana de debounce.
+            if (_reassignTouchedDates.length > 0) {
+                opts.dateKeys = [...new Set(_reassignTouchedDates)];
+                opts.immediate = true;
+            }
+            context.saveToLocalStorage(Object.keys(opts).length > 0 ? opts : undefined);
             context.render();
             modalInstance.close();
         };
 
-        // 🔢 Conflicto de número: otro empleado ya tiene esta ficha.
-        // En vez de bloquear, ofrecemos resolución: cancelar, intercambiar
-        // o fusionar (misma persona).
-        const duplicate = state.employees.find(e => e.number === number && (!existingEmp || e.id !== existingEmp.id));
-        if (duplicate) {
-            EmployeeModal._showNumberConflict({
-                intendedNumber: number, editingName: name, existingEmp, duplicate,
-                applyFields, finish, state
-            });
-            return;
-        }
+        const continueSave = () => {
+            // 🔢 Conflicto de número: otro empleado ya tiene esta ficha.
+            // En vez de bloquear, ofrecemos resolución: cancelar, intercambiar
+            // o fusionar (misma persona).
+            const duplicate = state.employees.find(e => e.number === number && (!existingEmp || e.id !== existingEmp.id));
+            if (duplicate) {
+                EmployeeModal._showNumberConflict({
+                    intendedNumber: number, editingName: name, existingEmp, duplicate,
+                    applyFields, finish, state
+                });
+                return;
+            }
 
-        applyFields(number);
-        // Label de ACCIÓN para el toast (el SaveOutcomeNotifier lo envuelve en
-        // "Guardando — … · en este equipo"). Sin "correctamente" ni ícono: el
-        // mensaje de éxito lo arma el notifier con el resultado real.
-        finish(`Empleado ${name} ${existingEmp ? 'actualizado' : 'creado'}`);
+            applyFields(number);
+            // Label de ACCIÓN para el toast (el SaveOutcomeNotifier lo envuelve en
+            // "Guardando — … · en este equipo"). Sin "correctamente" ni ícono: el
+            // mensaje de éxito lo arma el notifier con el resultado real.
+            finish(`Empleado ${name} ${existingEmp ? 'actualizado' : 'creado'}`);
+        };
+
+        // 🛡️ Posiciones REMOVIDAS con días trabajados: interponer el modal de
+        // impacto ANTES de aplicar nada. El default del producto es conservar
+        // el historial (el pasado es un hecho); reasignar esos días a otra
+        // posición del empleado es opt-in explícito con el impacto a la vista.
+        if (existingEmp) {
+            const current = state.employees.find(e => e.id === existingEmp.id) || state.employees.find(e => e.key === existingEmp.id);
+            const prevPositions = Array.isArray(current?.positions) ? current.positions : [];
+            const removedWithHistory = prevPositions
+                .filter(pid => !selectedPositions.includes(pid))
+                .map(pid => ({ pid, audit: collectPositionDays(state.attendance, { employeeId: current.id, positionId: pid }) }))
+                .filter(x => x.audit.count > 0);
+            if (removedWithHistory.length > 0) {
+                EmployeeModal._showPositionRemovalImpact({
+                    emp: current, items: removedWithHistory, remaining: selectedPositions, state,
+                    onDecide: (decisions) => { _reassignDecisions = decisions; continueSave(); }
+                });
+                return; // Cancelar en el modal de impacto aborta el guardado (el form queda abierto)
+            }
+        }
+        continueSave();
     }
 
     /**
@@ -383,5 +442,111 @@ export class EmployeeModal {
         });
 
         new Modal({ title: '⚠️ Número de ficha en uso', content, size: 'small', buttons }).open();
+    }
+
+    /**
+     * Modal de impacto al REMOVER una posición con días trabajados.
+     *
+     * Muestra el alcance real (días, rango de fechas, horas y plata estimada)
+     * y ofrece, en este orden de seguridad:
+     *   1. Conservar historial (recomendado): el pasado queda intacto — la
+     *      posición sigue en el catálogo, así que esos días siguen resolviendo
+     *      su nombre y tarifa. Solo se desasigna hacia adelante.
+     *   2. Reasignar esos días a otra posición del empleado: reescritura
+     *      EXPLÍCITA del pasado, con advertencia de que los montos históricos
+     *      cambian (si ya se pagaron, los reportes dejan de cuadrar).
+     *   3. Cancelar: aborta el guardado entero (el formulario queda abierto).
+     *
+     * Si se removieron varias posiciones con historial, se decide una por una
+     * (cadena secuencial de modales). onDecide recibe las reasignaciones
+     * elegidas [{fromId, toId}] (vacío si conservó todo).
+     */
+    static _showPositionRemovalImpact({ emp, items, remaining, state, onDecide }) {
+        const rateOf = (posId) =>
+            Number(emp.positionSalaries?.[posId]) ||
+            Number((state.positions.find(p => p.id === posId) || {}).hourlyRate) || 0;
+        const posName = (posId) => (state.positions.find(p => p.id === posId) || {}).name || String(posId);
+
+        const decisions = [];
+        const step = (i) => {
+            if (i >= items.length) {
+                onDecide(decisions.filter(Boolean));
+                return;
+            }
+            const { pid, audit } = items[i];
+            const fromRate = rateOf(pid);
+            const fromMoney = Math.round(audit.totalHours * fromRate);
+            const destinations = remaining.filter(id => id !== pid);
+            const selectId = `reassign-dest-select-${i}`;
+
+            const options = destinations.map(id => {
+                const r = rateOf(id);
+                const est = Math.round(audit.totalHours * r);
+                return `<option value="${escapeHTML(id)}">${escapeHTML(posName(id))} — $${r}/hr (≈ $${est.toLocaleString()})</option>`;
+            }).join('');
+
+            const content = `
+                <div style="padding:4px 2px; display:flex; flex-direction:column; gap:10px;">
+                    <p style="color:#e2e8f0;margin:0;line-height:1.5;">
+                        <strong>${escapeHTML(emp.name)}</strong> trabajó
+                        <strong>${audit.count} día${audit.count === 1 ? '' : 's'}</strong> como
+                        <strong>${escapeHTML(posName(pid))}</strong>
+                        entre <strong>${audit.firstDate}</strong> y <strong>${audit.lastDate}</strong>
+                        (${audit.totalHours}h ≈ $${fromMoney.toLocaleString()}).
+                    </p>
+                    <p style="color:#94a3b8;font-size:0.85rem;margin:0;line-height:1.5;">
+                        Al quitarle la posición, su historial NO se pierde: esos días
+                        seguirán registrados como ${escapeHTML(posName(pid))}. Solo deja
+                        de estar disponible hacia adelante.
+                    </p>
+                    ${destinations.length > 0 ? `
+                    <div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.25);border-radius:8px;padding:10px;">
+                        <p style="color:#eab308;font-size:0.85rem;margin:0 0 8px;line-height:1.5;">
+                            ⚠️ Si preferís reasignar esos días a otra de sus posiciones,
+                            los montos históricos de nómina CAMBIAN — y si esos días ya
+                            fueron pagados, tus reportes dejarán de cuadrar con lo pagado.
+                        </p>
+                        <label for="${selectId}" style="color:#94a3b8;font-size:0.8rem;">Reasignar a:</label>
+                        <select id="${selectId}" class="form-input" style="width:100%;margin-top:4px;">${options}</select>
+                    </div>` : ''}
+                </div>`;
+
+            const buttons = [
+                {
+                    text: '🛡️ Conservar historial (recomendado)',
+                    class: 'btn-primary',
+                    onClick: function () {
+                        decisions.push(null);
+                        this.close();
+                        step(i + 1);
+                    }
+                }
+            ];
+            if (destinations.length > 0) {
+                buttons.push({
+                    text: '🔁 Reasignar esos días',
+                    class: 'btn-secondary',
+                    onClick: function () {
+                        const sel = document.getElementById(selectId);
+                        const toId = sel && sel.value ? sel.value : destinations[0];
+                        decisions.push({ fromId: pid, toId });
+                        this.close();
+                        step(i + 1);
+                    }
+                });
+            }
+            buttons.push({
+                // Cancelar aborta TODO el guardado: ni step(i+1) ni onDecide.
+                text: 'Cancelar',
+                class: 'btn-secondary',
+                onClick: function () { this.close(); }
+            });
+
+            new Modal({
+                title: `⚠️ ${escapeHTML(posName(pid))}: días trabajados`,
+                content, size: 'medium', buttons
+            }).open();
+        };
+        step(0);
     }
 }

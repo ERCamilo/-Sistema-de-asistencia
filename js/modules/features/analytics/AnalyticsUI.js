@@ -57,6 +57,7 @@ _attachAnalyticsDelegation();
 
 import { memoCache } from '../../utils/MemoCache.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
+import { buildEmployeeReportData } from './EmployeeReportData.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 import { ensureChartJsLoaded } from '../../utils/LazyCDN.js';
@@ -742,8 +743,6 @@ function calculateEmployeeReportData() {
     const state = getState();
     const startDate = state.employeeReportStartDate;
     const endDate = state.employeeReportEndDate;
-    const regularHours = state.settings.regularHoursPerDay;
-    const holidayFactor = state.settings.holidayFactor;
     const startDateObj = parseDate(startDate);
     const endDateObj = parseDate(endDate);
 
@@ -753,47 +752,19 @@ function calculateEmployeeReportData() {
         days.push({ date: date, isHoliday: isDayHoliday(date) });
     }
 
-    const activePositions = state.positions.filter(p => p.active);
-    const positions = [];
-
-    activePositions.forEach(position => {
-        const employees = [];
-        const empsByPosition = state.employees.filter(e => {
-            if (!wasEmployeeActiveInRange(e, startDate, endDate, state.attendance)) return false;
-            return (e.positions && Array.isArray(e.positions) && e.positions.includes(position.id)) || e.position === position.id;
-        });
-
-        empsByPosition.forEach(emp => {
-            const dayValues = {};
-            let total = 0;
-            days.forEach(day => {
-                const dateKey = getDateKey(day.date);
-                const att = state.attendance[`${emp.id}-${dateKey}`];
-                if (att && att.present) {
-                    let dayValue = 0;
-                    if (att.multiPosition && att.positionHours) {
-                        const posHours = att.positionHours.find(ph => ph.positionId === position.id);
-                        if (posHours) dayValue = (posHours.hours || 0) / regularHours;
-                    } else {
-                        const selectedPos = att.selectedPosition || (emp.positions || [])[0];
-                        if (selectedPos !== position.id) return;
-                        dayValue = (att.hoursWorked || 0) / regularHours;
-                    }
-
-                    if (day.isHoliday || att.isHoliday) dayValue *= (holidayFactor || 1);
-                    if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }
-                }
-            });
-            if (!isNaN(total)) employees.push({ id: emp.id, number: emp.number, name: emp.name, dayValues, total });
-        });
-        
-        // Ordenar empleados por número de referencia antes de agregar la posición
-        employees.sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
-        
-        if (employees.length > 0) positions.push({ position, employees });
+    // El armado vive en EmployeeReportData (puro, testeado). Regla que arregla
+    // el bug de campo 2026-07-10: EL HISTORIAL MANDA — los días registrados con
+    // una posición desasignada o desactivada siguen apareciendo bajo ella.
+    return buildEmployeeReportData({
+        employees: state.employees,
+        positions: state.positions,
+        attendance: state.attendance,
+        days,
+        startDate,
+        endDate,
+        regularHours: state.settings.regularHoursPerDay,
+        holidayFactor: state.settings.holidayFactor
     });
-
-    return { days, positions };
 }
 
 // ✅ wasEmployeeActiveInRange migrado a js/modules/utils/DateUtils.js
@@ -1282,12 +1253,14 @@ export async function exportEmployeeReportExcel() {
             const sortedEmployees = Array.from(employeeMap.values())
                 .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
-            sortedEmployees.forEach((emp, i) => {
-                const baseIndex = i + 1;
+            sortedEmployees.forEach(emp => {
                 emp.items.forEach((item, j) => {
+                    // Número de FICHA del empleado (como en las hojas por
+                    // posición), con sufijo de letra cuando tiene más de una
+                    // posición con el mismo líder (042, 042b, ...).
                     const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1));
                     const row = {
-                        idx: `${baseIndex}${suffix}`,
+                        idx: `${emp.number}${suffix}`,
                         name: emp.name,
                         position: item.positionName,
                         days: item.total
