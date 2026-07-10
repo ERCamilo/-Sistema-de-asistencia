@@ -419,22 +419,10 @@ function PayrollGeneratorTab() {
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2c') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         ${icons.get('dollar', { size: 18 })} Paso 2C: Préstamos
                     </h3>
-                    ${isStepCollapsed('step2c') ? `<div aria-label="Resumen de préstamos de nómina" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:min(100%,620px);margin-left:16px;">
-                        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;min-width:0;">
-                            <div style="font-size:0.68rem;color:#cbd5e1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Préstamos seleccionados</div>
-                            <div><strong style="font-size:1.35rem;color:#f8fafc;">${loanSummary.selectedCount}</strong> <span style="font-size:0.72rem;color:#94a3b8;">/${loanSummary.eligibleCount} préstamos elegibles</span></div>
-                        </div>
-                        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;min-width:0;">
-                            <div style="font-size:0.68rem;color:#cbd5e1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Interés seleccionado</div>
-                            <strong style="display:block;font-size:1.2rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedInterest)}</strong>
-                            <span style="display:block;font-size:0.7rem;color:#94a3b8;">Interés total elegible: ${formatCurrency(loanSummary.eligibleInterest)}</span>
-                        </div>
-                        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;min-width:0;">
-                            <div style="font-size:0.68rem;color:#cbd5e1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Saldo seleccionado</div>
-                            <strong style="display:block;font-size:1.2rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedBalance)}</strong>
-                            <span style="display:block;font-size:0.68rem;color:#94a3b8;">Valor total elegible: ${formatCurrency(loanSummary.eligibleTotalDue)}</span>
-                            <span style="display:block;font-size:0.73rem;color:#cbd5e1;font-weight:700;">Saldo total activo: ${formatCurrency(loanSummary.eligibleBalance)}</span>
-                        </div>
+                    ${isStepCollapsed('step2c') ? `<div aria-label="Resumen de préstamos de nómina" style="display:flex;flex-wrap:wrap;gap:4px 22px;align-items:baseline;margin-left:16px;">
+                        <span style="white-space:nowrap;"><strong style="font-size:1.15rem;color:#f59e0b;">${loanSummary.selectedCount}</strong><span style="font-size:0.72rem;color:#94a3b8;">/${loanSummary.eligibleCount} préstamos</span></span>
+                        <span style="white-space:nowrap;font-size:0.72rem;color:#94a3b8;">Interés <strong style="font-size:0.95rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedInterest)}</strong> <span style="color:#64748b;">de ${formatCurrency(loanSummary.eligibleInterest)}</span></span>
+                        <span style="white-space:nowrap;font-size:0.72rem;color:#94a3b8;">Saldo <strong style="font-size:0.95rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedBalance)}</strong> <span style="color:#64748b;">de ${formatCurrency(loanSummary.eligibleBalance)}</span></span>
                     </div>` : ''}
                 </div>
 
