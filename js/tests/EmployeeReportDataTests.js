@@ -110,6 +110,22 @@ testRunner.addSuite("EmployeeReportData — el historial manda sobre la asignaci
 
 testRunner.addSuite("EmployeeReportData — cableado en AnalyticsUI", {
 
+    // 🐛 Campo 2026-07-10: la hoja por líder del Excel numeraba a los
+    // empleados por índice de orden (1, 2, 3...) en vez de por su número de
+    // ficha, a diferencia de las hojas por posición que sí usan emp.number.
+    "la hoja por líder del Excel numera por número de FICHA, no por orden"() {
+        const fs = require('fs');
+        const path = require('path');
+        const SRC = fs.readFileSync(path.resolve(__dirname, '../modules/features/analytics/AnalyticsUI.js'), 'utf8');
+        const idx = SRC.indexOf('HOJAS POR LÍDER');
+        testRunner.assert(idx !== -1, 'debe existir la sección de hojas por líder');
+        const block = SRC.slice(idx, idx + 2600);
+        testRunner.assert(!/\$\{baseIndex\}/.test(block),
+            'no debe numerar por índice de orden (baseIndex)');
+        testRunner.assert(/idx:\s*`\$\{emp\.number\}/.test(block),
+            'debe numerar por el número de empleado (ficha), como las hojas por posición');
+    },
+
     "calculateEmployeeReportData delega en el builder puro (el fix llega al reporte/Excel real)"() {
         const fs = require('fs');
         const path = require('path');

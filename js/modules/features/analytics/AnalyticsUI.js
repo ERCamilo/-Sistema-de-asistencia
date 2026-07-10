@@ -1253,12 +1253,14 @@ export async function exportEmployeeReportExcel() {
             const sortedEmployees = Array.from(employeeMap.values())
                 .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
 
-            sortedEmployees.forEach((emp, i) => {
-                const baseIndex = i + 1;
+            sortedEmployees.forEach(emp => {
                 emp.items.forEach((item, j) => {
+                    // Número de FICHA del empleado (como en las hojas por
+                    // posición), con sufijo de letra cuando tiene más de una
+                    // posición con el mismo líder (042, 042b, ...).
                     const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1));
                     const row = {
-                        idx: `${baseIndex}${suffix}`,
+                        idx: `${emp.number}${suffix}`,
                         name: emp.name,
                         position: item.positionName,
                         days: item.total
