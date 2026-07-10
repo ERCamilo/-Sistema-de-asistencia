@@ -170,7 +170,10 @@ testRunner.addSuite("Asistencia y entidades — announce honesto", {
 
     "modales de empleado/líder/puesto anuncian al guardar"() {
         testRunner.assert(/saveToLocalStorage\(\s*\{?\s*(announce|label)/.test(EMP_MODAL_SRC) ||
-            /saveToLocalStorage\(label \? \{ announce: label \} : undefined\)/.test(EMP_MODAL_SRC),
+            /saveToLocalStorage\(label \? \{ announce: label \} : undefined\)/.test(EMP_MODAL_SRC) ||
+            // finish arma opts (announce + dateKeys de reasignación) y lo pasa entero
+            (/const opts = label \? \{ announce: label \} : \{\}/.test(EMP_MODAL_SRC) &&
+             /saveToLocalStorage\(Object\.keys\(opts\)\.length > 0 \? opts : undefined\)/.test(EMP_MODAL_SRC)),
             'EmployeeModal.finish debe pasar announce');
         testRunner.assert(/\{ announce \}|announce:/.test(LEADER_MODAL_SRC), 'LeaderModal debe pasar announce');
         testRunner.assert(/\{ announce \}|announce:/.test(POS_MODAL_SRC), 'PositionModal debe pasar announce');
