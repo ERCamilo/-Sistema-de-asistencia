@@ -3,6 +3,23 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
 import { migrateAllAdvances } from '../loans/LoansController.js';
+import { escapeHTML } from '../../utils/Sanitize.js';
+import {
+    applyPayrollLoanDeductions,
+    buildPayrollLoanSelection,
+    calculatePayrollBeforeLoans,
+    getInvalidPayrollLoanRows,
+    removeEmployeePayrollLoans as removeEmployeePayrollLoansFromSelection,
+    resolvePayrollLoanSelection,
+    summarizePayrollLoans,
+    toSplitXRows
+} from './PayrollLoans.js';
+import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
+import {
+    hydrateRememberedAdjustments,
+    summarizeGlobalAdjustments,
+    updateRememberedDefault
+} from './PayrollAdjustments.js';
 
 let context = null;
 let payrollService = null;
@@ -21,6 +38,13 @@ const _ACTION_MAP = {
     'remove-export-bonus': (idx) => window.PayrollUI?.removeExportBonus?.(parseInt(idx, 10)),
     'add-employee-bonuses-to-export': () => window.PayrollUI?.addEmployeeBonusesToExport?.(),
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
+    'add-payroll-loans': () => window.PayrollUI?.addPayrollLoansToExport?.(),
+    'remove-employee-payroll-loans': (employeeId) => window.PayrollUI?.removeEmployeePayrollLoans?.(employeeId),
+    'toggle-remember-adjustment': (index, target) => window.PayrollUI?.toggleRememberGlobalAdjustment?.(
+        target.dataset.kind,
+        parseInt(index, 10),
+        target.checked
+    ),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
@@ -72,15 +96,11 @@ function getEmployeesWithBonuses() {
 }
 
 function getLeaderFilteredEmployees(state) {
-    const leaderFilter = state.exportConfig.leaderFilter || 'all';
-    const activeEmployees = state.employees.filter(emp => emp.active !== false);
-    if (leaderFilter === 'all') return activeEmployees;
-
-    const leaderPositions = new Set(
-        state.positions.filter(p => p.leaderId === leaderFilter).map(p => p.id)
+    return getPayrollEmployeesForPeriod(
+        state,
+        state.exportConfig.periodStart,
+        state.exportConfig.periodEnd
     );
-    return activeEmployees.filter(emp => (emp.positions || []).some(pid => leaderPositions.has(pid)))
-        .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
 }
 
 /**
@@ -136,24 +156,44 @@ export function changePayrollViewMode(mode) {
 function PayrollGeneratorTab() {
     const state = getState();
 
-    // Inicializar secciones colapsadas por defecto
+    // Inicializar secciones colapsadas y defaults recordados una sola vez por sesión.
     if (state.exportConfig.collapsedSteps === undefined) {
-        state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step3'];
+        state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step2c', 'step3'];
+    }
+    if (!state.exportConfig.rememberedGlobalsHydrated) {
+        const hydrated = hydrateRememberedAdjustments(state.exportConfig, state.settings);
+        state.exportConfig.deductions = hydrated.deductions;
+        state.exportConfig.bonuses = hydrated.bonuses;
+        state.exportConfig.rememberedGlobalsHydrated = true;
     }
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
 
     if (!state.exportConfig.periodStart || !state.exportConfig.periodEnd) {
-        const today = new Date();
-        const start = new Date(today.getFullYear(), today.getMonth(), 1);
-        state.exportConfig.periodStart = getDateKey(start);
-        state.exportConfig.periodEnd = getDateKey(today);
-        state.exportConfig.activePreset = 'thisMonth';
+        const period = resolvePayrollPeriod(state.settings.payPeriod, new Date());
+        state.exportConfig.periodStart = period.periodStart;
+        state.exportConfig.periodEnd = period.periodEnd;
+        state.exportConfig.periodSource = period.source;
+        state.exportConfig.activePreset = period.source === 'configured' ? 'payPeriod' : 'thisMonth';
     }
 
     if (!state.exportConfig.leaderFilter) state.exportConfig.leaderFilter = 'all';
 
     const exportData = generateExportData();
+    const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
+    const hasInvalidLoanRows = invalidLoanRows.length > 0;
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
+    const selectedPayrollLoans = resolvePayrollLoanSelection(
+        state.employees,
+        state.exportConfig.payrollLoanSelection || []
+    );
+    const invalidLoanEmployeeIds = new Set(invalidLoanRows.map(item => item._employeeId));
+    const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
+    const loanSummary = summarizePayrollLoans(
+        filteredPayrollEmployees,
+        state.exportConfig.payrollLoanSelection || []
+    );
+    const deductionSummary = summarizeGlobalAdjustments(state.exportConfig.deductions, '-', formatCurrency);
+    const bonusSummary = summarizeGlobalAdjustments(state.exportConfig.bonuses, '+', formatCurrency);
     const employeesWithDeductions = getEmployeesWithDeductions();
     const hasEmployeeDeductions = employeesWithDeductions.length > 0;
     const employeeDeductionsAdded = !!state.exportConfig.employeeDeductionsAdded;
@@ -244,6 +284,7 @@ function PayrollGeneratorTab() {
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         ${icons.get('payroll')} Paso 2: Deducciones Globales
                     </h3>
+                    ${isStepCollapsed('step2') ? `<span style="font-size:0.75rem;color:#94a3b8;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:50%;">${deductionSummary}</span>` : ''}
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step2') ? 'none' : 'block'}; margin-top: 20px;">
@@ -306,6 +347,7 @@ function PayrollGeneratorTab() {
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2b') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         ${icons.get('star', { size: 18 })} Paso 2B: Bonificaciones Globales
                     </h3>
+                    ${isStepCollapsed('step2b') ? `<span style="font-size:0.75rem;color:#10b981;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:50%;">${bonusSummary}</span>` : ''}
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step2b') ? 'none' : 'block'}; margin-top: 20px;">
@@ -361,14 +403,74 @@ function PayrollGeneratorTab() {
             </div>
             </div>
             
+            <!-- Paso 2C: Préstamos -->
+            <div id="export-loans-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2c') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
+                <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step2c')}" aria-controls="export-loans-content" data-payroll-action="toggle-step" data-value="step2c" style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h3 style="margin: 0; font-size: 1.125rem; color: ${hasInvalidLoanRows ? '#f87171' : '#f59e0b'}; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2c') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
+                        ${icons.get('dollar', { size: 18 })} Paso 2C: Préstamos
+                    </h3>
+                    ${isStepCollapsed('step2c') ? `<div aria-label="Resumen de préstamos de nómina" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:min(100%,620px);margin-left:16px;">
+                        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;min-width:0;">
+                            <div style="font-size:0.68rem;color:#cbd5e1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Préstamos seleccionados</div>
+                            <div><strong style="font-size:1.35rem;color:#f8fafc;">${loanSummary.selectedCount}</strong> <span style="font-size:0.72rem;color:#94a3b8;">/${loanSummary.eligibleCount} préstamos elegibles</span></div>
+                        </div>
+                        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;min-width:0;">
+                            <div style="font-size:0.68rem;color:#cbd5e1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Interés seleccionado</div>
+                            <strong style="display:block;font-size:1.2rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedInterest)}</strong>
+                            <span style="display:block;font-size:0.7rem;color:#94a3b8;">Interés total elegible: ${formatCurrency(loanSummary.eligibleInterest)}</span>
+                        </div>
+                        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:9px 12px;min-width:0;">
+                            <div style="font-size:0.68rem;color:#cbd5e1;font-weight:700;text-transform:uppercase;letter-spacing:.04em;">Saldo seleccionado</div>
+                            <strong style="display:block;font-size:1.2rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedBalance)}</strong>
+                            <span style="display:block;font-size:0.68rem;color:#94a3b8;">Valor total elegible: ${formatCurrency(loanSummary.eligibleTotalDue)}</span>
+                            <span style="display:block;font-size:0.73rem;color:#cbd5e1;font-weight:700;">Saldo total activo: ${formatCurrency(loanSummary.eligibleBalance)}</span>
+                        </div>
+                    </div>` : ''}
+                </div>
+
+                <div id="export-loans-content" style="display: ${isStepCollapsed('step2c') ? 'none' : 'block'}; margin-top: 20px;">
+                    <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 14px;">
+                        Agrega temporalmente los saldos de préstamos activos. Copiar o descargar no registra abonos ni modifica los préstamos.
+                    </p>
+                    <button type="button" data-payroll-action="add-payroll-loans"
+                            style="padding: 10px 14px; margin-bottom: 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); border: none; border-radius: 7px; color: #000; font-weight: 800; cursor: pointer;">
+                        ${icons.get('add', { size: 16 })} Agregar préstamos activos a nómina
+                    </button>
+
+                    ${selectedPayrollLoans.length === 0 ? `
+                        <div style="text-align: center; color: #64748b; padding: 20px; border: 1px dashed #334155; border-radius: 8px;">
+                            No hay préstamos agregados al listado temporal
+                        </div>
+                    ` : selectedPayrollLoans.map(item => {
+                        const invalid = invalidLoanEmployeeIds.has(item.employeeId);
+                        return `
+                            <div style="background: ${invalid ? 'rgba(239, 68, 68, 0.1)' : '#0f172a'}; border: 1px solid ${invalid ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                                    <div style="min-width: 0;">
+                                        <div style="color: #f1f5f9; font-weight: 700;">#${item.employeeNumber || '?'} · ${escapeHTML(item.employeeName || 'Empleado')}</div>
+                                        <div style="color: #94a3b8; font-size: 0.75rem; margin-top: 3px;">${item.loans.length} préstamo(s) activo(s) · Descuento ${formatCurrency(item.total)}</div>
+                                        ${invalid ? `<div role="alert" style="color: #fca5a5; font-size: 0.75rem; font-weight: 700; margin-top: 6px;">⚠️ El descuento deja el pago en cero o negativo. Elimina sus préstamos para continuar.</div>` : ''}
+                                    </div>
+                                    <button type="button" data-payroll-action="remove-employee-payroll-loans" data-id="${item.employeeId}" aria-label="Eliminar préstamos de ${escapeHTML(item.employeeName || 'empleado')} del listado temporal"
+                                            style="background: #ef4444; color: #fff; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; flex-shrink: 0;">
+                                        ${icons.get('delete', { size: 15 })}
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+
             <!-- Paso 3: Vista Previa -->
-            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
-                <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step3" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
+                <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step3')}" data-payroll-action="toggle-step" data-value="step3" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step3') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 3: Vista Previa (${exportData.length} empleados)
                     </h3>
-                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: #10b981; font-weight: 700;">${formatCurrency(totalAmount)}</span>` : ''}
+                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidLoanRows ? '#f87171' : '#10b981'}; font-weight: 700;">${hasInvalidLoanRows ? `⚠️ ${invalidLoanRows.length} pago(s) inválido(s)` : formatCurrency(totalAmount)}</span>` : ''}
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
@@ -384,6 +486,12 @@ function PayrollGeneratorTab() {
                     </div>
                 </div>
 
+                ${hasInvalidLoanRows ? `
+                    <div role="alert" style="margin-bottom: 14px; padding: 12px; border: 1px solid #ef4444; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #fca5a5; font-weight: 700; font-size: 0.85rem;">
+                        ⚠️ Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago en cero o negativo. Elimina sus préstamos temporales para habilitar la exportación.
+                    </div>
+                ` : ''}
+
                 <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina" tabindex="0">
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
@@ -394,25 +502,27 @@ function PayrollGeneratorTab() {
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BRUTO</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BONIFIC.</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DEDUCC.</th>
+                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">PRÉSTAMOS</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NETO</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr style="border-bottom: 1px solid #334155; ${idx % 2 === 0 ? 'background: #0f172a;' : ''}">
+                                <tr style="border-bottom: 1px solid ${emp._invalidLoanNet ? '#ef4444' : '#334155'}; ${emp._invalidLoanNet ? 'background: rgba(239, 68, 68, 0.12);' : (idx % 2 === 0 ? 'background: #0f172a;' : '')}">
                                     <td style="padding: 12px; color: #06b6d4; font-weight: 600; font-family: monospace;">#${emp._number || emp.id}</td>
-                                    <td style="padding: 12px; color: #f1f5f9; font-weight: 600;">${emp._employeeName}</td>
+                                    <td style="padding: 12px; color: #f1f5f9; font-weight: 600;">${escapeHTML(emp._employeeName)}${emp._invalidLoanNet ? '<div style="color:#fca5a5;font-size:0.7rem;margin-top:4px;">Pago inválido: elimina préstamos</div>' : ''}</td>
                                     <td style="padding: 12px; color: #94a3b8; font-size: 0.875rem;">${emp._employeePosition}</td>
                                      <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._brutoOriginal)}</td>
                                     <td style="padding: 12px; text-align: right; color: #3b82f6;">+${formatCurrency(emp._bonuses)}</td>
                                     <td style="padding: 12px; text-align: right; color: #ec4899;">-${formatCurrency(emp._deductions)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #06b6d4; font-weight: 700; font-size: 1rem;">${formatCurrency(emp.monto)}</td>
+                                    <td style="padding: 12px; text-align: right; color: #f59e0b;">-${formatCurrency(emp._loans)}</td>
+                                    <td style="padding: 12px; text-align: right; color: ${emp._invalidLoanNet ? '#f87171' : '#06b6d4'}; font-weight: 700; font-size: 1rem;">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                         <tfoot>
                             <tr style="background: linear-gradient(135deg, #10b981, #06b6d4); border-top: 2px solid #06b6d4;">
-                                <td colspan="6" style="padding: 16px; color: #000; font-weight: 700; font-size: 1.125rem;">TOTAL NÓMINA:</td>
+                                <td colspan="7" style="padding: 16px; color: #000; font-weight: 700; font-size: 1.125rem;">TOTAL NÓMINA:</td>
                                 <td style="padding: 16px; text-align: right; color: #000; font-weight: 900; font-size: 1.25rem;">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
@@ -423,17 +533,17 @@ function PayrollGeneratorTab() {
             
             <!-- Paso 4: Exportar -->
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button type="button" data-payroll-action="copy-export-json" 
-                        style="flex: 1; min-width: 200px; padding: 16px; background: linear-gradient(135deg, #06b6d4, #10b981); border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
+                <button type="button" data-payroll-action="copy-export-json" ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}
+                        style="flex: 1; min-width: 200px; padding: 16px; background: ${hasInvalidLoanRows ? '#475569' : 'linear-gradient(135deg, #06b6d4, #10b981)'}; border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 1rem; cursor: ${hasInvalidLoanRows ? 'not-allowed' : 'pointer'}; opacity: ${hasInvalidLoanRows ? '0.65' : '1'}; transition: all 0.2s;"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(6, 182, 212, 0.3)'"
                         onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                    Copiar JSON al Portapapeles
+                    Copiar para SplitX
                 </button>
-                <button type="button" data-payroll-action="download-export-json" 
-                        style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid #06b6d4; border-radius: 8px; color: #06b6d4; font-weight: 700; font-size: 1rem; cursor: pointer; transition: all 0.2s;"
+                <button type="button" data-payroll-action="download-export-json" ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}
+                        style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid ${hasInvalidLoanRows ? '#64748b' : '#06b6d4'}; border-radius: 8px; color: ${hasInvalidLoanRows ? '#94a3b8' : '#06b6d4'}; font-weight: 700; font-size: 1rem; cursor: ${hasInvalidLoanRows ? 'not-allowed' : 'pointer'}; opacity: ${hasInvalidLoanRows ? '0.65' : '1'}; transition: all 0.2s;"
                         onmouseover="this.style.background='rgba(6, 182, 212, 0.1)'"
                         onmouseout="this.style.background='#1e293b'">
-                    Descargar Archivo .json
+                    Descargar para SplitX (.json)
                 </button>
             </div>
         </div>
@@ -447,10 +557,18 @@ function generateExportData() {
 
     const filteredEmployees = getLeaderFilteredEmployees(state);
 
-    return filteredEmployees.map(emp => {
+    const baseRows = filteredEmployees.map(emp => {
         const applicableDeductions = (deductions || []).filter(d => !d.employeeId || d.employeeId === emp.id);
         const applicableBonuses = (state.exportConfig.bonuses || []).filter(b => !b.employeeId || b.employeeId === emp.id);
-        const payroll = payrollService.calculateEmployeePayroll(emp.id, periodStart, periodEnd, applicableDeductions, applicableBonuses);
+        // Loans are applied once, below, from the temporary selection.
+        const payroll = calculatePayrollBeforeLoans(
+            payrollService,
+            emp.id,
+            periodStart,
+            periodEnd,
+            applicableDeductions,
+            applicableBonuses
+        );
         
         const positionIds = (emp.positions && emp.positions.length > 0)
             ? emp.positions
@@ -468,12 +586,22 @@ function generateExportData() {
             _bruto: payroll.bruto,
             _bonuses: payroll.bonuses,
             _deductions: payroll.deductions,
+            _employeeId: emp.id,
             _employeeName: emp.name,
             _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion',
             _number: emp.number
         };
-    }).filter(emp => emp.monto > 0.001) // Filtro de seguridad para montos casi cero
-       .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
+    });
+
+    return applyPayrollLoanDeductions(
+        baseRows,
+        state.employees,
+        state.exportConfig.payrollLoanSelection || []
+    )
+        // Keep selected-loan rows even when their resulting payment is invalid,
+        // so the UI can show the error instead of silently omitting the employee.
+        .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
+        .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
 }
 
 function generateExportDeductionsHTML() {
@@ -527,6 +655,10 @@ function generateExportDeductionsHTML() {
                         placeholder="Nombre (ej: AFP, SFS...)" 
                         style="width: 100%; font-size: 0.75rem; padding: 6px;">
                     ${ded.employeeId ? `<div style="font-size: 0.7rem; color: #94a3b8; margin-top: 6px;">Empleado: ${ded.employeeName || (state.employees.find(e => e.id === ded.employeeId)?.name || 'N/A')}</div>` : ''}
+                    ${!ded.employeeId ? `<label style="display: flex; align-items: center; gap: 6px; margin-top: 8px; cursor: pointer; font-size: 0.75rem; color: #cbd5e1;">
+                        <input type="checkbox" data-payroll-action="toggle-remember-adjustment" data-kind="deductions" data-id="${index}" ${ded.remembered ? 'checked' : ''} style="accent-color: #06b6d4;">
+                        Recordar
+                    </label>` : ''}
                 </div>
                 ${allItems.length > 0 ? `<button type="button" data-payroll-action="remove-export-deduction" data-value="${index}" aria-label="Eliminar deducción" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
             </div>
@@ -558,7 +690,31 @@ export function addExportDeduction() {
 
 export function removeExportDeduction(index) {
     const state = getState();
+    const item = state.exportConfig.deductions?.[index];
+    if (item && !item.employeeId && item.id) {
+        state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'deductions', item, false);
+        context.saveToLocalStorage({ immediate: true, announce: false });
+    }
     state.exportConfig.deductions.splice(index, 1);
+    context.render();
+}
+
+function syncRememberedAdjustment(kind, item, immediate = false) {
+    if (!item || item.employeeId || !item.remembered) return;
+    const state = getState();
+    state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, true);
+    context.saveToLocalStorage(immediate ? { immediate: true, announce: false } : undefined);
+}
+
+export function toggleRememberGlobalAdjustment(kind, index, checked) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const state = getState();
+    const item = state.exportConfig[kind]?.[index];
+    if (!item || item.employeeId) return;
+    if (checked && !item.id) item.id = `${kind === 'deductions' ? 'DED' : 'BON'}-${Date.now()}-${index}`;
+    item.remembered = Boolean(checked);
+    state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, checked);
+    context.saveToLocalStorage({ immediate: true, announce: false });
     context.render();
 }
 
@@ -567,6 +723,7 @@ export function updateExportDeductionType(index, type) {
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
         deductions[index].type = type;
+        syncRememberedAdjustment('deductions', deductions[index]);
         context.render();
     }
 }
@@ -577,6 +734,7 @@ export function updateExportDeductionValue(index, value) {
     if (deductions && deductions[index]) {
         // Guardar el número directamente en el estado
         deductions[index].value = parseFloat(value) || 0;
+        syncRememberedAdjustment('deductions', deductions[index]);
         
         // No llamamos a render aquí para evitar perder el foco mientras se escribe (oninput)
         // El proxy de AppState se encargará de cualquier efecto secundario si es necesario, 
@@ -591,6 +749,7 @@ export function updateExportDeductionName(index, value) {
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
         deductions[index].name = value;
+        syncRememberedAdjustment('deductions', deductions[index]);
         window.renderOptimizer.scheduleRender(() => context.render());
     }
 }
@@ -714,6 +873,10 @@ function generateExportBonusesHTML() {
                         placeholder="Nombre (ej: Bono mensual...)" 
                         style="width: 100%; font-size: 0.75rem; padding: 6px; border-color: rgba(16, 185, 129, 0.3);">
                     ${bon.employeeId ? `<div style="font-size: 0.7rem; color: #10b981; margin-top: 6px;">Empleado: ${bon.employeeName || (state.employees.find(e => e.id === bon.employeeId)?.name || 'N/A')}</div>` : ''}
+                    ${!bon.employeeId ? `<label style="display: flex; align-items: center; gap: 6px; margin-top: 8px; cursor: pointer; font-size: 0.75rem; color: #cbd5e1;">
+                        <input type="checkbox" data-payroll-action="toggle-remember-adjustment" data-kind="bonuses" data-id="${index}" ${bon.remembered ? 'checked' : ''} style="accent-color: #10b981;">
+                        Recordar
+                    </label>` : ''}
                 </div>
                 ${allItems.length > 0 ? `<button type="button" data-payroll-action="remove-export-bonus" data-value="${index}" aria-label="Eliminar bono" style="background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: all 0.2s;">${icons.get('delete')}</button>` : ''}
             </div>
@@ -745,6 +908,11 @@ export function addExportBonus() {
 
 export function removeExportBonus(index) {
     const state = getState();
+    const item = state.exportConfig.bonuses?.[index];
+    if (item && !item.employeeId && item.id) {
+        state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'bonuses', item, false);
+        context.saveToLocalStorage({ immediate: true, announce: false });
+    }
     state.exportConfig.bonuses.splice(index, 1);
     context.render();
 }
@@ -754,6 +922,7 @@ export function updateExportBonusType(index, type) {
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
         bonuses[index].type = type;
+        syncRememberedAdjustment('bonuses', bonuses[index]);
         context.render();
     }
 }
@@ -763,6 +932,7 @@ export function updateExportBonusValue(index, value) {
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
         bonuses[index].value = parseFloat(value) || 0;
+        syncRememberedAdjustment('bonuses', bonuses[index]);
         window.renderOptimizer.scheduleRender(() => context.render());
     }
 }
@@ -772,6 +942,7 @@ export function updateExportBonusName(index, value) {
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
         bonuses[index].name = value;
+        syncRememberedAdjustment('bonuses', bonuses[index]);
         window.renderOptimizer.scheduleRender(() => context.render());
     }
 }
@@ -845,6 +1016,41 @@ export function addEmployeeBonusFromForm() {
     context.render();
 }
 
+// ---------------------- PRÉSTAMOS TEMPORALES DE NÓMINA ----------------------
+
+export function addPayrollLoansToExport() {
+    const state = getState();
+    const eligibleEmployees = getLeaderFilteredEmployees(state);
+    const selection = buildPayrollLoanSelection(eligibleEmployees);
+    state.exportConfig.payrollLoanSelection = selection;
+
+    if (window.showNotification) {
+        const invalidRows = getInvalidPayrollLoanRows(generateExportData());
+        if (invalidRows.length > 0) {
+            window.showNotification(
+                `❌ ${invalidRows.length} pago(s) quedan en cero o negativo. Elimina sus préstamos temporales.`,
+                'error'
+            );
+        } else {
+            const message = selection.length > 0
+                ? `✅ Préstamos activos agregados para ${selection.length} empleado(s)`
+                : 'ℹ️ No hay préstamos activos con saldo para agregar';
+            window.showNotification(message, selection.length > 0 ? 'success' : 'info');
+        }
+    }
+    context.render();
+}
+
+export function removeEmployeePayrollLoans(employeeId) {
+    const state = getState();
+    state.exportConfig.payrollLoanSelection = removeEmployeePayrollLoansFromSelection(
+        state.exportConfig.payrollLoanSelection || [],
+        employeeId
+    );
+    if (window.showNotification) window.showNotification('✅ Préstamos eliminados del listado temporal', 'success');
+    context.render();
+}
+
 // ---------------------- PERIODOS DE EXPORTACIÓN ----------------------
 
 export function updateExportPeriod(type, value) {
@@ -883,16 +1089,16 @@ export function setExportPreset(preset) {
             start = new Date(today.getFullYear(), today.getMonth(), 1);
         }
     } else if (preset === 'payPeriod') {
-        const pp = state.settings.payPeriod;
-        if (pp?.periodStart) {
-            start = new Date(pp.periodStart + 'T00:00:00');
-            const len = pp.periodLength || 15;
-            end = new Date(start);
-            end.setDate(end.getDate() + len - 1);
-        } else {
-            if (window.showNotification) window.showNotification('❌ No hay período configurado. Ve a Ajustes.', 'warning');
-            return;
+        const period = resolvePayrollPeriod(state.settings.payPeriod, today);
+        state.exportConfig.periodStart = period.periodStart;
+        state.exportConfig.periodEnd = period.periodEnd;
+        state.exportConfig.activePreset = preset;
+        state.exportConfig.periodSource = period.source;
+        if (period.source === 'month-fallback' && window.showNotification) {
+            window.showNotification('⚠️ El período configurado no es válido; se usó el mes actual.', 'warning');
         }
+        context.render();
+        return;
     }
 
     state.exportConfig.periodStart = getDateKey(start);
@@ -901,16 +1107,35 @@ export function setExportPreset(preset) {
     context.render();
 }
 
+function getSplitXExportData() {
+    const previewRows = generateExportData();
+    const invalidRows = getInvalidPayrollLoanRows(previewRows);
+    if (invalidRows.length > 0) {
+        if (window.showNotification) {
+            window.showNotification(
+                `❌ No se puede exportar: ${invalidRows.length} pago(s) quedan en cero o negativo por préstamos`,
+                'error'
+            );
+        }
+        return null;
+    }
+    return toSplitXRows(previewRows);
+}
+
 export function copyExportJSON() {
-    const data = generateExportData();
+    const data = getSplitXExportData();
+    if (!data) return;
     const json = JSON.stringify(data, null, 2);
     navigator.clipboard.writeText(json).then(() => {
-        if (window.showNotification) window.showNotification('✅ JSON copiado al portapapeles', 'success');
+        if (window.showNotification) window.showNotification('✅ Datos para SplitX copiados', 'success');
+    }).catch(() => {
+        if (window.showNotification) window.showNotification('❌ No se pudo copiar al portapapeles', 'error');
     });
 }
 
 export function downloadExportJSON() {
-    const data = generateExportData();
+    const data = getSplitXExportData();
+    if (!data) return;
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -919,7 +1144,7 @@ export function downloadExportJSON() {
     a.download = `nomina_${getDateKey(new Date())}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    if (window.showNotification) window.showNotification('✅ Archivo JSON descargado', 'success');
+    if (window.showNotification) window.showNotification('✅ Archivo para SplitX descargado', 'success');
 }
 
 export function toggleStep(stepId) {
