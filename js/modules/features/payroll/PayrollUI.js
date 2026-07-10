@@ -1,4 +1,5 @@
 import icons from '../../ui/IconSystem.js';
+import { stateManager } from '../../core/AppState.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
@@ -157,26 +158,34 @@ function PayrollGeneratorTab() {
     const state = getState();
 
     // Inicializar secciones colapsadas y defaults recordados una sola vez por sesión.
-    if (state.exportConfig.collapsedSteps === undefined) {
-        state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step2c', 'step3'];
-    }
-    if (!state.exportConfig.rememberedGlobalsHydrated) {
-        const hydrated = hydrateRememberedAdjustments(state.exportConfig, state.settings);
-        state.exportConfig.deductions = hydrated.deductions;
-        state.exportConfig.bonuses = hydrated.bonuses;
-        state.exportConfig.rememberedGlobalsHydrated = true;
+    // Guard first: this runs during render, and batchSetState schedules a render
+    // when it closes — entering it unconditionally would re-render on every pass.
+    const needsInit = state.exportConfig.collapsedSteps === undefined ||
+        !state.exportConfig.rememberedGlobalsHydrated ||
+        !state.exportConfig.periodStart || !state.exportConfig.periodEnd ||
+        !state.exportConfig.leaderFilter;
+    if (needsInit) {
+        stateManager.batchSetState(() => {
+            if (state.exportConfig.collapsedSteps === undefined) {
+                state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step2c', 'step3'];
+            }
+            if (!state.exportConfig.rememberedGlobalsHydrated) {
+                const hydrated = hydrateRememberedAdjustments(state.exportConfig, state.settings);
+                state.exportConfig.deductions = hydrated.deductions;
+                state.exportConfig.bonuses = hydrated.bonuses;
+                state.exportConfig.rememberedGlobalsHydrated = true;
+            }
+            if (!state.exportConfig.periodStart || !state.exportConfig.periodEnd) {
+                const period = resolvePayrollPeriod(state.settings.payPeriod, new Date());
+                state.exportConfig.periodStart = period.periodStart;
+                state.exportConfig.periodEnd = period.periodEnd;
+                state.exportConfig.periodSource = period.source;
+                state.exportConfig.activePreset = period.source === 'configured' ? 'payPeriod' : 'thisMonth';
+            }
+            if (!state.exportConfig.leaderFilter) state.exportConfig.leaderFilter = 'all';
+        });
     }
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
-
-    if (!state.exportConfig.periodStart || !state.exportConfig.periodEnd) {
-        const period = resolvePayrollPeriod(state.settings.payPeriod, new Date());
-        state.exportConfig.periodStart = period.periodStart;
-        state.exportConfig.periodEnd = period.periodEnd;
-        state.exportConfig.periodSource = period.source;
-        state.exportConfig.activePreset = period.source === 'configured' ? 'payPeriod' : 'thisMonth';
-    }
-
-    if (!state.exportConfig.leaderFilter) state.exportConfig.leaderFilter = 'all';
 
     const exportData = generateExportData();
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
@@ -692,7 +701,9 @@ export function removeExportDeduction(index) {
     const state = getState();
     const item = state.exportConfig.deductions?.[index];
     if (item && !item.employeeId && item.id) {
-        state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'deductions', item, false);
+        stateManager.batchSetState(() => {
+            state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'deductions', item, false);
+        });
         context.saveToLocalStorage({ immediate: true, announce: false });
     }
     state.exportConfig.deductions.splice(index, 1);
@@ -702,7 +713,9 @@ export function removeExportDeduction(index) {
 function syncRememberedAdjustment(kind, item, immediate = false) {
     if (!item || item.employeeId || !item.remembered) return;
     const state = getState();
-    state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, true);
+    stateManager.batchSetState(() => {
+        state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, true);
+    });
     context.saveToLocalStorage(immediate ? { immediate: true, announce: false } : undefined);
 }
 
@@ -713,7 +726,9 @@ export function toggleRememberGlobalAdjustment(kind, index, checked) {
     if (!item || item.employeeId) return;
     if (checked && !item.id) item.id = `${kind === 'deductions' ? 'DED' : 'BON'}-${Date.now()}-${index}`;
     item.remembered = Boolean(checked);
-    state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, checked);
+    stateManager.batchSetState(() => {
+        state.settings.payrollDefaults = updateRememberedDefault(state.settings, kind, item, checked);
+    });
     context.saveToLocalStorage({ immediate: true, announce: false });
     context.render();
 }
@@ -910,7 +925,9 @@ export function removeExportBonus(index) {
     const state = getState();
     const item = state.exportConfig.bonuses?.[index];
     if (item && !item.employeeId && item.id) {
-        state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'bonuses', item, false);
+        stateManager.batchSetState(() => {
+            state.settings.payrollDefaults = updateRememberedDefault(state.settings, 'bonuses', item, false);
+        });
         context.saveToLocalStorage({ immediate: true, announce: false });
     }
     state.exportConfig.bonuses.splice(index, 1);
@@ -1022,7 +1039,9 @@ export function addPayrollLoansToExport() {
     const state = getState();
     const eligibleEmployees = getLeaderFilteredEmployees(state);
     const selection = buildPayrollLoanSelection(eligibleEmployees);
-    state.exportConfig.payrollLoanSelection = selection;
+    stateManager.batchSetState(() => {
+        state.exportConfig.payrollLoanSelection = selection;
+    });
 
     if (window.showNotification) {
         const invalidRows = getInvalidPayrollLoanRows(generateExportData());
@@ -1043,10 +1062,12 @@ export function addPayrollLoansToExport() {
 
 export function removeEmployeePayrollLoans(employeeId) {
     const state = getState();
-    state.exportConfig.payrollLoanSelection = removeEmployeePayrollLoansFromSelection(
-        state.exportConfig.payrollLoanSelection || [],
-        employeeId
-    );
+    stateManager.batchSetState(() => {
+        state.exportConfig.payrollLoanSelection = removeEmployeePayrollLoansFromSelection(
+            state.exportConfig.payrollLoanSelection || [],
+            employeeId
+        );
+    });
     if (window.showNotification) window.showNotification('✅ Préstamos eliminados del listado temporal', 'success');
     context.render();
 }
@@ -1090,10 +1111,12 @@ export function setExportPreset(preset) {
         }
     } else if (preset === 'payPeriod') {
         const period = resolvePayrollPeriod(state.settings.payPeriod, today);
-        state.exportConfig.periodStart = period.periodStart;
-        state.exportConfig.periodEnd = period.periodEnd;
-        state.exportConfig.activePreset = preset;
-        state.exportConfig.periodSource = period.source;
+        stateManager.batchSetState(() => {
+            state.exportConfig.periodStart = period.periodStart;
+            state.exportConfig.periodEnd = period.periodEnd;
+            state.exportConfig.activePreset = preset;
+            state.exportConfig.periodSource = period.source;
+        });
         if (period.source === 'month-fallback' && window.showNotification) {
             window.showNotification('⚠️ El período configurado no es válido; se usó el mes actual.', 'warning');
         }
@@ -1101,9 +1124,11 @@ export function setExportPreset(preset) {
         return;
     }
 
-    state.exportConfig.periodStart = getDateKey(start);
-    state.exportConfig.periodEnd = getDateKey(end);
-    state.exportConfig.activePreset = preset;
+    stateManager.batchSetState(() => {
+        state.exportConfig.periodStart = getDateKey(start);
+        state.exportConfig.periodEnd = getDateKey(end);
+        state.exportConfig.activePreset = preset;
+    });
     context.render();
 }
 
