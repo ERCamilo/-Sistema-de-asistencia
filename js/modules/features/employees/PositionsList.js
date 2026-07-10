@@ -13,6 +13,7 @@ import { saveApplicationData, enqueueCloudPositionDelete } from '../../services/
 import { Modal } from '../../components/Modal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { hourlyToDaily } from '../payroll/SalaryConversion.js';
+import { collectPositionDays } from '../../services/AttendancePositionAudit.js';
 
 export function PositionCard(pos) {
     const ldr = pos.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
@@ -267,6 +268,25 @@ export function deletePosition(positionId) {
             title: `${icons.get('alert')} No se puede eliminar`,
             message: `La posición "${escapeHTML(pos.name)}" tiene empleados asignados.`,
             confirmText: 'Aceptar',
+            cancelText: 'Cerrar',
+            type: 'warning',
+            onConfirm: () => {}
+        });
+        return;
+    }
+
+    // 🛡️ Guardia 3: días TRABAJADOS con esta posición. Eliminarla del catálogo
+    // borraría sus referencias del historial (cleanupPositionReferences) y la
+    // nómina/reportes viejos dejarían de resolver su nombre y tarifa. Una
+    // posición con historia se conserva DESACTIVADA como archivo — no se puede
+    // asignar ni usar, pero el pasado queda íntegro.
+    const history = collectPositionDays(state.attendance, { positionId: pos.id });
+    if (history.count > 0) {
+        Modal.confirm({
+            title: `${icons.get('alert')} No se puede eliminar`,
+            message: `La posición "${escapeHTML(pos.name)}" tiene <strong>${history.count}</strong> día${history.count === 1 ? '' : 's'} de asistencia registrado${history.count === 1 ? '' : 's'} entre <strong>${history.firstDate}</strong> y <strong>${history.lastDate}</strong>.<br><br>` +
+                `Eliminarla borraría esa información del historial y los reportes viejos de nómina dejarían de cuadrar. Mantenela desactivada: no se puede asignar ni usar, pero el historial queda íntegro.`,
+            confirmText: 'Entendido',
             cancelText: 'Cerrar',
             type: 'warning',
             onConfirm: () => {}

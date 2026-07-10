@@ -242,6 +242,46 @@ testRunner.addSuite('EntityLifecycle — deletePosition', {
         }
     },
 
+    // 🛡️ Guardia 3: una posición con días TRABAJADOS no se elimina — se
+    // conserva desactivada como archivo. Eliminarla borraría sus referencias
+    // del historial (cleanupPositionReferences) y la nómina/reportes viejos
+    // dejarían de resolver su nombre y tarifa.
+    'eliminar posición con HISTORIAL de asistencia está bloqueada (guardia 3)'() {
+        const snap = snapshotGlobal();
+        const restore = installAutoConfirm();
+        try {
+            state.positions = [{ id: 'del-4', name: 'Con Historia', active: false }];
+            state.employees = []; // sin asignados: pasa las guardias 1 y 2
+            state.attendance = {
+                'e1-2026-06-01': { employeeId: 'e1', date: '2026-06-01', present: true, selectedPosition: 'del-4', hoursWorked: 8 }
+            };
+            deletePosition('del-4');
+            testRunner.assertEquals(state.positions.length, 1,
+                'con días trabajados NO se elimina, aunque el usuario confirme');
+        } finally {
+            restore();
+            restoreGlobal(snap);
+        }
+    },
+
+    'la guardia de historial ignora tombstoneados: sin días vivos sí se elimina'() {
+        const snap = snapshotGlobal();
+        const restore = installAutoConfirm();
+        try {
+            state.positions = [{ id: 'del-5', name: 'Solo Lápidas', active: false }];
+            state.employees = [];
+            state.attendance = {
+                'e1-2026-06-01': { employeeId: 'e1', date: '2026-06-01', present: false, deletedAt: 123, selectedPosition: 'del-5', hoursWorked: 8 }
+            };
+            deletePosition('del-5');
+            testRunner.assertEquals(state.positions.length, 0,
+                'un tombstone no es un día trabajado — no debe bloquear la eliminación');
+        } finally {
+            restore();
+            restoreGlobal(snap);
+        }
+    },
+
     'cleanupPositionReferences limpia empleados y asistencias antes de borrar'() {
         const snap = snapshotGlobal();
         try {
