@@ -149,7 +149,7 @@ export class MaintenanceUI {
                     ${autoMerges.map(p => {
                         const masterName = (p.members.find(m => m.id === p.proposedMasterId) || {}).name || '?';
                         const cloudTag = p.hasCloudLosers ? ' <span>Incluye nube</span>' : '';
-                        return `<li>Ficha ${p.number} · <strong>${escapeHTML(masterName)}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
+                        return `<li>Ficha ${escapeHTML(p.number)} · <strong>${escapeHTML(masterName)}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
                     }).join('')}
                 </ul>
             </div>
@@ -166,7 +166,7 @@ export class MaintenanceUI {
                 <ul class="maintenance-plan-list">
                     ${needsManual.map(p => {
                         const names = p.members.map(m => `"${escapeHTML(m.name)}"`).join(' vs ');
-                        return `<li>Ficha ${p.number} · ${names}</li>`;
+                        return `<li>Ficha ${escapeHTML(p.number)} · ${names}</li>`;
                     }).join('')}
                 </ul>
             </div>
@@ -490,7 +490,7 @@ export class MaintenanceUI {
         } else {
             this.modal = new Modal({
                 title: `Resolución Manual (${this.currentConflictIndex + 1} de ${this.conflicts.length})`,
-                subtitle: `Ficha repetida: ${group.number}`,
+                subtitle: `Ficha repetida: ${escapeHTML(group.number)}`,
                 content: content,
                 size: 'large'
             }).open();
@@ -517,7 +517,7 @@ export class MaintenanceUI {
             <div class="wizard-container maintenance-wizard">
                 <section class="maintenance-guide" aria-label="Guía de decisiones">
                     <div class="maintenance-guide-header">
-                        <span class="maintenance-kicker">Ficha repetida ${group.number}</span>
+                        <span class="maintenance-kicker">Ficha repetida ${escapeHTML(group.number)}</span>
                         <h3>Decide qué hacer con cada registro</h3>
                         <p>Elige una acción para cada tarjeta. Si dos tarjetas son la misma persona, conserva una y une las demás. Si una tarjeta pertenece a otra persona, cámbiale la ficha.</p>
                     </div>
@@ -1034,7 +1034,7 @@ export class MaintenanceUI {
         } else {
             this.modal = new Modal({
                 title: `Reasignación de Ficha (${this.currentConflictIndex + 1} de ${this.conflicts.length})`,
-                subtitle: `Ficha en conflicto: ${group.number}`,
+                subtitle: `Ficha en conflicto: ${escapeHTML(group.number)}`,
                 content: content,
                 size: 'large'
             }).open();
@@ -1053,10 +1053,10 @@ export class MaintenanceUI {
             <div class="reassignment-container" style="display: flex; flex-direction: column; gap: 20px;">
                 <div style="background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 10px; padding: 14px;">
                     <p style="color: #eab308; margin: 0; font-size: 0.85rem; font-weight: 600;">
-                        ⚠️ Estos empleados comparten el número <strong>${group.number}</strong> pero son personas distintas.
+                        ⚠️ Estos empleados comparten el número <strong>${escapeHTML(group.number)}</strong> pero son personas distintas.
                     </p>
                     <p style="color: #94a3b8; margin: 6px 0 0; font-size: 0.8rem;">
-                        Cambia el número de al menos uno para resolver el conflicto. Sugerido: <strong style="color: #22c55e;">${suggestedNumber}</strong>
+                        Cambia el número de al menos uno para resolver el conflicto. Sugerido: <strong style="color: #22c55e;">${escapeHTML(suggestedNumber)}</strong>
                     </p>
                 </div>
 

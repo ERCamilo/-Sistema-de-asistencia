@@ -77,6 +77,25 @@ testRunner.addSuite("XSS — nombres escapados en confirmaciones y tarjetas (Ron
             'emp.id crudo en el title del tag de ID');
     },
 
+    // 🐛 Judgment Day Fase 2A Ronda 5 (rastro del Juez B, cerrado inline): el
+    // NÚMERO de ficha también es texto tecleable (la reasignación lo acepta sin
+    // whitelist y lo persiste en emp.number) y sobrevive a un import de backup.
+    // Se interpolaba crudo en el plan de fusiones, los kickers/subtítulos del
+    // wizard (Modal rinde subtitle por innerHTML) y la tarjeta de conflicto.
+    "MaintenanceUI: el número de ficha va escapado en planes, kickers y subtítulos"() {
+        const rawPatterns = [
+            /Ficha \$\{p\.number\}/,                 // 152/169: plan de fusiones
+            /Ficha repetida: \$\{group\.number\}/,   // 493: subtitle (innerHTML del Modal)
+            /Ficha repetida \$\{group\.number\}/,    // 520: kicker
+            /Ficha en conflicto: \$\{group\.number\}/, // 1037: subtitle
+            /<strong>\$\{group\.number\}<\/strong>/, // 1056: aviso de conflicto
+            /<strong[^>]*>\$\{suggestedNumber\}<\/strong>/ // 1059: sugerido
+        ];
+        const stillRaw = rawPatterns.filter(re => re.test(MAINT)).map(re => re.source);
+        testRunner.assertEquals(stillRaw.length, 0,
+            `el número de ficha se interpola crudo en: ${stillRaw.join(' | ')}`);
+    },
+
     // 🐛 Judgment Day Fase 2A Ronda 4 (ambos jueces): residuos de inyección por
     // ATRIBUTO en las mismas tarjetas. _reassignTo es texto tecleado por el
     // usuario (CRITICAL, Juez B); emp.id y el número sobreviven a un import de
