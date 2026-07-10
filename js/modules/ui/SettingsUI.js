@@ -7,6 +7,8 @@ import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
 import { clearAppCaches } from '../services/CacheManager.js';
+import { translateError } from '../services/ErrorTranslator.js';
+import { logError } from '../services/ErrorLog.js';
 
 // ============================================
 // EVENT DELEGATION (data-settings-action)
@@ -46,6 +48,8 @@ const _SETTINGS_ACTION_MAP = {
         }
     },
     'run-browser-tests': () => window.runBrowserTests?.(),
+    'export-error-log': () => window.exportErrorLog?.(),
+    'purge-orphan-attendance': () => window.purgeOrphanAttendanceHandler?.(),
     // Mantenimiento: limpiar el cache del navegador para forzar la última versión.
     'clear-cache': () => {
         const doClear = async () => {
@@ -57,7 +61,9 @@ const _SETTINGS_ACTION_MAP = {
                 );
                 setTimeout(() => window.location.reload(), 600);
             } catch (err) {
-                window.showNotification?.(`No se pudo limpiar el cache: ${err.message}`, 'error');
+                console.error('❌ Error limpiando cache:', err);
+                logError(err, 'limpiar el cache');
+                window.showNotification?.(`No se pudo limpiar el cache: ${translateError(err, { fallbackContext: 'limpiar el cache' })}`, 'error');
             }
         };
         if (window.showConfirm) {
@@ -228,8 +234,9 @@ function SettingsDashboard() {
     const syncStatus = {
         connected: !!window.currentUser,
         localEmployees: state.employees.length,
-        localAttendance: Object.keys(state.attendance).length,
-        localDays: new Set(Object.values(state.attendance).map(a => a.date || '')).size
+        // Fase 1 (U2c): un tombstone no cuenta como asistencia local real.
+        localAttendance: Object.values(state.attendance).filter(a => a.deletedAt == null).length,
+        localDays: new Set(Object.values(state.attendance).filter(a => a.deletedAt == null).map(a => a.date || '')).size
     };
 
     const freeSpace = Math.round(100 - storage.percentage);

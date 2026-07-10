@@ -97,9 +97,15 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
         // Conteo PRECISO de call-sites: `armApplyingFlagWatchdog();` con `;`
         // excluye la definición `function armApplyingFlagWatchdog() {` y el alias
         // `window.armApplyingFlagWatchdog = armApplyingFlagWatchdog;`.
+        // 3 (era 2): Judgment Day Fase 1 R3 sumó un RE-armado en onInitialLoad
+        // justo antes del `await validateDataIntegrity()` — el trabajo síncrono
+        // previo consume presupuesto del timer y el watchdog podía vencer a
+        // mitad de la suspensión, liberando el flag en plena sección crítica.
+        // Sigue sin armarse en el mirror (AppAttendanceCoherenceTests fija el
+        // orden exacto del re-armado dentro de onInitialLoad).
         const calls = (APP_SRC.match(/armApplyingFlagWatchdog\s*\(\s*\)\s*;/g) || []).length;
-        testRunner.assertEquals(calls, 2,
-            'el watchdog debe armarse exactamente en los 2 paths zonales (onInitialLoad + onModified), no en el mirror');
+        testRunner.assertEquals(calls, 3,
+            'el watchdog debe armarse en los 2 paths zonales + el re-armado pre-await de onInitialLoad (R3), no en el mirror');
     }
 
 });

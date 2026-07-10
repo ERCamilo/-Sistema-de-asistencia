@@ -123,19 +123,40 @@ testRunner.addSuite("app.js — wiring del guard de propiedad (C2)", {
         );
     },
 
+    "el wipe de cambio de cuenta usa wipeAllLocalTraces (JD-F6, ALTO — mutuo A+B)"() {
+        // handleLocalOwnerMismatch hacía su propia limpieza manual vieja:
+        // 3 claves de localStorage + IDB, SIN beginLocalDataWipe (el pagehide
+        // del reload podía drenar guardados de la cuenta VIEJA hacia la cuenta
+        // NUEVA recién autenticada) y SIN purgar el outbox durable (un mirror
+        // pendiente de la cuenta A podía subirse al data/current de la cuenta
+        // B). Debe usar el mismo wipe real que 'Borrar Local'.
+        const idx = APP_SRC.indexOf('async function handleLocalOwnerMismatch');
+        testRunner.assert(idx !== -1, 'debe existir handleLocalOwnerMismatch');
+        const block = APP_SRC.slice(idx, idx + 3000);
+        testRunner.assert(/wipeAllLocalTraces\s*\(/.test(block),
+            'debe delegar en wipeAllLocalTraces (purga outbox + colas + manifiesto completo + guard anti-pagehide)');
+        testRunner.assert(!/localStorage\.removeItem\('asistencia-data'\)/.test(block),
+            'la limpieza manual parcial vieja (3 claves sueltas) no debe volver');
+        testRunner.assert(/claimLocalOwnership\s*\(\s*user\.uid\s*\)/.test(block),
+            'tras el wipe debe reclamar la propiedad para la cuenta nueva');
+    },
+
     "el flujo de borrado local limpia la marca de dueño"() {
-        const dsSource = fs.readFileSync(
-            path.resolve(__dirname, '../../__mocks__/DataService.js'), 'utf8'
-        );
-        // El reset real vive en DataService (mockeado) — verificamos el source real:
-        const realDs = fs.readFileSync(
-            path.resolve(__dirname, '../modules/services/DataService.js'), 'utf8'
+        // Fase 0.5: la limpieza de propiedad vive ahora en el punto ÚNICO de
+        // borrado local (LocalWipeService.wipeAllLocalTraces, paso 3e), que
+        // usan tanto DataService.reset como el wipe de cambio de cuenta de
+        // app.js. Su comportamiento está cubierto en LocalWipeServiceTests.
+        const wipeSrc = fs.readFileSync(
+            path.resolve(__dirname, '../modules/services/LocalWipeService.js'), 'utf8'
         );
         testRunner.assert(
-            /clearLocalOwnership\s*\(/.test(realDs) || /clearLocalOwnership\s*\(/.test(APP_SRC),
-            'al borrar los datos locales debe limpiarse la marca de dueño (DataService.reset o flujo equivalente en app.js)'
+            /clearLocalOwnership/.test(wipeSrc),
+            'wipeAllLocalTraces debe limpiar la marca de dueño (paso clear-ownership)'
         );
-        void dsSource;
+        testRunner.assert(
+            /wipeAllLocalTraces\s*\(/.test(APP_SRC),
+            'el flujo de cambio de cuenta de app.js debe usar ese wipe único'
+        );
     }
 
 });

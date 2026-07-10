@@ -146,6 +146,17 @@ testRunner.addSuite("NotesService — listNotes", {
         const onlyEmp1 = listNotes(state, 'emp1');
         testRunner.assertEquals(onlyEmp1.length, 1, "Should filter to emp1");
         testRunner.assertEquals(onlyEmp1[0].employeeId, 'emp1', "Should only contain emp1 notes");
+    },
+
+    "excludes tombstoned records even if they still carry a note (Fase 1 U2c)"() {
+        const state = buildState();
+        state.attendance = {
+            'emp1-2026-05-10': { employeeId: 'emp1', date: '2026-05-10', notes: 'A' },
+            'emp1-2026-05-19': { employeeId: 'emp1', date: '2026-05-19', notes: 'old note', deletedAt: 12345 }
+        };
+        const all = listNotes(state);
+        testRunner.assertEquals(all.length, 1, "Tombstoned note should be excluded");
+        testRunner.assertEquals(all[0].date, '2026-05-10', "Only the live record should remain");
     }
 });
 

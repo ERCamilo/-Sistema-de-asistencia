@@ -83,6 +83,41 @@ testRunner.addSuite("EmployeeRepository — loadAll (Fase 4.1)", {
         const result = await EmployeeRepository.loadAll();
         testRunner.assertEquals(result.length, 0);
         auth.currentUser = null;
+    },
+
+    async "filtra los empleados con tombstone (deletedAt) — no deben cargarse a la vista"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-3' };
+        getDocs.mockResolvedValueOnce({
+            forEach: (fn) => {
+                [
+                    { data: () => ({ id: 'e1', name: 'Vivo' }) },
+                    { data: () => ({ id: 'e2', name: 'Borrado', deletedAt: 200 }) }
+                ].forEach(fn);
+            },
+            docs: []
+        });
+        const result = await EmployeeRepository.loadAll();
+        testRunner.assertEquals(result.length, 1, 'el tombstoneado NO debe cargarse');
+        testRunner.assertEquals(result[0].id, 'e1');
+        auth.currentUser = null;
+    },
+
+    async "loadAll({ includeDeleted: true }) SÍ trae los tombstoneados (para compactación)"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-4' };
+        getDocs.mockResolvedValueOnce({
+            forEach: (fn) => {
+                [
+                    { data: () => ({ id: 'e1', name: 'Vivo' }) },
+                    { data: () => ({ id: 'e2', name: 'Borrado', deletedAt: 200 }) }
+                ].forEach(fn);
+            },
+            docs: []
+        });
+        const result = await EmployeeRepository.loadAll({ includeDeleted: true });
+        testRunner.assertEquals(result.length, 2);
+        auth.currentUser = null;
     }
 
 });
@@ -196,6 +231,37 @@ testRunner.addSuite("EmployeeRepository — saveMany (Fase 4.1)", {
         testRunner.assertEquals(result.written, 0);
         testRunner.assertEquals(setDoc.mock.calls.length, 0);
         auth.currentUser = null;
+    },
+
+    // 🐛 Judgment Day Fase 2A: saveMany usaba Promise.all → si UN write fallaba,
+    // rechazaba todo el lote y el caller (saveEntities) NO llamaba markUploaded
+    // para NINGUNO, aunque N-1 ya se habían escrito. En cada guardado siguiente
+    // se re-subían todos (read+write) hasta que el lote entero pasara una vez —
+    // la misma amplificación de cuota que esta fase vino a cortar. Ahora usa
+    // Promise.allSettled y devuelve `saved` con solo los que escribieron OK.
+    async "saveMany con un write que falla no rechaza y devuelve saved solo con los exitosos"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-settle' };
+        setDoc.mockImplementation((ref, payload) =>
+            payload && payload.id === 'e2'
+                ? Promise.reject(new Error('boom'))
+                : Promise.resolve());
+        const emps = [
+            { id: 'e1', name: 'Ana' },
+            { id: 'e2', name: 'Bob' },
+            { id: 'e3', name: 'Carlos' }
+        ];
+        let result;
+        try {
+            result = await EmployeeRepository.saveMany(emps);
+        } catch (e) {
+            testRunner.assert(false, 'saveMany NO debe rechazar por un write fallido: ' + e.message);
+        }
+        const savedIds = (result.saved || []).map(e => e.id).sort();
+        testRunner.assertEquals(savedIds.join(','), 'e1,e3', 'saved excluye al que falló');
+        testRunner.assertEquals(result.written, 2, 'written cuenta solo los escritos con éxito');
+        setDoc.mockImplementation(() => Promise.resolve()); // restaurar mock benigno
+        auth.currentUser = null;
     }
 
 });
@@ -223,6 +289,52 @@ testRunner.addSuite("EmployeeRepository — deleteOne (Fase 4.1)", {
         auth.currentUser = null;
         await EmployeeRepository.deleteOne('e1');
         testRunner.assertEquals(deleteDoc.mock.calls.length, 0);
+    }
+
+});
+
+testRunner.addSuite("EmployeeRepository — tombstoneOne (borrado robusto)", {
+
+    // Nota: en el mock de firebase-data, setDoc y deleteDoc son la MISMA
+    // jest.fn (asyncNoop), así que no se pueden distinguir por conteo. Que
+    // tombstoneOne NO hace hard-delete se garantiza por el código (usa setDoc
+    // con merge, no deleteDoc); acá verificamos el payload del tombstone.
+    async "tombstoneOne escribe deletedAt/updatedAt/active con merge"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-t1' };
+        await EmployeeRepository.tombstoneOne('e1', 5000);
+        testRunner.assertEquals(setDoc.mock.calls.length, 1, 'debe escribir el tombstone con setDoc(merge)');
+        const [, payload, options] = setDoc.mock.calls[0];
+        testRunner.assertEquals(payload.deletedAt, 5000);
+        testRunner.assertEquals(payload.updatedAt, 5000, 'updatedAt = deletedAt para que el LWW propague el borrado');
+        testRunner.assertEquals(payload.active, false);
+        testRunner.assert(options && options.merge === true, 'merge:true — conserva name/loans/etc del doc para un posible undelete');
+        auth.currentUser = null;
+    },
+
+    async "tombstoneOne sin id no escribe"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-t2' };
+        await EmployeeRepository.tombstoneOne('', 5000);
+        testRunner.assertEquals(setDoc.mock.calls.length, 0);
+        auth.currentUser = null;
+    },
+
+    async "tombstoneOne sin usuario no escribe"() {
+        clearAllMocks();
+        auth.currentUser = null;
+        await EmployeeRepository.tombstoneOne('e1', 5000);
+        testRunner.assertEquals(setDoc.mock.calls.length, 0);
+    },
+
+    async "tombstoneOne con deletedAt no finito usa un timestamp propio (no rompe)"() {
+        clearAllMocks();
+        auth.currentUser = { uid: 'test-uid-t3' };
+        await EmployeeRepository.tombstoneOne('e1', undefined);
+        testRunner.assertEquals(setDoc.mock.calls.length, 1);
+        const [, payload] = setDoc.mock.calls[0];
+        testRunner.assert(Number.isFinite(payload.deletedAt), 'debe generar un deletedAt válido');
+        auth.currentUser = null;
     }
 
 });

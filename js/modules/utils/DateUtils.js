@@ -223,8 +223,10 @@ export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
     if (hire && dateKey < hire) return false;
 
     // 2. Asistencia explícita ese día → siempre significa activo
+    // Fase 1 (U2c): un tombstone (deletedAt seteado) no es asistencia real —
+    // solo cuenta si la clave sigue viva.
     const attKey = `${employee.id}-${dateKey}`;
-    if (attendance[attKey]) return true;
+    if (attendance[attKey] && attendance[attKey].deletedAt == null) return true;
 
     // 3. Fecha de terminación (si existe)
     const term = norm(employee.terminationDate);
@@ -304,7 +306,9 @@ export function wasEmployeeActiveInRange(employee, startDate, endDate, attendanc
     
     for (let d = new Date(sDate); d <= eDate; d.setDate(d.getDate() + 1)) {
         const dKey = getDateKey(d);
-        if (attendance[`${employee.id}-${dKey}`]) return true;
+        // Fase 1 (U2c): un tombstone (deletedAt seteado) no cuenta como activo.
+        const rec = attendance[`${employee.id}-${dKey}`];
+        if (rec && rec.deletedAt == null) return true;
     }
 
     // 2. Si no hay asistencia en el rango, verificar estado en los límites

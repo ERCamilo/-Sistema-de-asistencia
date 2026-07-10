@@ -51,9 +51,11 @@ testRunner.addSuite("DataService — imports explícitos, sin globals (L4)", {
         });
     },
 
-    "importa Modal e icons (usados en reset/export/import)"() {
-        testRunner.assert(/import\s*\{\s*Modal\s*\}\s*from/.test(DS_SRC),
-            'DataService debe importar Modal');
+    "importa sus dependencias de UI explícitas (usadas en reset/export/import)"() {
+        // Fase 0.5 (U7/JD-F12): reset() usa el modal rico de DataOpsModals en
+        // vez de Modal.confirm — el import de Modal quedó muerto y se eliminó.
+        testRunner.assert(/import\s*\{\s*confirmDataOperation\s*\}\s*from/.test(DS_SRC),
+            'DataService debe importar confirmDataOperation (modal rico del reset)');
         testRunner.assert(/import\s+icons\s+from/.test(DS_SRC),
             'DataService debe importar icons (IconSystem)');
         testRunner.assert(/import\s*\{\s*Notification\s*\}\s*from/.test(DS_SRC),

@@ -12,11 +12,16 @@ import { Modal } from '../components/Modal.js';
 import { analyzeConflicts, mergeEmployees, executeAutoRepair, reassignEmployeeNumber, saveApplicationData } from '../services/PersistenceService.js';
 import { buildConflictPlan, executeMergePlan } from '../services/ConflictPlanner.js';
 import { EmployeeRepository } from '../services/EmployeeRepository.js';
+import FirebaseService from '../services/FirebaseService.js';
 import { validateManualGroup } from '../services/ManualGroupValidator.js';
 import { reconcileCloudFromLocal } from '../services/CloudReconcile.js';
 import { classifyEmployeeId, idFormatLabel } from '../services/IdFormat.js';
-import { state } from '../core/AppState.js';
+import { state, stateManager } from '../core/AppState.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
+import { canDeleteDuplicateEmployee } from '../services/EmployeeDeletionGuard.js';
+import { enqueueEmployeeTombstone } from '../services/PersistenceService.js';
+import { escapeHTML } from '../utils/Sanitize.js';
+import { purgeEmployeeAttendanceHistory } from '../services/AttendanceCleanupRunner.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-maint-action)
@@ -144,7 +149,7 @@ export class MaintenanceUI {
                     ${autoMerges.map(p => {
                         const masterName = (p.members.find(m => m.id === p.proposedMasterId) || {}).name || '?';
                         const cloudTag = p.hasCloudLosers ? ' <span>Incluye nube</span>' : '';
-                        return `<li>Ficha ${p.number} · <strong>${masterName}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
+                        return `<li>Ficha ${escapeHTML(p.number)} · <strong>${escapeHTML(masterName)}</strong> (${p.members.length} duplicados → 1, ${p.totalLoansAfterMerge} préstamos)${cloudTag}</li>`;
                     }).join('')}
                 </ul>
             </div>
@@ -160,8 +165,8 @@ export class MaintenanceUI {
                 </div>
                 <ul class="maintenance-plan-list">
                     ${needsManual.map(p => {
-                        const names = p.members.map(m => `"${m.name}"`).join(' vs ');
-                        return `<li>Ficha ${p.number} · ${names}</li>`;
+                        const names = p.members.map(m => `"${escapeHTML(m.name)}"`).join(' vs ');
+                        return `<li>Ficha ${escapeHTML(p.number)} · ${names}</li>`;
                     }).join('')}
                 </ul>
             </div>
@@ -321,7 +326,7 @@ export class MaintenanceUI {
 
         // 2. Confirmación con detalle
         const orphanPreview = orphans.slice(0, 6)
-            .map(o => `<li><code>${o.id}</code> · ${o.name || '?'}</li>`)
+            .map(o => `<li><code>${escapeHTML(o.id)}</code> · ${escapeHTML(o.name || '?')}</li>`)
             .join('');
         const more = orphans.length > 6 ? `<li>… y ${orphans.length - 6} más</li>` : '';
         const confirm = await Modal.confirm({
@@ -352,7 +357,10 @@ export class MaintenanceUI {
         // 4. Ejecutar reconciliación
         try {
             const res = await reconcileCloudFromLocal(state.employees, {
-                repository: EmployeeRepository
+                repository: EmployeeRepository,
+                // Mantener el watermark en sincronía con lo re-empujado (este
+                // flujo escribe por fuera de saveEntities).
+                onUploaded: (saved) => FirebaseService.markEmployeesUploaded(saved)
             });
             const summary = `${res.deleted.length} huérfanos borrados · ${res.written} empleados re-empujados`;
             if (res.errors.length > 0) {
@@ -482,7 +490,7 @@ export class MaintenanceUI {
         } else {
             this.modal = new Modal({
                 title: `Resolución Manual (${this.currentConflictIndex + 1} de ${this.conflicts.length})`,
-                subtitle: `Ficha repetida: ${group.number}`,
+                subtitle: `Ficha repetida: ${escapeHTML(group.number)}`,
                 content: content,
                 size: 'large'
             }).open();
@@ -509,7 +517,7 @@ export class MaintenanceUI {
             <div class="wizard-container maintenance-wizard">
                 <section class="maintenance-guide" aria-label="Guía de decisiones">
                     <div class="maintenance-guide-header">
-                        <span class="maintenance-kicker">Ficha repetida ${group.number}</span>
+                        <span class="maintenance-kicker">Ficha repetida ${escapeHTML(group.number)}</span>
                         <h3>Decide qué hacer con cada registro</h3>
                         <p>Elige una acción para cada tarjeta. Si dos tarjetas son la misma persona, conserva una y une las demás. Si una tarjeta pertenece a otra persona, cámbiale la ficha.</p>
                     </div>
@@ -563,7 +571,8 @@ export class MaintenanceUI {
         const ROLE_STYLES = {
             master:   { label: 'Perfil principal', description: 'Se conserva', className: 'is-master' },
             absorb:   { label: 'Se unirá', description: 'Misma persona', className: 'is-absorb' },
-            separate: { label: 'Cambiar ficha', description: 'Otra persona', className: 'is-separate' }
+            separate: { label: 'Cambiar ficha', description: 'Otra persona', className: 'is-separate' },
+            delete:   { label: 'Se eliminará', description: 'Registro de más', className: 'is-delete' }
         };
         const style = ROLE_STYLES[role] || { label: 'Sin decidir', description: 'Elige una acción', className: '' };
 
@@ -575,19 +584,19 @@ export class MaintenanceUI {
         const reassignBlock = role === 'separate'
             ? `
                 <div class="maintenance-reassign-input-wrap" role="group" aria-label="Nueva ficha para este empleado">
-                    <label for="reassign-input-${emp.id}">Nueva ficha:</label>
+                    <label for="reassign-input-${escapeHTML(emp.id)}">Nueva ficha:</label>
                     <input type="text"
-                           id="reassign-input-${emp.id}"
+                           id="reassign-input-${escapeHTML(emp.id)}"
                            class="maintenance-reassign-input"
-                           value="${emp._reassignTo || ''}"
+                           value="${escapeHTML(emp._reassignTo || '')}"
                            placeholder="Nro. de ficha"
-                           data-id="${emp.id}"
+                           data-id="${escapeHTML(emp.id)}"
                            autocomplete="off"
                            inputmode="numeric">
                     <button type="button"
                             class="maintenance-reassign-confirm"
                             data-maint-action="commit-reassign-ficha"
-                            data-id="${emp.id}"
+                            data-id="${escapeHTML(emp.id)}"
                             title="Confirmar nueva ficha (Enter)">
                         Confirmar
                     </button>
@@ -597,7 +606,7 @@ export class MaintenanceUI {
 
         const btn = (action, label, helper, dataRole) => `
             <button type="button" class="maintenance-role-btn ${role === dataRole ? 'is-selected' : ''}" data-maint-action="${action}"
-                    data-id="${emp.id}" data-role="${dataRole}"
+                    data-id="${escapeHTML(emp.id)}" data-role="${dataRole}"
                     data-role-choice="${dataRole}"
                     aria-pressed="${role === dataRole ? 'true' : 'false'}">
                 <span>${label}</span>
@@ -626,11 +635,11 @@ export class MaintenanceUI {
 
                 <div class="maintenance-employee-head">
                     <div class="maintenance-avatar">
-                        ${(emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                        ${escapeHTML((emp.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase())}
                     </div>
-                    <h4>${emp.name || '(sin nombre)'}</h4>
+                    <h4>${escapeHTML(emp.name || '(sin nombre)')}</h4>
                     <div class="maintenance-meta-row">
-                        <span class="maintenance-id-tag" title="ID completo: ${emp.id || ''}">ID ${emp.id || '(sin id)'}</span>
+                        <span class="maintenance-id-tag" title="ID completo: ${escapeHTML(emp.id || '')}">ID ${escapeHTML(emp.id || '(sin id)')}</span>
                         ${formatTag}
                         ${srcTag}
                     </div>
@@ -656,6 +665,7 @@ export class MaintenanceUI {
                     ${btn('set-member-role', 'Conservar', 'perfil principal', 'master')}
                     ${btn('set-member-role', 'Unir con este', 'es la misma persona', 'absorb')}
                     ${btn('set-member-role', 'Cambiar ficha', 'es otra persona', 'separate')}
+                    ${btn('set-member-role', 'Eliminar', 'registro de más (se borra)', 'delete')}
                 </div>
             </div>
         `;
@@ -804,6 +814,55 @@ export class MaintenanceUI {
      * Si en la 500 ya había otro Jean, aparece un nuevo grupo al
      * final de la cola para resolver a continuación.
      */
+    /**
+     * Feature #2: valida y confirma los borrados del wizard antes de aplicar.
+     * - Bloquea (y avisa) si algún registro a eliminar tiene saldo pendiente.
+     * - Advierte qué asistencia/préstamos se perderán y pide confirmación.
+     * @returns {Promise<boolean>} true si se puede proceder.
+     */
+    async _confirmDuplicateDeletes(deleteIds, group) {
+        const members = deleteIds
+            .map(id => (group.members || []).find(m => m.id === id))
+            .filter(Boolean);
+
+        // Guard de saldo (proteger la plata) — bloquea todo el apply.
+        for (const m of members) {
+            const check = canDeleteDuplicateEmployee(m);
+            if (!check.ok) {
+                NotificationSystem.error(`No se puede eliminar "${escapeHTML(m.name || m.id)}": ${check.reason}`);
+                return false;
+            }
+        }
+
+        // Advertencia de datos que se pierden (asistencia / préstamos).
+        const withData = members
+            .map(m => ({
+                name: m.name || '(sin nombre)',
+                att: m.attendanceCount || 0,
+                loans: (m.loans || []).length
+            }))
+            .filter(x => x.att > 0 || x.loans > 0);
+
+        const lines = members.map(m => `• ${escapeHTML(m.name || '(sin nombre)')}`).join('<br>');
+        let message = `Vas a ELIMINAR de forma permanente ${members.length} registro${members.length === 1 ? '' : 's'}:<br>${lines}<br><br>`;
+        if (withData.length > 0) {
+            const dataLines = withData
+                .map(x => `• ${escapeHTML(x.name)}: ${x.att} asistencia${x.att === 1 ? '' : 's'}, ${x.loans} préstamo${x.loans === 1 ? '' : 's'}`)
+                .join('<br>');
+            message += `⚠️ Se PERDERÁN estos datos:<br>${dataLines}<br><br>` +
+                `Si querés conservarlos, cancelá y usá "Unir con el principal" en vez de "Eliminar".<br><br>`;
+        }
+        message += `El borrado se propaga a todos tus dispositivos. ¿Continuar?`;
+
+        return Modal.confirm({
+            title: 'Eliminar registros duplicados',
+            message,
+            confirmText: 'Sí, eliminar',
+            cancelText: 'Cancelar',
+            type: 'danger'
+        });
+    }
+
     async applyManualGroup() {
         const group = this.conflicts[this.currentConflictIndex];
         if (!group) return;
@@ -814,7 +873,15 @@ export class MaintenanceUI {
             return;
         }
 
-        const { masterId, absorbIds, separateIds } = validation;
+        const { masterId, absorbIds, separateIds, deleteIds } = validation;
+
+        // Feature #2: confirmar los borrados ANTES de ejecutar nada. Bloquea si
+        // algún registro a eliminar tiene saldo pendiente (proteger la plata);
+        // avisa si se perderán asistencia/préstamos.
+        if (deleteIds && deleteIds.length > 0) {
+            const proceed = await this._confirmDuplicateDeletes(deleteIds, group);
+            if (!proceed) return;
+        }
 
         // 1. Fusionar absorbs en el master usando executeMergePlan (que ya
         //    sabe manejar cloud-only y encolar borrados remotos).
@@ -832,6 +899,24 @@ export class MaintenanceUI {
             };
             const r = executeMergePlan([planItem]);
             this.mergeCount += (r.merged || 0);
+        }
+
+        // 1.b Feature #2: ejecutar los tombstones de los eliminados. Robusto
+        //     (soft-delete): el borrado sobrevive al multi-dispositivo. Se saca
+        //     de state ANTES del save (paso 3) para que el snapshot no los
+        //     re-suba, y se encola el tombstone durable con el ts del borrado.
+        if (deleteIds && deleteIds.length > 0) {
+            const now = Date.now();
+            stateManager.batchSetState(() => {
+                state.employees = state.employees.filter(e => !deleteIds.includes(e.id));
+            });
+            for (const delId of deleteIds) {
+                enqueueEmployeeTombstone(delId, now);
+                // El wizard borra duplicados "de más": su historial de
+                // asistencia se elimina también (la confirmación ya lo
+                // advirtió). Para conservarlo, el usuario usa "Unir".
+                purgeEmployeeAttendanceHistory(delId);
+            }
         }
 
         // 2. Reasignar separates. Materializar miembros cloud-only antes.
@@ -949,7 +1034,7 @@ export class MaintenanceUI {
         } else {
             this.modal = new Modal({
                 title: `Reasignación de Ficha (${this.currentConflictIndex + 1} de ${this.conflicts.length})`,
-                subtitle: `Ficha en conflicto: ${group.number}`,
+                subtitle: `Ficha en conflicto: ${escapeHTML(group.number)}`,
                 content: content,
                 size: 'large'
             }).open();
@@ -968,10 +1053,10 @@ export class MaintenanceUI {
             <div class="reassignment-container" style="display: flex; flex-direction: column; gap: 20px;">
                 <div style="background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.2); border-radius: 10px; padding: 14px;">
                     <p style="color: #eab308; margin: 0; font-size: 0.85rem; font-weight: 600;">
-                        ⚠️ Estos empleados comparten el número <strong>${group.number}</strong> pero son personas distintas.
+                        ⚠️ Estos empleados comparten el número <strong>${escapeHTML(group.number)}</strong> pero son personas distintas.
                     </p>
                     <p style="color: #94a3b8; margin: 6px 0 0; font-size: 0.8rem;">
-                        Cambia el número de al menos uno para resolver el conflicto. Sugerido: <strong style="color: #22c55e;">${suggestedNumber}</strong>
+                        Cambia el número de al menos uno para resolver el conflicto. Sugerido: <strong style="color: #22c55e;">${escapeHTML(suggestedNumber)}</strong>
                     </p>
                 </div>
 
@@ -999,9 +1084,9 @@ export class MaintenanceUI {
             <div class="reassign-card" style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px;">
                 <div style="text-align: center;">
                     <div style="width: 50px; height: 50px; background: #1e293b; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; color: #f8fafc; font-weight: bold;">
-                        ${emp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                        ${escapeHTML(emp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase())}
                     </div>
-                    <h4 style="margin: 0; color: #f8fafc; font-size: 1rem;">${emp.name}</h4>
+                    <h4 style="margin: 0; color: #f8fafc; font-size: 1rem;">${escapeHTML(emp.name)}</h4>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; padding: 8px; background: #020617; border-radius: 8px;">
@@ -1019,15 +1104,15 @@ export class MaintenanceUI {
                     <label style="font-size: 0.7rem; color: #64748b; display: block; margin-bottom: 6px; font-weight: 600;">
                         🔢 Número de ficha:
                     </label>
-                    <input type="text" 
-                           class="form-input reassign-number-input" 
-                           data-emp-id="${emp.id}" 
-                           data-original="${originalNumber}"
-                           value="${originalNumber}" 
-                           placeholder="${suggestedNumber}"
+                    <input type="text"
+                           class="form-input reassign-number-input"
+                           data-emp-id="${escapeHTML(emp.id)}"
+                           data-original="${escapeHTML(originalNumber)}"
+                           value="${escapeHTML(originalNumber)}"
+                           placeholder="${escapeHTML(suggestedNumber)}"
                            maxlength="10"
                            style="font-size: 0.9rem; text-align: center; padding: 8px; font-weight: 700;">
-                    <div class="reassign-status" data-emp-id="${emp.id}" 
+                    <div class="reassign-status" data-emp-id="${escapeHTML(emp.id)}"
                          style="font-size: 0.7rem; margin-top: 4px; text-align: center; min-height: 1.2em; color: #64748b;">
                         Sin cambios
                     </div>
@@ -1161,8 +1246,11 @@ export class MaintenanceUI {
                 if (conflictEmpRaw) {
                     // Calculamos los metadatos de completeness/attendance de conflictEmpRaw para que el Visualizador no explote
                     const idPrefix = `${conflictEmpRaw.id}-`;
-                    const attendanceKeys = Object.keys(state.attendance || {}).filter(k => k.startsWith(idPrefix));
-                    
+                    // Fase 1 (U2c): un tombstone no cuenta como asistencia real.
+                    const attendanceKeys = Object.entries(state.attendance || {})
+                        .filter(([k, v]) => k.startsWith(idPrefix) && v.deletedAt == null)
+                        .map(([k]) => k);
+
                     let lastDate = 'Nunca';
                     if (attendanceKeys.length > 0) {
                         const sortedDates = attendanceKeys.map(k => k.substring(idPrefix.length)).sort();

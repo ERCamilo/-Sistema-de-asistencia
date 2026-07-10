@@ -53,7 +53,7 @@ export function backToNotesList() {
 export function openNoteEditor(employeeId, dateKey) {
     const key = `${employeeId}-${dateKey}`;
     const att = state.attendance[key];
-    if (!att || !att.notes) return;
+    if (!att || att.deletedAt != null || !att.notes) return; // Fase 1 (U2c): no abrir un tombstone como si tuviera nota
 
     stateManager.batchSetState(() => {
         state.showNotesCenter = true;

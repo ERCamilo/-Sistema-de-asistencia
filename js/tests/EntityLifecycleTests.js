@@ -260,6 +260,31 @@ testRunner.addSuite('EntityLifecycle — deletePosition', {
             restoreGlobal(snap);
         }
     },
+
+    // 🐛 Judgment Day Fase 2A: borrar un puesto del catálogo lo quita de
+    // emp.positions/positionSalaries, pero antes NO estampaba nada → el borrado
+    // no ganaba el merge (LWW de puestos por positionsUpdatedAt) y podía
+    // resucitar. Ahora estampa updatedAt + positionsUpdatedAt SOLO en los
+    // empleados realmente tocados (no en los demás, para no re-subir de más).
+    'cleanupPositionReferences estampa updatedAt y positionsUpdatedAt SOLO en los empleados tocados'() {
+        const snap = snapshotGlobal();
+        try {
+            state.employees = [
+                { id: 'e1', positions: ['pos-del', 'pos-keep'], positionSalaries: { 'pos-del': 200 }, updatedAt: 1000, positionsUpdatedAt: 1000, active: true },
+                { id: 'e2', positions: ['pos-keep'], positionSalaries: {}, updatedAt: 1000, positionsUpdatedAt: 1000, active: true },
+            ];
+            state.attendance = {};
+            const before = Date.now() - 1;
+            cleanupPositionReferences('pos-del');
+            const e1 = state.employees.find(e => e.id === 'e1');
+            const e2 = state.employees.find(e => e.id === 'e2');
+            testRunner.assert(e1.positionsUpdatedAt > before, 'e1 perdió un puesto → debe estampar positionsUpdatedAt');
+            testRunner.assert(e1.updatedAt > before, 'e1 también estampa updatedAt para que suba el cambio');
+            testRunner.assertEquals(e2.positionsUpdatedAt, 1000, 'e2 no fue tocado → no debe re-estamparse (no re-subir de más)');
+        } finally {
+            restoreGlobal(snap);
+        }
+    },
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

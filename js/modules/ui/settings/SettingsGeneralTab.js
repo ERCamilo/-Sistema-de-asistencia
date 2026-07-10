@@ -201,6 +201,14 @@ export function SettingsGeneralTab(context) {
                             Limpiar cache y recargar
                         </button>
                     </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+                        <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
+                            Si algo falló, exportá el registro de errores técnicos para compartirlo con soporte.
+                        </span>
+                        <button type="button" data-settings-action="export-error-log" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.8rem; white-space: nowrap;">
+                            Exportar log de errores
+                        </button>
+                    </div>
                 </div>
     `;
 }

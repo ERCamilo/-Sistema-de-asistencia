@@ -156,21 +156,21 @@ export function SettingsDataTab(context) {
                             </div>
 
                             <div class="stg-actions-grid">
-                                <!-- Override: Download -->
+                                <!-- Override: Download (reemplazo real, Fase 0.5 U4) -->
                                 <button type="button" data-settings-action="download-from-cloud" class="stg-action">
                                     <span class="stg-action-icon blue">&#8595;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Descargar de la Nube</strong>
-                                        <small>Reemplaza tus datos locales con lo que hay en la nube.</small>
+                                        <strong>Descargar y Reemplazar</strong>
+                                        <small>Borra lo de este equipo y deja la nube como única fuente.</small>
                                     </span>
                                 </button>
 
-                                <!-- Override: Upload -->
+                                <!-- Override: Upload (reemplazo real, Fase 0.5 U5) -->
                                 <button type="button" data-settings-action="upload-to-cloud" class="stg-action">
                                     <span class="stg-action-icon green">&#8593;</span>
                                     <span class="stg-action-copy">
-                                        <strong>Subir a la Nube</strong>
-                                        <small>Fuerza que la nube guarde exactamente lo que tienes aquí.</small>
+                                        <strong>Subir y Reemplazar</strong>
+                                        <small>Borra lo de la nube y la deja igual a este equipo (con snapshot previo).</small>
                                     </span>
                                 </button>
                             </div>
@@ -203,6 +203,23 @@ export function SettingsDataTab(context) {
                             </div>
                         </div>
                         ` : ''}
+                    </div>
+
+                    <!-- Limpieza de datos locales (aparece siempre) -->
+                    <div class="stg-panel">
+                        <div class="stg-header">
+                            <div>
+                                <h3>Limpieza de datos</h3>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
+                                Elimina el historial de asistencia de empleados que ya <strong style="color:#cbd5e1;">fueron borrados</strong> y cuyos registros quedaron sueltos. No afecta a los empleados actuales.
+                            </span>
+                            <button type="button" data-settings-action="purge-orphan-attendance" class="btn-secondary" style="padding: 8px 16px; font-size: 0.8rem; white-space: nowrap; border-color: rgba(239,68,68,0.3); color: #fca5a5;">
+                                Eliminar historial de empleados borrados
+                            </button>
+                        </div>
                     </div>
             `;
 }

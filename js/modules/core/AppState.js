@@ -299,8 +299,9 @@ export function buildAttendanceIndex(specificDate = null) {
 
     if (specificDate) {
         // ACTUALIZACIÓN GRANULAR: Reconstruir solo el bucket de esa fecha
+        // Fase 1 (U2c): excluir tombstones — un borrado marcado no es asistencia.
         index[specificDate] = Object.values(mainAttendance)
-            .filter(record => record.date === specificDate);
+            .filter(record => record.date === specificDate && record.deletedAt == null);
         return;
     }
 
@@ -309,6 +310,7 @@ export function buildAttendanceIndex(specificDate = null) {
     for (const record of Object.values(mainAttendance)) {
         const dKey = record.date;
         if (!dKey) continue;
+        if (record.deletedAt != null) continue; // Fase 1 (U2c): tombstone, no cuenta
         if (!newIndex[dKey]) newIndex[dKey] = [];
         newIndex[dKey].push(record);
     }

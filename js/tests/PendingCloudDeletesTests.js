@@ -27,7 +27,8 @@ import {
     enqueueCloudEmployeeDelete,
     enqueueCloudEmployeeDeleteBatch,
     getPendingCloudDeletes,
-    clearPendingCloudDeletes
+    clearPendingCloudDeletes,
+    purgeAllPendingCloudWrites
 } from '../modules/services/PersistenceService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 
@@ -381,6 +382,64 @@ testRunner.addSuite("PersistenceService — los borrados TAMBIÉN encolan en Mai
             );
         } finally {
             spy.mockRestore();
+            clearPendingCloudDeletes();
+            try { localStorage.removeItem('asistencia_pending_cloud_deletes'); } catch (_) { /* noop */ }
+        }
+    }
+
+});
+
+testRunner.addSuite("PersistenceService — purgeAllPendingCloudWrites (Fase 0.5, U1)", {
+
+    async "vacía las 3 colas legacy, borra la clave de localStorage y purga el outbox"() {
+        // Bug ALTA #2 de la auditoría: 'Borrar Local' dejaba viva la clave
+        // asistencia_pending_cloud_deletes → tras re-login, la siembra del
+        // outbox ejecutaba borrados viejos EN LA NUBE, rompiendo la promesa
+        // "Los datos en la nube NO se borrarán". Esta primitiva es el fix:
+        // un solo punto que purga TODO pendiente hacia la nube.
+        const clearAllSpy = jest.spyOn(MainSyncStore, 'clearAll').mockResolvedValue(true);
+        try {
+            enqueueCloudEmployeeDelete('ePurge1');
+            enqueueCloudPositionDelete('pPurge1');
+            enqueueCloudLeaderDelete('lPurge1');
+            testRunner.assert(getPendingCloudDeletes().length > 0, 'precondición: hay pendientes encolados');
+            testRunner.assert(
+                localStorage.getItem('asistencia_pending_cloud_deletes') !== null,
+                'precondición: la clave de localStorage existe'
+            );
+
+            const ok = await purgeAllPendingCloudWrites();
+
+            testRunner.assertEquals(ok, true, 'debe reportar éxito');
+            testRunner.assertEquals(getPendingCloudDeletes().length, 0, 'cola de empleados vacía');
+            testRunner.assertEquals(getPendingCloudPositionDeletes().length, 0, 'cola de cargos vacía');
+            testRunner.assertEquals(getPendingCloudLeaderDeletes().length, 0, 'cola de líderes vacía');
+            testRunner.assertEquals(
+                localStorage.getItem('asistencia_pending_cloud_deletes'), null,
+                'la clave de localStorage debe desaparecer — sin ella no hay nada que sembrar al próximo load'
+            );
+            testRunner.assertEquals(clearAllSpy.mock.calls.length, 1, 'debe purgar también el outbox durable');
+        } finally {
+            clearAllSpy.mockRestore();
+            clearPendingCloudDeletes();
+            clearPendingCloudPositionDeletes();
+            clearPendingCloudLeaderDeletes();
+            try { localStorage.removeItem('asistencia_pending_cloud_deletes'); } catch (_) { /* noop */ }
+        }
+    },
+
+    async "si el outbox falla al purgarse, resuelve false pero las colas legacy quedan limpias igual"() {
+        const clearAllSpy = jest.spyOn(MainSyncStore, 'clearAll').mockResolvedValue(false);
+        try {
+            enqueueCloudEmployeeDelete('ePurge2');
+
+            const ok = await purgeAllPendingCloudWrites();
+
+            testRunner.assertEquals(ok, false, 'debe reportar que la purga fue parcial');
+            testRunner.assertEquals(getPendingCloudDeletes().length, 0,
+                'las colas legacy se limpian aunque el outbox haya fallado — purga best-effort, nunca a medias por orden');
+        } finally {
+            clearAllSpy.mockRestore();
             clearPendingCloudDeletes();
             try { localStorage.removeItem('asistencia_pending_cloud_deletes'); } catch (_) { /* noop */ }
         }

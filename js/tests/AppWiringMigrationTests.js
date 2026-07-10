@@ -22,14 +22,17 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
         );
     },
 
-    "attachLiveBadge se cablea con onErrorClick que drena el outbox (U13)"() {
+    "attachLiveBadge se cablea con onErrorClick que revive y drena el outbox (U13)"() {
         const idx = appSource.indexOf('attachLiveBadge({');
         testRunner.assert(idx !== -1, 'debe existir la llamada a attachLiveBadge');
-        const block = appSource.slice(idx, idx + 2200);
+        const block = appSource.slice(idx, idx + 3000);
         testRunner.assert(/onErrorClick\s*:/.test(block),
             'attachLiveBadge debe recibir onErrorClick para que el badge de error sea accionable (U13)');
-        testRunner.assert(/onErrorClick\s*:[\s\S]{0,200}?drainMainSyncOutbox\s*\(/.test(block),
-            'onErrorClick debe llamar a drainMainSyncOutbox (mismo mecanismo que el botón Reintentar del toast, U12)');
+        // Fix cuota (2026-07-05): drainMainSyncOutbox crudo nunca revive
+        // entradas 'dead' (agotaron MAX_FLUSH_ATTEMPTS). retryFailedCloudSync
+        // revive esas entradas ANTES de drenar — ver PersistenceService.js.
+        testRunner.assert(/onErrorClick\s*:[\s\S]{0,200}?retryFailedCloudSync\s*\(/.test(block),
+            'onErrorClick debe llamar a retryFailedCloudSync (revive entradas dead + mismo mecanismo que el botón Reintentar del toast, U12)');
     },
 
     "el login (onAuthStateChanged) drena el outbox después de claimLocalOwnership (U8)"() {
@@ -146,6 +149,31 @@ testRunner.addSuite("app.js — Cableado de live sync de empleados (Fase 2.1)", 
         testRunner.assert(
             /schemaVersion/.test(match[0]) || /migrated/.test(match[0]),
             "Debe haber un guard de schemaVersion / migrated antes de start"
+        );
+    }
+
+});
+
+testRunner.addSuite("app.js — LiveSync de empleados usa merge por-registro (Fase 2, U2)", {
+
+    "app.js importa mergeIncomingEmployees de EmployeesIncomingMerge.js"() {
+        testRunner.assert(
+            /import\s*\{[^}]*mergeIncomingEmployees[^}]*\}\s*from\s+['"]\.\/modules\/services\/EmployeesIncomingMerge\.js['"]/.test(appSource),
+            "app.js debe importar mergeIncomingEmployees"
+        );
+    },
+
+    "el onApply de EmployeesLiveSync usa mergeIncomingEmployees, NO un reemplazo mayorista"() {
+        const match = appSource.match(/EmployeesLiveSync\.start\s*\(\s*\{[\s\S]*?\n\s{24}\}\)\s*;/);
+        testRunner.assert(!!match, "Debe localizarse la llamada completa a EmployeesLiveSync.start");
+        const block = match[0];
+        testRunner.assert(
+            /mergeIncomingEmployees\s*\(\s*state\.employees\s*,\s*emps/.test(block),
+            "El onApply debe fusionar state.employees (local) con emps (entrante) vía mergeIncomingEmployees"
+        );
+        testRunner.assert(
+            !/const\s+merged\s*=\s*dedup\s*\(\s*emps/.test(block),
+            "El onApply NO debe seguir haciendo el reemplazo mayorista dedup(emps) — U2 lo reemplazó por merge por-registro"
         );
     }
 

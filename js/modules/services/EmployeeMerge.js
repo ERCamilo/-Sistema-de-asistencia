@@ -172,6 +172,19 @@ export function mergeEmployees(server, local) {
     // 1. Base: escalares del ganador.
     const out = { ...loser, ...winner };
 
+    // 1.b 🪦 Tombstone de EMPLEADO (deletedAt): lo decide el ganador escalar,
+    // INCLUYENDO su ausencia. El spread de arriba NO borra claves que el
+    // winner no tenga, así que un empleado reactivado (winner sin deletedAt)
+    // heredaría el tombstone viejo del loser y quedaría borrado para siempre.
+    // Explícito: winner con deletedAt → borrado gana (aunque el loser esté
+    // vivo con más datos); winner sin deletedAt → revive (edición/reactivación
+    // posterior al borrado).
+    if (Number.isFinite(winner.deletedAt)) {
+        out.deletedAt = winner.deletedAt;
+    } else {
+        delete out.deletedAt;
+    }
+
     // 2. Arrays "tipo log" por id (loans tiene merge anidado).
     out.loans = unionById(server.loans, local.loans, 'id',
         (winLoan, loseLoan, sL, lL) => mergeLoan(winLoan, loseLoan, sL, lL));
@@ -198,15 +211,61 @@ export function mergeEmployees(server, local) {
     // 3. statusHistory por timestamp.
     out.statusHistory = mergeStatusHistory(server.statusHistory, local.statusHistory);
 
-    // 4. positions (lista de strings) → unión.
-    out.positions = mergePositions(server.positions, local.positions);
+    // 4 y 5. positions (lista de strings) y positionSalaries (mapa).
+    // 🔁 Fix del bucle de sanitización (2026-07-06) + Judgment Day Fase 2A:
+    // la UNIÓN incondicional resucitaba las REMOCIONES (un huérfano corregido o
+    // un puesto desasignado volvía desde la copia vieja del otro lado en cada
+    // merge, incluso al subir). El fix inicial usaba el updatedAt GENERAL para
+    // el LWW, pero eso hacía que editar un campo NO relacionado (teléfono)
+    // pisara los puestos del otro dispositivo. Se usa positionsUpdatedAt, la
+    // frescura ESPECÍFICA de puestos (sube sólo cuando se tocan puestos):
+    //   - ambos lados con sello → LWW por positionsUpdatedAt (empate → unión);
+    //   - ASIMÉTRICO (sólo un lado tiene sello) → gana el lado con sello. NO
+    //     comparar su sello contra el updatedAt GENERAL del otro (Ronda 2,
+    //     Juez A): ese updatedAt sube por cualquier edición y una edición ajena
+    //     pisaría los puestos, reabriendo el bug;
+    //   - ninguno con sello (legacy puro) → updatedAt, para que una remoción
+    //     legacy no resucite (fix del bucle). Degrada al caso R1 sólo para
+    //     empleados que nunca tocaron puestos post-fix; se corrige al primer
+    //     cambio de puestos. La unión queda para empates y para "sin info".
+    const sHasPos = typeof server.positionsUpdatedAt === 'number';
+    const lHasPos = typeof local.positionsUpdatedAt === 'number';
+    let strictWinner = null;
+    if (sHasPos && lHasPos) {
+        if (server.positionsUpdatedAt !== local.positionsUpdatedAt) {
+            strictWinner = server.positionsUpdatedAt > local.positionsUpdatedAt ? server : local;
+        }
+    } else if (sHasPos !== lHasPos) {
+        strictWinner = sHasPos ? server : local;
+    } else {
+        const sT2 = ts(server);
+        const lT2 = ts(local);
+        if (sT2 !== null && lT2 !== null && sT2 !== lT2) {
+            strictWinner = sT2 > lT2 ? server : local;
+        }
+    }
 
-    // 5. positionSalaries (mapa) → unión, ganador escalar decide colisiones.
-    out.positionSalaries = mergePositionSalaries(
-        server.positionSalaries,
-        local.positionSalaries,
-        winnerSide === 'server'
-    );
+    if (strictWinner) {
+        out.positions = Array.isArray(strictWinner.positions) ? [...strictWinner.positions] : [];
+        out.positionSalaries = (strictWinner.positionSalaries && typeof strictWinner.positionSalaries === 'object')
+            ? { ...strictWinner.positionSalaries }
+            : {};
+    } else {
+        out.positions = mergePositions(server.positions, local.positions);
+        out.positionSalaries = mergePositionSalaries(
+            server.positionSalaries,
+            local.positionSalaries,
+            winnerSide === 'server'
+        );
+    }
+
+    // Propagar la frescura fina de puestos (el mayor), para que futuros merges
+    // sigan distinguiendo "quién tocó los puestos más tarde".
+    const sPosRaw = typeof server.positionsUpdatedAt === 'number' ? server.positionsUpdatedAt : -Infinity;
+    const lPosRaw = typeof local.positionsUpdatedAt === 'number' ? local.positionsUpdatedAt : -Infinity;
+    const maxPos = Math.max(sPosRaw, lPosRaw);
+    if (maxPos > -Infinity) out.positionsUpdatedAt = maxPos;
+    else delete out.positionsUpdatedAt;
 
     // 6. updatedAt: el mayor.
     const sT = ts(server) ?? -Infinity;

@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, retryFailedCloudSync } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -29,6 +29,12 @@ import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
+import { translateError } from './modules/services/ErrorTranslator.js';
+import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
+import { recordSanitizeRound } from './modules/services/SanitizeLoopBreaker.js';
+import { collectOrphanAttendanceKeys } from './modules/services/AttendanceCleanup.js';
+import { purgeOrphanAttendance } from './modules/services/AttendanceCleanupRunner.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
@@ -61,6 +67,8 @@ import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
+import { stampAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
@@ -73,6 +81,9 @@ import { formatCurrency } from './modules/utils/Formatters.js';
 import { IndexedDBService, indexedDBService } from './modules/services/IndexedDBService.js';
 import { StorageService } from './modules/services/StorageService.js';
 import { DataService } from './modules/services/DataService.js';
+import { replaceLocalWithCloud, replaceCloudWithLocal, eraseCloudData } from './modules/services/DataOps.js';
+import { wipeAllLocalTraces } from './modules/services/LocalWipeService.js';
+import { confirmDataOperation } from './modules/ui/DataOpsModals.js';
 import { ValidationService } from './modules/services/ValidationService.js';
 import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
@@ -343,7 +354,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     } catch (error) {
         console.error('❌ Error inicializando sistema:', error);
-        showNotification(`🚨 Fallo de arranque: ${error.message}`, 'error', 0);
+        logError(error, 'iniciar la aplicación');
+        showNotification(`🚨 Fallo de arranque: ${translateError(error, { fallbackContext: 'iniciar la aplicación' })}`, 'error', 0);
     }
 });
 
@@ -489,107 +501,140 @@ window.App.Sync = {
         }
     },
 
+    // Fase 0.5 (U4): delega en DataOps.replaceLocalWithCloud — reemplazo REAL.
+    // El flujo viejo no purgaba el outbox ni las colas de borrado (el drenado
+    // del login siguiente subía datos PRE-descarga y pisaba la nube recién
+    // adoptada), contaminaba el state con metadata del doc espejo, trataba un
+    // fallo de lectura de entidades como lista vacía, y su saveApplicationData
+    // + reload dejaba una carrera con el pagehide. Todo eso vive ahora en
+    // DataOps con su propio contrato de tests (DataOpsReplaceLocalTests).
     downloadFromCloud: async () => {
-        const confirmed = await Modal.confirm({
-            title: '⚠️ Sobrescribir datos locales',
-            message: '¿SOBRESCRIBIR TODO LO LOCAL CON LA NUBE? Esto borrará tus datos actuales y cargará los de Google Drive/Firebase.',
-            confirmText: 'Sí, sobrescribir',
-            cancelText: 'Cancelar',
-            type: 'danger'
+        const confirmed = await confirmDataOperation({
+            title: '⚠️ Descargar y Reemplazar',
+            flow: 'cloud-to-device',
+            bullets: [
+                'Se borran TODOS los datos de este dispositivo (empleados, asistencia, ajustes).',
+                'Se descartan las subidas pendientes que aún no llegaron a la nube.',
+                'Los datos de la nube quedan como única fuente y la app se recarga.',
+                'Si la descarga falla, no se toca nada local.'
+            ],
+            confirmText: 'Sí, reemplazar lo local',
+            cancelText: 'Cancelar'
         });
-        if (!confirmed) return;
-        const loader = showNotification('📥 Conectando a la nube...', 'loading');
-        try {
-            loader.update({ message: '📥 Descargando metadatos...' });
-            const cloudState = await FirebaseService.getFullState();
-            loader.update({ message: '📥 Descargando historial...' });
-            const cloudAttendance = await FirebaseService.getAllAttendance();
-            if (!cloudState) {
-                loader.update({ message: '❌ No se encontraron datos en la nube', type: 'error', closable: true });
-                return;
-            }
-            Object.assign(state, cloudState);
-
-            // 🛡️ FIX: en el modelo migrado (schemaVersion>=2) empleados/cargos/
-            // líderes viven en subcolecciones per-doc; data/current los tiene
-            // vacíos. Object.assign de arriba dejó esos arreglos en []; los
-            // recuperamos de la fuente correcta para no perderlos.
-            const sv = (typeof state.settings?.schemaVersion === 'number') ? state.settings.schemaVersion : 0;
-            if (sv >= 2) {
-                // M1: loadAll() devuelve null ante fallo de lectura. `?? prev`
-                // conserva lo que ya teníamos en vez de blanquear con un error.
-                state.employees = (await EmployeeRepository.loadAll()) ?? state.employees;
-                state.positions = (sv >= 3) ? ((await PositionRepository.loadAll()) ?? state.positions) : (cloudState.positions || []);
-                state.leaders   = (sv >= 3) ? ((await LeaderRepository.loadAll())   ?? state.leaders)   : (cloudState.leaders || []);
-            }
-            if (typeof Employee !== 'undefined') state.employees = (state.employees || []).map(e => e instanceof Employee ? e : new Employee(e));
-            if (typeof Position !== 'undefined') state.positions = (state.positions || []).map(p => p instanceof Position ? p : new Position(p));
-            if (typeof Leader !== 'undefined') state.leaders = (state.leaders || []).map(l => l instanceof Leader ? l : new Leader(l));
-
-            state.attendance = cloudAttendance; // historial completo (todos los días)
-            // Reemplazo total del dataset → coherencia explícita (load-bearing tras Paso 4):
-            // render() lee stats/índice antes del reload, así que debe correr sincrónico ya.
-            invalidateAllStats();
-            buildAttendanceIndex();
-            saveApplicationData();
-            loader.update({ message: '✅ Datos descargados correctamente', type: 'success' });
-            render();
-            setTimeout(() => location.reload(), 1500);
-        } catch (e) {
-            console.error('Error al descargar de la nube:', e);
-            loader.update({ message: '❌ Error al descargar datos', type: 'error', closable: true });
+        if (confirmed === null) return;
+        const loader = showNotification('📥 Descargando datos de la nube...', 'loading');
+        const result = await replaceLocalWithCloud();
+        // Nota: en éxito nunca llegamos acá — replaceLocalWithCloud recarga la
+        // página. Todo lo de abajo es manejo de fallo (sin tocar nada local).
+        if (result.ok) return;
+        // JD-F3: "tus datos locales quedaron intactos" sólo es verdad para los
+        // fallos de la fase de FETCH (que abortan antes de tocar nada). Un
+        // 'apply-failed' ocurre DESPUÉS del wipe — DataOps ya recargó la página
+        // para re-adoptar la nube, así que este código casi nunca corre para
+        // ese caso; si corre (reload bloqueado), el mensaje debe ser honesto.
+        const msgByReason = {
+            'no-cloud-data': 'ℹ️ No se encontraron datos en la nube',
+            'apply-failed': '⚠️ Los datos locales se borraron pero el reemplazo no terminó. Recarga la página para descargar la nube.',
+            // R2-2: en wipe-failed el borrado parcial YA corrió (la clave
+            // principal de localStorage puede estar borrada), pero el state en
+            // memoria sigue intacto y el guardado quedó reactivado.
+            'wipe-failed': '⚠️ No se pudo preparar el dispositivo — no se aplicó nada de la nube. Tus datos siguen cargados y se re-guardan ahora.'
+        };
+        const msg = msgByReason[result.reason]
+            || '❌ No se pudo descargar de la nube. Tus datos locales quedaron intactos.';
+        loader.update({ message: msg, type: result.reason === 'no-cloud-data' ? 'info' : 'error', closable: true, duration: 10000 });
+        if (result.reason === 'wipe-failed') {
+            // R2-2: re-asentar localStorage/IndexedDB desde la memoria YA — no
+            // esperar a que el usuario haga otro cambio para recuperar el
+            // almacenamiento parcialmente borrado.
+            saveApplicationData({ skipValidation: true });
         }
     },
 
+    // Fase 0.5 (U5): delega en DataOps.replaceCloudWithLocal — reemplazo REAL.
+    // El flujo viejo prometía "exactamente lo que tienes aquí" pero era un
+    // merge (merge:true nunca borraba lo que sólo existía en la nube). Ahora:
+    // snapshot de seguridad → purga de pendientes → borrado acotado del
+    // dataset principal → subida completa. Caja chica no se toca (tiene su
+    // propio sync). Ver DataOpsReplaceCloudTests.
     uploadToCloud: async () => {
-        const confirmed = await Modal.confirm({
-            title: '⚠️ Sobrescribir nube',
-            message: '¿SOBRESCRIBIR LA NUBE CON LOS DATOS LOCALES? Esto reemplazará tus archivos en la nube con lo que tienes actualmente.',
-            confirmText: 'Sí, subir',
-            cancelText: 'Cancelar',
-            type: 'danger'
+        const confirmed = await confirmDataOperation({
+            title: '⚠️ Subir y Reemplazar',
+            flow: 'device-to-cloud',
+            bullets: [
+                'Se borran los empleados, cargos, líderes y asistencia DE LA NUBE.',
+                'Se reemplazan por lo que hay en este dispositivo, tal cual está.',
+                'Antes se guarda un snapshot de seguridad en la nube (recuperable).',
+                'La caja chica no se toca (tiene su propia sincronización).'
+            ],
+            requireTyping: 'REEMPLAZAR NUBE',
+            confirmText: 'Sí, reemplazar la nube',
+            cancelText: 'Cancelar'
         });
-        if (!confirmed) return;
-        const loader = showNotification('📤 Iniciando subida...', 'loading');
-        try {
-            loader.update({ message: '📤 Guardando estado general...' });
-            await FirebaseService.saveFullState(state);
-            loader.update({ message: '📤 Sincronizando historial...' });
-            await FirebaseService.syncHistory(state.attendance);
-            loader.update({ message: '✅ Datos subidos correctamente', type: 'success' });
+        if (confirmed === null) return;
+        const loader = showNotification('📤 Reemplazando datos en la nube...', 'loading');
+        const result = await replaceCloudWithLocal();
+        if (result.ok) {
+            loader.update({ message: '✅ La nube ahora es una copia exacta de este dispositivo', type: 'success', duration: 6000 });
             render();
-        } catch (e) {
-            console.error('Error al subir a la nube:', e);
-            loader.update({ message: '❌ Error al subir datos', type: 'error', closable: true });
+            return;
         }
+        const msgByReason = {
+            'freeze-failed': '❌ No se pudo preparar la copia de tus datos — no se tocó la nube. Reintenta; si persiste, exporta un backup.',
+            'snapshot-failed': '❌ No se pudo crear el snapshot de seguridad — no se tocó la nube. Reintenta más tarde.',
+            'purge-failed': '❌ No se pudieron purgar las subidas pendientes — no se tocó la nube.',
+            'delete-failed': '❌ No se pudo limpiar la nube — no se subió nada. Tus datos locales están intactos.',
+            'upload-failed': '⚠️ La nube se limpió pero la subida falló. Tus datos locales están intactos: reintenta esta misma opción para completar el reemplazo.'
+        };
+        loader.update({
+            message: msgByReason[result.reason] || '❌ Error al reemplazar la nube. Tus datos locales están intactos.',
+            type: 'error', closable: true, duration: 10000
+        });
     },
 
+    // Fase 0.5 (U6): delega en DataOps.eraseCloudData. El flujo viejo no
+    // purgaba los pendientes (el drenado del próximo save/online re-creaba
+    // datos en la nube recién borrada) y no avisaba que, con la subida
+    // activa, el próximo guardado re-sube el estado local completo.
     deleteCloudData: async () => {
-        const confirm1 = await Modal.confirm({
-            title: '🚨 Advertencia crítica',
-            message: 'BORRAR NUBE: ¿Estás seguro de eliminar TODOS tus datos en la nube?',
-            confirmText: 'Continuar',
-            cancelText: 'Cancelar',
-            type: 'danger'
-        });
-        if (!confirm1) return;
-        const confirm2 = await Modal.prompt({
-            title: 'Confirmación final',
-            message: 'Para confirmar escriba exactamente: BORRAR NUBE',
-            placeholder: 'BORRAR NUBE',
+        const choice = await confirmDataOperation({
+            title: '🚨 Borrar datos de la nube',
+            flow: 'delete-cloud',
+            bullets: [
+                'Se eliminan TODOS tus datos en la nube (empleados, asistencia, caja chica).',
+                'Tus datos locales NO se tocan.',
+                'Si la subida sigue activa, el próximo guardado volverá a subir lo de este dispositivo.',
+                'Los respaldos protegidos se conservan siempre.'
+            ],
+            checkboxes: [
+                { id: 'alsoSnapshots', label: 'Borrar también los respaldos (snapshots) — son tu red de seguridad', checked: false },
+                { id: 'pauseUpload', label: 'Pausar la subida para que la nube quede vacía hasta que yo reanude', checked: false }
+            ],
+            requireTyping: 'BORRAR NUBE',
             confirmText: 'Borrar nube',
             cancelText: 'Cancelar'
         });
-        if (confirm2 !== 'BORRAR NUBE') return showNotification('❌ Cancelado', 'error');
+        if (choice === null) return;
+        const { alsoSnapshots, pauseUpload } = choice;
+
         const loader = showNotification('🗑️ Borrando datos remotos...', 'loading');
-        try {
-            await FirebaseService.deleteCloudData();
-            loader.update({ message: '✅ Datos en la nube eliminados', type: 'success' });
+        const result = await eraseCloudData({ alsoSnapshots, pauseUpload });
+        if (result.ok) {
+            loader.update({
+                message: pauseUpload
+                    ? '✅ Nube eliminada. Subida en pausa: la nube quedará vacía hasta que reanudes.'
+                    : '✅ Nube eliminada. El próximo guardado volverá a subir tus datos locales.',
+                type: 'success', duration: 8000
+            });
             render();
-        } catch (e) {
-            console.error('Error al borrar la nube:', e);
-            loader.update({ message: '❌ Error al borrar datos', type: 'error', closable: true });
+            return;
         }
+        const msgByReason = {
+            'purge-failed': '❌ No se pudieron purgar las subidas pendientes — no se borró la nube.',
+            'delete-failed': '❌ Error al borrar los datos de la nube.',
+            'snapshots-failed': '⚠️ Los datos se borraron, pero los respaldos no. Puedes borrarlos desde Gestión de versiones.'
+        };
+        loader.update({ message: msgByReason[result.reason] || '❌ Error al borrar datos', type: 'error', closable: true, duration: 10000 });
     }
 };
 
@@ -973,6 +1018,7 @@ window.openLeaderForm = EmployeesUI.openLeaderForm;
 window.saveEmployee = EmployeesUI.saveEmployee;
 window.saveLeader = EmployeesUI.saveLeader;
 window.toggleEmployeeStatus = EmployeesUI.toggleEmployeeStatus;
+window.deleteEmployeeHandler = EmployeesUI.deleteEmployeeHandler;
 window.toggleLeaderStatus = EmployeesUI.toggleLeaderStatus;
 window.setPositionStatusFilter = EmployeesUI.setPositionStatusFilter;
 window.setPositionSearchFilter = EmployeesUI.setPositionSearchFilter;
@@ -1077,9 +1123,8 @@ window.addPositionHours = function () {
             overtimeHours: 0
         });
 
-        state.attendance[key] = att;
-        att.updatedAt = Date.now();
-        att._isDirty = true;
+        // Fase 1 (U1b): estampado por el choke point en vez de mutar updatedAt a mano.
+        state.attendance[key] = { ...stampAttendanceWrite(att), _isDirty: true };
         render();
 
         // Actualizar totales después de render
@@ -1198,7 +1243,7 @@ window.saveMultiPosition = function () {
     // NO se batchea a propósito (a diferencia de los otros handlers de Paso 5): este no
     // llama render() explícito → el set-trap del proxy ya colapsa a 1 repintado por dedup,
     // y la coherencia corre síncrona acá, antes del render diferido (rAF) → statsCache fresco.
-    state.attendance[key] = { ...att };
+    state.attendance[key] = stampAttendanceWrite(att); // U1b: choke point
     invalidateEmployeeStats(emp.id);
     buildAttendanceIndex(dateKey);
 
@@ -1208,9 +1253,9 @@ window.saveMultiPosition = function () {
         `Multi-posición de ${emp.name}`,
         () => {
             if (previousMpAtt) {
-                state.attendance[mpKey] = previousMpAtt;
+                state.attendance[mpKey] = stampAttendanceWrite(previousMpAtt); // U1b: el undo es una mutación de ahora
             } else {
-                delete state.attendance[mpKey];
+                state.attendance[mpKey] = tombstoneAttendanceWrite(state.attendance[mpKey]);
             }
             invalidateEmployeeStats(emp.id);
             buildAttendanceIndex(dateKey);
@@ -1243,7 +1288,7 @@ window.deleteCurrentAttendance = function () {
     // el del delete-trap + el manual del final). La coherencia (financiera) va DENTRO
     // del batch para que el repintado del cierre lea statsCache ya fresco.
     stateManager.batchSetState(() => {
-        delete state.attendance[key];
+        state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
         invalidateEmployeeStats(emp.id);
         buildAttendanceIndex(dateKey);
     });
@@ -1253,7 +1298,7 @@ window.deleteCurrentAttendance = function () {
         previousAtt,
         `Eliminación de ${emp.name}`,
         () => {
-            if (previousAtt) state.attendance[key] = previousAtt;
+            if (previousAtt) state.attendance[key] = stampAttendanceWrite(previousAtt); // U1b
             invalidateEmployeeStats(emp.id);
             buildAttendanceIndex(dateKey);
         }
@@ -1289,9 +1334,10 @@ window.removePositionHours = async function (index) {
                 type: 'danger'
             });
             if (confirmDelete) {
-                delete state.attendance[key];
+                state.attendance[key] = tombstoneAttendanceWrite(att);
                 invalidateEmployeeStats(emp.id);
                 buildAttendanceIndex(dateKey);
+                saveApplicationData({ dateKey }); // GAP encontrado en el mapeo: esta rama nunca guardaba (el commit normal pasa por saveMultiPosition, que acá no corre) — sin esto el tombstone no sube a la nube
                 closeModal();
                 render();
                 return;
@@ -1653,7 +1699,8 @@ window.restoreSnapshot = async (snapshotId) => {
     } catch (e) {
         Notification.clearAll();
         console.error('Error descargando snapshot:', e);
-        Notification.error('❌ No se pudo cargar el snapshot: ' + e.message);
+        logError(e, 'cargar el snapshot');
+        Notification.error('❌ No se pudo cargar el snapshot: ' + translateError(e, { fallbackContext: 'cargar el snapshot' }));
         return;
     }
 
@@ -1683,8 +1730,18 @@ window.restoreSnapshot = async (snapshotId) => {
                 Notification.info('⏳ Restaurando sistema...', 0);
 
                 // 2. Aplicar datos al estado global.
-                state.employees = snapshot.state.employees || [];
-                state.positions = snapshot.state.positions || [];
+                // R2-3 (Judgment Day F0.5 ronda 2): también leaders — el único
+                // flujo de restauración vivo nunca los leía, así que restaurar
+                // el respaldo pre-reemplazo (o cualquier snapshot v3) devolvía
+                // todo MENOS los líderes. Y reinstanciar las clases: los
+                // objetos planos del snapshot rompen los métodos de Employee/
+                // Position/Leader en el resto de la app.
+                state.employees = (snapshot.state.employees || [])
+                    .map(e => e instanceof Employee ? e : new Employee(e));
+                state.positions = (snapshot.state.positions || [])
+                    .map(p => p instanceof Position ? p : new Position(p));
+                state.leaders = (snapshot.state.leaders || [])
+                    .map(l => l instanceof Leader ? l : new Leader(l));
                 state.attendance = snapshot.state.attendance || {};
 
                 // Mezclar settings con precaución (mantener flags de sesión si existen)
@@ -1705,8 +1762,9 @@ window.restoreSnapshot = async (snapshotId) => {
                 render();
             } catch (e) {
                 console.error('Error fatal en restauración:', e);
+                logError(e, 'restaurar el sistema');
                 Notification.clearAll();
-                Notification.error('❌ Error al restaurar: ' + e.message);
+                Notification.error('❌ Error al restaurar: ' + translateError(e, { fallbackContext: 'restaurar el sistema' }));
                 state.isLoadingSnapshots = false;
                 render();
             }
@@ -1881,7 +1939,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
 
     if (att && att.present) {
         if (state.viewMode === 'week') return;
-        delete state.attendance[key];
+        state.attendance[key] = tombstoneAttendanceWrite(att);
         // Limpiar selección temporal
         if (state.tempPositionSelection) {
             delete state.tempPositionSelection[key];
@@ -1892,7 +1950,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             previousAtt,
             `Asistencia de ${emp.name}`,
             () => {
-                state.attendance[key] = previousAtt;
+                state.attendance[key] = stampAttendanceWrite(previousAtt); // U1b
                 invalidateEmployeeStats(empId);
                 buildAttendanceIndex(getDateKey(date));
             }
@@ -1905,7 +1963,8 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
         // Obtener posición seleccionada temporalmente o usar la primera
         const selectedPos = state.tempPositionSelection?.[key] || emp.positions?.[0] || null;
 
-        state.attendance[key] = {
+        // Fase 1 (U1b): estampado por el choke point.
+        state.attendance[key] = stampAttendanceWrite({
             employeeId: empId,
             date: getDateKey(date),
             present: true,
@@ -1915,9 +1974,8 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             selectedPosition: selectedPos,
             multiPosition: false,
             positionHours: [],
-            notes: '',
-            updatedAt: Date.now()
-        };
+            notes: ''
+        });
 
         // Limpiar selección temporal después de usarla
         if (state.tempPositionSelection) {
@@ -1929,7 +1987,7 @@ window.toggleAttendance = (empId, date = state.selectedDate) => {
             null,
             `Asistencia de ${emp.name}`,
             () => {
-                delete state.attendance[key];
+                state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
                 invalidateEmployeeStats(empId);
                 buildAttendanceIndex(getDateKey(date));
             }
@@ -3000,7 +3058,7 @@ window.handleWeekCheck = (empId, dateStr) => {
         // ⚡ Fase 4 Paso 5: batchear el alta + la coherencia → 1 repintado. FINANCIERO:
         // hoursWorked/present alimentan stats, la coherencia va DENTRO del batch.
         stateManager.batchSetState(() => {
-            state.attendance[key] = newAttendance;
+            state.attendance[key] = stampAttendanceWrite(newAttendance); // U1b: choke point
             invalidateEmployeeStats(empId);
             buildAttendanceIndex(dateStr);
         });
@@ -3011,15 +3069,14 @@ window.handleWeekCheck = (empId, dateStr) => {
             `Asistencia de ${emp.name} (${dateStr})`,
             () => {
                 if (prevWeekAtt) {
-                    state.attendance[key] = prevWeekAtt;
+                    state.attendance[key] = stampAttendanceWrite(prevWeekAtt); // U1b
                 } else {
-                    state.attendance[key] = {
+                    state.attendance[key] = stampAttendanceWrite({
                         employeeId: empId,
                         date: dateStr,
                         present: false,
-                        _isDirty: true,
-                        updatedAt: Date.now()
-                    };
+                        _isDirty: true
+                    });
                 }
                 invalidateEmployeeStats(empId);
                 buildAttendanceIndex(dateStr);
@@ -3047,19 +3104,22 @@ window.removeAttendance = (empId, dateStr) => {
         ? { ...state.attendance[key], positionHours: [...(state.attendance[key].positionHours || [])] }
         : null;
 
-    // ⚡ Fase 4 Paso 5: batchear la baja in-place (6 campos) + la coherencia + el cierre
+    // ⚡ Fase 4 Paso 5: batchear la baja in-place + la coherencia + el cierre
     // del contextMenu → 1 repintado (antes: uno por cada campo + el manual del final). La
-    // coherencia (financiera: present:false/hoursWorked=0 cambian las stats) va DENTRO del
+    // coherencia (financiera: present:false cambia las stats) va DENTRO del
     // batch para que el repintado del cierre lea statsCache ya fresco.
+    // Judgment Day Fase 1 R1: antes esto era una mutación in-place sin tombstone
+    // (deletedAt nunca se seteaba) — mismo intento del usuario que toggleAttendance
+    // (uncheck) y deleteCurrentAttendance, que SÍ tombstonean. Sin deletedAt, las
+    // notas seguían visibles (NotesCenter/detalle del día filtran por deletedAt, no
+    // por .present — U2c) y el registro nunca entraba a la compactación de 60 días
+    // (U2d, que sólo mira deletedAt != null). tombstoneAttendanceWrite no zerea
+    // hoursWorked/overtimeHours/positionHours a propósito — un registro tombstoneado
+    // (present:false + deletedAt) ya se filtra como ausente en todos lados, igual
+    // que el patrón existente en toggleAttendance (línea ~1932).
     stateManager.batchSetState(() => {
-        const att = state.attendance[key];
-        if (att) {
-            att.present = false;
-            att.hoursWorked = 0;
-            att.overtimeHours = 0;
-            att.positionHours = [];
-            att.updatedAt = Date.now();
-            att._isDirty = true;
+        if (state.attendance[key]) {
+            state.attendance[key] = tombstoneAttendanceWrite(state.attendance[key]);
         }
         invalidateEmployeeStats(empId);
         buildAttendanceIndex(dateStr);
@@ -3071,7 +3131,7 @@ window.removeAttendance = (empId, dateStr) => {
         prevRemoveAtt,
         `Eliminación de ${emp?.name || empId} (${dateStr})`,
         () => {
-            if (prevRemoveAtt) state.attendance[key] = prevRemoveAtt;
+            if (prevRemoveAtt) state.attendance[key] = stampAttendanceWrite(prevRemoveAtt); // U1b
             invalidateEmployeeStats(empId);
             buildAttendanceIndex(dateStr);
         }
@@ -3158,7 +3218,7 @@ window.downloadFromCloud = async function () {
 
             // Cargar historial completo
             const remoteAttendance = await FirebaseService.getAllAttendance();
-            state.attendance = { ...state.attendance, ...remoteAttendance };
+            state.attendance = mergeAttendanceRecords(state.attendance, remoteAttendance); // U3: merge LWW por-registro
             // Merge de fechas/empleados arbitrarios → coherencia total antes del render().
             invalidateAllStats();
             buildAttendanceIndex();
@@ -3177,27 +3237,11 @@ window.downloadFromCloud = async function () {
     }
 };
 
-window.deleteCloudDataNow = async function () {
-    const confirm = await Modal.confirm({
-        title: '⚠️ Eliminar datos de la nube',
-        message: '¿ELIMINAR TODOS los datos de la nube? Esta acción no se puede deshacer y NO afectará tus datos locales.',
-        confirmText: 'Eliminar nube',
-        cancelText: 'Cancelar',
-        type: 'danger'
-    });
-    if (!confirm) return;
-
-    const loading = showNotification('🗑️ Eliminando datos remotos...', 'loading');
-    try {
-        await FirebaseService.deleteCloudData();
-        showNotification('✅ Datos remotos eliminados de Firebase', 'success');
-    } catch (e) {
-        console.error('Error al eliminar datos:', e);
-        showNotification('❌ Error al eliminar datos remotos', 'error');
-    } finally {
-        loading.dismiss();
-    }
-};
+// Fase 0.5 (U6): la redefinición débil de window.deleteCloudDataNow que vivía
+// acá PISABA al alias de App.Sync.deleteCloudData (definido arriba) — la doble
+// confirmación con "BORRAR NUBE" tipeado era código muerto y el botón de
+// Ajustes corría una versión de un solo confirm, sin purga de pendientes.
+// Eliminada: el alias de la línea ~593 es la única fuente de verdad.
 
 window.manualSync = window.uploadToCloud;
 window.toggleAutoSync = () => {
@@ -3487,13 +3531,17 @@ if (typeof window !== 'undefined') {
             }
         },
         // U13: badge rojo "Error de sync" también accionable — mismo mecanismo
-        // que el botón "Reintentar" del toast (U12): drena el outbox ya mismo.
+        // que el botón "Reintentar" del toast (U12): revive entradas 'dead' y
+        // drena el outbox ya mismo (retryFailedCloudSync — ver PersistenceService.js:
+        // sin revivirlas, una entrada que agotó sus reintentos contra un error
+        // que ya se resolvió —p.ej. cuota de Firestore repuesta— quedaba
+        // atascada para siempre, aunque el usuario tocara "Reintentar").
         // El resultado real lo reflejan el badge (SyncStatus) y el toast
         // honesto; este mensaje es sólo feedback de que se disparó el intento.
         onErrorClick: async () => {
             showNotification('🔄 Reintentando subida a la nube…', 'info');
             try {
-                await drainMainSyncOutbox();
+                await retryFailedCloudSync();
             } catch (e) {
                 console.error('Error al reintentar desde el badge:', e);
             }
@@ -3899,6 +3947,10 @@ function _AttendanceDetailPanelInner() {
     // ----- Format money -----
     const money = (n) => '$' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // Fase 1 (U2c): un tombstone (deletedAt seteado) no debe mostrar su nota vieja.
+    const todayAttRaw = state.attendance[`${emp.id}-${getDateKey(today)}`];
+    const todayNoteAtt = (todayAttRaw && todayAttRaw.deletedAt == null) ? todayAttRaw : null;
+
     return `<aside class="attendance-detail" data-emp-id="${emp.id}">
         <div class="detail-card">
             <div class="detail-head">
@@ -3958,11 +4010,11 @@ function _AttendanceDetailPanelInner() {
 
             <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
                 <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
-                ${(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
+                ${(todayNoteAtt?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
             </div>
             <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
                 placeholder="Anota algo sobre ${escapeHTML(emp.name.split(/\s+/)[0] || 'el empleado')} (ej. salió temprano por cita médica)…"
-                data-emp-id="${emp.id}">${escapeHTML(state.attendance[`${emp.id}-${getDateKey(today)}`]?.notes || '')}</textarea>
+                data-emp-id="${emp.id}">${escapeHTML(todayNoteAtt?.notes || '')}</textarea>
 
             <div class="detail-actions">
                 <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
@@ -4182,7 +4234,7 @@ window.saveAttendanceDetailHours = (empId) => {
     // set-trap + el manual del final). FINANCIERO: hoursWorked/present alimentan stats,
     // la coherencia va DENTRO del batch para que el repintado del cierre lea statsCache fresco.
     stateManager.batchSetState(() => {
-        state.attendance[key] = {
+        state.attendance[key] = stampAttendanceWrite({
             ...existing,
             employeeId: emp.id,
             date: dateKey,
@@ -4194,10 +4246,9 @@ window.saveAttendanceDetailHours = (empId) => {
             selectedPosition: positionHours[0]?.positionId || emp.positions?.[0] || null,
             isHoliday: isDayHoliday(state.selectedDate, state.settings?.holidays),
             notes: existing.notes || '',
-            updatedAt: Date.now(),
             lastAccessed: Date.now(),
             _isDirty: true
-        };
+        });
         invalidateEmployeeStats(emp.id);
         buildAttendanceIndex(dateKey);
     });
@@ -4247,9 +4298,8 @@ window.saveQuickNoteFromDetail = (empId) => {
                 notes: ''
             };
             existing.notes = text;
-            existing.updatedAt = Date.now();
             existing._isDirty = true;
-            state.attendance[key] = existing;
+            state.attendance[key] = stampAttendanceWrite(existing); // U1b: choke point (antes updatedAt a mano)
         }
         invalidateEmployeeStats(empId);
         buildAttendanceIndex(dateKey);
@@ -5405,7 +5455,8 @@ async function applyBackupData(importedData) {
         return true;
     } catch (error) {
         console.error("Error aplicando backup:", error);
-        showNotification('❌ Error al aplicar backup local: ' + error.message, 'error');
+        logError(error, 'aplicar el backup local');
+        showNotification('❌ Error al aplicar backup local: ' + translateError(error, { fallbackContext: 'aplicar el backup local' }), 'error');
         return false;
     }
 }
@@ -5494,7 +5545,8 @@ window.loadBackupFromFile = function (file) {
             });
 
         } catch (err) {
-            showNotification('❌ Error al leer el backup: ' + err.message, 'error');
+            logError(err, 'leer el backup');
+            showNotification('❌ Error al leer el backup: ' + translateError(err, { fallbackContext: 'leer el backup' }), 'error');
         }
     };
     reader.readAsText(file);
@@ -5503,6 +5555,66 @@ window.loadBackupFromFile = function (file) {
 window.deleteAllData = function () {
     // Usar el nuevo sistema robusto de DataService (Borrado Local)
     dataService.reset();
+};
+
+/**
+ * 🧹 Ajustes/Datos → "Eliminar historial de empleados borrados": tombstonea
+ * la asistencia HUÉRFANA (de empleados que ya no existen). Robusto: el
+ * borrado se propaga (no revive). Pide confirmación (destructivo).
+ */
+window.purgeOrphanAttendanceHandler = function () {
+    // 🛡️ Guardia anti-borrado-masivo: si los empleados no cargaron todavía (o
+    // su carga falló), liveIds queda vacío y TODA la asistencia se vería como
+    // "huérfana". No se puede distinguir con certeza "no cargó" de "no hay
+    // empleados", así que ante lista vacía se aborta — el costo de un falso
+    // positivo es el borrado de todo el historial.
+    if (!state.isDataLoaded || !Array.isArray(state.employees) || state.employees.length === 0) {
+        showNotification('No se puede limpiar ahora: la lista de empleados no está disponible. Recargá e intentá de nuevo.', 'warning');
+        return;
+    }
+    const liveIds = new Set(state.employees.map(e => String(e.id)));
+    const orphanCount = collectOrphanAttendanceKeys(state.attendance, liveIds).length;
+    if (orphanCount === 0) {
+        showNotification('No hay historial de empleados borrados para limpiar.', 'info');
+        return;
+    }
+    if (!window.showConfirm) return;
+    window.showConfirm({
+        title: '🧹 Eliminar historial de empleados borrados',
+        message: `Se eliminarán <strong>${orphanCount}</strong> registro(s) de asistencia que pertenecían a empleados ya borrados.<br><br>` +
+            `No afecta a ningún empleado actual. El borrado se propaga a tus otros dispositivos. ¿Continuar?`,
+        confirmText: 'Sí, eliminar',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            const removed = purgeOrphanAttendance();
+            showNotification(`🧹 ${removed} registro(s) de asistencia huérfana eliminados.`, 'success');
+            render();
+        }
+    });
+};
+
+/**
+ * 📋 Exporta el registro local de errores técnicos (ErrorLog.js) como un
+ * archivo .txt descargable/compartible — para que el usuario pueda mandarlo
+ * a soporte sin copiar pantallazos de la consola del navegador.
+ */
+window.exportErrorLog = function () {
+    const entries = getAllErrors();
+    if (entries.length === 0) {
+        showNotification('No hay errores registrados para exportar.', 'info');
+        return;
+    }
+    const text = formatErrorLogAsText(entries);
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filename = `log-errores-${dateStr}.txt`;
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
+    showExportMenu({
+        filename,
+        blob,
+        title: 'Log de errores',
+        text: `Registro de errores técnicos exportado el ${new Date().toLocaleDateString('es-DO')}`
+    });
 };
 
 
@@ -6556,18 +6668,19 @@ function _initOutgoingConflictGuard() {
             });
 
             if (wipeAndContinue) {
-                try {
-                    await indexedDBService.clearAll();
-                } catch (e) {
-                    console.error('❌ Error limpiando IndexedDB en cambio de cuenta:', e);
+                // JD-F6 (ALTO, hallazgo mutuo de ambos jueces): la limpieza
+                // manual vieja (3 claves sueltas + clearAll) no purgaba el
+                // outbox durable — un mirror pendiente de la cuenta VIEJA
+                // podía drenarse después y subirse al data/current de la
+                // cuenta NUEVA. Tampoco levantaba el guard anti-pagehide: el
+                // reload podía disparar flushPendingSave y escribir guardados
+                // de la cuenta vieja con auth.currentUser ya apuntando a la
+                // nueva. wipeAllLocalTraces cubre ambas cosas + el manifiesto
+                // completo (la pausa de subida heredada, caché de caja chica…).
+                const wipeResult = await wipeAllLocalTraces();
+                if (!wipeResult.ok) {
+                    console.warn('⚠️ Wipe de cambio de cuenta parcial:', wipeResult.errors);
                 }
-                try {
-                    localStorage.removeItem('asistencia-data');
-                    localStorage.removeItem('migrated-to-idb');
-                    localStorage.removeItem('asistencia_pending_cloud_deletes');
-                    sessionStorage.removeItem('attendance-backup');
-                } catch (e) { /* noop */ }
-                clearLocalOwnership();
                 claimLocalOwnership(user.uid);
                 showNotification('🧹 Datos locales borrados. Cargando los datos de tu cuenta...', 'info');
                 setTimeout(() => location.reload(), 900);
@@ -6808,11 +6921,16 @@ function _initOutgoingConflictGuard() {
                             subscribe: (cb) => EmployeeRepository.subscribe(cb),
                             onApply: (emps) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync empleados ignorado.'); return; }
-                                const merged = dedup(emps || []);
+                                // Fase 2 U2: fusión por-registro en vez de reemplazo mayorista —
+                                // un cambio remoto a OTRO empleado ya no pisa ediciones locales
+                                // (préstamos, adelantos, etc.) todavía no subidas. Ver
+                                // EmployeesIncomingMerge.js para las reglas de LWW + detección
+                                // de borrado remoto.
+                                const merged = mergeIncomingEmployees(state.employees, emps || []);
                                 state.employees = (typeof Employee !== 'undefined')
                                     ? merged.map(e => e instanceof Employee ? e : new Employee(e))
                                     : merged;
-                                debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube`);
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube (merge por-registro)`);
                                 if (typeof render === 'function') render();
                             }
                         });
@@ -6859,7 +6977,9 @@ function _initOutgoingConflictGuard() {
 
                     // Desactivar flag después de un tick para que el render/save no suba de vuelta.
                     // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
-                    _applyMirrorTimer = setTimeout(() => {
+                    // Judgment Day Fase 1 R1: validateDataIntegrity() es ahora async (U2d consulta
+                    // el outbox antes de compactar tombstones) — el callback pasa a async/await.
+                    _applyMirrorTimer = setTimeout(async () => {
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
@@ -6873,8 +6993,12 @@ function _initOutgoingConflictGuard() {
                         // entries to be "corrected" repeatedly. Now we validate AFTER applying
                         // remote data and push the cleaned state back up — within a few sync
                         // cycles, both local and cloud converge to a clean state.
-                        const remoteFixes = validateDataIntegrity();
-                        if (remoteFixes > 0) {
+                        // 🔌 Fix del bucle de sanitización (test de campo 2026-07-06):
+                        // recordSanitizeRound corta la re-subida si este guard corrige
+                        // sin converger demasiadas rondas seguidas (episodio registrado
+                        // en el ErrorLog). Una ronda con 0 correcciones lo resetea.
+                        const remoteFixes = await validateDataIntegrity();
+                        if (recordSanitizeRound(remoteFixes)) {
                             debug.log(`🛡️ Mirror sync: ${remoteFixes} orphan(s) sanitized after remote apply`);
                             saveApplicationData({ force: true });
                         }
@@ -6943,7 +7067,11 @@ function _initOutgoingConflictGuard() {
                     window._attendanceUnsubscribe = FirebaseService.subscribeToAttendanceZonal({
                         startDate,
                         endDate,
-                        onInitialLoad: (allAttendance) => {
+                        // Judgment Day Fase 1 R1: validateDataIntegrity() es ahora async
+                        // (U2d consulta el outbox antes de compactar tombstones) — este
+                        // callback pasa a async/await. subscribeToAttendanceZonal invoca
+                        // onInitialLoad(allAttendance) fire-and-forget (no espera su retorno).
+                        onInitialLoad: async (allAttendance) => {
                             if (isDownloadPaused()) {
                                 debug.log('⏸️ Descarga pausada — carga inicial de asistencia ignorada.');
                                 return;
@@ -6961,27 +7089,29 @@ function _initOutgoingConflictGuard() {
                                 }
                             });
 
-                            state.attendance = { ...state.attendance, ...allAttendance };
+                            state.attendance = mergeAttendanceRecords(state.attendance, allAttendance); // U3: merge LWW por-registro
                             // ⚡ Persistir asistencia remota usando BatchedSaver
                             // (acumula con onModified si llegan también en ráfaga)
                             Object.keys(allAttendance).forEach(key => {
                                 const dateKey = key.split('-').slice(-3).join('-'); // YYYY-MM-DD
                                 window._attendanceBatchedSaver.add(dateKey);
                             });
-                            // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
-                            // JD2#1: isActive (no hasScheduledFlush) — también cubre
-                            // un flush EN VUELO (_isFlushing). hasScheduledFlush sólo
-                            // mira _idleHandle y daría false apenas arranca _doFlush,
-                            // liberando el flag mientras la escritura sigue en curso.
-                            if (!window._attendanceBatchedSaver.isActive) {
-                                window._isApplyingRemoteData = false;
-                            }
 
                             // 🛡️ POST-SYNC INTEGRITY GUARD (2026-05-20)
                             // Attendance records may carry orphan positionHours / selectedPosition
                             // from before the position was deleted. Clean them here so the next
                             // mirror-sync save uploads a sanitized version to the cloud.
-                            const attendanceFixes = validateDataIntegrity();
+                            //
+                            // Judgment Day Fase 1 R3: re-armar el watchdog ANTES de la
+                            // suspensión. Su timer de 4s arrancó al inicio del handler y el
+                            // trabajo síncrono previo (limpieza shortKey + merge LWW + loop
+                            // del BatchedSaver) ya consumió parte del presupuesto — si el
+                            // await de abajo (lectura de IndexedDB del outbox, U2d) tardara
+                            // más que el resto, el watchdog liberaría _isApplyingRemoteData
+                            // a MITAD de la sección crítica, reabriendo la ventana que el
+                            // fix R2 cerró. Re-armar acá le da presupuesto completo.
+                            armApplyingFlagWatchdog();
+                            const attendanceFixes = await validateDataIntegrity();
                             if (attendanceFixes > 0) {
                                 debug.log(`🛡️ Zonal initial load: ${attendanceFixes} orphan(s) sanitized in attendance`);
                                 // Use a one-tick delay so the flag clears first via BatchedSaver
@@ -6997,6 +7127,24 @@ function _initOutgoingConflictGuard() {
                             // (que muta hoursWorked in-place). Nunca diferir a BatchedSaver.
                             invalidateAllStats();
                             buildAttendanceIndex();
+
+                            // Judgment Day Fase 1 Ronda 2: reubicado desde justo después del
+                            // BatchedSaver.add loop (antes del `await validateDataIntegrity()`
+                            // de arriba). validateDataIntegrity() es async y suspende acá de
+                            // verdad — bajar el flag ANTES de ese await dejaba una ventana real
+                            // (sin necesitar timing adversarial) donde otro código podía leer
+                            // `_isApplyingRemoteData === false` y asumir "seguro leer" mientras
+                            // state.attendance ya tenía los registros zonales fusionados pero
+                            // state.attendanceByDate / los caches de stats todavía eran viejos
+                            // (invalidateAllStats/buildAttendanceIndex corren recién acá abajo).
+                            // Si onInitialLoad no añadió nada (sin records), liberar flag manualmente
+                            // JD2#1: isActive (no hasScheduledFlush) — también cubre
+                            // un flush EN VUELO (_isFlushing). hasScheduledFlush sólo
+                            // mira _idleHandle y daría false apenas arranca _doFlush,
+                            // liberando el flag mientras la escritura sigue en curso.
+                            if (!window._attendanceBatchedSaver.isActive) {
+                                window._isApplyingRemoteData = false;
+                            }
 
                             if (!isInitialLoad) render();
                         },
@@ -7016,7 +7164,7 @@ function _initOutgoingConflictGuard() {
                                 }
                             });
 
-                            state.attendance = { ...state.attendance, ...records };
+                            state.attendance = mergeAttendanceRecords(state.attendance, records); // U3: merge LWW por-registro
                             // Una sola fecha (hot path por tick) → coherencia GRANULAR:
                             // invalidar solo los empleados tocados (por employeeId, NO split de clave)
                             // y reconstruir el bucket de ESTE día. NUNCA invalidateAllStats acá.
@@ -7072,6 +7220,7 @@ function _initOutgoingConflictGuard() {
         window.openPositionForm = EmployeesUI.openPositionForm;
         window.changeEmployeeViewMode = EmployeesUI.changeEmployeeViewMode;
         window.toggleEmployeeStatus = EmployeesUI.toggleEmployeeStatus;
+        window.deleteEmployeeHandler = EmployeesUI.deleteEmployeeHandler;
         window.toggleLeaderStatus = EmployeesUI.toggleLeaderStatus;
         window.togglePositionStatus = EmployeesUI.togglePositionStatus;
         window.setEmployeeSearchFilter = EmployeesUI.setEmployeeSearchFilter;

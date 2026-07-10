@@ -11,6 +11,14 @@ export class Attendance {
         this.positionHours = data.positionHours || [];
         this.notes = data.notes || '';
         this.deviceId = data.deviceId || null;
+        // Fase 1 (U1a): frescura por-registro. `updatedAt` sobrevive el
+        // round-trip persistir→cargar (antes se descartaba acá y en toJSON),
+        // así el merge entrante (U3) puede comparar por registro en vez del
+        // spread ciego. Default 0 = legacy "más viejo posible": nunca inventa
+        // una frescura que no tenemos. `deletedAt` es el tombstone (U2): un
+        // borrado marcado viaja como dato y no se confunde con "nunca existió".
+        this.updatedAt = data.updatedAt || 0;
+        this.deletedAt = (data.deletedAt !== undefined) ? data.deletedAt : null;
     }
 
     get key() {
@@ -56,7 +64,12 @@ export class Attendance {
             selectedPosition: this.selectedPosition,
             multiPosition: this.multiPosition,
             positionHours: this.positionHours,
-            notes: this.notes
+            notes: this.notes,
+            // Fase 1 (U1a): persistir/subir la frescura y el tombstone. El
+            // null explícito de deletedAt importa — Firestore distingue
+            // ausencia de null, y el merge por-registro chequea != null.
+            updatedAt: this.updatedAt,
+            deletedAt: this.deletedAt
         };
     }
 

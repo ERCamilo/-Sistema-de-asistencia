@@ -81,6 +81,16 @@ export const SNAPSHOT_REASONS = {
         type: 'pre-restore',
         color: '#a855f7',
         protected: true
+    },
+    // Fase 0.5 (R2-1): respaldo de la NUBE que 'Subir y Reemplazar' está por
+    // destruir. Protegido: es la única vía de recuperación de esa operación —
+    // no debe caer con 'Borrar Todos los Autos' ni con alsoSnapshots.
+    'pre-replace-cloud-backup': {
+        label: 'Respaldo de la nube antes de Subir y Reemplazar',
+        icon: '🛟',
+        type: 'pre-restore',
+        color: '#f59e0b',
+        protected: true
     }
 };
 

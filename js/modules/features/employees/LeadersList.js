@@ -99,7 +99,7 @@ export function toggleLeaderStatus(leaderId) {
 
     Modal.confirm({
         title: ldr.active ? `${icons.get('x-circle')} Desactivar Lider` : `${icons.get('info')} Activar Lider`,
-        message: `¿Estás seguro de ${action} al líder ${ldr.name}?`,
+        message: `¿Estás seguro de ${action} al líder ${escapeHTML(ldr.name)}?`,
         confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
         cancelText: 'Cancelar',
         type: ldr.active ? 'warning' : 'info',
@@ -120,7 +120,7 @@ export function toggleLeaderStatus(leaderId) {
 
             saveApplicationData();
             if (window.showAlert) {
-                window.showAlert(`${icons.get('zap')} Líder ${ldr.name} ${actionPast} correctamente`, 'success');
+                window.showAlert(`${icons.get('zap')} Líder ${escapeHTML(ldr.name)} ${actionPast} correctamente`, 'success');
             }
             render();
         }

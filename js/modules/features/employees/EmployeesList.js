@@ -9,10 +9,14 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { payrollService as payroll } from '../../services/index.js';
 import { render } from '../../core/RenderManager.js';
-import { saveApplicationData } from '../../services/PersistenceService.js';
+import { saveApplicationData, enqueueEmployeeTombstone } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
+import { canDeleteEmployee } from '../../services/EmployeeDeletionGuard.js';
+import { deleteEmployeePermanently } from '../../services/EmployeeDeletion.js';
+import { countLiveAttendance } from '../../services/AttendanceCleanup.js';
+import { purgeEmployeeAttendanceHistory } from '../../services/AttendanceCleanupRunner.js';
 
 export function EmployeeCard(emp) {
 
@@ -87,6 +91,11 @@ export function EmployeeCard(emp) {
                 <button class="view-btn ${emp.active ? '' : 'active'}" type="button" data-action="toggle-employee-status" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
                     ${emp.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
                 </button>
+                ${!emp.active ? `
+                <button class="view-btn" type="button" data-action="delete-employee" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem; border-color: rgba(239,68,68,0.4); color: #fca5a5;" aria-label="Eliminar empleado permanentemente" title="Eliminar permanentemente">
+                    ${icons.get('delete')}
+                </button>
+                ` : ''}
             </div>
         </div>
     `;
@@ -183,7 +192,7 @@ export function toggleEmployeeStatus(employeeId) {
 
     Modal.confirm({
         title: emp.active ? `${icons.get('x-circle')} Desactivar Empleado` : `${icons.get('info')} Activar Empleado`,
-        message: `¿Estás seguro de ${action} a ${emp.name}?`,
+        message: `¿Estás seguro de ${action} a ${escapeHTML(emp.name)}?`,
         confirmText: action === 'desactivar' ? 'Sí, desactivar' : 'Sí, activar',
         cancelText: 'Cancelar',
         type: emp.active ? 'warning' : 'info',
@@ -204,9 +213,81 @@ export function toggleEmployeeStatus(employeeId) {
 
             saveApplicationData();
             if (window.showAlert) {
-                window.showAlert(`${icons.get('info')} Empleado ${emp.name} ${actionPast} correctamente`, 'success');
+                window.showAlert(`${icons.get('info')} Empleado ${escapeHTML(emp.name)} ${actionPast} correctamente`, 'success');
             }
             render();
+        }
+    });
+}
+
+/**
+ * 🗑️ Eliminar un empleado de forma PERMANENTE (borrado robusto con tombstone).
+ * Solo se ofrece para empleados pausados (ver EmployeeCard). Antes de pedir
+ * confirmación se re-valida el guard (canDeleteEmployee): desactivado hace
+ * >=30 días y sin préstamos con saldo pendiente. El diálogo pide una
+ * declaración consciente de que ya se le pagó el período actual (no
+ * verificable automáticamente).
+ */
+export function deleteEmployeeHandler(employeeId) {
+    const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
+    if (!emp) return;
+
+    const check = canDeleteEmployee(emp);
+    if (!check.ok) {
+        if (window.showAlert) window.showAlert(`No se puede eliminar: ${check.reason}`, 'warning');
+        else Modal.alert({ title: 'No se puede eliminar', message: check.reason });
+        return;
+    }
+
+    Modal.confirm({
+        title: `${icons.get('delete')} Eliminar empleado permanentemente`,
+        message: `Vas a ELIMINAR de forma permanente a <strong>${escapeHTML(emp.name)}</strong>.<br><br>` +
+            `Al confirmar declarás que ya se le pagaron los días trabajados del período actual y que no queda ninguna cuenta pendiente con este empleado.<br><br>` +
+            `El empleado desaparecerá de todos tus dispositivos y no se puede deshacer fácilmente.`,
+        confirmText: 'Sí, eliminar definitivamente',
+        cancelText: 'Cancelar',
+        type: 'danger',
+        onConfirm: () => {
+            const empId = emp.id;
+            // Modal.confirm es async: LiveSync pudo reemplazar state.employees
+            // mientras el diálogo estaba abierto (otro dispositivo agregó un
+            // préstamo). El guard de saldo debe validar sobre datos frescos.
+            const freshEmp = state.employees.find(e => e.id === empId) || emp;
+            const r = deleteEmployeePermanently(freshEmp, {
+                enqueueTombstone: (id, deletedAt) => enqueueEmployeeTombstone(id, deletedAt),
+                removeFromState: (id) => {
+                    stateManager.batchSetState(() => {
+                        state.employees = state.employees.filter(e => e.id !== id);
+                    });
+                },
+                persist: () => saveApplicationData({ immediate: true })
+            });
+            if (!r.ok) {
+                if (window.showAlert) window.showAlert(`No se pudo eliminar: ${r.reason}`, 'warning');
+                return;
+            }
+            if (window.showAlert) window.showAlert(`${icons.get('info')} Empleado ${escapeHTML(emp.name)} eliminado`, 'success');
+            render();
+
+            // Modal EXTRA: preguntar por el historial de asistencia. Si el
+            // empleado tenía asistencia, ofrecer borrarla también (queda como
+            // registro si el usuario elige conservarla).
+            const attCount = countLiveAttendance(state.attendance, empId);
+            if (attCount > 0) {
+                Modal.confirm({
+                    title: `${icons.get('delete')} ¿Eliminar también su historial?`,
+                    message: `<strong>${escapeHTML(emp.name)}</strong> tiene <strong>${attCount}</strong> registro${attCount === 1 ? '' : 's'} de asistencia.<br><br>` +
+                        `¿Querés eliminar también su historial? Si elegís "No", el empleado se elimina pero su asistencia queda como registro histórico.`,
+                    confirmText: 'Sí, eliminar historial',
+                    cancelText: 'No, conservar historial',
+                    type: 'warning'
+                }).then((alsoHistory) => {
+                    if (!alsoHistory) return;
+                    const removed = purgeEmployeeAttendanceHistory(empId);
+                    if (window.showAlert) window.showAlert(`${icons.get('info')} ${removed} registro(s) de asistencia eliminados`, 'success');
+                    render();
+                });
+            }
         }
     });
 }

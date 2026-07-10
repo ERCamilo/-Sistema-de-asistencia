@@ -29,7 +29,8 @@ function makeRepo({ cloud = [], failDeletes = new Set() } = {}) {
         async saveMany(list, opts) {
             saveManyCalls++;
             saveManyLastArgs = { list, opts };
-            return { written: (list || []).length };
+            // Igual que el EmployeeRepository real: {written, saved}.
+            return { written: (list || []).length, saved: [...(list || [])] };
         }
     };
 }
@@ -86,6 +87,25 @@ testRunner.addSuite("CloudReconcile — diff y borrado de huérfanos", {
             testRunner.assertEquals(res.errors.length, 1);
             testRunner.assertEquals(res.errors[0].id, 'UUID-A');
             testRunner.assertEquals(res.errors[0].op, 'delete');
+        });
+    },
+
+    // 🐛 Judgment Day Fase 2A Ronda 4 (Juez B): reconcile re-empuja el roster
+    // por fuera de saveEntities → el watermark del EntityUploadTracker quedaba
+    // stale y el próximo saveEntities re-subía todo (cuota). reconcile expone
+    // `saved` y llama onUploaded para que el caller actualice el watermark.
+    "expone saved y llama onUploaded con las entidades escritas (higiene del watermark)"() {
+        const repo = makeRepo({ cloud: [{ id: 'EMP1' }] });
+        const local = [{ id: 'EMP1' }, { id: 'EMP2' }];
+        let uploadedArg = 'NOT_CALLED';
+        return reconcileCloudFromLocal(local, {
+            repository: repo,
+            onUploaded: (saved) => { uploadedArg = saved; }
+        }).then(res => {
+            testRunner.assert(Array.isArray(res.saved), 'reconcile debe exponer saved en el resultado');
+            testRunner.assertEquals(res.saved.length, 2);
+            testRunner.assert(Array.isArray(uploadedArg), 'onUploaded debe llamarse con la lista escrita');
+            testRunner.assertEquals(uploadedArg.length, 2);
         });
     },
 

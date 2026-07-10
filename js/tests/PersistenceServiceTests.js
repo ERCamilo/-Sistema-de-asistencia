@@ -354,20 +354,25 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
         }
     },
 
-    "PersistenceService cablea saveOutcomeNotifier.setCloudRetryHandler con drainMainSyncOutbox (U12)"() {
+    "PersistenceService cablea saveOutcomeNotifier.setCloudRetryHandler con retryFailedCloudSync (U12 + fix cuota)"() {
+        // Fix cuota (2026-07-05): drainMainSyncOutbox crudo nunca revive
+        // entradas 'dead' (agotaron MAX_FLUSH_ATTEMPTS). retryFailedCloudSync
+        // revive esas entradas ANTES de drenar (ver PersistenceService.js).
         testRunner.assert(
-            /setCloudRetryHandler\s*\(\s*(drainMainSyncOutbox|\(\)\s*=>\s*drainMainSyncOutbox\(\))/.test(PS_SRC_U8),
-            'debe llamarse saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox) (o un wrapper que lo invoque) al cargar el módulo'
+            /setCloudRetryHandler\s*\(\s*(retryFailedCloudSync|\(\)\s*=>\s*retryFailedCloudSync\(\))/.test(PS_SRC_U8),
+            'debe llamarse saveOutcomeNotifier.setCloudRetryHandler(retryFailedCloudSync) (o un wrapper que lo invoque) al cargar el módulo'
         );
     },
 
-    async "el botón Reintentar del toast (una vez cableado por el módulo real) drena el outbox (U12, end-to-end)"() {
+    async "el botón Reintentar del toast (una vez cableado por el módulo real) revive y drena el outbox (U12, end-to-end)"() {
         // A diferencia del test anterior (source-introspection), esto prueba el
         // EFECTO real: importar PersistenceService.js ya ejecutó el wiring de
         // setCloudRetryHandler como side-effect de módulo. Disparamos un fallo
         // de nube por el singleton REAL y verificamos que el botón invoca
-        // MainSyncStore.flush (lo que hace drainMainSyncOutbox por dentro).
+        // MainSyncStore.flush (lo que hace retryFailedCloudSync por dentro,
+        // vía requeueDeadEntries + drainMainSyncOutbox).
         const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        const requeueSpy = jest.spyOn(MainSyncStore, 'requeueDeadEntries').mockResolvedValue(0);
         const NotificationMod = await import('../modules/components/Notification.js');
         NotificationMod.Notification.clearAll();
         NotificationMod.Notification.activeNotifications = [];
@@ -383,10 +388,14 @@ testRunner.addSuite("PersistenceService — loadApplicationData", {
             testRunner.assert(!!btn, 'el toast de fallo debe tener el botón Reintentar (handler cableado por el módulo)');
 
             btn.click();
+            await Promise.resolve(); // dejar correr el async handler (retryFailedCloudSync)
+            testRunner.assert(requeueSpy.mock.calls.length >= 1,
+                'clickear Reintentar debe revivir entradas dead primero (MainSyncStore.requeueDeadEntries)');
             testRunner.assert(flushSpy.mock.calls.length >= 1,
-                'clickear Reintentar debe terminar llamando a MainSyncStore.flush (vía drainMainSyncOutbox)');
+                'clickear Reintentar debe terminar llamando a MainSyncStore.flush (vía retryFailedCloudSync)');
         } finally {
             flushSpy.mockRestore();
+            requeueSpy.mockRestore();
         }
     },
 

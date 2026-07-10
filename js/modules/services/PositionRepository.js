@@ -104,13 +104,16 @@ export const PositionRepository = {
      */
     async saveMany(positions, opts = {}) {
         if (!Array.isArray(positions) || positions.length === 0) {
-            return { written: 0 };
+            return { written: 0, saved: [] };
         }
-        if (!auth.currentUser) return { written: 0 };
+        if (!auth.currentUser) return { written: 0, saved: [] };
 
         const valid = positions.filter(p => p && typeof p === 'object' && String(p.id || '').trim());
-        await Promise.all(valid.map(p => this.saveOne(p, opts)));
-        return { written: valid.length };
+        // allSettled (no Promise.all): un write fallido no debe descartar el
+        // crédito de "subido" de los demás ni forzar la re-subida de todos.
+        const results = await Promise.allSettled(valid.map(p => this.saveOne(p, opts)));
+        const saved = valid.filter((_, i) => results[i].status === 'fulfilled');
+        return { written: saved.length, saved };
     },
 
     /**

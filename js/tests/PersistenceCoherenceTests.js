@@ -48,10 +48,18 @@ testRunner.addSuite("PersistenceService.mergeEmployees — Coherencia (Fase 4 Pa
 
         stateManager.batchSetState(() => { mergeEmployees('master', 'dup-01'); });
 
-        // El índice debe reflejar las claves remapeadas a master, sin el proxy.
-        testRunner.assertEquals((raw.attendanceByDate['2026-06-18'] || []).length, 1, "fecha 18 indexada");
-        testRunner.assertEquals((raw.attendanceByDate['2026-06-19'] || []).length, 1, "fecha 19 indexada");
-        testRunner.assertEquals(raw.attendanceByDate['2026-06-18'][0].employeeId, 'master', "el registro quedó bajo master");
+        // Fase 1 (U2b): la clave vieja del duplicado se TOMBSTONEA, no se borra
+        // (setDoc merge:true nunca borra claves de mapa en la nube — un delete
+        // resucitaría vía eco). La clave sigue existiendo en state.attendance,
+        // pero Fase 1 (U2c) hizo que buildAttendanceIndex FILTRE los tombstones:
+        // el índice por fecha solo debe quedar con el registro vivo.
+        const day18 = raw.attendanceByDate['2026-06-18'] || [];
+        testRunner.assertEquals(day18.length, 1, "fecha 18 indexada (U2c: el índice ya filtra tombstones)");
+        testRunner.assertEquals(day18[0] && day18[0].employeeId, 'master', "el registro vivo quedó bajo master");
+        testRunner.assertEquals((raw.attendanceByDate['2026-06-19'] || []).length, 1, "fecha 19 indexada (U2c: tombstone filtrado)");
+        // El tombstone de la clave vieja SIGUE existiendo en state.attendance (fuera del índice) — U2b.
+        const oldTombstone = raw.attendance['dup-01-2026-06-18'];
+        testRunner.assert(oldTombstone && oldTombstone.deletedAt != null, "la clave vieja del duplicado sigue tombstoneada en state.attendance (fuera del índice)");
         // Stats de ambos invalidadas (por employeeId, no split de la clave con guion).
         testRunner.assert(!raw.statsCache.mtd['master'], "stats de master invalidadas");
         testRunner.assert(!raw.statsCache.mtd['dup-01'], "stats del duplicado con guion invalidadas");

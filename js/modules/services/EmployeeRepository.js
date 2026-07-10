@@ -48,15 +48,23 @@ export const EmployeeRepository = {
      *   vacía; **null si la lectura FALLA** (M1: distinguible de "vacío" para
      *   que el caller no blanquee el estado con un error transitorio).
      */
-    async loadAll() {
+    async loadAll(opts = {}) {
         const ref = userEmployeesRef();
         if (!ref) return [];
+        // 🪦 Por defecto se filtran los tombstoneados (deletedAt): así la carga
+        // inicial y el wizard de duplicados ven state.employees limpio, sin que
+        // cada consumidor tenga que recordar filtrar. includeDeleted:true los
+        // trae (para la compactación de tombstones vencidos). subscribe() NO
+        // usa esto: entrega todo y mergeIncomingEmployees hace su propio filtro.
+        const includeDeleted = opts.includeDeleted === true;
         try {
             const snap = await getDocs(ref);
             const result = [];
             snap.forEach(d => {
                 const data = typeof d.data === 'function' ? d.data() : d;
-                if (data) result.push(data);
+                if (!data) return;
+                if (!includeDeleted && Number.isFinite(data.deletedAt)) return;
+                result.push(data);
             });
             return result;
         } catch (e) {
@@ -130,17 +138,44 @@ export const EmployeeRepository = {
      *   saveOne. Útil para el camino de guardado normal (Fase 2.2).
      *   Por defecto false porque saveMany se usa también en la
      *   migración inicial donde no hay versión remota.
-     * @returns {Promise<{written: number}>}
+     * @returns {Promise<{written: number, saved: Array<object>}>} `saved` son
+     *   las entidades cuyo write resolvió OK — el caller marca como subidas
+     *   SOLO esas. allSettled (no Promise.all): si un write falla, los demás
+     *   ya escritos no deben perder su crédito de "subido" ni re-subirse todos.
      */
     async saveMany(employees, opts = {}) {
         if (!Array.isArray(employees) || employees.length === 0) {
-            return { written: 0 };
+            return { written: 0, saved: [] };
         }
-        if (!auth.currentUser) return { written: 0 };
+        if (!auth.currentUser) return { written: 0, saved: [] };
 
         const valid = employees.filter(e => e && typeof e === 'object' && String(e.id || '').trim());
-        await Promise.all(valid.map(e => this.saveOne(e, opts)));
-        return { written: valid.length };
+        const results = await Promise.allSettled(valid.map(e => this.saveOne(e, opts)));
+        const saved = valid.filter((_, i) => results[i].status === 'fulfilled');
+        return { written: saved.length, saved };
+    },
+
+    /**
+     * 🪦 Marca el empleado como eliminado (soft-delete / lápida) en vez de
+     * borrar el doc. A diferencia de deleteOne (hard), el tombstone SOBREVIVE
+     * al multi-dispositivo: un dispositivo que estaba offline al borrar recibe
+     * el doc con deletedAt y lo saca de su vista, en vez de re-subir el
+     * empleado vivo y resucitarlo. merge:true conserva name/loans/etc por si
+     * hiciera falta un undelete. updatedAt = deletedAt para que el LWW del
+     * merge propague el borrado (una edición POSTERIOR lo revive).
+     */
+    async tombstoneOne(employeeId, deletedAt) {
+        const id = String(employeeId || '').trim();
+        const ref = employeeDocRef(id);
+        if (!ref) return;
+        const ts = Number.isFinite(deletedAt) ? deletedAt : Date.now();
+        try {
+            await setDoc(ref, { deletedAt: ts, updatedAt: ts, active: false }, { merge: true });
+            SyncStatus.markSynced();
+        } catch (e) {
+            console.error(`❌ EmployeeRepository.tombstoneOne(${id}) error:`, e);
+            throw e;
+        }
     },
 
     /**

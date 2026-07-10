@@ -12,11 +12,26 @@ import { SNAPSHOT_REASONS, defaultReasonForType } from './SnapshotReasons.js';
 import { notifySnapshotCreated } from './SnapshotNotifier.js';
 import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
+import { mergeAttendanceRecords } from '../features/attendance/AttendanceMerge.js';
 import { PositionRepository } from './PositionRepository.js';
 import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
+import { createEntityUploadTracker } from './EntityUploadTracker.js';
+
+// Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
+// TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
+// relacionado (una nota, un día de asistencia). Con mergeRemote:true (lectura
+// + escritura por entidad) eso agotó la cuota diaria de Firestore en horas.
+// Un tracker POR TIPO de entidad (no uno compartido — mezclaría ids entre
+// empleados/puestos/líderes) filtra a solo lo que cambió desde la última
+// subida exitosa.
+// storageKey por tipo: el watermark se persiste y sobrevive al reload (sin
+// esto, el primer guardado tras recargar re-subía el roster entero).
+const _employeeUploadTracker = createEntityUploadTracker('entityUpload.employees.v1');
+const _positionUploadTracker = createEntityUploadTracker('entityUpload.positions.v1');
+const _leaderUploadTracker = createEntityUploadTracker('entityUpload.leaders.v1');
 
 class FirebaseService {
     constructor() {
@@ -74,8 +89,14 @@ class FirebaseService {
     /**
      * Guarda el estado completo de la aplicación (Mirror Sync)
      * @param {object} state El objeto de estado global
+     * @param {object} [opts] { skipEntities?: boolean } — SOLO lo usa
+     *   _mainSyncGuards().saveMirror (PersistenceService.js): en el camino
+     *   normal de guardado (_executeSave), la entrada 'entities' del outbox
+     *   (sin gate de watermark, ver MainSyncStore._resolveCloudCall) YA
+     *   escribe las entidades por separado — llamar a saveEntities() acá
+     *   TAMBIÉN las escribiría dos veces por guardado.
      */
-    async saveFullState(state) {
+    async saveFullState(state, opts = {}) {
         if (!auth.currentUser) return;
 
         try {
@@ -92,31 +113,32 @@ class FirebaseService {
             // base64 que harían superar el límite de 1 MB del doc espejo.
             delete snapshotContext.pettyCash;
 
-            // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular,
-            // escribimos las entidades en sus propias colecciones.
             const schemaVersion = state?.settings?.schemaVersion;
             const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
             const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
 
+            // Fase 2 U1 (fix de regresión): saveFullState vuelve a escribir las
+            // entidades ella misma — U1 la había sacado por completo, rompiendo a
+            // TODO llamador directo de saveFullState que no pasa por el outbox
+            // (Reemplazo Total de la Nube, Subir y Reemplazar, Sync Now manual,
+            // uploadToCloud, la migración de primera vez). opts.skipEntities sólo
+            // lo usa _mainSyncGuards().saveMirror: en el camino normal de guardado
+            // (_executeSave), el nuevo outbox kind 'entities' (sin gate de
+            // watermark) YA escribe las entidades por separado — llamarlo acá
+            // TAMBIÉN las escribiría dos veces por guardado.
+            if (!opts.skipEntities) {
+                await this.saveEntities(state.employees, state.positions, state.leaders, schemaVersion);
+            }
+
+            // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular, el
+            // doc espejo no lleva estas entidades inline — se escriben en sus
+            // propias colecciones (arriba, vía saveEntities).
             if (isMigratedEmployees) {
-                const emps = Array.isArray(state.employees) ? state.employees : [];
-                if (emps.length > 0) {
-                    await EmployeeRepository.saveMany(emps, { mergeRemote: true });
-                }
                 delete snapshotContext.employees;
             }
 
             if (isMigratedGranular) {
-                const positions = Array.isArray(state.positions) ? state.positions : [];
-                if (positions.length > 0) {
-                    await PositionRepository.saveMany(positions, { mergeRemote: true });
-                }
                 delete snapshotContext.positions;
-
-                const leaders = Array.isArray(state.leaders) ? state.leaders : [];
-                if (leaders.length > 0) {
-                    await LeaderRepository.saveMany(leaders, { mergeRemote: true });
-                }
                 delete snapshotContext.leaders;
             }
 
@@ -198,6 +220,61 @@ class FirebaseService {
     }
 
     /**
+     * Fase 2 U1: escribe empleados/puestos/líderes en sus colecciones per-doc,
+     * DESACOPLADO del write del espejo. Antes vivía inline dentro de
+     * saveFullState, atado al MISMO gate de watermark que protege el espejo —
+     * pero cada saveOne/saveMany ya hace su propio LWW por updatedAt, así que
+     * ese gate grueso sólo difería en silencio ediciones que el merge fino
+     * sabe resolver bien (ver MainSyncStore.enqueueEntities).
+     *
+     * Fix crítico (test de campo 2026-07-05): este método se llama en CADA
+     * guardado (MainSyncStore encola 'entities' junto con 'mirror' en cada
+     * _executeSave), sin importar si algo relacionado a empleados/puestos/
+     * líderes cambió. Sin el filtro de _employeeUploadTracker (et al.), un
+     * guardado de asistencia o una nota volvía a subir TODAS las entidades
+     * — con mergeRemote:true eso es lectura+escritura por entidad, y agotó
+     * la cuota diaria de Firestore en horas con una cuenta de tamaño normal.
+     */
+    async saveEntities(employees, positions, leaders, schemaVersion) {
+        const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
+        const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
+
+        // markUploaded recibe SOLO las entidades que escribieron OK (res.saved),
+        // no las candidatas: si un write falla, ese id sigue siendo candidato el
+        // próximo guardado (no se pierde en silencio) y los demás no se re-suben.
+        if (isMigratedEmployees) {
+            const emps = _employeeUploadTracker.filterChanged(Array.isArray(employees) ? employees : []);
+            if (emps.length > 0) {
+                const res = await EmployeeRepository.saveMany(emps, { mergeRemote: true });
+                _employeeUploadTracker.markUploaded(res.saved);
+            }
+        }
+
+        if (isMigratedGranular) {
+            const pos = _positionUploadTracker.filterChanged(Array.isArray(positions) ? positions : []);
+            if (pos.length > 0) {
+                const res = await PositionRepository.saveMany(pos, { mergeRemote: true });
+                _positionUploadTracker.markUploaded(res.saved);
+            }
+            const leads = _leaderUploadTracker.filterChanged(Array.isArray(leaders) ? leaders : []);
+            if (leads.length > 0) {
+                const res = await LeaderRepository.saveMany(leads, { mergeRemote: true });
+                _leaderUploadTracker.markUploaded(res.saved);
+            }
+        }
+    }
+
+    /**
+     * Marca empleados como subidos en el watermark del EntityUploadTracker.
+     * Seam público para flujos que escriben empleados por FUERA de saveEntities
+     * (p.ej. CloudReconcile): sin esto el watermark queda stale y el próximo
+     * saveEntities re-sube todo (cuota). Recibe la lista efectivamente escrita.
+     */
+    markEmployeesUploaded(list) {
+        _employeeUploadTracker.markUploaded(list);
+    }
+
+    /**
      * 🔄 TRUE OVERWRITE: Replace cloud data entirely with local state.
      *
      * Unlike saveFullState (which uses merge:true and leaves cloud-only
@@ -247,7 +324,14 @@ class FirebaseService {
                 // Save all local employees (no mergeRemote — local wins entirely).
                 const emps = Array.isArray(state.employees) ? state.employees : [];
                 if (emps.length > 0) {
-                    await EmployeeRepository.saveMany(emps, { mergeRemote: false });
+                    const res = await EmployeeRepository.saveMany(emps, { mergeRemote: false });
+                    // El watermark debe reflejar EXACTAMENTE lo re-subido: reset
+                    // (borra sellos de ids que ya no existen) + markUploaded de
+                    // lo que escribió OK. Sin esto, esta subida ocurre por fuera
+                    // de saveEntities y el próximo guardado re-subiría el roster
+                    // entero (cuota) o filtraría entidades legítimas.
+                    _employeeUploadTracker.reset();
+                    _employeeUploadTracker.markUploaded(res.saved);
                 }
             }
 
@@ -399,12 +483,24 @@ class FirebaseService {
             isDemo: !!opts.isDemo,
             createSnapshot: () =>
                 this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v3'),
-            saveEmployees: (employees) =>
-                EmployeeRepository.saveMany(employees),
-            savePositions: (positions) =>
-                PositionRepository.saveMany(positions),
-            saveLeaders: (leaders) =>
-                LeaderRepository.saveMany(leaders),
+            // Tras el saveMany de la migración (por fuera de saveEntities), se
+            // marca el watermark para que el próximo saveEntities no re-suba el
+            // roster entero (cuota).
+            saveEmployees: async (employees) => {
+                const res = await EmployeeRepository.saveMany(employees);
+                _employeeUploadTracker.markUploaded(res.saved);
+                return res;
+            },
+            savePositions: async (positions) => {
+                const res = await PositionRepository.saveMany(positions);
+                _positionUploadTracker.markUploaded(res.saved);
+                return res;
+            },
+            saveLeaders: async (leaders) => {
+                const res = await LeaderRepository.saveMany(leaders);
+                _leaderUploadTracker.markUploaded(res.saved);
+                return res;
+            },
             markSchemaVersion: async (version) => {
                 const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
                 // lastChangedBy garantiza que el listener filtre este eco.
@@ -651,9 +747,32 @@ class FirebaseService {
         if (!auth.currentUser) return;
 
         try {
-            const cleanAttendance = JSON.parse(JSON.stringify(dayAttendance));
+            let cleanAttendance = JSON.parse(JSON.stringify(dayAttendance));
             const docRef = doc(db, 'users', auth.currentUser.uid, 'attendance', dateKey);
-            
+
+            // Fase 1 (U4): read-merge-write por-registro (mismo patrón que
+            // EmployeeRepository.saveOne con mergeRemote). setDoc({merge:true})
+            // hace deep-merge CAMPO A CAMPO dentro de `records` — un registro
+            // local con menos campos que el remoto heredaba campos viejos
+            // (franken-merge: horas de hoy + notas de la semana pasada en el
+            // mismo registro). Leer primero y resolver con mergeAttendanceRecords
+            // (LWW por updatedAt) asegura que cada clave se escriba COMPLETA de
+            // un solo lado — nunca mezclada — y de paso preserva registros de
+            // otros empleados/dispositivos ese mismo día que este dispositivo
+            // no conoce localmente.
+            try {
+                const remoteSnap = await getDoc(docRef);
+                if (remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists()) {
+                    const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
+                    const remoteRecords = (remoteData && remoteData.records) || {};
+                    cleanAttendance = mergeAttendanceRecords(cleanAttendance, remoteRecords);
+                }
+            } catch (e) {
+                // Si el read falla (offline, permisos), fallback al fast-path.
+                // Mejor un save sin merge que perder el save del usuario.
+                console.warn(`⚠️ saveDailyAttendance(${dateKey}): read remoto falló, escribiendo sin merge:`, e);
+            }
+
             await setDoc(docRef, {
                 records: cleanAttendance,
                 updatedAt: serverTimestamp(),
@@ -772,18 +891,40 @@ class FirebaseService {
      *
      * @returns {Promise<{deleted: number}>} cantidad de docs eliminados
      */
-    async deleteCloudData() {
+    async deleteCloudData(options = {}) {
         if (!auth.currentUser) return { deleted: 0 };
         const uid = auth.currentUser.uid;
 
-        const SUBCOLLECTIONS = [
+        const ALL_CLOUD_COLLECTIONS = [
             'employees', 'positions', 'leaders', 'attendance',
             'projects', 'cashPeriods', 'pettyCash'
         ];
+        // Fase 0.5 (U5): borrado ACOTADO opcional — 'Subir y Reemplazar' pasa
+        // sólo el dataset principal (caja chica tiene su propio sync y ese
+        // flujo no la re-sube; borrarla sin reemplazo sería pérdida de datos).
+        // Sin el parámetro, se borra TODO como siempre ('Borrar Nube'). El
+        // filtro contra el listado completo evita que un typo del caller
+        // borre colecciones fuera de este contrato (la red de seguridad de
+        // respaldos incluida — ver el test "NO toca los snapshots").
+        const SUBCOLLECTIONS = (Array.isArray(options.collections) && options.collections.length > 0)
+            ? options.collections.filter(c => ALL_CLOUD_COLLECTIONS.includes(c))
+            : ALL_CLOUD_COLLECTIONS;
 
         let deleted = 0;
         try {
             for (const colName of SUBCOLLECTIONS) {
+                // 🚦 Invalidar el watermark de subida ANTES de borrar ESTA
+                // colección (el tracker es persistente; sin esto la re-subida
+                // posterior quedaría filtrada como "ya subido" contra una nube
+                // vacía). Por-colección y no upfront: si el borrado aborta en
+                // una excepción, las colecciones que nunca se tocaron conservan
+                // su watermark. Antes y no después: si el borrado falla a
+                // mitad, watermark limpio = re-subida benigna; watermark stale
+                // sobre una colección a medio borrar = docs que nunca vuelven.
+                if (colName === 'employees') _employeeUploadTracker.reset();
+                else if (colName === 'positions') _positionUploadTracker.reset();
+                else if (colName === 'leaders') _leaderUploadTracker.reset();
+
                 const colRef = collection(db, 'users', uid, colName);
                 const snap = await getDocs(colRef);
 
@@ -804,6 +945,11 @@ class FirebaseService {
 
             // Doc espejo principal al final: si algo falla antes, el doc
             // sobrevive y la cuenta sigue siendo funcional/reintentable.
+            // ⚠️ JD-F13: el doc espejo se borra SIEMPRE, aunque
+            // options.collections acote las subcolecciones — contiene settings
+            // y los arreglos inline legacy, así que un borrado parcial que lo
+            // conservara dejaría datos "fantasma" del dataset viejo. Si algún
+            // caller futuro necesita conservarlo, que lo pida explícito.
             await deleteDoc(doc(db, 'users', uid, 'data', 'current'));
             deleted++;
 

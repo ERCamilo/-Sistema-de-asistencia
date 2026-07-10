@@ -178,7 +178,7 @@ export function togglePositionStatus(positionId) {
     const action = pos.active ? 'desactivar' : 'activar';
     Modal.confirm({
         title: pos.active ? `${icons.get('x-circle')} Desactivar Posición` : `${icons.get('info')} Activar Posición`,
-        message: `¿Estás seguro de ${action} la posición "${pos.name}"?`,
+        message: `¿Estás seguro de ${action} la posición "${escapeHTML(pos.name)}"?`,
         confirmText: pos.active ? 'Sí, desactivar' : 'Sí, activar',
         cancelText: 'Cancelar',
         type: pos.active ? 'warning' : 'info',
@@ -205,13 +205,25 @@ export function cleanupPositionReferences(positionId) {
 
     // 1. Clean on employees (positions array + positionSalaries map)
     state.employees.forEach(emp => {
+        let empTouched = false;
         if (emp.positions && emp.positions.includes(positionId)) {
             emp.positions = emp.positions.filter(pid => pid !== positionId);
             cleaned++;
+            empTouched = true;
         }
         if (emp.positionSalaries && emp.positionSalaries[positionId] !== undefined) {
             delete emp.positionSalaries[positionId];
             cleaned++;
+            empTouched = true;
+        }
+        // Estampar SOLO los empleados realmente tocados: updatedAt para que el
+        // cambio suba, y positionsUpdatedAt para que el borrado del puesto gane
+        // el LWW fino de puestos (EmployeeMerge) y no resucite. Estampar de más
+        // re-subiría a todos los empleados = bug de cuota.
+        if (empTouched) {
+            const now = Date.now();
+            emp.updatedAt = now;
+            emp.positionsUpdatedAt = now;
         }
     });
 
@@ -240,7 +252,7 @@ export function deletePosition(positionId) {
     if (pos.active) {
         Modal.confirm({
             title: `${icons.get('alert')} No se puede eliminar`,
-            message: `La posición "${pos.name}" está activa. Desactívala primero para poder eliminarla.`,
+            message: `La posición "${escapeHTML(pos.name)}" está activa. Desactívala primero para poder eliminarla.`,
             confirmText: 'Aceptar',
             cancelText: 'Cerrar',
             type: 'warning',
@@ -253,7 +265,7 @@ export function deletePosition(positionId) {
     if (hasAssigned) {
         Modal.confirm({
             title: `${icons.get('alert')} No se puede eliminar`,
-            message: `La posición "${pos.name}" tiene empleados asignados.`,
+            message: `La posición "${escapeHTML(pos.name)}" tiene empleados asignados.`,
             confirmText: 'Aceptar',
             cancelText: 'Cerrar',
             type: 'warning',
@@ -264,7 +276,7 @@ export function deletePosition(positionId) {
 
     Modal.confirm({
         title: `${icons.get('delete')} Eliminar Posición`,
-        message: `¿Seguro que deseas eliminar la posición "${pos.name}"? Esta acción no se puede deshacer.`,
+        message: `¿Seguro que deseas eliminar la posición "${escapeHTML(pos.name)}"? Esta acción no se puede deshacer.`,
         confirmText: 'Sí, eliminar',
         cancelText: 'Cancelar',
         type: 'danger',

@@ -24,6 +24,12 @@ export class Employee {
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
+        // Frescura ESPECÍFICA de puestos (LWW fino en EmployeeMerge). null (no
+        // undefined) cuando falta: Firestore rechaza campos con valor undefined
+        // y saveOne hace payload = {...employee} sin limpiarlos. El merge trata
+        // null igual que ausente (cae al fallback updatedAt), así que la
+        // semántica no cambia.
+        this.positionsUpdatedAt = typeof data.positionsUpdatedAt === 'number' ? data.positionsUpdatedAt : null;
     }
 
     // Métodos de negocio
@@ -92,11 +98,38 @@ export class Employee {
             createdDate: this.createdDate,
             lastStatusChange: this.lastStatusChange,
             statusHistory: this.statusHistory,
-            updatedAt: this.updatedAt
+            updatedAt: this.updatedAt,
+            positionsUpdatedAt: this.positionsUpdatedAt
         };
     }
 
     static fromJSON(json) {
         return new Employee(json);
     }
+}
+
+/**
+ * Detecta si los puestos o sus salarios cambiaron de verdad entre dos versiones.
+ * EmployeeModal re-asigna emp.positions en CADA guardado (aunque sólo cambie el
+ * teléfono), así que la estampa de positionsUpdatedAt debe ser CONDICIONAL: sin
+ * esto, editar un campo ajeno movería la frescura de puestos y pisaría los
+ * puestos del otro dispositivo en el merge. Compara positions como conjunto (el
+ * orden no importa) y positionSalaries como mapa (claves y valores).
+ *
+ * @returns {boolean} true si difieren.
+ */
+export function positionsChanged(prevPositions, newPositions, prevSalaries, newSalaries) {
+    const prevSet = new Set(Array.isArray(prevPositions) ? prevPositions.map(String) : []);
+    const newSet = new Set(Array.isArray(newPositions) ? newPositions.map(String) : []);
+    // Comparar como CONJUNTOS en ambos lados: robusto a duplicados (corrupción
+    // previa) — ['A','B'] vs ['A','A'] tiene igual longitud pero perdió 'B'.
+    if (prevSet.size !== newSet.size) return true;
+    for (const p of newSet) if (!prevSet.has(p)) return true;
+
+    const ps = (prevSalaries && typeof prevSalaries === 'object') ? prevSalaries : {};
+    const ns = (newSalaries && typeof newSalaries === 'object') ? newSalaries : {};
+    const psKeys = Object.keys(ps);
+    const nsKeys = Object.keys(ns);
+    if (psKeys.length !== nsKeys.length) return true;
+    return nsKeys.some(k => ps[k] !== ns[k]);
 }

@@ -130,4 +130,55 @@ testRunner.addSuite("validateManualGroup — caso real del usuario (ficha 501)",
 
 });
 
+testRunner.addSuite("validateManualGroup — rol 'delete' (Feature #2)", {
+
+    "un miembro 'delete' se acumula en deleteIds"() {
+        const members = [
+            { id: 'm', name: 'Ana', role: 'master' },
+            { id: 'd', name: 'Ana dup basura', role: 'delete' }
+        ];
+        const r = validateManualGroup(members);
+        testRunner.assertEquals(r.ok, true);
+        testRunner.assertEquals(r.deleteIds.join(','), 'd');
+        testRunner.assertEquals(r.masterId, 'm');
+    },
+
+    "solo deletes + separates (0 master, 0 absorb) es válido (el grupo se disuelve)"() {
+        const members = [
+            { id: 'd', name: 'basura', role: 'delete' },
+            { id: 's', name: 'otro', role: 'separate' }
+        ];
+        const r = validateManualGroup(members);
+        testRunner.assertEquals(r.ok, true);
+        testRunner.assertEquals(r.deleteIds.join(','), 'd');
+        testRunner.assertEquals(r.separateIds.join(','), 's');
+    },
+
+    "delete NO satisface el requisito de master para un absorb"() {
+        const members = [
+            { id: 'a', name: 'a', role: 'absorb' },
+            { id: 'd', name: 'd', role: 'delete' }
+        ];
+        const r = validateManualGroup(members);
+        testRunner.assertEquals(r.ok, false, 'absorb sin master sigue siendo inválido aunque haya un delete');
+    },
+
+    "todos delete es válido (borrar el grupo entero)"() {
+        const members = [
+            { id: 'd1', role: 'delete' },
+            { id: 'd2', role: 'delete' }
+        ];
+        const r = validateManualGroup(members);
+        testRunner.assertEquals(r.ok, true);
+        testRunner.assertEquals(r.deleteIds.length, 2);
+    },
+
+    "deleteIds está vacío cuando nadie eligió delete (retrocompat)"() {
+        const members = [{ id: 'm', role: 'master' }, { id: 'a', role: 'absorb' }];
+        const r = validateManualGroup(members);
+        testRunner.assert(Array.isArray(r.deleteIds) && r.deleteIds.length === 0);
+    }
+
+});
+
 console.log('🧪 ManualGroupValidator tests cargados.');

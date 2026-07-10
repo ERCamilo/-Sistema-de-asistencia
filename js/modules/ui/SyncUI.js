@@ -252,20 +252,20 @@ export function buildFullSyncModalHTML(local, remote) {
                                 <button type="button" data-sync-action="upload-to-cloud" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #3b82f6, #2563eb);">
                                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
                                         <span style="font-size: 1.5rem;">📤</span>
-                                        <span style="font-weight: 700; font-size: 1.05rem;">Subir mis datos locales</span>
+                                        <span style="font-weight: 700; font-size: 1.05rem;">Subir y combinar con la nube</span>
                                     </div>
                                     <div style="font-size: 0.85rem; opacity: 0.9; margin-left: 40px;">
-                                        Reemplaza los datos en la nube con los que tienes aquí
+                                        Combina lo de este equipo hacia la nube. No borra nada de la nube.
                                     </div>
                                 </button>
-                                
+
                                 <button type="button" data-sync-action="download-from-cloud" class="btn-primary" style="text-align: left; padding: 18px; background: linear-gradient(135deg, #06b6d4, #0891b2);">
                                     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
                                         <span style="font-size: 1.5rem;">☁️</span>
-                                        <span style="font-weight: 700; font-size: 1.05rem;">Descargar desde la nube</span>
+                                        <span style="font-weight: 700; font-size: 1.05rem;">Descargar y combinar</span>
                                     </div>
                                     <div style="font-size: 0.85rem; opacity: 0.9; margin-left: 40px;">
-                                        Reemplaza tus datos locales con los de la nube
+                                        Combina lo de la nube con lo de este equipo. No borra nada local.
                                     </div>
                                 </button>
                                 
@@ -275,7 +275,7 @@ export function buildFullSyncModalHTML(local, remote) {
                             </div>
                             
                             <div style="margin-top: 20px; padding: 14px; background: rgba(251,191,36,0.1); border-left: 3px solid #f59e0b; border-radius: 6px; font-size: 0.85rem; color: #fbbf24;">
-                                <strong>⚠️ Importante:</strong> Cualquiera de las opciones sobrescribirá completamente los datos del otro lado. Asegúrate de elegir la correcta.
+                                <strong>⚠️ Importante:</strong> Ambas opciones COMBINAN los datos: si el mismo registro existe en los dos lados, gana el que se sincroniza. Para un reemplazo total (borrar un lado y quedarte solo con el otro) usa Ajustes → Datos.
                             </div>
                         </div>
                     </div>

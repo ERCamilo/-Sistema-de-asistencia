@@ -207,6 +207,23 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         );
     },
 
+    // Judgment Day Fase 1 R1: la baja de removeAttendance (vista semanal) es el
+    // mismo intento de usuario que toggleAttendance (uncheck) y deleteCurrentAttendance
+    // — ambos SÍ tombstonean (deletedAt). removeAttendance mutaba in-place sin marca:
+    // las notas quedaban visibles (NotesCenter/detalle filtran por deletedAt, no por
+    // .present) y el registro nunca entraba a la compactación de 60 días (U2d).
+    "removeAttendance tombstonea el registro real (deletedAt), igual que toggleAttendance/deleteCurrentAttendance (Judgment Day Fase 1 R1)"() {
+        const body = between('window.removeAttendance = ', 'window.toggleLegend');
+        testRunner.assert(
+            body.includes('tombstoneAttendanceWrite(state.attendance[key])'),
+            'removeAttendance debe rutear la baja por tombstoneAttendanceWrite (deletedAt) — si no, las notas quedan visibles y nunca compacta a los 60 días'
+        );
+        testRunner.assert(
+            !/att\.hoursWorked\s*=\s*0/.test(body),
+            'ya NO debe mutar campos in-place a mano (present/hoursWorked/overtimeHours/positionHours/updatedAt) sin pasar por el choke point de tombstone'
+        );
+    },
+
     // ─── FAMILIA 5: detalle de horas y nota rápida ───
     "saveAttendanceDetailHours mantiene coherencia tras escribir hoursWorked"() {
         const body = between('window.saveAttendanceDetailHours = ', 'window.saveQuickNoteFromDetail');
@@ -266,8 +283,12 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     // Reemplazos de TODO el dataset → patrón TOTAL: invalidateAllStats() + buildAttendanceIndex()
     // SIN argumento, sincrónico justo tras la mutación (antes del render que lee derivados).
     "downloadFromCloud (sobrescritura) mantiene coherencia total tras reemplazar la asistencia"() {
-        const s = sliceAfter('state.attendance = cloudAttendance', 600);
-        testRunner.assert(s.length > 0, 'debe existir la sobrescritura cloudAttendance');
+        // Fase 0.5 (U4): la sobrescritura vive ahora en DataOps.replaceLocalWithCloud
+        // (app.js sólo delega). El contrato de coherencia total es el mismo.
+        const dataOpsSrc = fs.readFileSync(path.resolve(__dirname, '../modules/services/DataOps.js'), 'utf8');
+        const i = dataOpsSrc.indexOf('state.attendance = attendance');
+        testRunner.assert(i !== -1, 'debe existir la sobrescritura de asistencia en DataOps');
+        const s = dataOpsSrc.slice(i, i + 600);
         testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
     },
@@ -280,7 +301,8 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     },
 
     "downloadFromCloud (merge) mantiene coherencia total tras fusionar la asistencia remota"() {
-        const s = sliceAfter('...remoteAttendance };', 300);
+        // Fase 1 (U3): el spread ciego se ruteó por mergeAttendanceRecords (LWW puro).
+        const s = sliceAfter('mergeAttendanceRecords(state.attendance, remoteAttendance)', 300);
         testRunner.assert(s.length > 0, 'debe existir el merge de remoteAttendance');
         testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');
@@ -308,8 +330,17 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     // ─── FAMILIA 6c: Firebase zonal ───
     // onInitialLoad = muchas fechas → TOTAL; onModified = una fecha (hot path) → GRANULAR.
     "Firebase onInitialLoad mantiene coherencia TOTAL tras la carga remota inicial"() {
-        const body = between('onInitialLoad: (allAttendance) =>', 'onModified:');
-        testRunner.assert(body.length > 0 && body.length < 3900, 'el cuerpo de onInitialLoad debe acotarse bien');
+        // Judgment Day Fase 1 R1: onInitialLoad pasó a `async (allAttendance) =>`
+        // (validateDataIntegrity() ahora es async) — el anchor debe reflejar el
+        // `async` para seguir acotando el mismo bloque.
+        const body = between('onInitialLoad: async (allAttendance) =>', 'onModified:');
+        // Cap 5800 (era 4900, antes 3900): R2 reubicó el reset de
+        // _isApplyingRemoteData al final del callback y R3 sumó el re-armado
+        // del watchdog antes del await (+comentarios explicativos). Medido:
+        // 5530 — el cap deja ~5% de margen, consistente con el estilo de esta
+        // familia de guards (crecer exige tocar este número a conciencia).
+        // El contrato real (TOTAL + orden) lo cubren las aserciones de abajo.
+        testRunner.assert(body.length > 0 && body.length < 5800, 'el cuerpo de onInitialLoad debe acotarse bien');
         testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
         // Orden: coherencia DESPUÉS de validateDataIntegrity (que muta in-place) y ANTES del render.
@@ -320,6 +351,58 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         testRunner.assert(
             cohIdx > vdiIdx && cohIdx < renderIdx,
             'la coherencia total debe ir tras validateDataIntegrity y antes del render'
+        );
+    },
+
+    // Judgment Day Fase 1 Ronda 2: validateDataIntegrity() es async y SUSPENDE
+    // de verdad acá (await real, no cosmético) — bajar la señal "estoy aplicando
+    // datos remotos" antes de esa suspensión dejaba una ventana real (sin
+    // necesitar timing adversarial) donde otro código podía leer
+    // _isApplyingRemoteData === false y confiar en datos ya fusionados pero con
+    // stats/índice todavía desactualizados (invalidateAllStats/buildAttendanceIndex
+    // corren recién después). El reset debe quedar DESPUÉS de buildAttendanceIndex().
+    "Firebase onInitialLoad reubica el reset de _isApplyingRemoteData DESPUÉS del await validateDataIntegrity y de buildAttendanceIndex (Judgment Day Fase 1 R2)"() {
+        const body = between('onInitialLoad: async (allAttendance) =>', 'onModified:');
+        testRunner.assert(body.length > 0, 'debe existir el cuerpo de onInitialLoad');
+        const resetIdx = body.indexOf('window._isApplyingRemoteData = false;');
+        const awaitIdx = body.indexOf('await validateDataIntegrity()');
+        const buildIdx = body.search(/buildAttendanceIndex\(\s*\)/);
+        testRunner.assert(
+            resetIdx !== -1 && awaitIdx !== -1 && buildIdx !== -1,
+            'deben existir el reset del flag, el await de validateDataIntegrity y el rebuild total del índice'
+        );
+        testRunner.assert(
+            resetIdx > awaitIdx,
+            'el reset de _isApplyingRemoteData NO debe ocurrir antes del await validateDataIntegrity() — dejaría una ventana real donde el flag ya está en false pero state.attendanceByDate/stats siguen desactualizados'
+        );
+        testRunner.assert(
+            resetIdx > buildIdx,
+            'el reset de _isApplyingRemoteData debe ocurrir DESPUÉS de buildAttendanceIndex(), para que la señal "no confíes en mí todavía" cubra toda la ventana de suspensión'
+        );
+    },
+
+    // Judgment Day Fase 1 Ronda 3 (Juez A, teórico endurecido): el watchdog de
+    // _isApplyingRemoteData arranca su timer de 4s al INICIO del handler; el
+    // trabajo síncrono previo (limpieza shortKey + merge LWW + loop del
+    // BatchedSaver) ya consume parte de ese presupuesto. Si el await de
+    // validateDataIntegrity (lectura de IndexedDB del outbox, U2d) tardara más
+    // que el resto del presupuesto, el watchdog liberaría el flag a MITAD de la
+    // sección crítica — reabriendo por otra vía la ventana que el fix R2 cerró.
+    // Re-armar el watchdog justo antes del await le da a la sección awaiteada
+    // su presupuesto completo de 4s.
+    "Firebase onInitialLoad re-arma el watchdog ANTES del await de validateDataIntegrity (Judgment Day Fase 1 R3)"() {
+        const body = between('onInitialLoad: async (allAttendance) =>', 'onModified:');
+        testRunner.assert(body.length > 0, 'debe existir el cuerpo de onInitialLoad');
+        const lastWatchdogIdx = body.lastIndexOf('armApplyingFlagWatchdog()');
+        const addLoopIdx = body.indexOf('_attendanceBatchedSaver.add(');
+        const awaitIdx = body.indexOf('await validateDataIntegrity()');
+        testRunner.assert(
+            lastWatchdogIdx !== -1 && addLoopIdx !== -1 && awaitIdx !== -1,
+            'deben existir el watchdog, el loop del BatchedSaver y el await de validateDataIntegrity'
+        );
+        testRunner.assert(
+            lastWatchdogIdx > addLoopIdx && lastWatchdogIdx < awaitIdx,
+            'debe haber un re-armado del watchdog DESPUÉS del trabajo síncrono (loop del BatchedSaver) y ANTES del await — si no, el timer de 4s puede vencer a mitad de la suspensión y liberar el flag en plena sección crítica'
         );
     },
 

@@ -1,5 +1,6 @@
 import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
+import { positionsChanged } from '../../features/employees/Employee.js';
 import icons from '../../ui/IconSystem.js';
 import { swapEmployeeNumbers, mergeEmployees, enqueueCloudEmployeeDelete } from '../../services/PersistenceService.js';
 import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
@@ -259,6 +260,14 @@ export class EmployeeModal {
             if (existingEmp) {
                 const empToEdit = state.employees.find(e => e.id === existingEmp.id) || state.employees.find(e => e.key === existingEmp.id);
                 if (!empToEdit) return null;
+                // Detectar si los puestos cambiaron ANTES de reasignarlos: este
+                // modal re-asigna positions en cada guardado, así que sólo se
+                // estampa positionsUpdatedAt cuando de verdad cambian (si no,
+                // editar el teléfono pisaría los puestos del otro dispositivo).
+                const posChanged = positionsChanged(
+                    empToEdit.positions, selectedPositions,
+                    empToEdit.positionSalaries, positionSalaries
+                );
                 empToEdit.number = numberToUse;
                 empToEdit.name = name;
                 empToEdit.positions = selectedPositions;
@@ -268,17 +277,22 @@ export class EmployeeModal {
                 empToEdit.phone = phone;
                 empToEdit.email = email;
                 empToEdit.notes = notes;
-                empToEdit.updatedAt = Date.now();
+                const now = Date.now();
+                empToEdit.updatedAt = now;
+                if (posChanged) empToEdit.positionsUpdatedAt = now;
                 empToEdit._isDirty = true;
                 return empToEdit.id;
             }
             const newId = 'emp-' + Date.now();
+            const nowNew = Date.now();
             state.employees.push({
                 id: newId, key: newId, number: numberToUse, name,
                 positions: selectedPositions, positionSalaries, positionSalaryModes, active: true,
                 hireDate, phone, email, notes,
-                statusHistory: [{ date: hireDate, active: true, timestamp: Date.now() }],
-                updatedAt: Date.now(), _isDirty: true
+                statusHistory: [{ date: hireDate, active: true, timestamp: nowNew }],
+                // Empleado nuevo: sus puestos se asignan por primera vez ahora,
+                // así que positionsUpdatedAt arranca con el mismo timestamp.
+                updatedAt: nowNew, positionsUpdatedAt: nowNew, _isDirty: true
             });
             return newId;
         };
@@ -353,7 +367,12 @@ export class EmployeeModal {
                 const editedId = applyFields(intendedNumber);
                 if (!editedId) { this.close(); return; }
                 // Master = el de más asistencia (conserva la identidad más completa).
-                const attCount = (id) => Object.keys(state.attendance || {}).filter(k => k.startsWith(`${id}-`)).length;
+                // Fase 1 (U2c): un tombstone no cuenta como asistencia real.
+                const attCount = (id) => {
+                    const prefix = `${id}-`;
+                    return Object.entries(state.attendance || {})
+                        .filter(([k, v]) => k.startsWith(prefix) && v.deletedAt == null).length;
+                };
                 let masterId = duplicate.id, dupId = editedId;
                 if (attCount(editedId) >= attCount(duplicate.id)) { masterId = editedId; dupId = duplicate.id; }
                 mergeEmployees(masterId, dupId);

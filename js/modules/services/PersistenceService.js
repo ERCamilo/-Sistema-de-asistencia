@@ -14,6 +14,7 @@ import { LeaderRepository } from './LeaderRepository.js';
 import { unionById } from './EmployeeMerge.js';
 import { backfillNestedIds } from './LoanIdBackfill.js';
 import { SyncStatus } from './SyncStatus.js';
+import { recordEntitiesSyncOk } from './EntitiesSyncStamp.js';
 import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
@@ -24,6 +25,7 @@ import { generateUUID, slugify } from '../utils/Helpers.js';
 import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
 import { PettyCashStore } from '../features/pettycash/PettyCashStore.js';
 import { debug } from '../utils/Debug.js';
+import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -173,6 +175,24 @@ export function enqueueCloudEmployeeDelete(id) {
         .catch(e => console.warn('⚠️ Error encolando borrado de empleado en el outbox:', e));
 }
 
+/**
+ * 🪦 Encola el TOMBSTONE (soft-delete) de un empleado en el outbox durable.
+ * A diferencia de enqueueCloudEmployeeDelete (hard-delete, usado por el wizard
+ * de fusión), este pasa `deletedAt` para que el flush escriba una lápida en
+ * vez de borrar el doc — el borrado sobrevive al multi-dispositivo y no
+ * resucita desde un dispositivo que estaba offline. El `deletedAt` es el
+ * momento REAL del borrado (no el del flush): el LWW lo necesita para que una
+ * edición posterior pueda revivir al empleado.
+ */
+export function enqueueEmployeeTombstone(id, deletedAt) {
+    if (!id) return;
+    const key = String(id).trim();
+    if (!key) return;
+    const ts = Number.isFinite(deletedAt) ? deletedAt : Date.now();
+    MainSyncStore.enqueueDelete('employee', key, state?.settings?.schemaVersion, { deletedAt: ts })
+        .catch(e => console.warn('⚠️ Error encolando tombstone de empleado en el outbox:', e));
+}
+
 /** Encola varios ids de empleados con una sola escritura a localStorage. */
 export function enqueueCloudEmployeeDeleteBatch(ids) {
     if (!Array.isArray(ids) || ids.length === 0) return;
@@ -219,6 +239,29 @@ export function getPendingCloudPositionDeletes() {
 }
 export function clearPendingCloudPositionDeletes() {
     _pendingCloudPositionDeletes.clear();
+}
+
+/**
+ * Fase 0.5 (U1): purga TODO lo pendiente hacia la nube — las 3 colas legacy
+ * (Sets + su clave de localStorage) y el outbox durable de MainSyncStore.
+ *
+ * La llaman las operaciones que adoptan una fuente de verdad nueva ("Borrar
+ * Local", "Descargar y Reemplazar", "Borrar Nube"): sin esta purga, el
+ * drenado del próximo login/online sube escrituras y borrados de ANTES de
+ * la operación, pisando o borrando justo lo que el usuario eligió conservar
+ * (bugs ALTA #1 y #2 de la auditoría 2026-07-01).
+ *
+ * Best-effort deliberado: las colas legacy se limpian SIEMPRE (son síncronas
+ * y no pueden fallar); si la purga del outbox falla, se reporta con false
+ * pero nunca se lanza — el caller decide si advertir al usuario.
+ * @returns {Promise<boolean>} true si TODO se purgó; false si el outbox falló
+ */
+export async function purgeAllPendingCloudWrites() {
+    _pendingCloudDeletes.clear();
+    _pendingCloudPositionDeletes.clear();
+    _pendingCloudLeaderDeletes.clear();
+    try { localStorage.removeItem(_PENDING_DELETES_LS_KEY); } catch (_) { /* noop */ }
+    return MainSyncStore.clearAll();
 }
 
 /** Encolar un id de LÍDER para borrar de la subcolección en el próximo save. */
@@ -295,11 +338,24 @@ function _mainSyncGuards() {
         isApplyingRemote: () => !!globalThis._isApplyingRemoteData,
         isPaused: () => SYNC_PAUSE_ENABLED && isSyncPaused(),
         cloudWatermark: () => state._lastKnownCloudUpdatedAt || 0,
-        saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot),
+        // Fase 2 U1 (fix de regresión): saveFullState vuelve a escribir las
+        // entidades por default (ver FirebaseService.saveFullState) — pero acá
+        // se saltan con skipEntities:true porque la entrada 'entities' del
+        // outbox (encolada aparte en _executeSave, sin gate de watermark) YA
+        // las escribe por su cuenta; sin este flag se subirían dos veces.
+        saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot, { skipEntities: true }),
         saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
-        deleteEntity: (entity, id) => {
+        saveEntities: (employees, positions, leaders, schemaVersion) => FirebaseService.saveEntities(employees, positions, leaders, schemaVersion),
+        deleteEntity: (entity, id, deletedAt) => {
             const repo = REPO_BY_ENTITY[entity];
-            return repo ? repo.deleteOne(id) : Promise.resolve();
+            if (!repo) return Promise.resolve();
+            // 🪦 Empleados con deletedAt → tombstone (soft-delete robusto: no
+            // resucita desde un dispositivo que estaba offline al borrar).
+            // Cargos/líderes y borrados legacy sin deletedAt → hard-delete.
+            if (entity === 'employee' && Number.isFinite(deletedAt) && typeof repo.tombstoneOne === 'function') {
+                return repo.tombstoneOne(id, deletedAt);
+            }
+            return repo.deleteOne(id);
         },
         // El feedback de UI (toast honesto + anillos de asistencia) sólo
         // reaccionaba, antes del outbox, a la resolución del MIRROR completo —
@@ -310,6 +366,13 @@ function _mainSyncGuards() {
             if (entry?.kind === 'mirror') {
                 saveOutcomeNotifier.recordCloudResult(ok);
                 globalThis.eventBus?.emit?.('sync:mirror-result', { ok });
+            }
+            // Fase 2 U4: marca de agua para el badge "pendiente de subir" del
+            // ledger de préstamos. Se estampa con el ts del ENQUEUE (momento
+            // de la foto del snapshot), no Date.now() — lo editado después de
+            // encolar no estaba en esa foto y sigue pendiente.
+            if (ok && entry?.kind === 'entities') {
+                recordEntitiesSyncOk(entry.ts);
             }
             // Judgment Day #3: deleteOne() y saveDailyAttendance() nunca llaman
             // a SyncStatus.markSynced() (sólo saveFullState/saveOne lo hacen),
@@ -333,13 +396,36 @@ export function drainMainSyncOutbox() {
     return MainSyncStore.flush(_mainSyncGuards());
 }
 
+/**
+ * 🔁 Reintento EXPLÍCITO del usuario (botón "Reintentar" del badge/toast):
+ * revive primero las entradas 'dead' (agotaron MAX_FLUSH_ATTEMPTS contra un
+ * error que en su momento parecía transitorio — ej. cuota de Firestore
+ * agotada) y RECIÉN DESPUÉS drena. Sin esto, drainMainSyncOutbox() crudo
+ * jamás las toca (flush() sólo procesa 'pending', MainSyncStore.js) — el
+ * usuario podía tocar "Reintentar" para siempre sin que la subida vencida
+ * volviera a intentarse, aunque la causa raíz (ej. la cuota) ya se hubiera
+ * resuelto.
+ *
+ * Deliberadamente NO se llama desde el drenado automático (login, 'online',
+ * cada guardado) — requeueDeadEntries() resetea attempts a 0, así que
+ * revivir automáticamente una entrada con un error REALMENTE permanente
+ * (permisos, etc.) la haría re-morir en cada ciclo pasivo para siempre. Acá
+ * es una acción consciente del usuario, sabiendo que puede estar reintentando
+ * algo que ya falló varias veces.
+ */
+export async function retryFailedCloudSync() {
+    await MainSyncStore.requeueDeadEntries();
+    return drainMainSyncOutbox();
+}
+
 // 🔘 U12: cablear el botón "Reintentar" del toast honesto (SaveOutcomeNotifier)
-// a drainMainSyncOutbox. Se hace acá (no dentro de SaveOutcomeNotifier.js) para
-// evitar un import circular — SaveOutcomeNotifier.js no necesita saber nada de
-// PersistenceService/MainSyncStore, sólo expone un setter genérico. PettyCash
-// (que importa el mismo singleton) NUNCA llama setCloudRetryHandler, así que
-// sus fallos siguen sin botón — no compite con este wiring.
-saveOutcomeNotifier.setCloudRetryHandler(drainMainSyncOutbox);
+// a retryFailedCloudSync (revive 'dead' + drena). Se hace acá (no dentro de
+// SaveOutcomeNotifier.js) para evitar un import circular — SaveOutcomeNotifier.js
+// no necesita saber nada de PersistenceService/MainSyncStore, sólo expone un
+// setter genérico. PettyCash (que importa el mismo singleton) NUNCA llama
+// setCloudRetryHandler, así que sus fallos siguen sin botón — no compite con
+// este wiring.
+saveOutcomeNotifier.setCloudRetryHandler(retryFailedCloudSync);
 
 /**
  * 🌱 U9: siembra el outbox durable con los ids YA pendientes de la cola
@@ -404,6 +490,12 @@ export const syncFirebaseMirrorDebounced = (function() {
  * 💾 GUARDADO SEGURO EN INDEXEDDB
  */
 export async function saveToIndexedDB(options = {}) {
+    // 🧹 JD-F4 (ALTO): el guard U2 va en la PRIMITIVA, no sólo en sus callers.
+    // El flush del BatchedSaver (app.js) llama saveToIndexedDB directo — un
+    // flush ya agendado por requestIdleCallback podía dispararse dentro de la
+    // ventana del wipe y re-escribir el state en memoria a IndexedDB,
+    // resucitando datos recién borrados.
+    if (_localDataWipeInProgress) return false;
     try {
         // Use raw (non-proxy) state to avoid DataCloneError in IndexedDB structured clone
         const rawState = stateManager.getState();
@@ -415,11 +507,37 @@ export async function saveToIndexedDB(options = {}) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🧹 Fase 0.5 (U2): guard de "borrado local en curso"
+// "Borrar Local" y "Descargar y Reemplazar" limpian los stores y llaman
+// location.reload(). El reload dispara pagehide → flushPendingSave() → que
+// RE-PERSISTÍA el estado en memoria (BatchedSaver, debounce pendiente) y
+// RE-ENCOLABA un mirror pre-borrado en el outbox recién purgado, deshaciendo
+// parcialmente el borrado. Con el flag levantado, todo guardado implícito es
+// un no-op hasta el reload (o hasta endLocalDataWipe, para flujos que abortan
+// a mitad de camino — p.ej. red caída en "Descargar y Reemplazar").
+// ─────────────────────────────────────────────────────────────────────────────
+let _localDataWipeInProgress = false;
+
+/** Bloquea todo guardado implícito (debounce, pagehide) durante un borrado local. */
+export function beginLocalDataWipe() { _localDataWipeInProgress = true; }
+
+/** Restaura el guardado normal — para flujos de borrado/reemplazo que abortan. */
+export function endLocalDataWipe() { _localDataWipeInProgress = false; }
+
+/** ¿Hay un borrado local en curso? (para diagnósticos y otros guards) */
+export function isLocalDataWipeInProgress() { return _localDataWipeInProgress; }
+
 /**
  * 💾 FUNCIÓN PRINCIPAL DE PERSISTENCIA
  * Orquesta el guardado local y la sincronización con la nube.
  */
 export function saveApplicationData(options = {}) {
+    // 🧹 U2: durante un borrado local, NADA debe re-persistir el estado en
+    // memoria — re-escribiría a IndexedDB/localStorage justo lo que el
+    // usuario acaba de borrar.
+    if (_localDataWipeInProgress) return;
+
     // ⚡ Marcar el estado local como "más reciente" DE INMEDIATO, antes del debounce.
     // Esto impide que Firebase (eco o datos de otro dispositivo) sobrescriba cambios
     // locales durante la ventana de 300 ms en que el guardado aún está en cola.
@@ -430,15 +548,32 @@ export function saveApplicationData(options = {}) {
         state.settings.localUpdatedAt = Date.now();
     }
 
-    // Acumular opciones: si viene dateKey lo guardamos; si viene sin él, forzamos guardado completo
-    if (options.dateKey && _pendingSaveOptions.dateKey) {
-        _pendingSaveOptions.dateKey = options.dateKey; // Actualizar con el último dateKey
-    } else {
-        _pendingSaveOptions = { ...options }; // Guardado completo o primer call
+    // Acumular opciones. Las FECHAS pendientes (dateKey/dateKeys) se UNEN, no
+    // se pisan: una llamada nueva dentro de la ventana de debounce — o un save
+    // inmediato que la corta — no debe cancelar la subida diaria de otra fecha
+    // ya pendiente (Judgment Day R3: un purge con dateKeys+immediate pisaba el
+    // dateKey debounced y esa fecha nunca subía; el mirror excluye attendance,
+    // así que nada la reintentaba). Para el resto de opciones gana la última
+    // llamada (mismo criterio que el overwrite original); `announce` es
+    // pegajoso y se maneja aparte, abajo.
+    const _pendingDates = new Set([
+        ...(Array.isArray(_pendingSaveOptions.dateKeys) ? _pendingSaveOptions.dateKeys : []),
+        ...(_pendingSaveOptions.dateKey ? [_pendingSaveOptions.dateKey] : []),
+        ...(Array.isArray(options.dateKeys) ? options.dateKeys : []),
+        ...(options.dateKey ? [options.dateKey] : [])
+    ]);
+    // Preservar el `announce` pegajoso ANTES del overwrite: los FLAGS
+    // (immediate/clearFirst/skipValidation/force) siguen la última llamada (no
+    // deben arrastrarse: p.ej. un clearFirst previo no debe colarse en un save
+    // de asistencia), pero `announce` y las FECHAS sí son pegajosos.
+    const _prevAnnounce = _pendingSaveOptions.announce;
+    _pendingSaveOptions = { ...options };
+    if (_pendingDates.size > 0) {
+        _pendingSaveOptions.dateKeys = [..._pendingDates];
+        delete _pendingSaveOptions.dateKey; // canal unificado: _executeSave lee dateKeys
     }
     // `announce` es PEGAJOSO dentro de la ventana de debounce: si CUALQUIER
     // llamada pidió anunciar el resultado, el guardado colapsado lo anuncia.
-    // Preservamos el valor (true o string-label) para no perder la etiqueta.
     if (options.announce) {
         _pendingSaveOptions.announce = options.announce;
         // 💬 Fase 0 del toast honesto: reconocimiento INSTANTÁNEO ("guardando…")
@@ -449,6 +584,11 @@ export function saveApplicationData(options = {}) {
                 label: typeof options.announce === 'string' ? options.announce : null
             });
         }
+    } else if (_prevAnnounce) {
+        // Esta llamada no anuncia, pero una previa de la misma ventana sí:
+        // conservar la etiqueta para que el guardado colapsado igual reporte su
+        // resultado. NO se re-dispara recordSaveStarted (ya corrió en la 1ra).
+        _pendingSaveOptions.announce = _prevAnnounce;
     }
 
     // ⚡ Immediate-save mode: bypass the 300ms debounce for critical operations
@@ -475,6 +615,12 @@ export function saveApplicationData(options = {}) {
  * away (beforeunload) or after critical operations.
  */
 export function flushPendingSave() {
+    // 🧹 U2: durante un borrado local NO drenar nada — este es exactamente el
+    // pagehide del location.reload() del borrado, y drenar acá re-persistiría
+    // asistencia recién borrada y re-encolaría un mirror pre-borrado en el
+    // outbox recién purgado.
+    if (_localDataWipeInProgress) return false;
+
     // R3: drenar PRIMERO el BatchedSaver de asistencia ENTRANTE (ventana idle de
     // hasta 1000ms). Esa asistencia llega de Firebase por una vía separada del
     // debounce local de 300ms y, si la pestaña se cierra dentro de la ventana, se
@@ -513,7 +659,8 @@ async function _executeSave(options = {}) {
         return;
     }
 
-    console.log('🔵 PersistenceService: _executeSave() iniciado', options.dateKey ? `para fecha: ${options.dateKey}` : '');
+    const _logDates = Array.isArray(options.dateKeys) ? options.dateKeys.join(', ') : options.dateKey;
+    console.log('🔵 PersistenceService: _executeSave() iniciado', _logDates ? `para fecha(s): ${_logDates}` : '');
 
     // ──────────────────────────────────────────────────────────
     // 🛡️ OUTGOING CONFLICT CHECK
@@ -584,11 +731,22 @@ async function _executeSave(options = {}) {
         // la subida termine, la entrada sigue en IndexedDB y se reintenta sola
         // al reconectar/volver a entrar (no se pierde).
         const _outboxEnqueues = [];
-        if (options.dateKey) {
+        // Un solo guardado puede subir VARIAS fechas (options.dateKeys, p.ej. el
+        // purge de historial multi-fecha) o una sola (options.dateKey). Se
+        // procesan en UN _executeSave → un daily por fecha pero UN solo mirror/
+        // entities/flush, en vez de N _executeSave (Judgment Day Ronda 2: N
+        // llamadas immediate encolaban N mirrors completos = write amplification).
+        const _dailyDateKeys = Array.isArray(options.dateKeys)
+            ? options.dateKeys.filter(Boolean)
+            : (options.dateKey ? [options.dateKey] : []);
+        for (const dk of _dailyDateKeys) {
             const dayRecords = {};
-            const suffix = `-${options.dateKey}`;
+            // Guion (-) y guion bajo (_): simétrico con IndexedDBService.saveState.
+            // Sin el guion bajo, un registro con esa clave se guardaría local
+            // pero jamás se encolaría a la nube (el mirror excluye attendance).
+            const suffixes = [`-${dk}`, `_${dk}`];
             Object.entries(state.attendance).forEach(([key, record]) => {
-                if (key.endsWith(suffix)) {
+                if (suffixes.some(s => key.endsWith(s))) {
                     dayRecords[key] = record;
                 }
             });
@@ -604,7 +762,7 @@ async function _executeSave(options = {}) {
             } catch (e) {
                 console.warn('⚠️ No se pudo clonar la asistencia diaria para la nube; se sube la referencia viva:', e);
             }
-            _outboxEnqueues.push(MainSyncStore.enqueueDaily(options.dateKey, _dayRecords));
+            _outboxEnqueues.push(MainSyncStore.enqueueDaily(dk, _dayRecords));
         }
         // Foto INMUTABLE capturada AHORA — MainSyncStore coalesce a una sola
         // entrada 'mirror' pendiente (la última gana). Judgment Day #6:
@@ -630,6 +788,19 @@ async function _executeSave(options = {}) {
             _mirrorSnapshot = stateManager.getState();
         }
         _outboxEnqueues.push(MainSyncStore.enqueueMirror(_mirrorSnapshot));
+
+        // Judgment Day / Fase 2 U1: las entidades (empleados/puestos/líderes) se
+        // encolan APARTE del mirror — mismo snapshot ya clonado (_mirrorSnapshot),
+        // sin re-serializar. Este canal NO tiene el gate de watermark del mirror
+        // (ver MainSyncStore._resolveCloudCall): un dispositivo que estuvo offline
+        // y edita un préstamo ya no queda atrapado detrás de "la nube parece más
+        // nueva" — cada entidad se mergea fino por su propio updatedAt.
+        _outboxEnqueues.push(MainSyncStore.enqueueEntities(
+            _mirrorSnapshot.employees || [],
+            _mirrorSnapshot.positions || [],
+            _mirrorSnapshot.leaders || [],
+            _mirrorSnapshot.settings?.schemaVersion
+        ));
 
         // Disparar el drenado recién DESPUÉS de que las entradas terminen de
         // encolarse (evita la carrera de que flush() lea el outbox antes de
@@ -680,9 +851,15 @@ async function _executeSave(options = {}) {
     let _localOk = true;
     if (state.useIndexedDB && !globalThis._isApplyingRemoteData) {
         try {
-            // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados granulares
-            if (!options.dateKey && !options.skipValidation) {
-                validateDataIntegrity();
+            // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados
+            // granulares — tanto dateKey singular como dateKeys (el canal
+            // unificado multi-fecha). Sin el chequeo de dateKeys, cada purge
+            // corría la validación completa (puede estampar/re-subir empleados
+            // no relacionados = costo de cuota).
+            const _isGranularSave = !!options.dateKey ||
+                (Array.isArray(options.dateKeys) && options.dateKeys.length > 0);
+            if (!_isGranularSave && !options.skipValidation) {
+                await validateDataIntegrity();
             }
 
             // ⚡ FIX: Usar el estado "raw" (sin proxy) para evitar DataCloneError en IndexedDB
@@ -804,7 +981,7 @@ export async function loadApplicationData() {
             // Se guarda un contador en state para que app.js le pregunte al
             // usuario si desea subir las correcciones a la nube después del
             // primer render (ver _checkSanitizationCloudSyncPrompt en app.js).
-            const fixesOnLoad = validateDataIntegrity();
+            const fixesOnLoad = await validateDataIntegrity();
             if (fixesOnLoad > 0) {
                 debug.log(`🛡️ Persistiendo ${fixesOnLoad} corrección(es) de integridad (solo local)...`);
                 // localOnly:true → escribe IndexedDB pero omite el bloque de Firebase.
@@ -848,8 +1025,8 @@ export async function loadApplicationData() {
                     debug.log('🧹 Copia legacy de localStorage eliminada tras migración a IndexedDB');
                 } catch (_) { /* noop */ }
             }
-            
-            validateDataIntegrity();
+
+            await validateDataIntegrity();
             return true;
         }
 
@@ -891,10 +1068,18 @@ export async function loadDemoDataIntoDB() {
 }
 
 /**
+ * 🪦 Fase 1 (U2d): ventana de retención de tombstones de asistencia. Más larga
+ * que cualquier desconexión razonable de un dispositivo — si se compactara
+ * antes, un equipo que vuelve tras una ausencia larga podría revivir un
+ * borrado que todavía no terminó de propagarse a todos los dispositivos.
+ */
+export const TOMBSTONE_RETENTION_MS = 60 * 24 * 60 * 60 * 1000; // 60 días
+
+/**
  * 🛡️ VALIDACIÓN DE INTEGRIDAD
  * Limpia referencias huérfanas para evitar crashes en la UI.
  */
-export function validateDataIntegrity() {
+export async function validateDataIntegrity() {
     let fixes = 0;
 
     // 0. Backfill missing ids in loans / advances / bonuses / deductions
@@ -911,23 +1096,46 @@ export function validateDataIntegrity() {
     const leaderIds = new Set(state.leaders.map(l => l.id));
 
     // 1. Limpiar posiciones en empleados
+    // 🔁 Fix del bucle de sanitización (test de campo 2026-07-06): TODA
+    // corrección dentro de un empleado/puesto DEBE estampar updatedAt (la
+    // misma regla del choke point de préstamos). Sin la estampa,
+    // EntityUploadTracker filtra el registro ("nada cambió"), la corrección
+    // nunca sube, la nube queda sucia, y el merge entrante (mergePositions es
+    // UNIÓN, no LWW) resucita el huérfano → corregir → guardar → espejo →
+    // el otro dispositivo valida → corrige → ... ping-pong infinito quemando
+    // cuota. La estampa hace que la corrección gane el merge y converja.
+    // Y la inversa importa igual: si NO hubo corrección, NO estampar —
+    // estampar de más re-subiría a todos los empleados en cada validación.
     state.employees.forEach(emp => {
+        let empFixed = false;
         if (emp.positions) {
             const validPositions = emp.positions.filter(pid => positionIds.has(pid));
             if (validPositions.length !== emp.positions.length) {
                 emp.positions = validPositions;
                 fixes++;
+                empFixed = true;
             }
         }
-        
+
         // 2. Limpiar positionSalaries con IDs que ya no existen
         if (emp.positionSalaries) {
             Object.keys(emp.positionSalaries).forEach(posId => {
                 if (!positionIds.has(posId)) {
                     delete emp.positionSalaries[posId];
                     fixes++;
+                    empFixed = true;
                 }
             });
+        }
+
+        if (empFixed) {
+            const now = Date.now();
+            emp.updatedAt = now;
+            // El fix tocó positions/positionSalaries → estampar también la
+            // frescura fina de puestos, para que el LWW de puestos en
+            // EmployeeMerge reconozca la corrección como la más reciente y el
+            // huérfano no resucite en el próximo merge.
+            emp.positionsUpdatedAt = now;
         }
     });
 
@@ -935,6 +1143,7 @@ export function validateDataIntegrity() {
     state.positions.forEach(pos => {
         if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
             pos.leaderId = null;
+            pos.updatedAt = Date.now(); // misma regla — sin estampa no sube ni converge
             fixes++;
         }
     });
@@ -962,6 +1171,32 @@ export function validateDataIntegrity() {
                 }
             }
         });
+
+    // 5. Compactar tombstones de asistencia vencidos (Fase 1, U2d). Solo borra
+    //    la copia LOCAL — el field en la nube no se toca acá (fuera de
+    //    alcance de esta fase; para entonces ya se propagó a todos los
+    //    dispositivos que estuvieran conectados dentro de la ventana).
+    // Judgment Day Fase 1 R1: NO compactar un tombstone cuya subida diaria
+    // sigue pendiente/muerta en el outbox — borrarlo ahí destruiría la única
+    // evidencia local del borrado antes de que llegara a propagarse a la nube.
+    const now = Date.now();
+    const unconfirmedDateKeys = await MainSyncStore.getUnconfirmedDailyDateKeys();
+    let compactedTombstones = 0;
+    stateManager.batchSetState(() => {
+        Object.entries(state.attendance).forEach(([key, att]) => {
+            if (att.deletedAt != null && (now - att.deletedAt) > TOMBSTONE_RETENTION_MS) {
+                if (unconfirmedDateKeys.has(att.date)) return; // subida sin confirmar — no compactar todavía
+                delete state.attendance[key];
+                compactedTombstones++;
+            }
+        });
+        if (compactedTombstones > 0) {
+            buildAttendanceIndex(); // el índice no debe referenciar claves ya compactadas
+        }
+    });
+    if (compactedTombstones > 0) {
+        fixes += compactedTombstones;
+    }
 
     if (fixes > 0) {
         console.log(`🛡️ PersistenceService: ${fixes} referencia(s) huérfana(s) corregida(s)`);
@@ -1277,27 +1512,54 @@ export function sanitizePositions(state) {
     // 2. Actualizar empleados (sus arreglos de positions)
     if (state.employees) {
         state.employees.forEach(emp => {
+            let empRemapped = false;
             if (Array.isArray(emp.positions)) {
                 const mapped = emp.positions.map(pid => idMap.get(pid) || pid);
                 const unique = [...new Set(mapped)];
                 if (JSON.stringify(emp.positions) !== JSON.stringify(unique)) {
                     emp.positions = unique;
                     hasChanges = true;
+                    empRemapped = true;
                 }
             }
-            // También actualizar positionSalaries si existen
+            // También actualizar positionSalaries si existen (solo si algo se
+            // remapeó de verdad — reasignar sin cambios no debe estampar).
             if (emp.positionSalaries) {
                 const newSalaries = {};
+                let salariesRemapped = false;
                 Object.entries(emp.positionSalaries).forEach(([pid, val]) => {
                     const newId = idMap.get(pid) || pid;
+                    if (newId !== pid) salariesRemapped = true;
                     newSalaries[newId] = val;
                 });
-                emp.positionSalaries = newSalaries;
+                if (salariesRemapped) {
+                    emp.positionSalaries = newSalaries;
+                    hasChanges = true;
+                    empRemapped = true;
+                }
             }
-            
-            // Especial: Sueldo por posición en el sistema viejo
-            if (emp.positionId && idMap.has(emp.positionId)) {
-                emp.positionId = idMap.get(emp.positionId);
+
+            // Especial: Sueldo por posición en el sistema viejo. idMap tiene
+            // entradas IDENTIDAD para cada master, así que solo se marca
+            // remapeado si el id REALMENTE cambia (si no, estampar de más
+            // dispara un positionsUpdatedAt espurio que pisa el LWW real).
+            if (emp.positionId) {
+                const newPositionId = idMap.get(emp.positionId);
+                if (newPositionId !== undefined && newPositionId !== emp.positionId) {
+                    emp.positionId = newPositionId;
+                    empRemapped = true;
+                }
+            }
+
+            // 🕐 Misma disciplina de choke-point que validateDataIntegrity: la
+            // corrección DEBE estampar updatedAt (sin él, EntityUploadTracker la
+            // filtra y nunca sube) Y positionsUpdatedAt (sin él, pierde el LWW
+            // fino de puestos contra un sello stale del otro dispositivo). Solo
+            // en los empleados realmente tocados — estampar de más re-sube todo.
+            if (empRemapped) {
+                const now = Date.now();
+                emp.updatedAt = now;
+                emp.positionsUpdatedAt = now;
             }
         });
     }
@@ -1478,41 +1740,61 @@ export function mergeEmployees(masterId, duplicateId) {
     console.log(`🤝 Fusionando: ${duplicate.name} -> ${master.name}`);
 
     // 1. Remapear Asistencia
+    // Judgment Day Fase 1 R3: el remapeo multi-clave va en UN batch — todas
+    // las escrituras a la raíz de state.attendance quedan gestionadas (un solo
+    // repintado; la coherencia explícita corre después del loop, como siempre).
+    // batchSetState es reentrante (guarda/restaura _silent), así que los tests
+    // que envuelven mergeEmployees en un batch externo no se ven afectados.
     const idPrefix = `${duplicateId}-`;
-    Object.keys(state.attendance || {}).forEach(oldKey => {
-        if (oldKey.startsWith(idPrefix)) {
-            const datePart = oldKey.substring(idPrefix.length);
-            const newKey = `${masterId}-${datePart}`;
-            const oldRecord = state.attendance[oldKey];
-            const existingRecord = state.attendance[newKey];
+    const touchedDateKeys = new Set(); // Judgment Day Fase 1 R1: para reencolar la subida granular
+    stateManager.batchSetState(() => {
+        Object.keys(state.attendance || {}).forEach(oldKey => {
+            if (oldKey.startsWith(idPrefix)) {
+                const datePart = oldKey.substring(idPrefix.length);
+                touchedDateKeys.add(datePart);
+                const newKey = `${masterId}-${datePart}`;
+                const oldRecord = state.attendance[oldKey];
+                const existingRecord = state.attendance[newKey];
+                // Fase 1 U2b: foto ANTES de la mutación in-place de abajo — si tombstoneáramos oldKey
+                // con el objeto ya mutado, el tombstone heredaría employeeId=masterId (la clave vieja
+                // quedaría con datos del master). El tombstone debe reflejar el registro tal como
+                // estaba bajo oldKey.
+                const oldRecordSnapshot = { ...oldRecord };
 
-            if (!existingRecord) {
-                // Simplemente mover
-                oldRecord.employeeId = masterId;
-                oldRecord.key = newKey;
-                state.attendance[newKey] = oldRecord;
-            } else {
-                // Fusionar inteligentemente
-                existingRecord.present = existingRecord.present || oldRecord.present;
-                existingRecord.hoursWorked = Math.max(existingRecord.hoursWorked || 0, oldRecord.hoursWorked || 0);
-                if (oldRecord.note && (!existingRecord.note || !existingRecord.note.includes(oldRecord.note))) {
-                    existingRecord.note = existingRecord.note ? `${existingRecord.note} | ${oldRecord.note}` : oldRecord.note;
+                if (!existingRecord) {
+                    // Simplemente mover
+                    oldRecord.employeeId = masterId;
+                    oldRecord.key = newKey;
+                    state.attendance[newKey] = stampAttendanceWrite(oldRecord);
+                } else {
+                    // Fusionar inteligentemente
+                    existingRecord.present = existingRecord.present || oldRecord.present;
+                    existingRecord.hoursWorked = Math.max(existingRecord.hoursWorked || 0, oldRecord.hoursWorked || 0);
+                    if (oldRecord.note && (!existingRecord.note || !existingRecord.note.includes(oldRecord.note))) {
+                        existingRecord.note = existingRecord.note ? `${existingRecord.note} | ${oldRecord.note}` : oldRecord.note;
+                    }
+                    // Fusionar horas por posición si existen
+                    if (oldRecord.positionHours) {
+                        existingRecord.positionHours = existingRecord.positionHours || [];
+                        oldRecord.positionHours.forEach(oph => {
+                            const existingPh = existingRecord.positionHours.find(eph => eph.positionId === oph.positionId);
+                            if (existingPh) {
+                                existingPh.hours = Math.max(existingPh.hours, oph.hours);
+                            } else {
+                                existingRecord.positionHours.push(oph);
+                            }
+                        });
+                    }
+                    // Judgment Day Fase 1 R1: el merge recién cambió el contenido de
+                    // existingRecord — debe pasar por el choke point para frescura (LWW) y
+                    // para que revivir (present:true) limpie un deletedAt viejo si el
+                    // master estaba tombstoneado (si no, queda present:true + deletedAt
+                    // seteado — contradictorio: nómina lo paga, todo el resto lo ghostea).
+                    state.attendance[newKey] = stampAttendanceWrite(existingRecord);
                 }
-                // Fusionar horas por posición si existen
-                if (oldRecord.positionHours) {
-                    existingRecord.positionHours = existingRecord.positionHours || [];
-                    oldRecord.positionHours.forEach(oph => {
-                        const existingPh = existingRecord.positionHours.find(eph => eph.positionId === oph.positionId);
-                        if (existingPh) {
-                            existingPh.hours = Math.max(existingPh.hours, oph.hours);
-                        } else {
-                            existingRecord.positionHours.push(oph);
-                        }
-                    });
-                }
+                state.attendance[oldKey] = tombstoneAttendanceWrite(oldRecordSnapshot);
             }
-            delete state.attendance[oldKey];
-        }
+        });
     });
 
     // Key remap spanning multiple dates (assign + delete) touched master's
@@ -1522,50 +1804,102 @@ export function mergeEmployees(masterId, duplicateId) {
     invalidateEmployeeStats(masterId);
     invalidateEmployeeStats(duplicateId);
 
-    // 2. Fusionar arreglos "log" del empleado usando unionById:
-    //    - Loans, advances, bonuses, deductions → unión por id (en colisión
-    //      gana el de mayor updatedAt). Items sin id reciben uno sintético
-    //      y se preservan (defensa en profundidad sobre el fix de unionById).
-    //    - Antes solo se concatenaban advances/bonuses/deductions y se
-    //      perdían los loans del duplicate. El caso real del usuario:
-    //      master(5 asist, 0 préstamos, [a,b]) absorbiendo
-    //      duplicate(0 asist, 3 préstamos, [a,c]) ahora termina como
-    //      (5 asist, 3 préstamos, [a,b,c]).
-    master.loans      = unionById(master.loans,      duplicate.loans);
-    master.advances   = unionById(master.advances,   duplicate.advances);
-    master.bonuses    = unionById(master.bonuses,    duplicate.bonuses);
-    master.deductions = unionById(master.deductions, duplicate.deductions);
+    // Judgment Day Fase 1 R3 (endurecimiento): los pasos 2-7 van en un try
+    // cuyo finally reencola las fechas tocadas. Tras reubicar el reencolado al
+    // final (R2-1), una excepción en cualquiera de estos pasos abortaba la
+    // función ANTES del forEach — y la asistencia ya remapeada/tombstoneada en
+    // el paso 1 quedaba solo-local para siempre (el borrado nunca llegaba a la
+    // nube). La excepción se sigue propagando (el caller debe enterarse); solo
+    // se garantiza que la subida granular no se pierda. Si el finally corre por
+    // una excepción, el mirror que dispara _executeSave refleja el estado a
+    // medio fusionar — correcto: ES el estado local real en ese momento.
+    try {
+        // 2. Fusionar arreglos "log" del empleado usando unionById:
+        //    - Loans, advances, bonuses, deductions → unión por id (en colisión
+        //      gana el de mayor updatedAt). Items sin id reciben uno sintético
+        //      y se preservan (defensa en profundidad sobre el fix de unionById).
+        //    - Antes solo se concatenaban advances/bonuses/deductions y se
+        //      perdían los loans del duplicate. El caso real del usuario:
+        //      master(5 asist, 0 préstamos, [a,b]) absorbiendo
+        //      duplicate(0 asist, 3 préstamos, [a,c]) ahora termina como
+        //      (5 asist, 3 préstamos, [a,b,c]).
+        master.loans      = unionById(master.loans,      duplicate.loans);
+        master.advances   = unionById(master.advances,   duplicate.advances);
+        master.bonuses    = unionById(master.bonuses,    duplicate.bonuses);
+        master.deductions = unionById(master.deductions, duplicate.deductions);
 
-    // 3. Posiciones (lista de strings) → unión deduplicada
-    {
-        const set = new Set();
-        (Array.isArray(master.positions) ? master.positions : []).forEach(p => { if (p) set.add(p); });
-        (Array.isArray(duplicate.positions) ? duplicate.positions : []).forEach(p => { if (p) set.add(p); });
-        master.positions = [...set];
+        // 3. Posiciones (lista de strings) → unión deduplicada
+        {
+            const set = new Set();
+            (Array.isArray(master.positions) ? master.positions : []).forEach(p => { if (p) set.add(p); });
+            (Array.isArray(duplicate.positions) ? duplicate.positions : []).forEach(p => { if (p) set.add(p); });
+            master.positions = [...set];
+        }
+
+        // 4. positionSalaries (mapa por positionId) → unión por clave.
+        //    Master gana en colisión (el usuario lo eligió como verdad);
+        //    las claves que solo existen en el duplicate se traen al master.
+        if (duplicate.positionSalaries && typeof duplicate.positionSalaries === 'object') {
+            const ms = (master.positionSalaries && typeof master.positionSalaries === 'object')
+                ? master.positionSalaries : {};
+            const merged = { ...duplicate.positionSalaries, ...ms };
+            master.positionSalaries = merged;
+        }
+
+        // 5. Completar campos del maestro si están vacíos
+        ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
+            if (!master[field] && duplicate[field]) master[field] = duplicate[field];
+        });
+
+        // 6. Refrescar updatedAt para que el siguiente saveMany propague el
+        //    estado fusionado al doc remoto del master. También
+        //    positionsUpdatedAt: la unión de puestos del paso 3-4 debe ganar el
+        //    LWW fino de puestos (sin el sello, un positionsUpdatedAt stale del
+        //    otro dispositivo la pisaría en el próximo merge).
+        const _mergeNow = Date.now();
+        master.updatedAt = _mergeNow;
+        master.positionsUpdatedAt = _mergeNow;
+        master._isDirty = true;
+
+        // 7. Eliminar el duplicado del estado
+        state.employees = state.employees.filter(e => e.id !== duplicateId);
+    } finally {
+        // Judgment Day Fase 1 R2 (2026-07-03): este bloque estaba ANTES de los
+        // pasos 2-7 (loans/posiciones/positionSalaries/duplicado). Como
+        // saveApplicationData({ immediate: true }) corre _executeSave()
+        // SÍNCRONAMENTE hasta su primer await propio (que no llega antes de
+        // capturar el snapshot completo del mirror), disparar esto antes de
+        // terminar el merge subía una foto a mitad de camino: con el duplicate
+        // todavía en state.employees y los loans/posiciones del master sin
+        // fusionar. Se reubica acá, después del paso 7, para que el snapshot
+        // refleje el estado YA fusionado.
+        //
+        // Judgment Day Fase 1 R1: sin esto, la asistencia fusionada queda
+        // solo-local — el save wholesale de los callers (sin dateKey) no sube
+        // el campo attendance (el mirror lo excluye) y nadie encola la subida
+        // granular por día. Fire-and-forget: mergeEmployees es síncrona.
+        //
+        // Judgment Day Fase 2A Ronda 3: antes esto era un
+        // saveApplicationData({dateKey, immediate}) POR fecha — cada uno
+        // encolaba un mirror COMPLETO (write amplification, el mismo patrón
+        // que el purge de historial ya corrigió). El canal dateKeys sube TODO
+        // el lote en un solo _executeSave: un 'daily' por fecha, un solo
+        // mirror/entities. `immediate: true` sigue siendo necesario (el camino
+        // debounced no retorna Promise y el guardado no debe perderse en un
+        // F5). saveApplicationData también puede retornar `undefined` (p.ej.
+        // borrado local en curso), así que `.catch()` se encadena solo si es
+        // realmente una promesa (Judgment Day Fase 1 R2 — ningún caller de
+        // mergeEmployees envuelve esto en try/catch).
+        // touchedDateKeys es un Set → convertir a array (dateKeys espera Array;
+        // Array.isArray(Set) es false y .length es undefined).
+        const _touchedDates = [...touchedDateKeys];
+        if (_touchedDates.length > 0) {
+            const savePromise = saveApplicationData({ dateKeys: _touchedDates, immediate: true });
+            if (savePromise && typeof savePromise.catch === 'function') {
+                savePromise.catch(e => console.error('Error subiendo asistencia fusionada:', e));
+            }
+        }
     }
-
-    // 4. positionSalaries (mapa por positionId) → unión por clave.
-    //    Master gana en colisión (el usuario lo eligió como verdad);
-    //    las claves que solo existen en el duplicate se traen al master.
-    if (duplicate.positionSalaries && typeof duplicate.positionSalaries === 'object') {
-        const ms = (master.positionSalaries && typeof master.positionSalaries === 'object')
-            ? master.positionSalaries : {};
-        const merged = { ...duplicate.positionSalaries, ...ms };
-        master.positionSalaries = merged;
-    }
-
-    // 5. Completar campos del maestro si están vacíos
-    ['phone', 'email', 'entryDate', 'salary', 'dailyRate'].forEach(field => {
-        if (!master[field] && duplicate[field]) master[field] = duplicate[field];
-    });
-
-    // 6. Refrescar updatedAt para que el siguiente saveMany propague el
-    //    estado fusionado al doc remoto del master.
-    master.updatedAt = Date.now();
-    master._isDirty = true;
-
-    // 7. Eliminar el duplicado del estado
-    state.employees = state.employees.filter(e => e.id !== duplicateId);
 
     return true;
 }

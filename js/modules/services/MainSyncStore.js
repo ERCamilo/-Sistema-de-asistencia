@@ -24,6 +24,14 @@ const OUTBOX = 'mainSyncOutbox';
 // debilitando el dead-lettering. Mismo patrón que PettyCashStore ya usa.
 let _flushing = false;
 
+// JD-F5 (ALTO): flush() lee la lista pending a memoria UNA vez y la itera
+// awaiteando la red por entrada. clearAll() incrementa esta generación; el
+// bucle la re-chequea entre entradas y corta si cambió — sin esto, una purga
+// disparada a mitad de un flush en vuelo (usuario tocó Borrar Local /
+// Descargar y Reemplazar) vaciaba el store pero la copia stale en memoria
+// seguía subiéndose, re-creando exactamente lo que la purga debía impedir.
+let _purgeGeneration = 0;
+
 // Espeja PettyCashStore.MAX_FLUSH_ATTEMPTS: tras este número de intentos
 // fallidos, la entrada pasa a 'dead' y deja de bloquear el resto de la cola.
 export const MAX_FLUSH_ATTEMPTS = 5;
@@ -69,12 +77,20 @@ function _resolveCloudCall(entry, guards) {
         // overwrite wholesale que el watermark tenga que proteger.
         return () => guards.saveDaily(entry.dateKey, entry.records);
     }
+    if (entry.kind === 'entities') {
+        // Sin gate de watermark: cada saveOne per-entidad hace su propio LWW por
+        // updatedAt — el gate grueso del espejo no debe frenar estos writes.
+        return () => guards.saveEntities(entry.employees, entry.positions, entry.leaders, entry.schemaVersion);
+    }
     if (entry.kind === 'delete') {
         const minSchema = DELETE_SCHEMA_MIN[entry.entity];
         // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
         // pendiente hasta que la cuenta migre — no es un fallo.
         if (!minSchema || (entry.schemaVersion || 0) < minSchema) return null;
-        return () => guards.deleteEntity(entry.entity, entry.id);
+        // deletedAt (opcional): si viene, el borrado es un tombstone (soft) en
+        // vez de un hard-delete — el guard decide según la entidad. Empleados
+        // usan tombstone (no resucitan); cargos/líderes siguen con hard-delete.
+        return () => guards.deleteEntity(entry.entity, entry.id, entry.deletedAt);
     }
     return null; // kind desconocido — no debería pasar; no tocar la entrada
 }
@@ -120,20 +136,50 @@ export const MainSyncStore = {
     },
 
     /**
+     * Encola las entidades (empleados/puestos/líderes) para su escritura
+     * per-doc, DESACOPLADA del espejo. Coalescing: sólo queda UNA entrada
+     * 'entities' pendiente a la vez (la más reciente reemplaza a la anterior).
+     *
+     * A diferencia de 'mirror', esta entrada NO se gatea por el watermark en
+     * _resolveCloudCall — cada saveOne/saveMany per-entidad ya hace su propio
+     * LWW por updatedAt (ver PositionRepository.saveOne), así que el gate
+     * grueso del espejo sólo difería en silencio ediciones (p.ej. préstamos)
+     * que el merge fino ya sabe resolver bien.
+     *
+     * `employees`/`positions`/`leaders` deben ser arrays INMUTABLES ya
+     * clonados por el caller (mismo contrato que `enqueueMirror`).
+     */
+    async enqueueEntities(employees, positions, leaders, schemaVersion) {
+        const all = await _getAll();
+        const stalePending = all.filter(e => e && e.kind === 'entities' && e.status === 'pending');
+        for (const e of stalePending) await _deleteQuiet(e.key);
+
+        await indexedDBService.update(OUTBOX, {
+            kind: 'entities', employees, positions, leaders, schemaVersion, ts: Date.now(), status: 'pending'
+        });
+    },
+
+    /**
      * Encola el borrado de una entidad en la nube. Dedup: si ya hay un
      * borrado pendiente para la MISMA entidad+id, no duplica.
      *
      * `schemaVersion` se captura AHORA (al enqueuear) para que flush() pueda
      * gatear el drenado sin depender del estado en vivo en ese momento futuro.
      */
-    async enqueueDelete(entity, id, schemaVersion) {
+    async enqueueDelete(entity, id, schemaVersion, opts = {}) {
         const all = await _getAll();
         const dup = all.some(e => e && e.kind === 'delete' && e.status === 'pending' && e.entity === entity && e.id === id);
         if (dup) return;
 
-        await indexedDBService.update(OUTBOX, {
+        // deletedAt (opcional): marca el borrado como tombstone durable (soft).
+        // Persistido en la entrada para que el flush escriba el tombstone con
+        // el ts del BORRADO (no el del flush) — el LWW necesita el momento real
+        // para que una edición posterior pueda revivir al empleado.
+        const entry = {
             kind: 'delete', entity, id, schemaVersion, ts: Date.now(), status: 'pending'
-        });
+        };
+        if (Number.isFinite(opts.deletedAt)) entry.deletedAt = opts.deletedAt;
+        await indexedDBService.update(OUTBOX, entry);
     },
 
     /**
@@ -150,6 +196,7 @@ export const MainSyncStore = {
      *   cloudWatermark: () => number,
      *   saveMirror: (snapshot) => Promise,
      *   saveDaily: (dateKey, records) => Promise,
+     *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
      *   deleteEntity: (entity, id) => Promise,
      *   onCloudResult: (ok) => void
      * }} guards - inyectado por el caller (PersistenceService), evaluado en
@@ -161,12 +208,16 @@ export const MainSyncStore = {
 
         _flushing = true;
         try {
+            const generationAtStart = _purgeGeneration; // JD-F5: foto de la generación
             const all = await _getAll();
             const pending = all
                 .filter(e => e && e.status === 'pending')
                 .sort((a, b) => (a.key || 0) - (b.key || 0));
 
             for (const entry of pending) {
+                // JD-F5: si hubo una purga desde que arrancó este flush, la
+                // lista en memoria es stale — cortar sin subir nada más.
+                if (generationAtStart !== _purgeGeneration) break;
                 const cloudCall = _resolveCloudCall(entry, guards);
                 if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
 
@@ -183,6 +234,11 @@ export const MainSyncStore = {
                     // argumento inválido) dead-letterea de inmediato sin gastar los
                     // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
                     guards.onCloudResult(false, err, entry);
+                    // R2-5 (ronda 2): si hubo una purga mientras esta entrada
+                    // estaba en vuelo, NO re-escribirla — el update la
+                    // resucitaría en el store recién vaciado y el próximo
+                    // flush subiría exactamente lo que la purga debía impedir.
+                    if (generationAtStart !== _purgeGeneration) break;
                     const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
                     await indexedDBService.update(OUTBOX, { ...entry, ...next });
                     if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima
@@ -204,6 +260,43 @@ export const MainSyncStore = {
     async deadCount() {
         const all = await _getAll();
         return all.filter(e => e && e.status === 'dead').length;
+    },
+
+    /**
+     * Judgment Day Fase 1 R1: fechas de asistencia con una subida diaria todavía
+     * sin confirmar en la nube (pending o dead). U2d (compactación de
+     * tombstones) debe consultar esto antes de borrar un tombstone vencido —
+     * si su fecha está acá, borrarlo destruiría la única evidencia local del
+     * borrado antes de que llegara a propagarse.
+     */
+    async getUnconfirmedDailyDateKeys() {
+        const all = await _getAll();
+        return new Set(
+            all.filter(e => e && e.kind === 'daily' && (e.status === 'pending' || e.status === 'dead'))
+               .map(e => e.dateKey)
+        );
+    },
+
+    /**
+     * Vacía el outbox COMPLETO (pending + dead). Fase 0.5: las operaciones
+     * que adoptan una fuente de verdad nueva ("Descargar y Reemplazar",
+     * "Borrar Local", "Borrar Nube") deben purgar los pendientes viejos —
+     * si no, el drenado del próximo login/online sube datos de ANTES de la
+     * operación y pisa/borra justo lo que el usuario eligió conservar.
+     * @returns {Promise<boolean>} true si purgó; false si IndexedDB falló
+     *   (nunca lanza — el caller decide si advertir, pero no debe reventar).
+     */
+    async clearAll() {
+        // JD-F5: incrementar la generación ANTES de limpiar, para que un flush
+        // en vuelo corte su iteración stale aunque el clear tarde o falle.
+        _purgeGeneration++;
+        try {
+            await indexedDBService.clear(OUTBOX);
+            return true;
+        } catch (e) {
+            console.warn('⚠️ No se pudo vaciar el outbox de sync:', e);
+            return false;
+        }
     },
 
     /**

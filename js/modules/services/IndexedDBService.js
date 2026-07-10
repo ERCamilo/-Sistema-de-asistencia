@@ -404,7 +404,14 @@ export class IndexedDBService {
     async saveState(state, options = {}) {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
         try {
-            const isGranular = !!options.dateKey;
+            // Granular = una fecha (dateKey) o un lote de fechas (dateKeys, el
+            // canal unificado multi-fecha del purge). Sin reconocer dateKeys,
+            // esos guardados degradaban a completo (dedup + reescritura de
+            // todos los stores en cada purge).
+            const _granularDates = Array.isArray(options.dateKeys)
+                ? options.dateKeys.filter(Boolean)
+                : (options.dateKey ? [options.dateKey] : []);
+            const isGranular = _granularDates.length > 0;
 
             if (options.clearFirst) {
                 // 🧹 M3: limpiar SOLO los stores que este método reescribe.
@@ -471,10 +478,11 @@ export class IndexedDBService {
 
             let attToSave = [];
             if (isGranular) {
-                // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para mayor robustez
-                const dateKey = options.dateKey;
+                // ⚡ FIX: Soportar sufijos con guion (-) o guion bajo (_) para mayor
+                // robustez, para CADA fecha del lote granular.
+                const suffixes = _granularDates.flatMap(dk => [`-${dk}`, `_${dk}`]);
                 attToSave = Object.entries(state.attendance || {})
-                    .filter(([key]) => key.endsWith(`-${dateKey}`) || key.endsWith(`_${dateKey}`))
+                    .filter(([key]) => suffixes.some(s => key.endsWith(s)))
                     .map(([key, value]) => ({ key, ...value }));
             } else {
                 attToSave = Object.entries(state.attendance || {}).map(([key, value]) => ({

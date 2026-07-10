@@ -41,6 +41,7 @@ function makeGuards(overrides = {}) {
         cloudWatermark: () => 0,
         saveMirror: jest.fn().mockResolvedValue(undefined),
         saveDaily: jest.fn().mockResolvedValue(undefined),
+        saveEntities: jest.fn().mockResolvedValue(undefined),
         deleteEntity: jest.fn().mockResolvedValue(undefined),
         onCloudResult: jest.fn(),
         ...overrides
@@ -151,6 +152,58 @@ testRunner.addSuite("MainSyncStore — enqueue y coalescing", {
 
         testRunner.assertEquals(updatesToOutbox().length, 1,
             'un id igual mismo en OTRA entidad (position vs employee) no debe considerarse duplicado');
+    },
+
+    // Fase 2 U1: las entidades (empleados/puestos/líderes) se encolan APARTE
+    // del mirror — el gate de watermark del mirror sólo debía proteger el
+    // doc espejo, pero de arrastre también difería estos writes per-entidad,
+    // que ya hacen su propio LWW por updatedAt (ver PositionRepository.saveOne).
+    async "enqueueEntities con cola vacía crea una entrada entities pending"() {
+        resetMocks();
+        const employees = [{ id: 'e1' }];
+        const positions = [{ id: 'p1' }];
+        const leaders = [{ id: 'l1' }];
+        await MainSyncStore.enqueueEntities(employees, positions, leaders, 3);
+
+        const updates = updatesToOutbox();
+        testRunner.assertEquals(updates.length, 1, 'debe crear exactamente una entrada');
+        testRunner.assertEquals(updates[0][1].kind, 'entities');
+        testRunner.assertEquals(updates[0][1].status, 'pending');
+        testRunner.assertEquals(updates[0][1].employees, employees);
+        testRunner.assertEquals(updates[0][1].positions, positions);
+        testRunner.assertEquals(updates[0][1].leaders, leaders);
+        testRunner.assertEquals(updates[0][1].schemaVersion, 3);
+    },
+
+    async "enqueueEntities coalesce: borra la entrada entities pending anterior y deja una sola"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(4, { kind: 'entities', employees: [{ id: 'old' }] })
+        ]);
+        await MainSyncStore.enqueueEntities([], [], [], 3);
+
+        testRunner.assert(
+            indexedDBService.delete.mock.calls.some(c => c[0] === 'mainSyncOutbox' && c[1] === 4),
+            'debe borrar la entrada entities pending anterior (key 4)'
+        );
+        const updates = updatesToOutbox();
+        const entitiesUpdates = updates.filter(c => c[1].kind === 'entities');
+        testRunner.assertEquals(entitiesUpdates.length, 1, 'solo debe quedar UNA entrada entities pendiente (última gana)');
+    },
+
+    async "enqueueEntities NO borra entradas de OTROS kinds (mirror/daily/delete)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(7, { kind: 'mirror', snapshot: {} }),
+            outboxEntry(8, { kind: 'daily', dateKey: '2026-07-01' }),
+            outboxEntry(9, { kind: 'delete', entity: 'employee', id: 'e1' })
+        ]);
+        await MainSyncStore.enqueueEntities([], [], [], 3);
+
+        testRunner.assert(
+            !indexedDBService.delete.mock.calls.some(c => c[1] === 7 || c[1] === 8 || c[1] === 9),
+            'entradas mirror/daily/delete pendientes no deben tocarse al encolar entities'
+        );
     }
 
 });
@@ -231,6 +284,19 @@ testRunner.addSuite("MainSyncStore — flush: guards re-evaluados al vaciar (lan
 
         testRunner.assertEquals(guards.saveDaily.mock.calls.length, 1,
             'la asistencia diaria se sube siempre (merge por día, no hay wholesale overwrite que proteger)');
+    },
+
+    async "las entidades (empleados/puestos/líderes) NO se gatean por el watermark (LWW fino por-entidad, no wholesale)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'entities', employees: [{ id: 'e1' }], positions: [], leaders: [], schemaVersion: 3 })
+        ]);
+        const guards = makeGuards({ cloudWatermark: () => 999999999 }); // nube "mucho más nueva"
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveEntities.mock.calls.length, 1,
+            'las entidades se suben siempre (cada saveOne/saveMany ya hace su propio LWW por updatedAt)');
     }
 
 });
@@ -259,6 +325,25 @@ testRunner.addSuite("MainSyncStore — flush: dispatch por kind", {
 
         testRunner.assertEquals(guards.saveDaily.mock.calls[0][0], '2026-07-01');
         testRunner.assertEquals(guards.saveDaily.mock.calls[0][1], records);
+    },
+
+    async "entities drena vía saveEntities(employees, positions, leaders, schemaVersion)"() {
+        resetMocks();
+        const employees = [{ id: 'e1' }];
+        const positions = [{ id: 'p1' }];
+        const leaders = [{ id: 'l1' }];
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'entities', employees, positions, leaders, schemaVersion: 3 })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][0], employees, 'debe pasar los empleados encolados');
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][1], positions, 'debe pasar los puestos encolados');
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][2], leaders, 'debe pasar los líderes encolados');
+        testRunner.assertEquals(guards.saveEntities.mock.calls[0][3], 3, 'debe pasar el schemaVersion encolado');
+        testRunner.assert(indexedDBService.delete.mock.calls.some(c => c[1] === 1), 'debe drenar la entrada tras el éxito');
     },
 
     async "delete de empleado con schemaVersion>=2 llama deleteEntity('employee', id)"() {
@@ -425,6 +510,34 @@ testRunner.addSuite("MainSyncStore — pendingCount/deadCount/requeueDeadEntries
         // No debe pasar: sólo debe re-encolar y devolver el conteo.
         const n = await MainSyncStore.requeueDeadEntries();
         testRunner.assertEquals(n, 1);
+    },
+
+    // Judgment Day Fase 1 R1: U2d (compactación de tombstones) necesita saber
+    // qué fechas de asistencia todavía no confirmaron su subida diaria en la
+    // nube, para NO borrar el tombstone local de esa fecha (destruiría la
+    // única evidencia del borrado antes de que se propagara).
+    async "getUnconfirmedDailyDateKeys devuelve las fechas 'daily' pending o dead, ignorando otros kinds y confirmadas"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'daily', dateKey: '2026-04-01', status: 'pending' }),
+            outboxEntry(2, { kind: 'daily', dateKey: '2026-04-02', status: 'dead' }),
+            outboxEntry(3, { kind: 'mirror', dateKey: '2026-04-01', status: 'pending' }), // otro kind: ignorar
+            outboxEntry(4, { kind: 'delete', entity: 'employee', id: 'e1', status: 'pending' }) // otro kind: ignorar
+        ]);
+
+        const dateKeys = await MainSyncStore.getUnconfirmedDailyDateKeys();
+
+        testRunner.assert(dateKeys instanceof Set, 'debe devolver un Set');
+        testRunner.assertEquals(dateKeys.size, 2, 'sólo las 2 entradas daily (pending+dead) deben contarse');
+        testRunner.assert(dateKeys.has('2026-04-01'), 'debe incluir la fecha daily pending');
+        testRunner.assert(dateKeys.has('2026-04-02'), 'debe incluir la fecha daily dead');
+    },
+
+    async "getUnconfirmedDailyDateKeys devuelve un Set vacío si no hay entradas 'daily' sin confirmar"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([]);
+        const dateKeys = await MainSyncStore.getUnconfirmedDailyDateKeys();
+        testRunner.assertEquals(dateKeys.size, 0);
     }
 
 });
@@ -539,4 +652,127 @@ testRunner.addSuite("MainSyncStore — flush: guard de re-entrancy (Judgment Day
         testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1,
             'tras un error inesperado, un flush posterior debe poder correr normalmente (guard liberado)');
     }
+});
+
+testRunner.addSuite("MainSyncStore — clearAll (Fase 0.5, U1)", {
+
+    async "clearAll vacía el store del outbox y resuelve true"() {
+        resetMocks();
+        indexedDBService.clear.mockReset().mockResolvedValue(undefined);
+
+        const ok = await MainSyncStore.clearAll();
+
+        testRunner.assertEquals(ok, true, 'debe reportar éxito');
+        testRunner.assert(
+            indexedDBService.clear.mock.calls.some(c => c[0] === 'mainSyncOutbox'),
+            'debe limpiar exactamente el store mainSyncOutbox'
+        );
+    },
+
+    async "clearAll ante un error de IndexedDB NO lanza — resuelve false"() {
+        // Los callers (Descargar y Reemplazar, Borrar Local) necesitan saber si
+        // la purga falló para poder advertir, pero nunca deben reventar por esto.
+        resetMocks();
+        indexedDBService.clear.mockReset().mockRejectedValue(new Error('IDB caído'));
+
+        let threw = false;
+        let ok = null;
+        try { ok = await MainSyncStore.clearAll(); } catch (_) { threw = true; }
+
+        testRunner.assertEquals(threw, false, 'no debe propagar el error');
+        testRunner.assertEquals(ok, false, 'debe reportar el fallo con false');
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — clearAll aborta un flush en vuelo (JD-F5, ALTO)", {
+
+    async "las entradas leídas ANTES de la purga no se suben DESPUÉS de ella"() {
+        // flush() lee la lista pending a memoria UNA vez y la itera awaiteando
+        // la red por entrada. Sin coordinación, un clearAll() disparado a mitad
+        // (usuario tocó Borrar Local / Descargar y Reemplazar) purgaba el store
+        // pero el bucle seguía subiendo su copia stale en memoria — re-subiendo
+        // exactamente lo que la purga debía impedir (bug ALTA #1 en ventana).
+        resetMocks();
+        let releaseFirst;
+        const gate = new Promise(r => { releaseFirst = r; });
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } }),
+            outboxEntry(2, { kind: 'daily', dateKey: '2026-07-01', records: {} })
+        ]);
+        indexedDBService.clear.mockReset().mockResolvedValue(undefined);
+        const guards = makeGuards({ saveMirror: jest.fn(() => gate) });
+
+        const flushing = MainSyncStore.flush(guards);
+        await Promise.resolve(); // dejar que el flush entre a la entrada 1 (bloqueada en la red)
+
+        await MainSyncStore.clearAll(); // purga mientras la entrada 1 sigue en vuelo
+        releaseFirst();
+        await flushing;
+
+        testRunner.assertEquals(guards.saveDaily.mock.calls.length, 0,
+            'la entrada 2 (leída antes de la purga) NO debe subirse después del clearAll');
+    },
+
+    async "sin purga de por medio, el mismo flush procesa TODAS las entradas (control)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } }),
+            outboxEntry(2, { kind: 'daily', dateKey: '2026-07-01', records: {} })
+        ]);
+        const guards = makeGuards();
+
+        await MainSyncStore.flush(guards);
+
+        testRunner.assertEquals(guards.saveMirror.mock.calls.length, 1);
+        testRunner.assertEquals(guards.saveDaily.mock.calls.length, 1,
+            'control: el corte del test anterior debe deberse SOLO al clearAll');
+    }
+
+});
+
+testRunner.addSuite("MainSyncStore — la purga también protege el camino de FALLO (JD ronda 2, R2-5)", {
+
+    async "una entrada que FALLA después de la purga NO se re-escribe al store recién vaciado"() {
+        // El chequeo de generación de R1 sólo cubría el avance entre entradas
+        // (camino de éxito). Si la entrada en vuelo FALLABA tras la purga, el
+        // catch hacía update(OUTBOX, ...) incondicional — resucitando la
+        // entrada en el store que clearAll acababa de vaciar; el próximo
+        // flush (login/online) la subía igual.
+        resetMocks();
+        let failFirst;
+        const gate = new Promise((_, reject) => { failFirst = reject; });
+        gate.catch(() => { /* pre-manejada: evita unhandled rejection si el reject gana la carrera */ });
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } })
+        ]);
+        indexedDBService.clear.mockReset().mockResolvedValue(undefined);
+        const guards = makeGuards({ saveMirror: jest.fn(() => gate) });
+
+        const flushing = MainSyncStore.flush(guards);
+        await new Promise(r => setTimeout(r, 0)); // tick real: el flush llega a await cloudCall()
+
+        await MainSyncStore.clearAll();           // purga mientras vuela
+        failFirst(new Error('unavailable'));      // y la red FALLA después
+        await flushing;
+
+        const outboxUpdates = indexedDBService.update.mock.calls.filter(c => c[0] === 'mainSyncOutbox');
+        testRunner.assertEquals(outboxUpdates.length, 0,
+            'el catch NO debe resucitar la entrada purgada re-escribiéndola a IndexedDB');
+    },
+
+    async "sin purga de por medio, el catch SÍ persiste el attempts/lastError (control)"() {
+        resetMocks();
+        indexedDBService.getAll.mockResolvedValue([
+            outboxEntry(1, { kind: 'mirror', snapshot: { settings: {} } })
+        ]);
+        const guards = makeGuards({ saveMirror: jest.fn().mockRejectedValue(new Error('unavailable')) });
+
+        await MainSyncStore.flush(guards);
+
+        const outboxUpdates = indexedDBService.update.mock.calls.filter(c => c[0] === 'mainSyncOutbox');
+        testRunner.assertEquals(outboxUpdates.length, 1,
+            'control: el dead-lettering normal (sin purga) debe seguir persistiendo el intento fallido');
+    }
+
 });

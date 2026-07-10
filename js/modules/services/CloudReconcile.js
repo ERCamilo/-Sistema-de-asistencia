@@ -38,6 +38,12 @@ export async function reconcileCloudFromLocal(localEmployees, opts = {}) {
     const errors = [];
     const repository = opts.repository || await _defaultRepoLoader();
     const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
+    // Callback para que el caller (que sí conoce el EntityUploadTracker) marque
+    // como subidas las entidades re-empujadas: este flujo escribe por fuera de
+    // saveEntities, así que sin esto el watermark queda stale y el próximo
+    // saveEntities re-sube todo (cuota). CloudReconcile es repository-agnóstico
+    // por diseño, así que no toca el tracker directamente.
+    const onUploaded = typeof opts.onUploaded === 'function' ? opts.onUploaded : () => {};
 
     const localList = Array.isArray(localEmployees) ? localEmployees : [];
     const localIds = new Set(
@@ -77,9 +83,14 @@ export async function reconcileCloudFromLocal(localEmployees, opts = {}) {
 
     onProgress({ phase: 'pushing-local', total: localList.length });
     let written = 0;
+    let saved = [];
     try {
         const res = await repository.saveMany(localList, { mergeRemote: true });
         written = res?.written ?? 0;
+        saved = Array.isArray(res?.saved) ? res.saved : [];
+        // Actualizar el watermark con lo efectivamente escrito (no toda la
+        // lista): si un write falló, ese id sigue siendo candidato.
+        try { onUploaded(saved); } catch (e) { errors.push({ op: 'onUploaded', error: String(e?.message || e) }); }
     } catch (e) {
         errors.push({ op: 'saveMany', error: String(e?.message || e) });
     }
@@ -91,6 +102,7 @@ export async function reconcileCloudFromLocal(localEmployees, opts = {}) {
         cloudAfter: cloudBefore - deleted.length,
         deleted,
         written,
+        saved,
         errors
     };
 }
