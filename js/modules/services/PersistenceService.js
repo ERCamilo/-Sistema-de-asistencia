@@ -397,6 +397,37 @@ export function drainMainSyncOutbox() {
 }
 
 /**
+ * 🔁 Drenado HASTA VACIAR (Judgment Day 2026-07-11, jueces A+B): un flush()
+ * suelto puede ser un no-op silencioso — MainSyncStore.flush tiene un mutex
+ * (`_flushing`) y si el drenado fire-and-forget de _executeSave lo agarró
+ * primero, la llamada explícita resuelve al instante sin subir nada. La
+ * restauración necesita la garantía real ("la nube ya tiene el estado
+ * restaurado antes de reanudar la descarga"), así que acá se sondea
+ * pendingCount entre flushes hasta que el outbox quede en 0 o se agoten los
+ * intentos. Devuelve true si quedó vacío; false si quedaron pendientes (el
+ * outbox es durable y reintenta solo — el caller debe AVISAR, no mentir).
+ */
+export async function drainMainSyncOutboxUntilEmpty({ maxAttempts = 12, delayMs = 500 } = {}) {
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            await MainSyncStore.flush(_mainSyncGuards());
+        } catch (e) {
+            console.warn('⚠️ drainMainSyncOutboxUntilEmpty: flush falló (reintenta):', e);
+        }
+        let pending;
+        try {
+            pending = await MainSyncStore.pendingCount();
+        } catch (e) {
+            console.warn('⚠️ drainMainSyncOutboxUntilEmpty: no se pudo leer pendingCount:', e);
+            return false;
+        }
+        if (pending === 0) return true;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    return false;
+}
+
+/**
  * 🔁 Reintento EXPLÍCITO del usuario (botón "Reintentar" del badge/toast):
  * revive primero las entradas 'dead' (agotaron MAX_FLUSH_ATTEMPTS contra un
  * error que en su momento parecía transitorio — ej. cuota de Firestore
@@ -806,13 +837,19 @@ async function _executeSave(options = {}) {
         // encolarse (evita la carrera de que flush() lea el outbox antes de
         // que el enqueue haya escrito) — pero sin `await` acá: el guardado
         // LOCAL (más abajo) nunca debe esperar a la nube.
-        Promise.all(_outboxEnqueues)
-            .catch(e => console.warn('⚠️ Error encolando al outbox:', e))
-            .finally(() => {
-                MainSyncStore.flush(_mainSyncGuards()).catch(e =>
-                    console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
-                );
-            });
+        const _outboxReady = Promise.all(_outboxEnqueues)
+            .catch(e => console.warn('⚠️ Error encolando al outbox:', e));
+        _outboxReady.finally(() => {
+            MainSyncStore.flush(_mainSyncGuards()).catch(e =>
+                console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
+            );
+        });
+        // Restauración (Judgment Day 2026-07-11): el caller que va a drenar
+        // hasta vaciar necesita garantía de que las entradas YA están en el
+        // outbox antes de sondear pendingCount — si no, un sondeo temprano ve
+        // 0 y "drena" en falso. Encolar es una escritura LOCAL a IndexedDB;
+        // esperar esto NO es esperar a la nube.
+        if (options.awaitOutboxEnqueue) await _outboxReady;
 
         // 2.b Drenar la cola de borrados pendientes en la nube.
         // Ocurre solo si schemaVersion >= 2 (cuentas migradas). Es seguro
@@ -1095,6 +1132,55 @@ export async function validateDataIntegrity() {
     const positionIds = new Set(state.positions.map(p => p.id));
     const leaderIds = new Set(state.leaders.map(l => l.id));
 
+    // 🛑 Guardia anti-masacre (incidente de campo 2026-07-11): un catálogo
+    // vacío o a medio cargar (restauración, LiveSync que reemplaza la lista
+    // entera, merge parcial) hacía que esta limpieza tratara a TODOS los
+    // empleados como huérfanos: vaciaba positions, estampaba
+    // positionsUpdatedAt=now y ese borrado GANABA el LWW y se propagaba a la
+    // nube y a todos los dispositivos. La limpieza es para huérfanos
+    // AISLADOS; si el daño sería masivo, la señal es "catálogo incompleto"
+    // y NO se toca nada hasta que el catálogo esté sano. Umbrales (Judgment
+    // Day, jueces A+B — el piso de ">=3" dejaba sin guardia a las empresas
+    // chicas):
+    //   a) catálogo vacío con referencias;
+    //   b) ≥2 empleados afectados que además son ≥25% de los que tienen
+    //      puestos;
+    //   c) CUALQUIER empleado que quedaría en CERO posiciones — esa es la
+    //      firma de la masacre, no de un huérfano (deletePosition bloquea
+    //      puestos activos/asignados/con historial, así que perder el único
+    //      puesto por limpieza legítima es casi imposible). Mejor un huérfano
+    //      visible que un borrado propagado.
+    const _empWithPositions = state.employees.filter(e => (e.positions || []).length > 0);
+    const _empAffected = _empWithPositions.filter(e => e.positions.some(pid => !positionIds.has(pid)));
+    const _empLosingAll = _empAffected.filter(e => e.positions.every(pid => !positionIds.has(pid)));
+    const positionsCatalogSuspicious =
+        (positionIds.size === 0 && _empAffected.length > 0) ||
+        (_empAffected.length >= 2 && _empAffected.length * 4 >= _empWithPositions.length) ||
+        (_empLosingAll.length > 0);
+    if (positionsCatalogSuspicious) {
+        console.error(
+            `🛑 validateDataIntegrity: limpieza de puestos OMITIDA — ${_empAffected.length}/${_empWithPositions.length} ` +
+            `empleado(s) perderían puestos con un catálogo de ${positionIds.size}. Esto es señal de catálogo ` +
+            `incompleto (carga/merge/restauración parcial), no de huérfanos reales.`
+        );
+    }
+
+    // Misma guardia para líderes, con rama proporcional (Judgment Day, juez
+    // B): la corrupción PARCIAL del catálogo (queda 1 líder de 6) también
+    // anulaba leaderId de casi todas las posiciones, estampaba y propagaba.
+    const _posWithLeader = state.positions.filter(p => p.leaderId);
+    const _posAffectedLeaders = _posWithLeader.filter(p => !leaderIds.has(p.leaderId));
+    const leadersCatalogSuspicious =
+        (leaderIds.size === 0 && _posWithLeader.length > 0) ||
+        (_posAffectedLeaders.length >= 2 && _posAffectedLeaders.length * 4 >= _posWithLeader.length);
+    if (leadersCatalogSuspicious) {
+        console.error(
+            `🛑 validateDataIntegrity: limpieza de líderes OMITIDA — ${_posAffectedLeaders.length}/` +
+            `${_posWithLeader.length} posición(es) perderían su líder con un catálogo de ${leaderIds.size}. ` +
+            `Señal de catálogo incompleto, no de huérfanos reales.`
+        );
+    }
+
     // 1. Limpiar posiciones en empleados
     // 🔁 Fix del bucle de sanitización (test de campo 2026-07-06): TODA
     // corrección dentro de un empleado/puesto DEBE estampar updatedAt (la
@@ -1106,7 +1192,7 @@ export async function validateDataIntegrity() {
     // cuota. La estampa hace que la corrección gane el merge y converja.
     // Y la inversa importa igual: si NO hubo corrección, NO estampar —
     // estampar de más re-subiría a todos los empleados en cada validación.
-    state.employees.forEach(emp => {
+    if (!positionsCatalogSuspicious) state.employees.forEach(emp => {
         let empFixed = false;
         if (emp.positions) {
             const validPositions = emp.positions.filter(pid => positionIds.has(pid));
@@ -1140,7 +1226,7 @@ export async function validateDataIntegrity() {
     });
 
     // 3. Limpiar líderes en posiciones
-    state.positions.forEach(pos => {
+    if (!leadersCatalogSuspicious) state.positions.forEach(pos => {
         if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
             pos.leaderId = null;
             pos.updatedAt = Date.now(); // misma regla — sin estampa no sube ni converge
@@ -1149,7 +1235,7 @@ export async function validateDataIntegrity() {
     });
 
     // 4. Limpiar positionHours en asistencia
-    Object.values(state.attendance).forEach(att => {
+    if (!positionsCatalogSuspicious) Object.values(state.attendance).forEach(att => {
         if (att.positionHours) {
             const validPh = att.positionHours.filter(ph => positionIds.has(ph.positionId));
             if (validPh.length !== att.positionHours.length) {

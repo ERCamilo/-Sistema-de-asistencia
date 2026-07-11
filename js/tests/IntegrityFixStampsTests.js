@@ -122,8 +122,11 @@ testRunner.addSuite("IntegrityFixStamps — las correcciones estampan updatedAt 
     async "corregir un pos.leaderId huérfano estampa pos.updatedAt"() {
         const snap = snapshotState();
         try {
+            // El catálogo tiene un líder vivo: huérfano AISLADO legítimo.
+            // (Con catálogo de líderes VACÍO la guardia anti-masacre omite
+            // la limpieza a propósito — ver DataIntegrityTests.)
             state.positions = [{ id: 'p1', name: 'Puesto', leaderId: 'lider-borrado', updatedAt: 1000 }];
-            state.leaders = [];
+            state.leaders = [{ id: 'lider-vivo', name: 'Líder' }];
             state.attendance = {};
             state.employees = [];
             const before = Date.now() - 1;

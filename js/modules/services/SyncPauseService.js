@@ -163,4 +163,41 @@ export async function resumeCloudDownload() {
     console.log('▶️ Descarga de datos de la nube REANUDADA...');
 }
 
-export default { isSyncPaused, pauseCloudUpload, resumeCloudUpload, isDownloadPaused, pauseCloudDownload, resumeCloudDownload };
+// 🩹 Marcador de pausa-por-restauración (Judgment Day 2026-07-11): la
+// restauración pausa la DESCARGA y la reanuda en su finally. Si la pestaña
+// muere a mitad (crash, cierre), el finally nunca corre y el dispositivo
+// queda "congelado" respecto a la nube para siempre, en silencio. El
+// marcador distingue "pausa de restauración" de una pausa manual del
+// usuario, y el heal al arrancar reanuda SOLO la primera.
+const _RESTORE_PAUSE_LS_KEY = 'asistencia_restore_download_pause';
+
+export function markRestoreDownloadPause() {
+    try { localStorage.setItem(_RESTORE_PAUSE_LS_KEY, 'true'); } catch (_) { /* noop */ }
+}
+
+export function clearRestoreDownloadPause() {
+    try { localStorage.removeItem(_RESTORE_PAUSE_LS_KEY); } catch (_) { /* noop */ }
+}
+
+/**
+ * Al arrancar la app: si quedó un marcador de restauración con la descarga
+ * aún pausada, la restauración anterior murió a mitad — reanudar y avisar
+ * por consola. Una pausa manual (sin marcador) jamás se toca.
+ * @returns {boolean} true si hubo curación.
+ */
+export function healOrphanedRestorePause() {
+    try {
+        if (localStorage.getItem(_RESTORE_PAUSE_LS_KEY) !== 'true') return false;
+        localStorage.removeItem(_RESTORE_PAUSE_LS_KEY);
+        if (isDownloadPaused()) {
+            _writeDownloadPausedFlag(false);
+            console.warn('🩹 Restauración interrumpida detectada: la descarga de la nube quedó pausada y se reanudó automáticamente.');
+            return true;
+        }
+        return false;
+    } catch (_) {
+        return false;
+    }
+}
+
+export default { isSyncPaused, pauseCloudUpload, resumeCloudUpload, isDownloadPaused, pauseCloudDownload, resumeCloudDownload, markRestoreDownloadPause, clearRestoreDownloadPause, healOrphanedRestorePause };

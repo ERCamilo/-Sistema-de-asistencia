@@ -40,6 +40,19 @@ class FirebaseService {
     }
 
     /**
+     * Olvida los watermarks de subida de entidades (empleados/puestos/líderes).
+     * Para la RESTAURACIÓN de un snapshot: el estado restaurado debe re-subirse
+     * ENTERO aunque los ids ya figuren como "subidos" — sin este reset,
+     * filterChanged() filtraría el roster restaurado y la nube conservaría la
+     * copia que el usuario justamente quiso reemplazar.
+     */
+    resetEntityUploadTrackers() {
+        _employeeUploadTracker.reset();
+        _positionUploadTracker.reset();
+        _leaderUploadTracker.reset();
+    }
+
+    /**
      * Inicia sesión con Google (POPUP)
      */
     async loginWithGoogle() {

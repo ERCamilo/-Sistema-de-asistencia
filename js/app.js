@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, retryFailedCloudSync } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -37,7 +37,8 @@ import { collectOrphanAttendanceKeys } from './modules/services/AttendanceCleanu
 import { purgeOrphanAttendance } from './modules/services/AttendanceCleanupRunner.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
-import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
+import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload, markRestoreDownloadPause, clearRestoreDownloadPause, healOrphanedRestorePause } from './modules/services/SyncPauseService.js';
+import { prepareRestoredState } from './modules/services/RestorePrepare.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
 import { LeaderRepository } from './modules/services/LeaderRepository.js';
@@ -1713,6 +1714,17 @@ window.restoreSnapshot = async (snapshotId) => {
     SnapshotDiffModal.show(snapshot.state, state, {
         snapshotMeta: snapshot.metadata || {},
         onRestore: async () => {
+            // 🛡️ Pausar la DESCARGA durante toda la restauración (incidente
+            // 2026-07-11): LiveSync reemplaza los catálogos ENTEROS con la
+            // lista de la nube, y un eco a mitad de aplicación pisaría lo
+            // restaurado. Se respeta una pausa manual previa del usuario.
+            const _wasDownloadPaused = isDownloadPaused();
+            if (!_wasDownloadPaused) {
+                // Marcador ANTES de pausar: si la pestaña muere a mitad de la
+                // restauración, healOrphanedRestorePause() reanuda al arrancar.
+                markRestoreDownloadPause();
+                pauseCloudDownload('restauración de snapshot en curso');
+            }
             try {
                 state.isLoadingSnapshots = true;
                 render();
@@ -1722,42 +1734,107 @@ window.restoreSnapshot = async (snapshotId) => {
                 try {
                     await FirebaseService.createSnapshot(state, 'pre-restore', 'pre-restore');
                 } catch (snapErr) {
-                    // No bloqueamos: mejor restaurar sin red que no restaurar.
+                    // Honestidad (incidente 2026-07-11): esto fallaba en
+                    // silencio mientras la UI decía "Creando red de
+                    // seguridad..." — el usuario restauraba creyendo que
+                    // tenía un punto de retorno que nunca existió (los
+                    // estados >800KB van a Storage, que puede fallar por
+                    // CORS/bucket). Se pregunta; abortar no pierde nada.
                     console.warn('⚠️ No se pudo crear el snapshot pre-restore:', snapErr);
+                    Notification.clearAll();
+                    const proceedWithoutNet = await Modal.confirm({
+                        title: '⚠️ Sin red de seguridad',
+                        message: 'No se pudo crear el punto de restauración previo (respaldo de seguridad). ' +
+                            'Si continúas y el resultado no es el esperado, NO habrá copia del estado actual para volver atrás. ' +
+                            '¿Restaurar de todas formas?',
+                        confirmText: 'Restaurar sin respaldo',
+                        cancelText: 'Cancelar',
+                        type: 'danger'
+                    });
+                    if (!proceedWithoutNet) {
+                        stateManager.batchSetState(() => {
+                            state.isLoadingSnapshots = false;
+                        });
+                        render();
+                        return;
+                    }
                 }
 
                 Notification.clearAll();
                 Notification.info('⏳ Restaurando sistema...', 0);
 
-                // 2. Aplicar datos al estado global.
+                // 2. Aplicar datos al estado global, RE-ESTAMPADOS con `now`
+                // (incidente 2026-07-11): con el portero por-registro, un
+                // snapshot aplicado con sus estampas viejas pierde todos los
+                // merges contra la nube "más nueva", el watermark lo filtra y
+                // nunca sube, y el limpiador de integridad termina vaciando
+                // las posiciones de los empleados y propagando el borrado.
+                // Restaurar significa "quiero ESTE estado": debe GANAR.
                 // R2-3 (Judgment Day F0.5 ronda 2): también leaders — el único
-                // flujo de restauración vivo nunca los leía, así que restaurar
-                // el respaldo pre-reemplazo (o cualquier snapshot v3) devolvía
-                // todo MENOS los líderes. Y reinstanciar las clases: los
-                // objetos planos del snapshot rompen los métodos de Employee/
-                // Position/Leader en el resto de la app.
-                state.employees = (snapshot.state.employees || [])
-                    .map(e => e instanceof Employee ? e : new Employee(e));
-                state.positions = (snapshot.state.positions || [])
-                    .map(p => p instanceof Position ? p : new Position(p));
-                state.leaders = (snapshot.state.leaders || [])
-                    .map(l => l instanceof Leader ? l : new Leader(l));
-                state.attendance = snapshot.state.attendance || {};
+                // flujo de restauración vivo nunca los leía. Y reinstanciar
+                // las clases: los objetos planos del snapshot rompen los
+                // métodos de Employee/Position/Leader en el resto de la app.
+                const prepared = prepareRestoredState(snapshot.state);
+                state.employees = prepared.employees.map(e => new Employee(e));
+                state.positions = prepared.positions.map(p => new Position(p));
+                state.leaders = prepared.leaders.map(l => new Leader(l));
+                state.attendance = prepared.attendance;
 
                 // Mezclar settings con precaución (mantener flags de sesión si existen)
                 if (snapshot.state.settings) {
-                    state.settings = { ...state.settings, ...snapshot.state.settings };
+                    // Un backup viejo no debe DEGRADAR el esquema (Judgment
+                    // Day, juez B): schemaVersion < 3 apaga la escritura
+                    // per-doc de puestos/líderes (isMigratedGranular) y vuelca
+                    // los catálogos inline al doc espejo, desincronizando a
+                    // los dispositivos ya migrados. Gana el MAYOR.
+                    const _liveSchemaVersion = Number(state.settings?.schemaVersion) || 0;
+                    stateManager.batchSetState(() => {
+                        state.settings = { ...state.settings, ...snapshot.state.settings };
+                        const _maxSchemaVersion = Math.max(_liveSchemaVersion, Number(state.settings.schemaVersion) || 0);
+                        if (_maxSchemaVersion > 0) state.settings.schemaVersion = _maxSchemaVersion;
+                    });
                 }
 
                 // Reemplazo total del dataset → coherencia explícita antes del render().
                 invalidateAllStats();
                 buildAttendanceIndex();
 
-                // 3. Persistencia: IndexedDB + mirror.
-                await saveApplicationData();
+                // 3. Persistencia: el roster completo debe RE-SUBIR. Olvidar
+                // los watermarks de entidades (si no, filterChanged() filtra
+                // el roster restaurado) y subir la asistencia por fechas
+                // explícitas (el espejo la EXCLUYE — sin dateKeys no viaja).
+                FirebaseService.resetEntityUploadTrackers();
+                // awaitOutboxEnqueue: sin esto las encoladas son fire-and-forget
+                // y el sondeo de abajo puede ver el outbox "vacío" antes de que
+                // se escriban (Judgment Day: drenado en falso).
+                await saveApplicationData({ immediate: true, dateKeys: prepared.dateKeys, awaitOutboxEnqueue: true });
+
+                // 4. Drenar el outbox HASTA VACIARLO antes de reanudar la
+                // descarga, para que la nube ya tenga el estado restaurado
+                // cuando LiveSync vuelva a aplicar sus listas. Un flush suelto
+                // no alcanza: el mutex de MainSyncStore lo vuelve no-op si el
+                // drenado interno del guardado está en vuelo. Si no se vacía
+                // (offline/cuota), el outbox es durable y reintenta solo — se
+                // AVISA en vez de mentir con un éxito pleno.
+                const _drained = await drainMainSyncOutboxUntilEmpty({ maxAttempts: 24, delayMs: 500 });
 
                 Notification.clearAll();
-                Notification.success('✅ Sistema restaurado con éxito', 5000);
+                if (_drained) {
+                    Notification.success('✅ Sistema restaurado con éxito', 5000);
+                } else if (SYNC_PAUSE_ENABLED && isSyncPaused()) {
+                    // Con la subida pausada el flush no corre nunca: sin este
+                    // aviso el usuario cree que la nube ya tiene la
+                    // restauración y no es cierto (Judgment Day, juez A).
+                    Notification.warning(
+                        '⚠️ Sistema restaurado LOCALMENTE. La subida a la nube está PAUSADA en este dispositivo — reanudala en Ajustes para que la restauración llegue a la nube.',
+                        10000
+                    );
+                } else {
+                    Notification.warning(
+                        '⚠️ Sistema restaurado LOCALMENTE. La subida a la nube quedó pendiente y se reintentará sola — no uses "Descargar de la nube" hasta que suba.',
+                        10000
+                    );
+                }
                 state.isLoadingSnapshots = false;
                 render();
             } catch (e) {
@@ -1767,6 +1844,11 @@ window.restoreSnapshot = async (snapshotId) => {
                 Notification.error('❌ Error al restaurar: ' + translateError(e, { fallbackContext: 'restaurar el sistema' }));
                 state.isLoadingSnapshots = false;
                 render();
+            } finally {
+                if (!_wasDownloadPaused) {
+                    resumeCloudDownload();
+                    clearRestoreDownloadPause();
+                }
             }
         }
     });
@@ -6536,6 +6618,11 @@ function _initOutgoingConflictGuard() {
     debug.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
     debug.log('🚀 Versión: 6.6 (Sync Optimized)');
     debug.log('🚀 ========================================');
+
+    // 🩹 Si una restauración anterior murió a mitad (pestaña cerrada/crash),
+    // la descarga de la nube quedó pausada en silencio — curar al arrancar.
+    // Una pausa MANUAL del usuario (sin marcador de restauración) no se toca.
+    healOrphanedRestorePause();
 
     const loader = document.getElementById('app-loader');
     let isInitialLoad = true;

@@ -16,7 +16,7 @@
  *     isSyncPaused() so the device-local pause is respected.
  */
 
-import { isSyncPaused, pauseCloudUpload, resumeCloudUpload, SYNC_PAUSE_ENABLED } from '../modules/services/SyncPauseService.js';
+import { isSyncPaused, pauseCloudUpload, resumeCloudUpload, SYNC_PAUSE_ENABLED, isDownloadPaused, healOrphanedRestorePause } from '../modules/services/SyncPauseService.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -168,6 +168,62 @@ testRunner.addSuite("SyncPauseService — kill-switch (Schema v3 verificado)", {
             /SYNC_PAUSE_ENABLED/.test(APP_SRC),
             'app.js debe consultar SYNC_PAUSE_ENABLED para que el badge muestre pausa cuando está activo'
         );
+    }
+
+});
+
+
+// ─────────────────────────────────────────────────────────────
+// Auto-curación del pause huérfano de restauración (JD 2026-07-11)
+//
+// La restauración pausa la DESCARGA y la reanuda en su finally. Si la
+// pestaña muere a mitad (crash, cierre), el finally nunca corre y el
+// dispositivo queda "congelado" respecto a la nube para siempre, en
+// silencio. El marcador + heal al arrancar lo detectan y reanudan.
+// ─────────────────────────────────────────────────────────────
+
+testRunner.addSuite("SyncPause — auto-curación del pause huérfano de restauración", {
+
+    async "restauración interrumpida: al arrancar se reanuda la descarga y se limpia el marcador"() {
+        localStorage.setItem('asistencia_restore_download_pause', 'true');
+        localStorage.setItem('asistencia_cloud_download_paused', 'true');
+        try {
+            const healed = healOrphanedRestorePause();
+            testRunner.assertEquals(healed, true, 'debe reportar la curación');
+            testRunner.assertEquals(isDownloadPaused(), false, 'la descarga debe quedar reanudada');
+            testRunner.assertEquals(localStorage.getItem('asistencia_restore_download_pause'), null,
+                'el marcador debe limpiarse');
+        } finally {
+            localStorage.removeItem('asistencia_restore_download_pause');
+            localStorage.removeItem('asistencia_cloud_download_paused');
+        }
+    },
+
+    async "pausa manual del usuario (sin marcador): el heal NO la toca"() {
+        localStorage.removeItem('asistencia_restore_download_pause');
+        localStorage.setItem('asistencia_cloud_download_paused', 'true');
+        try {
+            const healed = healOrphanedRestorePause();
+            testRunner.assertEquals(healed, false, 'sin marcador no hay nada que curar');
+            testRunner.assertEquals(isDownloadPaused(), true, 'la pausa manual se respeta');
+        } finally {
+            localStorage.removeItem('asistencia_cloud_download_paused');
+        }
+    },
+
+    "app.js llama al heal al arrancar (contrato)"() {
+        testRunner.assert(APP_SRC.includes('healOrphanedRestorePause('),
+            'initializeApp debe curar el pause huérfano al arrancar');
+    },
+
+    "la restauración marca y limpia el marcador alrededor del pause (contrato)"() {
+        const idx = APP_SRC.indexOf('window.restoreSnapshot');
+        const end = APP_SRC.indexOf('window.changeDate', idx);
+        const body = APP_SRC.slice(idx, end);
+        testRunner.assert(body.includes('markRestoreDownloadPause('),
+            'debe marcarse ANTES de pausar');
+        testRunner.assert(body.includes('clearRestoreDownloadPause('),
+            'debe limpiarse al reanudar (finally)');
     }
 
 });

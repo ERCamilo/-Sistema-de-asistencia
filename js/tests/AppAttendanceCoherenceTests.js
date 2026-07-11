@@ -294,7 +294,11 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     },
 
     "snapshot onRestore mantiene coherencia total tras reemplazar la asistencia"() {
-        const s = sliceAfter('state.attendance = snapshot.state.attendance', 700);
+        // Incidente 2026-07-11: la asistencia restaurada ahora llega re-estampada
+        // vía prepareRestoredState (la restauración debe GANAR el LWW). La
+        // ventana cubre el merge de settings (schemaVersion sin degradar) que
+        // quedó entre el reemplazo y la coherencia.
+        const s = sliceAfter('state.attendance = prepared.attendance', 1600);
         testRunner.assert(s.length > 0, 'debe existir el reemplazo del snapshot');
         testRunner.assert(s.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(s), 'debe reconstruir el índice TOTAL (sin argumento)');

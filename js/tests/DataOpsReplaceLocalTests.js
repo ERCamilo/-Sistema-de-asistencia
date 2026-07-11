@@ -256,9 +256,13 @@ testRunner.addSuite("app.js — mensajería honesta por reason (ronda 2)", {
         const appSource = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
         const idx = appSource.indexOf('window.restoreSnapshot');
         testRunner.assert(idx !== -1, 'debe existir window.restoreSnapshot');
-        const block = appSource.slice(idx, idx + 3500);
-        testRunner.assert(/state\.leaders\s*=\s*[\s\S]{0,80}snapshot\.state\.leaders/.test(block),
-            'onRestore debe restaurar snapshot.state.leaders');
+        const block = appSource.slice(idx, idx + 6500);
+        // Incidente 2026-07-11: el snapshot ahora pasa por prepareRestoredState
+        // (re-estampado para ganar el LWW); los líderes se restauran desde ahí.
+        testRunner.assert(block.includes('prepareRestoredState(snapshot.state)'),
+            'onRestore debe preparar el snapshot completo (incluye leaders)');
+        testRunner.assert(/state\.leaders\s*=\s*prepared\.leaders/.test(block),
+            'onRestore debe restaurar los leaders preparados');
         testRunner.assert(/new Employee\s*\(/.test(block),
             'los empleados restaurados deben reinstanciarse como Employee (objetos planos rompen los métodos de clase)');
     }
