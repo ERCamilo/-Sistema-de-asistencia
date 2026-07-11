@@ -50,7 +50,13 @@ export function prepareRestoredState(snapshotState, { now = Date.now() } = {}) {
     Object.entries(src.attendance || {}).forEach(([key, rec]) => {
         if (!rec || typeof rec !== 'object') return;
         attendance[key] = stampAttendanceWrite(rec, now);
-        if (rec.date) dates.add(rec.date);
+        // Registros legacy sin `date`: derivar del sufijo de la clave
+        // (emp-YYYY-MM-DD o emp_YYYY-MM-DD), como AttendanceCleanup y
+        // syncHistory. Sin esto ese día queda fuera de dateKeys y jamás
+        // sube (el espejo excluye asistencia).
+        const date = rec.date ||
+            ((/[-_](\d{4}-\d{2}-\d{2})$/.exec(key) || [])[1] || null);
+        if (date) dates.add(date);
     });
 
     return { employees, positions, leaders, attendance, dateKeys: [...dates] };

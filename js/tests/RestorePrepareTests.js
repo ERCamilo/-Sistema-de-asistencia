@@ -17,10 +17,13 @@
 import fs from 'fs';
 import path from 'path';
 import { prepareRestoredState } from '../modules/services/RestorePrepare.js';
+import { drainMainSyncOutboxUntilEmpty } from '../modules/services/PersistenceService.js';
+import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 
 const read = (rel) => fs.readFileSync(path.resolve(__dirname, rel), 'utf8');
 const APP_SRC = read('../app.js');
 const FB_SRC = read('../modules/services/FirebaseService.js');
+const PS_SRC = read('../modules/services/PersistenceService.js');
 
 const NOW = 1_800_000_000_000;
 
@@ -73,6 +76,29 @@ testRunner.addSuite('RestorePrepare — re-estampado para que la restauración g
         testRunner.assertEquals(JSON.stringify([...out.dateKeys].sort()),
             JSON.stringify(['2026-06-01', '2026-06-02']),
             'una entrada por fecha, sin duplicados');
+    },
+
+    'registro sin .date: deriva la fecha de la CLAVE (fallback de la casa)'() {
+        // Judgment Day (jueces A+B): un registro legacy sin `date` quedaba
+        // fuera de dateKeys y ese día jamás subía (el espejo excluye
+        // asistencia). El resto del código ya deriva la fecha del sufijo de
+        // la clave (AttendanceCleanup, syncHistory) — acá faltaba.
+        const src = {
+            attendance: {
+                'e9-2026-05-05': { employeeId: 'e9', present: true, hoursWorked: 8, updatedAt: 100 },
+                'e9_2026-05-06': { employeeId: 'e9', present: true, hoursWorked: 8, updatedAt: 100 },
+                'rota-sin-fecha': { employeeId: 'e9', present: true, updatedAt: 100 }
+            }
+        };
+        const out = prepareRestoredState(src, { now: NOW });
+        testRunner.assert(out.dateKeys.includes('2026-05-05'),
+            'clave con sufijo -YYYY-MM-DD debe aportar su fecha');
+        testRunner.assert(out.dateKeys.includes('2026-05-06'),
+            'clave con sufijo _YYYY-MM-DD (simetría de guiones) también');
+        testRunner.assertEquals(out.dateKeys.length, 2,
+            'una clave sin fecha derivable no aporta dateKey (pero el registro se conserva)');
+        testRunner.assert(out.attendance['rota-sin-fecha'] !== undefined,
+            'el registro sin fecha igual se restaura localmente');
     },
 
     'no muta el snapshot de entrada'() {
@@ -146,16 +172,73 @@ testRunner.addSuite('Restore — wiring: la restauración gana y se sube entera'
             'si el usuario no acepta, la restauración debe abortarse');
     },
 
-    'sube la asistencia restaurada por el canal dateKeys y drena el outbox antes de reanudar'() {
+    'sube la asistencia restaurada por el canal dateKeys y drena el outbox HASTA VACIARLO antes de reanudar'() {
+        // Judgment Day (jueces A+B): un flush() suelto puede ser un no-op
+        // silencioso (mutex _flushing en vuelo) y las encoladas del guardado
+        // son fire-and-forget — el drenado debe (1) esperar el ENCOLADO y
+        // (2) sondear pendingCount hasta 0, no confiar en una sola llamada.
         const body = getRestoreBody();
         testRunner.assert(/saveApplicationData\(\s*\{[^}]*dateKeys/.test(body),
             'debe pasar dateKeys al guardado (el espejo EXCLUYE asistencia; sin esto no sube)');
-        testRunner.assert(body.includes('drainMainSyncOutbox('),
-            'debe drenar el outbox a la nube ANTES de reanudar la descarga');
-        const drainIdx = body.indexOf('drainMainSyncOutbox(');
+        testRunner.assert(/saveApplicationData\(\s*\{[^}]*awaitOutboxEnqueue:\s*true/.test(body),
+            'debe esperar el ENCOLADO al outbox (si no, el sondeo puede ver 0 antes de que se escriba)');
+        testRunner.assert(body.includes('drainMainSyncOutboxUntilEmpty('),
+            'debe drenar HASTA VACIAR, no un flush suelto (mutex = no-op silencioso)');
+        const drainIdx = body.indexOf('drainMainSyncOutboxUntilEmpty(');
         const resumeIdx = body.lastIndexOf('resumeCloudDownload(');
         testRunner.assert(drainIdx !== -1 && resumeIdx !== -1 && drainIdx < resumeIdx,
             'orden: drenar la subida primero, reanudar la descarga después');
+    },
+
+    '_executeSave espera las encoladas del outbox cuando se lo piden (awaitOutboxEnqueue)'() {
+        testRunner.assert(/if \(options\.awaitOutboxEnqueue\) await _outboxReady/.test(PS_SRC),
+            'el canal awaitOutboxEnqueue debe existir en _executeSave (encolar es LOCAL, no espera nube)');
+    },
+
+    'el merge de settings restaurados no DEGRADA schemaVersion'() {
+        // Judgment Day (juez B): un backup viejo con schemaVersion < 3 apaga
+        // la escritura per-doc de puestos/líderes (isMigratedGranular) y
+        // vuelca los catálogos inline al doc espejo, desincronizando a los
+        // dispositivos ya migrados.
+        const body = getRestoreBody();
+        testRunner.assert(/schemaVersion\s*=\s*Math\.max\(/.test(body) ||
+            /Math\.max\([^)]*[Ss]chema/.test(body),
+            'la versión de esquema debe quedarse con el MAYOR entre viva y restaurada');
+    },
+
+    'si la subida está pausada, el resultado lo dice (no un éxito pleno)'() {
+        const body = getRestoreBody();
+        testRunner.assert(body.includes('isSyncPaused()'),
+            'con la subida pausada, el flush no corre: el aviso debe explicar POR QUÉ quedó pendiente');
+    }
+
+});
+
+// ─── Drenado hasta vacío (behavioral) ────────────────────────────────────────
+
+testRunner.addSuite('drainMainSyncOutboxUntilEmpty — la nube antes que la descarga', {
+
+    async 'sondea pendingCount hasta 0 aunque un flush ajeno tenga el mutex'() {
+        let pending = 2;
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush')
+            .mockImplementation(async () => { pending = Math.max(0, pending - 1); });
+        const countSpy = jest.spyOn(MainSyncStore, 'pendingCount')
+            .mockImplementation(async () => pending);
+        try {
+            const ok = await drainMainSyncOutboxUntilEmpty({ maxAttempts: 5, delayMs: 1 });
+            testRunner.assertEquals(ok, true, 'debe reportar drenado completo');
+            testRunner.assert(flushSpy.mock.calls.length >= 2, 'reintenta flush hasta vaciar');
+        } finally { flushSpy.mockRestore(); countSpy.mockRestore(); }
+    },
+
+    async 'si no logra vaciar en maxAttempts devuelve false (el caller avisa, no miente)'() {
+        const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
+        const countSpy = jest.spyOn(MainSyncStore, 'pendingCount').mockResolvedValue(7);
+        try {
+            const ok = await drainMainSyncOutboxUntilEmpty({ maxAttempts: 3, delayMs: 1 });
+            testRunner.assertEquals(ok, false, 'pendientes sin drenar ⇒ false');
+            testRunner.assertEquals(flushSpy.mock.calls.length, 3, 'agota los intentos y corta');
+        } finally { flushSpy.mockRestore(); countSpy.mockRestore(); }
     }
 
 });

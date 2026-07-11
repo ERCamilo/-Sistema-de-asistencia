@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, retryFailedCloudSync } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -37,7 +37,7 @@ import { collectOrphanAttendanceKeys } from './modules/services/AttendanceCleanu
 import { purgeOrphanAttendance } from './modules/services/AttendanceCleanupRunner.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
-import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload } from './modules/services/SyncPauseService.js';
+import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload, markRestoreDownloadPause, clearRestoreDownloadPause, healOrphanedRestorePause } from './modules/services/SyncPauseService.js';
 import { prepareRestoredState } from './modules/services/RestorePrepare.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
@@ -1719,7 +1719,12 @@ window.restoreSnapshot = async (snapshotId) => {
             // lista de la nube, y un eco a mitad de aplicación pisaría lo
             // restaurado. Se respeta una pausa manual previa del usuario.
             const _wasDownloadPaused = isDownloadPaused();
-            if (!_wasDownloadPaused) pauseCloudDownload();
+            if (!_wasDownloadPaused) {
+                // Marcador ANTES de pausar: si la pestaña muere a mitad de la
+                // restauración, healOrphanedRestorePause() reanuda al arrancar.
+                markRestoreDownloadPause();
+                pauseCloudDownload('restauración de snapshot en curso');
+            }
             try {
                 state.isLoadingSnapshots = true;
                 render();
@@ -1777,7 +1782,17 @@ window.restoreSnapshot = async (snapshotId) => {
 
                 // Mezclar settings con precaución (mantener flags de sesión si existen)
                 if (snapshot.state.settings) {
-                    state.settings = { ...state.settings, ...snapshot.state.settings };
+                    // Un backup viejo no debe DEGRADAR el esquema (Judgment
+                    // Day, juez B): schemaVersion < 3 apaga la escritura
+                    // per-doc de puestos/líderes (isMigratedGranular) y vuelca
+                    // los catálogos inline al doc espejo, desincronizando a
+                    // los dispositivos ya migrados. Gana el MAYOR.
+                    const _liveSchemaVersion = Number(state.settings?.schemaVersion) || 0;
+                    stateManager.batchSetState(() => {
+                        state.settings = { ...state.settings, ...snapshot.state.settings };
+                        const _maxSchemaVersion = Math.max(_liveSchemaVersion, Number(state.settings.schemaVersion) || 0);
+                        if (_maxSchemaVersion > 0) state.settings.schemaVersion = _maxSchemaVersion;
+                    });
                 }
 
                 // Reemplazo total del dataset → coherencia explícita antes del render().
@@ -1789,21 +1804,37 @@ window.restoreSnapshot = async (snapshotId) => {
                 // el roster restaurado) y subir la asistencia por fechas
                 // explícitas (el espejo la EXCLUYE — sin dateKeys no viaja).
                 FirebaseService.resetEntityUploadTrackers();
-                await saveApplicationData({ immediate: true, dateKeys: prepared.dateKeys });
+                // awaitOutboxEnqueue: sin esto las encoladas son fire-and-forget
+                // y el sondeo de abajo puede ver el outbox "vacío" antes de que
+                // se escriban (Judgment Day: drenado en falso).
+                await saveApplicationData({ immediate: true, dateKeys: prepared.dateKeys, awaitOutboxEnqueue: true });
 
-                // 4. Drenar el outbox ANTES de reanudar la descarga, para que
-                // la nube ya tenga el estado restaurado cuando LiveSync vuelva
-                // a aplicar sus listas. Si falla (offline), el outbox es
-                // durable y reintenta solo; la guardia anti-masacre protege
-                // mientras tanto.
-                try {
-                    await drainMainSyncOutbox();
-                } catch (drainErr) {
-                    console.warn('⚠️ Drenado post-restauración incompleto (reintentará solo):', drainErr);
-                }
+                // 4. Drenar el outbox HASTA VACIARLO antes de reanudar la
+                // descarga, para que la nube ya tenga el estado restaurado
+                // cuando LiveSync vuelva a aplicar sus listas. Un flush suelto
+                // no alcanza: el mutex de MainSyncStore lo vuelve no-op si el
+                // drenado interno del guardado está en vuelo. Si no se vacía
+                // (offline/cuota), el outbox es durable y reintenta solo — se
+                // AVISA en vez de mentir con un éxito pleno.
+                const _drained = await drainMainSyncOutboxUntilEmpty({ maxAttempts: 24, delayMs: 500 });
 
                 Notification.clearAll();
-                Notification.success('✅ Sistema restaurado con éxito', 5000);
+                if (_drained) {
+                    Notification.success('✅ Sistema restaurado con éxito', 5000);
+                } else if (SYNC_PAUSE_ENABLED && isSyncPaused()) {
+                    // Con la subida pausada el flush no corre nunca: sin este
+                    // aviso el usuario cree que la nube ya tiene la
+                    // restauración y no es cierto (Judgment Day, juez A).
+                    Notification.warning(
+                        '⚠️ Sistema restaurado LOCALMENTE. La subida a la nube está PAUSADA en este dispositivo — reanudala en Ajustes para que la restauración llegue a la nube.',
+                        10000
+                    );
+                } else {
+                    Notification.warning(
+                        '⚠️ Sistema restaurado LOCALMENTE. La subida a la nube quedó pendiente y se reintentará sola — no uses "Descargar de la nube" hasta que suba.',
+                        10000
+                    );
+                }
                 state.isLoadingSnapshots = false;
                 render();
             } catch (e) {
@@ -1814,7 +1845,10 @@ window.restoreSnapshot = async (snapshotId) => {
                 state.isLoadingSnapshots = false;
                 render();
             } finally {
-                if (!_wasDownloadPaused) resumeCloudDownload();
+                if (!_wasDownloadPaused) {
+                    resumeCloudDownload();
+                    clearRestoreDownloadPause();
+                }
             }
         }
     });
@@ -6584,6 +6618,11 @@ function _initOutgoingConflictGuard() {
     debug.log('🚀 SISTEMA DE CONTROL DE ASISTENCIA');
     debug.log('🚀 Versión: 6.6 (Sync Optimized)');
     debug.log('🚀 ========================================');
+
+    // 🩹 Si una restauración anterior murió a mitad (pestaña cerrada/crash),
+    // la descarga de la nube quedó pausada en silencio — curar al arrancar.
+    // Una pausa MANUAL del usuario (sin marcador de restauración) no se toca.
+    healOrphanedRestorePause();
 
     const loader = document.getElementById('app-loader');
     let isInitialLoad = true;
