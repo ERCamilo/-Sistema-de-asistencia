@@ -1095,6 +1095,42 @@ export async function validateDataIntegrity() {
     const positionIds = new Set(state.positions.map(p => p.id));
     const leaderIds = new Set(state.leaders.map(l => l.id));
 
+    // 🛑 Guardia anti-masacre (incidente de campo 2026-07-11): un catálogo
+    // vacío o a medio cargar (restauración, LiveSync que reemplaza la lista
+    // entera, merge parcial) hacía que esta limpieza tratara a TODOS los
+    // empleados como huérfanos: vaciaba positions, estampaba
+    // positionsUpdatedAt=now y ese borrado GANABA el LWW y se propagaba a la
+    // nube y a todos los dispositivos. La limpieza es para huérfanos
+    // AISLADOS; si el daño sería masivo, la señal es "catálogo incompleto"
+    // y NO se toca nada hasta que el catálogo esté sano. Umbral: catálogo
+    // vacío con referencias, o ≥3 empleados afectados que además son ≥25%
+    // de los empleados con puestos. (Un borrado legítimo masivo es casi
+    // imposible: deletePosition bloquea puestos activos/asignados/con
+    // historial.)
+    const _empWithPositions = state.employees.filter(e => (e.positions || []).length > 0);
+    const _empAffected = _empWithPositions.filter(e => e.positions.some(pid => !positionIds.has(pid)));
+    const positionsCatalogSuspicious =
+        (positionIds.size === 0 && _empAffected.length > 0) ||
+        (_empAffected.length >= 3 && _empAffected.length * 4 >= _empWithPositions.length);
+    if (positionsCatalogSuspicious) {
+        console.error(
+            `🛑 validateDataIntegrity: limpieza de puestos OMITIDA — ${_empAffected.length}/${_empWithPositions.length} ` +
+            `empleado(s) perderían puestos con un catálogo de ${positionIds.size}. Esto es señal de catálogo ` +
+            `incompleto (carga/merge/restauración parcial), no de huérfanos reales.`
+        );
+    }
+
+    // Misma guardia para líderes: un catálogo de líderes vacío con posiciones
+    // que aún los referencian es carga incompleta, no huérfanos.
+    const _posWithLeader = state.positions.filter(p => p.leaderId);
+    const leadersCatalogSuspicious = leaderIds.size === 0 && _posWithLeader.length > 0;
+    if (leadersCatalogSuspicious) {
+        console.error(
+            `🛑 validateDataIntegrity: limpieza de líderes OMITIDA — catálogo de líderes vacío con ` +
+            `${_posWithLeader.length} posición(es) que aún referencian líderes.`
+        );
+    }
+
     // 1. Limpiar posiciones en empleados
     // 🔁 Fix del bucle de sanitización (test de campo 2026-07-06): TODA
     // corrección dentro de un empleado/puesto DEBE estampar updatedAt (la
@@ -1106,7 +1142,7 @@ export async function validateDataIntegrity() {
     // cuota. La estampa hace que la corrección gane el merge y converja.
     // Y la inversa importa igual: si NO hubo corrección, NO estampar —
     // estampar de más re-subiría a todos los empleados en cada validación.
-    state.employees.forEach(emp => {
+    if (!positionsCatalogSuspicious) state.employees.forEach(emp => {
         let empFixed = false;
         if (emp.positions) {
             const validPositions = emp.positions.filter(pid => positionIds.has(pid));
@@ -1140,7 +1176,7 @@ export async function validateDataIntegrity() {
     });
 
     // 3. Limpiar líderes en posiciones
-    state.positions.forEach(pos => {
+    if (!leadersCatalogSuspicious) state.positions.forEach(pos => {
         if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
             pos.leaderId = null;
             pos.updatedAt = Date.now(); // misma regla — sin estampa no sube ni converge
@@ -1149,7 +1185,7 @@ export async function validateDataIntegrity() {
     });
 
     // 4. Limpiar positionHours en asistencia
-    Object.values(state.attendance).forEach(att => {
+    if (!positionsCatalogSuspicious) Object.values(state.attendance).forEach(att => {
         if (att.positionHours) {
             const validPh = att.positionHours.filter(ph => positionIds.has(ph.positionId));
             if (validPh.length !== att.positionHours.length) {

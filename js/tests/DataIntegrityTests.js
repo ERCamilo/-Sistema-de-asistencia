@@ -367,4 +367,146 @@ testRunner.addSuite("Data Integrity — Compactación de tombstones vencidos (Fa
     }
 });
 
+// ─────────────────────────────────────────────────────────────
+// Guardia anti-masacre (incidente de campo 2026-07-11)
+//
+// Un catálogo de puestos vacío o a medio cargar (restauración, LiveSync que
+// reemplaza la lista entera, merge parcial) hacía que la limpieza tratara a
+// TODOS los empleados como huérfanos: les vaciaba positions, estampaba
+// positionsUpdatedAt=now y el borrado GANABA el LWW y se propagaba a la nube
+// y a todos los dispositivos. La limpieza es para huérfanos AISLADOS; una
+// huérfana masiva es señal de catálogo incompleto y NO debe tocar nada.
+// ─────────────────────────────────────────────────────────────
+
+testRunner.addSuite("Data Integrity — guardia anti-masacre", {
+
+    async "catálogo de puestos VACÍO: no toca las posiciones de ningún empleado ni estampa"() {
+        const snap = snapshotState();
+        try {
+            state.positions = [];
+            state.leaders = [];
+            state.employees = [
+                { id: 'e1', name: 'A', positions: ['p1', 'p2'], positionSalaries: { p1: 100 } },
+                { id: 'e2', name: 'B', positions: ['p1'] }
+            ];
+            state.attendance = {};
+
+            await validateDataIntegrity();
+
+            testRunner.assertEquals(state.employees[0].positions.length, 2,
+                "con catálogo vacío las posiciones del empleado deben quedar intactas");
+            testRunner.assertEquals(state.employees[1].positions.length, 1,
+                "ningún empleado debe perder posiciones");
+            testRunner.assertEquals(state.employees[0].positionSalaries.p1, 100,
+                "positionSalaries tampoco se limpia con catálogo vacío");
+            testRunner.assertEquals(state.employees[0].positionsUpdatedAt, undefined,
+                "NO debe estampar positionsUpdatedAt (la estampa haría ganar el borrado en el LWW)");
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "catálogo parcial que dejaría huérfana a la mayoría: se omite la limpieza de puestos"() {
+        const snap = snapshotState();
+        try {
+            // Catálogo con 1 puesto, pero 4 de 4 empleados referencian puestos ausentes
+            // (la firma del catálogo a medio cargar).
+            state.positions = [{ id: 'p-viva', name: 'Viva', active: true }];
+            state.leaders = [];
+            state.employees = [
+                { id: 'e1', name: 'A', positions: ['p-viva', 'x1'] },
+                { id: 'e2', name: 'B', positions: ['x2'] },
+                { id: 'e3', name: 'C', positions: ['x3'] },
+                { id: 'e4', name: 'D', positions: ['x4'] }
+            ];
+            state.attendance = {};
+
+            await validateDataIntegrity();
+
+            testRunner.assert(state.employees[0].positions.includes('x1'),
+                "una huérfana masiva NO se limpia (catálogo sospechoso)");
+            testRunner.assertEquals(state.employees[1].positions.length, 1,
+                "los empleados conservan sus referencias hasta que el catálogo esté completo");
+            testRunner.assertEquals(state.employees[0].positionsUpdatedAt, undefined,
+                "sin estampa: nada debe propagarse a la nube");
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "huérfano AISLADO real: la limpieza sigue funcionando y estampa como siempre"() {
+        const snap = snapshotState();
+        try {
+            state.positions = [{ id: 'p1', name: 'P1', active: true }];
+            state.leaders = [];
+            state.employees = [
+                { id: 'e1', name: 'A', positions: ['p1', 'p-fantasma'] }, // único afectado
+                { id: 'e2', name: 'B', positions: ['p1'] },
+                { id: 'e3', name: 'C', positions: ['p1'] },
+                { id: 'e4', name: 'D', positions: ['p1'] }
+            ];
+            state.attendance = {};
+
+            const fixes = await validateDataIntegrity();
+
+            testRunner.assert(fixes > 0, "el huérfano aislado debe corregirse");
+            testRunner.assert(!state.employees[0].positions.includes('p-fantasma'),
+                "la referencia fantasma aislada debe eliminarse");
+            testRunner.assert(typeof state.employees[0].positionsUpdatedAt === 'number',
+                "la corrección aislada SÍ estampa (regla anti-ping-pong intacta)");
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "catálogo sospechoso tampoco borra positionHours ni selectedPosition de la asistencia"() {
+        const snap = snapshotState();
+        try {
+            state.positions = [];
+            state.leaders = [];
+            state.employees = [{ id: 'e1', name: 'A', positions: ['p1'] }];
+            state.attendance = {
+                'e1-2026-07-01': {
+                    employeeId: 'e1', date: '2026-07-01', present: true,
+                    selectedPosition: 'p1',
+                    positionHours: [{ positionId: 'p1', hours: 8 }]
+                }
+            };
+
+            await validateDataIntegrity();
+
+            const att = state.attendance['e1-2026-07-01'];
+            testRunner.assertEquals(att.positionHours.length, 1,
+                "el historial de horas por puesto no se toca con catálogo sospechoso");
+            testRunner.assertEquals(att.selectedPosition, 'p1',
+                "selectedPosition no se anula con catálogo sospechoso");
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "sin líderes en el catálogo: no se anulan los leaderId de las posiciones"() {
+        const snap = snapshotState();
+        try {
+            state.positions = [
+                { id: 'p1', name: 'P1', active: true, leaderId: 'l1' },
+                { id: 'p2', name: 'P2', active: true, leaderId: 'l2' }
+            ];
+            state.leaders = [];
+            state.employees = [];
+            state.attendance = {};
+
+            await validateDataIntegrity();
+
+            testRunner.assertEquals(state.positions[0].leaderId, 'l1',
+                "catálogo de líderes vacío = carga incompleta, no huérfanos reales");
+            testRunner.assertEquals(state.positions[1].leaderId, 'l2',
+                "ningún leaderId debe anularse");
+        } finally {
+            restoreState(snap);
+        }
+    }
+
+});
+
 console.log('🧪 Data Integrity tests cargados.');
