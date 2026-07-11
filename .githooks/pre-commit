@@ -82,3 +82,23 @@ BLOB_SHA=$(printf '%s' "$SW_CONTENT" \
 git update-index --cacheinfo "$SW_MODE,$BLOB_SHA,$SW_FILE"
 
 echo "  ↺  sw.js cache: ${OLD_VERSION:-<unknown>} → $NEW_VERSION"
+
+# ── 6. Estampar el MISMO build en BuildInfo.js (la UI lo muestra en el footer) ─
+# Una sola fuente de fecha: el footer y el cache-buster del Service Worker
+# quedan siempre en el mismo número. Mismo truco de parchear el index sin
+# tocar el working tree.
+BUILD_FILE="js/modules/config/BuildInfo.js"
+if [ -f "$BUILD_FILE" ]; then
+    BUILD_MODE=$(git ls-files -s "$BUILD_FILE" | awk '{print $1}')
+    if [ -n "$BUILD_MODE" ]; then
+        BUILD_CONTENT=$(git show :"$BUILD_FILE")
+    else
+        BUILD_CONTENT=$(cat "$BUILD_FILE")
+        BUILD_MODE="100644"
+    fi
+    BUILD_BLOB=$(printf '%s' "$BUILD_CONTENT" \
+        | perl -pe "s/const BUILD = '[^']*'/const BUILD = '$NEW_VERSION'/" \
+        | git hash-object -w --stdin)
+    git update-index --cacheinfo "$BUILD_MODE,$BUILD_BLOB,$BUILD_FILE"
+    echo "  ↺  BuildInfo.js: → $NEW_VERSION"
+fi

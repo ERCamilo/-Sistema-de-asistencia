@@ -121,6 +121,8 @@ import offlineManager from './modules/services/OfflineManager.js';
 import workerPool from './modules/utils/WebWorkerPool.js';
 
 import { firebaseConfig, APP_CONFIG } from './modules/config/Config.js';
+import { BUILD } from './modules/config/BuildInfo.js';
+import { formatBuild } from './modules/utils/BuildVersion.js';
 import * as AnalyticsUI from './modules/features/analytics/AnalyticsUI.js';
 import * as PayrollUI from './modules/features/payroll/PayrollUI.js';
 import { PettyCashTab, registerPettyCashGlobals } from './modules/features/pettycash/PettyCashUI.js';
@@ -3790,8 +3792,8 @@ function SidebarNavigation() {
                 <div class="sidebar-foot">
                     <span class="sidebar-foot-dot"></span>
                     <div>
-                        <div class="sidebar-foot-title">Sincronizado</div>
-                        <div class="sidebar-foot-sub">v1.6.7 · Firebase</div>
+                        <div class="sidebar-foot-title">v${APP_CONFIG.VERSION}</div>
+                        <div class="sidebar-foot-sub">build ${formatBuild(BUILD).display}</div>
                     </div>
                 </div>
             </aside>`;
