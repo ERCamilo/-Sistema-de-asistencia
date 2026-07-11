@@ -85,7 +85,9 @@ testRunner.addSuite("Retención de snapshots — cableado en FirebaseService (M5
     },
 
     "createSnapshot dispara la poda tras un snapshot automático"() {
-        const block = FB_SRC.match(/async createSnapshot\s*\([\s\S]{0,4800}?\n    \}/);
+        // Ventana ampliada 4800→7000: createSnapshot creció con la compresión
+        // gzip inline de snapshots grandes (2026-07-11).
+        const block = FB_SRC.match(/async createSnapshot\s*\([\s\S]{0,7000}?\n    \}/);
         testRunner.assert(!!block, 'createSnapshot debe existir');
         testRunner.assert(/pruneOldSnapshots/.test(block[0]),
             'createSnapshot debe invocar pruneOldSnapshots en el camino de éxito');

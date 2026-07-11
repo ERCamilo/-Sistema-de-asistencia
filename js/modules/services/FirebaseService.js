@@ -19,6 +19,7 @@ import { Notification } from '../components/Notification.js';
 import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 import { createEntityUploadTracker } from './EntityUploadTracker.js';
+import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from './SnapshotCodec.js';
 
 // Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
 // TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
@@ -420,18 +421,43 @@ class FirebaseService {
             const docRef = doc(db, 'users', auth.currentUser.uid, 'snapshots', `snapshot_${timestamp}`);
             
             const stateString = JSON.stringify(cleanState);
-            const isExternal = stateString.length > 800000; // ~800KB threshold
+            const FIRESTORE_SAFE_BYTES = 800000; // margen bajo el límite de ~1MB por doc
+            const tooBigInline = stateString.length > FIRESTORE_SAFE_BYTES;
             let storageUrl = null;
+            let compressedState = null;
+            let isExternal = false;
 
-            if (isExternal) {
-                console.log(`📦 Snapshot grande (${(stateString.length/1024).toFixed(1)} KB). Subiendo a Storage...`);
-                const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/snapshot_${timestamp}.json`);
-                await uploadString(storageRef, stateString);
-                storageUrl = await getDownloadURL(storageRef);
+            if (tooBigInline) {
+                // 📦 Comprimir ANTES de recurrir a Storage (2026-07-11: el
+                // bucket nunca se aprovisionó — 404 — y cada snapshot grande
+                // moría tras ~2 min de reintentos). El estado es JSON
+                // repetitivo: gzip+base64 lo deja muy por debajo del límite
+                // de Firestore, sin depender de infraestructura extra.
+                if (supportsGzipCodec()) {
+                    try {
+                        const b64 = await gzipToBase64(stateString);
+                        if (b64.length <= FIRESTORE_SAFE_BYTES) {
+                            compressedState = b64;
+                            console.log(`📦 Snapshot grande (${(stateString.length / 1024).toFixed(1)} KB) comprimido a ${(b64.length / 1024).toFixed(1)} KB (inline en Firestore).`);
+                        }
+                    } catch (gzErr) {
+                        console.warn('⚠️ Compresión del snapshot falló; se intenta Storage:', gzErr);
+                    }
+                }
+                if (!compressedState) {
+                    // Último recurso: Storage (puede no estar aprovisionado).
+                    isExternal = true;
+                    console.log(`📦 Snapshot grande (${(stateString.length / 1024).toFixed(1)} KB). Subiendo a Storage...`);
+                    const storageRef = ref(storage, `users/${auth.currentUser.uid}/snapshots/snapshot_${timestamp}.json`);
+                    await uploadString(storageRef, stateString);
+                    storageUrl = await getDownloadURL(storageRef);
+                }
             }
 
             await setDoc(docRef, {
-                state: isExternal ? null : cleanState,
+                state: (tooBigInline || isExternal) ? null : cleanState,
+                compressedState: compressedState,
+                encoding: compressedState ? 'gzip-base64' : null,
                 isExternal: isExternal,
                 storageUrl: storageUrl,
                 metadata: {
@@ -607,8 +633,14 @@ class FirebaseService {
             const data = docSnap.data();
             let state = data.state;
 
-            // ⚡ OPTIMIZACIÓN: Si es externo, usar getBlob del SDK (más robusto contra Tracking Prevention)
-            if (data.isExternal) {
+            // 📦 Snapshot comprimido inline (encoding gzip-base64): la vía
+            // nueva para estados grandes — sin Storage de por medio.
+            if (!state && data.compressedState && data.encoding === 'gzip-base64') {
+                console.log('📦 Descomprimiendo snapshot inline (gzip-base64)...');
+                state = JSON.parse(await gunzipFromBase64(data.compressedState));
+            } else if (data.isExternal) {
+                // ⚡ Legado: snapshots externos en Storage (getBlob del SDK,
+                // más robusto contra Tracking Prevention)
                 console.log('📦 Recuperando snapshot grande vía Firebase SDK...');
                 // Construir referencia interna para evitar bloqueos por URL de fetch
                 const timestamp = data.metadata?.timestamp || snapshotId.replace('snapshot_', '');
