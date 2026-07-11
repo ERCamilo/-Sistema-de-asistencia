@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import {
     applyPayrollLoanDeductions,
     buildPayrollLoanSelection,
@@ -9,6 +11,18 @@ import {
     summarizePayrollLoans,
     toSplitXRows
 } from '../modules/features/payroll/PayrollLoans.js';
+
+const PAYROLL_UI_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../modules/features/payroll/PayrollUI.js'), 'utf8'
+);
+
+/** Collapsed step-2C summary block: from its aria-label to the template-conditional close. */
+function getLoanSummaryMarkup() {
+    const start = PAYROLL_UI_SRC.indexOf('Resumen de préstamos de nómina');
+    if (start === -1) return null;
+    const end = PAYROLL_UI_SRC.indexOf("` : ''}", start);
+    return end === -1 ? null : PAYROLL_UI_SRC.slice(start, end);
+}
 
 function buildEmployee() {
     return {
@@ -201,4 +215,34 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
         testRunner.assertEquals(summary.eligibleTotalDue, 110, 'El valor total elegible permanece visible');
         testRunner.assertEquals(summary.eligibleBalance, 85, 'El saldo activo elegible permanece visible');
     }
+});
+
+// ─── Resumen colapsado del Paso 2C (contrato de fuente) ──────────────────────
+// El resumen es texto plano minimalista: sin recuadros, etiquetas cortas y
+// cada métrica con su total elegible en chico al lado ("de $X").
+
+testRunner.addSuite('Paso 2C — resumen colapsado minimalista', {
+
+    'el resumen existe y es texto plano (sin recuadros ni etiquetas largas)'() {
+        const markup = getLoanSummaryMarkup();
+        testRunner.assert(markup !== null, 'el bloque de resumen colapsado debe existir');
+        testRunner.assert(!markup.includes('Préstamos seleccionados'), 'sin etiqueta "Préstamos seleccionados"');
+        testRunner.assert(!markup.includes('Interés seleccionado'), 'la etiqueta corta es "Interés"');
+        testRunner.assert(!markup.includes('Saldo seleccionado'), 'la etiqueta corta es "Saldo"');
+        testRunner.assert(!markup.includes('Valor total elegible'), 'el valor total elegible se elimina del resumen');
+        testRunner.assert(!markup.includes('eligibleTotalDue'), 'eligibleTotalDue ya no se renderiza');
+        testRunner.assert(!markup.includes('background:#0f172a'), 'sin tarjetas con fondo: solo texto');
+    },
+
+    'muestra contador ámbar y cada monto con su total elegible en chico'() {
+        const markup = getLoanSummaryMarkup() || '';
+        const counter = /<strong[^>]*#f59e0b[^>]*>\$\{loanSummary\.selectedCount\}<\/strong>/.test(markup);
+        testRunner.assert(counter, 'el contador seleccionado va en ámbar (#f59e0b)');
+        testRunner.assert(markup.includes('/${loanSummary.eligibleCount} préstamos'), 'denominador "/N préstamos" al lado');
+        testRunner.assert(markup.includes('Interés') && markup.includes('loanSummary.selectedInterest'), 'métrica de interés seleccionado');
+        testRunner.assert(markup.includes('de ${formatCurrency(loanSummary.eligibleInterest)}'), 'interés total elegible en chico como "de $X"');
+        testRunner.assert(markup.includes('Saldo') && markup.includes('loanSummary.selectedBalance'), 'métrica de saldo seleccionado');
+        testRunner.assert(markup.includes('de ${formatCurrency(loanSummary.eligibleBalance)}'), 'saldo total activo en chico como "de $X"');
+    }
+
 });
