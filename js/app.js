@@ -1729,8 +1729,30 @@ window.restoreSnapshot = async (snapshotId) => {
                 try {
                     await FirebaseService.createSnapshot(state, 'pre-restore', 'pre-restore');
                 } catch (snapErr) {
-                    // No bloqueamos: mejor restaurar sin red que no restaurar.
+                    // Honestidad (incidente 2026-07-11): esto fallaba en
+                    // silencio mientras la UI decía "Creando red de
+                    // seguridad..." — el usuario restauraba creyendo que
+                    // tenía un punto de retorno que nunca existió (los
+                    // estados >800KB van a Storage, que puede fallar por
+                    // CORS/bucket). Se pregunta; abortar no pierde nada.
                     console.warn('⚠️ No se pudo crear el snapshot pre-restore:', snapErr);
+                    Notification.clearAll();
+                    const proceedWithoutNet = await Modal.confirm({
+                        title: '⚠️ Sin red de seguridad',
+                        message: 'No se pudo crear el punto de restauración previo (respaldo de seguridad). ' +
+                            'Si continúas y el resultado no es el esperado, NO habrá copia del estado actual para volver atrás. ' +
+                            '¿Restaurar de todas formas?',
+                        confirmText: 'Restaurar sin respaldo',
+                        cancelText: 'Cancelar',
+                        type: 'danger'
+                    });
+                    if (!proceedWithoutNet) {
+                        stateManager.batchSetState(() => {
+                            state.isLoadingSnapshots = false;
+                        });
+                        render();
+                        return;
+                    }
                 }
 
                 Notification.clearAll();

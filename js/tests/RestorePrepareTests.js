@@ -97,7 +97,8 @@ testRunner.addSuite('RestorePrepare — re-estampado para que la restauración g
 function getRestoreBody() {
     const start = APP_SRC.indexOf('window.restoreSnapshot');
     if (start === -1) return null;
-    return APP_SRC.slice(start, start + 6000);
+    const end = APP_SRC.indexOf('window.changeDate', start);
+    return APP_SRC.slice(start, end === -1 ? start + 9000 : end);
 }
 
 testRunner.addSuite('Restore — wiring: la restauración gana y se sube entera', {
@@ -128,6 +129,21 @@ testRunner.addSuite('Restore — wiring: la restauración gana y se sube entera'
             'debe reanudar la descarga al terminar');
         testRunner.assert(body.includes('isDownloadPaused('),
             'debe respetar una pausa manual previa del usuario (no re-activarla)');
+    },
+
+    'si la red de seguridad falla, PREGUNTA antes de seguir (y abortar es posible)'() {
+        // El snapshot pre-restore fallaba en silencio (console.warn) mientras
+        // la UI afirmaba "Creando red de seguridad...": el usuario restauraba
+        // creyendo que tenía un punto de retorno que NUNCA existió (los
+        // estados >800KB van a Storage, que puede fallar por CORS/bucket).
+        const body = getRestoreBody();
+        const catchIdx = body.indexOf('catch (snapErr)');
+        testRunner.assert(catchIdx !== -1, 'debe existir el catch del snapshot pre-restore');
+        const catchBlock = body.slice(catchIdx, catchIdx + 1600);
+        testRunner.assert(catchBlock.includes('Modal.confirm'),
+            'el fallo de la red de seguridad debe preguntar al usuario, no seguir en silencio');
+        testRunner.assert(/return;/.test(catchBlock),
+            'si el usuario no acepta, la restauración debe abortarse');
     },
 
     'sube la asistencia restaurada por el canal dateKeys y drena el outbox antes de reanudar'() {
