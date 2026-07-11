@@ -39,6 +39,7 @@ import { detectIncomingChanges } from './modules/services/IncomingChangeDetector
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload, markRestoreDownloadPause, clearRestoreDownloadPause, healOrphanedRestorePause } from './modules/services/SyncPauseService.js';
 import { prepareRestoredState } from './modules/services/RestorePrepare.js';
+import { mergeIncomingPositions, mergeIncomingLeaders } from './modules/services/CatalogIncomingMerge.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
 import { LeaderRepository } from './modules/services/LeaderRepository.js';
@@ -7030,11 +7031,16 @@ function _initOutgoingConflictGuard() {
                             subscribe: (cb) => PositionRepository.subscribe(cb),
                             onApply: (positions) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync cargos ignorado.'); return; }
-                                const merged = dedup(positions || []);
+                                // Incidente 2026-07-11: el reemplazo mayorista
+                                // (state.positions = lista de la nube) dejaba que
+                                // una nube envenenada/parcial pisara el catálogo
+                                // local sano. Fusión por registro con LWW + línea
+                                // de base (ver CatalogIncomingMerge.js).
+                                const merged = dedup(mergeIncomingPositions(state.positions, positions || []));
                                 state.positions = (typeof Position !== 'undefined')
                                     ? merged.map(p => p instanceof Position ? p : new Position(p))
                                     : merged;
-                                debug.log(`📡 LiveSync: aplicada lista de ${state.positions.length} cargo(s) desde la nube`);
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.positions.length} cargo(s) desde la nube (merge por-registro)`);
                                 if (typeof render === 'function') render();
                             }
                         });
@@ -7042,11 +7048,11 @@ function _initOutgoingConflictGuard() {
                             subscribe: (cb) => LeaderRepository.subscribe(cb),
                             onApply: (leaders) => {
                                 if (isDownloadPaused()) { debug.log('⏸️ Descarga pausada — LiveSync líderes ignorado.'); return; }
-                                const merged = dedup(leaders || []);
+                                const merged = dedup(mergeIncomingLeaders(state.leaders, leaders || []));
                                 state.leaders = (typeof Leader !== 'undefined')
                                     ? merged.map(l => l instanceof Leader ? l : new Leader(l))
                                     : merged;
-                                debug.log(`📡 LiveSync: aplicada lista de ${state.leaders.length} líder(es) desde la nube`);
+                                debug.log(`📡 LiveSync: aplicada lista de ${state.leaders.length} líder(es) desde la nube (merge por-registro)`);
                                 if (typeof render === 'function') render();
                             }
                         });
