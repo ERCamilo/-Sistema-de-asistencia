@@ -3575,19 +3575,25 @@ window.openCuentasPorCobrar = () => {
 //   🔌 rojo   = sin conexión a Internet.
 //   👤 gris   = sin sesión.
 window.renderSyncStatusBadgeForHeader = () => {
+    // Sin sesión el badge DESAPARECE: no hay nada que sincronizar y el login
+    // se hace desde el botón "Iniciar sesión" (avatar). Ver AuthHeaderTests.
+    if (!window.currentUser) return '';
     const badge = renderSyncStatusBadge({
         lastSyncedAt: SyncStatus.getLastSyncedAt(),
         hasError:     SyncStatus.hasError(),
-        isAuthenticated: !!window.currentUser,
+        isAuthenticated: true,
         isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
         compact: true
     });
+    // Una sola función: tocar el badge = Sincronizar ahora (girar → ✓/✗).
+    // NADA de abrir el CS acá (eso es el avatar) ni reanudar/reintentar en el
+    // mismo clic (ese doble comportamiento era el problema).
     return `
         <button type="button"
                 class="header-sync-center-btn"
-                data-app-fn="openSyncCenterModal"
-                aria-label="Abrir centro de sincronización"
-                title="Abrir centro de sincronización">
+                data-app-fn="syncFirebaseNow"
+                aria-label="Sincronizar ahora"
+                title="Sincronizar ahora">
             ${badge}
         </button>
     `;
@@ -3597,50 +3603,17 @@ window.renderSyncStatusBadgeForHeader = () => {
 // Re-renderiza el badge cada 5s y en cada cambio de SyncStatus (sin trigger
 // de render() global, que sería costoso).
 if (typeof window !== 'undefined') {
+    // El badge SOLO informa y hace live-refresh. NADA de handlers de clic acá:
+    // tocar el badge = Sincronizar ahora (data-app-fn del wrapper, ver
+    // renderSyncStatusBadgeForHeader). Reanudar la pausa y reintentar errores
+    // se hacen desde el Centro de Sincronización (toggles + Sincronizar ahora),
+    // al que se entra por el avatar. Esto elimina el doble comportamiento
+    // (abrir modal Y ejecutar acción en el mismo clic) que confundía.
     attachLiveBadge({
         getAuth:          () => !!window.currentUser,
         getOnline:        () => typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
         getUploadPaused:  () => SYNC_PAUSE_ENABLED && isSyncPaused(),
-        compact:          true,  // El header usa modo icono-solo
-        // Click en badge naranja "pausado" → confirmar y reanudar la subida.
-        // Esto es la ÚNICA manera de salir del estado pausado desde la UI.
-        onPausedClick: async () => {
-            const confirmed = await Modal.confirm({
-                title: '▶️ Reanudar subida a la nube',
-                message:
-                    'La subida a la nube está actualmente pausada — tus cambios locales no se ' +
-                    'están enviando a Firebase ni a tus otros dispositivos.<br><br>' +
-                    '¿Deseas reanudar la subida ahora? Se subirán inmediatamente todos los ' +
-                    'cambios pendientes.',
-                confirmText: '▶️ Sí, reanudar y subir',
-                cancelText: 'Mantener pausado'
-            });
-            if (confirmed) {
-                try {
-                    await resumeCloudUpload();
-                    showNotification('▶️ Subida a la nube reanudada. Sincronizando…', 'success');
-                } catch (e) {
-                    console.error('Error al reanudar:', e);
-                    showNotification('❌ Error al reanudar la subida', 'error');
-                }
-            }
-        },
-        // U13: badge rojo "Error de sync" también accionable — mismo mecanismo
-        // que el botón "Reintentar" del toast (U12): revive entradas 'dead' y
-        // drena el outbox ya mismo (retryFailedCloudSync — ver PersistenceService.js:
-        // sin revivirlas, una entrada que agotó sus reintentos contra un error
-        // que ya se resolvió —p.ej. cuota de Firestore repuesta— quedaba
-        // atascada para siempre, aunque el usuario tocara "Reintentar").
-        // El resultado real lo reflejan el badge (SyncStatus) y el toast
-        // honesto; este mensaje es sólo feedback de que se disparó el intento.
-        onErrorClick: async () => {
-            showNotification('🔄 Reintentando subida a la nube…', 'info');
-            try {
-                await retryFailedCloudSync();
-            } catch (e) {
-                console.error('Error al reintentar desde el badge:', e);
-            }
-        }
+        compact:          true  // El header usa modo icono-solo
     });
     // Cuando cambia el estado de conexión, refrescar inmediatamente.
     window.addEventListener('online',  () => SyncStatus.markSynced(SyncStatus.getLastSyncedAt() || Date.now()));
@@ -4563,6 +4536,67 @@ window.openSyncCenterModal = () => {
     render();
 };
 
+// 🔑 Modal de login explicativo (sin sesión). Abre desde el botón "Iniciar
+// sesión" del header. Explica POR QUÉ conviene la nube antes de loguear.
+window.openLoginModal = () => {
+    stateManager.batchSetState(() => {
+        state.modalType = 'login';
+        state.showModal = true;
+    });
+    render();
+};
+
+function buildLoginModalHTML() {
+    return `
+        <div class="modal-overlay sync-center-overlay" data-app-close-on-self="close-modal">
+            <div class="sync-center-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
+                <div class="sync-center-header">
+                    <div>
+                        <h2 id="login-modal-title">Iniciar sesión</h2>
+                        <p>Conectá tu cuenta para respaldar y sincronizar tus datos.</p>
+                    </div>
+                    <button type="button" class="sync-center-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
+                </div>
+
+                <ul class="login-benefits">
+                    <li><strong>☁️ Respaldo automático</strong><span>Tus datos quedan a salvo en la nube, no solo en este equipo.</span></li>
+                    <li><strong>🔄 Sincronización</strong><span>Trabajá desde varios dispositivos con la misma información.</span></li>
+                    <li><strong>🕘 Historial</strong><span>Puntos de restauración para volver atrás si algo sale mal.</span></li>
+                </ul>
+
+                <div class="sync-center-actions primary">
+                    ${'' /* botón principal de login */}
+                    <button type="button" class="sync-center-action" data-app-fn="loginWithGoogle">
+                        <span class="sync-center-action-icon">G</span>
+                        <span class="sync-center-action-copy">
+                            <strong>Iniciar sesión con Google</strong>
+                            <small>Se abre una ventana segura de Google. Podés seguir sin cuenta cuando quieras.</small>
+                        </span>
+                    </button>
+                </div>
+
+                <p class="login-local-note">Sin cuenta, la app sigue funcionando y guardando en este dispositivo.</p>
+            </div>
+        </div>
+    `;
+}
+
+// 🚪 Cerrar sesión desde el Centro de Sincronización (acción rara → vive
+// adentro del CS, no al frente). Cierra el modal y delega en FirebaseService.
+window.syncCenterLogout = async () => {
+    stateManager.batchSetState(() => {
+        state.showModal = false;
+        state.modalType = null;
+    });
+    render();
+    try {
+        await window.logoutFirebase?.();
+    } catch (e) {
+        console.error('Error al cerrar sesión:', e);
+        showNotification('❌ No se pudo cerrar la sesión', 'error');
+    }
+};
+
 // ⏸️ Toggle de pausa de subida a la nube desde el centro de sincronización.
 // A diferencia del badge naranja (que solo reanuda), este switch activa Y
 // desactiva la pausa, y deja el modal abierto para que el usuario vea el
@@ -4814,6 +4848,7 @@ function SyncCenterModal() {
                         ${action('syncCenterDownloadFromCloud', '↓', 'Descargar de la nube', 'Trae la versión remota a este equipo (reemplaza lo local).', 'secondary')}
                         ${action('syncCenterResolveConflicts', '≋', 'Resolver conflictos', 'Revisar duplicados y datos inconsistentes.', 'secondary')}
                         ${action('syncCenterOpenSettings', '⚙', 'Configurar sincronización', 'Abrir los ajustes de datos y nube.', 'secondary')}
+                        ${hasUser ? action('syncCenterLogout', '⏻', 'Cerrar sesión', `Salir de la cuenta ${escapeHTML(userLabel)}.`, 'secondary') : ''}
                     </div>
                 </details>
             </div>
@@ -6403,7 +6438,8 @@ function App() {
         'position-form': () => '',
         'multi-position': () => '',
         'attendance-layout': () => AttendanceLayoutModal(),
-        'sync-center': () => SyncCenterModal()
+        'sync-center': () => SyncCenterModal(),
+        'login': () => buildLoginModalHTML()
     };
 
     const modal = state.showModal && modalMap[state.modalType]

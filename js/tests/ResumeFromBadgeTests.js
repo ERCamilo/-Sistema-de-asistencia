@@ -174,29 +174,25 @@ testRunner.addSuite("ResumeFromBadge — attachLiveBadge onPausedClick wiring", 
 // app.js wiring — onPausedClick + resume
 // ─────────────────────────────────────────────────────────────
 
-testRunner.addSuite("ResumeFromBadge — app.js wiring", {
+// 🔁 Realineado 2026-07-11: la reanudación se MUDÓ del badge al toggle del
+// Centro de Sincronización. El badge dejó de tener efectos ocultos (antes
+// abría el modal Y reanudaba en el mismo clic). Ahora tocar el badge solo
+// sincroniza; reanudar la pausa se hace desde el switch del CS.
+testRunner.addSuite("ResumeFromBadge — reanudar se mudó al toggle del CS", {
 
-    "app.js passes onPausedClick to attachLiveBadge"() {
+    "app.js ya NO pasa onPausedClick al badge (fin del doble comportamiento)"() {
         const block = APP_SRC.match(/attachLiveBadge\s*\(\s*\{[\s\S]{0,1500}\}\s*\)/);
         testRunner.assert(
-            !!block && /onPausedClick\s*:/.test(block[0]),
-            'app.js must pass an onPausedClick callback to attachLiveBadge'
+            !!block && !/onPausedClick\s*:/.test(block[0]),
+            'el badge ya no debe reanudar al presionar; eso vive en el toggle del CS'
         );
     },
 
-    "onPausedClick handler in app.js shows Modal.confirm"() {
-        const block = APP_SRC.match(/onPausedClick\s*:[\s\S]{0,800}/);
-        testRunner.assert(
-            !!block && /Modal\.confirm/.test(block[0]),
-            'onPausedClick must use Modal.confirm to ask the user before resuming'
-        );
-    },
-
-    "on confirm, calls resumeCloudUpload"() {
-        const block = APP_SRC.match(/onPausedClick\s*:[\s\S]{0,1500}/);
+    "el toggle del CS (syncCenterTogglePause) reanuda con resumeCloudUpload"() {
+        const block = APP_SRC.match(/syncCenterTogglePause\s*=[\s\S]{0,600}/);
         testRunner.assert(
             !!block && /resumeCloudUpload\s*\(/.test(block[0]),
-            'onPausedClick handler must call resumeCloudUpload() when user confirms'
+            'el switch de subida del CS debe reanudar con resumeCloudUpload()'
         );
     }
 
