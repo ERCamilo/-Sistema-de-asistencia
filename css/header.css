@@ -135,6 +135,12 @@
 
 .sync-center-modal {
     width: min(620px, 100%);
+    /* Sin esto, un modal alto se centra y se sale de la pantalla en celulares:
+       la × queda fuera de vista y no hay forma de cerrar. max-height + scroll
+       interno lo mantienen dentro del viewport. 100dvh respeta la barra del
+       navegador móvil. */
+    max-height: min(90vh, 90dvh);
+    overflow-y: auto;
     background: #0f172a;
     border: 1px solid rgba(148, 163, 184, 0.22);
     border-radius: 14px;
@@ -148,6 +154,13 @@
     justify-content: space-between;
     gap: 16px;
     margin-bottom: 16px;
+    /* Pegajoso: la × sigue alcanzable aunque el contenido haga scroll. */
+    position: sticky;
+    top: -18px;
+    margin-top: -18px;
+    padding-top: 18px;
+    background: #0f172a;
+    z-index: 2;
 }
 
 .sync-center-header h2 {
@@ -165,8 +178,9 @@
 }
 
 .sync-center-close {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
     border-radius: 8px;
     border: 1px solid #334155;
     background: #1e293b;
@@ -214,6 +228,68 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Estado en UNA línea (reemplaza las 3 tarjetas) */
+.sync-center-status-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    background: #111827;
+    border: 1px solid #243044;
+    border-radius: 10px;
+}
+
+.sync-center-status-line strong {
+    color: #f8fafc;
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.sync-center-status-line span {
+    color: #94a3b8;
+    font-size: 0.76rem;
+}
+
+/* Toggles compactos: 2 tarjetas lado a lado (bajan a 1 columna en pantallas muy angostas) */
+.sync-pause-switches.compact {
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.sync-pause-switches.compact .sync-pause-row {
+    flex: 1 1 46%;
+    min-width: 150px;
+    padding: 10px 12px;
+    gap: 10px;
+}
+
+/* Fold "Opciones avanzadas" — lo raro/peligroso, escondido hasta que se busca */
+.sync-center-advanced {
+    margin-top: 12px;
+    border-top: 1px solid #243044;
+    padding-top: 8px;
+}
+
+.sync-center-advanced > summary {
+    cursor: pointer;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 8px 4px;
+    list-style: revert;
+    user-select: none;
+}
+
+.sync-center-advanced > summary:hover {
+    color: #f8fafc;
+}
+
+.sync-center-advanced[open] > summary {
+    margin-bottom: 8px;
 }
 
 .sync-center-actions {
