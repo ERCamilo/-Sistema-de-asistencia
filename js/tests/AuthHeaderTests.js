@@ -41,7 +41,7 @@ testRunner.addSuite('AuthHeader — badge: una sola función, oculto sin sesión
 
     'al tocar el badge se Sincroniza ahora (una sola función, sin abrir modal)'() {
         const idx = APP_SRC.indexOf('renderSyncStatusBadgeForHeader = ');
-        const body = APP_SRC.slice(idx, idx + 900);
+        const body = APP_SRC.slice(idx, idx + 1500);
         testRunner.assert(/data-app-fn="syncFirebaseNow"/.test(body),
             'el badge debe disparar syncFirebaseNow (girar → ✓/✗)');
         testRunner.assert(!/data-app-fn="openSyncCenterModal"/.test(body),
