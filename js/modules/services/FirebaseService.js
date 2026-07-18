@@ -20,6 +20,7 @@ import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 import { createEntityUploadTracker } from './EntityUploadTracker.js';
 import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from './SnapshotCodec.js';
+import { shouldWriteSettings } from './SettingsWriteGuard.js';
 
 // Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
 // TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
@@ -297,6 +298,35 @@ class FirebaseService {
         try {
             const cleanSettings = JSON.parse(JSON.stringify(settingsMap || {}));
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+
+            // Fase 2B JD-B1: read-compare-write LWW antes de reemplazar el doc
+            // entero, mismo espíritu que EmployeeRepository.saveOne con
+            // mergeRemote — sin esto, saveSettings era un setDoc a ciegas sin
+            // comparar contra la nube, y un dispositivo drenando una entrada
+            // STALE del outbox 'settings' (p.ej. tras estar offline) podía
+            // pisar un settings más nuevo ya escrito por otro dispositivo.
+            // Si el read remoto falla (offline, permisos), cae al write
+            // directo — mejor un save sin comparar que perder el save del
+            // usuario.
+            let remoteExists = false;
+            let remoteUpdatedAt = 0;
+            try {
+                const remoteSnap = await getDoc(docRef);
+                remoteExists = !!(remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists());
+                if (remoteExists) {
+                    const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
+                    remoteUpdatedAt = remoteData?.settings?.localUpdatedAt || 0;
+                }
+            } catch (e) {
+                console.warn('⚠️ saveSettings: read remoto para comparar LWW falló, escribiendo sin comparar:', e);
+            }
+
+            const payloadUpdatedAt = cleanSettings?.localUpdatedAt || 0;
+            if (remoteExists && !shouldWriteSettings({ payloadUpdatedAt, remoteUpdatedAt })) {
+                console.log('☁️ saveSettings: doc remoto más nuevo que el payload — se omite el write (LWW)');
+                return;
+            }
+
             await setDoc(docRef, {
                 settings: cleanSettings,
                 updatedAt: serverTimestamp(),
@@ -465,6 +495,13 @@ class FirebaseService {
                 lastDevice: navigator.userAgent,
                 lastChangedBy: getDeviceId()
             }); // NO { merge: true } — this REPLACES the doc entirely
+
+            // Fase 2B JD-A2: el doc per-registro de settings (users/{uid}/data/settings)
+            // es la fuente de verdad para preferencias desde Fase 2B U1 — si no lo
+            // reescribimos acá, "reemplazar nube con mis datos" deja ese doc STALE
+            // (podía tener el settings descartado de OTRO dispositivo), aunque el
+            // espejo ya quedó con los datos locales correctos. Reusa el writer de U1.
+            await this.saveSettings(state.settings);
 
             console.log('✅ replaceCloudFull: Nube reemplazada con datos locales');
             SyncStatus.markSynced();

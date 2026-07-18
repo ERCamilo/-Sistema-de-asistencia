@@ -166,4 +166,59 @@ testRunner.addSuite("OutgoingConflict — state flag isolation", {
 
 });
 
+// ─────────────────────────────────────────────────────────────
+// app.js — watermark cache compartido (Judgment Day Fase 2B, fix A1)
+// ─────────────────────────────────────────────────────────────
+//
+// Bug: _lastKnownSettingsDocTs / _lastKnownMirrorTs vivían como `let` de
+// closure en un scope DISTINTO al de _initOutgoingConflictGuard, así que el
+// reset de "local wins" no los limpiaba y un snapshot remoto legítimo
+// posterior los volvía a MAXear (resucitando el watermark ya resuelto).
+// Fix: promover ambos a outgoingWatermarkCache (SyncWatermark.js) e
+// invocar su reset() atómico junto con state._lastKnownCloudUpdatedAt.
+
+testRunner.addSuite("OutgoingConflict — app.js usa outgoingWatermarkCache (Fase 2B, fix A1)", {
+
+    "app.js importa outgoingWatermarkCache de SyncWatermark.js"() {
+        testRunner.assert(
+            /import\s*\{[^}]*outgoingWatermarkCache[^}]*\}\s*from\s*['"]\.\/modules\/services\/SyncWatermark\.js['"]/.test(APP_SRC),
+            'app.js debe importar outgoingWatermarkCache desde SyncWatermark.js'
+        );
+    },
+
+    "app.js YA NO declara _lastKnownSettingsDocTs / _lastKnownMirrorTs como variables de closure sueltas"() {
+        testRunner.assert(
+            !/let\s+_lastKnownSettingsDocTs/.test(APP_SRC) && !/let\s+_lastKnownMirrorTs/.test(APP_SRC),
+            'Los dos caches sueltos deben eliminarse — ahora viven en outgoingWatermarkCache'
+        );
+    },
+
+    "el reset 'local wins' de _initOutgoingConflictGuard también resetea outgoingWatermarkCache"() {
+        // El bloque `if (confirmed) { ... }` donde se resetea
+        // state._lastKnownCloudUpdatedAt debe, en la misma zona, resetear
+        // también outgoingWatermarkCache — atómico con el watermark de state.
+        const block = APP_SRC.match(/state\._lastKnownCloudUpdatedAt\s*=\s*state\.settings\?\.localUpdatedAt[\s\S]{0,800}/);
+        testRunner.assert(!!block, 'debe existir el reset de state._lastKnownCloudUpdatedAt en el branch "local wins"');
+        testRunner.assert(
+            /outgoingWatermarkCache\.reset\(/.test(block[0]),
+            'el mismo branch debe llamar a outgoingWatermarkCache.reset(...) para no dejar los caches de settings/mirror stale-altos'
+        );
+    },
+
+    "el listener del espejo (subscribeToChanges) lee/escribe vía outgoingWatermarkCache"() {
+        testRunner.assert(
+            /outgoingWatermarkCache\.setMirrorTs\(/.test(APP_SRC),
+            'el listener del espejo debe escribir el ts vía outgoingWatermarkCache.setMirrorTs'
+        );
+    },
+
+    "la suscripción a settings (subscribeToSettings) lee/escribe vía outgoingWatermarkCache"() {
+        testRunner.assert(
+            /outgoingWatermarkCache\.setSettingsDocTs\(/.test(APP_SRC),
+            'la suscripción de settings debe escribir el ts vía outgoingWatermarkCache.setSettingsDocTs'
+        );
+    }
+
+});
+
 console.log('🧪 OutgoingConflict tests cargados.');

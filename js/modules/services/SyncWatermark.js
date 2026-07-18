@@ -62,4 +62,64 @@ export function mergeCloudWatermark(current, fromSettings, fromMirror) {
     return Math.max(c, s, m);
 }
 
-export default { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark };
+/**
+ * Fase 2B JD-A1 — cache compartido de los dos últimos timestamps conocidos
+ * por fuente (doc per-registro de settings y espejo).
+ *
+ * ANTES: `_lastKnownSettingsDocTs` / `_lastKnownMirrorTs` vivían como
+ * variables `let` de closure en DOS scopes DISTINTOS dentro de app.js — el
+ * listener del espejo (subscribeToChanges, dentro del IIFE de
+ * onAuthStateChanged) y la suscripción a subscribeToSettings. El reset de
+ * "local wins" en `_initOutgoingConflictGuard` (función de nivel de módulo,
+ * llamada UNA vez desde initializeApp) solo podía limpiar
+ * `state._lastKnownCloudUpdatedAt` porque esas dos closures no eran
+ * accesibles desde ahí. El resultado: el próximo snapshot remoto legítimo
+ * volvía a MAXear los dos caches stale-altos vía mergeCloudWatermark,
+ * resucitando el watermark que el usuario ya había resuelto — re-disparaba
+ * el modal de conflicto saliente y saltaba el enqueue a la nube de ese
+ * guardado.
+ *
+ * FIX: un único objeto de cache, importable tanto desde
+ * `_initOutgoingConflictGuard` como desde los listeners del espejo y de
+ * settings, con un `reset()` que limpia AMBAS fuentes atómicamente junto
+ * con `state._lastKnownCloudUpdatedAt`.
+ *
+ * @returns {{
+ *   get: () => {settingsDocTs: number, mirrorTs: number},
+ *   setSettingsDocTs: (ts: number) => void,
+ *   setMirrorTs: (ts: number) => void,
+ *   reset: (value?: number) => void
+ * }}
+ */
+export function createWatermarkCache() {
+    let settingsDocTs = 0;
+    let mirrorTs = 0;
+
+    return {
+        get() {
+            return { settingsDocTs, mirrorTs };
+        },
+        setSettingsDocTs(ts) {
+            settingsDocTs = Number.isFinite(ts) ? ts : 0;
+        },
+        setMirrorTs(ts) {
+            mirrorTs = Number.isFinite(ts) ? ts : 0;
+        },
+        reset(value = 0) {
+            const v = Number.isFinite(value) ? value : 0;
+            settingsDocTs = v;
+            mirrorTs = v;
+        }
+    };
+}
+
+/**
+ * Instancia única compartida por toda la sesión de app.js (un solo usuario
+ * autenticado a la vez por pestaña) — importada tanto por
+ * `_initOutgoingConflictGuard` (reset) como por los listeners de
+ * subscribeToChanges / subscribeToSettings (lectura/escritura), resolviendo
+ * el desajuste de scopes descrito arriba.
+ */
+export const outgoingWatermarkCache = createWatermarkCache();
+
+export default { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, createWatermarkCache, outgoingWatermarkCache };

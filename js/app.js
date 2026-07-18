@@ -23,7 +23,7 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
-import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark } from './modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, outgoingWatermarkCache } from './modules/services/SyncWatermark.js';
 import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
@@ -6639,6 +6639,13 @@ function _initOutgoingConflictGuard() {
             // Local wins: true overwrite (not merge). Deletes orphan cloud docs,
             // writes the main doc WITHOUT merge:true, so cloud-only data is removed.
             state._lastKnownCloudUpdatedAt = state.settings?.localUpdatedAt || 0;
+            // 🛡️ Judgment Day Fase 2B (fix A1): resetear TAMBIÉN el cache
+            // compartido de watermarks (settingsDocTs/mirrorTs), no solo
+            // state._lastKnownCloudUpdatedAt. Sin esto, el próximo snapshot
+            // remoto legítimo volvía a MAXear los caches stale-altos (vía
+            // mergeCloudWatermark) y resucitaba el watermark que el usuario
+            // recién resolvió.
+            outgoingWatermarkCache.reset(state.settings?.localUpdatedAt || 0);
             try {
                 await FirebaseService.replaceCloudFull(state);
                 showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
@@ -6892,8 +6899,12 @@ function _initOutgoingConflictGuard() {
                 // mergeCloudWatermark los combina por MAX cada vez que
                 // CUALQUIERA de los dos dispara, para que ninguno "atrase" al
                 // otro (la cadencia del espejo se reduce en Change B).
-                let _lastKnownSettingsDocTs = 0;
-                let _lastKnownMirrorTs = 0;
+                // 🛡️ Judgment Day Fase 2B (fix A1): estos dos valores viven en
+                // outgoingWatermarkCache (SyncWatermark.js), NO como `let` de
+                // closure locales — así _initOutgoingConflictGuard (definida
+                // en otro scope) puede resetearlos atómicamente junto con
+                // state._lastKnownCloudUpdatedAt cuando el usuario elige
+                // "local wins" en el conflicto saliente.
 
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges(async (remoteData) => {
@@ -6902,11 +6913,13 @@ function _initOutgoingConflictGuard() {
                     // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
                     // detectar conflictos salientes (local más viejo que la nube).
                     // Se actualiza siempre, incluso si los datos se descartan más abajo.
-                    _lastKnownMirrorTs = remoteData?.settings?.localUpdatedAt || _lastKnownMirrorTs || 0;
+                    outgoingWatermarkCache.setMirrorTs(
+                        remoteData?.settings?.localUpdatedAt || outgoingWatermarkCache.get().mirrorTs || 0
+                    );
                     state._lastKnownCloudUpdatedAt = mergeCloudWatermark(
                         state._lastKnownCloudUpdatedAt,
-                        _lastKnownSettingsDocTs,
-                        _lastKnownMirrorTs
+                        outgoingWatermarkCache.get().settingsDocTs,
+                        outgoingWatermarkCache.get().mirrorTs
                     );
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
@@ -7222,12 +7235,12 @@ function _initOutgoingConflictGuard() {
                     const result = handleRemoteSettings({
                         remoteDoc: settingsDoc,
                         state,
-                        lastKnownMirrorTs: _lastKnownMirrorTs,
+                        lastKnownMirrorTs: outgoingWatermarkCache.get().mirrorTs,
                         batchSetState: (cb) => stateManager.batchSetState(cb),
                         deps: { debugLog: debug.log }
                     });
 
-                    _lastKnownSettingsDocTs = result.settingsDocTs;
+                    outgoingWatermarkCache.setSettingsDocTs(result.settingsDocTs);
                 });
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango

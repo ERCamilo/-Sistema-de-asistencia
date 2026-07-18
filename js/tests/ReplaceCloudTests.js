@@ -92,6 +92,48 @@ testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull (source c
 });
 
 // ─────────────────────────────────────────────────────────────
+// FirebaseService — replaceCloudFull también escribe el doc per-registro
+// de settings (Judgment Day Fase 2B, fix A2)
+// ─────────────────────────────────────────────────────────────
+//
+// Bug: replaceCloudFull sobreescribe el espejo (users/{uid}/data/current)
+// pero nunca escribía users/{uid}/data/settings (Fase 2B U1). Tras elegir
+// "reemplazar nube con mis datos", el doc de settings quedaba stale
+// (podía tener el settings descartado de OTRO dispositivo) aunque el
+// espejo ya reflejara los datos locales correctos.
+
+testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull escribe settings (Fase 2B, fix A2)", {
+
+    "replaceCloudFull llama a this.saveSettings(state.settings) tras el overwrite del espejo"() {
+        const method = FIREBASE_SRC.match(
+            /async\s+replaceCloudFull[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/
+        );
+        testRunner.assert(!!method, 'replaceCloudFull debe ser localizable');
+        testRunner.assert(
+            /this\.saveSettings\(\s*state\.settings\s*\)/.test(method[0]),
+            'replaceCloudFull debe reutilizar this.saveSettings(state.settings) (writer de U1) para que el doc de settings quede consistente con "local wins", no stale'
+        );
+    },
+
+    "la llamada a saveSettings ocurre DESPUÉS del setDoc del espejo (data/current)"() {
+        const method = FIREBASE_SRC.match(
+            /async\s+replaceCloudFull[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/
+        );
+        testRunner.assert(!!method, 'replaceCloudFull debe ser localizable');
+        const txt = method[0];
+        const mirrorSetDocIdx = txt.search(/await\s+setDoc\s*\(\s*docRef/);
+        const saveSettingsIdx = txt.search(/this\.saveSettings\(\s*state\.settings\s*\)/);
+        testRunner.assert(mirrorSetDocIdx >= 0, 'debe existir el setDoc del espejo');
+        testRunner.assert(saveSettingsIdx >= 0, 'debe existir la llamada a saveSettings');
+        testRunner.assert(
+            saveSettingsIdx > mirrorSetDocIdx,
+            'saveSettings debe llamarse DESPUÉS de que el overwrite del espejo se haya escrito'
+        );
+    }
+
+});
+
+// ─────────────────────────────────────────────────────────────
 // app.js — outgoing conflict uses replaceCloudFull
 // ─────────────────────────────────────────────────────────────
 

@@ -83,9 +83,11 @@ function _resolveCloudCall(entry, guards) {
         return () => guards.saveEntities(entry.employees, entry.positions, entry.leaders, entry.schemaVersion);
     }
     if (entry.kind === 'settings') {
-        // Sin gate de watermark: saveSettings() ya es un full-replace LWW por
-        // dispositivo (ver FirebaseService.saveSettings) — igual que
-        // 'entities', el gate grueso del espejo no debe frenar este write.
+        // Sin gate de watermark: saveSettings() hace su propio read-compare-write
+        // LWW por localUpdatedAt (Fase 2B JD-B1, ver FirebaseService.saveSettings +
+        // SettingsWriteGuard.shouldWriteSettings) — igual que 'entities', el gate
+        // grueso del espejo no debe frenar este write; la comparación fina ya
+        // vive dentro del propio writer.
         return () => guards.saveSettings(entry.settings);
     }
     if (entry.kind === 'delete') {
