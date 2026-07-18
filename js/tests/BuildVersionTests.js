@@ -81,6 +81,12 @@ testRunner.addSuite('BuildVersion — cableado del footer (contrato de fuente)',
             'el hook debe regenerar BuildInfo.js en cada commit');
         testRunner.assert(/NEW_VERSION/.test(HOOK_SRC),
             'debe reusar la MISMA NEW_VERSION que sw.js (una sola fuente de fecha)');
+    },
+
+    'el build usa la hora local de Rep. Dominicana (TZ fijo, no UTC)'() {
+        // Sin TZ fijo, un commit hecho en un entorno UTC estampaba +4h de más.
+        testRunner.assert(/TZ='AST4'\s+date|TZ="AST4"\s+date/.test(HOOK_SRC),
+            'NEW_VERSION debe fijar TZ=AST4 (UTC-4, hora de Rep. Dominicana) al llamar date');
     }
 
 });
