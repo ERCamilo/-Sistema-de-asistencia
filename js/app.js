@@ -6853,6 +6853,24 @@ function _initOutgoingConflictGuard() {
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
             if (user) {
+                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2): resetear el cache
+                // compartido de watermarks en CADA transición de auth (login,
+                // re-login, cambio de cuenta en la misma pestaña), antes de
+                // recablear los listeners del espejo/settings más abajo.
+                // ANTES de la promoción a singleton (fix A1) estos dos valores
+                // eran `let` de closure DENTRO de este mismo callback, así que
+                // se reseteaban implícitamente en cada transición; al promoverlos
+                // a outgoingWatermarkCache (módulo compartido) ese reset implícito
+                // se perdió — el cache sobrevivía a un logout sin reload (p.ej.
+                // window.syncCenterLogout) y arrastraba los timestamps de la
+                // cuenta anterior a la sesión de la cuenta nueva, generando
+                // prompts de conflicto saliente espurios con timestamps ajenos.
+                // Resetear a 0 acá es seguro: el primer snapshot legítimo de la
+                // sesión nueva vuelve a poblar el cache vía setMirrorTs/
+                // setSettingsDocTs más abajo (mismo comportamiento que el reset
+                // pre-fix).
+                outgoingWatermarkCache.reset(0);
+
                 showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
 
                 // 🔐 C2 (Auditoría 2026-06-09): guard de propiedad de los datos
@@ -7397,6 +7415,14 @@ function _initOutgoingConflictGuard() {
                 // Iniciar primera suscripción
                 window.updateAttendanceSubscription();
             } else {
+                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2): resetear el cache
+                // compartido de watermarks también al CERRAR sesión (user===null),
+                // no solo al iniciarla — cubre window.syncCenterLogout (que llama
+                // a FirebaseService.logout() sin reload de página) para que la
+                // próxima cuenta que inicie sesión en esta misma pestaña no
+                // herede timestamps de la cuenta anterior.
+                outgoingWatermarkCache.reset(0);
+
                 // Si no hay usuario, ocultamos el loader de inmediato (ya que no habrá sync)
                 hideLoader();
                 isInitialLoad = false;

@@ -177,10 +177,17 @@ testRunner.addSuite("FirebaseService — Integración con catálogo SnapshotReas
 
 testRunner.addSuite("FirebaseService — Contrato saveSettings LWW read-compare-write (Fase 2B, fix B1)", {
 
-    "saveSettings importa shouldWriteSettings de SettingsWriteGuard.js"() {
+    "saveSettings importa resolveSettingsWrite de SettingsWriteGuard.js"() {
+        // Fase 2B JD Ronda 2, fix F1: FirebaseService ahora delega la decisión
+        // completa (LWW + override force) a resolveSettingsWrite, que a su vez
+        // usa shouldWriteSettings internamente (ver SettingsWriteGuardTests.js).
         testRunner.assert(
             /from\s+['"]\.\/SettingsWriteGuard\.js['"]/.test(fbSource),
-            "FirebaseService debe importar shouldWriteSettings de SettingsWriteGuard.js"
+            "FirebaseService debe importar desde SettingsWriteGuard.js"
+        );
+        testRunner.assert(
+            /import\s*\{[^}]*resolveSettingsWrite[^}]*\}\s*from\s*['"]\.\/SettingsWriteGuard\.js['"]/.test(fbSource),
+            "FirebaseService debe importar resolveSettingsWrite de SettingsWriteGuard.js"
         );
     },
 
@@ -195,12 +202,12 @@ testRunner.addSuite("FirebaseService — Contrato saveSettings LWW read-compare-
         testRunner.assert(getDocIdx < setDocIdx, "el getDoc de comparación debe ocurrir ANTES del setDoc final");
     },
 
-    "saveSettings usa shouldWriteSettings para decidir si omite el write"() {
+    "saveSettings usa resolveSettingsWrite para decidir si omite el write (F1: incluye el override force)"() {
         const method = fbSource.match(/async\s+saveSettings\s*\([\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
         const txt = method[0];
         testRunner.assert(
-            /shouldWriteSettings\s*\(/.test(txt),
-            "saveSettings debe invocar shouldWriteSettings con el ts del payload y el ts remoto"
+            /resolveSettingsWrite\s*\(/.test(txt),
+            "saveSettings debe invocar resolveSettingsWrite con force, remoteExists, el ts del payload y el ts remoto"
         );
     },
 

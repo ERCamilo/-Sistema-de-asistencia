@@ -221,4 +221,65 @@ testRunner.addSuite("OutgoingConflict — app.js usa outgoingWatermarkCache (Fas
 
 });
 
+// ─────────────────────────────────────────────────────────────
+// app.js — outgoingWatermarkCache se resetea en CADA transición de auth
+// (Judgment Day Fase 2B JD Ronda 2, fix F2)
+// ─────────────────────────────────────────────────────────────
+//
+// Bug: antes de la promoción a singleton (fix A1), settingsDocTs/mirrorTs
+// eran `let` de closure DENTRO del callback de onAuthStateChanged, así que
+// se reseteaban implícitamente en cada transición de auth (login, re-login,
+// cambio de cuenta en la misma pestaña). El fix A1 promovió ambos al
+// singleton outgoingWatermarkCache pero solo lo reseteaba en el branch
+// "local wins" — nunca al cerrar sesión ni al iniciar una nueva. Fuga
+// alcanzable: usuario A inicia sesión (cache poblado con timestamps de A),
+// cierra sesión vía window.syncCenterLogout (FirebaseService.logout(), SIN
+// reload de página ni wipe de estado), usuario B inicia sesión en la misma
+// pestaña; si los datos locales de B están vacíos, LocalDataOwner no fuerza
+// un wipe/reload, y el cache stale de A sobrevive → mergeCloudWatermark MAX
+// conserva el valor de A → B recibe prompts de conflicto saliente espurios
+// con timestamps de OTRA cuenta.
+
+testRunner.addSuite("OutgoingConflict — outgoingWatermarkCache se resetea en cada transición de auth (Fase 2B JD Ronda 2, fix F2)", {
+
+    "onAuthStateChanged resetea outgoingWatermarkCache al INICIO del branch 'user presente', antes de recablear los listeners del espejo/settings"() {
+        const block = APP_SRC.match(/onAuthStateChanged\s*\(\s*async\s*\(\s*user\s*\)\s*=>\s*\{[\s\S]{0,6000}/);
+        testRunner.assert(!!block, 'debe existir el callback de onAuthStateChanged');
+        const ifUserIdx = block[0].search(/if\s*\(\s*user\s*\)\s*\{/);
+        testRunner.assert(ifUserIdx >= 0, 'debe existir el branch "if (user) {"');
+        const afterIfUser = block[0].slice(ifUserIdx);
+        const resetIdx = afterIfUser.search(/outgoingWatermarkCache\.reset\(\s*0\s*\)/);
+        const mirrorSubIdx = afterIfUser.search(/subscribeToChanges\(/);
+        testRunner.assert(
+            resetIdx >= 0,
+            'el branch "if (user)" debe llamar a outgoingWatermarkCache.reset(0) al iniciar sesión'
+        );
+        testRunner.assert(
+            mirrorSubIdx < 0 || resetIdx < mirrorSubIdx,
+            'el reset debe ocurrir ANTES de recablear subscribeToChanges (espejo)'
+        );
+    },
+
+    "onAuthStateChanged resetea outgoingWatermarkCache también en el branch 'user ausente' (logout, cubre window.syncCenterLogout)"() {
+        const block = APP_SRC.match(/onAuthStateChanged\s*\(\s*async\s*\(\s*user\s*\)\s*=>\s*\{[\s\S]*?\n\s{8}\}\s*\)\s*;/);
+        testRunner.assert(!!block, 'debe existir el callback completo de onAuthStateChanged');
+        const elseMatch = block[0].match(/\}\s*else\s*\{[\s\S]*$/);
+        testRunner.assert(!!elseMatch, 'debe existir el branch else (user ausente) de onAuthStateChanged');
+        testRunner.assert(
+            /outgoingWatermarkCache\.reset\(\s*0\s*\)/.test(elseMatch[0]),
+            'el branch "else" (sin usuario / logout) debe llamar a outgoingWatermarkCache.reset(0) para no arrastrar timestamps de la cuenta anterior a la próxima sesión'
+        );
+    },
+
+    "window.syncCenterLogout dispara FirebaseService.logout() (que a su vez dispara onAuthStateChanged con user=null, cubierto por el reset de arriba)"() {
+        const block = APP_SRC.match(/window\.syncCenterLogout\s*=[\s\S]{0,400}/);
+        testRunner.assert(!!block, 'debe existir window.syncCenterLogout');
+        testRunner.assert(
+            /logoutFirebase|FirebaseService\.logout/.test(block[0]),
+            'syncCenterLogout debe invocar el logout de FirebaseService, cuyo signOut dispara onAuthStateChanged(null)'
+        );
+    }
+
+});
+
 console.log('🧪 OutgoingConflict tests cargados.');

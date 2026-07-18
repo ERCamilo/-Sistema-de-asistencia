@@ -104,14 +104,14 @@ testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull (source c
 
 testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull escribe settings (Fase 2B, fix A2)", {
 
-    "replaceCloudFull llama a this.saveSettings(state.settings) tras el overwrite del espejo"() {
+    "replaceCloudFull llama a this.saveSettings(state.settings, { force: true }) tras el overwrite del espejo"() {
         const method = FIREBASE_SRC.match(
             /async\s+replaceCloudFull[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/
         );
         testRunner.assert(!!method, 'replaceCloudFull debe ser localizable');
         testRunner.assert(
-            /this\.saveSettings\(\s*state\.settings\s*\)/.test(method[0]),
-            'replaceCloudFull debe reutilizar this.saveSettings(state.settings) (writer de U1) para que el doc de settings quede consistente con "local wins", no stale'
+            /this\.saveSettings\(\s*state\.settings\s*,\s*\{\s*force:\s*true\s*\}\s*\)/.test(method[0]),
+            'replaceCloudFull debe reutilizar this.saveSettings(state.settings, { force: true }) (writer de U1) para que el doc de settings quede consistente con "local wins", no stale'
         );
     },
 
@@ -122,7 +122,7 @@ testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull escribe s
         testRunner.assert(!!method, 'replaceCloudFull debe ser localizable');
         const txt = method[0];
         const mirrorSetDocIdx = txt.search(/await\s+setDoc\s*\(\s*docRef/);
-        const saveSettingsIdx = txt.search(/this\.saveSettings\(\s*state\.settings\s*\)/);
+        const saveSettingsIdx = txt.search(/this\.saveSettings\(\s*state\.settings/);
         testRunner.assert(mirrorSetDocIdx >= 0, 'debe existir el setDoc del espejo');
         testRunner.assert(saveSettingsIdx >= 0, 'debe existir la llamada a saveSettings');
         testRunner.assert(
@@ -132,6 +132,69 @@ testRunner.addSuite("ReplaceCloud — FirebaseService.replaceCloudFull escribe s
     }
 
 });
+
+// ─────────────────────────────────────────────────────────────
+// FirebaseService.saveSettings — override force:true (Fase 2B JD
+// Ronda 2, fix F1)
+// ─────────────────────────────────────────────────────────────
+//
+// Bug: replaceCloudFull ("reemplazar nube con mis datos", override EXPLÍCITO
+// del usuario) llamaba a saveSettings sin forma de saltear el guard LWW de
+// JD-B1 (shouldWriteSettings). Bajo una carrera (otro dispositivo escribe
+// settings mientras el modal de conflicto espera confirmación, o desfasaje
+// de reloj), el guard podía descartar en silencio la decisión explícita del
+// usuario, dejando /data/settings con el valor del OTRO dispositivo aunque
+// el espejo ya reflejara "local wins".
+
+testRunner.addSuite("ReplaceCloud — saveSettings acepta force:true y omite el guard LWW (Fase 2B JD Ronda 2, fix F1)", {
+
+    "saveSettings acepta un segundo parámetro { force = false }"() {
+        const b = saveSettingsBlockFromSrc();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /async\s+saveSettings\s*\(\s*settingsMap\s*,\s*\{\s*force\s*=\s*false\s*\}\s*=\s*\{\s*\}\s*\)/.test(b[0]),
+            'saveSettings debe declarar la firma async saveSettings(settingsMap, { force = false } = {})'
+        );
+    },
+
+    "saveSettings NO consulta el guard LWW (resolveSettingsWrite/getDoc) cuando force es true"() {
+        const b = saveSettingsBlockFromSrc();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        const ifNotForceIdx = b[0].search(/if\s*\(\s*!force\s*\)/);
+        testRunner.assert(
+            ifNotForceIdx >= 0,
+            'saveSettings debe envolver el read remoto + el guard LWW en un "if (!force)" para saltearlos por completo cuando force=true'
+        );
+        const beforeGuard = b[0].slice(0, ifNotForceIdx);
+        testRunner.assert(
+            !/getDoc\s*\(/.test(beforeGuard) && !/resolveSettingsWrite\s*\(/.test(beforeGuard),
+            'el read remoto (getDoc) y resolveSettingsWrite deben quedar DENTRO del bloque if (!force), nunca ejecutarse antes'
+        );
+    },
+
+    "MainSyncStore._resolveCloudCall (drenaje normal del outbox 'settings') NO pasa force:true — el guard LWW de B1 sigue activo para el path normal"() {
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../modules/services/MainSyncStore.js'), 'utf8'
+        );
+        testRunner.assert(
+            /guards\.saveSettings\(\s*entry\.settings\s*\)/.test(src),
+            'MainSyncStore debe seguir llamando a guards.saveSettings(entry.settings) SIN force en el drenaje normal del outbox'
+        );
+    },
+
+    "FirebaseService.js — wiring de guards.saveSettings hacia this.saveSettings NO pasa force:true"() {
+        const wiring = FIREBASE_SRC.match(/saveSettings:\s*\(settings\)\s*=>\s*this\.saveSettings\(settings\)/);
+        testRunner.assert(
+            !!wiring,
+            'el wiring guards.saveSettings debe seguir siendo this.saveSettings(settings) sin force — el guard LWW normal (B1) no debe regresionar'
+        );
+    }
+
+});
+
+function saveSettingsBlockFromSrc() {
+    return FIREBASE_SRC.match(/async\s+saveSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
 
 // ─────────────────────────────────────────────────────────────
 // app.js — outgoing conflict uses replaceCloudFull

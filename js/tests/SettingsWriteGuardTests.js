@@ -8,7 +8,7 @@
  * outbox 'settings' pise un settings más nuevo de otro dispositivo).
  */
 
-import { shouldWriteSettings } from '../modules/services/SettingsWriteGuard.js';
+import { shouldWriteSettings, resolveSettingsWrite } from '../modules/services/SettingsWriteGuard.js';
 
 testRunner.addSuite("SettingsWriteGuard — shouldWriteSettings (Fase 2B, fix B1)", {
 
@@ -55,6 +55,62 @@ testRunner.addSuite("SettingsWriteGuard — shouldWriteSettings (Fase 2B, fix B1
 
     "sin argumentos no revienta (todo 0 → escribe)"() {
         testRunner.assertEquals(shouldWriteSettings(), true);
+    }
+
+});
+
+testRunner.addSuite("SettingsWriteGuard — resolveSettingsWrite (Fase 2B JD Ronda 2, fix F1)", {
+
+    "force:true escribe SIEMPRE, aunque el remoto sea más nuevo (override explícito no debe ser silenciado por el guard LWW)"() {
+        testRunner.assertEquals(
+            resolveSettingsWrite({
+                force: true,
+                remoteExists: true,
+                payloadUpdatedAt: 100,
+                remoteUpdatedAt: 999999
+            }),
+            true,
+            'force:true debe ignorar por completo la comparación LWW'
+        );
+    },
+
+    "force:true escribe aunque no haya remoteExists ni timestamps"() {
+        testRunner.assertEquals(resolveSettingsWrite({ force: true }), true);
+    },
+
+    "force:false + remoto no existe → escribe (mismo comportamiento que antes de F1)"() {
+        testRunner.assertEquals(
+            resolveSettingsWrite({ force: false, remoteExists: false, payloadUpdatedAt: 0, remoteUpdatedAt: 0 }),
+            true
+        );
+    },
+
+    "force:false + remoto existe y es más nuevo → NO escribe (el guard LWW de B1 sigue activo)"() {
+        testRunner.assertEquals(
+            resolveSettingsWrite({
+                force: false,
+                remoteExists: true,
+                payloadUpdatedAt: 100,
+                remoteUpdatedAt: 5000
+            }),
+            false
+        );
+    },
+
+    "force:false + remoto existe pero el payload es igual o más nuevo → escribe"() {
+        testRunner.assertEquals(
+            resolveSettingsWrite({
+                force: false,
+                remoteExists: true,
+                payloadUpdatedAt: 5000,
+                remoteUpdatedAt: 1000
+            }),
+            true
+        );
+    },
+
+    "sin argumentos no revienta (force ausente se trata como false, remoto no existe → escribe)"() {
+        testRunner.assertEquals(resolveSettingsWrite(), true);
     }
 
 });

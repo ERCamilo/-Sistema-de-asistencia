@@ -20,7 +20,7 @@ import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 import { createEntityUploadTracker } from './EntityUploadTracker.js';
 import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from './SnapshotCodec.js';
-import { shouldWriteSettings } from './SettingsWriteGuard.js';
+import { resolveSettingsWrite } from './SettingsWriteGuard.js';
 
 // Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
 // TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
@@ -291,40 +291,51 @@ class FirebaseService {
      * que reemplazar entero es seguro y es la semántica LWW por dispositivo
      * que el diseño pide.
      * @param {object} settingsMap El mapa de settings completo del dispositivo
+     * @param {object} [opts]
+     * @param {boolean} [opts.force=false] Si es true, omite por completo el
+     *   guard LWW (shouldWriteSettings) y el read remoto previo, y escribe
+     *   incondicionalmente. Reservado para overrides explícitos del usuario
+     *   (p.ej. el flujo de "reemplazar nube con mis datos") donde la decisión
+     *   de pisar la nube ya fue tomada explícitamente — el guard LWW normal
+     *   (JD-B1) NO debe poder silenciar esa decisión (JD Ronda 2, fix F1). El
+     *   path normal (drenaje del outbox 'settings' vía MainSyncStore) sigue
+     *   usando force=false, o sea sigue LWW-protegido.
      */
-    async saveSettings(settingsMap) {
+    async saveSettings(settingsMap, { force = false } = {}) {
         if (!auth.currentUser) return;
 
         try {
             const cleanSettings = JSON.parse(JSON.stringify(settingsMap || {}));
             const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
 
-            // Fase 2B JD-B1: read-compare-write LWW antes de reemplazar el doc
-            // entero, mismo espíritu que EmployeeRepository.saveOne con
-            // mergeRemote — sin esto, saveSettings era un setDoc a ciegas sin
-            // comparar contra la nube, y un dispositivo drenando una entrada
-            // STALE del outbox 'settings' (p.ej. tras estar offline) podía
-            // pisar un settings más nuevo ya escrito por otro dispositivo.
-            // Si el read remoto falla (offline, permisos), cae al write
-            // directo — mejor un save sin comparar que perder el save del
-            // usuario.
-            let remoteExists = false;
-            let remoteUpdatedAt = 0;
-            try {
-                const remoteSnap = await getDoc(docRef);
-                remoteExists = !!(remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists());
-                if (remoteExists) {
-                    const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
-                    remoteUpdatedAt = remoteData?.settings?.localUpdatedAt || 0;
+            if (!force) {
+                // Fase 2B JD-B1: read-compare-write LWW antes de reemplazar el doc
+                // entero, mismo espíritu que EmployeeRepository.saveOne con
+                // mergeRemote — sin esto, saveSettings era un setDoc a ciegas sin
+                // comparar contra la nube, y un dispositivo drenando una entrada
+                // STALE del outbox 'settings' (p.ej. tras estar offline) podía
+                // pisar un settings más nuevo ya escrito por otro dispositivo.
+                // Si el read remoto falla (offline, permisos), cae al write
+                // directo — mejor un save sin comparar que perder el save del
+                // usuario.
+                let remoteExists = false;
+                let remoteUpdatedAt = 0;
+                try {
+                    const remoteSnap = await getDoc(docRef);
+                    remoteExists = !!(remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists());
+                    if (remoteExists) {
+                        const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
+                        remoteUpdatedAt = remoteData?.settings?.localUpdatedAt || 0;
+                    }
+                } catch (e) {
+                    console.warn('⚠️ saveSettings: read remoto para comparar LWW falló, escribiendo sin comparar:', e);
                 }
-            } catch (e) {
-                console.warn('⚠️ saveSettings: read remoto para comparar LWW falló, escribiendo sin comparar:', e);
-            }
 
-            const payloadUpdatedAt = cleanSettings?.localUpdatedAt || 0;
-            if (remoteExists && !shouldWriteSettings({ payloadUpdatedAt, remoteUpdatedAt })) {
-                console.log('☁️ saveSettings: doc remoto más nuevo que el payload — se omite el write (LWW)');
-                return;
+                const payloadUpdatedAt = cleanSettings?.localUpdatedAt || 0;
+                if (!resolveSettingsWrite({ force, remoteExists, payloadUpdatedAt, remoteUpdatedAt })) {
+                    console.log('☁️ saveSettings: doc remoto más nuevo que el payload — se omite el write (LWW)');
+                    return;
+                }
             }
 
             await setDoc(docRef, {
@@ -332,7 +343,9 @@ class FirebaseService {
                 updatedAt: serverTimestamp(),
                 lastChangedBy: getDeviceId()
             }); // sin { merge: true } — reemplazo TOTAL del mapa de settings
-            console.log('☁️ Settings sincronizados en Firebase (doc per-registro)');
+            console.log(force
+                ? '☁️ Settings sincronizados en Firebase (doc per-registro) [force: override explícito, sin guard LWW]'
+                : '☁️ Settings sincronizados en Firebase (doc per-registro)');
         } catch (error) {
             console.error('❌ Error sincronizando settings:', error);
             throw error;
@@ -496,12 +509,13 @@ class FirebaseService {
                 lastChangedBy: getDeviceId()
             }); // NO { merge: true } — this REPLACES the doc entirely
 
-            // Fase 2B JD-A2: el doc per-registro de settings (users/{uid}/data/settings)
-            // es la fuente de verdad para preferencias desde Fase 2B U1 — si no lo
-            // reescribimos acá, "reemplazar nube con mis datos" deja ese doc STALE
-            // (podía tener el settings descartado de OTRO dispositivo), aunque el
-            // espejo ya quedó con los datos locales correctos. Reusa el writer de U1.
-            await this.saveSettings(state.settings);
+            // Fase 2B JD-A2: reescribe el doc per-registro de settings para que
+            // "reemplazar nube con mis datos" no lo deje STALE.
+            // Fase 2B JD Ronda 2, fix F1: force:true — override explícito de
+            // "local gana", no debe poder ser silenciado por el guard LWW de
+            // saveSettings (JD-B1) ante una carrera o desfasaje de reloj. El
+            // drenaje normal del outbox (guards.saveSettings) sigue sin force.
+            await this.saveSettings(state.settings, { force: true });
 
             console.log('✅ replaceCloudFull: Nube reemplazada con datos locales');
             SyncStatus.markSynced();

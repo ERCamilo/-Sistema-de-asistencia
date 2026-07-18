@@ -42,4 +42,41 @@ export function shouldWriteSettings({ payloadUpdatedAt = 0, remoteUpdatedAt = 0 
     return p >= r;
 }
 
-export default { shouldWriteSettings };
+/**
+ * Fase 2B JD Ronda 2, fix F1.
+ *
+ * Decide si FirebaseService.saveSettings debe proceder con el write, dado
+ * un posible override explícito (`force`). Se extrae como función pura para
+ * que la decisión de "force" en sí sea testeable de forma aislada, ya que
+ * FirebaseService está mockeado globalmente por moduleNameMapper en los
+ * tests (mismo motivo por el que shouldWriteSettings vive acá).
+ *
+ * Bug que corrige: replaceCloudFull ("reemplazar nube con mis datos", un
+ * override EXPLÍCITO del usuario) llamaba a saveSettings sin ninguna forma
+ * de saltear el guard LWW de shouldWriteSettings. Bajo una carrera (otro
+ * dispositivo escribe settings mientras el modal de conflicto espera
+ * confirmación, o desfasaje de reloj), el guard podía descartar en silencio
+ * la decisión explícita del usuario — el espejo quedaba reemplazado pero
+ * /data/settings conservaba el valor del OTRO dispositivo.
+ *
+ * @param {object} args
+ * @param {boolean} [args.force=false] true = override explícito (p.ej.
+ *   replaceCloudFull) — el guard LWW se ignora, siempre escribe.
+ * @param {boolean} [args.remoteExists=false] si el doc remoto ya existe
+ *   (ignorado cuando force=true).
+ * @param {number} [args.payloadUpdatedAt=0]
+ * @param {number} [args.remoteUpdatedAt=0]
+ * @returns {boolean} true = escribir (setDoc); false = omitir el write.
+ */
+export function resolveSettingsWrite({
+    force = false,
+    remoteExists = false,
+    payloadUpdatedAt = 0,
+    remoteUpdatedAt = 0
+} = {}) {
+    if (force) return true;
+    if (!remoteExists) return true;
+    return shouldWriteSettings({ payloadUpdatedAt, remoteUpdatedAt });
+}
+
+export default { shouldWriteSettings, resolveSettingsWrite };
