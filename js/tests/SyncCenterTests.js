@@ -49,6 +49,21 @@ testRunner.addSuite('SyncCenter — se puede cerrar en pantallas chicas (bug de 
         testRunner.assert(m && Number(m[1]) >= 40, `la × debe medir ≥40px (mide ${m ? m[1] : '?'})`);
     },
 
+    'el overlay es autosuficiente y NO genera scroll horizontal (no depende del .modal-overlay global)'() {
+        const rule = cssRule(HEADER_CSS, '.sync-center-overlay');
+        testRunner.assert(/position:\s*fixed/.test(rule),
+            'el overlay debe posicionarse solo, sin depender de reglas globales atadas a media queries');
+        testRunner.assert(/overflow-x:\s*hidden/.test(rule),
+            'overflow-x:hidden mata la barra horizontal aunque algo interno sea ancho');
+    },
+
+    'el modal usa width:100% + max-width (no min() que puede resolver contra el viewport)'() {
+        const rule = cssRule(HEADER_CSS, '.sync-center-modal');
+        testRunner.assert(/max-width:\s*\d/.test(rule), 'debe acotar con max-width');
+        testRunner.assert(/width:\s*100%/.test(rule),
+            'width:100% se ajusta al overlay ya restado su padding');
+    },
+
     'Escape cierra el modal (contrato en el keydown de la app)'() {
         const idx = APP_SRC.indexOf('function _handleAppKeydown');
         const body = APP_SRC.slice(idx, idx + 700);
