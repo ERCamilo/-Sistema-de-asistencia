@@ -115,6 +115,29 @@ testRunner.addSuite('AuthHeader — modal de login explicativo y logout en el CS
         testRunner.assert(/syncCenterLogout/.test(body), 'el CS debe ofrecer cerrar sesión');
         testRunner.assert(/window\.syncCenterLogout\s*=/.test(APP_SRC),
             'debe existir el handler de logout del CS');
+    },
+
+    'el botón de login usa el diseño oficial de Google (logo G de 4 colores)'() {
+        const idx = APP_SRC.indexOf('function buildLoginModalHTML');
+        const body = APP_SRC.slice(idx, idx + 2500);
+        testRunner.assert(/google-signin-btn/.test(body),
+            'debe usar la clase del botón oficial de Google');
+        // El logo G oficial trae los 4 colores de marca.
+        testRunner.assert(/#4285F4/i.test(body) && /#34A853/i.test(body) &&
+            /#FBBC05/i.test(body) && /#EA4335/i.test(body),
+            'el logo debe ser el G oficial de 4 colores (SVG inline)');
+        testRunner.assert(/data-app-fn="loginWithGoogle"/.test(body),
+            'el botón debe disparar el login con Google');
+    },
+
+    'al loguearse, onAuthStateChanged cierra el modal de login y vuelve a la app'() {
+        const idx = APP_SRC.indexOf('onAuthStateChanged(async (user)');
+        testRunner.assert(idx !== -1, 'debe existir el handler de auth');
+        const body = APP_SRC.slice(idx, idx + 700);
+        testRunner.assert(/modalType\s*===\s*'login'/.test(body),
+            'debe detectar el modal de login abierto al loguearse');
+        testRunner.assert(/showModal\s*=\s*false/.test(body),
+            'debe cerrar el modal para mostrar la app de vuelta');
     }
 
 });
