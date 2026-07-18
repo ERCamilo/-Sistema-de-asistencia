@@ -50,7 +50,11 @@ if [ -z "$CHANGED_ASSETS" ]; then
 fi
 
 # ── 3. Generate new version (date + time with seconds) ───────────────────────
-NEW_VERSION=$(date +"%Y.%m%d.%H%M%S")
+# TZ fijo a hora de Rep. Dominicana (AST, UTC-4, sin horario de verano) para que
+# el build muestre SIEMPRE la hora local del usuario, sin importar dónde se haga
+# el commit (a veces el entorno del agente corre en UTC → estampaba +4h de más).
+# 'AST4' es un spec POSIX portable que no necesita la base de datos de zonas.
+NEW_VERSION=$(TZ='AST4' date +"%Y.%m%d.%H%M%S")
 
 # ── 4. Read old version for the log message ──────────────────────────────────
 OLD_VERSION=$(grep "const CACHE_VERSION = '" "$SW_FILE" \
