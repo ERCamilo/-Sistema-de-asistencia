@@ -14,8 +14,8 @@ export const firebaseConfig = {
 };
 
 export const APP_CONFIG = {
-    VERSION: "1.6.7",
-    LAST_UPDATED: "2026-05-19",
+    VERSION: "1.7.0",
+    LAST_UPDATED: "2026-07-11",
     DATABASE_NAME: "attendance-app-db", // L2: coincide con el nombre real de la BD IndexedDB
     STORAGE_KEY: "asistencia-data",
     MAX_RECORDS_MEMORY: 2000,
