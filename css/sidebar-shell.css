@@ -1203,7 +1203,62 @@ body.has-sidebar {
     background: #1e293b;
     border: 1px solid rgba(255, 255, 255, 0.06);
     margin-left: 4px;
-    cursor: default;
+    /* Ahora es un botón (abre el Centro de Sincronización) — antes decorativo. */
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+.header-user-pill:hover,
+.header-user-pill:focus-visible {
+    border-color: #06b6d4;
+    background: #223049;
+    outline: none;
+}
+
+/* Botón "Iniciar sesión" (sin sesión, reemplaza al avatar) */
+.header-login-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #06b6d4, #0891b2);
+    border: none;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-left: 4px;
+    white-space: nowrap;
+}
+.header-login-btn:hover,
+.header-login-btn:focus-visible {
+    filter: brightness(1.08);
+    outline: none;
+}
+
+/* Beneficios del modal de login */
+.login-benefits {
+    list-style: none;
+    margin: 4px 0 16px;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+.login-benefits li {
+    display: grid;
+    gap: 2px;
+    padding: 10px 12px;
+    background: #111827;
+    border: 1px solid #243044;
+    border-radius: 10px;
+}
+.login-benefits li strong { color: #f8fafc; font-size: 0.9rem; }
+.login-benefits li span { color: #94a3b8; font-size: 0.78rem; line-height: 1.35; }
+.login-local-note {
+    margin: 14px 0 0;
+    color: #64748b;
+    font-size: 0.76rem;
+    text-align: center;
 }
 .header-user-pill .header-user-avatar,
 .header-user-pill .header-user-avatar-img {

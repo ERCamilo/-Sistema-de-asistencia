@@ -44,11 +44,19 @@ const _HEADER_SUBTITLE = {
     'settings': 'Ajustes'
 };
 
-// Build the small "Erlin C." pill on the right, based on the Firebase user.
-// Falls back to empty markup if no one is signed in.
+// Zona de cuenta a la derecha del header.
+//  - Con sesión: el avatar/pill es la PUERTA al Centro de Sincronización
+//    (antes era decorativo, sin función). Cerrar sesión vive dentro del CS.
+//  - Sin sesión: un botón "Iniciar sesión" que abre el modal explicativo.
 function _renderUserPill() {
     const u = (typeof window !== 'undefined') ? window.currentUser : null;
-    if (!u) return '';
+    if (!u) {
+        return `<button type="button" class="header-login-btn" data-app-fn="openLoginModal"
+                    aria-label="Iniciar sesión" title="Iniciar sesión con Google">
+                    <span class="header-icon-emoji">👤</span>
+                    <span class="header-login-text">Iniciar sesión</span>
+                </button>`;
+    }
     const displayName = u.displayName || u.email || 'Usuario';
     // Compact name: "Erlin C." from "Erlin Camilo"
     const parts = displayName.split(/\s+/).filter(Boolean);
@@ -59,10 +67,12 @@ function _renderUserPill() {
     const avatar = u.photoURL
         ? `<img src="${u.photoURL}" alt="" class="header-user-avatar-img" onerror="this.style.display='none'">`
         : `<span class="header-user-avatar">${initials}</span>`;
-    return `<div class="header-user-pill" title="${displayName}">
+    return `<button type="button" class="header-user-pill" data-app-fn="openSyncCenterModal"
+                title="${displayName} — abrir Centro de Sincronización"
+                aria-label="Cuenta y sincronización">
                 ${avatar}
                 <span class="header-user-name">${compact}</span>
-            </div>`;
+            </button>`;
 }
 
 export const Header = ({

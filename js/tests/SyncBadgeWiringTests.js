@@ -169,17 +169,16 @@ testRunner.addSuite("SyncBadgeWiring — onErrorClick revive entradas dead (fix 
         );
     },
 
-    "onErrorClick del badge llama a retryFailedCloudSync, NO a drainMainSyncOutbox crudo"() {
-        const idx = APP.indexOf('onErrorClick:');
-        testRunner.assert(idx !== -1, 'debe existir el handler onErrorClick');
-        const block = APP.slice(idx, idx + 400);
+    // 🔁 Realineado 2026-07-11: el badge dejó de tener onErrorClick (fin del
+    // doble comportamiento). El reintento con revive-de-dead sigue existiendo,
+    // pero por el botón "Reintentar" del toast honesto (setCloudRetryHandler),
+    // no por el badge.
+    "el reintento (retryFailedCloudSync) se cablea vía setCloudRetryHandler, no por el badge"() {
+        testRunner.assert(APP.indexOf('onErrorClick:') === -1,
+            'el badge ya no debe tener onErrorClick (una sola función: sincronizar)');
         testRunner.assert(
-            /await\s+retryFailedCloudSync\s*\(\s*\)/.test(block),
-            'onErrorClick debe llamar a retryFailedCloudSync() para revivir entradas dead antes de drenar'
-        );
-        testRunner.assert(
-            !/await\s+drainMainSyncOutbox\s*\(\s*\)/.test(block),
-            'onErrorClick NO debe seguir llamando a drainMainSyncOutbox() crudo — no revive las entradas dead'
+            /setCloudRetryHandler\s*\(\s*retryFailedCloudSync\s*\)/.test(PERSISTENCE),
+            'retryFailedCloudSync debe quedar cableado al toast (setCloudRetryHandler)'
         );
     }
 

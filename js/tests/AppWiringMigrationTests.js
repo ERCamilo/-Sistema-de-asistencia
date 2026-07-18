@@ -22,17 +22,19 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
         );
     },
 
-    "attachLiveBadge se cablea con onErrorClick que revive y drena el outbox (U13)"() {
+    // 🔁 Realineado 2026-07-11: el badge dejó de ser accionable (fin del doble
+    // comportamiento: abría el modal Y ejecutaba una acción en el mismo clic).
+    // attachLiveBadge ya solo hace live-refresh; el reintento con revive-de-dead
+    // sigue existiendo por el botón "Reintentar" del toast (retryFailedCloudSync
+    // vía setCloudRetryHandler en PersistenceService.js).
+    "attachLiveBadge ya NO recibe onErrorClick (el badge solo informa/sincroniza)"() {
         const idx = appSource.indexOf('attachLiveBadge({');
         testRunner.assert(idx !== -1, 'debe existir la llamada a attachLiveBadge');
         const block = appSource.slice(idx, idx + 3000);
-        testRunner.assert(/onErrorClick\s*:/.test(block),
-            'attachLiveBadge debe recibir onErrorClick para que el badge de error sea accionable (U13)');
-        // Fix cuota (2026-07-05): drainMainSyncOutbox crudo nunca revive
-        // entradas 'dead' (agotaron MAX_FLUSH_ATTEMPTS). retryFailedCloudSync
-        // revive esas entradas ANTES de drenar — ver PersistenceService.js.
-        testRunner.assert(/onErrorClick\s*:[\s\S]{0,200}?retryFailedCloudSync\s*\(/.test(block),
-            'onErrorClick debe llamar a retryFailedCloudSync (revive entradas dead + mismo mecanismo que el botón Reintentar del toast, U12)');
+        testRunner.assert(!/onErrorClick\s*:/.test(block),
+            'el badge ya no debe tener onErrorClick — una sola función');
+        testRunner.assert(!/onPausedClick\s*:/.test(block),
+            'el badge ya no debe tener onPausedClick — reanudar vive en el toggle del CS');
     },
 
     "el login (onAuthStateChanged) drena el outbox después de claimLocalOwnership (U8)"() {
