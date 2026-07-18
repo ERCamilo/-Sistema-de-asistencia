@@ -10,22 +10,33 @@ export { formatRelativeTime } from '../utils/RelativeTime.js';
 import { formatRelativeTime } from '../utils/RelativeTime.js';
 import { SyncStatus } from '../services/SyncStatus.js';
 
+// 🎨 4 familias visuales (2026-07-12):
+//   🟢 verde  synced          = al día
+//   ⚪ gris   syncing/pending/offline = temporal o informativo (sin riesgo)
+//   🟡 ámbar  warning/paused   = atención, sin peligro de datos
+//   🔴 rojo   error            = problema real (ÚNICO rojo → raro y significativo)
+const NEUTRAL = '#94a3b8';
 const STATES = {
     synced:  { color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)',   icon: 'check-circle' },
-    // Normal wait between syncs — neutral white/slate, not alarming.
+    // Sincronización EN CURSO — neutro/cian con spinner de dos flechas.
+    syncing: { color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)',    icon: 'refresh-cw', spin: true },
+    // Espera normal entre syncs — neutro (slate claro), no alarmante.
     pending: { color: '#cbd5e1', bg: 'rgba(203, 213, 225, 0.08)', icon: 'clock' },
-    // Sync is overdue (> threshold) — amber clock, worth noticing.
+    // Sincronización vieja (> umbral) — ámbar, vale notarlo.
     warning: { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)',   icon: 'clock' },
-    offline: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',    icon: 'wifi-off' },
+    // Sin conexión NO es un error: neutro/gris. Tus datos están seguros acá.
+    offline: { color: NEUTRAL,   bg: 'rgba(148, 163, 184, 0.1)',  icon: 'wifi-off' },
+    // El ÚNICO rojo: un problema real que quizás quieras reintentar.
     error:   { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)',    icon: 'x-circle' },
-    noauth:  { color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.1)',  icon: 'user' },
-    // Intentional pause by the user — orange, exclusively for pause-circle.
+    noauth:  { color: NEUTRAL,   bg: 'rgba(148, 163, 184, 0.1)',  icon: 'user' },
+    // Pausa deliberada del usuario — naranja (familia atención).
     paused:  { color: '#f97316', bg: 'rgba(249, 115, 22, 0.12)',  icon: 'pause-circle' }
 };
 
 const LUCIDE_PATHS = {
     'check-circle':  '<path d="M21.8 10.9a10 10 0 1 1-5.9-8.9"/><path d="m9 11 3 3L22 4"/>',
     clock:           '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    'refresh-cw':    '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
     'wifi-off':      '<path d="m2 2 20 20"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15 15 0 0 1 5.2-3.1"/><path d="M12 20h.01"/><path d="M17 5.6a15 15 0 0 1 5 3.2"/><path d="M5 12.5a10 10 0 0 1 5.5-2.4"/>',
     'x-circle':      '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
     user:            '<path d="M19 21a7 7 0 0 0-14 0"/><circle cx="12" cy="7" r="4"/>',
@@ -55,8 +66,15 @@ function lucideIcon(name, color, size = 20) {
 
 function badgeHtml(state, text, extraAttr = '', compact = false) {
     const s = STATES[state] || STATES.pending;
-    const icon = lucideIcon(s.icon, s.color, compact ? 21 : 15);
-    // 'paused' (clic reanuda) y 'error' (clic reintenta, U13) son accionables.
+    let icon = lucideIcon(s.icon, s.color, compact ? 21 : 15);
+    // El estado "sincronizando" gira (spinner de dos flechas). Reusa el
+    // @keyframes spin global (styles.css).
+    if (s.spin) {
+        icon = `<span style="display:inline-flex; animation: spin 1s linear infinite;">${icon}</span>`;
+    }
+    // El badge es clickeable en el header (tocar = Sincronizar ahora), pero el
+    // cursor lo define el wrapper del header; acá default salvo error/paused
+    // por retrocompatibilidad de los tests de contrato visual.
     const cursor = (state === 'paused' || state === 'error') ? 'pointer' : 'default';
 
     if (compact) {
@@ -90,6 +108,7 @@ export function renderSyncStatusBadge(opts = {}) {
     const isOnline = opts.isOnline !== false;
     const isUploadPaused = !!opts.isUploadPaused;
     const hasError = !!opts.hasError;
+    const isSyncing = !!opts.isSyncing;
     const lastSyncedAt = (typeof opts.lastSyncedAt === 'number' && Number.isFinite(opts.lastSyncedAt))
         ? opts.lastSyncedAt
         : null;
@@ -102,6 +121,13 @@ export function renderSyncStatusBadge(opts = {}) {
 
     if (!isAuthenticated) {
         return badgeHtml('noauth', 'Sin sesión', '', compact);
+    }
+
+    // Sincronización EN CURSO → spinner (prioridad alta: es transitorio y
+    // refleja la acción del usuario al tocar el badge).
+    if (isSyncing) {
+        const extra = 'title="Sincronizando con la nube…"';
+        return badgeHtml('syncing', 'Sincronizando…', extra, compact);
     }
 
     // Paused state: shown regardless of last sync time when upload is paused.
@@ -144,6 +170,7 @@ function _refreshAllBadges({ getAuth, getOnline, getUploadPaused, compact }) {
     const baseOpts = {
         lastSyncedAt:    SyncStatus.getLastSyncedAt(),
         hasError:        SyncStatus.hasError(),
+        isSyncing:       typeof SyncStatus.isSyncing === 'function' ? SyncStatus.isSyncing() : false,
         isAuthenticated: !!(getAuth ? getAuth() : false),
         isOnline:        !!(getOnline ? getOnline() : true),
         isUploadPaused:  !!(getUploadPaused ? getUploadPaused() : false)

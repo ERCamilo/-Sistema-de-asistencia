@@ -13,6 +13,7 @@
 
 let _lastSyncedAt = null;
 let _lastError = null;
+let _syncing = false;
 const _subscribers = new Set();
 
 function _notify(ts) {
@@ -41,6 +42,20 @@ export const SyncStatus = {
      * @param {number} [timestamp] Opcional; por defecto Date.now().
      *   Valores no numéricos se ignoran (defensivo contra payload corrupto).
      */
+    /**
+     * Marca que hay una sincronización EN CURSO (para el spinner del badge).
+     * Se apaga sola cuando llega markSynced/markError/clearError.
+     */
+    markSyncing() {
+        _syncing = true;
+        _notify(_lastSyncedAt);
+    },
+
+    /** @returns {boolean} true si hay una sincronización en vuelo. */
+    isSyncing() {
+        return _syncing;
+    },
+
     markSynced(timestamp) {
         const ts = (typeof timestamp === 'number' && Number.isFinite(timestamp))
             ? timestamp
@@ -50,6 +65,7 @@ export const SyncStatus = {
             return;
         }
         _lastError = null;
+        _syncing = false;
         _lastSyncedAt = ts;
         _notify(ts);
     },
@@ -61,6 +77,7 @@ export const SyncStatus = {
      */
     markError(error) {
         _lastError = error ?? true;
+        _syncing = false;
         _notify(_lastSyncedAt);
     },
 
@@ -77,6 +94,7 @@ export const SyncStatus = {
      * No-op (no notifica) si no había error, para no re-renderizar de más.
      */
     clearError() {
+        _syncing = false;
         if (_lastError === null) return;
         _lastError = null;
         _notify(_lastSyncedAt);
@@ -100,6 +118,7 @@ export const SyncStatus = {
     reset() {
         _lastSyncedAt = null;
         _lastError = null;
+        _syncing = false;
         _notify(null);
     }
 };

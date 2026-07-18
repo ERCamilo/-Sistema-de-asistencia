@@ -462,15 +462,18 @@ Object.entries(EmployeesUI).forEach(([key, value]) => {
 window.App.Sync = {
     syncNow: async () => {
         try {
+            SyncStatus.markSyncing();   // spinner del badge (dos flechas girando)
             state.syncStatus = 'syncing';
             render();
             await FirebaseService.saveFullState(state);
             if (state.settingsActiveTab === 'data') state.snapshots = await FirebaseService.listSnapshots();
             state.syncStatus = 'synced';
+            SyncStatus.markSynced();    // apaga el spinner → ✓ al día
             showNotification('✅ Estado general sincronizado', 'success');
             render();
         } catch (e) {
             state.syncStatus = 'error';
+            SyncStatus.markError(e);    // apaga el spinner → ✗ error
             showNotification('❌ Error al sincronizar con Firebase', 'error');
             render();
         }
@@ -3581,6 +3584,7 @@ window.renderSyncStatusBadgeForHeader = () => {
     const badge = renderSyncStatusBadge({
         lastSyncedAt: SyncStatus.getLastSyncedAt(),
         hasError:     SyncStatus.hasError(),
+        isSyncing:    SyncStatus.isSyncing(),
         isAuthenticated: true,
         isOnline: typeof navigator !== 'undefined' ? navigator.onLine !== false : true,
         compact: true

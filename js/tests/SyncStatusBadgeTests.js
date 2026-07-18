@@ -484,4 +484,61 @@ testRunner.addSuite("SyncStatusBadge — estado 'error' clickeable → reintenta
 
 });
 
+// ─────────────────────────────────────────────────────────────
+// Rediseño de estados en 4 familias visuales (2026-07-12)
+//   🟢 verde  = al día
+//   ⚪ gris   = temporal/informativo (sincronizando, sin conexión, pendiente)
+//   🟡 ámbar = atención sin riesgo (pausado, viejo)
+//   🔴 rojo  = problema (SOLO error)
+// Cambio clave: "sin conexión" deja de ser ROJO (no es un error) → el rojo
+// queda raro y significativo.
+// ─────────────────────────────────────────────────────────────
+
+const RED = '#ef4444';
+
+testRunner.addSuite('SyncStatusBadge — 4 familias visuales', {
+
+    'sin conexión ya NO es rojo (es neutro/gris, no un error)'() {
+        const html = renderSyncStatusBadge({ isAuthenticated: true, isOnline: false, lastSyncedAt: Date.now() });
+        testRunner.assert(/data-state=["']offline["']/.test(html), 'debe ser estado offline');
+        testRunner.assert(!html.includes(RED), 'offline NO debe usar el rojo de error');
+    },
+
+    'error es el ÚNICO rojo'() {
+        const errHtml = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, hasError: true, lastSyncedAt: Date.now() });
+        testRunner.assert(html_includes_color(errHtml, RED), 'error debe ser rojo');
+        // Y ninguno de los otros estados usa ese rojo:
+        const offline = renderSyncStatusBadge({ isAuthenticated: true, isOnline: false, lastSyncedAt: Date.now() });
+        const paused = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, isUploadPaused: true, lastSyncedAt: Date.now() });
+        const synced = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: Date.now() });
+        testRunner.assert(!offline.includes(RED) && !paused.includes(RED) && !synced.includes(RED),
+            'ningún estado que no sea error debe ser rojo');
+    },
+
+    'existe el estado "sincronizando" con spinner (flechas girando)'() {
+        const html = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, isSyncing: true, lastSyncedAt: Date.now() });
+        testRunner.assert(/data-state=["']syncing["']/.test(html), 'debe existir data-state="syncing"');
+        testRunner.assert(/animation:\s*spin|class="[^"]*spin/.test(html) || /refresh-cw/.test(html),
+            'el estado sincronizando debe girar (spinner de dos flechas)');
+    },
+
+    'pausado y viejo comparten familia ámbar (atención, sin riesgo)'() {
+        const paused = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, isUploadPaused: true, lastSyncedAt: Date.now() });
+        const old = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: Date.now() - 60000 });
+        // Ámbar (#f59e0b) o naranja (#f97316) — ambos de la familia atención.
+        testRunner.assert(/#f59e0b|#f97316/i.test(paused), 'pausado en ámbar/naranja');
+        testRunner.assert(/#f59e0b|#f97316/i.test(old), 'sincronización vieja en ámbar');
+    },
+
+    'al día es verde'() {
+        const html = renderSyncStatusBadge({ isAuthenticated: true, isOnline: true, lastSyncedAt: Date.now() });
+        testRunner.assert(/#10b981/i.test(html), 'al día debe ser verde');
+    }
+
+});
+
+function html_includes_color(html, color) {
+    return html.toLowerCase().includes(color.toLowerCase());
+}
+
 console.log('🧪 SyncStatusBadge tests cargados.');
