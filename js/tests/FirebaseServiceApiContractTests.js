@@ -469,6 +469,90 @@ testRunner.addSuite("FirebaseService — Contrato saveSettings/getSettings (Fase
 
 });
 
+// Fase 2B U2: listener en vivo sobre el doc per-registro de settings
+// (users/{uid}/data/settings), hermano de subscribeToChanges (el listener
+// del espejo) — mismo patrón de filtro de eco por lastChangedBy. Se cablea
+// en app.js junto a subscribeToChanges (ver SettingsLiveSyncWiringTests.js).
+function subscribeToSettingsBlock() {
+    return FIREBASE_SRC.match(/subscribeToSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
+
+testRunner.addSuite("FirebaseService — Contrato subscribeToSettings (Fase 2B, U2)", {
+
+    "FirebaseService define un método subscribeToSettings(callback)"() {
+        testRunner.assert(
+            !!subscribeToSettingsBlock(),
+            'FirebaseService debe definir subscribeToSettings(callback)'
+        );
+    },
+
+    "subscribeToSettings escucha el doc users/{uid}/data/settings vía onSnapshot"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(/onSnapshot\s*\(/.test(b[0]), 'debe usar onSnapshot — listener en vivo, no un getDoc one-shot');
+        testRunner.assert(
+            /['"]data['"]\s*,\s*['"]settings['"]/.test(b[0]),
+            'subscribeToSettings debe suscribirse a users/{uid}/data/settings'
+        );
+    },
+
+    "subscribeToSettings filtra eco por lastChangedBy === getDeviceId() (mismo criterio que subscribeToChanges)"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(
+            /lastChangedBy\s*===\s*getDeviceId\s*\(\s*\)/.test(b[0]),
+            'debe ignorar el snapshot si lo escribió este mismo dispositivo'
+        );
+    },
+
+    "subscribeToSettings devuelve la función de cancelación de onSnapshot"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(/return\s+onSnapshot\s*\(/.test(b[0]), 'debe devolver lo que retorna onSnapshot (unsubscribe)');
+    },
+
+    "sin sesión, subscribeToSettings devuelve un no-op en vez de suscribirse"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(/if\s*\(\s*!auth\.currentUser\s*\)\s*return\s*\(\s*\)\s*=>\s*\{\s*\}/.test(b[0]),
+            'sin auth.currentUser debe devolver una función no-op, igual que subscribeToChanges');
+    },
+
+    "el mock de tests expone subscribeToSettings (paridad de API)"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/subscribeToSettings/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir subscribeToSettings para tests de app.js');
+    }
+
+});
+
+// Fase 2B U2: el mock de tests había quedado sin saveSettings/getSettings
+// (Unit 1 los dejó fuera de su scope explícito porque nada los invocaba
+// todavía) — ahora que PersistenceService._mainSyncGuards() y app.js los
+// invocan de verdad, el mock necesita paridad para que esos callers no
+// truenen contra undefined en el harness de tests.
+testRunner.addSuite("FirebaseService — paridad del mock para saveSettings/getSettings (Fase 2B, U2)", {
+
+    "el mock de tests expone saveSettings"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/saveSettings/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir saveSettings para tests de PersistenceService');
+    },
+
+    "el mock de tests expone getSettings"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/getSettings/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir getSettings');
+    }
+
+});
+
 testRunner.addSuite("FirebaseService — deleteCloudData invalida el watermark de subida (Ronda 2)", {
 
     // 🐛 Judgment Day Fase 2A Ronda 2 (CRITICAL): con el watermark ahora

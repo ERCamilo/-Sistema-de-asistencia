@@ -23,12 +23,13 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
-import { localStateIsEmpty, shouldAcceptRemote } from './modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark } from './modules/services/SyncWatermark.js';
 import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
 import { translateError } from './modules/services/ErrorTranslator.js';
 import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
@@ -6886,6 +6887,14 @@ function _initOutgoingConflictGuard() {
                     }
                 }
 
+                // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
+                // per-registro de settings) recuerda su ÚLTIMO ts conocido;
+                // mergeCloudWatermark los combina por MAX cada vez que
+                // CUALQUIERA de los dos dispara, para que ninguno "atrase" al
+                // otro (la cadencia del espejo se reduce en Change B).
+                let _lastKnownSettingsDocTs = 0;
+                let _lastKnownMirrorTs = 0;
+
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges(async (remoteData) => {
                     debug.log('📡 Cambio detectado en la nube...');
@@ -6893,8 +6902,12 @@ function _initOutgoingConflictGuard() {
                     // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
                     // detectar conflictos salientes (local más viejo que la nube).
                     // Se actualiza siempre, incluso si los datos se descartan más abajo.
-                    state._lastKnownCloudUpdatedAt =
-                        remoteData?.settings?.localUpdatedAt || state._lastKnownCloudUpdatedAt || 0;
+                    _lastKnownMirrorTs = remoteData?.settings?.localUpdatedAt || _lastKnownMirrorTs || 0;
+                    state._lastKnownCloudUpdatedAt = mergeCloudWatermark(
+                        state._lastKnownCloudUpdatedAt,
+                        _lastKnownSettingsDocTs,
+                        _lastKnownMirrorTs
+                    );
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
@@ -7192,6 +7205,29 @@ function _initOutgoingConflictGuard() {
                         }
                     }
                     } // ← cierra applyRemoteData()
+                });
+
+                // 📡 Fase 2B U2: suscripción en vivo al doc per-registro de
+                // settings (users/{uid}/data/settings) — DESACOPLADA del
+                // espejo. El filtro de eco (lastChangedBy === deviceId) ya
+                // ocurre DENTRO de FirebaseService.subscribeToSettings, mismo
+                // criterio que subscribeToChanges.
+                FirebaseService.subscribeToSettings((settingsDoc) => {
+                    if (!settingsDoc) return;
+                    debug.log('📡 Cambio detectado en settings (doc per-registro)...');
+
+                    // Fase 2B U2 (fix cobertura): la decisión accept/reject +
+                    // el merge whole-object viven en SettingsLiveSync.js,
+                    // testeados de forma aislada (SettingsLiveSyncTests.js).
+                    const result = handleRemoteSettings({
+                        remoteDoc: settingsDoc,
+                        state,
+                        lastKnownMirrorTs: _lastKnownMirrorTs,
+                        batchSetState: (cb) => stateManager.batchSetState(cb),
+                        deps: { debugLog: debug.log }
+                    });
+
+                    _lastKnownSettingsDocTs = result.settingsDocTs;
                 });
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango

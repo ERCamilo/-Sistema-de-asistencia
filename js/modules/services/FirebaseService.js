@@ -338,6 +338,42 @@ class FirebaseService {
     }
 
     /**
+     * Fase 2B U2: listener en vivo sobre el doc per-registro de settings
+     * (users/{uid}/data/settings) — hermano de subscribeToChanges (el
+     * listener del espejo), mismo patrón de filtro de eco por lastChangedBy.
+     * app.js combina el watermark de esta fuente con el del espejo vía
+     * mergeCloudWatermark (SyncWatermark.js) para que ninguna de las dos
+     * "atrase" a la otra.
+     * @param {function} callback recibe {settings, updatedAt, lastChangedBy}
+     * @returns {function} función para cancelar la suscripción
+     */
+    subscribeToSettings(callback) {
+        if (!auth.currentUser) return () => {};
+
+        const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+        return onSnapshot(docRef, (docSnap) => {
+            if (!docSnap.exists() || docSnap.metadata.hasPendingWrites) return;
+
+            const data = docSnap.data();
+
+            // 🛡️ Filtro de Eco: mismo criterio que subscribeToChanges — ignorar
+            // si el cambio fue hecho por este mismo dispositivo.
+            if (data.lastChangedBy === getDeviceId()) {
+                if (window.debug) window.debug.log('📡 Ignorando eco de settings: cambio local detectado via deviceId');
+                return;
+            }
+
+            callback({
+                settings: data.settings || {},
+                updatedAt: data.updatedAt,
+                lastChangedBy: data.lastChangedBy
+            });
+        }, (error) => {
+            console.error('❌ Error en suscripción de settings:', error);
+        });
+    }
+
+    /**
      * Marca empleados como subidos en el watermark del EntityUploadTracker.
      * Seam público para flujos que escriben empleados por FUERA de saveEntities
      * (p.ej. CloudReconcile): sin esto el watermark queda stale y el próximo

@@ -346,6 +346,12 @@ function _mainSyncGuards() {
         saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot, { skipEntities: true }),
         saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
         saveEntities: (employees, positions, leaders, schemaVersion) => FirebaseService.saveEntities(employees, positions, leaders, schemaVersion),
+        // Fase 2B U2: settings viaja por su propio kind del outbox
+        // (MainSyncStore.enqueueSettings en _executeSave), sin gate de
+        // watermark en _resolveCloudCall — mismo motivo que saveEntities:
+        // FirebaseService.saveSettings ya es un full-replace LWW por
+        // dispositivo.
+        saveSettings: (settingsMap) => FirebaseService.saveSettings(settingsMap),
         deleteEntity: (entity, id, deletedAt) => {
             const repo = REPO_BY_ENTITY[entity];
             if (!repo) return Promise.resolve();
@@ -832,6 +838,13 @@ async function _executeSave(options = {}) {
             _mirrorSnapshot.leaders || [],
             _mirrorSnapshot.settings?.schemaVersion
         ));
+
+        // Fase 2B U2: settings (preferencias del dispositivo) también viaja
+        // APARTE del mirror, mismo motivo que 'entities' arriba — su propio
+        // kind del outbox, sin gate de watermark (FirebaseService.saveSettings
+        // ya es un full-replace LWW por dispositivo). Reusa el mismo
+        // _mirrorSnapshot ya clonado, sin re-serializar.
+        _outboxEnqueues.push(MainSyncStore.enqueueSettings(_mirrorSnapshot.settings || {}));
 
         // Disparar el drenado recién DESPUÉS de que las entradas terminen de
         // encolarse (evita la carrera de que flush() lea el outbox antes de

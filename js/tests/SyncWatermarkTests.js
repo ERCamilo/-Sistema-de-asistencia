@@ -15,7 +15,7 @@
  *     nube es igual o más reciente (remoteTime >= localTime).
  */
 
-import { localStateIsEmpty, shouldAcceptRemote } from '../modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark } from '../modules/services/SyncWatermark.js';
 
 testRunner.addSuite("SyncWatermark — localStateIsEmpty", {
 
@@ -79,6 +79,63 @@ testRunner.addSuite("SyncWatermark — shouldAcceptRemote", {
         testRunner.assertEquals(shouldAcceptRemote({ localEmpty: true }), true);
         // con datos y ambos 0 → 0>=0 acepta
         testRunner.assertEquals(shouldAcceptRemote({ localEmpty: false }), true);
+    }
+
+});
+
+// Fase 2B U2: el watermark de conflictos ahora se alimenta de DOS fuentes —
+// el doc per-registro de settings (users/{uid}/data/settings, su propio
+// onSnapshot un-throttled) y el espejo (users/{uid}/data/current, cuya
+// cadencia se reduce en Change B) — y ninguna de las dos debe "atrasar" a la
+// otra. mergeCloudWatermark combina ambas por MAX, con `current` (el
+// watermark ya conocido) como piso: nunca retrocede aunque una fuente
+// reporte algo más viejo que lo que ya sabíamos.
+testRunner.addSuite("SyncWatermark — mergeCloudWatermark (Fase 2B, U2)", {
+
+    "ambas fuentes ausentes → devuelve el watermark actual (current)"() {
+        testRunner.assertEquals(mergeCloudWatermark(500, undefined, undefined), 500);
+    },
+
+    "ambas fuentes ausentes y current en 0 → devuelve 0"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, undefined, undefined), 0);
+    },
+
+    "solo settings presente → devuelve fromSettings"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 800, undefined), 800);
+    },
+
+    "solo mirror presente → devuelve fromMirror (settings ausente, v3/legacy sin doc de settings)"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, null, 650), 650);
+    },
+
+    "ambas presentes, settings más nuevo → elige el mayor (settings)"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 900, 700), 900);
+    },
+
+    "ambas presentes, mirror más nuevo → elige el mayor (mirror)"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 300, 750), 750);
+    },
+
+    "null se trata como 0 en ambas fuentes"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, null, null), 0);
+        testRunner.assertEquals(mergeCloudWatermark(0, null, 500), 500);
+    },
+
+    "undefined se trata como 0 en ambas fuentes"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, undefined, undefined), 0);
+        testRunner.assertEquals(mergeCloudWatermark(0, 400, undefined), 400);
+    },
+
+    "timestamps iguales entre las dos fuentes → devuelve ese valor"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 1000, 1000), 1000);
+    },
+
+    "current más alto que ambas fuentes → NO retrocede (devuelve current)"() {
+        testRunner.assertEquals(mergeCloudWatermark(2000, 500, 800), 2000);
+    },
+
+    "current ausente (undefined) se trata como 0"() {
+        testRunner.assertEquals(mergeCloudWatermark(undefined, 500, 300), 500);
     }
 
 });
