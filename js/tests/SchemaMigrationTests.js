@@ -50,8 +50,13 @@ testRunner.addSuite("SchemaMigration — needsMigration (Fase 4.1)", {
         testRunner.assertEquals(needsMigration(doc), true);
     },
 
-    "schemaVersion 3 → false (ya migrada)"() {
-        const doc = { schemaVersion: 3, employees: [{ id: 'e1' }] };
+    "schemaVersion 3 → true (necesita migrar settings a v4, Fase 2B U3)"() {
+        const doc = { schemaVersion: 3, employees: [{ id: 'e1' }], settings: { theme: 'dark' } };
+        testRunner.assertEquals(needsMigration(doc), true);
+    },
+
+    "schemaVersion 4 → false (ya migrada)"() {
+        const doc = { schemaVersion: 4, employees: [{ id: 'e1' }] };
         testRunner.assertEquals(needsMigration(doc), false);
     },
 

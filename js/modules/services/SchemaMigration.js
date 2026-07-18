@@ -19,7 +19,9 @@
  */
 
 export const SCHEMA_VERSION_FIELD = 'schemaVersion';
-export const TARGET_SCHEMA_VERSION = 3;
+// v4 (Fase 2B U3): el doc de settings pasa a vivir per-registro
+// (users/{uid}/data/settings) — ver SchemaMigrationRunner.js, rama version<4.
+export const TARGET_SCHEMA_VERSION = 4;
 
 /**
  * Decide si una cuenta necesita migrar al modelo nuevo.

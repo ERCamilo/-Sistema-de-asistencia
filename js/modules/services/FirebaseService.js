@@ -616,7 +616,7 @@ class FirebaseService {
             parentDoc,
             isDemo: !!opts.isDemo,
             createSnapshot: () =>
-                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v3'),
+                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v4'),
             // Tras el saveMany de la migración (por fuera de saveEntities), se
             // marca el watermark para que el próximo saveEntities no re-suba el
             // roster entero (cuota).
@@ -635,6 +635,10 @@ class FirebaseService {
                 _leaderUploadTracker.markUploaded(res.saved);
                 return res;
             },
+            // Fase 2B U3: siembra el doc per-registro de settings (Fase 2B U1)
+            // desde la copia inline que trae el espejo. Reutiliza el mismo
+            // writer que usa el guardado normal — no es infra nueva.
+            saveSettings: (settings) => this.saveSettings(settings),
             markSchemaVersion: async (version) => {
                 const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
                 // lastChangedBy garantiza que el listener filtre este eco.
@@ -643,6 +647,18 @@ class FirebaseService {
                     lastChangedBy: getDeviceId(),
                     updatedAt: serverTimestamp()
                 }, { merge: true });
+            },
+            // Fase 2B U3: spinner de migración — mismo patrón defensivo que
+            // sync:mirror-too-large (un subscriber que lance no debe romper
+            // la migración).
+            notifyMigrationStart: () => {
+                try {
+                    if (globalThis.eventBus) {
+                        globalThis.eventBus.emit('sync:migration-start', {});
+                    }
+                } catch (e) {
+                    console.warn('⚠️ subscriber de sync:migration-start lanzó:', e?.message);
+                }
             },
             notify: (msg) => Notification.success(msg, 5000)
         });

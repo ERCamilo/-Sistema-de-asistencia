@@ -49,12 +49,30 @@ testRunner.addSuite("FirebaseService — Contrato migrateIfNeeded (Fase 4.1)", {
         );
     },
 
-    "migrateIfNeeded usa createSnapshot con razón pre-migration-v3"() {
+    "migrateIfNeeded usa createSnapshot con razón pre-migration-v4 (Fase 2B U3)"() {
         const block = fbSource.match(/migrateIfNeeded[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
         const txt = block[0];
         testRunner.assert(
-            /pre-migration-v3/.test(txt),
-            "El snapshot que crea debe llevar la razón 'pre-migration-v3' (catálogo)"
+            /pre-migration-v4/.test(txt),
+            "El snapshot que crea debe llevar la razón 'pre-migration-v4' (catálogo)"
+        );
+    },
+
+    "migrateIfNeeded pasa saveSettings (Fase 2B U3, reutiliza el writer de U1)"() {
+        const block = fbSource.match(/migrateIfNeeded[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const txt = block[0];
+        testRunner.assert(
+            /saveSettings\s*:\s*\(.*?\)\s*=>\s*this\.saveSettings\(/.test(txt),
+            "Debe pasar saveSettings al runner delegando en this.saveSettings (writer existente de U1, sin infra nueva)"
+        );
+    },
+
+    "migrateIfNeeded emite sync:migration-start vía notifyMigrationStart (Fase 2B U3)"() {
+        const block = fbSource.match(/migrateIfNeeded[\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const txt = block[0];
+        testRunner.assert(
+            /notifyMigrationStart/.test(txt) && /sync:migration-start/.test(txt),
+            "Debe pasar notifyMigrationStart al runner y emitir 'sync:migration-start' por eventBus"
         );
     },
 
