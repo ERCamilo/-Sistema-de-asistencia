@@ -122,4 +122,38 @@ export function createWatermarkCache() {
  */
 export const outgoingWatermarkCache = createWatermarkCache();
 
-export default { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, createWatermarkCache, outgoingWatermarkCache };
+/**
+ * Judgment Day Fase 2B, Ronda 3 (fix F2 completo) — resetea ATÓMICAMENTE las
+ * DOS piezas del watermark saliente:
+ *   1. `stateObj._lastKnownCloudUpdatedAt` — leído por
+ *      PersistenceService._executeSave como `_cloudTime` para el gate de
+ *      conflicto saliente.
+ *   2. El cache compartido (settingsDocTs/mirrorTs) — leído por
+ *      mergeCloudWatermark, que usa el watermark actual como PISO (Math.max)
+ *      y por lo tanto nunca retrocede solo.
+ *
+ * ANTES: el reset "local wins" de `_initOutgoingConflictGuard` hacía ambas
+ * cosas inline y correctamente. Los dos resets agregados por el fix F2
+ * (login y logout, para no arrastrar timestamps de una cuenta a la
+ * siguiente en la misma pestaña) solo llamaban a
+ * `outgoingWatermarkCache.reset()` y se olvidaban de
+ * `stateObj._lastKnownCloudUpdatedAt`. Como ese valor es el que
+ * PersistenceService realmente usa como piso del gate, un
+ * logout→login sin reload dejaba sobrevivir el timestamp stale de la cuenta
+ * anterior y disparaba un conflicto saliente espurio contra la cuenta
+ * nueva — el mismo bug cross-cuenta que fix F2 debía cerrar.
+ *
+ * Este helper une los dos resets en un único punto testeable para que las
+ * dos piezas no puedan volver a desincronizarse.
+ *
+ * @param {object} stateObj  objeto state de la app (o un fake en tests)
+ * @param {{reset: (value?: number) => void}} cache  instancia de createWatermarkCache()
+ * @param {number} [value] valor al que resetear ambas piezas (default 0)
+ */
+export function resetOutgoingWatermark(stateObj, cache, value = 0) {
+    const v = Number.isFinite(value) ? value : 0;
+    if (stateObj) stateObj._lastKnownCloudUpdatedAt = v;
+    if (cache) cache.reset(v);
+}
+
+export default { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, createWatermarkCache, outgoingWatermarkCache, resetOutgoingWatermark };

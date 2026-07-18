@@ -23,7 +23,7 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
-import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, outgoingWatermarkCache } from './modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, outgoingWatermarkCache, resetOutgoingWatermark } from './modules/services/SyncWatermark.js';
 import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
@@ -6638,14 +6638,14 @@ function _initOutgoingConflictGuard() {
         if (confirmed) {
             // Local wins: true overwrite (not merge). Deletes orphan cloud docs,
             // writes the main doc WITHOUT merge:true, so cloud-only data is removed.
-            state._lastKnownCloudUpdatedAt = state.settings?.localUpdatedAt || 0;
-            // 🛡️ Judgment Day Fase 2B (fix A1): resetear TAMBIÉN el cache
-            // compartido de watermarks (settingsDocTs/mirrorTs), no solo
-            // state._lastKnownCloudUpdatedAt. Sin esto, el próximo snapshot
-            // remoto legítimo volvía a MAXear los caches stale-altos (vía
-            // mergeCloudWatermark) y resucitaba el watermark que el usuario
-            // recién resolvió.
-            outgoingWatermarkCache.reset(state.settings?.localUpdatedAt || 0);
+            // 🛡️ Judgment Day Fase 2B (fix A1, endurecido en Ronda 3):
+            // resetOutgoingWatermark() resetea ATÓMICAMENTE
+            // state._lastKnownCloudUpdatedAt Y el cache compartido de
+            // watermarks (settingsDocTs/mirrorTs). Sin esto, el próximo
+            // snapshot remoto legítimo volvía a MAXear los caches stale-altos
+            // (vía mergeCloudWatermark) y resucitaba el watermark que el
+            // usuario recién resolvió.
+            resetOutgoingWatermark(state, outgoingWatermarkCache, state.settings?.localUpdatedAt || 0);
             try {
                 await FirebaseService.replaceCloudFull(state);
                 showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
@@ -6853,10 +6853,12 @@ function _initOutgoingConflictGuard() {
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
             if (user) {
-                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2): resetear el cache
-                // compartido de watermarks en CADA transición de auth (login,
+                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
+                // Ronda 3: resetear en CADA transición de auth (login,
                 // re-login, cambio de cuenta en la misma pestaña), antes de
-                // recablear los listeners del espejo/settings más abajo.
+                // recablear los listeners del espejo/settings más abajo, TANTO
+                // el cache compartido de watermarks como
+                // state._lastKnownCloudUpdatedAt (vía resetOutgoingWatermark).
                 // ANTES de la promoción a singleton (fix A1) estos dos valores
                 // eran `let` de closure DENTRO de este mismo callback, así que
                 // se reseteaban implícitamente en cada transición; al promoverlos
@@ -6865,11 +6867,14 @@ function _initOutgoingConflictGuard() {
                 // window.syncCenterLogout) y arrastraba los timestamps de la
                 // cuenta anterior a la sesión de la cuenta nueva, generando
                 // prompts de conflicto saliente espurios con timestamps ajenos.
-                // Resetear a 0 acá es seguro: el primer snapshot legítimo de la
-                // sesión nueva vuelve a poblar el cache vía setMirrorTs/
-                // setSettingsDocTs más abajo (mismo comportamiento que el reset
-                // pre-fix).
-                outgoingWatermarkCache.reset(0);
+                // Ronda 3: el fix F2 original solo reseteaba el cache y se
+                // olvidaba de state._lastKnownCloudUpdatedAt — que es lo que
+                // PersistenceService realmente lee como piso del gate — así que
+                // el bug cross-cuenta seguía reproducible. Resetear a 0 acá es
+                // seguro: el primer snapshot legítimo de la sesión nueva vuelve
+                // a poblar el cache vía setMirrorTs/setSettingsDocTs más abajo
+                // (mismo comportamiento que el reset pre-fix).
+                resetOutgoingWatermark(state, outgoingWatermarkCache, 0);
 
                 showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
 
@@ -7415,13 +7420,16 @@ function _initOutgoingConflictGuard() {
                 // Iniciar primera suscripción
                 window.updateAttendanceSubscription();
             } else {
-                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2): resetear el cache
-                // compartido de watermarks también al CERRAR sesión (user===null),
-                // no solo al iniciarla — cubre window.syncCenterLogout (que llama
-                // a FirebaseService.logout() sin reload de página) para que la
-                // próxima cuenta que inicie sesión en esta misma pestaña no
-                // herede timestamps de la cuenta anterior.
-                outgoingWatermarkCache.reset(0);
+                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
+                // Ronda 3: resetear TANTO el cache compartido de watermarks
+                // como state._lastKnownCloudUpdatedAt (vía
+                // resetOutgoingWatermark) también al CERRAR sesión
+                // (user===null), no solo al iniciarla — cubre
+                // window.syncCenterLogout (que llama a FirebaseService.logout()
+                // sin reload de página) para que la próxima cuenta que inicie
+                // sesión en esta misma pestaña no herede timestamps de la
+                // cuenta anterior.
+                resetOutgoingWatermark(state, outgoingWatermarkCache, 0);
 
                 // Si no hay usuario, ocultamos el loader de inmediato (ya que no habrá sync)
                 hideLoader();

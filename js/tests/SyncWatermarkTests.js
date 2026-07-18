@@ -15,7 +15,7 @@
  *     nube es igual o más reciente (remoteTime >= localTime).
  */
 
-import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, createWatermarkCache } from '../modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, createWatermarkCache, resetOutgoingWatermark } from '../modules/services/SyncWatermark.js';
 
 testRunner.addSuite("SyncWatermark — localStateIsEmpty", {
 
@@ -218,6 +218,89 @@ testRunner.addSuite("SyncWatermark — createWatermarkCache (Fase 2B, fix A1)", 
             `El watermark (${cloudWatermark}) NO debe resucitar por encima del reset (bug: el cache de settingsDocTs stale-alto sobrevivía al reset y volvía a MAXearse)`
         );
         testRunner.assertEquals(cloudWatermark, remoteMirrorTs, 'debe reflejar solo el nuevo dato legítimo, sin arrastrar el 9000 stale');
+    }
+
+});
+
+// Judgment Day Fase 2B, Ronda 3 (fix F2 completo): el reset "local wins" en
+// _initOutgoingConflictGuard resetea CORRECTAMENTE las dos piezas del
+// watermark saliente (state._lastKnownCloudUpdatedAt Y el cache
+// settingsDocTs/mirrorTs). Los dos resets agregados por fix F2 (login y
+// logout) solo llamaban a outgoingWatermarkCache.reset() y se olvidaban de
+// state._lastKnownCloudUpdatedAt — que es justo lo que
+// PersistenceService._executeSave lee como `_cloudTime` para el gate de
+// conflicto saliente, y que mergeCloudWatermark usa como PISO (Math.max), o
+// sea que NUNCA retrocede solo. Resultado: un logout→login en la misma
+// pestaña (sin reload) dejaba sobrevivir el _lastKnownCloudUpdatedAt stale
+// de la cuenta anterior y disparaba un conflicto saliente espurio contra la
+// cuenta nueva — el mismo bug cross-cuenta que fix F2 debía cerrar.
+//
+// resetOutgoingWatermark() une ambos resets en un solo punto testeable para
+// que no puedan volver a desincronizarse.
+testRunner.addSuite("SyncWatermark — resetOutgoingWatermark (Fase 2B, JD Ronda 3, fix F2 completo)", {
+
+    "resetea AMBAS piezas: state._lastKnownCloudUpdatedAt y el cache compartido"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 9999 };
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(9000);
+        cache.setMirrorTs(8500);
+
+        resetOutgoingWatermark(fakeState, cache, 1000);
+
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 1000, 'debe resetear state._lastKnownCloudUpdatedAt');
+        testRunner.assertEquals(cache.get().settingsDocTs, 1000, 'debe resetear settingsDocTs del cache');
+        testRunner.assertEquals(cache.get().mirrorTs, 1000, 'debe resetear mirrorTs del cache');
+    },
+
+    "sin value explícito, cae a 0 en ambas piezas"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 5000 };
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(4000);
+
+        resetOutgoingWatermark(fakeState, cache);
+
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 0);
+        testRunner.assertEquals(cache.get().settingsDocTs, 0);
+    },
+
+    "valor no finito (NaN/undefined) se trata como 0"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 5000 };
+        const cache = createWatermarkCache();
+        cache.setMirrorTs(4000);
+
+        resetOutgoingWatermark(fakeState, cache, NaN);
+
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 0);
+        testRunner.assertEquals(cache.get().mirrorTs, 0);
+    },
+
+    // 🐛 REGRESIÓN del bug de Ronda 3: si el helper solo resetea el cache (el
+    // bug original de fix F2) pero NO state._lastKnownCloudUpdatedAt, el
+    // piso de mergeCloudWatermark sigue siendo el valor stale de la cuenta
+    // anterior y un snapshot legítimo lo resucita.
+    "REGRESIÓN: si solo se reseteara el cache (bug original), el piso stale de state seguiría vivo"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 9000 }; // cuenta A, stale
+        const cache = createWatermarkCache();
+
+        resetOutgoingWatermark(fakeState, cache, 0); // login de cuenta B
+
+        // El watermark efectivo que ve PersistenceService es state._lastKnownCloudUpdatedAt.
+        testRunner.assert(
+            fakeState._lastKnownCloudUpdatedAt < 9000,
+            'state._lastKnownCloudUpdatedAt debe bajar de 9000 tras el reset — si el helper solo tocara el cache, seguiría en 9000 y mergeCloudWatermark lo conservaría como piso'
+        );
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 0);
+    },
+
+    "no falla si stateObj o cache son null/undefined"() {
+        let threw = false;
+        try {
+            resetOutgoingWatermark(null, null, 100);
+            resetOutgoingWatermark(undefined, undefined);
+        } catch (e) {
+            threw = true;
+        }
+        testRunner.assert(!threw, 'resetOutgoingWatermark no debe lanzar con stateObj/cache ausentes');
     }
 
 });
