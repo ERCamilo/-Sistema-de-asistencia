@@ -374,6 +374,101 @@ testRunner.addSuite("FirebaseService — saveEntities NO re-sube entidades sin c
 
 });
 
+// Fase 2B U1: settings viaja por su propio doc per-registro
+// (users/{uid}/data/settings), desacoplado del espejo — mismo espíritu que
+// saveEntities (Fase 2 U1) pero para preferencias en vez de entidades.
+// saveSettings hace un full-replace (setDoc SIN merge:true) para que una
+// clave borrada localmente no sobreviva a un merge profundo de Firestore
+// (mismo motivo que el updateDoc({settings}) dentro de saveFullState, ver M9).
+function saveSettingsBlock() {
+    return FIREBASE_SRC.match(/async\s+saveSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
+function getSettingsBlock() {
+    return FIREBASE_SRC.match(/async\s+getSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
+
+testRunner.addSuite("FirebaseService — Contrato saveSettings/getSettings (Fase 2B, U1)", {
+
+    "FirebaseService define un método async saveSettings(settingsMap)"() {
+        testRunner.assert(
+            !!saveSettingsBlock(),
+            'FirebaseService debe definir async saveSettings(settingsMap)'
+        );
+    },
+
+    "saveSettings escribe en el doc users/{uid}/data/settings"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /['"]data['"]\s*,\s*['"]settings['"]/.test(b[0]),
+            "saveSettings debe escribir en users/{uid}/data/settings"
+        );
+    },
+
+    "saveSettings usa setDoc SIN merge:true (full-replace LWW por dispositivo)"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(/setDoc\s*\(/.test(b[0]), 'saveSettings debe llamar a setDoc');
+        testRunner.assert(
+            !/setDoc\([\s\S]*?\{\s*merge:\s*true\s*\}\s*\)/.test(b[0]),
+            'saveSettings NO debe pasar { merge: true } — el reemplazo debe ser TOTAL para que una clave borrada localmente no sobreviva'
+        );
+    },
+
+    "saveSettings tagea el write con lastChangedBy (deviceId)"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /lastChangedBy\s*:\s*getDeviceId\s*\(\s*\)/.test(b[0]),
+            'saveSettings debe tagear el write con lastChangedBy: getDeviceId() (filtro de eco para el listener)'
+        );
+    },
+
+    "saveSettings guarda updatedAt (serverTimestamp) para el shape {settings, updatedAt, lastChangedBy}"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /updatedAt\s*:\s*serverTimestamp\s*\(\s*\)/.test(b[0]),
+            'saveSettings debe escribir updatedAt: serverTimestamp()'
+        );
+    },
+
+    "FirebaseService define un método async getSettings()"() {
+        testRunner.assert(
+            !!getSettingsBlock(),
+            'FirebaseService debe definir async getSettings()'
+        );
+    },
+
+    "getSettings lee el doc users/{uid}/data/settings vía getDoc (lectura one-shot)"() {
+        const b = getSettingsBlock();
+        testRunner.assert(!!b, 'getSettings debe existir');
+        testRunner.assert(/getDoc\s*\(/.test(b[0]), 'getSettings debe usar getDoc, no un listener');
+        testRunner.assert(
+            /['"]data['"]\s*,\s*['"]settings['"]/.test(b[0]),
+            'getSettings debe leer users/{uid}/data/settings'
+        );
+    },
+
+    "getSettings devuelve null cuando el doc no existe (v3/legacy)"() {
+        const b = getSettingsBlock();
+        testRunner.assert(!!b, 'getSettings debe existir');
+        testRunner.assert(
+            /docSnap\.exists\(\)/.test(b[0]) && /return\s+null/.test(b[0]),
+            'getSettings debe devolver null si el doc no existe — v3/legacy sin doc de settings todavía'
+        );
+    },
+
+    "getSettings devuelve {settings, updatedAt, lastChangedBy} cuando el doc existe"() {
+        const b = getSettingsBlock();
+        testRunner.assert(!!b, 'getSettings debe existir');
+        testRunner.assert(/settings\s*:/.test(b[0]), 'debe devolver el campo settings');
+        testRunner.assert(/updatedAt\s*:/.test(b[0]), 'debe devolver el campo updatedAt');
+        testRunner.assert(/lastChangedBy\s*:/.test(b[0]), 'debe devolver el campo lastChangedBy');
+    }
+
+});
+
 testRunner.addSuite("FirebaseService — deleteCloudData invalida el watermark de subida (Ronda 2)", {
 
     // 🐛 Judgment Day Fase 2A Ronda 2 (CRITICAL): con el watermark ahora

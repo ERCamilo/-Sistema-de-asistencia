@@ -279,6 +279,65 @@ class FirebaseService {
     }
 
     /**
+     * Fase 2B U1: escribe el mapa de settings COMPLETO en su propio doc
+     * per-registro (users/{uid}/data/settings), desacoplado del espejo —
+     * mismo espíritu que saveEntities (Fase 2 U1) pero para preferencias.
+     *
+     * setDoc SIN merge:true (full-replace): con merge:true Firestore fusiona
+     * mapas en profundidad y una clave borrada localmente sobreviviría (mismo
+     * motivo por el que saveFullState hace un updateDoc({settings}) aparte,
+     * ver M9). El dispositivo siempre tiene el mapa completo en memoria, así
+     * que reemplazar entero es seguro y es la semántica LWW por dispositivo
+     * que el diseño pide.
+     * @param {object} settingsMap El mapa de settings completo del dispositivo
+     */
+    async saveSettings(settingsMap) {
+        if (!auth.currentUser) return;
+
+        try {
+            const cleanSettings = JSON.parse(JSON.stringify(settingsMap || {}));
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+            await setDoc(docRef, {
+                settings: cleanSettings,
+                updatedAt: serverTimestamp(),
+                lastChangedBy: getDeviceId()
+            }); // sin { merge: true } — reemplazo TOTAL del mapa de settings
+            console.log('☁️ Settings sincronizados en Firebase (doc per-registro)');
+        } catch (error) {
+            console.error('❌ Error sincronizando settings:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Fase 2B U1: lectura one-shot del doc per-registro de settings.
+     * `null` significa v3/legacy (el doc todavía no existe) — el caller debe
+     * tratar la copia dual-escrita en el espejo como autoritativa hasta que
+     * la cuenta migre a v4.
+     * @returns {Promise<{settings: object, updatedAt: *, lastChangedBy: string}|null>}
+     */
+    async getSettings() {
+        if (!auth.currentUser) return null;
+
+        try {
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+            const docSnap = await getDoc(docRef);
+
+            if (!docSnap.exists()) return null;
+
+            const data = docSnap.data();
+            return {
+                settings: data.settings || {},
+                updatedAt: data.updatedAt,
+                lastChangedBy: data.lastChangedBy
+            };
+        } catch (error) {
+            console.error('❌ Error cargando settings desde Firebase:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Marca empleados como subidos en el watermark del EntityUploadTracker.
      * Seam público para flujos que escriben empleados por FUERA de saveEntities
      * (p.ej. CloudReconcile): sin esto el watermark queda stale y el próximo
