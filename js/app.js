@@ -269,6 +269,16 @@ function _handleAppClick(e) {
 }
 
 function _handleAppKeydown(e) {
+    // Escape cierra cualquier modal abierto (antes solo se podía con la ×, que
+    // en pantallas chicas podía quedar fuera de vista). Solo si hay un overlay
+    // presente, para no interferir con otros usos de Escape.
+    if (e.key === 'Escape') {
+        if (typeof document !== 'undefined' && document.querySelector('.modal-overlay')) {
+            e.preventDefault();
+            window.closeModal?.();
+        }
+        return;
+    }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const target = e.target.closest('[data-app-fn]');
     if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
@@ -4751,22 +4761,12 @@ function SyncCenterModal() {
                     <button type="button" class="sync-center-close" data-app-fn="close-modal" aria-label="Cerrar">×</button>
                 </div>
 
-                <div class="sync-center-status">
-                    <div>
-                        <span>Estado</span>
-                        <strong>${escapeHTML(stateLabel)}</strong>
-                    </div>
-                    <div>
-                        <span>Última sincronización</span>
-                        <strong>${escapeHTML(lastSyncLabel)}</strong>
-                    </div>
-                    <div>
-                        <span>Cuenta</span>
-                        <strong>${escapeHTML(userLabel)}</strong>
-                    </div>
+                <div class="sync-center-status-line">
+                    <strong>${escapeHTML(stateLabel)}</strong>
+                    <span>${escapeHTML(lastSyncLabel)} · ${escapeHTML(userLabel)}</span>
                 </div>
 
-                <div class="sync-pause-switches">
+                <div class="sync-pause-switches compact">
                     <button type="button"
                             class="sync-pause-row ${isPaused ? 'is-paused' : ''}"
                             role="switch"
@@ -4774,10 +4774,10 @@ function SyncCenterModal() {
                             aria-label="Subida a la nube (activada = sincroniza con tus dispositivos)"
                             data-app-fn="syncCenterTogglePause">
                         <span class="sync-pause-copy">
-                            <strong>${isPaused ? '⏸️ Subida a la nube pausada' : '☁️ Subida a la nube activa'}</strong>
+                            <strong>${isPaused ? '⏸️ Subida pausada' : '☁️ Subida activa'}</strong>
                             <small>${isPaused
-                                ? 'Tus cambios se guardan en este equipo pero NO se envían a tus otros dispositivos.'
-                                : 'Tus cambios se sincronizan automáticamente con la nube y tus otros dispositivos.'}</small>
+                                ? 'Tus cambios NO se envían a otros dispositivos.'
+                                : 'Tus cambios se envían a la nube.'}</small>
                         </span>
                         <span class="sync-pause-switch" aria-hidden="true">
                             <span class="sync-pause-switch-handle"></span>
@@ -4791,10 +4791,10 @@ function SyncCenterModal() {
                             aria-label="Descarga de la nube (activada = recibe cambios de otros dispositivos)"
                             data-app-fn="syncCenterToggleDownloadPause">
                         <span class="sync-pause-copy">
-                            <strong>${isDownloadPausedNow ? '⏸️ Descarga de la nube pausada' : '📥 Descarga de la nube activa'}</strong>
+                            <strong>${isDownloadPausedNow ? '⏸️ Descarga pausada' : '📥 Descarga activa'}</strong>
                             <small>${isDownloadPausedNow
-                                ? 'Los cambios de otros dispositivos NO se aplican en este equipo.'
-                                : 'Los cambios de la nube se aplican automáticamente en este equipo.'}</small>
+                                ? 'Otros dispositivos NO te modifican este equipo.'
+                                : 'Recibís los cambios de la nube.'}</small>
                         </span>
                         <span class="sync-pause-switch" aria-hidden="true">
                             <span class="sync-pause-switch-handle"></span>
@@ -4804,16 +4804,18 @@ function SyncCenterModal() {
 
                 <div class="sync-center-actions primary">
                     ${action('syncCenterSyncNow', '↻', 'Sincronizar ahora', 'Guarda y refresca los datos con la nube.')}
-                    ${action('syncCenterUploadToCloud', '↑', 'Subir a la nube', 'Usa este equipo como fuente principal.')}
-                    ${action('syncCenterDownloadFromCloud', '↓', 'Descargar de la nube', 'Trae la versión remota a este equipo.')}
-                    ${action('syncCenterCreateSnapshot', '●', 'Crear punto de respaldo', 'Guarda una copia manual del estado actual.')}
+                    ${action('syncCenterOpenBackups', '◷', 'Respaldos y restauración', 'Crear copias y recuperar versiones anteriores.', 'secondary')}
                 </div>
 
-                <div class="sync-center-actions secondary">
-                    ${action('syncCenterOpenBackups', '◷', 'Respaldos y restauración', 'Ver snapshots y recuperar versiones anteriores.', 'secondary')}
-                    ${action('syncCenterResolveConflicts', '≋', 'Resolver conflictos', 'Revisar duplicados y datos inconsistentes.', 'secondary')}
-                    ${action('syncCenterOpenSettings', '⚙', 'Configurar sincronización', 'Abrir los ajustes de datos y nube.', 'secondary')}
-                </div>
+                <details class="sync-center-advanced">
+                    <summary>Opciones avanzadas</summary>
+                    <div class="sync-center-actions secondary">
+                        ${action('syncCenterUploadToCloud', '↑', 'Subir a la nube', 'Usa este equipo como fuente principal (reemplaza la nube).', 'secondary')}
+                        ${action('syncCenterDownloadFromCloud', '↓', 'Descargar de la nube', 'Trae la versión remota a este equipo (reemplaza lo local).', 'secondary')}
+                        ${action('syncCenterResolveConflicts', '≋', 'Resolver conflictos', 'Revisar duplicados y datos inconsistentes.', 'secondary')}
+                        ${action('syncCenterOpenSettings', '⚙', 'Configurar sincronización', 'Abrir los ajustes de datos y nube.', 'secondary')}
+                    </div>
+                </details>
             </div>
         </div>
     `;
