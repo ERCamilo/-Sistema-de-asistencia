@@ -7,7 +7,8 @@ import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import {
     SETTINGS_DRAFT_FIELD_IDS,
     refreshSettingsDraftBar,
-    discardSettingsDraft
+    discardSettingsDraft,
+    guardSettingsDraftOnLeave
 } from './settings/SettingsDraftBar.js';
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
@@ -20,7 +21,11 @@ import { logError } from '../services/ErrorLog.js';
 // EVENT DELEGATION (data-settings-action)
 // ============================================
 const _SETTINGS_ACTION_MAP = {
-    'change-settings-tab': (tab) => window.changeSettingsTab?.(tab),
+    // Cambiar de sub-pestaña re-renderiza el formulario desde state y pisa el
+    // draft: con draft sucio se pregunta antes (guardSettingsDraftOnLeave).
+    'change-settings-tab': (tab) => guardSettingsDraftOnLeave({
+        onProceed: () => window.changeSettingsTab?.(tab)
+    }),
     // Tras guardar, el render (síncrono, solo si la validación pasó)
     // reconstruye el formulario desde state → el refresh oculta la barra de
     // draft; si la validación falló no hay render y la barra queda visible.
