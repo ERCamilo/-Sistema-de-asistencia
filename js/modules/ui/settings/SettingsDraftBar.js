@@ -38,15 +38,16 @@ export const SETTINGS_DRAFT_BAR_ID = 'settings-draft-bar';
 /**
  * Inputs del formulario de Ajustes que son borrador hasta "Guardar
  * Configuración" (los mismos que lee window.saveSettings del DOM). Los
- * switches auto-save (legacyNavigation, hideDuplicateAlerts, weatherEnabled)
- * NO están acá: se cometen solos vía commitAutoSaveSwitch (SettingsUI.js).
+ * controles auto-commit NO están acá: los switches (legacyNavigation,
+ * hideDuplicateAlerts, weatherEnabled) se cometen vía commitAutoSaveSwitch
+ * (SettingsUI.js) y el select de iconos vía window.commitIconSet (app.js) —
+ * aplicar el set YA es su vista previa, así que se comete al elegirlo.
  */
 export const SETTINGS_DRAFT_FIELD_IDS = [
     'companyName',
     'weatherApiKey',
     'weatherLocationInput',
     'scrollbarMode',
-    'iconSet',
     'regularHoursPerDay',
     'overtimeFactor',
     'holidayFactor',

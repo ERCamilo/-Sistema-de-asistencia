@@ -123,19 +123,24 @@ function _handleSettingsKeydown(e) {
 // Hay DOS familias de controles en la pantalla de Ajustes, con tratamiento
 // distinto. Si agregás un control nuevo, decidí a cuál pertenece:
 //
-// 1. SWITCHES (checkboxes tipo toggle, sin validación): se comprometen SOLOS
-//    al cambiar — registrá su id en AUTO_SAVE_SWITCH_IDS y listo. El commit
-//    (commitAutoSaveSwitch) muta state vía batchSetState, estampa
-//    updatedAt/_isDirty y dispara saveApplicationData, así el cambio persiste
-//    en IndexedDB y viaja en vivo a los demás dispositivos (Fase 2B: doc
-//    per-registro de settings). NO los leas en window.saveSettings desde el
-//    DOM como si fueran borrador: ya están comprometidos en state.
+// 1. CONTROLES AUTO-COMMIT (sin validación, efecto inmediato): se comprometen
+//    SOLOS al cambiar. Los switches (checkboxes toggle) se registran en
+//    AUTO_SAVE_SWITCH_IDS y los comete commitAutoSaveSwitch; los selects de
+//    efecto inmediato tienen su propio commit (iconSet → window.commitIconSet
+//    en app.js, modo de ayuda → acción set-help-mode). El commit muta state
+//    vía batchSetState, estampa updatedAt/_isDirty y dispara
+//    saveApplicationData, así el cambio persiste en IndexedDB y viaja en vivo
+//    a los demás dispositivos (Fase 2B: doc per-registro de settings). NO los
+//    leas en window.saveSettings desde el DOM como si fueran borrador: ya
+//    están comprometidos en state.
 //
 // 2. INPUTS VALIDADOS (texto/número/selects del formulario: companyName,
-//    factores, horas, clima, etc.): son BORRADOR en el DOM hasta que el
-//    usuario confirma con "Guardar Configuración" (window.saveSettings los
-//    lee, valida y comete todos juntos). No los mutes en el listener de
-//    change — romperías la validación y el camino de "Descartar".
+//    factores, horas, clima, etc. — la lista viva es
+//    SETTINGS_DRAFT_FIELD_IDS en SettingsDraftBar.js): son BORRADOR en el
+//    DOM hasta que el usuario confirma con "Guardar Configuración"
+//    (window.saveSettings los lee, valida y comete todos juntos). No los
+//    mutes en el listener de change — romperías la validación y el camino
+//    de "Descartar".
 //
 // Gap que motivó esto (field test Fase 2B): un switch que solo muta memoria
 // se ve aplicado localmente pero se pierde en F5 y nunca sincroniza.

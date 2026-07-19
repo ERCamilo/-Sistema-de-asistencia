@@ -5337,9 +5337,19 @@ function getTimeAgo(date) {
 }
 
 
-window.previewIconSet = function (value) {
-    state.settings.iconSet = applyIconSet(value);
-    render();
+// Ajustes: el select de iconos es un control AUTO-COMMIT (familia 1 de la
+// convención en SettingsUI.js). Aplicar el registry YA es la "vista previa",
+// así que el commit honesto es aplicarlo Y guardarlo — el antiguo "preview"
+// del select mutaba state sin estampar ni guardar, dejando el cambio
+// comprometido en memoria (salir "era lo mismo que guardar") e invisible
+// para Descartar y para el LWW de sincronización.
+window.commitIconSet = function (value) {
+    stateManager.batchSetState(() => {
+        state.settings.iconSet = applyIconSet(value);
+        state.settings.updatedAt = Date.now();
+        state.settings._isDirty = true;
+    });
+    saveApplicationData();
 };
 window.saveSettings = function () {
     // Leer valores del formulario
@@ -5358,7 +5368,7 @@ window.saveSettings = function () {
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
     const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (state.settings.defaultDeductionPercentage || 2);
-    const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
+    // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
     // legacyNavigation, hideDuplicateAlerts y weatherEnabled son switches
@@ -5425,7 +5435,6 @@ window.saveSettings = function () {
 
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
-    state.settings.iconSet = applyIconSet(iconSet);
     state.settings.scrollbarMode = scrollbarMode;
     // legacyNavigation, hideDuplicateAlerts y weatherEnabled NO se reasignan
     // acá: ya están comprometidos en state por commitAutoSaveSwitch.
@@ -7096,7 +7105,14 @@ function _initOutgoingConflictGuard() {
                         newEmployees = newEmployees.map(e => e instanceof Employee ? e : new Employee(e));
                     }
 
+                    const _prevIconSetMirror = state.settings?.iconSet;
                     state.settings = { ...state.settings, ...remoteData.settings };
+                    // Mismo motivo que el listener de settings per-doc: el
+                    // registry de iconos vive fuera de state y no se entera
+                    // solo del merge (field test 2026-07-19).
+                    if (state.settings?.iconSet && state.settings.iconSet !== _prevIconSetMirror) {
+                        applyIconSet(state.settings.iconSet);
+                    }
                     // Propagar schemaVersion al state local para que las escrituras
                     // (saveFullState) sepan tomar el camino granular.
                     const effectiveSchemaVersion = loaderResult.migrated
@@ -7265,6 +7281,7 @@ function _initOutgoingConflictGuard() {
                     // Fase 2B U2 (fix cobertura): la decisión accept/reject +
                     // el merge whole-object viven en SettingsLiveSync.js,
                     // testeados de forma aislada (SettingsLiveSyncTests.js).
+                    const _prevIconSet = state.settings?.iconSet;
                     const result = handleRemoteSettings({
                         remoteDoc: settingsDoc,
                         state,
@@ -7274,6 +7291,16 @@ function _initOutgoingConflictGuard() {
                     });
 
                     outgoingWatermarkCache.setSettingsDocTs(result.settingsDocTs);
+
+                    // El registry de iconos vive FUERA de state (IconSystem +
+                    // localStorage): el merge remoto solo escribe
+                    // state.settings.iconSet y el receptor seguiría dibujando
+                    // el set viejo hasta el próximo reload (field test
+                    // 2026-07-19). Sin asignar el retorno: normalizar acá
+                    // sería una escritura directa a state fuera de batch.
+                    if (result.accepted && state.settings?.iconSet && state.settings.iconSet !== _prevIconSet) {
+                        applyIconSet(state.settings.iconSet);
+                    }
                 });
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
