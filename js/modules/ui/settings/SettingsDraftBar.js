@@ -145,16 +145,31 @@ export function hideSettingsDraftBar(doc = document) {
 }
 
 /**
- * Descarta el borrador: re-renderiza (el formulario se reconstruye desde
- * state, la única fuente de verdad) y oculta la barra.
+ * Descarta el borrador devolviendo cada campo a su valor rendereado
+ * (defaultValue / defaultSelected) y oculta la barra.
+ *
+ * El reset es EXPLÍCITO sobre el DOM, no vía render(): con state sin cambios
+ * el HTML nuevo es idéntico al viejo y DOMDiff saltea los nodos por
+ * isEqualNode (compara atributos, no el `.value` vivo) — un render jamás
+ * borraría lo tipeado (field test 2026-07-19: "Descartar" parecía una
+ * etiqueta muerta).
  * @param {object} [args]
  * @param {Document} [args.doc]
- * @param {Function} [args.render] override para test (default: window.render)
  */
-export function discardSettingsDraft({ doc = document, render } = {}) {
-    const doRender = render || (typeof window !== 'undefined' ? window.render : null);
-    if (typeof doRender === 'function') doRender();
-    refreshSettingsDraftBar(doc);
+export function discardSettingsDraft({ doc = document } = {}) {
+    for (const id of SETTINGS_DRAFT_FIELD_IDS) {
+        const el = doc.getElementById(id);
+        if (!el) continue;
+        if (el.tagName === 'SELECT') {
+            const options = Array.from(el.options);
+            if (options.length === 0) continue;
+            const defIdx = options.findIndex(o => o.defaultSelected);
+            el.selectedIndex = defIdx === -1 ? 0 : defIdx;
+        } else {
+            el.value = el.defaultValue;
+        }
+    }
+    hideSettingsDraftBar(doc);
 }
 
 /**

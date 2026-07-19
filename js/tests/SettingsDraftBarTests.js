@@ -144,17 +144,40 @@ testRunner.addSuite("SettingsDraftBar — barra pegajosa (crear/mostrar/ocultar)
             'Descartar debe tener su acción propia');
     },
 
-    "discardSettingsDraft re-renderiza desde state y oculta la barra"() {
+    "discardSettingsDraft resetea los campos EXPLÍCITO y oculta la barra (sin depender de render)"() {
+        // Field test 2026-07-19: confiar en render() no alcanza — DOMDiff
+        // compara ATRIBUTOS (isEqualNode) y con state sin cambios el HTML
+        // nuevo es idéntico, así que el input editado se saltea y el draft
+        // tipeado sobrevive: "Descartar" parecía una etiqueta muerta.
         buildForm();
-        document.getElementById('companyName').value = 'Otra Empresa';
+        const input = document.getElementById('companyName');
+        input.value = 'Otra Empresa';
+        const select = document.getElementById('scrollbarMode');
+        select.value = 'hidden';
         refreshSettingsDraftBar(document);
 
-        let renders = 0;
-        discardSettingsDraft({ doc: document, render: () => { renders++; buildForm(); } });
+        discardSettingsDraft({ doc: document });
 
-        testRunner.assertEquals(renders, 1, 'descartar debe re-renderizar (el DOM vuelve a state)');
+        testRunner.assertEquals(input.value, 'Empresa Test',
+            'descartar debe devolver el input a su defaultValue (lo rendereado desde state)');
+        testRunner.assertEquals(select.value, 'on-scroll',
+            'descartar debe devolver el select a su opción defaultSelected');
         const bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
         testRunner.assert(!bar || bar.hidden === true, 'tras descartar la barra queda oculta');
+    },
+
+    "discardSettingsDraft no requiere window.render (reset puramente de DOM)"() {
+        buildForm();
+        document.getElementById('companyName').value = 'Otra Empresa';
+        const prevRender = window.render;
+        window.render = undefined;
+        try {
+            discardSettingsDraft({ doc: document });
+            testRunner.assertEquals(document.getElementById('companyName').value, 'Empresa Test',
+                'el reset debe funcionar aunque no exista window.render');
+        } finally {
+            window.render = prevRender;
+        }
     }
 });
 
