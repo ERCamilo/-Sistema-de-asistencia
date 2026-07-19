@@ -18,14 +18,20 @@ import {
     SETTINGS_DRAFT_FIELD_IDS,
     isSettingsDraftDirty,
     refreshSettingsDraftBar,
+    hideSettingsDraftBar,
     discardSettingsDraft,
+    guardSettingsDraftOnLeave,
     SETTINGS_DRAFT_BAR_ID
 } from '../modules/ui/settings/SettingsDraftBar.js';
+import { eventBus } from '../modules/core/Events.js';
 import fs from 'fs';
 import path from 'path';
 
 const SETTINGS_UI_SRC = fs.readFileSync(
     path.resolve(__dirname, '../modules/ui/SettingsUI.js'), 'utf8'
+);
+const SETTINGS_DRAFT_BAR_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../modules/ui/settings/SettingsDraftBar.js'), 'utf8'
 );
 
 function buildForm() {
@@ -170,5 +176,81 @@ testRunner.addSuite("SettingsDraftBar — cableado en SettingsUI (source-level)"
             /['"]discard-settings-draft['"]\s*:/.test(SETTINGS_UI_SRC),
             '_SETTINGS_ACTION_MAP debe rutear discard-settings-draft'
         );
+    },
+
+    // F1: window.render() nunca es síncrono (renderOptimizer.scheduleRender →
+    // requestAnimationFrame). Refrescar la barra justo después de llamar a
+    // saveSettings() miraba el DOM viejo — la barra se re-evalúa sola en la
+    // suscripción a 'render:complete' (ver SettingsDraftBar.js).
+    "'save-settings' ya NO refresca la barra a mano (el DOM sigue viejo en ese tick)"() {
+        const idx = SETTINGS_UI_SRC.indexOf("'save-settings':");
+        testRunner.assert(idx !== -1, 'debe existir el wiring de save-settings');
+        const block = SETTINGS_UI_SRC.slice(idx, idx + 200);
+        testRunner.assert(!/refreshSettingsDraftBar\s*\(/.test(block),
+            'save-settings no debe llamar refreshSettingsDraftBar sincrónicamente: el render real es async y se re-evalúa vía render:complete');
+    },
+
+    "SettingsDraftBar.js se suscribe a 'render:complete' en eventBus (F1)"() {
+        testRunner.assert(
+            /eventBus\.on\(\s*['"]render:complete['"]/.test(SETTINGS_DRAFT_BAR_SRC),
+            'debe re-evaluar la barra en cada render real completado, en vez de asumir que render() es síncrono'
+        );
+    }
+});
+
+testRunner.addSuite("SettingsDraftBar — F1: re-evaluación async vía render:complete", {
+
+    "emitir 'render:complete' en eventBus re-evalúa la barra sin refresh manual en el call site"() {
+        buildForm();
+        document.getElementById('companyName').value = 'Otra Empresa';
+        refreshSettingsDraftBar(document);
+        let bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
+        testRunner.assert(bar.hidden === false, 'arranca con draft sucio visible');
+
+        // Simula el render real completando DESPUÉS: el formulario se
+        // reconstruye desde state (limpio) y solo ENTONCES se emite el
+        // evento — nadie llama a refreshSettingsDraftBar a mano acá.
+        buildForm();
+        eventBus.emit('render:complete', { timestamp: Date.now() });
+
+        bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
+        testRunner.assert(!!bar, 'la suscripción debe re-evaluar (y re-crear si hace falta) la barra');
+        testRunner.assert(bar.hidden === true,
+            'tras el render real (formulario limpio) la barra debe ocultarse sola, sin refresh manual en el call site');
+    },
+
+    "hideSettingsDraftBar oculta de inmediato sin recalcular el estado sucio"() {
+        buildForm();
+        document.getElementById('companyName').value = 'Otra Empresa'; // sigue sucio
+        refreshSettingsDraftBar(document);
+        const bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
+        testRunner.assert(bar.hidden === false);
+
+        hideSettingsDraftBar(document);
+        testRunner.assert(bar.hidden === true,
+            'debe ocultarse aunque el draft siga técnicamente sucio (uso: guard de salida, navegación agendada)');
+    },
+
+    "guardSettingsDraftOnLeave: onConfirm oculta la barra ya mismo aunque onProceed solo AGENDE la navegación"() {
+        buildForm();
+        document.getElementById('companyName').value = 'Otra Empresa';
+        refreshSettingsDraftBar(document);
+        const bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
+        testRunner.assert(bar.hidden === false, 'arranca con draft sucio visible');
+
+        let scheduled = null;
+        // Como el render real: onProceed NO toca el DOM en este mismo tick,
+        // solo agenda trabajo async (setTimeout/render diferido).
+        const fakeAsyncOnProceed = () => {
+            scheduled = setTimeout(() => {}, 0);
+        };
+        const showConfirm = ({ onConfirm }) => onConfirm();
+
+        guardSettingsDraftOnLeave({ doc: document, showConfirm, onProceed: fakeAsyncOnProceed });
+
+        testRunner.assert(bar.hidden === true,
+            'la barra debe ocultarse en el mismo tick del onConfirm, sin esperar a que la navegación agendada corra');
+        testRunner.assert(scheduled !== null, 'onProceed debe haberse invocado (agendó su trabajo async)');
+        clearTimeout(scheduled);
     }
 });
