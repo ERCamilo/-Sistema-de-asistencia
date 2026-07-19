@@ -1,6 +1,7 @@
 import { DateUtils } from '../utils/DateUtils.js';
 import icons from './IconSystem.js';
-import { state } from '../core/AppState.js';
+import { state, stateManager } from '../core/AppState.js';
+import { saveApplicationData } from '../services/PersistenceService.js';
 import { APP_CONFIG } from '../config/Config.js';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
@@ -100,6 +101,66 @@ function _handleSettingsKeydown(e) {
     _handleSettingsClick(e);
 }
 
+// ============================================
+// CONVENCIÓN DE CONTROLES DE AJUSTES (leer antes de agregar/modificar uno)
+// ============================================
+// Hay DOS familias de controles en la pantalla de Ajustes, con tratamiento
+// distinto. Si agregás un control nuevo, decidí a cuál pertenece:
+//
+// 1. SWITCHES (checkboxes tipo toggle, sin validación): se comprometen SOLOS
+//    al cambiar — registrá su id en AUTO_SAVE_SWITCH_IDS y listo. El commit
+//    (commitAutoSaveSwitch) muta state vía batchSetState, estampa
+//    updatedAt/_isDirty y dispara saveApplicationData, así el cambio persiste
+//    en IndexedDB y viaja en vivo a los demás dispositivos (Fase 2B: doc
+//    per-registro de settings). NO los leas en window.saveSettings desde el
+//    DOM como si fueran borrador: ya están comprometidos en state.
+//
+// 2. INPUTS VALIDADOS (texto/número/selects del formulario: companyName,
+//    factores, horas, clima, etc.): son BORRADOR en el DOM hasta que el
+//    usuario confirma con "Guardar Configuración" (window.saveSettings los
+//    lee, valida y comete todos juntos). No los mutes en el listener de
+//    change — romperías la validación y el camino de "Descartar".
+//
+// Gap que motivó esto (field test Fase 2B): un switch que solo muta memoria
+// se ve aplicado localmente pero se pierde en F5 y nunca sincroniza.
+const AUTO_SAVE_SWITCH_IDS = new Set([
+    'legacyNavigation',
+    'hideDuplicateAlerts',
+    'weatherEnabled'
+]);
+
+/**
+ * Comete un switch auto-save: escribe el valor en state.settings (dentro de
+ * batchSetState — escritura administrada, sin deuda del ratchet de
+ * check-state-writes), estampa updatedAt/_isDirty (mismo contrato que
+ * window.saveSettings) y dispara el guardado (debounced) para que persista
+ * y sincronice.
+ *
+ * @param {object} args
+ * @param {string} args.id id del checkbox (debe estar en AUTO_SAVE_SWITCH_IDS)
+ * @param {boolean} args.checked valor nuevo del switch
+ * @param {object} [args.deps] Overrides para test: state, batchSetState, save, now.
+ * @returns {{committed: boolean, key?: string}}
+ */
+export function commitAutoSaveSwitch({ id, checked, deps = {} } = {}) {
+    const {
+        state: st = state,
+        batchSetState = (cb) => stateManager.batchSetState(cb),
+        save = saveApplicationData,
+        now = Date.now
+    } = deps;
+
+    if (!id || !AUTO_SAVE_SWITCH_IDS.has(id)) return { committed: false };
+
+    batchSetState(() => {
+        st.settings[id] = checked;
+        st.settings.updatedAt = now();
+        st.settings._isDirty = true;
+    });
+    save();
+    return { committed: true, key: id };
+}
+
 function _handleSettingsChange(e) {
     const target = e.target;
     if (target && target.type === 'checkbox') {
@@ -108,15 +169,10 @@ function _handleSettingsChange(e) {
             row.classList.toggle('is-active', target.checked);
             row.setAttribute('aria-checked', target.checked ? 'true' : 'false');
 
-            // Actualizar el estado en memoria de forma inmediata para evitar reversión visual en re-renderizados
-            if (target.id === 'legacyNavigation') {
-                state.settings.legacyNavigation = target.checked;
-            } else if (target.id === 'hideDuplicateAlerts') {
-                state.settings.hideDuplicateAlerts = target.checked;
-            } else if (target.id === 'weatherEnabled') {
-                state.settings.weatherEnabled = target.checked;
-                
-                // Caso especial: Mostrar/ocultar configuración del clima en tiempo real
+            commitAutoSaveSwitch({ id: target.id, checked: target.checked });
+
+            // Caso especial: Mostrar/ocultar configuración del clima en tiempo real
+            if (target.id === 'weatherEnabled') {
                 const configPanel = document.getElementById('weatherConfigPanel');
                 if (configPanel) {
                     configPanel.style.display = target.checked ? 'block' : 'none';
