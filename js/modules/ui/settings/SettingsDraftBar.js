@@ -133,10 +133,49 @@ export function discardSettingsDraft({ doc = document, render } = {}) {
     refreshSettingsDraftBar(doc);
 }
 
+/**
+ * Guard de salida: si hay draft sucio, pregunta antes de navegar (cambiar de
+ * sub-pestaña de Ajustes o salir de la pantalla re-renderiza el formulario
+ * desde state y pisa el draft en silencio). Caso borde — la barra pegajosa
+ * es el aviso principal.
+ *
+ * Nunca BLOQUEA: sin confirm disponible, navega igual (mejor perder un draft
+ * que dejar al usuario atrapado en Ajustes).
+ *
+ * @param {object} [args]
+ * @param {Document} [args.doc]
+ * @param {Function} [args.showConfirm] default: window.showConfirm
+ * @param {Function} [args.onProceed] la navegación a ejecutar (diferida si se pregunta)
+ * @returns {{asked: boolean}}
+ */
+export function guardSettingsDraftOnLeave({ doc = document, showConfirm, onProceed } = {}) {
+    const ask = showConfirm
+        || (typeof window !== 'undefined' ? window.showConfirm : null);
+
+    if (!isSettingsDraftDirty(doc) || typeof ask !== 'function') {
+        onProceed?.();
+        return { asked: false };
+    }
+
+    ask({
+        title: 'Cambios sin guardar',
+        message: 'Hay cambios en la configuración que todavía no se guardaron. Si salís ahora, se descartan.',
+        confirmText: 'Salir y descartar',
+        cancelText: 'Quedarme',
+        type: 'warning',
+        onConfirm: () => {
+            onProceed?.();
+            refreshSettingsDraftBar(doc);
+        }
+    });
+    return { asked: true };
+}
+
 export default {
     SETTINGS_DRAFT_BAR_ID,
     SETTINGS_DRAFT_FIELD_IDS,
     isSettingsDraftDirty,
     refreshSettingsDraftBar,
-    discardSettingsDraft
+    discardSettingsDraft,
+    guardSettingsDraftOnLeave
 };
