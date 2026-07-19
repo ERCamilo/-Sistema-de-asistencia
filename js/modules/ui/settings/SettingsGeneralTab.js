@@ -149,7 +149,7 @@ export function SettingsGeneralTab(context) {
                     </div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <label class="form-label">Estilo de iconos</label>
-                        <select id="iconSet" class="form-input" onchange="previewIconSet(this.value)">
+                        <select id="iconSet" class="form-input" onchange="commitIconSet(this.value)">
                             ${iconSetOptions}
                         </select>
                         <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px; line-height: 1.6;">
