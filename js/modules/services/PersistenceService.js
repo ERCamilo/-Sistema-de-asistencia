@@ -555,6 +555,7 @@ export async function saveToIndexedDB(options = {}) {
 // a mitad de camino — p.ej. red caída en "Descargar y Reemplazar").
 // ─────────────────────────────────────────────────────────────────────────────
 let _localDataWipeInProgress = false;
+let _dataOperationDepth = 0;
 
 /** Bloquea todo guardado implícito (debounce, pagehide) durante un borrado local. */
 export function beginLocalDataWipe() { _localDataWipeInProgress = true; }
@@ -564,6 +565,15 @@ export function endLocalDataWipe() { _localDataWipeInProgress = false; }
 
 /** ¿Hay un borrado local en curso? (para diagnósticos y otros guards) */
 export function isLocalDataWipeInProgress() { return _localDataWipeInProgress; }
+
+/** Bloquea escrituras cloud implícitas mientras DataOps modifica una fuente completa. */
+export function beginDataOperation() { _dataOperationDepth += 1; }
+
+/** Libera un nivel del guard; el contador tolera operaciones anidadas. */
+export function endDataOperation() { _dataOperationDepth = Math.max(0, _dataOperationDepth - 1); }
+
+/** ¿Hay una operación destructiva/reemplazo de DataOps en curso? */
+export function isDataOperationInProgress() { return _dataOperationDepth > 0; }
 
 /**
  * 💾 FUNCIÓN PRINCIPAL DE PERSISTENCIA
@@ -726,6 +736,7 @@ async function _executeSave(options = {}) {
     const _isPausedEffective = SYNC_PAUSE_ENABLED && isSyncPaused();
     const _canSyncFirebase = globalThis.currentUser
         && !globalThis._isApplyingRemoteData
+        && !isDataOperationInProgress()
         && !_isPausedEffective
         && !options.localOnly;
     const _cloudTime = state._lastKnownCloudUpdatedAt || 0;
