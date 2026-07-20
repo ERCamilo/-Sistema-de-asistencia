@@ -95,6 +95,7 @@ import { PayrollService } from './modules/features/payroll/PayrollService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
 import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
+import { guardSettingsDraftOnLeave } from './modules/ui/settings/SettingsDraftBar.js';
 import { TabComponent } from './modules/components/TabComponent.js';
 import './modules/ui/AttendanceHandlers.js';
 
@@ -1650,6 +1651,19 @@ function getWeekDates(date) {
 
 // Event Handlers
 window.changeTab = (tab) => {
+    // Ajustes: los inputs validados son borrador del DOM (ver convención en
+    // SettingsUI.js). Salir de la pestaña re-renderiza y pisa el draft — con
+    // draft sucio se pregunta antes; la navegación queda diferida al confirm.
+    if (state.activeTab === 'settings' && tab !== 'settings') {
+        // Sin draft (o sin confirm disponible) onProceed navega en el acto;
+        // con draft sucio la navegación queda diferida al onConfirm del modal.
+        guardSettingsDraftOnLeave({ onProceed: () => _doChangeTab(tab) });
+        return;
+    }
+    _doChangeTab(tab);
+};
+
+function _doChangeTab(tab) {
     window.showLoader?.(true);
 
     setTimeout(() => {
