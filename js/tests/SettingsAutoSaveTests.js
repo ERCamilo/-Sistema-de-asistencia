@@ -111,22 +111,33 @@ testRunner.addSuite("SettingsUI — commitAutoSaveSwitch (auto-save de switches)
 
 testRunner.addSuite("SettingsUI — cableado del listener de change (source-level)", {
 
-    "_handleSettingsChange delega en commitAutoSaveSwitch"() {
-        const idx = SETTINGS_UI_SRC.indexOf('function _handleSettingsChange');
-        testRunner.assert(idx !== -1, '_handleSettingsChange debe existir');
-        const body = SETTINGS_UI_SRC.slice(idx, idx + 1600);
+    "el camino del evento change delega en commitAutoSaveSwitch"() {
+        const switchIdx = SETTINGS_UI_SRC.indexOf('function _handleSettingsSwitch');
+        const changeIdx = SETTINGS_UI_SRC.indexOf('function _handleSettingsChange');
+        testRunner.assert(switchIdx !== -1 && changeIdx !== -1,
+            '_handleSettingsSwitch y _handleSettingsChange deben existir');
+
+        const switchBody = SETTINGS_UI_SRC.slice(switchIdx, switchIdx + 800);
         testRunner.assert(
-            /commitAutoSaveSwitch\s*\(/.test(body),
-            'el listener de change debe delegar el commit en commitAutoSaveSwitch'
+            /commitAutoSaveSwitch\s*\(/.test(switchBody),
+            'el manejo de switches debe delegar el commit en commitAutoSaveSwitch'
+        );
+        const changeBody = SETTINGS_UI_SRC.slice(changeIdx, changeIdx + 800);
+        testRunner.assert(
+            /_handleSettingsSwitch\s*\(/.test(changeBody),
+            'el listener de change debe rutear los checkboxes a _handleSettingsSwitch'
         );
     },
 
-    "el listener ya no muta state.settings directo (la deuda migró a batchSetState)"() {
-        const idx = SETTINGS_UI_SRC.indexOf('function _handleSettingsChange');
-        const body = SETTINGS_UI_SRC.slice(idx, idx + 1600);
+    "los listeners ya no mutan state.settings directo (la deuda migró a batchSetState)"() {
+        const start = SETTINGS_UI_SRC.indexOf('function _isDraftField');
+        const end = SETTINGS_UI_SRC.indexOf('function _attachSettingsDelegation');
+        testRunner.assert(start !== -1 && end !== -1 && end > start,
+            'la región de listeners debe existir');
+        const listeners = SETTINGS_UI_SRC.slice(start, end);
         testRunner.assert(
-            !/state\.settings\.[A-Za-z0-9_$]+\s*=/.test(body),
-            'el handler no debe asignar state.settings.X directo — eso vive en commitAutoSaveSwitch vía batchSetState'
+            !/state\.settings\.[A-Za-z0-9_$]+\s*=/.test(listeners),
+            'los handlers no deben asignar state.settings.X directo — eso vive en commitAutoSaveSwitch vía batchSetState'
         );
     }
 });

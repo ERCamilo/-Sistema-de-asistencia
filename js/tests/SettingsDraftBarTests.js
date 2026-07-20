@@ -21,6 +21,12 @@ import {
     discardSettingsDraft,
     SETTINGS_DRAFT_BAR_ID
 } from '../modules/ui/settings/SettingsDraftBar.js';
+import fs from 'fs';
+import path from 'path';
+
+const SETTINGS_UI_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../modules/ui/SettingsUI.js'), 'utf8'
+);
 
 function buildForm() {
     document.body.innerHTML = `
@@ -143,5 +149,26 @@ testRunner.addSuite("SettingsDraftBar — barra pegajosa (crear/mostrar/ocultar)
         testRunner.assertEquals(renders, 1, 'descartar debe re-renderizar (el DOM vuelve a state)');
         const bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
         testRunner.assert(!bar || bar.hidden === true, 'tras descartar la barra queda oculta');
+    }
+});
+
+testRunner.addSuite("SettingsDraftBar — cableado en SettingsUI (source-level)", {
+
+    "SettingsUI escucha 'input' y refresca la barra"() {
+        testRunner.assert(
+            /addEventListener\(\s*['"]input['"]/.test(SETTINGS_UI_SRC),
+            'SettingsUI debe delegar el evento input para detectar drafts'
+        );
+        testRunner.assert(
+            /refreshSettingsDraftBar\s*\(/.test(SETTINGS_UI_SRC),
+            'el listener debe delegar en refreshSettingsDraftBar'
+        );
+    },
+
+    "el mapa de acciones incluye discard-settings-draft"() {
+        testRunner.assert(
+            /['"]discard-settings-draft['"]\s*:/.test(SETTINGS_UI_SRC),
+            '_SETTINGS_ACTION_MAP debe rutear discard-settings-draft'
+        );
     }
 });
