@@ -199,13 +199,13 @@ testRunner.addSuite('EntityLifecycle — togglePositionStatus', {
 
 testRunner.addSuite('EntityLifecycle — deletePosition', {
 
-    'eliminar posición inactiva sin empleados → removida de state'() {
+    async 'eliminar posición inactiva sin empleados → removida de state'() {
         const snap = snapshotGlobal();
         const restore = installAutoConfirm();
         try {
             state.positions = [{ id: 'del-1', name: 'Temporal', active: false }];
             state.employees = [];
-            deletePosition('del-1');
+            await deletePosition('del-1');
             testRunner.assertEquals(state.positions.length, 0, 'posición eliminada de state');
         } finally {
             restore();
@@ -246,7 +246,7 @@ testRunner.addSuite('EntityLifecycle — deletePosition', {
     // conserva desactivada como archivo. Eliminarla borraría sus referencias
     // del historial (cleanupPositionReferences) y la nómina/reportes viejos
     // dejarían de resolver su nombre y tarifa.
-    'eliminar posición con HISTORIAL de asistencia está bloqueada (guardia 3)'() {
+    async 'eliminar posición con HISTORIAL de asistencia está bloqueada (guardia 3)'() {
         const snap = snapshotGlobal();
         const restore = installAutoConfirm();
         try {
@@ -255,7 +255,7 @@ testRunner.addSuite('EntityLifecycle — deletePosition', {
             state.attendance = {
                 'e1-2026-06-01': { employeeId: 'e1', date: '2026-06-01', present: true, selectedPosition: 'del-4', hoursWorked: 8 }
             };
-            deletePosition('del-4');
+            await deletePosition('del-4');
             testRunner.assertEquals(state.positions.length, 1,
                 'con días trabajados NO se elimina, aunque el usuario confirme');
         } finally {
@@ -264,7 +264,7 @@ testRunner.addSuite('EntityLifecycle — deletePosition', {
         }
     },
 
-    'la guardia de historial ignora tombstoneados: sin días vivos sí se elimina'() {
+    async 'la guardia de historial ignora tombstoneados: sin días vivos sí se elimina'() {
         const snap = snapshotGlobal();
         const restore = installAutoConfirm();
         try {
@@ -273,7 +273,7 @@ testRunner.addSuite('EntityLifecycle — deletePosition', {
             state.attendance = {
                 'e1-2026-06-01': { employeeId: 'e1', date: '2026-06-01', present: false, deletedAt: 123, selectedPosition: 'del-5', hoursWorked: 8 }
             };
-            deletePosition('del-5');
+            await deletePosition('del-5');
             testRunner.assertEquals(state.positions.length, 0,
                 'un tombstone no es un día trabajado — no debe bloquear la eliminación');
         } finally {

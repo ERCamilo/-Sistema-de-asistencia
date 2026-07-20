@@ -83,4 +83,13 @@ describe('AttendanceRangeLoader', () => {
         expect(deps.writeAttendance).not.toHaveBeenCalled();
         expect(deps.persistRecords).not.toHaveBeenCalled();
     });
+
+    test('can load the complete history for destructive integrity checks', async () => {
+        const { loader, deps } = makeHarness();
+        await loader.ensureAll();
+        expect(deps.fetchRange).toHaveBeenCalledWith(null, null);
+        expect(deps.persistRecords).toHaveBeenCalledWith([
+            expect.objectContaining({ key: 'e1-2026-01-10', lastAccessed: 500 })
+        ]);
+    });
 });

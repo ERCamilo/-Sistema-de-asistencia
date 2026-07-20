@@ -9,7 +9,7 @@ import icons from '../../ui/IconSystem.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
-import { saveApplicationData, enqueueCloudPositionDelete } from '../../services/PersistenceService.js';
+import { saveApplicationData, enqueueCloudPositionDelete, ensureAllAttendanceHistory } from '../../services/PersistenceService.js';
 import { Modal } from '../../components/Modal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { hourlyToDaily } from '../payroll/SalaryConversion.js';
@@ -246,7 +246,7 @@ export function cleanupPositionReferences(positionId) {
     return cleaned;
 }
 
-export function deletePosition(positionId) {
+export async function deletePosition(positionId) {
     const pos = state.positions.find(p => p.id === positionId);
     if (!pos) return;
 
@@ -272,6 +272,13 @@ export function deletePosition(positionId) {
             type: 'warning',
             onConfirm: () => {}
         });
+        return;
+    }
+
+    try {
+        await ensureAllAttendanceHistory();
+    } catch (_) {
+        window.showAlert?.('No se puede verificar el historial completo. Conéctate a Internet antes de eliminar la posición.', 'warning');
         return;
     }
 

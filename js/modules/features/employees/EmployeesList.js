@@ -9,7 +9,7 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
 import { payrollService as payroll } from '../../services/index.js';
 import { render } from '../../core/RenderManager.js';
-import { saveApplicationData, enqueueEmployeeTombstone } from '../../services/PersistenceService.js';
+import { saveApplicationData, enqueueEmployeeTombstone, ensureAllAttendanceHistory } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { Modal } from '../../components/Modal.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
@@ -228,7 +228,7 @@ export function toggleEmployeeStatus(employeeId) {
  * declaración consciente de que ya se le pagó el período actual (no
  * verificable automáticamente).
  */
-export function deleteEmployeeHandler(employeeId) {
+export async function deleteEmployeeHandler(employeeId) {
     const emp = state.employees.find(e => e.key === employeeId || e.id === employeeId);
     if (!emp) return;
 
@@ -236,6 +236,13 @@ export function deleteEmployeeHandler(employeeId) {
     if (!check.ok) {
         if (window.showAlert) window.showAlert(`No se puede eliminar: ${check.reason}`, 'warning');
         else Modal.alert({ title: 'No se puede eliminar', message: check.reason });
+        return;
+    }
+
+    try {
+        await ensureAllAttendanceHistory();
+    } catch (_) {
+        window.showAlert?.('No se puede verificar el historial completo. Conéctate a Internet antes de eliminar el empleado.', 'warning');
         return;
     }
 

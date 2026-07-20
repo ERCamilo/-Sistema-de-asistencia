@@ -28,7 +28,8 @@ const mockService = {
     batchUpdate: jest.fn().mockResolvedValue(0),
     acquireLease: jest.fn().mockResolvedValue(true),
     renewLease: jest.fn().mockResolvedValue(true),
-    releaseLease: jest.fn().mockResolvedValue(true)
+    releaseLease: jest.fn().mockResolvedValue(true),
+    batchDelete: jest.fn().mockResolvedValue(0)
 };
 
 export const IndexedDBService = mockService;

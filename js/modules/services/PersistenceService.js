@@ -28,6 +28,7 @@ import { PettyCashStore } from '../features/pettycash/PettyCashStore.js';
 import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
+import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -54,6 +55,26 @@ const _attendanceRangeLoader = createAttendanceRangeLoader({
 /** Ensures an explicit date range is complete before navigation/reporting. */
 export function ensureAttendanceRange(startDate, endDate) {
     return _attendanceRangeLoader.ensureRange(startDate, endDate);
+}
+
+export function ensureAllAttendanceHistory() {
+    return _attendanceRangeLoader.ensureAll();
+}
+
+const _attendanceCachePruner = createAttendanceCachePruner({
+    readAttendance: () => state.attendance || {},
+    writeAttendance: attendance => stateManager.silentSetState({ attendance }),
+    getProtectedDateKeys: () => MainSyncStore.getUnconfirmedDailyDateKeys(),
+    deleteRecords: keys => indexedDBService.batchDelete('attendance', keys),
+    onPruned: () => {
+        invalidateAllStats();
+        buildAttendanceIndex();
+    }
+});
+
+/** Removes only safe local attendance cache entries; never emits cloud writes. */
+export function pruneAttendanceCache() {
+    return _attendanceCachePruner.prune();
 }
 
 function _notifySyncError(e) {
@@ -1072,6 +1093,17 @@ export async function loadApplicationData() {
             // que el badge muestre "Sincronizado · hace Xm" desde el primer
             // render, en lugar de "Aún no sincronizado".
             warmUpSyncStatus(state.settings);
+
+            // Retención local: se ejecuta después de rehidratar el outbox para
+            // proteger fechas pending/dead y antes de calcular reportes.
+            try {
+                const retention = await pruneAttendanceCache();
+                if (retention.evicted > 0) {
+                    debug.log(`🧹 Caché de asistencia: ${retention.evicted} registro(s) anterior(es) a ${retention.cutoffDate} retirado(s).`);
+                }
+            } catch (error) {
+                console.warn('⚠️ No se pudo aplicar la retención local de asistencia:', error);
+            }
 
             // 🛡️ Validar integridad. Si hubo correcciones, persistir en IndexedDB
             // de forma inmediata pero sin subir a Firebase todavía.
