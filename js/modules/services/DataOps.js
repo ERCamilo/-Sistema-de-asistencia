@@ -21,7 +21,12 @@ import { wipeAllLocalTraces } from './LocalWipeService.js';
 // JD-F11: imports estáticos — este archivo ya importa PersistenceService en
 // el grafo estático (endLocalDataWipe); los import() dinámicos que había en
 // purgePending/pauseUpload eran complejidad innecesaria, no evitaban ciclo.
-import { endLocalDataWipe, purgeAllPendingCloudWrites } from './PersistenceService.js';
+import {
+    beginDataOperation,
+    endDataOperation,
+    endLocalDataWipe,
+    purgeAllPendingCloudWrites
+} from './PersistenceService.js';
 import { pauseCloudUpload } from './SyncPauseService.js';
 import FirebaseService from './FirebaseService.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
@@ -58,6 +63,15 @@ const MIRROR_METADATA_FIELDS = ['updatedAt', 'lastDevice', 'lastChangedBy', 'dev
  * @returns {Promise<{ok: boolean, reason?: string, error?: *}>}
  */
 export async function replaceLocalWithCloud(deps = {}) {
+    beginDataOperation();
+    try {
+        return await _replaceLocalWithCloud(deps);
+    } finally {
+        endDataOperation();
+    }
+}
+
+async function _replaceLocalWithCloud(deps = {}) {
     const {
         fetchFullState = () => FirebaseService.getFullState(),
         loadEmployees = () => EmployeeRepository.loadAll(),
@@ -280,6 +294,15 @@ export async function snapshotCloudBeforeDestroy(deps = {}) {
  * @returns {Promise<{ok: boolean, reason?: string, error?: *}>}
  */
 export async function replaceCloudWithLocal(deps = {}) {
+    beginDataOperation();
+    try {
+        return await _replaceCloudWithLocal(deps);
+    } finally {
+        endDataOperation();
+    }
+}
+
+async function _replaceCloudWithLocal(deps = {}) {
     const {
         createSafetySnapshot = () => snapshotCloudBeforeDestroy(),
         purgePending = () => purgeAllPendingCloudWrites(),
@@ -364,6 +387,15 @@ export async function replaceCloudWithLocal(deps = {}) {
  * @returns {Promise<{ok: boolean, reason?: string, error?: *, deleted?: number}>}
  */
 export async function eraseCloudData(options = {}, deps = {}) {
+    beginDataOperation();
+    try {
+        return await _eraseCloudData(options, deps);
+    } finally {
+        endDataOperation();
+    }
+}
+
+async function _eraseCloudData(options = {}, deps = {}) {
     const {
         purgePending = () => purgeAllPendingCloudWrites(),
         deleteCloud = () => FirebaseService.deleteCloudData(),
