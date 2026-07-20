@@ -8,7 +8,7 @@ import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 11) {
+    constructor(dbName = 'attendance-app-db', version = 12) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -162,6 +162,13 @@ export class IndexedDBService {
                     const mStore = db.createObjectStore('mainSyncOutbox', { keyPath: 'key', autoIncrement: true });
                     mStore.createIndex('status', 'status', { unique: false });
                     mStore.createIndex('kind', 'kind', { unique: false });
+                }
+
+                // Store: leases de coordinación entre pestañas (v12). Las
+                // transacciones readwrite de IndexedDB son seriales entre tabs,
+                // por lo que la adquisición es un compare-and-set atómico.
+                if (!db.objectStoreNames.contains('syncLocks')) {
+                    db.createObjectStore('syncLocks', { keyPath: 'name' });
                 }
             };
         });
@@ -390,6 +397,74 @@ export class IndexedDBService {
             const request = store.count();
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
+        });
+    }
+
+    /** Adquiere o renueva un lease atómico compartido por todas las pestañas. */
+    async acquireLease(name, ownerId, leaseMs, now = Date.now()) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['syncLocks'], 'readwrite');
+            const store = tx.objectStore('syncLocks');
+            let acquired = false;
+            const request = store.get(name);
+
+            request.onsuccess = () => {
+                const current = request.result;
+                if (!current || current.ownerId === ownerId || current.expiresAt <= now) {
+                    store.put({ name, ownerId, expiresAt: now + leaseMs });
+                    acquired = true;
+                }
+            };
+            request.onerror = () => reject(request.error);
+            tx.oncomplete = () => resolve(acquired);
+            tx.onerror = () => reject(tx.error || new Error('Could not acquire IndexedDB lease'));
+            tx.onabort = () => reject(tx.error || new Error('IndexedDB lease transaction aborted'));
+        });
+    }
+
+    /** Extiende un lease sólo si esta pestaña todavía es su propietaria. */
+    async renewLease(name, ownerId, leaseMs, now = Date.now()) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['syncLocks'], 'readwrite');
+            const store = tx.objectStore('syncLocks');
+            let renewed = false;
+            const request = store.get(name);
+
+            request.onsuccess = () => {
+                const current = request.result;
+                if (current?.ownerId === ownerId) {
+                    store.put({ name, ownerId, expiresAt: now + leaseMs });
+                    renewed = true;
+                }
+            };
+            request.onerror = () => reject(request.error);
+            tx.oncomplete = () => resolve(renewed);
+            tx.onerror = () => reject(tx.error || new Error('Could not renew IndexedDB lease'));
+            tx.onabort = () => reject(tx.error || new Error('IndexedDB lease transaction aborted'));
+        });
+    }
+
+    /** Libera el lease sin borrar el que ya haya tomado otra pestaña. */
+    async releaseLease(name, ownerId) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['syncLocks'], 'readwrite');
+            const store = tx.objectStore('syncLocks');
+            let released = false;
+            const request = store.get(name);
+
+            request.onsuccess = () => {
+                if (request.result?.ownerId === ownerId) {
+                    store.delete(name);
+                    released = true;
+                }
+            };
+            request.onerror = () => reject(request.error);
+            tx.oncomplete = () => resolve(released);
+            tx.onerror = () => reject(tx.error || new Error('Could not release IndexedDB lease'));
+            tx.onabort = () => reject(tx.error || new Error('IndexedDB lease transaction aborted'));
         });
     }
 

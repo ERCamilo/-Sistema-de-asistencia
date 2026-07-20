@@ -13,6 +13,7 @@
 
 import { indexedDBService } from './IndexedDBService.js';
 import { nextEntryState } from './SyncErrorClassifier.js';
+import { createCrossTabLock } from './CrossTabLock.js';
 
 const OUTBOX = 'mainSyncOutbox';
 
@@ -23,6 +24,8 @@ const OUTBOX = 'mainSyncOutbox';
 // `attempts` con su propia copia stale y uno de los dos incrementos se pierde,
 // debilitando el dead-lettering. Mismo patrón que PettyCashStore ya usa.
 let _flushing = false;
+const _crossTabLock = createCrossTabLock({ leaseStore: indexedDBService });
+const OUTBOX_LOCK = 'attendance-app-main-sync-outbox';
 
 // JD-F5 (ALTO): flush() lee la lista pending a memoria UNA vez y la itera
 // awaiteando la red por entrada. clearAll() incrementa esta generación; el
@@ -240,43 +243,51 @@ export const MainSyncStore = {
 
         _flushing = true;
         try {
-            const generationAtStart = _purgeGeneration; // JD-F5: foto de la generación
-            const all = await _getAll();
-            const pending = all
-                .filter(e => e && e.status === 'pending')
-                .sort((a, b) => (a.key || 0) - (b.key || 0));
+            return await _crossTabLock.run(OUTBOX_LOCK, async () => {
+                // Los guards pudieron cambiar mientras esta pestaña esperaba el
+                // turno de otra. Revalidarlos dentro del lock evita subir tras
+                // logout, pausa o una aplicación remota iniciada en la espera.
+                if (!guards.hasSession() || guards.isApplyingRemote() || guards.isPaused()) return false;
 
-            for (const entry of pending) {
-                // JD-F5: si hubo una purga desde que arrancó este flush, la
-                // lista en memoria es stale — cortar sin subir nada más.
-                if (generationAtStart !== _purgeGeneration) break;
-                const cloudCall = _resolveCloudCall(entry, guards);
-                if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
+                const generationAtStart = _purgeGeneration; // JD-F5: foto de la generación
+                const all = await _getAll();
+                const pending = all
+                    .filter(e => e && e.status === 'pending')
+                    .sort((a, b) => (a.key || 0) - (b.key || 0));
 
-                try {
-                    await cloudCall();
-                    await _deleteQuiet(entry.key);
-                    // El 3er argumento (entry) es sólo CONTEXTO para que el caller
-                    // decida qué hacer según el `kind` — MainSyncStore no conoce esa
-                    // lógica de negocio (toasts, eventos de UI), sólo la reenvía.
-                    guards.onCloudResult(true, null, entry);
-                } catch (err) {
-                    // ☠️ M2 (mismo criterio que PettyCashStore): cada fallo suma un
-                    // intento y guarda lastError. Un error PERMANENTE (permisos,
-                    // argumento inválido) dead-letterea de inmediato sin gastar los
-                    // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
-                    guards.onCloudResult(false, err, entry);
-                    // R2-5 (ronda 2): si hubo una purga mientras esta entrada
-                    // estaba en vuelo, NO re-escribirla — el update la
-                    // resucitaría en el store recién vaciado y el próximo
-                    // flush subiría exactamente lo que la purga debía impedir.
+                for (const entry of pending) {
+                    // JD-F5: si hubo una purga desde que arrancó este flush, la
+                    // lista en memoria es stale — cortar sin subir nada más.
                     if (generationAtStart !== _purgeGeneration) break;
-                    const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
-                    await indexedDBService.update(OUTBOX, { ...entry, ...next });
-                    if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima
-                    break; // fallo transitorio: cortar el ciclo para no martillar la red
+                    const cloudCall = _resolveCloudCall(entry, guards);
+                    if (!cloudCall) continue; // diferido (watermark/schemaVersion) — no es un fallo
+
+                    try {
+                        await cloudCall();
+                        await _deleteQuiet(entry.key);
+                        // El 3er argumento (entry) es sólo CONTEXTO para que el caller
+                        // decida qué hacer según el `kind` — MainSyncStore no conoce esa
+                        // lógica de negocio (toasts, eventos de UI), sólo la reenvía.
+                        guards.onCloudResult(true, null, entry);
+                    } catch (err) {
+                        // ☠️ M2 (mismo criterio que PettyCashStore): cada fallo suma un
+                        // intento y guarda lastError. Un error PERMANENTE (permisos,
+                        // argumento inválido) dead-letterea de inmediato sin gastar los
+                        // MAX_FLUSH_ATTEMPTS — nunca se va a resolver reintentando.
+                        guards.onCloudResult(false, err, entry);
+                        // R2-5 (ronda 2): si hubo una purga mientras esta entrada
+                        // estaba en vuelo, NO re-escribirla — el update la
+                        // resucitaría en el store recién vaciado y el próximo
+                        // flush subiría exactamente lo que la purga debía impedir.
+                        if (generationAtStart !== _purgeGeneration) break;
+                        const next = nextEntryState(entry, err, MAX_FLUSH_ATTEMPTS);
+                        await indexedDBService.update(OUTBOX, { ...entry, ...next });
+                        if (next.status === 'dead') continue; // envenenada: la cola sigue con la próxima
+                        break; // fallo transitorio: cortar el ciclo para no martillar la red
+                    }
                 }
-            }
+                return true;
+            });
         } finally {
             _flushing = false;
         }
