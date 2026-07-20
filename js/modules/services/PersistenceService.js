@@ -27,6 +27,7 @@ import { regeneratePettyCashIds } from './PettyCashIdRegen.js';
 import { PettyCashStore } from '../features/pettycash/PettyCashStore.js';
 import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
+import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -38,6 +39,22 @@ import { getDemoSeed } from '../data/DemoSeed.js';
 // ⚡ Debounce de guardado: colapsa llamadas rápidas en un solo guardado
 let _saveDebounceTimer = null;
 let _pendingSaveOptions = {};
+
+const _attendanceRangeLoader = createAttendanceRangeLoader({
+    fetchRange: (startDate, endDate) => FirebaseService.getAttendanceRange(startDate, endDate),
+    readAttendance: () => state.attendance || {},
+    writeAttendance: attendance => stateManager.silentSetState({ attendance }),
+    persistRecords: records => indexedDBService.batchUpdate('attendance', records),
+    onApplied: () => {
+        invalidateAllStats();
+        buildAttendanceIndex();
+    }
+});
+
+/** Ensures an explicit date range is complete before navigation/reporting. */
+export function ensureAttendanceRange(startDate, endDate) {
+    return _attendanceRangeLoader.ensureRange(startDate, endDate);
+}
 
 function _notifySyncError(e) {
     // Registra el fallo de nube en SyncStatus (lo refleja el badge de sync de

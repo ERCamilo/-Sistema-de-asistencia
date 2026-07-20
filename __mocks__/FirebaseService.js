@@ -7,6 +7,7 @@ const FirebaseService = {
     saveDailyAttendance: jest.fn().mockResolvedValue(undefined),
     saveEntities: jest.fn().mockResolvedValue(undefined),
     saveSettings: jest.fn().mockResolvedValue(undefined),
+    getAttendanceRange: jest.fn().mockResolvedValue({}),
     getSettings: jest.fn().mockResolvedValue(null),
     subscribeToSettings: jest.fn().mockReturnValue(() => {}),
     createSnapshot: jest.fn().mockResolvedValue(undefined),
