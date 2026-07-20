@@ -4,6 +4,11 @@ import { state, stateManager } from '../core/AppState.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { APP_CONFIG } from '../config/Config.js';
 import { SettingsGeneralTab } from './settings/SettingsGeneralTab.js';
+import {
+    SETTINGS_DRAFT_FIELD_IDS,
+    refreshSettingsDraftBar,
+    discardSettingsDraft
+} from './settings/SettingsDraftBar.js';
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
@@ -16,7 +21,14 @@ import { logError } from '../services/ErrorLog.js';
 // ============================================
 const _SETTINGS_ACTION_MAP = {
     'change-settings-tab': (tab) => window.changeSettingsTab?.(tab),
-    'save-settings': () => window.saveSettings?.(),
+    // Tras guardar, el render (síncrono, solo si la validación pasó)
+    // reconstruye el formulario desde state → el refresh oculta la barra de
+    // draft; si la validación falló no hay render y la barra queda visible.
+    'save-settings': () => {
+        window.saveSettings?.();
+        refreshSettingsDraftBar(document);
+    },
+    'discard-settings-draft': () => discardSettingsDraft({}),
     'login-with-google': () => window.loginWithGoogle?.(),
     'logout-firebase': () => window.logoutFirebase?.(),
     'sync-firebase-now': () => window.syncFirebaseNow?.(),
@@ -161,25 +173,37 @@ export function commitAutoSaveSwitch({ id, checked, deps = {} } = {}) {
     return { committed: true, key: id };
 }
 
+function _isDraftField(target) {
+    return !!target?.id && SETTINGS_DRAFT_FIELD_IDS.includes(target.id);
+}
+
+// Caso especial: Mostrar/ocultar configuración del clima en tiempo real
+function _toggleWeatherPanel(visible) {
+    const configPanel = document.getElementById('weatherConfigPanel');
+    if (configPanel) configPanel.style.display = visible ? 'block' : 'none';
+}
+
+function _handleSettingsSwitch(target) {
+    const row = target.closest('.stg-switch-row');
+    if (!row) return;
+    row.classList.toggle('is-active', target.checked);
+    row.setAttribute('aria-checked', target.checked ? 'true' : 'false');
+    commitAutoSaveSwitch({ id: target.id, checked: target.checked });
+    if (target.id === 'weatherEnabled') _toggleWeatherPanel(target.checked);
+}
+
 function _handleSettingsChange(e) {
     const target = e.target;
-    if (target && target.type === 'checkbox') {
-        const row = target.closest('.stg-switch-row');
-        if (row) {
-            row.classList.toggle('is-active', target.checked);
-            row.setAttribute('aria-checked', target.checked ? 'true' : 'false');
+    if (target?.type === 'checkbox') _handleSettingsSwitch(target);
+    // Selects del formulario disparan 'change' (no siempre 'input'): refrescar
+    // la barra de draft si el control editado es un campo borrador.
+    if (_isDraftField(target)) refreshSettingsDraftBar(document);
+}
 
-            commitAutoSaveSwitch({ id: target.id, checked: target.checked });
-
-            // Caso especial: Mostrar/ocultar configuración del clima en tiempo real
-            if (target.id === 'weatherEnabled') {
-                const configPanel = document.getElementById('weatherConfigPanel');
-                if (configPanel) {
-                    configPanel.style.display = target.checked ? 'block' : 'none';
-                }
-            }
-        }
-    }
+// Detección de draft sucio: cualquier tipeo en un campo borrador del
+// formulario de Ajustes recalcula y muestra/oculta la barra pegajosa.
+function _handleSettingsInput(e) {
+    if (_isDraftField(e.target)) refreshSettingsDraftBar(document);
 }
 
 let _settingsDelegationAttached = false;
@@ -188,6 +212,7 @@ function _attachSettingsDelegation() {
     document.addEventListener('click', _handleSettingsClick);
     document.addEventListener('keydown', _handleSettingsKeydown);
     document.addEventListener('change', _handleSettingsChange);
+    document.addEventListener('input', _handleSettingsInput);
     _settingsDelegationAttached = true;
 }
 _attachSettingsDelegation();
