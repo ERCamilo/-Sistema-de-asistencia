@@ -31,7 +31,7 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
     },
 
     "deleteEmployeeHandler re-valida el guard antes de confirmar"() {
-        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
         testRunner.assert(idx !== -1, 'debe existir deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 900);
         testRunner.assert(/canDeleteEmployee\s*\(\s*emp\s*\)/.test(block),
@@ -40,7 +40,7 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
     },
 
     "el handler escapa el nombre del empleado en el diálogo (XSS)"() {
-        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 1400);
         testRunner.assert(/escapeHTML\s*\(\s*emp\.name\s*\)/.test(block),
             'el nombre va por Modal.confirm (innerHTML) — debe escaparse');
@@ -65,7 +65,7 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
     // El guard de saldo (dentro de deleteEmployeePermanently) validaba sobre
     // el emp stale del closure → podía borrar un empleado con saldo nuevo.
     "onConfirm re-lee el empleado del state vivo antes de borrar (no usa el emp stale)"() {
-        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 2000);
         testRunner.assert(
             /onConfirm[\s\S]{0,500}state\.employees\.find\(\s*e\s*=>\s*e\.id\s*===\s*empId\s*\)/.test(block),
@@ -78,7 +78,7 @@ testRunner.addSuite("DeleteEmployeeWiring — botón y handler", {
     },
 
     "el handler encola el tombstone (no un hard-delete) vía enqueueEmployeeTombstone"() {
-        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 2000);
         testRunner.assert(/enqueueEmployeeTombstone\s*\(/.test(block),
             'debe encolar el tombstone durable, no hard-delete');

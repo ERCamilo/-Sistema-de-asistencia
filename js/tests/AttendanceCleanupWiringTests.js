@@ -26,7 +26,7 @@ testRunner.addSuite("AttendanceCleanupWiring — modal extra al eliminar (lista)
     },
 
     "tras eliminar el empleado, si tiene asistencia, abre un modal extra por el historial"() {
-        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 3800);
         testRunner.assert(/countLiveAttendance\s*\(\s*state\.attendance\s*,\s*empId\s*\)/.test(block),
             'debe contar la asistencia viva del empleado');
@@ -37,7 +37,7 @@ testRunner.addSuite("AttendanceCleanupWiring — modal extra al eliminar (lista)
     },
 
     "solo purga el historial si el usuario dice que sí (conservar es el default seguro)"() {
-        const idx = LIST_SRC.indexOf('export function deleteEmployeeHandler');
+        const idx = LIST_SRC.indexOf('export async function deleteEmployeeHandler');
         const block = LIST_SRC.slice(idx, idx + 3800);
         testRunner.assert(/if\s*\(\s*!alsoHistory\s*\)\s*return/.test(block),
             'si elige conservar, NO se purga');

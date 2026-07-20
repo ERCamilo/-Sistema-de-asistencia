@@ -312,6 +312,24 @@ export class IndexedDBService {
         });
     }
 
+    /** Deletes several keys atomically in a single IndexedDB transaction. */
+    async batchDelete(storeName, keys) {
+        if (!Array.isArray(keys) || keys.length === 0) return 0;
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            transaction.oncomplete = () => resolve(keys.length);
+            transaction.onerror = () => reject(
+                transaction.error || new Error(`Batch delete failed for ${storeName}`)
+            );
+            transaction.onabort = () => reject(
+                transaction.error || new Error(`Batch delete aborted for ${storeName}`)
+            );
+            keys.forEach(key => store.delete(key));
+        });
+    }
+
     async get(storeName, key) {
         await this.init();
         return new Promise((resolve, reject) => {

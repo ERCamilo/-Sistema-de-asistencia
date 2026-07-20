@@ -32,11 +32,11 @@ export function createAttendanceRangeLoader({
 
         for (const [key, record] of Object.entries(merged)) {
             const date = recordDate(key, record);
-            if (date < startDate || date > endDate) continue;
+            if ((startDate && date < startDate) || (endDate && date > endDate)) continue;
             const accessed = { ...record, lastAccessed: accessedAt };
             merged[key] = accessed;
             touched.push({ key, ...accessed });
-            dateKeys.add(date);
+            if (date) dateKeys.add(date);
         }
 
         writeAttendance(merged);
@@ -54,6 +54,13 @@ export function createAttendanceRangeLoader({
             const key = `${startDate}:${endDate}`;
             if (inFlight.has(key)) return inFlight.get(key);
             const request = load(startDate, endDate).finally(() => inFlight.delete(key));
+            inFlight.set(key, request);
+            return request;
+        },
+        ensureAll() {
+            const key = '*';
+            if (inFlight.has(key)) return inFlight.get(key);
+            const request = load(null, null).finally(() => inFlight.delete(key));
             inFlight.set(key, request);
             return request;
         }
