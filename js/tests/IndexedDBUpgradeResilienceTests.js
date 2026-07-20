@@ -44,11 +44,11 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
 
 });
 
-testRunner.addSuite("IndexedDB — schema v11: store mainSyncOutbox (bandeja de pendientes cloud)", {
+testRunner.addSuite("IndexedDB — schema v12: stores mainSyncOutbox y syncLocks", {
 
-    "la versión de la DB subió a 11"() {
-        testRunner.assert(/version\s*=\s*11/.test(IDB_SRC),
-            'IndexedDBService debe abrir la DB en versión 11 (subida desde 10 para el nuevo store)');
+    "la versión de la DB subió a 12"() {
+        testRunner.assert(/version\s*=\s*12/.test(IDB_SRC),
+            'IndexedDBService debe abrir la DB en versión 12 (subida desde 11 para syncLocks)');
     },
 
     "existe el store mainSyncOutbox con keyPath 'key' autoIncrement (NO reutiliza sync_queue)"() {
