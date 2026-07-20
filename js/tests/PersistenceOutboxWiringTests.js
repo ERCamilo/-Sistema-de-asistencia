@@ -12,7 +12,12 @@
  * depender de regex frágiles sobre el código fuente.
  */
 
-import { saveApplicationData, drainMainSyncOutbox, retryFailedCloudSync } from '../modules/services/PersistenceService.js';
+import {
+    saveApplicationData,
+    drainMainSyncOutbox,
+    retryFailedCloudSync,
+    syncFirebaseMirrorDebounced
+} from '../modules/services/PersistenceService.js';
 import { state } from '../modules/core/AppState.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
@@ -35,6 +40,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function waitForSave() { await sleep(400); }
 
 function spyMainSyncStore() {
+    syncFirebaseMirrorDebounced.discard();
     return {
         enqueueMirror: jest.spyOn(MainSyncStore, 'enqueueMirror').mockResolvedValue(undefined),
         enqueueDaily: jest.spyOn(MainSyncStore, 'enqueueDaily').mockResolvedValue(undefined),

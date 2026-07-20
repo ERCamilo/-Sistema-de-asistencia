@@ -6,14 +6,9 @@
  * moría con la pestaña: el último cambio llegaba a IndexedDB pero NO a la
  * nube hasta la próxima sesión.
  *
- * U8 — El debounce en memoria se reemplazó por la bandeja de pendientes
- * durable (MainSyncStore, U1-U7): syncFirebaseMirrorDebounced ahora es un
- * SHIM que delega — `debounced(state)` encola vía MainSyncStore.enqueueMirror
- * y `.flush()` dispara MainSyncStore.flush(). La durabilidad real (sobrevivir
- * a cerrar la pestaña) ya no depende de que flushPendingSave alcance a
- * llamar `.flush()` a tiempo — la entrada YA está en IndexedDB desde que se
- * encoló. flushPendingSave sigue llamando `.flush()` para acelerar el drenado
- * en vez de esperar al próximo online/login.
+ * U8 + Change B — syncFirebaseMirrorDebounced delega en la bandeja durable,
+ * pero limita el mirror completo a una cadencia trailing de cinco minutos.
+ * `.flush()` fuerza el último snapshot al ocultar la página y drena el outbox.
  *
  * M9 — saveFullState escribía con merge:true, así que una clave de settings
  * BORRADA localmente sobrevivía en la nube y reaparecía en la próxima lectura
@@ -38,7 +33,7 @@ testRunner.addSuite("Mirror — syncFirebaseMirrorDebounced delega al outbox (U8
             'debe existir syncFirebaseMirrorDebounced.flush() para vaciar el mirror antes de cerrar la pestaña');
     },
 
-    async "syncFirebaseMirrorDebounced(state) encola el mirror en MainSyncStore (ya no debouncea 2s en memoria)"() {
+    async "syncFirebaseMirrorDebounced(state) encola el primer mirror inmediatamente"() {
         const enqueueSpy = jest.spyOn(MainSyncStore, 'enqueueMirror').mockResolvedValue(undefined);
         const flushSpy = jest.spyOn(MainSyncStore, 'flush').mockResolvedValue(undefined);
         try {
