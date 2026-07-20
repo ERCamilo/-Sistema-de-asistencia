@@ -20,6 +20,7 @@ import { SyncStatus } from './SyncStatus.js';
 import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 import { createEntityUploadTracker } from './EntityUploadTracker.js';
 import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from './SnapshotCodec.js';
+import { resolveSettingsWrite } from './SettingsWriteGuard.js';
 
 // Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
 // TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
@@ -279,6 +280,143 @@ class FirebaseService {
     }
 
     /**
+     * Fase 2B U1: escribe el mapa de settings COMPLETO en su propio doc
+     * per-registro (users/{uid}/data/settings), desacoplado del espejo —
+     * mismo espíritu que saveEntities (Fase 2 U1) pero para preferencias.
+     *
+     * setDoc SIN merge:true (full-replace): con merge:true Firestore fusiona
+     * mapas en profundidad y una clave borrada localmente sobreviviría (mismo
+     * motivo por el que saveFullState hace un updateDoc({settings}) aparte,
+     * ver M9). El dispositivo siempre tiene el mapa completo en memoria, así
+     * que reemplazar entero es seguro y es la semántica LWW por dispositivo
+     * que el diseño pide.
+     * @param {object} settingsMap El mapa de settings completo del dispositivo
+     * @param {object} [opts]
+     * @param {boolean} [opts.force=false] Si es true, omite por completo el
+     *   guard LWW (shouldWriteSettings) y el read remoto previo, y escribe
+     *   incondicionalmente. Reservado para overrides explícitos del usuario
+     *   (p.ej. el flujo de "reemplazar nube con mis datos") donde la decisión
+     *   de pisar la nube ya fue tomada explícitamente — el guard LWW normal
+     *   (JD-B1) NO debe poder silenciar esa decisión (JD Ronda 2, fix F1). El
+     *   path normal (drenaje del outbox 'settings' vía MainSyncStore) sigue
+     *   usando force=false, o sea sigue LWW-protegido.
+     */
+    async saveSettings(settingsMap, { force = false } = {}) {
+        if (!auth.currentUser) return;
+
+        try {
+            const cleanSettings = JSON.parse(JSON.stringify(settingsMap || {}));
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+
+            if (!force) {
+                // Fase 2B JD-B1: read-compare-write LWW antes de reemplazar el doc
+                // entero, mismo espíritu que EmployeeRepository.saveOne con
+                // mergeRemote — sin esto, saveSettings era un setDoc a ciegas sin
+                // comparar contra la nube, y un dispositivo drenando una entrada
+                // STALE del outbox 'settings' (p.ej. tras estar offline) podía
+                // pisar un settings más nuevo ya escrito por otro dispositivo.
+                // Si el read remoto falla (offline, permisos), cae al write
+                // directo — mejor un save sin comparar que perder el save del
+                // usuario.
+                let remoteExists = false;
+                let remoteUpdatedAt = 0;
+                try {
+                    const remoteSnap = await getDoc(docRef);
+                    remoteExists = !!(remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists());
+                    if (remoteExists) {
+                        const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
+                        remoteUpdatedAt = remoteData?.settings?.localUpdatedAt || 0;
+                    }
+                } catch (e) {
+                    console.warn('⚠️ saveSettings: read remoto para comparar LWW falló, escribiendo sin comparar:', e);
+                }
+
+                const payloadUpdatedAt = cleanSettings?.localUpdatedAt || 0;
+                if (!resolveSettingsWrite({ force, remoteExists, payloadUpdatedAt, remoteUpdatedAt })) {
+                    console.log('☁️ saveSettings: doc remoto más nuevo que el payload — se omite el write (LWW)');
+                    return;
+                }
+            }
+
+            await setDoc(docRef, {
+                settings: cleanSettings,
+                updatedAt: serverTimestamp(),
+                lastChangedBy: getDeviceId()
+            }); // sin { merge: true } — reemplazo TOTAL del mapa de settings
+            console.log(force
+                ? '☁️ Settings sincronizados en Firebase (doc per-registro) [force: override explícito, sin guard LWW]'
+                : '☁️ Settings sincronizados en Firebase (doc per-registro)');
+        } catch (error) {
+            console.error('❌ Error sincronizando settings:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Fase 2B U1: lectura one-shot del doc per-registro de settings.
+     * `null` significa v3/legacy (el doc todavía no existe) — el caller debe
+     * tratar la copia dual-escrita en el espejo como autoritativa hasta que
+     * la cuenta migre a v4.
+     * @returns {Promise<{settings: object, updatedAt: *, lastChangedBy: string}|null>}
+     */
+    async getSettings() {
+        if (!auth.currentUser) return null;
+
+        try {
+            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+            const docSnap = await getDoc(docRef);
+
+            if (!docSnap.exists()) return null;
+
+            const data = docSnap.data();
+            return {
+                settings: data.settings || {},
+                updatedAt: data.updatedAt,
+                lastChangedBy: data.lastChangedBy
+            };
+        } catch (error) {
+            console.error('❌ Error cargando settings desde Firebase:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Fase 2B U2: listener en vivo sobre el doc per-registro de settings
+     * (users/{uid}/data/settings) — hermano de subscribeToChanges (el
+     * listener del espejo), mismo patrón de filtro de eco por lastChangedBy.
+     * app.js combina el watermark de esta fuente con el del espejo vía
+     * mergeCloudWatermark (SyncWatermark.js) para que ninguna de las dos
+     * "atrase" a la otra.
+     * @param {function} callback recibe {settings, updatedAt, lastChangedBy}
+     * @returns {function} función para cancelar la suscripción
+     */
+    subscribeToSettings(callback) {
+        if (!auth.currentUser) return () => {};
+
+        const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'settings');
+        return onSnapshot(docRef, (docSnap) => {
+            if (!docSnap.exists() || docSnap.metadata.hasPendingWrites) return;
+
+            const data = docSnap.data();
+
+            // 🛡️ Filtro de Eco: mismo criterio que subscribeToChanges — ignorar
+            // si el cambio fue hecho por este mismo dispositivo.
+            if (data.lastChangedBy === getDeviceId()) {
+                if (window.debug) window.debug.log('📡 Ignorando eco de settings: cambio local detectado via deviceId');
+                return;
+            }
+
+            callback({
+                settings: data.settings || {},
+                updatedAt: data.updatedAt,
+                lastChangedBy: data.lastChangedBy
+            });
+        }, (error) => {
+            console.error('❌ Error en suscripción de settings:', error);
+        });
+    }
+
+    /**
      * Marca empleados como subidos en el watermark del EntityUploadTracker.
      * Seam público para flujos que escriben empleados por FUERA de saveEntities
      * (p.ej. CloudReconcile): sin esto el watermark queda stale y el próximo
@@ -370,6 +508,14 @@ class FirebaseService {
                 lastDevice: navigator.userAgent,
                 lastChangedBy: getDeviceId()
             }); // NO { merge: true } — this REPLACES the doc entirely
+
+            // Fase 2B JD-A2: reescribe el doc per-registro de settings para que
+            // "reemplazar nube con mis datos" no lo deje STALE.
+            // Fase 2B JD Ronda 2, fix F1: force:true — override explícito de
+            // "local gana", no debe poder ser silenciado por el guard LWW de
+            // saveSettings (JD-B1) ante una carrera o desfasaje de reloj. El
+            // drenaje normal del outbox (guards.saveSettings) sigue sin force.
+            await this.saveSettings(state.settings, { force: true });
 
             console.log('✅ replaceCloudFull: Nube reemplazada con datos locales');
             SyncStatus.markSynced();
@@ -521,7 +667,7 @@ class FirebaseService {
             parentDoc,
             isDemo: !!opts.isDemo,
             createSnapshot: () =>
-                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v3'),
+                this.createSnapshot(parentDoc, 'pre-restore', 'pre-migration-v4'),
             // Tras el saveMany de la migración (por fuera de saveEntities), se
             // marca el watermark para que el próximo saveEntities no re-suba el
             // roster entero (cuota).
@@ -540,6 +686,10 @@ class FirebaseService {
                 _leaderUploadTracker.markUploaded(res.saved);
                 return res;
             },
+            // Fase 2B U3: siembra el doc per-registro de settings (Fase 2B U1)
+            // desde la copia inline que trae el espejo. Reutiliza el mismo
+            // writer que usa el guardado normal — no es infra nueva.
+            saveSettings: (settings) => this.saveSettings(settings),
             markSchemaVersion: async (version) => {
                 const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
                 // lastChangedBy garantiza que el listener filtre este eco.
@@ -548,6 +698,18 @@ class FirebaseService {
                     lastChangedBy: getDeviceId(),
                     updatedAt: serverTimestamp()
                 }, { merge: true });
+            },
+            // Fase 2B U3: spinner de migración — mismo patrón defensivo que
+            // sync:mirror-too-large (un subscriber que lance no debe romper
+            // la migración).
+            notifyMigrationStart: () => {
+                try {
+                    if (globalThis.eventBus) {
+                        globalThis.eventBus.emit('sync:migration-start', {});
+                    }
+                } catch (e) {
+                    console.warn('⚠️ subscriber de sync:migration-start lanzó:', e?.message);
+                }
             },
             notify: (msg) => Notification.success(msg, 5000)
         });

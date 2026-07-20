@@ -175,4 +175,53 @@ testRunner.addSuite("FirebaseService — Integración con catálogo SnapshotReas
 
 });
 
+testRunner.addSuite("FirebaseService — Contrato saveSettings LWW read-compare-write (Fase 2B, fix B1)", {
+
+    "saveSettings importa resolveSettingsWrite de SettingsWriteGuard.js"() {
+        // Fase 2B JD Ronda 2, fix F1: FirebaseService ahora delega la decisión
+        // completa (LWW + override force) a resolveSettingsWrite, que a su vez
+        // usa shouldWriteSettings internamente (ver SettingsWriteGuardTests.js).
+        testRunner.assert(
+            /from\s+['"]\.\/SettingsWriteGuard\.js['"]/.test(fbSource),
+            "FirebaseService debe importar desde SettingsWriteGuard.js"
+        );
+        testRunner.assert(
+            /import\s*\{[^}]*resolveSettingsWrite[^}]*\}\s*from\s*['"]\.\/SettingsWriteGuard\.js['"]/.test(fbSource),
+            "FirebaseService debe importar resolveSettingsWrite de SettingsWriteGuard.js"
+        );
+    },
+
+    "saveSettings hace un getDoc del doc remoto ANTES del setDoc final"() {
+        const method = fbSource.match(/async\s+saveSettings\s*\([\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        testRunner.assert(!!method, "Debe existir el método saveSettings");
+        const txt = method[0];
+        const getDocIdx = txt.search(/await\s+getDoc\s*\(/);
+        const setDocIdx = txt.search(/await\s+setDoc\s*\(\s*docRef/);
+        testRunner.assert(getDocIdx >= 0, "saveSettings debe leer el doc remoto vía getDoc antes de decidir");
+        testRunner.assert(setDocIdx >= 0, "saveSettings debe seguir escribiendo con setDoc");
+        testRunner.assert(getDocIdx < setDocIdx, "el getDoc de comparación debe ocurrir ANTES del setDoc final");
+    },
+
+    "saveSettings usa resolveSettingsWrite para decidir si omite el write (F1: incluye el override force)"() {
+        const method = fbSource.match(/async\s+saveSettings\s*\([\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const txt = method[0];
+        testRunner.assert(
+            /resolveSettingsWrite\s*\(/.test(txt),
+            "saveSettings debe invocar resolveSettingsWrite con force, remoteExists, el ts del payload y el ts remoto"
+        );
+    },
+
+    "saveSettings hace fallback al write directo si el getDoc de comparación falla (try/catch propio)"() {
+        const method = fbSource.match(/async\s+saveSettings\s*\([\s\S]*?(?=\n\s{4}(?:async\s+\w+|\w+\s*\()|\n\}\s*$)/);
+        const txt = method[0];
+        // Debe existir un try/catch alrededor del getDoc que NO relance (a
+        // diferencia del try/catch exterior que sí relanza el error de escritura).
+        testRunner.assert(
+            /catch[\s\S]{0,200}(read remoto|LWW|comparar)/i.test(txt),
+            "debe haber un catch dedicado al read de comparación que documente el fallback (no debe abortar el write del usuario)"
+        );
+    }
+
+});
+
 console.log('🧪 FirebaseService merge+reason contract tests cargados.');

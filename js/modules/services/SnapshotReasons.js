@@ -47,6 +47,13 @@ export const SNAPSHOT_REASONS = {
         color: '#a855f7',
         protected: true
     },
+    'pre-migration-v4': {
+        label: 'Antes de mover las preferencias a sincronización individual',
+        icon: '🔄',
+        type: 'pre-restore',
+        color: '#a855f7',
+        protected: true
+    },
     'pre-bulk-delete': {
         label: 'Antes de borrado masivo',
         icon: '⚠️',

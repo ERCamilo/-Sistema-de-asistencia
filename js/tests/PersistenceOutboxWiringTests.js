@@ -322,6 +322,70 @@ testRunner.addSuite("PersistenceService — outbox es el único camino a la nube
         }
     },
 
+    // Fase 2B U2: settings (preferencias del dispositivo) viaja por su propio
+    // kind del outbox, DESACOPLADO del espejo — mismo espíritu que 'entities'
+    // (Fase 2 U1). Unit 1 dejó MainSyncStore.enqueueSettings + el guard
+    // saveSettings en _resolveCloudCall listos pero SIN productor real: nada
+    // llamaba a enqueueSettings todavía.
+    async "_executeSave encola los settings (no llama FirebaseService.saveSettings directo) — Fase 2B U2"() {
+        const snap = snapshotState();
+        const spies = spyMainSyncStore();
+        const enqueueSettingsSpy = jest.spyOn(MainSyncStore, 'enqueueSettings').mockResolvedValue(undefined);
+        try {
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            state.settings = { ...state.settings, theme: 'dark' };
+            globalThis.currentUser = { uid: 'u1' };
+            indexedDBService.getAll.mockReset().mockResolvedValue([]);
+            indexedDBService.update.mockReset().mockResolvedValue(1);
+            indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+            FirebaseService.saveSettings.mockClear();
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            testRunner.assert(enqueueSettingsSpy.mock.calls.length >= 1,
+                'debe encolar los settings vía MainSyncStore.enqueueSettings');
+            testRunner.assertEquals(enqueueSettingsSpy.mock.calls[0][0].theme, 'dark',
+                'debe pasar el mapa de settings actual');
+            testRunner.assertEquals(FirebaseService.saveSettings.mock.calls.length, 0,
+                '_executeSave NO debe llamar a FirebaseService.saveSettings directo — sólo el outbox lo hace al flushear');
+        } finally {
+            spies.enqueueMirror.mockRestore(); spies.enqueueDaily.mockRestore(); spies.enqueueEntities.mockRestore(); spies.flush.mockRestore();
+            enqueueSettingsSpy.mockRestore();
+            globalThis.currentUser = null;
+            restoreState(snap);
+        }
+    },
+
+    // Confirma que _resolveCloudCall's settings branch (agregada en Unit 1)
+    // efectivamente SE ALCANZA ahora que _mainSyncGuards() expone el guard —
+    // usa el flush REAL (como el test de saveMirror/skipEntities de abajo),
+    // no un spy, para ejercitar el cableado de punta a punta.
+    async "_mainSyncGuards().saveSettings llama a FirebaseService.saveSettings con el mapa encolado — Fase 2B U2"() {
+        const prevApplyingRemote = globalThis._isApplyingRemoteData;
+        globalThis.currentUser = { uid: 'u1' };
+        globalThis._isApplyingRemoteData = false;
+        const settingsMap = { theme: 'dark', localUpdatedAt: 123 };
+        indexedDBService.getAll.mockReset().mockResolvedValue([
+            { key: 1, kind: 'settings', settings: settingsMap, status: 'pending' }
+        ]);
+        indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+        FirebaseService.saveSettings.mockClear().mockResolvedValue(undefined);
+
+        try {
+            await drainMainSyncOutbox();
+
+            testRunner.assertEquals(FirebaseService.saveSettings.mock.calls.length, 1,
+                'debe llamar a FirebaseService.saveSettings exactamente una vez al drenar la entrada settings pendiente');
+            testRunner.assertEquals(FirebaseService.saveSettings.mock.calls[0][0], settingsMap,
+                'debe pasar el mapa de settings encolado');
+        } finally {
+            globalThis.currentUser = null;
+            globalThis._isApplyingRemoteData = prevApplyingRemote;
+        }
+    },
+
     async "_executeSave dispara MainSyncStore.flush tras encolar"() {
         const snap = snapshotState();
         const spies = spyMainSyncStore();

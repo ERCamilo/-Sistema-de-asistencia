@@ -82,6 +82,14 @@ function _resolveCloudCall(entry, guards) {
         // updatedAt — el gate grueso del espejo no debe frenar estos writes.
         return () => guards.saveEntities(entry.employees, entry.positions, entry.leaders, entry.schemaVersion);
     }
+    if (entry.kind === 'settings') {
+        // Sin gate de watermark: saveSettings() hace su propio read-compare-write
+        // LWW por localUpdatedAt (Fase 2B JD-B1, ver FirebaseService.saveSettings +
+        // SettingsWriteGuard.shouldWriteSettings) — igual que 'entities', el gate
+        // grueso del espejo no debe frenar este write; la comparación fina ya
+        // vive dentro del propio writer.
+        return () => guards.saveSettings(entry.settings);
+    }
     if (entry.kind === 'delete') {
         const minSchema = DELETE_SCHEMA_MIN[entry.entity];
         // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
@@ -160,6 +168,29 @@ export const MainSyncStore = {
     },
 
     /**
+     * Fase 2B U1: encola el mapa de settings completo para su escritura en el
+     * doc per-registro (users/{uid}/data/settings), DESACOPLADA del espejo.
+     * Coalescing: sólo queda UNA entrada 'settings' pendiente a la vez (la
+     * más reciente reemplaza a la anterior), mismo patrón que 'entities'.
+     *
+     * A diferencia de 'mirror', esta entrada NO se gatea por el watermark en
+     * _resolveCloudCall — FirebaseService.saveSettings ya es un full-replace
+     * LWW por dispositivo, así que el gate grueso del espejo no aplica acá.
+     *
+     * `settingsMap` debe ser un objeto INMUTABLE ya clonado por el caller
+     * (mismo contrato que `enqueueMirror`/`enqueueEntities`).
+     */
+    async enqueueSettings(settingsMap) {
+        const all = await _getAll();
+        const stalePending = all.filter(e => e && e.kind === 'settings' && e.status === 'pending');
+        for (const e of stalePending) await _deleteQuiet(e.key);
+
+        await indexedDBService.update(OUTBOX, {
+            kind: 'settings', settings: settingsMap, ts: Date.now(), status: 'pending'
+        });
+    },
+
+    /**
      * Encola el borrado de una entidad en la nube. Dedup: si ya hay un
      * borrado pendiente para la MISMA entidad+id, no duplica.
      *
@@ -197,6 +228,7 @@ export const MainSyncStore = {
      *   saveMirror: (snapshot) => Promise,
      *   saveDaily: (dateKey, records) => Promise,
      *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
+     *   saveSettings: (settingsMap) => Promise,
      *   deleteEntity: (entity, id) => Promise,
      *   onCloudResult: (ok) => void
      * }} guards - inyectado por el caller (PersistenceService), evaluado en

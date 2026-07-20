@@ -23,12 +23,13 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
-import { localStateIsEmpty, shouldAcceptRemote } from './modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, outgoingWatermarkCache, resetOutgoingWatermark } from './modules/services/SyncWatermark.js';
 import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
+import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
 import { translateError } from './modules/services/ErrorTranslator.js';
 import { logError, getAllErrors, formatErrorLogAsText } from './modules/services/ErrorLog.js';
@@ -6637,7 +6638,14 @@ function _initOutgoingConflictGuard() {
         if (confirmed) {
             // Local wins: true overwrite (not merge). Deletes orphan cloud docs,
             // writes the main doc WITHOUT merge:true, so cloud-only data is removed.
-            state._lastKnownCloudUpdatedAt = state.settings?.localUpdatedAt || 0;
+            // 🛡️ Judgment Day Fase 2B (fix A1, endurecido en Ronda 3):
+            // resetOutgoingWatermark() resetea ATÓMICAMENTE
+            // state._lastKnownCloudUpdatedAt Y el cache compartido de
+            // watermarks (settingsDocTs/mirrorTs). Sin esto, el próximo
+            // snapshot remoto legítimo volvía a MAXear los caches stale-altos
+            // (vía mergeCloudWatermark) y resucitaba el watermark que el
+            // usuario recién resolvió.
+            resetOutgoingWatermark(state, outgoingWatermarkCache, state.settings?.localUpdatedAt || 0);
             try {
                 await FirebaseService.replaceCloudFull(state);
                 showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
@@ -6845,6 +6853,29 @@ function _initOutgoingConflictGuard() {
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
             if (user) {
+                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
+                // Ronda 3: resetear en CADA transición de auth (login,
+                // re-login, cambio de cuenta en la misma pestaña), antes de
+                // recablear los listeners del espejo/settings más abajo, TANTO
+                // el cache compartido de watermarks como
+                // state._lastKnownCloudUpdatedAt (vía resetOutgoingWatermark).
+                // ANTES de la promoción a singleton (fix A1) estos dos valores
+                // eran `let` de closure DENTRO de este mismo callback, así que
+                // se reseteaban implícitamente en cada transición; al promoverlos
+                // a outgoingWatermarkCache (módulo compartido) ese reset implícito
+                // se perdió — el cache sobrevivía a un logout sin reload (p.ej.
+                // window.syncCenterLogout) y arrastraba los timestamps de la
+                // cuenta anterior a la sesión de la cuenta nueva, generando
+                // prompts de conflicto saliente espurios con timestamps ajenos.
+                // Ronda 3: el fix F2 original solo reseteaba el cache y se
+                // olvidaba de state._lastKnownCloudUpdatedAt — que es lo que
+                // PersistenceService realmente lee como piso del gate — así que
+                // el bug cross-cuenta seguía reproducible. Resetear a 0 acá es
+                // seguro: el primer snapshot legítimo de la sesión nueva vuelve
+                // a poblar el cache vía setMirrorTs/setSettingsDocTs más abajo
+                // (mismo comportamiento que el reset pre-fix).
+                resetOutgoingWatermark(state, outgoingWatermarkCache, 0);
+
                 showNotification(`✅ Sesión iniciada como ${user.email}`, 'success');
 
                 // 🔐 C2 (Auditoría 2026-06-09): guard de propiedad de los datos
@@ -6886,6 +6917,18 @@ function _initOutgoingConflictGuard() {
                     }
                 }
 
+                // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
+                // per-registro de settings) recuerda su ÚLTIMO ts conocido;
+                // mergeCloudWatermark los combina por MAX cada vez que
+                // CUALQUIERA de los dos dispara, para que ninguno "atrase" al
+                // otro (la cadencia del espejo se reduce en Change B).
+                // 🛡️ Judgment Day Fase 2B (fix A1): estos dos valores viven en
+                // outgoingWatermarkCache (SyncWatermark.js), NO como `let` de
+                // closure locales — así _initOutgoingConflictGuard (definida
+                // en otro scope) puede resetearlos atómicamente junto con
+                // state._lastKnownCloudUpdatedAt cuando el usuario elige
+                // "local wins" en el conflicto saliente.
+
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 FirebaseService.subscribeToChanges(async (remoteData) => {
                     debug.log('📡 Cambio detectado en la nube...');
@@ -6893,8 +6936,14 @@ function _initOutgoingConflictGuard() {
                     // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
                     // detectar conflictos salientes (local más viejo que la nube).
                     // Se actualiza siempre, incluso si los datos se descartan más abajo.
-                    state._lastKnownCloudUpdatedAt =
-                        remoteData?.settings?.localUpdatedAt || state._lastKnownCloudUpdatedAt || 0;
+                    outgoingWatermarkCache.setMirrorTs(
+                        remoteData?.settings?.localUpdatedAt || outgoingWatermarkCache.get().mirrorTs || 0
+                    );
+                    state._lastKnownCloudUpdatedAt = mergeCloudWatermark(
+                        state._lastKnownCloudUpdatedAt,
+                        outgoingWatermarkCache.get().settingsDocTs,
+                        outgoingWatermarkCache.get().mirrorTs
+                    );
 
                     // 🛡️ FIX: Si la nube tiene datos más viejos que nuestro estado local, ignorar (y re-sincronizar).
                     // Esto previene que la caché offline de Firebase (O un guardado fallido) revierta los datos al pulsar F5.
@@ -7194,6 +7243,29 @@ function _initOutgoingConflictGuard() {
                     } // ← cierra applyRemoteData()
                 });
 
+                // 📡 Fase 2B U2: suscripción en vivo al doc per-registro de
+                // settings (users/{uid}/data/settings) — DESACOPLADA del
+                // espejo. El filtro de eco (lastChangedBy === deviceId) ya
+                // ocurre DENTRO de FirebaseService.subscribeToSettings, mismo
+                // criterio que subscribeToChanges.
+                FirebaseService.subscribeToSettings((settingsDoc) => {
+                    if (!settingsDoc) return;
+                    debug.log('📡 Cambio detectado en settings (doc per-registro)...');
+
+                    // Fase 2B U2 (fix cobertura): la decisión accept/reject +
+                    // el merge whole-object viven en SettingsLiveSync.js,
+                    // testeados de forma aislada (SettingsLiveSyncTests.js).
+                    const result = handleRemoteSettings({
+                        remoteDoc: settingsDoc,
+                        state,
+                        lastKnownMirrorTs: outgoingWatermarkCache.get().mirrorTs,
+                        batchSetState: (cb) => stateManager.batchSetState(cb),
+                        deps: { debugLog: debug.log }
+                    });
+
+                    outgoingWatermarkCache.setSettingsDocTs(result.settingsDocTs);
+                });
+
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
                 window.updateAttendanceSubscription = function () {
                     if (window._attendanceUnsubscribe) {
@@ -7348,6 +7420,17 @@ function _initOutgoingConflictGuard() {
                 // Iniciar primera suscripción
                 window.updateAttendanceSubscription();
             } else {
+                // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
+                // Ronda 3: resetear TANTO el cache compartido de watermarks
+                // como state._lastKnownCloudUpdatedAt (vía
+                // resetOutgoingWatermark) también al CERRAR sesión
+                // (user===null), no solo al iniciarla — cubre
+                // window.syncCenterLogout (que llama a FirebaseService.logout()
+                // sin reload de página) para que la próxima cuenta que inicie
+                // sesión en esta misma pestaña no herede timestamps de la
+                // cuenta anterior.
+                resetOutgoingWatermark(state, outgoingWatermarkCache, 0);
+
                 // Si no hay usuario, ocultamos el loader de inmediato (ya que no habrá sync)
                 hideLoader();
                 isInitialLoad = false;

@@ -27,7 +27,8 @@ testRunner.addSuite("SnapshotReasons — Catálogo de razones", {
     "catálogo: contiene las razones críticas usadas por el sistema"() {
         const required = [
             'manual', 'daily-auto', 'pre-restore',
-            'pre-migration-v2', 'pre-bulk-delete', 'pre-import',
+            'pre-migration-v2', 'pre-migration-v3', 'pre-migration-v4',
+            'pre-bulk-delete', 'pre-import',
             'pre-mantenimiento-auto', 'pre-loan-change'
         ];
         required.forEach(code => {
@@ -40,6 +41,12 @@ testRunner.addSuite("SnapshotReasons — Catálogo de razones", {
         testRunner.assertEquals(info.label, 'Antes de migrar al sistema multi-dispositivo');
         testRunner.assertEquals(info.icon, '🔄');
         testRunner.assertEquals(info.protected, true);
+    },
+
+    "getReasonInfo: pre-migration-v4 (Fase 2B U3) devuelve info correcta y protegida"() {
+        const info = getReasonInfo('pre-migration-v4', 'pre-restore');
+        testRunner.assertEquals(info.protected, true);
+        testRunner.assert(typeof info.label === 'string' && info.label.length > 0);
     },
 
     "getReasonInfo: cae al fallback por type cuando la razón es desconocida"() {
@@ -84,8 +91,8 @@ testRunner.addSuite("SnapshotReasons — Catálogo de razones", {
 
     "razones que deben ser protegidas tienen el flag protected=true"() {
         const protectedReasons = [
-            'pre-restore', 'pre-migration-v2', 'pre-bulk-delete',
-            'pre-import', 'pre-mantenimiento-auto', 'pre-loan-change'
+            'pre-restore', 'pre-migration-v2', 'pre-migration-v3', 'pre-migration-v4',
+            'pre-bulk-delete', 'pre-import', 'pre-mantenimiento-auto', 'pre-loan-change'
         ];
         protectedReasons.forEach(code => {
             testRunner.assertEquals(SNAPSHOT_REASONS[code].protected, true, `${code} debe estar marcada como protegida`);

@@ -166,4 +166,149 @@ testRunner.addSuite("OutgoingConflict — state flag isolation", {
 
 });
 
+// ─────────────────────────────────────────────────────────────
+// app.js — watermark cache compartido (Judgment Day Fase 2B, fix A1)
+// ─────────────────────────────────────────────────────────────
+//
+// Bug: _lastKnownSettingsDocTs / _lastKnownMirrorTs vivían como `let` de
+// closure en un scope DISTINTO al de _initOutgoingConflictGuard, así que el
+// reset de "local wins" no los limpiaba y un snapshot remoto legítimo
+// posterior los volvía a MAXear (resucitando el watermark ya resuelto).
+// Fix: promover ambos a outgoingWatermarkCache (SyncWatermark.js) e
+// invocar su reset() atómico junto con state._lastKnownCloudUpdatedAt.
+
+testRunner.addSuite("OutgoingConflict — app.js usa outgoingWatermarkCache (Fase 2B, fix A1)", {
+
+    "app.js importa outgoingWatermarkCache de SyncWatermark.js"() {
+        testRunner.assert(
+            /import\s*\{[^}]*outgoingWatermarkCache[^}]*\}\s*from\s*['"]\.\/modules\/services\/SyncWatermark\.js['"]/.test(APP_SRC),
+            'app.js debe importar outgoingWatermarkCache desde SyncWatermark.js'
+        );
+    },
+
+    "app.js importa resetOutgoingWatermark de SyncWatermark.js (Fase 2B, JD Ronda 3, fix F2 completo)"() {
+        testRunner.assert(
+            /import\s*\{[^}]*resetOutgoingWatermark[^}]*\}\s*from\s*['"]\.\/modules\/services\/SyncWatermark\.js['"]/.test(APP_SRC),
+            'app.js debe importar resetOutgoingWatermark desde SyncWatermark.js'
+        );
+    },
+
+    // 🐛 Mutación mental: si alguno de los 3 sitios de reset volviera a llamar
+    // outgoingWatermarkCache.reset(...) SIN pasar por resetOutgoingWatermark,
+    // esta cuenta detectaría la regresión — deben ser EXACTAMENTE 3 llamadas
+    // a resetOutgoingWatermark(state, outgoingWatermarkCache, ...) y CERO
+    // llamadas sueltas a outgoingWatermarkCache.reset(...) fuera del helper.
+    "los 3 sitios de reset (local-wins, login, logout) llaman a resetOutgoingWatermark — no queda ningún outgoingWatermarkCache.reset(...) suelto"() {
+        const helperCalls = APP_SRC.match(/resetOutgoingWatermark\(\s*state\s*,\s*outgoingWatermarkCache\s*,/g) || [];
+        testRunner.assertEquals(helperCalls.length, 3, 'deben existir exactamente 3 llamadas a resetOutgoingWatermark(state, outgoingWatermarkCache, ...) en app.js');
+
+        // Cualquier `outgoingWatermarkCache.reset(` en app.js debe ser DENTRO
+        // de la definición del helper (SyncWatermark.js), nunca inline en app.js.
+        testRunner.assert(
+            !/outgoingWatermarkCache\.reset\(/.test(APP_SRC),
+            'app.js no debe llamar a outgoingWatermarkCache.reset(...) directamente — debe pasar siempre por resetOutgoingWatermark'
+        );
+    },
+
+    "app.js YA NO declara _lastKnownSettingsDocTs / _lastKnownMirrorTs como variables de closure sueltas"() {
+        testRunner.assert(
+            !/let\s+_lastKnownSettingsDocTs/.test(APP_SRC) && !/let\s+_lastKnownMirrorTs/.test(APP_SRC),
+            'Los dos caches sueltos deben eliminarse — ahora viven en outgoingWatermarkCache'
+        );
+    },
+
+    "el reset 'local wins' de _initOutgoingConflictGuard resetea AMBAS piezas vía resetOutgoingWatermark"() {
+        // Judgment Day Fase 2B, Ronda 3 (fix F2 completo): el branch
+        // "if (confirmed)" debe usar resetOutgoingWatermark(state,
+        // outgoingWatermarkCache, ...) para resetear atómicamente
+        // state._lastKnownCloudUpdatedAt Y outgoingWatermarkCache, en vez de
+        // dos escrituras inline separadas que pueden desincronizarse.
+        const block = APP_SRC.match(/Local wins: true overwrite[\s\S]{0,1500}/);
+        testRunner.assert(!!block, 'debe existir el branch "local wins" (comentario "Local wins: true overwrite")');
+        testRunner.assert(
+            /resetOutgoingWatermark\(\s*state\s*,\s*outgoingWatermarkCache\s*,\s*state\.settings\?\.localUpdatedAt/.test(block[0]),
+            'el branch "local wins" debe llamar a resetOutgoingWatermark(state, outgoingWatermarkCache, state.settings?.localUpdatedAt || 0) para resetear ambas piezas atómicamente'
+        );
+    },
+
+    "el listener del espejo (subscribeToChanges) lee/escribe vía outgoingWatermarkCache"() {
+        testRunner.assert(
+            /outgoingWatermarkCache\.setMirrorTs\(/.test(APP_SRC),
+            'el listener del espejo debe escribir el ts vía outgoingWatermarkCache.setMirrorTs'
+        );
+    },
+
+    "la suscripción a settings (subscribeToSettings) lee/escribe vía outgoingWatermarkCache"() {
+        testRunner.assert(
+            /outgoingWatermarkCache\.setSettingsDocTs\(/.test(APP_SRC),
+            'la suscripción de settings debe escribir el ts vía outgoingWatermarkCache.setSettingsDocTs'
+        );
+    }
+
+});
+
+// ─────────────────────────────────────────────────────────────
+// app.js — outgoingWatermarkCache se resetea en CADA transición de auth
+// (Judgment Day Fase 2B JD Ronda 2, fix F2)
+// ─────────────────────────────────────────────────────────────
+//
+// Bug: antes de la promoción a singleton (fix A1), settingsDocTs/mirrorTs
+// eran `let` de closure DENTRO del callback de onAuthStateChanged, así que
+// se reseteaban implícitamente en cada transición de auth (login, re-login,
+// cambio de cuenta en la misma pestaña). El fix A1 promovió ambos al
+// singleton outgoingWatermarkCache pero solo lo reseteaba en el branch
+// "local wins" — nunca al cerrar sesión ni al iniciar una nueva. Fuga
+// alcanzable: usuario A inicia sesión (cache poblado con timestamps de A),
+// cierra sesión vía window.syncCenterLogout (FirebaseService.logout(), SIN
+// reload de página ni wipe de estado), usuario B inicia sesión en la misma
+// pestaña; si los datos locales de B están vacíos, LocalDataOwner no fuerza
+// un wipe/reload, y el cache stale de A sobrevive → mergeCloudWatermark MAX
+// conserva el valor de A → B recibe prompts de conflicto saliente espurios
+// con timestamps de OTRA cuenta.
+
+testRunner.addSuite("OutgoingConflict — outgoingWatermarkCache se resetea en cada transición de auth (Fase 2B JD Ronda 2, fix F2)", {
+
+    "onAuthStateChanged resetea AMBAS piezas del watermark (vía resetOutgoingWatermark) al INICIO del branch 'user presente', antes de recablear los listeners del espejo/settings"() {
+        // Judgment Day Fase 2B, Ronda 3 (fix F2 completo): outgoingWatermarkCache.reset(0)
+        // solo no alcanza — debe pasar por resetOutgoingWatermark(state, outgoingWatermarkCache, 0)
+        // para también limpiar state._lastKnownCloudUpdatedAt (el piso real que lee PersistenceService).
+        const block = APP_SRC.match(/onAuthStateChanged\s*\(\s*async\s*\(\s*user\s*\)\s*=>\s*\{[\s\S]{0,6000}/);
+        testRunner.assert(!!block, 'debe existir el callback de onAuthStateChanged');
+        const ifUserIdx = block[0].search(/if\s*\(\s*user\s*\)\s*\{/);
+        testRunner.assert(ifUserIdx >= 0, 'debe existir el branch "if (user) {"');
+        const afterIfUser = block[0].slice(ifUserIdx);
+        const resetIdx = afterIfUser.search(/resetOutgoingWatermark\(\s*state\s*,\s*outgoingWatermarkCache\s*,\s*0\s*\)/);
+        const mirrorSubIdx = afterIfUser.search(/subscribeToChanges\(/);
+        testRunner.assert(
+            resetIdx >= 0,
+            'el branch "if (user)" debe llamar a resetOutgoingWatermark(state, outgoingWatermarkCache, 0) al iniciar sesión'
+        );
+        testRunner.assert(
+            mirrorSubIdx < 0 || resetIdx < mirrorSubIdx,
+            'el reset debe ocurrir ANTES de recablear subscribeToChanges (espejo)'
+        );
+    },
+
+    "onAuthStateChanged resetea AMBAS piezas del watermark también en el branch 'user ausente' (logout, cubre window.syncCenterLogout)"() {
+        const block = APP_SRC.match(/onAuthStateChanged\s*\(\s*async\s*\(\s*user\s*\)\s*=>\s*\{[\s\S]*?\n\s{8}\}\s*\)\s*;/);
+        testRunner.assert(!!block, 'debe existir el callback completo de onAuthStateChanged');
+        const elseMatch = block[0].match(/\}\s*else\s*\{[\s\S]*$/);
+        testRunner.assert(!!elseMatch, 'debe existir el branch else (user ausente) de onAuthStateChanged');
+        testRunner.assert(
+            /resetOutgoingWatermark\(\s*state\s*,\s*outgoingWatermarkCache\s*,\s*0\s*\)/.test(elseMatch[0]),
+            'el branch "else" (sin usuario / logout) debe llamar a resetOutgoingWatermark(state, outgoingWatermarkCache, 0) para no arrastrar timestamps de la cuenta anterior a la próxima sesión'
+        );
+    },
+
+    "window.syncCenterLogout dispara FirebaseService.logout() (que a su vez dispara onAuthStateChanged con user=null, cubierto por el reset de arriba)"() {
+        const block = APP_SRC.match(/window\.syncCenterLogout\s*=[\s\S]{0,400}/);
+        testRunner.assert(!!block, 'debe existir window.syncCenterLogout');
+        testRunner.assert(
+            /logoutFirebase|FirebaseService\.logout/.test(block[0]),
+            'syncCenterLogout debe invocar el logout de FirebaseService, cuyo signOut dispara onAuthStateChanged(null)'
+        );
+    }
+
+});
+
 console.log('🧪 OutgoingConflict tests cargados.');

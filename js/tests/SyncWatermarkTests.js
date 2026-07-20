@@ -15,7 +15,7 @@
  *     nube es igual o más reciente (remoteTime >= localTime).
  */
 
-import { localStateIsEmpty, shouldAcceptRemote } from '../modules/services/SyncWatermark.js';
+import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, createWatermarkCache, resetOutgoingWatermark } from '../modules/services/SyncWatermark.js';
 
 testRunner.addSuite("SyncWatermark — localStateIsEmpty", {
 
@@ -79,6 +79,228 @@ testRunner.addSuite("SyncWatermark — shouldAcceptRemote", {
         testRunner.assertEquals(shouldAcceptRemote({ localEmpty: true }), true);
         // con datos y ambos 0 → 0>=0 acepta
         testRunner.assertEquals(shouldAcceptRemote({ localEmpty: false }), true);
+    }
+
+});
+
+// Fase 2B U2: el watermark de conflictos ahora se alimenta de DOS fuentes —
+// el doc per-registro de settings (users/{uid}/data/settings, su propio
+// onSnapshot un-throttled) y el espejo (users/{uid}/data/current, cuya
+// cadencia se reduce en Change B) — y ninguna de las dos debe "atrasar" a la
+// otra. mergeCloudWatermark combina ambas por MAX, con `current` (el
+// watermark ya conocido) como piso: nunca retrocede aunque una fuente
+// reporte algo más viejo que lo que ya sabíamos.
+testRunner.addSuite("SyncWatermark — mergeCloudWatermark (Fase 2B, U2)", {
+
+    "ambas fuentes ausentes → devuelve el watermark actual (current)"() {
+        testRunner.assertEquals(mergeCloudWatermark(500, undefined, undefined), 500);
+    },
+
+    "ambas fuentes ausentes y current en 0 → devuelve 0"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, undefined, undefined), 0);
+    },
+
+    "solo settings presente → devuelve fromSettings"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 800, undefined), 800);
+    },
+
+    "solo mirror presente → devuelve fromMirror (settings ausente, v3/legacy sin doc de settings)"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, null, 650), 650);
+    },
+
+    "ambas presentes, settings más nuevo → elige el mayor (settings)"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 900, 700), 900);
+    },
+
+    "ambas presentes, mirror más nuevo → elige el mayor (mirror)"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 300, 750), 750);
+    },
+
+    "null se trata como 0 en ambas fuentes"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, null, null), 0);
+        testRunner.assertEquals(mergeCloudWatermark(0, null, 500), 500);
+    },
+
+    "undefined se trata como 0 en ambas fuentes"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, undefined, undefined), 0);
+        testRunner.assertEquals(mergeCloudWatermark(0, 400, undefined), 400);
+    },
+
+    "timestamps iguales entre las dos fuentes → devuelve ese valor"() {
+        testRunner.assertEquals(mergeCloudWatermark(0, 1000, 1000), 1000);
+    },
+
+    "current más alto que ambas fuentes → NO retrocede (devuelve current)"() {
+        testRunner.assertEquals(mergeCloudWatermark(2000, 500, 800), 2000);
+    },
+
+    "current ausente (undefined) se trata como 0"() {
+        testRunner.assertEquals(mergeCloudWatermark(undefined, 500, 300), 500);
+    }
+
+});
+
+// Judgment Day Fase 2B (fix A1): antes de este cache compartido,
+// _lastKnownSettingsDocTs / _lastKnownMirrorTs vivían como variables `let`
+// de closure en DOS scopes DISTINTOS dentro de app.js (el listener del
+// espejo y la suscripción a subscribeToSettings). El reset de "local wins"
+// en _initOutgoingConflictGuard solo limpiaba state._lastKnownCloudUpdatedAt
+// — no esos dos caches — así que el próximo snapshot remoto legítimo los
+// volvía a MAXear vía mergeCloudWatermark y RESUCITABA el watermark que el
+// usuario ya había resuelto. createWatermarkCache() centraliza ambos
+// valores para que un solo reset() los limpie atómicamente.
+testRunner.addSuite("SyncWatermark — createWatermarkCache (Fase 2B, fix A1)", {
+
+    "arranca en 0/0"() {
+        const cache = createWatermarkCache();
+        testRunner.assertEquals(cache.get().settingsDocTs, 0);
+        testRunner.assertEquals(cache.get().mirrorTs, 0);
+    },
+
+    "setSettingsDocTs / setMirrorTs actualizan cada fuente de forma independiente"() {
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(500);
+        cache.setMirrorTs(300);
+        testRunner.assertEquals(cache.get().settingsDocTs, 500);
+        testRunner.assertEquals(cache.get().mirrorTs, 300);
+    },
+
+    "valores no finitos (NaN/undefined) se tratan como 0"() {
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(undefined);
+        cache.setMirrorTs(NaN);
+        testRunner.assertEquals(cache.get().settingsDocTs, 0);
+        testRunner.assertEquals(cache.get().mirrorTs, 0);
+    },
+
+    "reset(value) limpia AMBOS caches al mismo valor atómicamente"() {
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(9000);
+        cache.setMirrorTs(8000);
+        cache.reset(1000);
+        testRunner.assertEquals(cache.get().settingsDocTs, 1000, 'settingsDocTs debe resetearse');
+        testRunner.assertEquals(cache.get().mirrorTs, 1000, 'mirrorTs debe resetearse');
+    },
+
+    "reset() sin argumento cae a 0"() {
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(500);
+        cache.reset();
+        testRunner.assertEquals(cache.get().settingsDocTs, 0);
+    },
+
+    // 🐛 Reproduce el bug real: reset "local wins" seguido de un snapshot
+    // remoto legítimo NO debe resucitar el watermark por encima del reset.
+    "REGRESIÓN: tras un reset 'local wins', un snapshot remoto legítimo NO resucita el watermark"() {
+        const cache = createWatermarkCache();
+
+        // Estado previo al conflicto: ambas fuentes habían visto timestamps altos.
+        cache.setSettingsDocTs(9000);
+        cache.setMirrorTs(8500);
+        let cloudWatermark = mergeCloudWatermark(0, cache.get().settingsDocTs, cache.get().mirrorTs);
+        testRunner.assertEquals(cloudWatermark, 9000);
+
+        // El usuario resuelve el conflicto saliente ("local wins"): el reset
+        // debe bajar TODO (watermark + ambos caches) al localUpdatedAt local.
+        const LOCAL_WINS_TS = 1000;
+        cache.reset(LOCAL_WINS_TS);
+        cloudWatermark = LOCAL_WINS_TS;
+
+        // Llega un snapshot remoto legítimo de OTRO dispositivo (ej. el propio
+        // eco de la escritura de replaceCloudFull, o un cambio normal
+        // posterior) con un ts cercano al reset, NO con el ts viejo de 9000.
+        const remoteMirrorTs = 1050;
+        cache.setMirrorTs(remoteMirrorTs);
+        cloudWatermark = mergeCloudWatermark(cloudWatermark, cache.get().settingsDocTs, cache.get().mirrorTs);
+
+        testRunner.assert(
+            cloudWatermark < 9000,
+            `El watermark (${cloudWatermark}) NO debe resucitar por encima del reset (bug: el cache de settingsDocTs stale-alto sobrevivía al reset y volvía a MAXearse)`
+        );
+        testRunner.assertEquals(cloudWatermark, remoteMirrorTs, 'debe reflejar solo el nuevo dato legítimo, sin arrastrar el 9000 stale');
+    }
+
+});
+
+// Judgment Day Fase 2B, Ronda 3 (fix F2 completo): el reset "local wins" en
+// _initOutgoingConflictGuard resetea CORRECTAMENTE las dos piezas del
+// watermark saliente (state._lastKnownCloudUpdatedAt Y el cache
+// settingsDocTs/mirrorTs). Los dos resets agregados por fix F2 (login y
+// logout) solo llamaban a outgoingWatermarkCache.reset() y se olvidaban de
+// state._lastKnownCloudUpdatedAt — que es justo lo que
+// PersistenceService._executeSave lee como `_cloudTime` para el gate de
+// conflicto saliente, y que mergeCloudWatermark usa como PISO (Math.max), o
+// sea que NUNCA retrocede solo. Resultado: un logout→login en la misma
+// pestaña (sin reload) dejaba sobrevivir el _lastKnownCloudUpdatedAt stale
+// de la cuenta anterior y disparaba un conflicto saliente espurio contra la
+// cuenta nueva — el mismo bug cross-cuenta que fix F2 debía cerrar.
+//
+// resetOutgoingWatermark() une ambos resets en un solo punto testeable para
+// que no puedan volver a desincronizarse.
+testRunner.addSuite("SyncWatermark — resetOutgoingWatermark (Fase 2B, JD Ronda 3, fix F2 completo)", {
+
+    "resetea AMBAS piezas: state._lastKnownCloudUpdatedAt y el cache compartido"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 9999 };
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(9000);
+        cache.setMirrorTs(8500);
+
+        resetOutgoingWatermark(fakeState, cache, 1000);
+
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 1000, 'debe resetear state._lastKnownCloudUpdatedAt');
+        testRunner.assertEquals(cache.get().settingsDocTs, 1000, 'debe resetear settingsDocTs del cache');
+        testRunner.assertEquals(cache.get().mirrorTs, 1000, 'debe resetear mirrorTs del cache');
+    },
+
+    "sin value explícito, cae a 0 en ambas piezas"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 5000 };
+        const cache = createWatermarkCache();
+        cache.setSettingsDocTs(4000);
+
+        resetOutgoingWatermark(fakeState, cache);
+
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 0);
+        testRunner.assertEquals(cache.get().settingsDocTs, 0);
+    },
+
+    "valor no finito (NaN/undefined) se trata como 0"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 5000 };
+        const cache = createWatermarkCache();
+        cache.setMirrorTs(4000);
+
+        resetOutgoingWatermark(fakeState, cache, NaN);
+
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 0);
+        testRunner.assertEquals(cache.get().mirrorTs, 0);
+    },
+
+    // 🐛 REGRESIÓN del bug de Ronda 3: si el helper solo resetea el cache (el
+    // bug original de fix F2) pero NO state._lastKnownCloudUpdatedAt, el
+    // piso de mergeCloudWatermark sigue siendo el valor stale de la cuenta
+    // anterior y un snapshot legítimo lo resucita.
+    "REGRESIÓN: si solo se reseteara el cache (bug original), el piso stale de state seguiría vivo"() {
+        const fakeState = { _lastKnownCloudUpdatedAt: 9000 }; // cuenta A, stale
+        const cache = createWatermarkCache();
+
+        resetOutgoingWatermark(fakeState, cache, 0); // login de cuenta B
+
+        // El watermark efectivo que ve PersistenceService es state._lastKnownCloudUpdatedAt.
+        testRunner.assert(
+            fakeState._lastKnownCloudUpdatedAt < 9000,
+            'state._lastKnownCloudUpdatedAt debe bajar de 9000 tras el reset — si el helper solo tocara el cache, seguiría en 9000 y mergeCloudWatermark lo conservaría como piso'
+        );
+        testRunner.assertEquals(fakeState._lastKnownCloudUpdatedAt, 0);
+    },
+
+    "no falla si stateObj o cache son null/undefined"() {
+        let threw = false;
+        try {
+            resetOutgoingWatermark(null, null, 100);
+            resetOutgoingWatermark(undefined, undefined);
+        } catch (e) {
+            threw = true;
+        }
+        testRunner.assert(!threw, 'resetOutgoingWatermark no debe lanzar con stateObj/cache ausentes');
     }
 
 });

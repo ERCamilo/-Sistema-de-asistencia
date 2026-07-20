@@ -374,6 +374,185 @@ testRunner.addSuite("FirebaseService — saveEntities NO re-sube entidades sin c
 
 });
 
+// Fase 2B U1: settings viaja por su propio doc per-registro
+// (users/{uid}/data/settings), desacoplado del espejo — mismo espíritu que
+// saveEntities (Fase 2 U1) pero para preferencias en vez de entidades.
+// saveSettings hace un full-replace (setDoc SIN merge:true) para que una
+// clave borrada localmente no sobreviva a un merge profundo de Firestore
+// (mismo motivo que el updateDoc({settings}) dentro de saveFullState, ver M9).
+function saveSettingsBlock() {
+    return FIREBASE_SRC.match(/async\s+saveSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
+function getSettingsBlock() {
+    return FIREBASE_SRC.match(/async\s+getSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
+
+testRunner.addSuite("FirebaseService — Contrato saveSettings/getSettings (Fase 2B, U1)", {
+
+    "FirebaseService define un método async saveSettings(settingsMap)"() {
+        testRunner.assert(
+            !!saveSettingsBlock(),
+            'FirebaseService debe definir async saveSettings(settingsMap)'
+        );
+    },
+
+    "saveSettings escribe en el doc users/{uid}/data/settings"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /['"]data['"]\s*,\s*['"]settings['"]/.test(b[0]),
+            "saveSettings debe escribir en users/{uid}/data/settings"
+        );
+    },
+
+    "saveSettings usa setDoc SIN merge:true (full-replace LWW por dispositivo)"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(/setDoc\s*\(/.test(b[0]), 'saveSettings debe llamar a setDoc');
+        testRunner.assert(
+            !/setDoc\([\s\S]*?\{\s*merge:\s*true\s*\}\s*\)/.test(b[0]),
+            'saveSettings NO debe pasar { merge: true } — el reemplazo debe ser TOTAL para que una clave borrada localmente no sobreviva'
+        );
+    },
+
+    "saveSettings tagea el write con lastChangedBy (deviceId)"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /lastChangedBy\s*:\s*getDeviceId\s*\(\s*\)/.test(b[0]),
+            'saveSettings debe tagear el write con lastChangedBy: getDeviceId() (filtro de eco para el listener)'
+        );
+    },
+
+    "saveSettings guarda updatedAt (serverTimestamp) para el shape {settings, updatedAt, lastChangedBy}"() {
+        const b = saveSettingsBlock();
+        testRunner.assert(!!b, 'saveSettings debe existir');
+        testRunner.assert(
+            /updatedAt\s*:\s*serverTimestamp\s*\(\s*\)/.test(b[0]),
+            'saveSettings debe escribir updatedAt: serverTimestamp()'
+        );
+    },
+
+    "FirebaseService define un método async getSettings()"() {
+        testRunner.assert(
+            !!getSettingsBlock(),
+            'FirebaseService debe definir async getSettings()'
+        );
+    },
+
+    "getSettings lee el doc users/{uid}/data/settings vía getDoc (lectura one-shot)"() {
+        const b = getSettingsBlock();
+        testRunner.assert(!!b, 'getSettings debe existir');
+        testRunner.assert(/getDoc\s*\(/.test(b[0]), 'getSettings debe usar getDoc, no un listener');
+        testRunner.assert(
+            /['"]data['"]\s*,\s*['"]settings['"]/.test(b[0]),
+            'getSettings debe leer users/{uid}/data/settings'
+        );
+    },
+
+    "getSettings devuelve null cuando el doc no existe (v3/legacy)"() {
+        const b = getSettingsBlock();
+        testRunner.assert(!!b, 'getSettings debe existir');
+        testRunner.assert(
+            /docSnap\.exists\(\)/.test(b[0]) && /return\s+null/.test(b[0]),
+            'getSettings debe devolver null si el doc no existe — v3/legacy sin doc de settings todavía'
+        );
+    },
+
+    "getSettings devuelve {settings, updatedAt, lastChangedBy} cuando el doc existe"() {
+        const b = getSettingsBlock();
+        testRunner.assert(!!b, 'getSettings debe existir');
+        testRunner.assert(/settings\s*:/.test(b[0]), 'debe devolver el campo settings');
+        testRunner.assert(/updatedAt\s*:/.test(b[0]), 'debe devolver el campo updatedAt');
+        testRunner.assert(/lastChangedBy\s*:/.test(b[0]), 'debe devolver el campo lastChangedBy');
+    }
+
+});
+
+// Fase 2B U2: listener en vivo sobre el doc per-registro de settings
+// (users/{uid}/data/settings), hermano de subscribeToChanges (el listener
+// del espejo) — mismo patrón de filtro de eco por lastChangedBy. Se cablea
+// en app.js junto a subscribeToChanges (ver SettingsLiveSyncWiringTests.js).
+function subscribeToSettingsBlock() {
+    return FIREBASE_SRC.match(/subscribeToSettings\s*\([\s\S]*?\n\s{4}\}/);
+}
+
+testRunner.addSuite("FirebaseService — Contrato subscribeToSettings (Fase 2B, U2)", {
+
+    "FirebaseService define un método subscribeToSettings(callback)"() {
+        testRunner.assert(
+            !!subscribeToSettingsBlock(),
+            'FirebaseService debe definir subscribeToSettings(callback)'
+        );
+    },
+
+    "subscribeToSettings escucha el doc users/{uid}/data/settings vía onSnapshot"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(/onSnapshot\s*\(/.test(b[0]), 'debe usar onSnapshot — listener en vivo, no un getDoc one-shot');
+        testRunner.assert(
+            /['"]data['"]\s*,\s*['"]settings['"]/.test(b[0]),
+            'subscribeToSettings debe suscribirse a users/{uid}/data/settings'
+        );
+    },
+
+    "subscribeToSettings filtra eco por lastChangedBy === getDeviceId() (mismo criterio que subscribeToChanges)"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(
+            /lastChangedBy\s*===\s*getDeviceId\s*\(\s*\)/.test(b[0]),
+            'debe ignorar el snapshot si lo escribió este mismo dispositivo'
+        );
+    },
+
+    "subscribeToSettings devuelve la función de cancelación de onSnapshot"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(/return\s+onSnapshot\s*\(/.test(b[0]), 'debe devolver lo que retorna onSnapshot (unsubscribe)');
+    },
+
+    "sin sesión, subscribeToSettings devuelve un no-op en vez de suscribirse"() {
+        const b = subscribeToSettingsBlock();
+        testRunner.assert(!!b, 'subscribeToSettings debe existir');
+        testRunner.assert(/if\s*\(\s*!auth\.currentUser\s*\)\s*return\s*\(\s*\)\s*=>\s*\{\s*\}/.test(b[0]),
+            'sin auth.currentUser debe devolver una función no-op, igual que subscribeToChanges');
+    },
+
+    "el mock de tests expone subscribeToSettings (paridad de API)"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/subscribeToSettings/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir subscribeToSettings para tests de app.js');
+    }
+
+});
+
+// Fase 2B U2: el mock de tests había quedado sin saveSettings/getSettings
+// (Unit 1 los dejó fuera de su scope explícito porque nada los invocaba
+// todavía) — ahora que PersistenceService._mainSyncGuards() y app.js los
+// invocan de verdad, el mock necesita paridad para que esos callers no
+// truenen contra undefined en el harness de tests.
+testRunner.addSuite("FirebaseService — paridad del mock para saveSettings/getSettings (Fase 2B, U2)", {
+
+    "el mock de tests expone saveSettings"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/saveSettings/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir saveSettings para tests de PersistenceService');
+    },
+
+    "el mock de tests expone getSettings"() {
+        const mockSrc = fs.readFileSync(
+            path.resolve(__dirname, '../../__mocks__/FirebaseService.js'), 'utf8'
+        );
+        testRunner.assert(/getSettings/.test(mockSrc),
+            '__mocks__/FirebaseService.js debe incluir getSettings');
+    }
+
+});
+
 testRunner.addSuite("FirebaseService — deleteCloudData invalida el watermark de subida (Ronda 2)", {
 
     // 🐛 Judgment Day Fase 2A Ronda 2 (CRITICAL): con el watermark ahora
