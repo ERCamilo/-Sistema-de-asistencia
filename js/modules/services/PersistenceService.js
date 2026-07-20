@@ -19,6 +19,7 @@ import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
 import { MainSyncStore, initMainSyncLifecycle } from './MainSyncStore.js';
+import { createMirrorCadence } from './MirrorCadence.js';
 import { redactSensitiveBackup } from './BackupRedaction.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
@@ -492,33 +493,42 @@ function _seedMainSyncOutboxFromLegacyDeletes() {
 /**
  * ⚡ SINCRONIZACIÓN CON FIREBASE (Mirror Sync)
  *
- * U8: histórico debounce de 2s EN MEMORIA reemplazado por un shim que delega
- * a la bandeja de pendientes durable (MainSyncStore, U1-U7). `debounced(state)`
- * encola (coalescing propio de MainSyncStore, no hace falta debounce acá) y
- * `.flush()` dispara el drenado ya mismo. Se mantiene esta función/forma
- * (en vez de borrarla) para no romper la firma que flushPendingSave y
- * cualquier caller remanente ya conocen.
+ * Change B: el primer snapshot se encola de inmediato y los siguientes se
+ * coalescen durante cinco minutos. El trailing conserva sólo el estado más
+ * reciente; `.flush()` lo fuerza antes de ocultar/cerrar la página.
  */
 export const syncFirebaseMirrorDebounced = (function() {
-    const debounced = function(state) {
-        MainSyncStore.enqueueMirror(state)
-            .catch(e => console.warn('⚠️ Error encolando el mirror:', e))
-            .finally(() => {
-                MainSyncStore.flush(_mainSyncGuards()).catch(e =>
-                    console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e)
-                );
-            });
+    const flushOutbox = () => MainSyncStore.flush(_mainSyncGuards()).catch(e => {
+        console.warn('⚠️ Error vaciando la bandeja de pendientes cloud:', e);
+        return false;
+    });
+    const cadence = createMirrorCadence({
+        emit: (snapshot) => MainSyncStore.enqueueMirror(snapshot).then(flushOutbox),
+        onError: (e) => console.warn('⚠️ Error encolando el mirror diferido:', e)
+    });
+
+    const debounced = function(state, options = {}) {
+        // El guard de DataOps va ANTES del gate: una operación destructiva no
+        // puede dejar un trailing que repueble el outbox después de la purga.
+        if (isDataOperationInProgress()) return Promise.resolve(false);
+        return cadence.offer(state, options).catch(e => {
+            console.warn('⚠️ Error encolando el mirror:', e);
+            return false;
+        });
     };
 
-    // 🚿 M10 (histórico) / U8: vacía el outbox de inmediato (pagehide/
-    // visibilitychange). La durabilidad real ya no depende de este flush —
-    // la entrada ya está en IndexedDB desde que se encoló — pero acelera el
-    // drenado en vez de esperar al próximo online/login.
-    debounced.flush = function() {
-        MainSyncStore.flush(_mainSyncGuards()).catch(e =>
-            console.warn('⚠️ Error vaciando la bandeja de pendientes cloud (flush):', e)
-        );
+    debounced.flush = function(state) {
+        if (isDataOperationInProgress()) return Promise.resolve(false);
+        // Mantener el drenado inmediato histórico aunque no haya trailing. Si
+        // sí lo hay, su emit vuelve a drenar DESPUÉS de encolarlo.
+        const draining = flushOutbox();
+        const pending = arguments.length > 0 ? cadence.flush(state) : cadence.flush();
+        return Promise.all([pending, draining]).then(([emitted]) => emitted).catch(e => {
+            console.warn('⚠️ Error vaciando el mirror pendiente:', e);
+            return false;
+        });
     };
+    debounced.discard = () => cadence.discard();
 
     return debounced;
 })();
@@ -558,7 +568,10 @@ let _localDataWipeInProgress = false;
 let _dataOperationDepth = 0;
 
 /** Bloquea todo guardado implícito (debounce, pagehide) durante un borrado local. */
-export function beginLocalDataWipe() { _localDataWipeInProgress = true; }
+export function beginLocalDataWipe() {
+    syncFirebaseMirrorDebounced.discard();
+    _localDataWipeInProgress = true;
+}
 
 /** Restaura el guardado normal — para flujos de borrado/reemplazo que abortan. */
 export function endLocalDataWipe() { _localDataWipeInProgress = false; }
@@ -567,7 +580,10 @@ export function endLocalDataWipe() { _localDataWipeInProgress = false; }
 export function isLocalDataWipeInProgress() { return _localDataWipeInProgress; }
 
 /** Bloquea escrituras cloud implícitas mientras DataOps modifica una fuente completa. */
-export function beginDataOperation() { _dataOperationDepth += 1; }
+export function beginDataOperation() {
+    syncFirebaseMirrorDebounced.discard();
+    _dataOperationDepth += 1;
+}
 
 /** Libera un nivel del guard; el contador tolera operaciones anidadas. */
 export function endDataOperation() { _dataOperationDepth = Math.max(0, _dataOperationDepth - 1); }
@@ -686,17 +702,18 @@ export function flushPendingSave() {
         window._attendanceBatchedSaver.flushNow();
     }
 
-    // M10: vaciar también el mirror a Firestore pendiente (debounce de 2s),
-    // no sólo el guardado local de 300ms. Así el último cambio llega a la nube
-    // aunque la pestaña se cierre dentro de la ventana de debounce.
-    syncFirebaseMirrorDebounced.flush();
-
-    if (!_saveDebounceTimer) return false;
+    if (!_saveDebounceTimer) {
+        syncFirebaseMirrorDebounced.flush();
+        return false;
+    }
     clearTimeout(_saveDebounceTimer);
     _saveDebounceTimer = null;
     const opts = _pendingSaveOptions;
     _pendingSaveOptions = {};
-    _executeSave(opts);
+    // El save aún no ofreció su snapshot a la cadencia. Forzarlo acá garantiza
+    // que pagehide/hidden encole el estado más reciente, no sólo el trailing
+    // anterior.
+    _executeSave({ ...opts, forceMirror: true });
     return true;
 }
 
@@ -835,7 +852,9 @@ async function _executeSave(options = {}) {
             console.warn('⚠️ No se pudo clonar el snapshot para la nube; se sube la referencia viva:', e);
             _mirrorSnapshot = stateManager.getState();
         }
-        _outboxEnqueues.push(MainSyncStore.enqueueMirror(_mirrorSnapshot));
+        _outboxEnqueues.push(syncFirebaseMirrorDebounced(_mirrorSnapshot, {
+            force: options.forceMirror || options.awaitOutboxEnqueue
+        }));
 
         // Judgment Day / Fase 2 U1: las entidades (empleados/puestos/líderes) se
         // encolan APARTE del mirror — mismo snapshot ya clonado (_mirrorSnapshot),
@@ -2004,7 +2023,13 @@ export function mergeEmployees(masterId, duplicateId) {
         // Array.isArray(Set) es false y .length es undefined).
         const _touchedDates = [...touchedDateKeys];
         if (_touchedDates.length > 0) {
-            const savePromise = saveApplicationData({ dateKeys: _touchedDates, immediate: true });
+            // En cuentas legacy (schema < 2) las entidades todavía viajan en el
+            // mirror. Este merge no puede quedar detrás de la cadencia normal.
+            const savePromise = saveApplicationData({
+                dateKeys: _touchedDates,
+                immediate: true,
+                forceMirror: true
+            });
             if (savePromise && typeof savePromise.catch === 'function') {
                 savePromise.catch(e => console.error('Error subiendo asistencia fusionada:', e));
             }
