@@ -885,9 +885,10 @@ class FirebaseService {
                 querySnapshot.forEach(doc => {
                     const dateKey = doc.id;
                     const records = doc.data().records || {};
-                    // Inyectar timestamp de acceso para LRU y normalizar llaves
+                    // Normalizar llaves. Una descarga pasiva NO cuenta como
+                    // acceso del usuario; AttendanceRangeLoader marca sólo los
+                    // rangos solicitados explícitamente.
                     Object.entries(records).forEach(([key, r]) => {
-                        r.lastAccessed = Date.now();
                         // ⚡ FIX: Asegurar clave canónica (id-fecha)
                         const canonicalKey = `${r.employeeId}-${dateKey}`;
                         allAttendance[canonicalKey] = r;
@@ -911,9 +912,8 @@ class FirebaseService {
 
                 if (change.type === "added" || change.type === "modified") {
                     const normalizedRecords = {};
-                    // Inyectar timestamp de acceso para LRU y normalizar llaves
+                    // Normalizar sin alterar lastAccessed (sync pasivo).
                     Object.entries(records).forEach(([key, r]) => {
-                        r.lastAccessed = Date.now();
                         // ⚡ FIX: Asegurar clave canónica (id-fecha)
                         const canonicalKey = `${r.employeeId}-${dateKey}`;
                         normalizedRecords[canonicalKey] = r;
@@ -1052,23 +1052,23 @@ class FirebaseService {
         return true;
     }
 
-    /**
-     * Recupera TODOS los registros de asistencia desde la nube
-     */
-    async getAllAttendance() {
+    /** Recupera un rango inclusivo de asistencia (o todo si no recibe límites). */
+    async getAttendanceRange(startDate, endDate) {
         if (!auth.currentUser) return {};
-        
+
         try {
-            const attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
+            let attendanceRef = collection(db, 'users', auth.currentUser.uid, 'attendance');
+            const constraints = [];
+            if (startDate) constraints.push(where(documentId(), '>=', startDate));
+            if (endDate) constraints.push(where(documentId(), '<=', endDate));
+            if (constraints.length > 0) attendanceRef = query(attendanceRef, ...constraints);
             const querySnapshot = await getDocs(attendanceRef);
-            
+
             const allAttendance = {};
             querySnapshot.forEach(doc => {
                 const dateKey = doc.id;
                 const dayData = doc.data().records || {};
-                // Inyectar timestamp de acceso para LRU y normalizar llaves
                 Object.entries(dayData).forEach(([key, r]) => {
-                    r.lastAccessed = Date.now();
                     const canonicalKey = `${r.employeeId}-${dateKey}`;
                     allAttendance[canonicalKey] = r;
                 });
@@ -1079,6 +1079,11 @@ class FirebaseService {
             console.error('❌ Error recuperando historial completo:', error);
             throw error;
         }
+    }
+
+    /** Recupera TODOS los registros; usado sólo por restore/operaciones de datos. */
+    async getAllAttendance() {
+        return this.getAttendanceRange();
     }
 
     /**

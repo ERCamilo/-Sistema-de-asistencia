@@ -872,6 +872,16 @@ export function togglePositionCollapse(id) {
 
 export async function exportEmployeeReportExcel() {
     const state = getState();
+    try {
+        await context.services.ensureAttendanceRange(
+            getDateKey(parseDate(state.employeeReportStartDate)),
+            getDateKey(parseDate(state.employeeReportEndDate))
+        );
+    } catch (err) {
+        console.error('Failed to load attendance range:', err);
+        window.showNotification?.('No se pudo cargar el período completo. Verifica tu conexión.', 'error');
+        return;
+    }
     const reportData = calculateEmployeeReportData();
     if (reportData.positions.length === 0) {
         if (window.showNotification) window.showNotification(`${ icons.get('info') } No hay datos para exportar`, 'error');

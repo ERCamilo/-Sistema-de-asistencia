@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -1000,7 +1000,8 @@ const moduleContext = {
         attendance: attendanceService,
         storage: storageService,
         data: dataService,
-        chart: chartService
+        chart: chartService,
+        ensureAttendanceRange
     },
     render,
     saveToLocalStorage: saveApplicationData,
@@ -1886,11 +1887,29 @@ window.restoreSnapshot = async (snapshotId) => {
 };
 
 
+async function _ensureSelectedAttendanceRange() {
+    const selected = getDateKey(state.selectedDate);
+    const days = state.viewMode === 'week' ? getWeekDates(parseDate(selected)) : [parseDate(selected)];
+    const startDate = getDateKey(days[0]);
+    const endDate = getDateKey(days[days.length - 1]);
+    const [cachedStart, cachedEnd] = String(state._currentSubRange || '').split('_');
+    if (cachedStart && startDate >= cachedStart && endDate <= cachedEnd) return true;
+
+    try {
+        await ensureAttendanceRange(startDate, endDate);
+        return true;
+    } catch (error) {
+        console.warn('No se pudo cargar el rango histórico solicitado:', error);
+        showNotification('No se pudo cargar el período completo. Se muestran los datos disponibles en este dispositivo.', 'error');
+        return false;
+    }
+}
+
 window.changeDate = async (days) => {
     window.showLoader?.(true);
 
     // Delay de 50ms para asegurar que el navegador pinte el loader antes del bloqueo de JS
-    setTimeout(() => {
+    setTimeout(async () => {
         // Si estamos en vista semanal, cambiar por semanas completas (7 días)
         if (state.viewMode === 'week') {
             state.selectedDate = DateUtils.addDays(state.selectedDate, days * 7);
@@ -1901,6 +1920,7 @@ window.changeDate = async (days) => {
         // ✅ Guardar cambios
         saveApplicationData();
 
+        await _ensureSelectedAttendanceRange();
         // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
         window.updateAttendanceSubscription?.();
 
@@ -1915,13 +1935,14 @@ window.changeDate = async (days) => {
 window.goToToday = () => {
     window.showLoader?.(true);
 
-    setTimeout(() => {
+    setTimeout(async () => {
         state.selectedDate = DateUtils.today();
         state.today = DateUtils.today(); // Actualizar today también
 
         // ✅ Guardar cambios
         saveApplicationData();
 
+        await _ensureSelectedAttendanceRange();
         // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
         window.updateAttendanceSubscription?.();
 
@@ -1978,7 +1999,7 @@ window.changeDatePickerMonth = (delta) => {
     render();
 };
 
-window.selectDate = (isoDate) => {
+window.selectDate = async (isoDate) => {
     // Convertir ISO string a YYYY-MM-DD
     const dateStr = isoDate.split('T')[0];
     state.selectedDate = dateStr;
@@ -1988,6 +2009,7 @@ window.selectDate = (isoDate) => {
     // ✅ Guardar cambios
     saveApplicationData();
 
+    await _ensureSelectedAttendanceRange();
     // ⚡ OPTIMIZACIÓN ZONAL: Actualizar suscripción por rango
     window.updateAttendanceSubscription?.();
 
@@ -6016,6 +6038,7 @@ window.exportExcel = async function () {
     try {
         const startDate = state.dashboardStartDate;
         const endDate = state.dashboardEndDate;
+        await ensureAttendanceRange(getDateKey(startDate), getDateKey(endDate));
         const reportData = calculateReportData(startDate, endDate);
 
         // Crear libro de Excel
@@ -6139,6 +6162,7 @@ window.exportPDF = async function () {
 
         const startDate = state.dashboardStartDate;
         const endDate = state.dashboardEndDate;
+        await ensureAttendanceRange(getDateKey(startDate), getDateKey(endDate));
         const reportData = calculateReportData(startDate, endDate);
 
         // Configuración
@@ -6257,10 +6281,11 @@ window.exportPDF = async function () {
     }
 };
 
-window.exportCSV = function () {
+window.exportCSV = async function () {
     try {
         const startDate = state.dashboardStartDate;
         const endDate = state.dashboardEndDate;
+        await ensureAttendanceRange(getDateKey(startDate), getDateKey(endDate));
         const reportData = calculateReportData(startDate, endDate);
 
         // Crear CSV con múltiples secciones
