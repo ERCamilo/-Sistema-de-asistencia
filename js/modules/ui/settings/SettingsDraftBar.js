@@ -22,7 +22,16 @@
  * — eso ya pasaba antes de esta barra (los drafts viven solo en el DOM). La
  * barra al menos deja de mentir: al reconstruirse el DOM queda limpio y se
  * oculta en el próximo refresh.
+ *
+ * window.render() NUNCA es síncrono: agenda el trabajo real vía
+ * renderOptimizer.scheduleRender (requestAnimationFrame) y RenderManager
+ * emite 'render:complete' en eventBus cuando ese trabajo terminó de verdad.
+ * Por eso la barra se re-evalúa suscribiéndose UNA VEZ a ese evento acá
+ * abajo, en vez de refrescarla "a mano" justo después de llamar a render()
+ * (ese refresco quedaría mirando el DOM viejo, todavía no parcheado).
  */
+
+import { eventBus } from '../../core/Events.js';
 
 export const SETTINGS_DRAFT_BAR_ID = 'settings-draft-bar';
 
@@ -121,6 +130,21 @@ export function refreshSettingsDraftBar(doc = document) {
 }
 
 /**
+ * Oculta la barra de inmediato, sin recalcular el estado sucio. Para casos
+ * donde el draft se descarta ANTES de que exista un render nuevo que
+ * reevaluar (p.ej. el guard de salida: la navegación solo se AGENDA, no
+ * ocurre en el mismo tick) — esperar a 'render:complete' dejaría la barra
+ * flotando sobre una pantalla ya distinta.
+ * @param {Document} [doc]
+ */
+export function hideSettingsDraftBar(doc = document) {
+    const bar = doc.getElementById(SETTINGS_DRAFT_BAR_ID);
+    if (!bar) return;
+    bar.hidden = true;
+    bar.style.display = 'none';
+}
+
+/**
  * Descarta el borrador: re-renderiza (el formulario se reconstruye desde
  * state, la única fuente de verdad) y oculta la barra.
  * @param {object} [args]
@@ -159,23 +183,32 @@ export function guardSettingsDraftOnLeave({ doc = document, showConfirm, onProce
 
     ask({
         title: 'Cambios sin guardar',
-        message: 'Hay cambios en la configuración que todavía no se guardaron. Si salís ahora, se descartan.',
+        message: 'Hay cambios en la configuración que todavía no se guardaron. Si sales ahora, se descartarán.',
         confirmText: 'Salir y descartar',
         cancelText: 'Quedarme',
         type: 'warning',
         onConfirm: () => {
+            // onProceed solo AGENDA la navegación (setTimeout/render async) —
+            // no toca el DOM en este mismo tick. Ocultar la barra ya mismo en
+            // vez de refrescarla contra el DOM viejo (todavía sin navegar).
+            hideSettingsDraftBar(doc);
             onProceed?.();
-            refreshSettingsDraftBar(doc);
         }
     });
     return { asked: true };
 }
+
+// Re-evalúa la barra después de CADA render completado de verdad (ver nota
+// arriba: window.render() nunca es síncrono). Suscripción única a nivel de
+// módulo — barato (isSettingsDraftDirty recorre ~9 getElementById).
+eventBus.on('render:complete', () => refreshSettingsDraftBar(document));
 
 export default {
     SETTINGS_DRAFT_BAR_ID,
     SETTINGS_DRAFT_FIELD_IDS,
     isSettingsDraftDirty,
     refreshSettingsDraftBar,
+    hideSettingsDraftBar,
     discardSettingsDraft,
     guardSettingsDraftOnLeave
 };

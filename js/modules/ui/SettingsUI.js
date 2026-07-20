@@ -26,13 +26,12 @@ const _SETTINGS_ACTION_MAP = {
     'change-settings-tab': (tab) => guardSettingsDraftOnLeave({
         onProceed: () => window.changeSettingsTab?.(tab)
     }),
-    // Tras guardar, el render (síncrono, solo si la validación pasó)
-    // reconstruye el formulario desde state → el refresh oculta la barra de
-    // draft; si la validación falló no hay render y la barra queda visible.
-    'save-settings': () => {
-        window.saveSettings?.();
-        refreshSettingsDraftBar(document);
-    },
+    // Tras guardar, render() reconstruye el formulario desde state y emite
+    // 'render:complete' (async — ver RenderManager.js); SettingsDraftBar.js
+    // está suscrito a ese evento y refresca la barra ahí, así que acá no hace
+    // falta (ni sirve: el DOM todavía está viejo en este mismo tick). Si la
+    // validación falla no hay render, y la barra correctamente queda visible.
+    'save-settings': () => window.saveSettings?.(),
     'discard-settings-draft': () => discardSettingsDraft({}),
     'login-with-google': () => window.loginWithGoogle?.(),
     'logout-firebase': () => window.logoutFirebase?.(),

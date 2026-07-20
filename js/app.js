@@ -5360,14 +5360,11 @@ window.saveSettings = function () {
     const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (state.settings.defaultDeductionPercentage || 2);
     const iconSet = document.getElementById('iconSet')?.value || state.settings.iconSet;
 
-    // Leer toggle legacy
-    const legacyNavigationElement = document.getElementById('legacyNavigation');
-    const legacyNavigation = legacyNavigationElement ? legacyNavigationElement.checked : !!state.settings.legacyNavigation;
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
-    const hideDuplicateAlertsElement = document.getElementById('hideDuplicateAlerts');
-    const hideDuplicateAlerts = hideDuplicateAlertsElement ? hideDuplicateAlertsElement.checked : !!state.settings.hideDuplicateAlerts;
-    const weatherEnabledElement = document.getElementById('weatherEnabled');
-    const weatherEnabled = weatherEnabledElement ? weatherEnabledElement.checked : state.settings.weatherEnabled === true;
+    // legacyNavigation, hideDuplicateAlerts y weatherEnabled son switches
+    // auto-save: ya están comprometidos en state (commitAutoSaveSwitch, ver
+    // convención en SettingsUI.js). NO se leen del DOM como borrador acá.
+    const weatherEnabled = state.settings.weatherEnabled === true;
     const weatherApiKeyElement = document.getElementById('weatherApiKey');
     const weatherApiKey = weatherApiKeyElement ? weatherApiKeyElement.value.trim() : (state.settings.weatherApiKey || '');
     const weatherLocationInputElement = document.getElementById('weatherLocationInput');
@@ -5429,10 +5426,9 @@ window.saveSettings = function () {
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.iconSet = applyIconSet(iconSet);
-    state.settings.legacyNavigation = legacyNavigation;
     state.settings.scrollbarMode = scrollbarMode;
-    state.settings.hideDuplicateAlerts = hideDuplicateAlerts;
-    state.settings.weatherEnabled = weatherEnabled;
+    // legacyNavigation, hideDuplicateAlerts y weatherEnabled NO se reasignan
+    // acá: ya están comprometidos en state por commitAutoSaveSwitch.
 
     // Guardar ubicación y limpiar caché si cambia
     const prevLocRaw = state.settings.weatherLocationRaw || '';
