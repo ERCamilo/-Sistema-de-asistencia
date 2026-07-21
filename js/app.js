@@ -23,6 +23,7 @@ import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
+import { TARGET_SCHEMA_VERSION } from './modules/services/SchemaMigration.js';
 import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, outgoingWatermarkCache, resetOutgoingWatermark } from './modules/services/SyncWatermark.js';
 import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
@@ -7141,7 +7142,7 @@ function _initOutgoingConflictGuard() {
                     // Propagar schemaVersion al state local para que las escrituras
                     // (saveFullState) sepan tomar el camino granular.
                     const effectiveSchemaVersion = loaderResult.migrated
-                        ? 3
+                        ? TARGET_SCHEMA_VERSION
                         : (typeof remoteData.schemaVersion === 'number' ? remoteData.schemaVersion : state.settings.schemaVersion);
                     if (typeof effectiveSchemaVersion === 'number') {
                         state.settings.schemaVersion = effectiveSchemaVersion;

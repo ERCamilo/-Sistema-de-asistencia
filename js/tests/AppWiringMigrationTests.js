@@ -59,6 +59,17 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
         );
     },
 
+    "app.js usa la versión objetivo central al propagar una migración"() {
+        testRunner.assert(
+            /import\s*\{[^}]*TARGET_SCHEMA_VERSION[^}]*\}\s*from\s+['"]\.\/modules\/services\/SchemaMigration\.js['"]/.test(appSource),
+            "app.js debe importar TARGET_SCHEMA_VERSION desde SchemaMigration"
+        );
+        testRunner.assert(
+            /loaderResult\.migrated\s*\?\s*TARGET_SCHEMA_VERSION/.test(appSource),
+            "Una migración debe propagar TARGET_SCHEMA_VERSION, no una versión literal"
+        );
+    },
+
     "el callback de subscribeToChanges es async (porque usa await)"() {
         testRunner.assert(
             /subscribeToChanges\s*\(\s*async\s*\(/.test(appSource),
