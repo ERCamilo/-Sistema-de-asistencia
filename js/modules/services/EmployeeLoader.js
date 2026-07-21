@@ -61,9 +61,9 @@ export async function loadAndMigrateEmployees({
     }
 
     // 2. Cargar desde la fuente correcta. Si acabamos de migrar, "forzamos"
-    //    schemaVersion al objetivo (3) en el payload pasado a los loaders para
+    //    schemaVersion al objetivo vigente en el payload pasado a los loaders para
     //    que decidan usar las subcolecciones sin esperar al próximo fire del
-    //    listener. Como TARGET=3, esto también satisface a empleados (>=2).
+    //    listener. El target vigente también satisface a empleados (>=2).
     const payloadForLoad = result.migrated
         ? { ...remoteData, schemaVersion: TARGET_SCHEMA_VERSION }
         : remoteData;
