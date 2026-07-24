@@ -80,43 +80,43 @@ function LedgerOverview() {
     const closedLoansCount = getClosedLoansCount(state);
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto;">
-            <!-- KPI cards: 2 cols on narrow screens (auto-fit grows on wide) -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
-                ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
-                ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
-                ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
-                ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
-                ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
-            </div>
-
-            <!-- Search + actions -->
-            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                <div style="flex: 1; min-width: 220px;">
-                    <input type="text" autocomplete="off"
-                           placeholder="🔍 Buscar empleado por nombre o número..."
-                           value="${escapeAttr(ledger.search || '')}"
-                           oninput="setLoansSearch(this.value)"
-                           style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+        <div class="loans-overview">
+            <main class="loans-overview__main">
+                <div class="loans-overview__mobile-kpis">
+                    ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
+                    ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
+                    ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
+                    ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
+                    ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
                 </div>
-                <button type="button" data-app-fn="openLoansEmployeePicker"
-                        style="padding: 10px 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
-                    ${icons.get('add', { size: 16 })} Agregar nuevo
-                </button>
-                <div style="font-size: 0.8rem; color: #94a3b8;">
-                    Mostrando ${filtered.length} de ${allWithDebt.length}
-                </div>
-            </div>
 
-            <!-- Employee list -->
-            ${filtered.length === 0 ? `
+                <!-- Search + actions -->
+                <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                    <div style="flex: 1; min-width: 220px;">
+                        <input type="text" autocomplete="off"
+                               placeholder="🔍 Buscar empleado por nombre o número..."
+                               value="${escapeAttr(ledger.search || '')}"
+                               oninput="setLoansSearch(this.value)"
+                               style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+                    </div>
+                    <button type="button" data-app-fn="openLoansEmployeePicker"
+                            style="padding: 10px 16px; background: #f59e0b; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                        ${icons.get('add', { size: 16 })} Agregar nuevo
+                    </button>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">
+                        Mostrando ${filtered.length} de ${allWithDebt.length}
+                    </div>
+                </div>
+
+                <!-- Employee list -->
+                ${filtered.length === 0 ? `
                 <div style="text-align: center; padding: 60px 20px; background: #1e293b; border-radius: 12px; border: 1px solid #334155;">
                     <div style="font-size: 3rem; margin-bottom: 12px; opacity: 0.4;">${icons.get('payroll')}</div>
                     <div style="color: #94a3b8; font-size: 0.95rem;">
                         ${search ? 'No se encontraron empleados que coincidan con la búsqueda' : 'No hay empleados con préstamos activos'}
                     </div>
                 </div>
-            ` : filtered.map(emp => `
+                ` : filtered.map(emp => `
                 <div role="button" tabindex="0"
                      data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
                      style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;"
@@ -139,10 +139,10 @@ function LedgerOverview() {
                         <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(emp.totalDue)}</div>
                     </div>
                 </div>
-            `).join('')}
+                `).join('')}
 
-            <!-- Apartado colapsable: Cuentas Saldadas (Inactivas) -->
-            ${allInactive.length > 0 ? `
+                <!-- Apartado colapsable: Cuentas Saldadas (Inactivas) -->
+                ${allInactive.length > 0 ? `
                 <div style="margin-top: 30px; margin-bottom: 20px;">
                     <button type="button" data-app-fn="toggleInactiveHistory"
                             style="width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; color: #e2e8f0; font-weight: 700; font-size: 0.85rem; cursor: pointer; text-align: left; outline: none; transition: border-color 0.15s;"
@@ -190,7 +190,40 @@ function LedgerOverview() {
                         </div>
                     ` : ''}
                 </div>
-            ` : ''}
+                ` : ''}
+            </main>
+
+            <aside class="loans-overview__summary" aria-label="Resumen de cuentas por cobrar">
+                <div class="loans-overview__summary-header">
+                    <span>Resumen de cartera</span>
+                    <strong>Actualizado al período vigente</strong>
+                </div>
+                <table>
+                    <tbody>
+                        <tr>
+                            <th scope="row">Saldo pendiente<small>Total facturado ${formatCurrency(totalHistoricalDue)}</small></th>
+                            <td>${formatCurrency(totalExposure)}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Total pagado<small>Histórico ${formatCurrency(totalHistoricalPaid)}</small></th>
+                            <td>${formatCurrency(totalPaid)}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Interés activo<small>Histórico ${formatCurrency(totalHistoricalInterest)}</small></th>
+                            <td>${formatCurrency(totalActiveInterest)}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Empleados con deuda<small>${allInactive.length} cuentas saldadas</small></th>
+                            <td>${allWithDebt.length}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Préstamos activos<small>${closedLoansCount} cerrados</small></th>
+                            <td>${totalLoans}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>Este resumen no modifica saldos ni registra movimientos.</p>
+            </aside>
         </div>
     `;
 }

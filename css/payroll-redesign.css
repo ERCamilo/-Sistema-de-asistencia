@@ -1,0 +1,510 @@
+/* Desktop financial workspace: guided payroll and receivables summary. */
+
+.payroll-generator {
+    width: min(1480px, 100%);
+    margin: 0 auto;
+    padding: 20px 20px 120px;
+    color: #f4f7fa;
+}
+
+.payroll-generator__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: flex-end;
+    margin-bottom: 24px;
+}
+
+.payroll-generator__eyebrow {
+    margin: 0 0 6px;
+    color: #4bc5d5 !important;
+    font-size: 0.7rem !important;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.payroll-generator__header h2 {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin: 0;
+    font-size: 1.75rem;
+}
+
+.payroll-generator__header h2 > span:first-child {
+    display: inline-flex;
+    color: #4bc5d5;
+}
+
+.payroll-generator__header p {
+    margin: 7px 0 0;
+    color: #8e99a6;
+    font-size: 0.84rem;
+}
+
+.payroll-generator__period {
+    min-width: 230px;
+    padding: 11px 14px;
+    border: 1px solid #2e3945;
+    border-radius: 9px;
+    background: #151c24;
+}
+
+.payroll-generator__period span,
+.payroll-generator__period strong {
+    display: block;
+}
+
+.payroll-generator__period span {
+    margin-bottom: 3px;
+    color: #778391;
+    font-size: 0.68rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.payroll-generator__period strong {
+    color: #e7edf3;
+    font-size: 0.82rem;
+}
+
+.payroll-guided-layout {
+    display: grid;
+    grid-template-columns: 190px minmax(480px, 1fr) 288px;
+    gap: 18px;
+    align-items: start;
+}
+
+.payroll-guide-steps {
+    display: grid;
+    gap: 7px;
+    position: sticky;
+    top: 16px;
+}
+
+.payroll-guide-step {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    min-height: 62px;
+    padding: 9px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: #818d9a;
+    text-align: left;
+    cursor: pointer;
+}
+
+.payroll-guide-step:hover {
+    background: #151c24;
+    color: #d8e0e7;
+}
+
+.payroll-guide-step.is-active {
+    border-color: #337a85;
+    background: #17262c;
+    color: #f3f7fa;
+}
+
+.payroll-guide-step.is-complete {
+    color: #b9c3cc;
+}
+
+.payroll-guide-step__number {
+    display: inline-flex;
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #34414e;
+    border-radius: 8px;
+    background: #151d26;
+    color: #8c99a6;
+    font-size: 0.72rem;
+    font-weight: 850;
+}
+
+.payroll-guide-step.is-active .payroll-guide-step__number {
+    border-color: #4bc5d5;
+    background: #4bc5d5;
+    color: #091318;
+}
+
+.payroll-guide-step.is-complete .payroll-guide-step__number {
+    border-color: #287a66;
+    background: #18372f;
+    color: #62d2ac;
+}
+
+.payroll-guide-step__copy {
+    min-width: 0;
+}
+
+.payroll-guide-step__copy strong,
+.payroll-guide-step__copy small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.payroll-guide-step__copy strong {
+    font-size: 0.82rem;
+}
+
+.payroll-guide-step__copy small {
+    margin-top: 3px;
+    color: #707c89;
+    font-size: 0.66rem;
+}
+
+.payroll-guide-content {
+    min-width: 0;
+}
+
+.payroll-guide-panel[hidden] {
+    display: none !important;
+}
+
+.payroll-guide-panel__intro {
+    padding: 2px 2px 14px;
+}
+
+.payroll-guide-panel__intro > span {
+    color: #4bc5d5;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.payroll-guide-panel__intro h3 {
+    margin: 5px 0 4px;
+    color: #f2f5f8;
+    font-size: 1.12rem;
+}
+
+.payroll-guide-panel__intro p {
+    margin: 0;
+    color: #7f8b98;
+    font-size: 0.78rem;
+}
+
+.payroll-guide-panel > div[style*="background: #1e293b"] {
+    background: #151d26 !important;
+    border-color: #2d3946 !important;
+    box-shadow: none !important;
+}
+
+.payroll-guide-panel .responsive-table-wrapper {
+    border: 1px solid #2d3946;
+    border-radius: 8px;
+}
+
+.payroll-guide-summary {
+    position: sticky;
+    top: 16px;
+    overflow: hidden;
+    border: 1px solid #303c48;
+    border-radius: 10px;
+    background: #151d26;
+}
+
+.payroll-guide-summary__header {
+    padding: 15px 16px;
+    border-bottom: 1px solid #2c3742;
+}
+
+.payroll-guide-summary__header span,
+.payroll-guide-summary__header strong {
+    display: block;
+}
+
+.payroll-guide-summary__header span {
+    color: #f1f5f8;
+    font-size: 0.88rem;
+    font-weight: 800;
+}
+
+.payroll-guide-summary__header strong {
+    margin-top: 4px;
+    color: #7e8995;
+    font-size: 0.68rem;
+    font-weight: 650;
+}
+
+.payroll-guide-summary__values {
+    margin: 0;
+    padding: 8px 16px;
+}
+
+.payroll-guide-summary__values > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid #29343f;
+}
+
+.payroll-guide-summary__values dt {
+    color: #8d98a4;
+    font-size: 0.76rem;
+}
+
+.payroll-guide-summary__values dd {
+    margin: 0;
+    color: #dce3e9;
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.payroll-guide-summary__values dd.is-positive {
+    color: #68d5ae;
+}
+
+.payroll-guide-summary__values > div.is-total {
+    margin-top: 5px;
+    padding: 13px 0;
+    border-bottom: 0;
+}
+
+.payroll-guide-summary__values .is-total dt {
+    color: #dfe6eb;
+    font-weight: 800;
+}
+
+.payroll-guide-summary__values .is-total dd {
+    color: #4bc5d5;
+    font-size: 1.08rem;
+}
+
+.payroll-guide-summary__validation {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    margin: 0 16px 12px;
+    padding: 9px 10px;
+    border-radius: 7px;
+    font-size: 0.7rem;
+    font-weight: 750;
+}
+
+.payroll-guide-summary__validation.is-valid {
+    border: 1px solid #2c735f;
+    background: #18352e;
+    color: #77d7b6;
+}
+
+.payroll-guide-summary__validation.is-invalid {
+    border: 1px solid #9b454c;
+    background: #3b2025;
+    color: #f5a2a9;
+}
+
+.payroll-guide-summary__next {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: calc(100% - 32px);
+    margin: 0 16px 16px;
+    padding: 11px 13px;
+    border: 1px solid #4bc5d5;
+    border-radius: 7px;
+    background: #4bc5d5;
+    color: #081317;
+    font-weight: 850;
+    cursor: pointer;
+}
+
+.payroll-guide-summary__next:hover {
+    background: #69cedb;
+}
+
+.payroll-guide-summary__hint {
+    margin: 0;
+    padding: 0 16px 16px;
+    color: #7d8995;
+    font-size: 0.7rem;
+    line-height: 1.45;
+}
+
+.loans-overview {
+    display: grid;
+    grid-template-columns: minmax(520px, 1fr) 300px;
+    gap: 18px;
+    width: min(1240px, 100%);
+    margin: 0 auto;
+    align-items: start;
+}
+
+.loans-overview__main {
+    min-width: 0;
+}
+
+.loans-overview__mobile-kpis {
+    display: none;
+}
+
+.loans-overview__summary {
+    position: sticky;
+    top: 16px;
+    overflow: hidden;
+    border: 1px solid #303b47;
+    border-radius: 10px;
+    background: #151d26;
+}
+
+.loans-overview__summary-header {
+    padding: 16px;
+    border-bottom: 1px solid #2c3742;
+}
+
+.loans-overview__summary-header span,
+.loans-overview__summary-header strong {
+    display: block;
+}
+
+.loans-overview__summary-header span {
+    color: #f2f5f8;
+    font-size: 0.9rem;
+    font-weight: 850;
+}
+
+.loans-overview__summary-header strong {
+    margin-top: 4px;
+    color: #74808c;
+    font-size: 0.66rem;
+    font-weight: 650;
+}
+
+.loans-overview__summary table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.loans-overview__summary tr {
+    border-bottom: 1px solid #293440;
+}
+
+.loans-overview__summary th,
+.loans-overview__summary td {
+    padding: 13px 16px;
+}
+
+.loans-overview__summary th {
+    color: #aeb8c2;
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-align: left;
+}
+
+.loans-overview__summary th small {
+    display: block;
+    margin-top: 3px;
+    color: #65717e;
+    font-size: 0.62rem;
+    font-weight: 600;
+}
+
+.loans-overview__summary td {
+    color: #f1f5f8;
+    font-size: 0.86rem;
+    font-weight: 850;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.loans-overview__summary > p {
+    margin: 0;
+    padding: 12px 16px 14px;
+    color: #6f7b87;
+    font-size: 0.64rem;
+    line-height: 1.45;
+}
+
+@media (max-width: 1180px) {
+    .payroll-guided-layout {
+        grid-template-columns: 170px minmax(440px, 1fr) 260px;
+        gap: 12px;
+    }
+
+    .loans-overview {
+        grid-template-columns: minmax(460px, 1fr) 270px;
+    }
+}
+
+@media (max-width: 900px) {
+    .payroll-generator {
+        padding-inline: 12px;
+    }
+
+    .payroll-generator__header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .payroll-generator__period {
+        width: 100%;
+    }
+
+    .payroll-guided-layout {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .payroll-guide-steps {
+        display: flex;
+        position: static;
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    .payroll-guide-step {
+        min-width: 160px;
+    }
+
+    .payroll-guide-content,
+    .payroll-guide-summary {
+        position: static;
+        width: 100%;
+    }
+
+    .loans-overview {
+        display: block;
+    }
+
+    .loans-overview__mobile-kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .loans-overview__summary {
+        display: none;
+    }
+}
+
+@media (max-width: 560px) {
+    .payroll-generator {
+        padding-inline: 0;
+    }
+
+    .payroll-generator__header {
+        padding-inline: 4px;
+    }
+
+    .payroll-guide-step__copy small {
+        display: none;
+    }
+
+    .payroll-guide-step {
+        min-width: 118px;
+        min-height: 52px;
+    }
+}

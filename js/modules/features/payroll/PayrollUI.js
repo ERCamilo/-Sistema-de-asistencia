@@ -30,6 +30,7 @@ let payrollService = null;
 // ============================================
 const _ACTION_MAP = {
     'toggle-step': (step) => window.PayrollUI?.toggleStep?.(step),
+    'set-payroll-guide-step': (step) => window.PayrollUI?.setPayrollGuideStep?.(step),
     'set-export-preset': (preset) => window.PayrollUI?.setExportPreset?.(preset),
     'add-export-deduction': () => window.PayrollUI?.addExportDeduction?.(),
     'remove-export-deduction': (idx) => window.PayrollUI?.removeExportDeduction?.(parseInt(idx, 10)),
@@ -156,18 +157,23 @@ export function changePayrollViewMode(mode) {
  */
 function PayrollGeneratorTab() {
     const state = getState();
+    const guideSteps = ['period', 'adjustments', 'loans', 'review'];
 
     // Inicializar secciones colapsadas y defaults recordados una sola vez por sesión.
     // Guard first: this runs during render, and batchSetState schedules a render
     // when it closes — entering it unconditionally would re-render on every pass.
     const needsInit = state.exportConfig.collapsedSteps === undefined ||
+        !guideSteps.includes(state.exportConfig.payrollGuideStep) ||
         !state.exportConfig.rememberedGlobalsHydrated ||
         !state.exportConfig.periodStart || !state.exportConfig.periodEnd ||
         !state.exportConfig.leaderFilter;
     if (needsInit) {
         stateManager.batchSetState(() => {
+            if (!guideSteps.includes(state.exportConfig.payrollGuideStep)) {
+                state.exportConfig.payrollGuideStep = 'period';
+            }
             if (state.exportConfig.collapsedSteps === undefined) {
-                state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step2c', 'step3'];
+                state.exportConfig.collapsedSteps = ['step2', 'step2b', 'step2c', 'step3'];
             }
             if (!state.exportConfig.rememberedGlobalsHydrated) {
                 const hydrated = hydrateRememberedAdjustments(state.exportConfig, state.settings);
@@ -219,19 +225,66 @@ function PayrollGeneratorTab() {
         
     const leaderFilter = state.exportConfig.leaderFilter || 'all';
     const leaders = state.leaders.filter(l => l.active);
+    const guideStep = guideSteps.includes(state.exportConfig.payrollGuideStep)
+        ? state.exportConfig.payrollGuideStep
+        : 'period';
+    const guideStepIndex = guideSteps.indexOf(guideStep);
+    const nextGuideStep = guideSteps[Math.min(guideStepIndex + 1, guideSteps.length - 1)];
+    const grossAmount = exportData.reduce((sum, item) => sum + (Number(item._brutoOriginal) || 0), 0);
+    const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
+    const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
+    const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
+    const guideItems = [
+        ['period', '01', 'Período', `${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}`],
+        ['adjustments', '02', 'Ajustes', `${formatCurrency(bonusAmount)} en bonos`],
+        ['loans', '03', 'Préstamos', `${loanSummary.selectedCount} seleccionados`],
+        ['review', '04', 'Revisión', `${exportData.length} empleados`]
+    ];
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto; padding: 20px; padding-bottom: 120px;">
+        <div class="payroll-generator">
             <!-- Header -->
-            <div style="margin-bottom: 32px;">
-                <h2 style="margin: 0 0 8px 0; font-size: 1.75rem; display: flex; align-items: center; gap: 12px;">
-                    <span>${icons.get('edit')}</span>
-                    <span class="gradient-text">Nómina</span>
-                </h2>
-                <p style="margin: 0; color: #94a3b8; font-size: 0.875rem;">
-                    Genera archivo JSON con la nómina de empleados para importar en tu sistema de pagos
-                </p>
+            <div class="payroll-generator__header">
+                <div>
+                    <p class="payroll-generator__eyebrow">Proceso de pago</p>
+                    <h2>
+                        <span>${icons.get('payroll')}</span>
+                        <span>Nómina</span>
+                    </h2>
+                    <p>
+                        Prepará el período, revisá los ajustes y validá el total antes de exportar.
+                    </p>
+                </div>
+                <div class="payroll-generator__period">
+                    <span>Período seleccionado</span>
+                    <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
+                </div>
             </div>
+
+            <div class="payroll-guided-layout">
+                <nav class="payroll-guide-steps" aria-label="Pasos de nómina">
+                    ${guideItems.map(([id, number, label, detail], index) => `
+                        <button type="button"
+                                class="payroll-guide-step ${id === guideStep ? 'is-active' : ''} ${index < guideStepIndex ? 'is-complete' : ''}"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${id}"
+                                aria-current="${id === guideStep ? 'step' : 'false'}">
+                            <span class="payroll-guide-step__number">${index < guideStepIndex ? icons.get('check', { size: 15 }) : number}</span>
+                            <span class="payroll-guide-step__copy">
+                                <strong>${label}</strong>
+                                <small>${detail}</small>
+                            </span>
+                        </button>
+                    `).join('')}
+                </nav>
+
+                <main class="payroll-guide-content">
+                    <section class="payroll-guide-panel" ${guideStep === 'period' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <span>Paso 1 de 4</span>
+                            <h3>Definí el período de pago</h3>
+                            <p>Las asistencias y movimientos incluidos se calculan usando estas fechas.</p>
+                        </div>
             
             <!-- Paso 1: Período -->
             <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step1') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
@@ -285,6 +338,14 @@ function PayrollGeneratorTab() {
                 </div>
                 </div>
             </div>
+                    </section>
+
+                    <section class="payroll-guide-panel" ${guideStep === 'adjustments' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <span>Paso 2 de 4</span>
+                            <h3>Revisá descuentos y bonificaciones</h3>
+                            <p>Aplicá ajustes generales o individuales antes de calcular el pago neto.</p>
+                        </div>
             
             <!-- Paso 2: Deducciones Globales -->
             <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
@@ -411,7 +472,15 @@ function PayrollGeneratorTab() {
                 ${generateExportBonusesHTML()}
             </div>
             </div>
-            
+                    </section>
+
+                    <section class="payroll-guide-panel" ${guideStep === 'loans' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <span>Paso 3 de 4</span>
+                            <h3>Seleccioná los préstamos a descontar</h3>
+                            <p>Esta selección es temporal y no registra abonos en las cuentas por cobrar.</p>
+                        </div>
+
             <!-- Paso 2C: Préstamos -->
             <div id="export-loans-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2c') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
                 <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step2c')}" aria-controls="export-loans-content" data-payroll-action="toggle-step" data-value="step2c" style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
@@ -459,6 +528,14 @@ function PayrollGeneratorTab() {
                     }).join('')}
                 </div>
             </div>
+                    </section>
+
+                    <section class="payroll-guide-panel" ${guideStep === 'review' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <span>Paso 4 de 4</span>
+                            <h3>Validá y exportá la nómina</h3>
+                            <p>Comprobá el desglose final antes de generar el archivo para SplitX.</p>
+                        </div>
 
             <!-- Paso 3: Vista Previa -->
             <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
@@ -542,6 +619,39 @@ function PayrollGeneratorTab() {
                         onmouseout="this.style.background='#1e293b'">
                     Descargar para SplitX (.json)
                 </button>
+            </div>
+                    </section>
+                </main>
+
+                <aside class="payroll-guide-summary" aria-label="Resumen de nómina">
+                    <div class="payroll-guide-summary__header">
+                        <span>Resumen en tiempo real</span>
+                        <strong>${exportData.length} empleados</strong>
+                    </div>
+                    <dl class="payroll-guide-summary__values">
+                        <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
+                        <div><dt>Bonificaciones</dt><dd class="is-positive">+${formatCurrency(bonusAmount)}</dd></div>
+                        <div><dt>Deducciones</dt><dd>−${formatCurrency(deductionAmount)}</dd></div>
+                        <div><dt>Préstamos</dt><dd>−${formatCurrency(loanAmount)}</dd></div>
+                        <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
+                    </dl>
+                    <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                        ${hasInvalidLoanRows
+                            ? `${icons.get('alert', { size: 16 })} ${invalidLoanRows.length} pago(s) requieren revisión`
+                            : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
+                    </div>
+                    ${guideStep !== 'review' ? `
+                        <button type="button"
+                                class="payroll-guide-summary__next"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${nextGuideStep}">
+                            Continuar
+                            <span aria-hidden="true">→</span>
+                        </button>
+                    ` : `
+                        <p class="payroll-guide-summary__hint">Usá los botones de exportación después de revisar el detalle.</p>
+                    `}
+                </aside>
             </div>
         </div>
     `;
@@ -1170,4 +1280,20 @@ export function toggleStep(stepId) {
         state.exportConfig.collapsedSteps.push(stepId);
     }
     context.render();
+}
+
+export function setPayrollGuideStep(stepId) {
+    const stepMap = {
+        period: ['step2', 'step2b', 'step2c', 'step3'],
+        adjustments: ['step1', 'step2c', 'step3'],
+        loans: ['step1', 'step2', 'step2b', 'step3'],
+        review: ['step1', 'step2', 'step2b', 'step2c']
+    };
+    if (!Object.hasOwn(stepMap, stepId)) return;
+
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollGuideStep = stepId;
+        state.exportConfig.collapsedSteps = [...stepMap[stepId]];
+    });
 }
