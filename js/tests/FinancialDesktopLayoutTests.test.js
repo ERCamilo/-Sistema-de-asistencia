@@ -74,6 +74,37 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('data-payroll-action="download-export-json"');
     });
 
+    test('mobile summary starts compact and exposes the current payroll totals first', () => {
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const toggle = host.querySelector('.payroll-guide-summary__mobile-toggle');
+
+        expect(toggle).not.toBeNull();
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(toggle.textContent).toContain('1 jul 2026');
+        expect(toggle.textContent).toContain('15 jul 2026');
+        expect(toggle.textContent).toContain('0 empleados');
+        expect(toggle.textContent).toContain('Total neto');
+        expect(toggle.textContent).toContain('$0.00');
+        expect(toggle.textContent).toContain('Listo');
+    });
+
+    test('mobile summary expands without changing payroll values', () => {
+        const deductions = state.exportConfig.deductions;
+        const bonuses = state.exportConfig.bonuses;
+
+        PayrollUI.togglePayrollMobileSummary();
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+
+        expect(state.exportConfig.payrollMobileSummaryExpanded).toBe(true);
+        expect(host.querySelector('.payroll-guide-summary').classList).toContain('is-mobile-expanded');
+        expect(host.querySelector('.payroll-guide-summary__mobile-toggle').getAttribute('aria-expanded')).toBe('true');
+        expect(host.querySelector('.payroll-guide-summary__mobile-toggle').textContent).toContain('Ocultar');
+        expect(state.exportConfig.deductions).toBe(deductions);
+        expect(state.exportConfig.bonuses).toBe(bonuses);
+    });
+
     test('period shortcuts omit rolling and last-payment presets', () => {
         const html = PayrollUI.PayrollTab();
 

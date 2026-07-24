@@ -32,6 +32,7 @@ let payrollService = null;
 const _ACTION_MAP = {
     'toggle-step': (step) => window.PayrollUI?.toggleStep?.(step),
     'set-payroll-guide-step': (step) => window.PayrollUI?.setPayrollGuideStep?.(step),
+    'toggle-payroll-mobile-summary': () => window.PayrollUI?.togglePayrollMobileSummary?.(),
     'toggle-payroll-summary-detail': (kind) => window.PayrollUI?.togglePayrollSummaryDetail?.(kind),
     'set-export-preset': (preset) => window.PayrollUI?.setExportPreset?.(preset),
     'add-export-deduction': () => window.PayrollUI?.addExportDeduction?.(),
@@ -248,12 +249,13 @@ function PayrollGeneratorTab() {
         'Bonificación'
     );
     const expandedSummary = state.exportConfig.payrollSummaryExpanded || {};
+    const mobileSummaryExpanded = Boolean(state.exportConfig.payrollMobileSummaryExpanded);
     const guideItems = [
-        ['period', '1', 'Período', 'Seleccionar rango'],
-        ['deductions', '2', 'Deducciones', `${formatCurrency(deductionAmount)} aplicado`],
-        ['bonuses', '3', 'Bonificaciones', `${formatCurrency(bonusAmount)} agregado`],
-        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`],
-        ['review', '5', 'Vista previa', `${exportData.length} empleados`]
+        ['period', '1', 'Período', 'Seleccionar rango', 'Período'],
+        ['deductions', '2', 'Deducciones', `${formatCurrency(deductionAmount)} aplicado`, 'Deducc.'],
+        ['bonuses', '3', 'Bonificaciones', `${formatCurrency(bonusAmount)} agregado`, 'Bonos'],
+        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
+        ['review', '5', 'Vista previa', `${exportData.length} empleados`, 'Vista']
     ];
 
     return `
@@ -272,14 +274,15 @@ function PayrollGeneratorTab() {
 
             <div class="payroll-guided-layout">
                 <nav class="payroll-guide-steps" aria-label="Pasos de nómina">
-                    ${guideItems.map(([id, number, label, detail], index) => `
+                    ${guideItems.map(([id, number, label, detail, mobileLabel], index) => `
                         <button type="button"
                                 class="payroll-guide-step ${id === guideStep ? 'is-active' : ''} ${index < guideStepIndex ? 'is-complete' : ''}"
                                 data-payroll-action="set-payroll-guide-step"
                                 data-value="${id}"
+                                aria-label="Paso ${number}: ${label}"
                                 aria-current="${id === guideStep ? 'step' : 'false'}">
                             <span class="payroll-guide-step__number">${index < guideStepIndex ? icons.get('check', { size: 15 }) : number}</span>
-                            <span class="payroll-guide-step__copy">
+                            <span class="payroll-guide-step__copy" data-mobile-label="${mobileLabel}">
                                 <small>Paso ${number}</small>
                                 <strong>${label}</strong>
                                 <span>${detail}</span>
@@ -636,13 +639,36 @@ function PayrollGeneratorTab() {
                     </div>
                 </main>
 
-                <aside class="payroll-guide-summary" aria-label="Resumen de nómina">
-                    <div class="payroll-guide-summary__header">
-                        <span>Resumen de nómina</span>
-                        <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
-                    </div>
-                    <dl class="payroll-guide-summary__values">
-                        <div><dt>Empleados</dt><dd>${exportData.length}</dd></div>
+                <aside class="payroll-guide-summary ${mobileSummaryExpanded ? 'is-mobile-expanded' : ''}" aria-label="Resumen de nómina">
+                    <button type="button"
+                            class="payroll-guide-summary__mobile-toggle"
+                            data-payroll-action="toggle-payroll-mobile-summary"
+                            aria-expanded="${mobileSummaryExpanded}"
+                            aria-label="${mobileSummaryExpanded ? 'Ocultar' : 'Mostrar'} resumen completo de nómina">
+                        <span class="payroll-guide-summary__mobile-meta">
+                            <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
+                            <small>${exportData.length} empleados</small>
+                        </span>
+                        <span class="payroll-guide-summary__mobile-total">
+                            <small>Total neto</small>
+                            <strong>${formatCurrency(totalAmount)}</strong>
+                        </span>
+                        <span class="payroll-guide-summary__mobile-state ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                            <i aria-hidden="true"></i>
+                            ${hasInvalidLoanRows ? 'Revisar' : 'Listo'}
+                        </span>
+                        <span class="payroll-guide-summary__mobile-label">
+                            ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
+                            ${icons.get(mobileSummaryExpanded ? 'chevron-up' : 'chevron-down', { size: 15 })}
+                        </span>
+                    </button>
+                    <div class="payroll-guide-summary__details">
+                        <div class="payroll-guide-summary__header">
+                            <span>Resumen de nómina</span>
+                            <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
+                        </div>
+                        <dl class="payroll-guide-summary__values">
+                        <div class="payroll-guide-summary__employee-count"><dt>Empleados</dt><dd>${exportData.length}</dd></div>
                         <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
                         <div class="payroll-guide-summary__expandable">
                             <dt>
@@ -680,13 +706,13 @@ function PayrollGeneratorTab() {
                             <dd class="is-negative">−${formatCurrency(loanAmount)}</dd>
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
-                    </dl>
-                    <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                        </dl>
+                        <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
                         ${hasInvalidLoanRows
                             ? `${icons.get('alert', { size: 16 })} ${invalidLoanRows.length} pago(s) requieren revisión`
                             : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
-                    </div>
-                    <div class="payroll-guide-summary__actions">
+                        </div>
+                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                         <button type="button"
                                 data-payroll-action="copy-export-json"
                                 ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
@@ -697,6 +723,7 @@ function PayrollGeneratorTab() {
                                 ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
                             ${icons.get('download', { size: 15 })} Descargar .json
                         </button>
+                        </div>
                     </div>
                 </aside>
             </div>
@@ -1396,5 +1423,13 @@ export function togglePayrollSummaryDetail(kind) {
             ...expanded,
             [kind]: !expanded[kind]
         };
+    });
+}
+
+export function togglePayrollMobileSummary() {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollMobileSummaryExpanded =
+            !state.exportConfig.payrollMobileSummaryExpanded;
     });
 }

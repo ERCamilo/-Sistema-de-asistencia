@@ -352,6 +352,14 @@
     background: #151d26;
 }
 
+.payroll-guide-summary__mobile-toggle {
+    display: none;
+}
+
+.payroll-guide-summary__details {
+    display: contents;
+}
+
 .payroll-guide-summary__header {
     padding: 16px;
     border-bottom: 1px solid #2c3742;
@@ -692,26 +700,201 @@
 
     .payroll-guided-layout {
         grid-template-areas:
+            "summary"
             "steps"
-            "content"
-            "summary";
+            "content";
         grid-template-columns: minmax(0, 1fr);
     }
 
     .payroll-guide-steps {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 2px;
         width: 100%;
-        overflow-x: auto;
+        padding: 4px;
+        overflow: visible;
     }
 
     .payroll-guide-step {
-        min-width: 160px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+        justify-items: center;
+        min-width: 0;
+        min-height: 58px;
+        padding: 6px 2px;
+        text-align: center;
     }
 
-    .payroll-guide-content,
-    .payroll-guide-summary {
+    .payroll-guide-step__number {
+        width: 22px;
+        height: 22px;
+    }
+
+    .payroll-guide-step__copy strong,
+    .payroll-guide-step__copy small,
+    .payroll-guide-step__copy > span {
+        display: none;
+    }
+
+    .payroll-guide-step__copy::after {
+        display: block;
+        overflow: hidden;
+        color: #aeb7c0;
+        content: attr(data-mobile-label);
+        font-size: 0.56rem;
+        font-weight: 750;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .payroll-guide-step.is-active .payroll-guide-step__copy::after {
+        color: #dff9fc;
+    }
+
+    .payroll-guide-content {
         position: static;
         width: 100%;
+    }
+
+    .payroll-guide-summary {
+        position: sticky;
+        z-index: 18;
+        top: 8px;
+        width: 100%;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+    }
+
+    .payroll-guide-summary.is-mobile-expanded {
+        position: static;
+        box-shadow: none;
+    }
+
+    .payroll-guide-summary__mobile-toggle {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px 12px;
+        width: 100%;
+        padding: 14px 16px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .payroll-guide-summary__mobile-meta,
+    .payroll-guide-summary__mobile-total {
+        display: flex;
+        min-width: 0;
+        align-items: baseline;
+    }
+
+    .payroll-guide-summary__mobile-meta {
+        grid-column: 1 / -1;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #2c3742;
+    }
+
+    .payroll-guide-summary__mobile-meta strong {
+        color: #d9e0e5;
+        font-size: 0.7rem;
+    }
+
+    .payroll-guide-summary__mobile-meta small {
+        color: #8d98a4;
+        font-size: 0.62rem;
+    }
+
+    .payroll-guide-summary__mobile-total {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .payroll-guide-summary__mobile-total small {
+        color: #8d98a4;
+        font-size: 0.62rem;
+    }
+
+    .payroll-guide-summary__mobile-total strong {
+        overflow: hidden;
+        color: #4bc5d5;
+        font-size: 1.25rem;
+        font-variant-numeric: tabular-nums;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .payroll-guide-summary__mobile-state,
+    .payroll-guide-summary__mobile-label {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        justify-content: flex-end;
+        font-size: 0.62rem;
+        font-weight: 750;
+    }
+
+    .payroll-guide-summary__mobile-state {
+        align-self: end;
+    }
+
+    .payroll-guide-summary__mobile-state i {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+    }
+
+    .payroll-guide-summary__mobile-state.is-valid {
+        color: #68d5ae;
+    }
+
+    .payroll-guide-summary__mobile-state.is-invalid {
+        color: #ef7d89;
+    }
+
+    .payroll-guide-summary__mobile-label {
+        grid-column: 1 / -1;
+        padding-top: 4px;
+        border-top: 1px solid #2c3742;
+        color: #9ba6b0;
+    }
+
+    .payroll-guide-summary__details {
+        display: none;
+        border-top: 1px solid #2c3742;
+    }
+
+    .payroll-guide-summary.is-mobile-expanded .payroll-guide-summary__details {
+        display: block;
+    }
+
+    .payroll-guide-summary__header,
+    .payroll-guide-summary__employee-count {
+        display: none !important;
+    }
+
+    .payroll-guide-summary__actions.is-mobile-deferred {
+        display: none;
+    }
+
+    .payroll-guide-navigation {
+        position: sticky;
+        z-index: 20;
+        bottom: var(--bottom-nav-offset, 85px);
+        margin: 18px -12px -12px;
+        padding: 10px 12px;
+        border: 1px solid #303b46;
+        border-radius: 9px;
+        background: #151c22;
+        box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+    }
+
+    .payroll-guide-navigation button {
+        min-width: 112px;
+        min-height: 44px;
     }
 
     .loans-overview {
@@ -739,12 +922,7 @@
         padding-inline: 4px;
     }
 
-    .payroll-guide-step__copy small {
-        display: none;
-    }
-
     .payroll-guide-step {
-        min-width: 118px;
-        min-height: 52px;
+        min-height: 56px;
     }
 }
