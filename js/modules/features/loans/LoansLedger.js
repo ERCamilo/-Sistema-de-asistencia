@@ -84,7 +84,7 @@ function LedgerOverview() {
             <main class="loans-overview__main">
                 <div class="loans-overview__mobile-kpis">
                     ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
-                    ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
+                    ${kpiCard('Total pagado', formatCurrency(totalPaid), 'rgb(16, 185, 115)', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
                     ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
                     ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
                     ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
@@ -149,7 +149,7 @@ function LedgerOverview() {
                             onmouseover="this.style.borderColor='#94a3b8'"
                             onmouseout="this.style.borderColor='#334155'">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="color: #10b981; display: inline-flex; align-items: center;">${icons.get('check', { size: 16 })}</span>
+                            <span style="color: rgb(16, 185, 115); display: inline-flex; align-items: center;">${icons.get('check', { size: 16 })}</span>
                             <span>Historial de cuentas saldadas (${allInactive.length})</span>
                         </div>
                         <span style="font-size: 0.75rem; color: #64748b;">
@@ -167,10 +167,10 @@ function LedgerOverview() {
                                 <div role="button" tabindex="0"
                                      data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
                                      style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px; opacity: 0.8;"
-                                     onmouseover="this.style.borderColor='#10b981'; this.style.opacity='1'"
+                                     onmouseover="this.style.borderColor='rgb(16, 185, 115)'; this.style.opacity='1'"
                                      onmouseout="this.style.borderColor='#334155'; this.style.opacity='0.8'">
                                     <!-- Number avatar -->
-                                    <div style="width: 36px; height: 36px; background: rgba(16,185,129,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #10b981; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
+                                    <div style="width: 36px; height: 36px; background: rgba(16,185,115,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: rgb(16, 185, 115); font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
                                         ${emp.number || '?'}
                                     </div>
                                     <!-- Name + sub-line -->
@@ -182,7 +182,7 @@ function LedgerOverview() {
                                     </div>
                                     <!-- Total paid/due pinned to the right -->
                                     <div style="text-align: right; flex-shrink: 0;">
-                                        <div style="font-size: 0.95rem; font-weight: 800; color: #10b981; line-height: 1.1;">${formatCurrency(emp.totalPaid)}</div>
+                                        <div style="font-size: 0.95rem; font-weight: 800; color: rgb(16, 185, 115); line-height: 1.1;">${formatCurrency(emp.totalPaid)}</div>
                                         <div style="font-size: 0.6rem; color: #64748b; text-transform: uppercase;">recuperado</div>
                                     </div>
                                 </div>
@@ -264,6 +264,9 @@ function EmployeeLoansDetail(empId) {
     const paid = allLoans.filter(l => l.status === LOAN_STATUS.PAID);
     const writtenOff = allLoans.filter(l => l.status === LOAN_STATUS.WRITTEN_OFF);
     const totalBalance = active.reduce((s, l) => s + getBalance(l), 0);
+    const employeeNameParts = String(emp.name || '').trim().split(/\s+/).filter(Boolean);
+    const employeeFirstName = employeeNameParts.shift() || 'Sin nombre';
+    const employeeRemainingName = employeeNameParts.join(' ');
 
     const ledger = state.loansLedger || {};
     const showAddForm = !!ledger.showAddForm;
@@ -277,7 +280,7 @@ function EmployeeLoansDetail(empId) {
         <div class="loans-employee-detail" style="max-width: 1000px; margin: 0 auto;">
             <!-- Header with back button -->
             <div class="loans-detail-header" style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 12px;">
+                <div class="loans-detail-header__identity" style="display: flex; align-items: center; gap: 12px;">
                     <button type="button"
                             class="loans-detail-back"
                             data-app-fn="clearLoansEmployee"
@@ -287,12 +290,15 @@ function EmployeeLoansDetail(empId) {
                             <path d="m12 19-7-7 7-7"></path>
                         </svg>
                     </button>
-                    <div>
-                        <div style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">${escapeHTML(emp.name)}</div>
-                        <div style="color: #94a3b8; font-size: 0.8rem;">#${emp.number}</div>
+                    <div class="loans-detail-header__employee">
+                        <div class="loans-detail-header__name" style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">
+                            <span class="loans-detail-header__name-line">${escapeHTML(employeeFirstName)}</span>
+                            ${employeeRemainingName ? `<span class="loans-detail-header__name-line">${escapeHTML(employeeRemainingName)}</span>` : ''}
+                        </div>
+                        <div class="loans-detail-header__number" style="color: #94a3b8; font-size: 0.8rem;">#${emp.number}</div>
                     </div>
                 </div>
-                <div style="text-align: right;">
+                <div class="loans-detail-header__balance" style="text-align: right;">
                     <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo pendiente</div>
                     <div style="font-size: 1.5rem; font-weight: 900; color: #f59e0b;">${formatCurrency(totalBalance)}</div>
                 </div>
@@ -321,7 +327,7 @@ function EmployeeLoansDetail(empId) {
                                 `).join('')}
                             </div>
                             <button type="button" data-app-fn="resolveDupKeepBoth" data-arg="${escapeAttr(c.a.id)}" data-arg2="${escapeAttr(c.b.id)}"
-                                    style="margin-top: 8px; width: 100%; padding: 6px 10px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.5); color: #6ee7b7; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;">
+                                    style="margin-top: 8px; width: 100%; padding: 6px 10px; background: rgba(16,185,115,0.15); border: 1px solid rgba(16,185,115,0.5); color: #6ee7b7; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;">
                                 ✓ Son préstamos distintos — conservar ambos
                             </button>
                         </div>
@@ -347,7 +353,7 @@ function EmployeeLoansDetail(empId) {
             <!-- Paid loans -->
             ${paid.length > 0 ? `
                 <details style="margin-top: 20px;">
-                    <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0;">
+                    <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 700; color: rgb(16, 185, 115); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0;">
                         Saldados (${paid.length}) ▾
                     </summary>
                     ${paid.map(loan => LoanCard(loan)).join('')}
@@ -419,7 +425,7 @@ function LoanCard(loan) {
     const statusBadge = isActive
         ? `<span style="background: #f59e0b; color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ACTIVO</span>`
         : loan.status === LOAN_STATUS.PAID
-            ? `<span style="background: #10b981; color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">SALDADO</span>`
+            ? `<span style="background: rgb(16, 185, 115); color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">SALDADO</span>`
             : `<span style="background: #64748b; color: #fff; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ANULADO</span>`;
 
     return `

@@ -326,16 +326,16 @@ function PayrollGeneratorTab() {
                         </div>
                     </div>
                 
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button type="button" data-payroll-action="set-export-preset" data-value="thisMonth" 
+                <div class="payroll-period-presets" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="thisMonth"
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'thisMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Este mes
                     </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="lastMonth" 
+                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="lastMonth"
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'lastMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Mes anterior
                     </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="payPeriod" 
+                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="payPeriod"
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                         ${icons.get('calendar', { size: 14 })} Período Actual
                     </button>

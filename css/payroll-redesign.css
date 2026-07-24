@@ -176,6 +176,13 @@
     margin-top: 16px;
 }
 
+.payroll-period-preset {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
 .payroll-guide-panel .responsive-table-wrapper {
     border: 1px solid #2d3946;
     border-radius: 8px;
@@ -647,6 +654,28 @@
     outline-offset: 3px;
 }
 
+.loans-detail-header__identity {
+    min-width: 0;
+}
+
+.loans-detail-header__employee {
+    min-width: 0;
+}
+
+.loans-detail-header__name {
+    display: flex;
+    gap: 0.25em;
+}
+
+.loans-detail-header__name-line {
+    min-width: 0;
+}
+
+.loans-detail-header__balance {
+    margin-left: auto;
+    flex: 0 0 auto;
+}
+
 .loan-card__metrics {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -674,7 +703,7 @@
 }
 
 .loan-card__metric-value--paid {
-    color: #10b981;
+    color: rgb(16, 185, 115);
 }
 
 .loan-card__metric-value--pending {
@@ -798,7 +827,7 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #10b981;
+    background: rgb(16, 185, 115);
 }
 
 .loan-card__activity-row--refinancing .loan-card__activity-marker {
@@ -817,7 +846,7 @@
 }
 
 .loan-card__activity-copy strong {
-    color: #10b981;
+    color: rgb(16, 185, 115);
     font-size: 0.78rem;
 }
 
@@ -870,9 +899,10 @@
 
 .loan-card__action--payment {
     flex: 1 1 auto;
-    border: 1px solid #10b981;
-    background: #047857;
+    border: 1px solid rgb(16, 185, 115);
+    background: rgb(16, 185, 115);
     color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
 }
 
 .loan-card__desktop-actions {
@@ -960,8 +990,8 @@
 }
 
 .loan-operation-form--payment {
-    border: 1px solid rgba(16, 185, 129, 0.42);
-    background: rgba(5, 150, 105, 0.08);
+    border: 1px solid rgba(16, 185, 115, 0.42);
+    background: rgba(16, 185, 115, 0.08);
 }
 
 .loan-operation-form--refinance {
@@ -1000,16 +1030,17 @@
 
 .loan-payment-form__action--save {
     flex: 1 1 auto;
-    border: 1px solid #10b981;
-    background: #047857;
+    border: 1px solid rgb(16, 185, 115);
+    background: rgb(16, 185, 115);
     color: #fff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
 }
 
 .loan-payment-form__action--total {
     flex: 0 1 104px;
-    border: 1px solid #10b981;
+    border: 1px solid rgb(16, 185, 115);
     background: transparent;
-    color: #6ee7b7;
+    color: rgb(16, 185, 115);
 }
 
 .loan-payment-form__action--cancel {
@@ -1372,7 +1403,61 @@
     }
 
     .loans-detail-header {
-        align-items: flex-start !important;
+        align-items: center !important;
+        flex-wrap: nowrap !important;
+        padding: 12px !important;
+    }
+
+    .loans-detail-header__identity {
+        flex: 1 1 auto;
+        gap: 9px !important;
+        overflow: hidden;
+    }
+
+    .loans-detail-header__name {
+        max-width: 112px;
+        flex-direction: column;
+        gap: 0;
+        font-size: 0.92rem !important;
+        line-height: 1.05;
+    }
+
+    .loans-detail-header__name-line {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .loans-detail-header__balance {
+        min-width: 82px;
+        margin-left: auto;
+        text-align: right !important;
+    }
+
+    .loans-detail-header__balance > div:first-child {
+        font-size: 0.58rem !important;
+    }
+
+    .loans-detail-header__balance > div:last-child {
+        font-size: 1.12rem !important;
+    }
+
+    .payroll-period-presets {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px !important;
+        width: 100%;
+    }
+
+    .payroll-period-preset {
+        width: 100%;
+        min-width: 0;
+        min-height: 40px;
+        padding: 6px 4px !important;
+        font-size: 0.68rem !important;
+        line-height: 1.15;
+        text-align: center;
+        white-space: normal;
     }
 
     .loan-card {
@@ -1418,7 +1503,7 @@
     }
 
     .loan-card__pending strong.loan-card__pending--paid {
-        color: #10b981;
+        color: rgb(16, 185, 115);
     }
 
     .loan-card__summary-secondary {
@@ -1440,7 +1525,7 @@
     }
 
     .loan-card__summary-secondary .loan-card__summary-paid {
-        color: #10b981;
+        color: rgb(16, 185, 115);
     }
 
     .loan-card__metrics--breakdown {

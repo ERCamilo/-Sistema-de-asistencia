@@ -74,6 +74,18 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('data-payroll-action="download-export-json"');
     });
 
+    test('period presets share one responsive alignment row', () => {
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const presets = host.querySelector('.payroll-period-presets');
+
+        expect(presets).not.toBeNull();
+        expect(presets.querySelectorAll('.payroll-period-preset')).toHaveLength(3);
+        expect(presets.textContent).toContain('Este mes');
+        expect(presets.textContent).toContain('Mes anterior');
+        expect(presets.textContent).toContain('Período Actual');
+    });
+
     test('mobile summary starts compact and exposes the current payroll totals first', () => {
         const host = document.createElement('div');
         host.innerHTML = PayrollUI.PayrollTab();

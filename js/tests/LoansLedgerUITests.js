@@ -119,6 +119,11 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "el detalle financiero queda disponible bajo demanda");
         testRunner.assert(html.includes('class=\"loans-detail-back\"'),
             "el regreso usa el nuevo botón circular");
+        testRunner.assert(html.includes('class=\"loans-detail-header__balance\"'),
+            "el saldo tiene un bloque propio para permanecer a la derecha");
+        testRunner.assert(
+            (html.match(/loans-detail-header__name-line/g) || []).length >= 2,
+            "el nombre puede dividirse verticalmente en móvil");
         testRunner.assert(html.includes('class=\"loans-detail-back__icon\"'),
             "el regreso usa un SVG propio, centrado y consistente");
         testRunner.assert(html.includes('d=\"M19 12H5\"'),
