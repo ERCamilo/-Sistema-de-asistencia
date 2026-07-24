@@ -119,8 +119,10 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "el detalle financiero queda disponible bajo demanda");
         testRunner.assert(html.includes('class=\"loans-detail-back\"'),
             "el regreso usa el nuevo botón circular");
-        testRunner.assert(html.includes('←'),
-            "el regreso usa una flecha con asta, no un chevrón");
+        testRunner.assert(html.includes('class=\"loans-detail-back__icon\"'),
+            "el regreso usa un SVG propio, centrado y consistente");
+        testRunner.assert(html.includes('d=\"M19 12H5\"'),
+            "la flecha conserva un asta visible, no un chevrón");
     },
 
     "el formulario aclara que pagar el saldo completo liquida el préstamo"() {

@@ -282,7 +282,10 @@ function EmployeeLoansDetail(empId) {
                             class="loans-detail-back"
                             data-app-fn="clearLoansEmployee"
                             aria-label="Volver a cuentas por cobrar">
-                        ${icons.get('arrow-left', { size: 21 })}
+                        <svg class="loans-detail-back__icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M19 12H5"></path>
+                            <path d="m12 19-7-7 7-7"></path>
+                        </svg>
                     </button>
                     <div>
                         <div style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">${escapeHTML(emp.name)}</div>

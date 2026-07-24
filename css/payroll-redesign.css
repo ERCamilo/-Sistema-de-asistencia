@@ -603,25 +603,43 @@
 
 .loans-detail-back {
     display: inline-flex;
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
-    min-height: 44px;
-    max-width: 44px;
-    max-height: 44px;
-    flex: 0 0 44px;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    max-width: 46px;
+    max-height: 46px;
+    flex: 0 0 46px;
     align-items: center;
     justify-content: center;
     padding: 0;
-    border: 0;
+    border: 1px solid #fbbf24;
     border-radius: 999px;
     background: #f59e0b;
     color: #0b0f14;
+    box-shadow: 0 5px 14px rgba(245, 158, 11, 0.18);
     cursor: pointer;
+    transition: background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.loans-detail-back__icon {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.25;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .loans-detail-back:hover {
     background: #fbbf24;
+    box-shadow: 0 6px 18px rgba(245, 158, 11, 0.28);
+    transform: translateX(-1px);
+}
+
+.loans-detail-back:active {
+    transform: translateX(-1px) scale(0.97);
 }
 
 .loans-detail-back:focus-visible {
@@ -853,8 +871,8 @@
 .loan-card__action--payment {
     flex: 1 1 auto;
     border: 1px solid #10b981;
-    background: #10b981;
-    color: #071510;
+    background: #047857;
+    color: #fff;
 }
 
 .loan-card__desktop-actions {
@@ -983,8 +1001,8 @@
 .loan-payment-form__action--save {
     flex: 1 1 auto;
     border: 1px solid #10b981;
-    background: #10b981;
-    color: #071510;
+    background: #047857;
+    color: #fff;
 }
 
 .loan-payment-form__action--total {
