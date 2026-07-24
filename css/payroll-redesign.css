@@ -629,6 +629,57 @@
     outline-offset: 3px;
 }
 
+.loan-card__history {
+    margin-bottom: 12px;
+}
+
+.loan-card__history > summary {
+    display: flex;
+    min-height: 30px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 3px;
+    list-style: none;
+    cursor: pointer;
+}
+
+.loan-card__history > summary::-webkit-details-marker {
+    display: none;
+}
+
+.loan-card__history-title {
+    color: #94a3b8;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.loan-card__history--refinancings .loan-card__history-title {
+    color: #d8b4fe;
+}
+
+.loan-card__history-meta {
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.loan-card__history-chevron {
+    display: inline-flex;
+    margin-left: auto;
+    color: #64748b;
+    transition: transform 160ms ease;
+}
+
+.loan-card__history[open] .loan-card__history-chevron {
+    transform: rotate(180deg);
+}
+
+.loan-card__history-body {
+    padding-top: 4px;
+}
+
 .loan-card__actions {
     display: flex;
     gap: 8px;

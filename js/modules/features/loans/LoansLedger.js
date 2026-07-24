@@ -387,10 +387,6 @@ function LoanCard(loan) {
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
 
-    const refinBadge = refinCount > 0
-        ? `<span title="${refinancings.map(r => `${formatDateShort(r.date)}: +${formatCurrency(r.interestAmount)}`).join(' | ')}" style="background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.6); color: #d8b4fe; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">♻️ Refinanciado ${refinCount}×</span>`
-        : '';
-
     // Fase 2 U4: badge "pendiente de subir" — el préstamo tiene cambios con
     // updatedAt POSTERIOR a la última subida de entidades confirmada
     // (EntitiesSyncStamp). Solo con sesión: sin cuenta conectada, "pendiente
@@ -424,7 +420,6 @@ function LoanCard(loan) {
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
                     ${statusBadge}
-                    ${refinBadge}
                     ${pendingUploadBadge}
                 </div>
             </div>
@@ -459,41 +454,52 @@ function LoanCard(loan) {
 
             <!-- Payments history -->
             ${visiblePayments.length > 0 ? `
-                <div style="margin-bottom: 12px;">
-                    <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Abonos</div>
-                    ${visiblePayments.slice().reverse().map(p => `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #10b981; font-weight: 700;">+${formatCurrency(p.amount)}</span>
-                                <span style="color: #94a3b8;">${formatDateShort(p.date)}</span>
-                                ${p.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(p.note)}"</span>` : ''}
+                <details class="loan-card__history loan-card__history--payments">
+                    <summary>
+                        <span class="loan-card__history-title">Abonos</span>
+                        <span class="loan-card__history-meta">${formatCurrency(paid)}</span>
+                        <span class="loan-card__history-chevron" aria-hidden="true">${icons.get('chevron-down', { size: 14 })}</span>
+                    </summary>
+                    <div class="loan-card__history-body">
+                        ${visiblePayments.slice().reverse().map(p => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="color: #10b981; font-weight: 700;">+${formatCurrency(p.amount)}</span>
+                                    <span style="color: #94a3b8;">${formatDateShort(p.date)}</span>
+                                    ${p.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(p.note)}"</span>` : ''}
+                                </div>
+                                ${(isActive || isPaid) ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
+                                                      style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
+                                                      title="${isPaid ? 'Anular este abono (reabre el préstamo)' : 'Anular este abono'}">✕</button>` : ''}
                             </div>
-                            ${(isActive || isPaid) ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
-                                                  style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
-                                                  title="${isPaid ? 'Anular este abono (reabre el préstamo)' : 'Anular este abono'}">✕</button>` : ''}
-                        </div>
-                    `).join('')}
-                </div>
+                        `).join('')}
+                    </div>
+                </details>
             ` : ''}
 
             <!-- Refinancing history -->
             ${refinancings.length > 0 ? `
-                <div style="margin-bottom: 12px;">
-                    <div style="font-size: 0.7rem; color: #d8b4fe; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">♻️ Refinanciamientos</div>
-                    ${refinancings.slice().reverse().map(r => `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem; border-left: 3px solid #a855f7;">
-                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                <span style="color: #d8b4fe; font-weight: 700;">+${formatCurrency(r.interestAmount)}</span>
-                                <span style="color: #94a3b8;">${formatDateShort(r.date)}</span>
-                                <span style="color: #64748b; font-size: 0.72rem;">${r.interestRate}% sobre ${r.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(r.baseAmount)})</span>
-                                ${r.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(r.note)}"</span>` : ''}
+                <details class="loan-card__history loan-card__history--refinancings">
+                    <summary>
+                        <span class="loan-card__history-title">Refinanciamientos × ${refinCount}</span>
+                        <span class="loan-card__history-chevron" aria-hidden="true">${icons.get('chevron-down', { size: 14 })}</span>
+                    </summary>
+                    <div class="loan-card__history-body">
+                        ${refinancings.slice().reverse().map(r => `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem; border-left: 3px solid #a855f7;">
+                                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                    <span style="color: #d8b4fe; font-weight: 700;">+${formatCurrency(r.interestAmount)}</span>
+                                    <span style="color: #94a3b8;">${formatDateShort(r.date)}</span>
+                                    <span style="color: #64748b; font-size: 0.72rem;">${r.interestRate}% sobre ${r.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(r.baseAmount)})</span>
+                                    ${r.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(r.note)}"</span>` : ''}
+                                </div>
+                                ${isActive ? `<button type="button" data-app-fn="voidRefinanceHandler" data-arg="${loan.id}" data-arg2="${r.id}"
+                                                      style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
+                                                      title="Anular este refinanciamiento">✕</button>` : ''}
                             </div>
-                            ${isActive ? `<button type="button" data-app-fn="voidRefinanceHandler" data-arg="${loan.id}" data-arg2="${r.id}"
-                                                  style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
-                                                  title="Anular este refinanciamiento">✕</button>` : ''}
-                        </div>
-                    `).join('')}
-                </div>
+                        `).join('')}
+                    </div>
+                </details>
             ` : ''}
 
             <!-- Payment form -->
@@ -503,7 +509,7 @@ function LoanCard(loan) {
             ${isActive && showRefin ? RefinanceForm(loan, balance) : ''}
 
             <!-- Actions -->
-            ${isActive && !showPay ? `
+            ${isActive && !showPay && !showRefin ? `
                 <div class="loan-card__actions">
                     <button type="button"
                             class="loan-card__action loan-card__action--payment"

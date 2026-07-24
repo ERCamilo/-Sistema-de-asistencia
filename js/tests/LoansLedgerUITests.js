@@ -130,6 +130,67 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "no ofrece refinanciar dentro del contexto de pago");
         testRunner.assert(!html.includes('data-app-fn=\"writeOffLoanWithConfirm\"'),
             "no ofrece anular dentro del contexto de pago");
+    },
+
+    "el formulario de refinanciamiento oculta las demás acciones"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 10, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showRefinanceFormForLoan: 'L1',
+            refinanceDraft: { basis: 'balance', interestRate: 5, note: '' }
+        };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('Aplicar refinanciamiento'),
+            "muestra el formulario de refinanciamiento");
+        testRunner.assert(!html.includes('class=\"loan-card__actions\"'),
+            "oculta las acciones externas mientras se refinancia");
+        testRunner.assert(!html.includes('data-app-fn=\"togglePaymentForm\"'),
+            "no ofrece realizar un pago dentro del contexto de refinanciamiento");
+        testRunner.assert(!html.includes('data-app-fn=\"writeOffLoanWithConfirm\"'),
+            "no ofrece anular dentro del contexto de refinanciamiento");
+    },
+
+    "los abonos y refinanciamientos aparecen resumidos y colapsados"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 2000, interestRate: 5, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [],
+            payments: [
+                { id: 'P1', amount: 200, date: '2026-01-10', voided: false },
+                { id: 'P2', amount: 300, date: '2026-01-20', voided: false }
+            ],
+            refinancings: [
+                { id: 'R1', date: '2026-02-01', basis: 'balance', baseAmount: 2000, interestRate: 5, interestAmount: 100, voided: false },
+                { id: 'R2', date: '2026-03-01', basis: 'principal', baseAmount: 2000, interestRate: 5, interestAmount: 100, voided: false }
+            ]
+        }];
+        state.loansLedger = { selectedEmployeeId: 'e1' };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        const paymentsHistory = host.querySelector('.loan-card__history--payments');
+        const refinancingsHistory = host.querySelector('.loan-card__history--refinancings');
+
+        testRunner.assert(paymentsHistory && !paymentsHistory.open,
+            "el historial de abonos inicia colapsado");
+        testRunner.assert(
+            paymentsHistory?.querySelector('.loan-card__history-meta')?.textContent.trim() === '$500.00',
+            "el resumen de abonos muestra el total pagado");
+        testRunner.assert(refinancingsHistory && !refinancingsHistory.open,
+            "el historial de refinanciamientos inicia colapsado");
+        testRunner.assert(
+            refinancingsHistory?.querySelector('.loan-card__history-title')?.textContent.trim() === 'Refinanciamientos × 2',
+            "el encabezado indica cuántas veces se refinanció");
+        testRunner.assert(!html.includes('Refinanciado 2×'),
+            "el contador deja de duplicarse como etiqueta superior");
     }
 });
 
