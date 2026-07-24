@@ -48,7 +48,7 @@ describe('Financial desktop layouts', () => {
         resetFinancialState();
     });
 
-    test('payroll renders the horizontal four-step guide and export summary', () => {
+    test('payroll renders the horizontal five-step guide and export summary', () => {
         const html = PayrollUI.PayrollTab();
 
         expect(html).toContain('class="payroll-guided-layout"');
@@ -56,6 +56,7 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('data-value="period"');
         expect(html).toContain('data-value="deductions"');
         expect(html).toContain('data-value="bonuses"');
+        expect(html).toContain('data-value="loans"');
         expect(html).toContain('data-value="review"');
         expect(html).toContain('aria-label="Resumen de nómina"');
         expect(html).toContain('Total neto');
@@ -71,12 +72,32 @@ describe('Financial desktop layouts', () => {
 
         expect(state.exportConfig.payrollGuideStep).toBe('deductions');
         expect(state.exportConfig.collapsedSteps).not.toContain('step2');
-        expect(state.exportConfig.collapsedSteps).not.toContain('step2c');
+        expect(state.exportConfig.collapsedSteps).toContain('step2c');
         expect(state.exportConfig.deductions).toBe(deductions);
         expect(state.exportConfig.bonuses).toBe(bonuses);
         expect(PayrollUI.PayrollTab()).toMatch(
             /class="payroll-guide-step is-active [^"]*"[\s\S]{0,180}data-value="deductions"/
         );
+    });
+
+    test('loans are a dedicated fourth step', () => {
+        PayrollUI.setPayrollGuideStep('loans');
+
+        expect(state.exportConfig.payrollGuideStep).toBe('loans');
+        expect(state.exportConfig.collapsedSteps).not.toContain('step2c');
+        expect(PayrollUI.PayrollTab()).toMatch(
+            /class="payroll-guide-step is-active [^"]*"[\s\S]{0,180}data-value="loans"/
+        );
+    });
+
+    test('bonus and deduction detail rows expand independently', () => {
+        PayrollUI.togglePayrollSummaryDetail('bonuses');
+        const html = PayrollUI.PayrollTab();
+
+        expect(state.exportConfig.payrollSummaryExpanded.bonuses).toBe(true);
+        expect(html).toContain('aria-label="Ocultar detalle de bonificaciones"');
+        expect(html).toContain('payroll-summary-detail--bonuses');
+        expect(html).toContain('Interés $0.00');
     });
 
     test('review table keeps the compact five-column reference layout', () => {
@@ -87,7 +108,7 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers).toEqual(['EMPLEADO', 'BRUTO', 'BONIFIC.', 'DEDUCC.', 'NETO']);
+        expect(headers).toEqual(['EMPLEADO', 'BRUTO', 'BONIFIC.', 'DESCUENTOS', 'NETO']);
     });
 
     test('receivables renders a desktop table and keeps compact mobile indicators', () => {

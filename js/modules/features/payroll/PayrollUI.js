@@ -16,6 +16,7 @@ import {
     toSplitXRows
 } from './PayrollLoans.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
+import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
     hydrateRememberedAdjustments,
     summarizeGlobalAdjustments,
@@ -31,6 +32,7 @@ let payrollService = null;
 const _ACTION_MAP = {
     'toggle-step': (step) => window.PayrollUI?.toggleStep?.(step),
     'set-payroll-guide-step': (step) => window.PayrollUI?.setPayrollGuideStep?.(step),
+    'toggle-payroll-summary-detail': (kind) => window.PayrollUI?.togglePayrollSummaryDetail?.(kind),
     'set-export-preset': (preset) => window.PayrollUI?.setExportPreset?.(preset),
     'add-export-deduction': () => window.PayrollUI?.addExportDeduction?.(),
     'remove-export-deduction': (idx) => window.PayrollUI?.removeExportDeduction?.(parseInt(idx, 10)),
@@ -157,7 +159,7 @@ export function changePayrollViewMode(mode) {
  */
 function PayrollGeneratorTab() {
     const state = getState();
-    const guideSteps = ['period', 'deductions', 'bonuses', 'review'];
+    const guideSteps = ['period', 'deductions', 'bonuses', 'loans', 'review'];
 
     // Inicializar secciones colapsadas y defaults recordados una sola vez por sesión.
     // Guard first: this runs during render, and batchSetState schedules a render
@@ -235,11 +237,23 @@ function PayrollGeneratorTab() {
     const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
+    const deductionDetails = summarizeAdjustmentDetails(
+        state.exportConfig.deductions,
+        exportData,
+        'Deducción'
+    );
+    const bonusDetails = summarizeAdjustmentDetails(
+        state.exportConfig.bonuses,
+        exportData,
+        'Bonificación'
+    );
+    const expandedSummary = state.exportConfig.payrollSummaryExpanded || {};
     const guideItems = [
         ['period', '1', 'Período', 'Seleccionar rango'],
-        ['deductions', '2', 'Deducciones', `${loanSummary.selectedCount} préstamos incluidos`],
+        ['deductions', '2', 'Deducciones', `${formatCurrency(deductionAmount)} aplicado`],
         ['bonuses', '3', 'Bonificaciones', `${formatCurrency(bonusAmount)} agregado`],
-        ['review', '4', 'Vista previa', `${exportData.length} empleados`]
+        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`],
+        ['review', '5', 'Vista previa', `${exportData.length} empleados`]
     ];
 
     return `
@@ -475,7 +489,7 @@ function PayrollGeneratorTab() {
             </div>
                     </section>
 
-                    <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'deductions' ? '' : 'hidden'}>
+                    <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'loans' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
                             <h3>Préstamos del período</h3>
                             <p>Esta selección es temporal y no registra abonos en las cuentas por cobrar.</p>
@@ -572,7 +586,7 @@ function PayrollGeneratorTab() {
                                 <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">EMPLEADO</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BRUTO</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BONIFIC.</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DEDUCC.</th>
+                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DESCUENTOS</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NETO</th>
                             </tr>
                         </thead>
@@ -627,9 +641,41 @@ function PayrollGeneratorTab() {
                     <dl class="payroll-guide-summary__values">
                         <div><dt>Empleados</dt><dd>${exportData.length}</dd></div>
                         <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
-                        <div><dt>Bonificaciones</dt><dd class="is-positive">+${formatCurrency(bonusAmount)}</dd></div>
-                        <div><dt>Deducciones</dt><dd>−${formatCurrency(deductionAmount)}</dd></div>
-                        <div><dt>Préstamos</dt><dd>−${formatCurrency(loanAmount)}</dd></div>
+                        <div class="payroll-guide-summary__expandable">
+                            <dt>
+                                <button type="button"
+                                        class="payroll-guide-summary__toggle"
+                                        data-payroll-action="toggle-payroll-summary-detail"
+                                        data-value="bonuses"
+                                        aria-expanded="${Boolean(expandedSummary.bonuses)}"
+                                        aria-label="${expandedSummary.bonuses ? 'Ocultar' : 'Mostrar'} detalle de bonificaciones">
+                                    <span>Bonificaciones</span>
+                                    ${icons.get(expandedSummary.bonuses ? 'chevron-up' : 'chevron-down', { size: 13 })}
+                                </button>
+                            </dt>
+                            <dd class="is-positive">+${formatCurrency(bonusAmount)}</dd>
+                        </div>
+                        ${expandedSummary.bonuses ? renderAdjustmentSummaryDetails(bonusDetails, 'bonuses') : ''}
+                        <div class="payroll-guide-summary__expandable">
+                            <dt>
+                                <button type="button"
+                                        class="payroll-guide-summary__toggle"
+                                        data-payroll-action="toggle-payroll-summary-detail"
+                                        data-value="deductions"
+                                        aria-expanded="${Boolean(expandedSummary.deductions)}"
+                                        aria-label="${expandedSummary.deductions ? 'Ocultar' : 'Mostrar'} detalle de deducciones">
+                                    <span>Deducciones</span>
+                                    ${icons.get(expandedSummary.deductions ? 'chevron-up' : 'chevron-down', { size: 13 })}
+                                </button>
+                            </dt>
+                            <dd>−${formatCurrency(deductionAmount)}</dd>
+                        </div>
+                        ${expandedSummary.deductions ? renderAdjustmentSummaryDetails(deductionDetails, 'deductions') : ''}
+                        <div class="payroll-guide-summary__loan-row">
+                            <dt>Préstamos</dt>
+                            <span>Interés ${formatCurrency(loanSummary.selectedInterest)}</span>
+                            <dd>−${formatCurrency(loanAmount)}</dd>
+                        </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                     </dl>
                     <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
@@ -650,6 +696,47 @@ function PayrollGeneratorTab() {
                         </button>
                     </div>
                 </aside>
+            </div>
+        </div>
+    `;
+}
+
+function renderAdjustmentSummaryDetails(summary, kind) {
+    const isBonus = kind === 'bonuses';
+    const individualLabel = isBonus ? 'Bonificaciones individuales' : 'Deducciones individuales';
+    const totalLabel = isBonus ? 'Total bonificaciones' : 'Total deducciones';
+    const globalRows = summary.globals.map(item => {
+        const basis = item.type === 'percentage'
+            ? `${item.value}%`
+            : formatCurrency(item.value);
+        return `
+            <div class="payroll-summary-detail__row">
+                <span>
+                    <strong>${escapeHTML(item.label)}</strong>
+                    <small>${basis}</small>
+                </span>
+                <b>${formatCurrency(item.amount)}</b>
+            </div>
+        `;
+    }).join('');
+    const individualRow = summary.individualCount > 0
+        ? `
+            <div class="payroll-summary-detail__row">
+                <span>
+                    <strong>${individualLabel}</strong>
+                    <small>${summary.individualCount} ajuste(s) agrupado(s)</small>
+                </span>
+                <b>${formatCurrency(summary.individualAmount)}</b>
+            </div>
+        `
+        : '';
+
+    return `
+        <div class="payroll-summary-detail payroll-summary-detail--${kind}">
+            ${globalRows || individualRow ? `${globalRows}${individualRow}` : '<p>No hay ajustes incluidos.</p>'}
+            <div class="payroll-summary-detail__total">
+                <span>${totalLabel}</span>
+                <strong>${formatCurrency(summary.totalAmount)}</strong>
             </div>
         </div>
     `;
@@ -1283,8 +1370,9 @@ export function toggleStep(stepId) {
 export function setPayrollGuideStep(stepId) {
     const stepMap = {
         period: ['step2', 'step2b', 'step2c', 'step3'],
-        deductions: ['step1', 'step2b', 'step3'],
+        deductions: ['step1', 'step2b', 'step2c', 'step3'],
         bonuses: ['step1', 'step2', 'step2c', 'step3'],
+        loans: ['step1', 'step2', 'step2b', 'step3'],
         review: ['step1', 'step2', 'step2b', 'step2c']
     };
     if (!Object.hasOwn(stepMap, stepId)) return;
@@ -1293,5 +1381,17 @@ export function setPayrollGuideStep(stepId) {
         const state = getState();
         state.exportConfig.payrollGuideStep = stepId;
         state.exportConfig.collapsedSteps = [...stepMap[stepId]];
+    });
+}
+
+export function togglePayrollSummaryDetail(kind) {
+    if (!['bonuses', 'deductions'].includes(kind)) return;
+    stateManager.batchSetState(() => {
+        const state = getState();
+        const expanded = state.exportConfig.payrollSummaryExpanded || {};
+        state.exportConfig.payrollSummaryExpanded = {
+            ...expanded,
+            [kind]: !expanded[kind]
+        };
     });
 }
