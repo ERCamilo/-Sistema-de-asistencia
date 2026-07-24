@@ -81,7 +81,7 @@ testRunner.addSuite("LoansLedger UI — recuperar saldados", {
 
 testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
 
-    "muestra Realizar pago, Refinanciar y Saldar como acciones claras"() {
+    "prioriza Realizar pago y agrupa las acciones secundarias"() {
         resetState();
         state.employees[0].loans = [{
             id: 'L1', principal: 500, interestRate: 10, interestIncluded: false,
@@ -93,13 +93,22 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
         const html = LoansLedger();
         testRunner.assert(html.includes('Saldo pendiente'), "la métrica usa el nombre completo");
         testRunner.assert(html.includes('Realizar pago'), "muestra la acción única de pago");
+        testRunner.assert(html.includes('Más acciones'), "agrupa las operaciones secundarias");
         testRunner.assert(!html.includes('Registrar abono'), "el nombre anterior desaparece");
         testRunner.assert(html.includes('data-app-fn=\"settleLoanByFullPayment\"'),
-            "recupera la acción directa de saldar");
+            "mantiene la acción de saldar dentro del menú");
+        testRunner.assert(html.includes('data-app-fn=\"toggleRefinanceForm\"'),
+            "mantiene la acción de refinanciar dentro del menú");
         testRunner.assert(html.includes('> Saldar') || html.includes(' Saldar'),
-            "la acción directa tiene una etiqueta clara");
+            "la acción secundaria conserva una etiqueta clara");
         testRunner.assert(html.includes('class=\"loan-card__actions\"'),
             "las acciones comparten una sola fila");
+        testRunner.assert(html.includes('class=\"loan-card__more-menu\"'),
+            "las acciones secundarias viven en un único menú");
+        testRunner.assert(html.includes('class=\"loan-card__mobile-summary\"'),
+            "incluye el resumen financiero prioritario para móvil");
+        testRunner.assert(html.includes('class=\"loan-card__breakdown\"'),
+            "el detalle financiero queda disponible bajo demanda");
         testRunner.assert(html.includes('class=\"loans-detail-back\"'),
             "el regreso usa el nuevo botón circular");
         testRunner.assert(html.includes('←'),
@@ -122,6 +131,8 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
         const html = LoansLedger();
         testRunner.assert(html.includes('Guardar pago'), "el formulario adopta el nuevo lenguaje");
         testRunner.assert(html.includes('Pago total'), "ofrece liquidar el saldo junto a Guardar pago");
+        testRunner.assert(html.includes('loan-operation-form--payment'),
+            "el formulario usa la familia visual verde de pagos");
         testRunner.assert(html.includes('saldo pendiente completo'), "explica el saldado automático");
         testRunner.assert(!html.includes('Guardar abono'), "el CTA anterior desaparece");
         testRunner.assert(!html.includes('class=\"loan-card__actions\"'),
@@ -148,6 +159,8 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
         const html = LoansLedger();
         testRunner.assert(html.includes('Aplicar refinanciamiento'),
             "muestra el formulario de refinanciamiento");
+        testRunner.assert(html.includes('loan-operation-form--refinance'),
+            "el formulario usa la familia visual morada de refinanciamiento");
         testRunner.assert(!html.includes('class=\"loan-card__actions\"'),
             "oculta las acciones externas mientras se refinancia");
         testRunner.assert(!html.includes('data-app-fn=\"togglePaymentForm\"'),
@@ -156,7 +169,7 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "no ofrece anular dentro del contexto de refinanciamiento");
     },
 
-    "los abonos y refinanciamientos aparecen resumidos y colapsados"() {
+    "los abonos y refinanciamientos comparten una actividad colapsada"() {
         resetState();
         state.employees[0].loans = [{
             id: 'L1', principal: 2000, interestRate: 5, interestIncluded: false,
@@ -176,19 +189,31 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
         const html = LoansLedger();
         const host = document.createElement('div');
         host.innerHTML = html;
-        const paymentsHistory = host.querySelector('.loan-card__history--payments');
-        const refinancingsHistory = host.querySelector('.loan-card__history--refinancings');
+        const activityHistory = host.querySelector('.loan-card__history--activity');
+        const breakdown = host.querySelector('.loan-card__breakdown');
 
-        testRunner.assert(paymentsHistory && !paymentsHistory.open,
-            "el historial de abonos inicia colapsado");
+        testRunner.assert(activityHistory && !activityHistory.open,
+            "la actividad unificada inicia colapsada");
         testRunner.assert(
-            paymentsHistory?.querySelector('.loan-card__history-meta')?.textContent.trim() === '$500.00',
-            "el resumen de abonos muestra el total pagado");
-        testRunner.assert(refinancingsHistory && !refinancingsHistory.open,
-            "el historial de refinanciamientos inicia colapsado");
+            activityHistory?.querySelector('.loan-card__history-meta')?.textContent.trim() === '$500.00 pagado · 2 refinanciamientos',
+            "el resumen combina el total pagado y la cantidad de refinanciamientos");
         testRunner.assert(
-            refinancingsHistory?.querySelector('.loan-card__history-title')?.textContent.trim() === 'Refinanciamientos × 2',
-            "el encabezado indica cuántas veces se refinanció");
+            activityHistory?.querySelector('.loan-card__history-title')?.textContent.trim() === 'Actividad · 4 movimientos',
+            "el encabezado totaliza todos los movimientos");
+        testRunner.assert(
+            activityHistory?.querySelectorAll('.loan-card__activity-row').length === 4,
+            "el mismo historial contiene abonos y refinanciamientos");
+        testRunner.assert(breakdown && !breakdown.open,
+            "el desglose financiero inicia colapsado");
+        testRunner.assert(
+            host.querySelectorAll('.loan-card__history--payments, .loan-card__history--refinancings').length === 0,
+            "no duplica controles por tipo de movimiento");
+        testRunner.assert(
+            activityHistory?.querySelector('.loan-card__disclosure-icon--closed')
+            && activityHistory?.querySelector('.loan-card__disclosure-icon--open'),
+            "el control usa más y menos en lugar de un chevrón");
+        testRunner.assert(!html.includes('chevron-down'),
+            "el préstamo ya no renderiza chevrones para desplegar información");
         testRunner.assert(!html.includes('Refinanciado 2×'),
             "el contador deja de duplicarse como etiqueta superior");
     }

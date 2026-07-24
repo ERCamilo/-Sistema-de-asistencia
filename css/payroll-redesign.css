@@ -629,55 +629,203 @@
     outline-offset: 3px;
 }
 
-.loan-card__history {
+.loan-card__metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    background: #0f172a;
+}
+
+.loan-card__metrics--desktop {
     margin-bottom: 12px;
 }
 
+.loan-card__metric-label {
+    color: #94a3b8;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.loan-card__metric-value {
+    color: #f1f5f9;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.loan-card__metric-value--paid {
+    color: #10b981;
+}
+
+.loan-card__metric-value--pending {
+    color: #f59e0b;
+    font-weight: 800;
+}
+
+.loan-card__metric-value--refinanced {
+    color: #a78bfa;
+}
+
+.loan-card__mobile-summary,
+.loan-card__breakdown {
+    display: none;
+}
+
+.loan-card__breakdown,
+.loan-card__history {
+    margin-bottom: 10px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.42);
+}
+
+.loan-card__breakdown > summary,
 .loan-card__history > summary {
     display: flex;
-    min-height: 30px;
+    min-height: 42px;
     align-items: center;
     gap: 8px;
-    padding: 5px 3px;
+    padding: 8px 10px;
     list-style: none;
     cursor: pointer;
 }
 
-.loan-card__history > summary::-webkit-details-marker {
+.loan-card__breakdown > summary::-webkit-details-marker,
+.loan-card__history > summary::-webkit-details-marker,
+.loan-card__more-actions > summary::-webkit-details-marker {
     display: none;
 }
 
-.loan-card__history-title {
-    color: #94a3b8;
-    font-size: 0.7rem;
+.loan-card__breakdown > summary {
+    color: #dce4ec;
+    font-size: 0.78rem;
     font-weight: 800;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
 }
 
-.loan-card__history--refinancings .loan-card__history-title {
-    color: #d8b4fe;
+.loan-card__history-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.loan-card__history-title {
+    color: #dce4ec;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
 }
 
 .loan-card__history-meta {
     color: #64748b;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 700;
 }
 
-.loan-card__history-chevron {
+.loan-card__disclosure-control {
     display: inline-flex;
+    width: 28px;
+    height: 28px;
     margin-left: auto;
-    color: #64748b;
-    transition: transform 160ms ease;
+    flex: 0 0 28px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #465362;
+    border-radius: 7px;
+    color: #cbd5e1;
 }
 
-.loan-card__history[open] .loan-card__history-chevron {
-    transform: rotate(180deg);
+.loan-card__disclosure-icon {
+    display: inline-flex;
+}
+
+.loan-card__disclosure-icon--open,
+.loan-card__breakdown[open] .loan-card__disclosure-icon--closed,
+.loan-card__history[open] .loan-card__disclosure-icon--closed {
+    display: none;
+}
+
+.loan-card__breakdown[open] .loan-card__disclosure-icon--open,
+.loan-card__history[open] .loan-card__disclosure-icon--open {
+    display: inline-flex;
 }
 
 .loan-card__history-body {
-    padding-top: 4px;
+    padding: 0 8px 8px;
+}
+
+.loan-card__activity-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    background: #0f172a;
+}
+
+.loan-card__activity-row:first-child {
+    border-radius: 7px 7px 0 0;
+}
+
+.loan-card__activity-row:last-child {
+    border-bottom: 0;
+    border-radius: 0 0 7px 7px;
+}
+
+.loan-card__activity-marker {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #10b981;
+}
+
+.loan-card__activity-row--refinancing .loan-card__activity-marker {
+    background: #8b5cf6;
+}
+
+.loan-card__activity-copy {
+    min-width: 0;
+}
+
+.loan-card__activity-copy > div {
+    display: flex;
+    gap: 9px;
+    align-items: baseline;
+    flex-wrap: wrap;
+}
+
+.loan-card__activity-copy strong {
+    color: #10b981;
+    font-size: 0.78rem;
+}
+
+.loan-card__activity-row--refinancing .loan-card__activity-copy strong {
+    color: #a78bfa;
+}
+
+.loan-card__activity-copy span,
+.loan-card__activity-copy small {
+    color: #7f8b98;
+    font-size: 0.7rem;
+}
+
+.loan-card__activity-copy small {
+    display: block;
+    margin-top: 2px;
+}
+
+.loan-card__activity-void {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    background: transparent;
+    color: #7f8b98;
+    cursor: pointer;
 }
 
 .loan-card__actions {
@@ -704,31 +852,95 @@
 
 .loan-card__action--payment {
     flex: 1 1 auto;
-    border: 1px solid #4bc5d5;
-    background: #4bc5d5;
-    color: #091317;
+    border: 1px solid #047857;
+    background: #047857;
+    color: #f8fafc;
 }
 
-.loan-card__action--refinance {
-    flex: 0 1 120px;
-    border: 1px solid #8b5cf6;
-    background: #7c3aed;
-    color: #fff;
+.loan-card__more-actions {
+    position: relative;
+    flex: 0 1 130px;
 }
 
-.loan-card__action--settle {
-    flex: 0 1 82px;
-    border: 1px solid #10b981;
-    background: #10b981;
-    color: #071510;
-}
-
-.loan-card__action--write-off {
-    flex: 0 0 42px;
-    padding-inline: 0;
-    border: 1px solid #ef4444;
+.loan-card__action--more {
+    width: 100%;
+    border: 1px solid #465362;
     background: transparent;
-    color: #ef4444;
+    color: #cbd5e1;
+}
+
+.loan-card__more-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 7px);
+    z-index: 8;
+    display: grid;
+    width: 190px;
+    padding: 6px;
+    border: 1px solid #3b4755;
+    border-radius: 9px;
+    background: #111a24;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+}
+
+.loan-card__more-item {
+    display: flex;
+    min-height: 38px;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #dce4ec;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+}
+
+.loan-card__more-item:hover {
+    background: #1e293b;
+}
+
+.loan-card__more-item--refinance {
+    color: #c4b5fd;
+}
+
+.loan-card__more-item--settle {
+    color: #6ee7b7;
+}
+
+.loan-card__more-item--danger {
+    color: #fca5a5;
+}
+
+.loan-operation-form {
+    padding: 12px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+}
+
+.loan-operation-form--payment {
+    border: 1px solid rgba(16, 185, 129, 0.42);
+    background: rgba(5, 150, 105, 0.08);
+}
+
+.loan-operation-form--refinance {
+    border: 1px solid rgba(109, 40, 217, 0.58);
+    background: rgba(91, 33, 182, 0.1);
+}
+
+.loan-operation-form__title {
+    margin-bottom: 10px;
+    color: #34d399;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.loan-operation-form--refinance .loan-operation-form__title {
+    color: #a78bfa;
 }
 
 .loan-payment-form__actions {
@@ -750,20 +962,47 @@
 
 .loan-payment-form__action--save {
     flex: 1 1 auto;
-    border: 1px solid #4bc5d5;
-    background: #4bc5d5;
-    color: #091317;
+    border: 1px solid #047857;
+    background: #047857;
+    color: #f8fafc;
 }
 
 .loan-payment-form__action--total {
     flex: 0 1 104px;
     border: 1px solid #10b981;
-    background: #10b981;
-    color: #071510;
+    background: transparent;
+    color: #6ee7b7;
 }
 
 .loan-payment-form__action--cancel {
     flex: 0 1 88px;
+    border: 1px solid #394550;
+    background: transparent;
+    color: #aeb8c1;
+}
+
+.loan-refinance-form__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.loan-refinance-form__action {
+    min-height: 42px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.loan-refinance-form__action--save {
+    flex: 1;
+    border: 1px solid #6d28d9;
+    background: #6d28d9;
+    color: #fff;
+}
+
+.loan-refinance-form__action--cancel {
     border: 1px solid #394550;
     background: transparent;
     color: #aeb8c1;
@@ -1102,6 +1341,77 @@
         padding: 14px !important;
     }
 
+    .loan-card__metrics--desktop {
+        display: none;
+    }
+
+    .loan-card__mobile-summary,
+    .loan-card__breakdown {
+        display: block;
+    }
+
+    .loan-card__mobile-summary {
+        padding: 12px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+        background: #0f172a;
+    }
+
+    .loan-card__pending {
+        padding-bottom: 10px;
+        border-bottom: 1px solid #2d3947;
+    }
+
+    .loan-card__pending span,
+    .loan-card__summary-secondary span {
+        display: block;
+        color: #8c99a7;
+        font-size: 0.64rem;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .loan-card__pending strong {
+        display: block;
+        margin-top: 2px;
+        color: #f59e0b;
+        font-size: 1.4rem;
+        line-height: 1.15;
+    }
+
+    .loan-card__pending strong.loan-card__pending--paid {
+        color: #10b981;
+    }
+
+    .loan-card__summary-secondary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        padding-top: 10px;
+    }
+
+    .loan-card__summary-secondary > div + div {
+        padding-left: 14px;
+        border-left: 1px solid #2d3947;
+    }
+
+    .loan-card__summary-secondary strong {
+        display: block;
+        margin-top: 2px;
+        color: #f1f5f9;
+        font-size: 0.88rem;
+    }
+
+    .loan-card__summary-secondary .loan-card__summary-paid {
+        color: #10b981;
+    }
+
+    .loan-card__metrics--breakdown {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding-top: 8px;
+        border-radius: 0 0 8px 8px;
+    }
+
     .loan-card__actions {
         gap: 6px;
     }
@@ -1112,16 +1422,8 @@
         font-size: 0.7rem;
     }
 
-    .loan-card__action--refinance {
-        flex-basis: 94px;
-    }
-
-    .loan-card__action--settle {
-        flex-basis: 70px;
-    }
-
-    .loan-card__action--write-off {
-        flex-basis: 40px;
+    .loan-card__more-actions {
+        flex-basis: 112px;
     }
 
     .loan-payment-form__actions {

@@ -90,6 +90,7 @@ class IconSystem {
 
             // ── Acciones CRUD ─────────────────────────────────────────
             'add': { unicode: '➕', lucide: 'plus', phosphor: 'plus', tabler: 'plus', bootstrap: 'plus-lg' },
+            'subtract': { unicode: '−', lucide: 'minus', phosphor: 'minus', tabler: 'minus', bootstrap: 'dash-lg' },
             'edit': { unicode: '✏️', lucide: 'edit-2', phosphor: 'pencil-simple', tabler: 'edit', bootstrap: 'pencil' },
             'delete': { unicode: '🗑️', lucide: 'trash-2', phosphor: 'trash', tabler: 'trash', bootstrap: 'trash' },
             'save': { unicode: '💾', lucide: 'save', phosphor: 'floppy-disk', tabler: 'device-floppy', bootstrap: 'floppy' },
