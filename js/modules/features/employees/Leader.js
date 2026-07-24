@@ -3,6 +3,7 @@ export class Leader {
         this.id = data.id || `LEAD${Date.now()}`;
         this.number = data.number;
         this.name = data.name;
+        this.icon = data.icon || null;
         this.active = data.active !== undefined ? data.active : true;
         this.phone = data.phone || '';
         this.email = data.email || '';
@@ -42,6 +43,7 @@ export class Leader {
             id: this.id,
             number: this.number,
             name: this.name,
+            icon: this.icon,
             active: this.active,
             phone: this.phone,
             email: this.email,

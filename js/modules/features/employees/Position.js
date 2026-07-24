@@ -3,6 +3,7 @@ export class Position {
         this.id = data.id || `POS${Date.now()}`;
         this.name = data.name;
         this.color = data.color;
+        this.icon = data.icon || null;
         this.active = data.active !== undefined ? data.active : true;
         this.salaryConfig = data.salaryConfig || {
             amount: data.baseSalary || 0,
@@ -50,6 +51,7 @@ export class Position {
             id: this.id,
             name: this.name,
             color: this.color,
+            icon: this.icon,
             active: this.active,
             salaryConfig: this.salaryConfig, // ⚡ CRÍTICO: Re-habilitado para persistencia
             baseSalary: this.baseSalary,

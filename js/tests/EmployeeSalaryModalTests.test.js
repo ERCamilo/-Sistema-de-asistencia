@@ -60,6 +60,26 @@ describe('EmployeeModal.save — toggle hora/día en overrides por puesto', () =
         expect(emp.positionSalaryModes.p1).toBeUndefined();
     });
 
+    test('la tarifa predeterminada visible no se persiste como override', () => {
+        const el = makeEmpModalEl({
+            number: '003',
+            name: 'Luz',
+            positions: [{ id: 'p1', override: '125', mode: 'daily' }]
+        });
+        const input = el.querySelector('.custom-salary-input');
+        const assignment = document.createElement('div');
+        assignment.dataset.positionAssignment = 'p1';
+        assignment.dataset.salarySource = 'default';
+        input.parentNode.insertBefore(assignment, input);
+        assignment.append(input, el.querySelector('.custom-salary-mode'));
+        const modal = { element: el, close: jest.fn() };
+
+        EmployeeModal.save(modal, null);
+
+        expect(state.employees[0].positionSalaries).toEqual({});
+        expect(state.employees[0].positionSalaryModes.p1).toBe('daily');
+    });
+
     test("editar un empleado convierte el override en 'día'", () => {
         state.employees = [{ id: 'e1', key: 'e1', number: '5', name: 'Pedro', positions: ['p1'], positionSalaries: { p1: 50 }, active: true }];
         const modal = { element: makeEmpModalEl({ number: '5', name: 'Pedro', positions: [{ id: 'p1', override: '800', mode: 'daily' }] }), close: jest.fn() };

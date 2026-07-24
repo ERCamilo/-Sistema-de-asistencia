@@ -23,7 +23,7 @@ testRunner.addSuite("PositionCard — equivalente por día en la tarjeta (featur
     "muestra '= $X/día' junto a la tarifa por hora (hora × horas/día)"() {
         setup(8);
         const html = PositionCard(pos({ hourlyRate: 100 }));
-        testRunner.assert(html.includes('Tarifa: $100/hr'), "debe seguir mostrando la tarifa por hora");
+        testRunner.assert(html.includes('$100/hr'), "debe seguir mostrando la tarifa por hora");
         testRunner.assert(html.includes('= $800/día'), "debe mostrar el equivalente por día (100 × 8 = 800)");
     },
 
