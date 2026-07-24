@@ -157,7 +157,7 @@ export function changePayrollViewMode(mode) {
  */
 function PayrollGeneratorTab() {
     const state = getState();
-    const guideSteps = ['period', 'adjustments', 'loans', 'review'];
+    const guideSteps = ['period', 'deductions', 'bonuses', 'review'];
 
     // Inicializar secciones colapsadas y defaults recordados una sola vez por sesión.
     // Guard first: this runs during render, and batchSetState schedules a render
@@ -229,16 +229,17 @@ function PayrollGeneratorTab() {
         ? state.exportConfig.payrollGuideStep
         : 'period';
     const guideStepIndex = guideSteps.indexOf(guideStep);
+    const previousGuideStep = guideSteps[Math.max(guideStepIndex - 1, 0)];
     const nextGuideStep = guideSteps[Math.min(guideStepIndex + 1, guideSteps.length - 1)];
     const grossAmount = exportData.reduce((sum, item) => sum + (Number(item._brutoOriginal) || 0), 0);
     const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
     const guideItems = [
-        ['period', '01', 'Período', `${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}`],
-        ['adjustments', '02', 'Ajustes', `${formatCurrency(bonusAmount)} en bonos`],
-        ['loans', '03', 'Préstamos', `${loanSummary.selectedCount} seleccionados`],
-        ['review', '04', 'Revisión', `${exportData.length} empleados`]
+        ['period', '1', 'Período', 'Seleccionar rango'],
+        ['deductions', '2', 'Deducciones', `${loanSummary.selectedCount} préstamos incluidos`],
+        ['bonuses', '3', 'Bonificaciones', `${formatCurrency(bonusAmount)} agregado`],
+        ['review', '4', 'Vista previa', `${exportData.length} empleados`]
     ];
 
     return `
@@ -246,18 +247,12 @@ function PayrollGeneratorTab() {
             <!-- Header -->
             <div class="payroll-generator__header">
                 <div>
-                    <p class="payroll-generator__eyebrow">Proceso de pago</p>
                     <h2>
-                        <span>${icons.get('payroll')}</span>
                         <span>Nómina</span>
                     </h2>
                     <p>
-                        Prepará el período, revisá los ajustes y validá el total antes de exportar.
+                        Generá la nómina del período y exportala a tu sistema de pagos.
                     </p>
-                </div>
-                <div class="payroll-generator__period">
-                    <span>Período seleccionado</span>
-                    <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
                 </div>
             </div>
 
@@ -271,19 +266,19 @@ function PayrollGeneratorTab() {
                                 aria-current="${id === guideStep ? 'step' : 'false'}">
                             <span class="payroll-guide-step__number">${index < guideStepIndex ? icons.get('check', { size: 15 }) : number}</span>
                             <span class="payroll-guide-step__copy">
+                                <small>Paso ${number}</small>
                                 <strong>${label}</strong>
-                                <small>${detail}</small>
+                                <span>${detail}</span>
                             </span>
                         </button>
                     `).join('')}
                 </nav>
 
                 <main class="payroll-guide-content">
-                    <section class="payroll-guide-panel" ${guideStep === 'period' ? '' : 'hidden'}>
+                    <section class="payroll-guide-panel payroll-guide-panel--period" ${guideStep === 'period' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
-                            <span>Paso 1 de 4</span>
-                            <h3>Definí el período de pago</h3>
-                            <p>Las asistencias y movimientos incluidos se calculan usando estas fechas.</p>
+                            <h3>Período de pago</h3>
+                            <p>Seleccioná el rango de fechas a liquidar.</p>
                         </div>
             
             <!-- Paso 1: Período -->
@@ -340,11 +335,10 @@ function PayrollGeneratorTab() {
             </div>
                     </section>
 
-                    <section class="payroll-guide-panel" ${guideStep === 'adjustments' ? '' : 'hidden'}>
+                    <section class="payroll-guide-panel" ${guideStep === 'deductions' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
-                            <span>Paso 2 de 4</span>
-                            <h3>Revisá descuentos y bonificaciones</h3>
-                            <p>Aplicá ajustes generales o individuales antes de calcular el pago neto.</p>
+                            <h3>Deducciones</h3>
+                            <p>Aplicá descuentos generales, individuales y préstamos activos.</p>
                         </div>
             
             <!-- Paso 2: Deducciones Globales -->
@@ -409,7 +403,14 @@ function PayrollGeneratorTab() {
                 ${generateExportDeductionsHTML()}
             </div>
             </div>
-            
+                    </section>
+
+                    <section class="payroll-guide-panel" ${guideStep === 'bonuses' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Bonificaciones</h3>
+                            <p>Agregá bonos generales o individuales al período actual.</p>
+                        </div>
+
             <!-- Paso 2B: Bonificaciones Globales -->
             <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
                 <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2b" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
@@ -474,10 +475,9 @@ function PayrollGeneratorTab() {
             </div>
                     </section>
 
-                    <section class="payroll-guide-panel" ${guideStep === 'loans' ? '' : 'hidden'}>
+                    <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'deductions' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
-                            <span>Paso 3 de 4</span>
-                            <h3>Seleccioná los préstamos a descontar</h3>
+                            <h3>Préstamos del período</h3>
                             <p>Esta selección es temporal y no registra abonos en las cuentas por cobrar.</p>
                         </div>
 
@@ -530,11 +530,10 @@ function PayrollGeneratorTab() {
             </div>
                     </section>
 
-                    <section class="payroll-guide-panel" ${guideStep === 'review' ? '' : 'hidden'}>
+                    <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
-                            <span>Paso 4 de 4</span>
-                            <h3>Validá y exportá la nómina</h3>
-                            <p>Comprobá el desglose final antes de generar el archivo para SplitX.</p>
+                            <h3>Vista previa · ${exportData.length} empleados</h3>
+                            <p>Revisá los montos antes de exportar.</p>
                         </div>
 
             <!-- Paso 3: Vista Previa -->
@@ -570,34 +569,28 @@ function PayrollGeneratorTab() {
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: #0f172a; border-bottom: 2px solid #334155;">
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">REF</th>
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NOMBRE</th>
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">POSICIÓN</th>
+                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">EMPLEADO</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BRUTO</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BONIFIC.</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DEDUCC.</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">PRÉSTAMOS</th>
                                 <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NETO</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
                                 <tr style="border-bottom: 1px solid ${emp._invalidLoanNet ? '#ef4444' : '#334155'}; ${emp._invalidLoanNet ? 'background: rgba(239, 68, 68, 0.12);' : (idx % 2 === 0 ? 'background: #0f172a;' : '')}">
-                                    <td style="padding: 12px; color: #06b6d4; font-weight: 600; font-family: monospace;">#${emp._number || emp.id}</td>
-                                    <td style="padding: 12px; color: #f1f5f9; font-weight: 600;">${escapeHTML(emp._employeeName)}${emp._invalidLoanNet ? '<div style="color:#fca5a5;font-size:0.7rem;margin-top:4px;">Pago inválido: elimina préstamos</div>' : ''}</td>
-                                    <td style="padding: 12px; color: #94a3b8; font-size: 0.875rem;">${emp._employeePosition}</td>
+                                    <td style="padding: 12px; color: #f1f5f9; font-weight: 600;"><span style="color:#06b6d4;font-family:monospace;font-size:0.75rem;margin-right:8px;">#${emp._number || emp.id}</span>${escapeHTML(emp._employeeName)}${emp._invalidLoanNet ? '<div style="color:#fca5a5;font-size:0.7rem;margin-top:4px;">Pago inválido: elimina préstamos</div>' : ''}</td>
                                      <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._brutoOriginal)}</td>
                                     <td style="padding: 12px; text-align: right; color: #3b82f6;">+${formatCurrency(emp._bonuses)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #ec4899;">-${formatCurrency(emp._deductions)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #f59e0b;">-${formatCurrency(emp._loans)}</td>
+                                    <td style="padding: 12px; text-align: right; color: #ec4899;">-${formatCurrency((Number(emp._deductions) || 0) + (Number(emp._loans) || 0))}</td>
                                     <td style="padding: 12px; text-align: right; color: ${emp._invalidLoanNet ? '#f87171' : '#06b6d4'}; font-weight: 700; font-size: 1rem;">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                         <tfoot>
-                            <tr style="background: linear-gradient(135deg, #10b981, #06b6d4); border-top: 2px solid #06b6d4;">
-                                <td colspan="7" style="padding: 16px; color: #000; font-weight: 700; font-size: 1.125rem;">TOTAL NÓMINA:</td>
-                                <td style="padding: 16px; text-align: right; color: #000; font-weight: 900; font-size: 1.25rem;">${formatCurrency(totalAmount)}</td>
+                            <tr style="background: #20292e; border-top: 1px solid #3a4650;">
+                                <td colspan="4" style="padding: 14px 12px; color: #f1f5f9; font-weight: 700; font-size: 0.82rem;">Totales</td>
+                                <td style="padding: 14px 12px; text-align: right; color: #4bc5d5; font-weight: 900; font-size: 0.9rem;">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -605,30 +598,34 @@ function PayrollGeneratorTab() {
             </div>
             </div>
             
-            <!-- Paso 4: Exportar -->
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button type="button" data-payroll-action="copy-export-json" ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}
-                        style="flex: 1; min-width: 200px; padding: 16px; background: ${hasInvalidLoanRows ? '#475569' : 'linear-gradient(135deg, #06b6d4, #10b981)'}; border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 1rem; cursor: ${hasInvalidLoanRows ? 'not-allowed' : 'pointer'}; opacity: ${hasInvalidLoanRows ? '0.65' : '1'}; transition: all 0.2s;"
-                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(6, 182, 212, 0.3)'"
-                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                    Copiar para SplitX
-                </button>
-                <button type="button" data-payroll-action="download-export-json" ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}
-                        style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid ${hasInvalidLoanRows ? '#64748b' : '#06b6d4'}; border-radius: 8px; color: ${hasInvalidLoanRows ? '#94a3b8' : '#06b6d4'}; font-weight: 700; font-size: 1rem; cursor: ${hasInvalidLoanRows ? 'not-allowed' : 'pointer'}; opacity: ${hasInvalidLoanRows ? '0.65' : '1'}; transition: all 0.2s;"
-                        onmouseover="this.style.background='rgba(6, 182, 212, 0.1)'"
-                        onmouseout="this.style.background='#1e293b'">
-                    Descargar para SplitX (.json)
-                </button>
-            </div>
                     </section>
+
+                    <div class="payroll-guide-navigation">
+                        <button type="button"
+                                class="payroll-guide-navigation__back"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${previousGuideStep}"
+                                ${guideStep === 'period' ? 'disabled aria-disabled="true"' : ''}>
+                            Atrás
+                        </button>
+                        ${guideStep !== 'review' ? `
+                            <button type="button"
+                                    class="payroll-guide-navigation__next"
+                                    data-payroll-action="set-payroll-guide-step"
+                                    data-value="${nextGuideStep}">
+                                Continuar <span aria-hidden="true">→</span>
+                            </button>
+                        ` : '<span class="payroll-guide-navigation__ready">Listo para exportar →</span>'}
+                    </div>
                 </main>
 
                 <aside class="payroll-guide-summary" aria-label="Resumen de nómina">
                     <div class="payroll-guide-summary__header">
-                        <span>Resumen en tiempo real</span>
-                        <strong>${exportData.length} empleados</strong>
+                        <span>Resumen de nómina</span>
+                        <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
                     </div>
                     <dl class="payroll-guide-summary__values">
+                        <div><dt>Empleados</dt><dd>${exportData.length}</dd></div>
                         <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
                         <div><dt>Bonificaciones</dt><dd class="is-positive">+${formatCurrency(bonusAmount)}</dd></div>
                         <div><dt>Deducciones</dt><dd>−${formatCurrency(deductionAmount)}</dd></div>
@@ -640,17 +637,18 @@ function PayrollGeneratorTab() {
                             ? `${icons.get('alert', { size: 16 })} ${invalidLoanRows.length} pago(s) requieren revisión`
                             : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
                     </div>
-                    ${guideStep !== 'review' ? `
+                    <div class="payroll-guide-summary__actions">
                         <button type="button"
-                                class="payroll-guide-summary__next"
-                                data-payroll-action="set-payroll-guide-step"
-                                data-value="${nextGuideStep}">
-                            Continuar
-                            <span aria-hidden="true">→</span>
+                                data-payroll-action="copy-export-json"
+                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('copy', { size: 15 })} Copiar JSON
                         </button>
-                    ` : `
-                        <p class="payroll-guide-summary__hint">Usá los botones de exportación después de revisar el detalle.</p>
-                    `}
+                        <button type="button"
+                                data-payroll-action="download-export-json"
+                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('download', { size: 15 })} Descargar .json
+                        </button>
+                    </div>
                 </aside>
             </div>
         </div>
@@ -1285,8 +1283,8 @@ export function toggleStep(stepId) {
 export function setPayrollGuideStep(stepId) {
     const stepMap = {
         period: ['step2', 'step2b', 'step2c', 'step3'],
-        adjustments: ['step1', 'step2c', 'step3'],
-        loans: ['step1', 'step2', 'step2b', 'step3'],
+        deductions: ['step1', 'step2b', 'step3'],
+        bonuses: ['step1', 'step2', 'step2c', 'step3'],
         review: ['step1', 'step2', 'step2b', 'step2c']
     };
     if (!Object.hasOwn(stepMap, stepId)) return;
