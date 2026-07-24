@@ -35,17 +35,27 @@ describe('Financial desktop layouts', () => {
     const render = jest.fn();
 
     beforeAll(() => {
-        PayrollUI.init({
-            state,
-            services: { payroll: {} },
-            render
-        });
         window.PayrollUI = PayrollUI;
     });
 
     beforeEach(() => {
         render.mockClear();
         resetFinancialState();
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(() => ({
+                        brutoOriginal: 1200,
+                        bruto: 1200,
+                        bonuses: 100,
+                        deductions: 300,
+                        neto: 1000
+                    }))
+                }
+            },
+            render
+        });
     });
 
     test('payroll renders the horizontal five-step guide and export summary', () => {
@@ -62,6 +72,16 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('Total neto');
         expect(html).toContain('data-payroll-action="copy-export-json"');
         expect(html).toContain('data-payroll-action="download-export-json"');
+    });
+
+    test('period shortcuts omit rolling and last-payment presets', () => {
+        const html = PayrollUI.PayrollTab();
+
+        expect(html).not.toContain('data-value="last15"');
+        expect(html).not.toContain('data-value="sinceLastPay"');
+        expect(html).toContain('data-value="thisMonth"');
+        expect(html).toContain('data-value="lastMonth"');
+        expect(html).toContain('data-value="payPeriod"');
     });
 
     test('changing the guide step exposes its panel without changing financial data', () => {
@@ -100,15 +120,50 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('Interés $0.00');
     });
 
-    test('review table keeps the compact five-column reference layout', () => {
+    test('review table separates active loans and keeps employee identity sticky', () => {
         PayrollUI.setPayrollGuideStep('review');
         const host = document.createElement('div');
-        host.innerHTML = PayrollUI.PayrollTab();
+        const html = PayrollUI.PayrollTab();
+        host.innerHTML = html;
 
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers).toEqual(['EMPLEADO', 'BRUTO', 'BONIFIC.', 'DESCUENTOS', 'NETO']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
+        expect(host.querySelector('th.payroll-review-table__number')).not.toBeNull();
+        expect(host.querySelector('th.payroll-review-table__employee')).not.toBeNull();
+        expect(html).toContain('payroll-review-table__amount is-bonus');
+        expect(html).toContain('payroll-review-table__amount is-deduction');
+    });
+
+    test('review table shows selected active-loan discounts in red separately from deductions', () => {
+        state.employees = [{
+            id: 'e1',
+            number: '12',
+            name: 'Ada Lovelace',
+            active: true,
+            loans: [{
+                id: 'loan-1',
+                principal: 250,
+                interestRate: 10,
+                interestIncluded: false,
+                status: 'active',
+                payments: [],
+                refinancings: []
+            }]
+        }];
+        state.exportConfig.payrollLoanSelection = [{ employeeId: 'e1', loanIds: ['loan-1'] }];
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const row = host.querySelector('tbody tr');
+
+        expect(row.querySelector('.payroll-review-table__number').textContent.trim()).toBe('12');
+        expect(row.querySelector('.payroll-review-table__employee').textContent.trim()).toBe('Ada Lovelace');
+        expect(row.querySelector('.is-bonus').textContent.trim()).toBe('+$100.00');
+        expect(row.querySelector('.is-deduction').textContent.trim()).toBe('−$300.00');
+        expect(row.querySelector('.is-loan').textContent.trim()).toBe('−$275.00');
     });
 
     test('receivables renders a desktop table and keeps compact mobile indicators', () => {

@@ -332,17 +332,9 @@ function PayrollGeneratorTab() {
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'lastMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Mes anterior
                     </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="last15" 
-                            style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'last15' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                        Últimos 15 días
-                    </button>
                     <button type="button" data-payroll-action="set-export-preset" data-value="payPeriod" 
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                         ${icons.get('calendar', { size: 14 })} Período Actual
-                    </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="sinceLastPay" 
-                            style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'sinceLastPay' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.exportConfig.activePreset === 'sinceLastPay' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'sinceLastPay' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
-                        Desde Último Pago + 1
                     </button>
                 </div>
                 </div>
@@ -580,31 +572,42 @@ function PayrollGeneratorTab() {
                 ` : ''}
 
                 <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina" tabindex="0">
-                    <table style="width: 100%; border-collapse: collapse;">
+                    <table class="payroll-review-table">
                         <thead>
-                            <tr style="background: #0f172a; border-bottom: 2px solid #334155;">
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">EMPLEADO</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BRUTO</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BONIFIC.</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DESCUENTOS</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NETO</th>
+                            <tr>
+                                <th class="payroll-review-table__number">#</th>
+                                <th class="payroll-review-table__employee">EMPLEADO</th>
+                                <th>BRUTO</th>
+                                <th>BONIFIC.</th>
+                                <th>DEDUCCIONES</th>
+                                <th>PRÉSTAMOS</th>
+                                <th>NETO</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr style="border-bottom: 1px solid ${emp._invalidLoanNet ? '#ef4444' : '#334155'}; ${emp._invalidLoanNet ? 'background: rgba(239, 68, 68, 0.12);' : (idx % 2 === 0 ? 'background: #0f172a;' : '')}">
-                                    <td style="padding: 12px; color: #f1f5f9; font-weight: 600;"><span style="color:#06b6d4;font-family:monospace;font-size:0.75rem;margin-right:8px;">#${emp._number || emp.id}</span>${escapeHTML(emp._employeeName)}${emp._invalidLoanNet ? '<div style="color:#fca5a5;font-size:0.7rem;margin-top:4px;">Pago inválido: elimina préstamos</div>' : ''}</td>
-                                     <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._brutoOriginal)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #3b82f6;">+${formatCurrency(emp._bonuses)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #ec4899;">-${formatCurrency((Number(emp._deductions) || 0) + (Number(emp._loans) || 0))}</td>
-                                    <td style="padding: 12px; text-align: right; color: ${emp._invalidLoanNet ? '#f87171' : '#06b6d4'}; font-weight: 700; font-size: 1rem;">${formatCurrency(emp.monto)}</td>
+                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${emp._invalidLoanNet ? 'is-invalid' : ''}">
+                                    <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
+                                    <td class="payroll-review-table__employee">
+                                        ${escapeHTML(emp._employeeName)}
+                                        ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
+                                    </td>
+                                    <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
+                                    <td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>
+                                    <td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>
+                                    <td class="payroll-review-table__amount ${Number(emp._loans) > 0 ? 'is-loan' : 'is-empty'}">${Number(emp._loans) > 0 ? `−${formatCurrency(emp._loans)}` : '—'}</td>
+                                    <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                         <tfoot>
-                            <tr style="background: #20292e; border-top: 1px solid #3a4650;">
-                                <td colspan="4" style="padding: 14px 12px; color: #f1f5f9; font-weight: 700; font-size: 0.82rem;">Totales</td>
-                                <td style="padding: 14px 12px; text-align: right; color: #4bc5d5; font-weight: 900; font-size: 0.9rem;">${formatCurrency(totalAmount)}</td>
+                            <tr>
+                                <td colspan="2">Totales</td>
+                                <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
+                                <td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>
+                                <td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>
+                                <td class="payroll-review-table__amount ${loanAmount > 0 ? 'is-loan' : 'is-empty'}">${loanAmount > 0 ? `−${formatCurrency(loanAmount)}` : '—'}</td>
+                                <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -668,13 +671,13 @@ function PayrollGeneratorTab() {
                                     ${icons.get(expandedSummary.deductions ? 'chevron-up' : 'chevron-down', { size: 13 })}
                                 </button>
                             </dt>
-                            <dd>−${formatCurrency(deductionAmount)}</dd>
+                            <dd class="is-negative">−${formatCurrency(deductionAmount)}</dd>
                         </div>
                         ${expandedSummary.deductions ? renderAdjustmentSummaryDetails(deductionDetails, 'deductions') : ''}
                         <div class="payroll-guide-summary__loan-row">
                             <dt>Préstamos</dt>
                             <span>Interés ${formatCurrency(loanSummary.selectedInterest)}</span>
-                            <dd>−${formatCurrency(loanAmount)}</dd>
+                            <dd class="is-negative">−${formatCurrency(loanAmount)}</dd>
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                     </dl>

@@ -181,20 +181,122 @@
     border-radius: 8px;
 }
 
-.payroll-guide-panel--review table {
+.payroll-review-table {
+    --payroll-number-width: 68px;
+    width: 100%;
+    min-width: 790px;
     table-layout: auto;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
-.payroll-guide-panel--review th,
-.payroll-guide-panel--review td {
+.payroll-review-table th,
+.payroll-review-table td {
+    padding: 12px;
     font-size: 0.7rem !important;
     white-space: nowrap;
 }
 
-.payroll-guide-panel--review th:first-child,
-.payroll-guide-panel--review td:first-child {
-    width: 42%;
-    white-space: normal;
+.payroll-review-table thead th {
+    border-bottom: 2px solid #334155;
+    background: #0f172a;
+    color: #94a3b8;
+    font-weight: 700;
+    text-align: right;
+}
+
+.payroll-review-table__row {
+    --payroll-row-bg: #151c22;
+}
+
+.payroll-review-table__row.is-even {
+    --payroll-row-bg: #111a26;
+}
+
+.payroll-review-table__row.is-invalid {
+    --payroll-row-bg: #2a1b22;
+}
+
+.payroll-review-table__row td {
+    border-bottom: 1px solid #334155;
+    background: var(--payroll-row-bg);
+    color: #dce3e9;
+}
+
+.payroll-review-table__number,
+.payroll-review-table__employee {
+    position: sticky;
+    z-index: 2;
+    text-align: left !important;
+}
+
+.payroll-review-table__number {
+    left: 0;
+    width: var(--payroll-number-width);
+    min-width: var(--payroll-number-width);
+    color: #8fd8e3 !important;
+    font-family: monospace;
+    font-weight: 800;
+}
+
+.payroll-review-table__employee {
+    left: var(--payroll-number-width);
+    min-width: 190px;
+    max-width: 240px;
+    overflow: hidden;
+    box-shadow: 10px 0 12px -14px #000;
+    color: #f1f5f9 !important;
+    font-weight: 700;
+    text-overflow: ellipsis;
+}
+
+.payroll-review-table__employee > span {
+    display: block;
+    margin-top: 4px;
+    color: #fca5a5;
+    font-size: 0.62rem;
+}
+
+.payroll-review-table thead .payroll-review-table__number,
+.payroll-review-table thead .payroll-review-table__employee {
+    z-index: 4;
+    background: #0f172a;
+}
+
+.payroll-review-table__amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.payroll-review-table__amount.is-bonus {
+    color: #68d5ae;
+}
+
+.payroll-review-table__amount.is-deduction,
+.payroll-review-table__amount.is-loan {
+    color: #ef7d89;
+}
+
+.payroll-review-table__amount.is-empty {
+    color: #66737f;
+}
+
+.payroll-review-table__amount.is-net {
+    color: #4bc5d5;
+    font-size: 0.78rem !important;
+    font-weight: 900;
+}
+
+.payroll-review-table__amount.is-net.is-invalid {
+    color: #f87171;
+}
+
+.payroll-review-table tfoot td {
+    padding-block: 14px;
+    border-top: 1px solid #3a4650;
+    background: #20292e;
+    color: #f1f5f9;
+    font-weight: 800;
 }
 
 .payroll-guide-navigation {
@@ -302,6 +404,10 @@
 
 .payroll-guide-summary__values dd.is-positive {
     color: #68d5ae;
+}
+
+.payroll-guide-summary__values dd.is-negative {
+    color: #ef7d89;
 }
 
 .payroll-guide-summary__toggle {
