@@ -79,6 +79,49 @@ testRunner.addSuite("LoansLedger UI — recuperar saldados", {
     }
 });
 
+testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
+
+    "unifica registrar abono y saldar en Realizar pago"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 10, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        state.loansLedger = { selectedEmployeeId: 'e1' };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('Saldo pendiente'), "la métrica usa el nombre completo");
+        testRunner.assert(html.includes('Realizar pago'), "muestra la acción única de pago");
+        testRunner.assert(!html.includes('Registrar abono'), "el nombre anterior desaparece");
+        testRunner.assert(!html.includes('data-app-fn=\"settleLoanByFullPayment\"'),
+            "saldar ya no es una acción independiente");
+        testRunner.assert(html.includes('class=\"loan-card__actions\"'),
+            "las acciones comparten una sola fila");
+        testRunner.assert(html.includes('class=\"loans-detail-back\"'),
+            "el regreso usa el nuevo botón circular");
+    },
+
+    "el formulario aclara que pagar el saldo completo liquida el préstamo"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 0, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showPaymentFormForLoan: 'L1',
+            paymentDraft: { amount: 0, date: '', note: '' }
+        };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('Guardar pago'), "el formulario adopta el nuevo lenguaje");
+        testRunner.assert(html.includes('saldo pendiente completo'), "explica el saldado automático");
+        testRunner.assert(!html.includes('Guardar abono'), "el CTA anterior desaparece");
+    }
+});
+
 testRunner.addSuite("LoansLedger UI — picker overlay", {
 
     "opens after openLoansEmployeePicker() is called"() {

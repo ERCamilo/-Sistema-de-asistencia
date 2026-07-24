@@ -601,6 +601,78 @@
     min-width: 0;
 }
 
+.loans-detail-back {
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    max-width: 44px;
+    max-height: 44px;
+    flex: 0 0 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: #f59e0b;
+    color: #0b0f14;
+    cursor: pointer;
+}
+
+.loans-detail-back:hover {
+    background: #fbbf24;
+}
+
+.loans-detail-back:focus-visible {
+    outline: 3px solid rgba(245, 158, 11, 0.35);
+    outline-offset: 3px;
+}
+
+.loan-card__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+    align-items: stretch;
+}
+
+.loan-card__action {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 42px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.loan-card__action--payment {
+    flex: 1 1 auto;
+    border: 1px solid #4bc5d5;
+    background: #4bc5d5;
+    color: #091317;
+}
+
+.loan-card__action--refinance {
+    flex: 0 1 120px;
+    border: 1px solid #a855f7;
+    background: transparent;
+    color: #d8b4fe;
+}
+
+.loan-card__action--write-off {
+    flex: 0 0 42px;
+    padding-inline: 0;
+    border: 1px solid #ef4444;
+    background: transparent;
+    color: #ef4444;
+}
+
 .loans-overview__mobile-kpis {
     display: none;
 }
@@ -924,5 +996,31 @@
 
     .payroll-guide-step {
         min-height: 56px;
+    }
+
+    .loans-detail-header {
+        align-items: flex-start !important;
+    }
+
+    .loan-card {
+        padding: 14px !important;
+    }
+
+    .loan-card__actions {
+        gap: 6px;
+    }
+
+    .loan-card__action {
+        min-height: 44px;
+        padding-inline: 8px;
+        font-size: 0.7rem;
+    }
+
+    .loan-card__action--refinance {
+        flex-basis: 104px;
+    }
+
+    .loan-card__action--write-off {
+        flex-basis: 40px;
     }
 }

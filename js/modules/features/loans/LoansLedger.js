@@ -274,12 +274,16 @@ function EmployeeLoansDetail(empId) {
     const duplicateCandidates = detectLoanDuplicateCandidates(emp);
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto;">
+        <div class="loans-employee-detail" style="max-width: 1000px; margin: 0 auto;">
             <!-- Header with back button -->
-            <div style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div class="loans-detail-header" style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <button type="button" data-app-fn="clearLoansEmployee" aria-label="Volver"
-                            style="width: 36px; height: 36px; background: transparent; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">←</button>
+                    <button type="button"
+                            class="loans-detail-back"
+                            data-app-fn="clearLoansEmployee"
+                            aria-label="Volver a cuentas por cobrar">
+                        ${icons.get('chevron-left', { size: 21 })}
+                    </button>
                     <div>
                         <div style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">${escapeHTML(emp.name)}</div>
                         <div style="color: #94a3b8; font-size: 0.8rem;">#${emp.number}</div>
@@ -403,7 +407,7 @@ function LoanCard(loan) {
             : `<span style="background: #64748b; color: #fff; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ANULADO</span>`;
 
     return `
-        <div style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 12px; ${isWrittenOff ? 'opacity: 0.6;' : ''}">
+        <div class="loan-card" style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 12px; ${isWrittenOff ? 'opacity: 0.6;' : ''}">
             <!-- Top line: concept + status -->
             <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                 <div style="flex: 1; min-width: 200px;">
@@ -448,7 +452,7 @@ function LoanCard(loan) {
                     <div style="font-size: 0.95rem; color: #10b981; font-weight: 700;">${formatCurrency(paid)}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo</div>
+                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo pendiente</div>
                     <div style="font-size: 0.95rem; color: ${balance > 0 ? '#f59e0b' : '#10b981'}; font-weight: 800;">${formatCurrency(balance)}</div>
                 </div>
             </div>
@@ -500,26 +504,30 @@ function LoanCard(loan) {
 
             <!-- Actions -->
             ${isActive ? `
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <div class="loan-card__actions">
                     ${!showPay ? `
-                        <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
-                                style="flex: 1; min-width: 130px; padding: 10px 14px; background: #06b6d4; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
-                            ${icons.get('add', { size: 14 })} Registrar abono
+                        <button type="button"
+                                class="loan-card__action loan-card__action--payment"
+                                data-app-fn="togglePaymentForm"
+                                data-arg="${loan.id}">
+                            ${icons.get('dollar', { size: 14 })} Realizar pago
                         </button>
                     ` : ''}
                     ${!showRefin ? `
-                        <button type="button" data-app-fn="toggleRefinanceForm" data-arg="${loan.id}"
-                                style="padding: 10px 14px; background: transparent; color: #d8b4fe; border: 1px solid #a855f7; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;"
+                        <button type="button"
+                                class="loan-card__action loan-card__action--refinance"
+                                data-app-fn="toggleRefinanceForm"
+                                data-arg="${loan.id}"
                                 title="Agregar interés porque no pudo pagar">
                             ♻️ Refinanciar
                         </button>
                     ` : ''}
-                    <button type="button" data-app-fn="settleLoanByFullPayment" data-arg="${loan.id}"
-                            style="padding: 10px 14px; background: #10b981; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
-                        ${icons.get('check', { size: 14 })} Saldar
-                    </button>
-                    <button type="button" data-app-fn="writeOffLoanWithConfirm" data-arg="${loan.id}"
-                            style="padding: 10px 14px; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                    <button type="button"
+                            class="loan-card__action loan-card__action--write-off"
+                            data-app-fn="writeOffLoanWithConfirm"
+                            data-arg="${loan.id}"
+                            aria-label="Anular préstamo"
+                            title="Anular préstamo">
                         ${icons.get('delete', { size: 14 })}
                     </button>
                 </div>
@@ -546,10 +554,10 @@ function PaymentForm(loan, balance) {
     const draft = (state.loansLedger || {}).paymentDraft || { amount: 0, date: '', note: '' };
     return `
         <div style="background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px;">
-            <div style="font-size: 0.75rem; color: #06b6d4; font-weight: 800; text-transform: uppercase; margin-bottom: 10px;">Nuevo abono</div>
+            <div style="font-size: 0.75rem; color: #06b6d4; font-weight: 800; text-transform: uppercase; margin-bottom: 10px;">Realizar pago</div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto (saldo: ${formatCurrency(balance)})</label>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto (saldo pendiente: ${formatCurrency(balance)})</label>
                     <input type="number" inputmode="decimal" autocomplete="off"
                            value="${draft.amount || ''}" max="${balance}" min="0" step="0.01"
                            oninput="setPaymentDraftField('amount', this.value)"
@@ -570,10 +578,13 @@ function PaymentForm(loan, balance) {
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
             </div>
+            <div style="margin: -2px 0 10px; color: #7f8b98; font-size: 0.68rem;">
+                Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.
+            </div>
             <div style="display: flex; gap: 8px;">
                 <button type="button" data-app-fn="submitPayment" data-arg="${loan.id}"
                         style="flex: 1; padding: 10px; background: #06b6d4; color: #000; border: none; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
-                    Guardar abono
+                    Guardar pago
                 </button>
                 <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
                         style="padding: 10px 14px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
