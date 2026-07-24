@@ -575,6 +575,28 @@ function LoanCard(loan) {
                             data-arg="${loan.id}">
                         Realizar pago
                     </button>
+                    <div class="loan-card__desktop-actions">
+                        <button type="button"
+                                class="loan-card__action loan-card__action--desktop-refinance"
+                                data-app-fn="toggleRefinanceForm"
+                                data-arg="${loan.id}">
+                            Refinanciar
+                        </button>
+                        <button type="button"
+                                class="loan-card__action loan-card__action--desktop-settle"
+                                data-app-fn="settleLoanByFullPayment"
+                                data-arg="${loan.id}">
+                            Saldar
+                        </button>
+                        <button type="button"
+                                class="loan-card__action loan-card__action--desktop-danger"
+                                data-app-fn="writeOffLoanWithConfirm"
+                                data-arg="${loan.id}"
+                                aria-label="Anular préstamo"
+                                title="Anular préstamo">
+                            ${icons.get('delete', { size: 14 })}
+                        </button>
+                    </div>
                     <details class="loan-card__more-actions">
                         <summary class="loan-card__action loan-card__action--more">Más acciones</summary>
                         <div class="loan-card__more-menu">

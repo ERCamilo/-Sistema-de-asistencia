@@ -105,6 +105,14 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "las acciones comparten una sola fila");
         testRunner.assert(html.includes('class=\"loan-card__more-menu\"'),
             "las acciones secundarias viven en un único menú");
+        testRunner.assert(html.includes('class=\"loan-card__desktop-actions\"'),
+            "escritorio conserva las acciones secundarias visibles");
+        testRunner.assert(html.includes('loan-card__action--desktop-refinance'),
+            "escritorio muestra Refinanciar directamente");
+        testRunner.assert(html.includes('loan-card__action--desktop-settle'),
+            "escritorio muestra Saldar directamente");
+        testRunner.assert(html.includes('loan-card__action--desktop-danger'),
+            "escritorio muestra Anular como botón compacto");
         testRunner.assert(html.includes('class=\"loan-card__mobile-summary\"'),
             "incluye el resumen financiero prioritario para móvil");
         testRunner.assert(html.includes('class=\"loan-card__breakdown\"'),

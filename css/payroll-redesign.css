@@ -852,13 +852,33 @@
 
 .loan-card__action--payment {
     flex: 1 1 auto;
-    border: 1px solid #047857;
-    background: #047857;
-    color: #f8fafc;
+    border: 1px solid #10b981;
+    background: #10b981;
+    color: #071510;
+}
+
+.loan-card__desktop-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.loan-card__action--desktop-refinance,
+.loan-card__action--desktop-settle,
+.loan-card__action--desktop-danger {
+    flex: 0 0 auto;
+    border: 1px solid #394550;
+    background: transparent;
+    color: #aeb8c1;
+}
+
+.loan-card__action--desktop-danger {
+    width: 42px;
+    padding-inline: 0;
 }
 
 .loan-card__more-actions {
     position: relative;
+    display: none;
     flex: 0 1 130px;
 }
 
@@ -962,9 +982,9 @@
 
 .loan-payment-form__action--save {
     flex: 1 1 auto;
-    border: 1px solid #047857;
-    background: #047857;
-    color: #f8fafc;
+    border: 1px solid #10b981;
+    background: #10b981;
+    color: #071510;
 }
 
 .loan-payment-form__action--total {
@@ -1423,7 +1443,12 @@
     }
 
     .loan-card__more-actions {
+        display: block;
         flex-basis: 112px;
+    }
+
+    .loan-card__desktop-actions {
+        display: none;
     }
 
     .loan-payment-form__actions {
