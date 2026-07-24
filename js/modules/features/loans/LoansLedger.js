@@ -613,13 +613,24 @@ function LoanCard(loan) {
                                     class="loan-card__more-item loan-card__more-item--refinance"
                                     data-app-fn="toggleRefinanceForm"
                                     data-arg="${loan.id}">
+                                <svg class="loan-card__more-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 7h-5V2"></path>
+                                    <path d="M20 7a8 8 0 0 0-13.7-2.3L4 7"></path>
+                                    <path d="M4 17h5v5"></path>
+                                    <path d="M4 17a8 8 0 0 0 13.7 2.3L20 17"></path>
+                                </svg>
                                 Refinanciar
                             </button>
                             <button type="button"
                                     class="loan-card__more-item loan-card__more-item--settle"
                                     data-app-fn="settleLoanByFullPayment"
                                     data-arg="${loan.id}">
-                                Saldar
+                                <svg class="loan-card__more-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M15.2 8.5c-.7-.6-1.7-.9-2.8-.9-1.5 0-2.6.7-2.6 1.8 0 2.8 5.1 1.4 5.1 4.3 0 1.1-1.1 1.9-2.8 1.9-1.2 0-2.4-.4-3.2-1.1"></path>
+                                    <path d="M12 5.8v12.4"></path>
+                                </svg>
+                                Saldar <span>(pago total)</span>
                             </button>
                             <button type="button"
                                     class="loan-card__more-item loan-card__more-item--danger"
@@ -656,7 +667,7 @@ function PaymentForm(loan, balance) {
             <div class="loan-operation-form__title">Realizar pago</div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto (saldo pendiente: ${formatCurrency(balance)})</label>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto a pagar</label>
                     <input type="number" inputmode="decimal" autocomplete="off"
                            value="${draft.amount || ''}" max="${balance}" min="0" step="0.01"
                            oninput="setPaymentDraftField('amount', this.value)"

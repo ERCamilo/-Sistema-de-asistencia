@@ -967,6 +967,23 @@
     cursor: pointer;
 }
 
+.loan-card__more-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.loan-card__more-item > span {
+    color: #94a3b8;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
 .loan-card__more-item:hover {
     background: #1e293b;
 }

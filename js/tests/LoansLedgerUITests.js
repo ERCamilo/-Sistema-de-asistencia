@@ -99,8 +99,11 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "mantiene la acción de saldar dentro del menú");
         testRunner.assert(html.includes('data-app-fn=\"toggleRefinanceForm\"'),
             "mantiene la acción de refinanciar dentro del menú");
-        testRunner.assert(html.includes('> Saldar') || html.includes(' Saldar'),
-            "la acción secundaria conserva una etiqueta clara");
+        testRunner.assert(html.includes('Saldar <span>(pago total)</span>'),
+            "la acción secundaria explica que saldar equivale al pago total");
+        testRunner.assert(
+            (html.match(/class=\"loan-card__more-icon\"/g) || []).length === 2,
+            "refinanciar y saldar usan iconos SVG propios");
         testRunner.assert(html.includes('class=\"loan-card__actions\"'),
             "las acciones comparten una sola fila");
         testRunner.assert(html.includes('class=\"loan-card__more-menu\"'),
@@ -145,6 +148,9 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
 
         const html = LoansLedger();
         testRunner.assert(html.includes('Guardar pago'), "el formulario adopta el nuevo lenguaje");
+        testRunner.assert(html.includes('Monto a pagar'), "el campo usa una etiqueta corta y alineable");
+        testRunner.assert(!html.includes('Monto (saldo pendiente:'),
+            "la etiqueta extensa ya no desalineará los campos");
         testRunner.assert(html.includes('Pago total'), "ofrece liquidar el saldo junto a Guardar pago");
         testRunner.assert(html.includes('loan-operation-form--payment'),
             "el formulario usa la familia visual verde de pagos");
