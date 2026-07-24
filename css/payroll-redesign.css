@@ -660,9 +660,16 @@
 
 .loan-card__action--refinance {
     flex: 0 1 120px;
-    border: 1px solid #a855f7;
-    background: transparent;
-    color: #d8b4fe;
+    border: 1px solid #8b5cf6;
+    background: #7c3aed;
+    color: #fff;
+}
+
+.loan-card__action--settle {
+    flex: 0 1 82px;
+    border: 1px solid #10b981;
+    background: #10b981;
+    color: #071510;
 }
 
 .loan-card__action--write-off {
@@ -671,6 +678,44 @@
     border: 1px solid #ef4444;
     background: transparent;
     color: #ef4444;
+}
+
+.loan-payment-form__actions {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.loan-payment-form__action {
+    min-width: 0;
+    min-height: 42px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.loan-payment-form__action--save {
+    flex: 1 1 auto;
+    border: 1px solid #4bc5d5;
+    background: #4bc5d5;
+    color: #091317;
+}
+
+.loan-payment-form__action--total {
+    flex: 0 1 104px;
+    border: 1px solid #10b981;
+    background: #10b981;
+    color: #071510;
+}
+
+.loan-payment-form__action--cancel {
+    flex: 0 1 88px;
+    border: 1px solid #394550;
+    background: transparent;
+    color: #aeb8c1;
 }
 
 .loans-overview__mobile-kpis {
@@ -1017,10 +1062,32 @@
     }
 
     .loan-card__action--refinance {
-        flex-basis: 104px;
+        flex-basis: 94px;
+    }
+
+    .loan-card__action--settle {
+        flex-basis: 70px;
     }
 
     .loan-card__action--write-off {
         flex-basis: 40px;
+    }
+
+    .loan-payment-form__actions {
+        gap: 6px;
+    }
+
+    .loan-payment-form__action {
+        min-height: 44px;
+        padding-inline: 8px;
+        font-size: 0.7rem;
+    }
+
+    .loan-payment-form__action--total {
+        flex-basis: 88px;
+    }
+
+    .loan-payment-form__action--cancel {
+        flex-basis: 76px;
     }
 }

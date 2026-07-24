@@ -282,7 +282,7 @@ function EmployeeLoansDetail(empId) {
                             class="loans-detail-back"
                             data-app-fn="clearLoansEmployee"
                             aria-label="Volver a cuentas por cobrar">
-                        ${icons.get('chevron-left', { size: 21 })}
+                        ${icons.get('arrow-left', { size: 21 })}
                     </button>
                     <div>
                         <div style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">${escapeHTML(emp.name)}</div>
@@ -503,25 +503,30 @@ function LoanCard(loan) {
             ${isActive && showRefin ? RefinanceForm(loan, balance) : ''}
 
             <!-- Actions -->
-            ${isActive ? `
+            ${isActive && !showPay ? `
                 <div class="loan-card__actions">
-                    ${!showPay ? `
-                        <button type="button"
-                                class="loan-card__action loan-card__action--payment"
-                                data-app-fn="togglePaymentForm"
-                                data-arg="${loan.id}">
-                            ${icons.get('dollar', { size: 14 })} Realizar pago
-                        </button>
-                    ` : ''}
+                    <button type="button"
+                            class="loan-card__action loan-card__action--payment"
+                            data-app-fn="togglePaymentForm"
+                            data-arg="${loan.id}">
+                        Realizar pago
+                    </button>
                     ${!showRefin ? `
                         <button type="button"
                                 class="loan-card__action loan-card__action--refinance"
                                 data-app-fn="toggleRefinanceForm"
                                 data-arg="${loan.id}"
                                 title="Agregar interés porque no pudo pagar">
-                            ♻️ Refinanciar
+                            Refinanciar
                         </button>
                     ` : ''}
+                    <button type="button"
+                            class="loan-card__action loan-card__action--settle"
+                            data-app-fn="settleLoanByFullPayment"
+                            data-arg="${loan.id}"
+                            title="Registrar el pago completo del saldo pendiente">
+                        Saldar
+                    </button>
                     <button type="button"
                             class="loan-card__action loan-card__action--write-off"
                             data-app-fn="writeOffLoanWithConfirm"
@@ -581,13 +586,23 @@ function PaymentForm(loan, balance) {
             <div style="margin: -2px 0 10px; color: #7f8b98; font-size: 0.68rem;">
                 Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.
             </div>
-            <div style="display: flex; gap: 8px;">
-                <button type="button" data-app-fn="submitPayment" data-arg="${loan.id}"
-                        style="flex: 1; padding: 10px; background: #06b6d4; color: #000; border: none; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
+            <div class="loan-payment-form__actions">
+                <button type="button"
+                        class="loan-payment-form__action loan-payment-form__action--save"
+                        data-app-fn="submitPayment"
+                        data-arg="${loan.id}">
                     Guardar pago
                 </button>
-                <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
-                        style="padding: 10px 14px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                <button type="button"
+                        class="loan-payment-form__action loan-payment-form__action--total"
+                        data-app-fn="settleLoanByFullPayment"
+                        data-arg="${loan.id}">
+                    Pago total
+                </button>
+                <button type="button"
+                        class="loan-payment-form__action loan-payment-form__action--cancel"
+                        data-app-fn="togglePaymentForm"
+                        data-arg="${loan.id}">
                     Cancelar
                 </button>
             </div>

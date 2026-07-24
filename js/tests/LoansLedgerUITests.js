@@ -81,7 +81,7 @@ testRunner.addSuite("LoansLedger UI — recuperar saldados", {
 
 testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
 
-    "unifica registrar abono y saldar en Realizar pago"() {
+    "muestra Realizar pago, Refinanciar y Saldar como acciones claras"() {
         resetState();
         state.employees[0].loans = [{
             id: 'L1', principal: 500, interestRate: 10, interestIncluded: false,
@@ -94,12 +94,16 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
         testRunner.assert(html.includes('Saldo pendiente'), "la métrica usa el nombre completo");
         testRunner.assert(html.includes('Realizar pago'), "muestra la acción única de pago");
         testRunner.assert(!html.includes('Registrar abono'), "el nombre anterior desaparece");
-        testRunner.assert(!html.includes('data-app-fn=\"settleLoanByFullPayment\"'),
-            "saldar ya no es una acción independiente");
+        testRunner.assert(html.includes('data-app-fn=\"settleLoanByFullPayment\"'),
+            "recupera la acción directa de saldar");
+        testRunner.assert(html.includes('> Saldar') || html.includes(' Saldar'),
+            "la acción directa tiene una etiqueta clara");
         testRunner.assert(html.includes('class=\"loan-card__actions\"'),
             "las acciones comparten una sola fila");
         testRunner.assert(html.includes('class=\"loans-detail-back\"'),
             "el regreso usa el nuevo botón circular");
+        testRunner.assert(html.includes('←'),
+            "el regreso usa una flecha con asta, no un chevrón");
     },
 
     "el formulario aclara que pagar el saldo completo liquida el préstamo"() {
@@ -117,8 +121,15 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
 
         const html = LoansLedger();
         testRunner.assert(html.includes('Guardar pago'), "el formulario adopta el nuevo lenguaje");
+        testRunner.assert(html.includes('Pago total'), "ofrece liquidar el saldo junto a Guardar pago");
         testRunner.assert(html.includes('saldo pendiente completo'), "explica el saldado automático");
         testRunner.assert(!html.includes('Guardar abono'), "el CTA anterior desaparece");
+        testRunner.assert(!html.includes('class=\"loan-card__actions\"'),
+            "oculta las acciones externas mientras se realiza un pago");
+        testRunner.assert(!html.includes('data-app-fn=\"toggleRefinanceForm\"'),
+            "no ofrece refinanciar dentro del contexto de pago");
+        testRunner.assert(!html.includes('data-app-fn=\"writeOffLoanWithConfirm\"'),
+            "no ofrece anular dentro del contexto de pago");
     }
 });
 

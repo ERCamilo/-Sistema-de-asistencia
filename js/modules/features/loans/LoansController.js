@@ -343,14 +343,18 @@ export function submitNewLoan() {
 
 export function togglePaymentForm(loanId) {
     ensureLedgerState();
-    state.loansLedger.showPaymentFormForLoan = state.loansLedger.showPaymentFormForLoan === loanId
+    const open = state.loansLedger.showPaymentFormForLoan === loanId
         ? null
         : loanId;
-    state.loansLedger.paymentDraft = {
-        amount: 0,
-        date: getDateKey(new Date()),
-        note: ''
-    };
+    stateManager.batchSetState(() => {
+        state.loansLedger.showPaymentFormForLoan = open;
+        if (open) state.loansLedger.showRefinanceFormForLoan = null;
+        state.loansLedger.paymentDraft = {
+            amount: 0,
+            date: getDateKey(new Date()),
+            note: ''
+        };
+    });
     render();
 }
 
@@ -523,7 +527,6 @@ export function voidPaymentHandler(loanId, paymentId) {
 export function toggleRefinanceForm(loanId) {
     ensureLedgerState();
     const open = state.loansLedger.showRefinanceFormForLoan === loanId ? null : loanId;
-    state.loansLedger.showRefinanceFormForLoan = open;
     // Pre-llenar la tasa con la del préstamo (editable).
     let rate = 0;
     if (open) {
@@ -531,7 +534,11 @@ export function toggleRefinanceForm(loanId) {
         const loan = (emp?.loans || []).find(l => l.id === loanId);
         rate = Number(loan?.interestRate || 0);
     }
-    state.loansLedger.refinanceDraft = { basis: 'balance', interestRate: rate, note: '' };
+    stateManager.batchSetState(() => {
+        state.loansLedger.showRefinanceFormForLoan = open;
+        if (open) state.loansLedger.showPaymentFormForLoan = null;
+        state.loansLedger.refinanceDraft = { basis: 'balance', interestRate: rate, note: '' };
+    });
     render();
 }
 
