@@ -9,6 +9,7 @@ import { EmployeeModal } from '../modules/ui/modals/EmployeeModal.js';
 
 describe('directorio visual de empleados', () => {
     beforeEach(() => {
+        document.body.innerHTML = '';
         EmployeesUI.init({
             state,
             saveToLocalStorage: jest.fn(),
@@ -78,10 +79,32 @@ describe('directorio visual de empleados', () => {
         expect(html).toContain('class="employee-multifilter');
         expect(html).toContain('Buscar puesto...');
         expect(html).toContain('Buscar líder...');
+        expect(html).toContain('employee-multifilter__backdrop');
+        expect(html).toContain('employee-multifilter__header');
+        expect(html).toContain('data-action="close-employee-filter"');
         expect(html).toContain('employee-toolbar__status');
         expect(html).not.toContain('Mostrar ganancias por período');
         expect(html).toContain('id="employee-editor-panel"');
         expect(html).toContain('employee-list-row is-selected');
+    });
+
+    test('cierra el filtro desde la X, al tocar fuera y con Escape', () => {
+        document.body.innerHTML = EmployeesUI.EmployeesTab();
+        const filter = document.querySelector('[data-filter-kind="positions"]');
+        const closeButton = filter.querySelector('.employee-multifilter__header [data-action="close-employee-filter"]');
+
+        filter.open = true;
+        closeButton.click();
+        expect(filter.open).toBe(false);
+
+        filter.open = true;
+        document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(filter.open).toBe(false);
+
+        filter.open = true;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(filter.open).toBe(false);
+        expect(document.activeElement).toBe(filter.querySelector('summary'));
     });
 
     test('muestra ganancias diarias y mensuales a la vez sin alterar la tarifa guardada', () => {

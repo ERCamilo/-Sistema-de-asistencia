@@ -49,6 +49,10 @@ const _ACTION_MAP = {
     'set-position-sort-by': (mode) => window.setPositionSortBy?.(mode),
     'set-employee-salary-view': (mode) => window.setEmployeeSalaryView?.(mode),
     'set-employee-status-filter': (status) => window.setEmployeeStatusFilter?.(status),
+    'close-employee-filter': (_, el, event) => {
+        event.preventDefault();
+        closeEmployeeMultiFilter(el.closest('.employee-multifilter'), true);
+    },
     // DOM closures (no necesitan llamar a window): manipulación local
     'open-search': (_, el) => {
         const w = el.closest('.employee-search');
@@ -73,8 +77,23 @@ const _ACTION_MAP = {
     }
 };
 
+function closeEmployeeMultiFilter(filter, restoreFocus = false) {
+    if (!filter?.open) return;
+    filter.open = false;
+    if (restoreFocus) filter.querySelector('summary')?.focus();
+}
+
+function closeOtherEmployeeMultiFilters(activeFilter = null) {
+    document.querySelectorAll('.employee-multifilter[open]').forEach(filter => {
+        if (filter !== activeFilter) closeEmployeeMultiFilter(filter);
+    });
+}
+
 function _handleDelegatedClick(e) {
-    const target = e.target.closest('[data-action]');
+    const activeFilter = e.target?.closest?.('.employee-multifilter') || null;
+    closeOtherEmployeeMultiFilters(activeFilter);
+
+    const target = e.target?.closest?.('[data-action]');
     if (!target) return;
     const action = target.dataset.action;
     const handler = _ACTION_MAP[action];
@@ -85,6 +104,13 @@ function _handleDelegatedClick(e) {
 
 // Soporte de teclado para role="button" con data-action (Enter/Space)
 function _handleDelegatedKeydown(e) {
+    if (e.key === 'Escape') {
+        const openFilter = document.querySelector('.employee-multifilter[open]');
+        if (!openFilter) return;
+        e.preventDefault();
+        closeEmployeeMultiFilter(openFilter, true);
+        return;
+    }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const target = e.target.closest('[data-action]');
     if (!target || target.tagName === 'BUTTON' || target.tagName === 'A') return;
@@ -149,6 +175,7 @@ function renderEmployeeMultiFilter({
     const isOpen = getEmployeeOpenFilter() === kind;
     return `
         <details class="employee-multifilter${count ? ' has-selection' : ''}"
+                 data-filter-kind="${escapeAttr(kind)}"
                  ${isOpen ? 'open' : ''}
                  ontoggle="setEmployeeFilterMenuOpen('${kind}', this.open)">
             <summary aria-label="${escapeAttr(`Filtrar por ${label.toLowerCase()}`)}">
@@ -156,7 +183,22 @@ function renderEmployeeMultiFilter({
                 <span>${escapeHTML(label)}</span>
                 ${count ? `<strong>${count}</strong>` : ''}
             </summary>
-            <div class="employee-multifilter__popover">
+            <button type="button"
+                    class="employee-multifilter__backdrop"
+                    data-action="close-employee-filter"
+                    aria-label="${escapeAttr(`Cerrar filtro de ${label.toLowerCase()}`)}"
+                    tabindex="-1"></button>
+            <div class="employee-multifilter__popover"
+                 role="dialog"
+                 aria-label="${escapeAttr(`Filtrar por ${label.toLowerCase()}`)}">
+                <div class="employee-multifilter__header">
+                    <strong>Filtrar por ${escapeHTML(label.toLowerCase())}</strong>
+                    <button type="button"
+                            data-action="close-employee-filter"
+                            aria-label="${escapeAttr(`Cerrar filtro de ${label.toLowerCase()}`)}">
+                        ${renderPositionUiSvg('close', { size: 17 })}
+                    </button>
+                </div>
                 <label class="employee-multifilter__search">
                     ${renderPositionUiSvg('search', { size: 15 })}
                     <input type="search"
