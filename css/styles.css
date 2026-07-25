@@ -2729,6 +2729,102 @@
             height: 16px;
         }
 
+        /* Variante compacta para actualizaciones, inspirada en la jerarquía
+           y el movimiento elástico de Sileo sin acoplar la app a React. */
+        .notification-update {
+            width: min(100%, 320px);
+            min-height: 72px;
+            padding: 12px 104px 12px 12px;
+            gap: 10px;
+            overflow: visible;
+            contain: layout style;
+            border-radius: 18px;
+            background: #111c31;
+            box-shadow:
+                0 18px 40px rgba(0, 0, 0, 0.42),
+                0 0 0 1px rgba(96, 165, 250, 0.13);
+        }
+
+        .notification-update::after {
+            display: none;
+        }
+
+        .notification-update .notification-icon-wrapper {
+            width: 34px;
+            height: 34px;
+            margin-left: 0;
+            border-radius: 10px;
+            background: #223452;
+            color: #f8fafc;
+            box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.08);
+        }
+
+        .notification-update .notification-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #f8fafc;
+            font-size: 0.9rem;
+        }
+
+        .notification-update .notification-content {
+            min-width: 0;
+            padding-right: 0;
+        }
+
+        .notification-update .notification-message {
+            display: block;
+            color: #f8fafc;
+            font-size: 0.78rem;
+            font-weight: 750;
+            line-height: 1.25;
+        }
+
+        .notification-update .notification-actions {
+            position: absolute;
+            top: 9px;
+            right: 9px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+
+        .notification-update .notification-action {
+            min-height: 34px;
+            padding: 7px 11px;
+            border-color: rgba(34, 211, 238, 0.32);
+            border-radius: 9px;
+            background: #075e78;
+            color: #e6fbff;
+            font-size: 0.72rem;
+            box-shadow: 0 6px 14px rgba(6, 182, 212, 0.14);
+        }
+
+        .notification-update .notification-action:hover {
+            background: #087694;
+            color: #ffffff;
+            transform: translateY(-1px);
+        }
+
+        .notification-update .notification-close {
+            position: absolute;
+            top: 39px;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            transform: translateX(-50%);
+            border: 1px solid rgba(148, 163, 184, 0.08);
+            background: #243149;
+            color: #8491a3;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
+        }
+
+        .notification-update .notification-close:hover {
+            background: #31405b;
+            color: #f8fafc;
+            transform: translateX(-50%) scale(1.06);
+        }
+
         /* Animaciones y Estados */
         .notification-enter {
             opacity: 0;
@@ -2805,6 +2901,14 @@
             opacity: 0;
             transform: scale(0.8) !important;
             filter: blur(8px);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .notification-update,
+            .notification-update .notification-action,
+            .notification-update .notification-close {
+                transition-duration: 0.01ms !important;
+            }
         }
 
         /* ============================================ */

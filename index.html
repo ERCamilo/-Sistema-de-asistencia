@@ -135,6 +135,7 @@
                                         new window.Notification({
                                             message: 'Nueva versión disponible.',
                                             type: 'info',
+                                            variant: 'update',
                                             duration: 0,
                                             actions: [{ label: 'Recargar', icon: 'sync', onClick: () => window.location.reload() }]
                                         }).show();

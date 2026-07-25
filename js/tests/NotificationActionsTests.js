@@ -32,6 +32,24 @@ testRunner.addSuite("Notification — botones de acción", {
         cleanup();
     },
 
+    "la variante update conserva una acción principal y un cierre independiente"() {
+        cleanup();
+        const n = new Notification({
+            message: 'Nueva versión disponible.',
+            type: 'info',
+            variant: 'update',
+            duration: 0,
+            actions: [{ label: 'Recargar', icon: 'sync', onClick: () => {} }]
+        }).show();
+        testRunner.assert(n.element.classList.contains('notification-update'),
+            'la notificación de versión recibe su variante visual aislada');
+        testRunner.assert(!!n.element.querySelector('.notification-action'),
+            'mantiene Recargar como acción principal');
+        testRunner.assert(!!n.element.querySelector('.notification-close'),
+            'mantiene el cierre como control independiente');
+        cleanup();
+    },
+
     "con icon renderiza el ícono del IconSystem junto a la etiqueta"() {
         cleanup();
         const n = new Notification({

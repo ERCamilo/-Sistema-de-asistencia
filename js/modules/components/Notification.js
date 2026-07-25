@@ -31,6 +31,7 @@ export class Notification {
         }
 
         this.position = options.position || 'top-center';
+        this.variant = options.variant === 'update' ? 'update' : '';
         this.closable = options.closable !== undefined ? options.closable : (this.type !== 'loading');
         // Acciones opcionales: [{ label, onClick, closeOnClick }]. closeOnClick
         // por defecto cierra la notificación tras ejecutar onClick.
@@ -74,7 +75,8 @@ export class Notification {
         this.container = Notification.getContainer(this.position);
 
         this.element = document.createElement('div');
-        this.element.className = `notification notification-${this.type} notification-enter`;
+        const variantClass = this.variant ? ` notification-${this.variant}` : '';
+        this.element.className = `notification notification-${this.type}${variantClass} notification-enter`;
         this.element.dataset.type = this.type;
 
         this.element.innerHTML = `
