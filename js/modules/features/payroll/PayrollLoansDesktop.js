@@ -15,6 +15,28 @@ function splitEmployeeName(name) {
     };
 }
 
+function getLoanWarningState(payrollRow) {
+    if (!payrollRow?._invalidLoanNet) return 'none';
+    return Number(payrollRow.monto) < 0 ? 'negative' : 'zero';
+}
+
+function renderWarningSummary(model) {
+    if (model.invalidCount === 0) {
+        return '<strong class="is-clear">Sin alertas</strong>';
+    }
+
+    return `
+        <span class="payroll-loans-warning-counts">
+            ${model.negativeCount
+                ? `<strong class="is-negative">${model.negativeCount} ${model.negativeCount === 1 ? 'negativo' : 'negativos'}</strong>`
+                : ''}
+            ${model.zeroCount
+                ? `<strong class="is-zero">${model.zeroCount} en cero</strong>`
+                : ''}
+        </span>
+    `;
+}
+
 function renderSelectionControl({ checked, mixed = false, employeeId, loanId = null, label }) {
     const action = loanId === null ? 'toggle-payroll-loan-employee' : 'toggle-payroll-loan';
     return `
@@ -53,6 +75,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
         const selectedLoans = loans.filter(loan => loan.selected);
         const payrollRow = payrollByEmployee.get(String(employee.id));
         const selectedBalance = selectedLoans.reduce((sum, loan) => sum + loan.balance, 0);
+        const warningState = getLoanWarningState(payrollRow);
 
         groups.push({
             employeeId: employee.id,
@@ -67,14 +90,17 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
             selectedInterest: selectedLoans.reduce((sum, loan) => sum + loan.interest, 0),
             selectedBalance,
             netRemaining: Number(payrollRow?.monto) || 0,
-            invalid: Boolean(payrollRow?._invalidLoanNet)
+            invalid: warningState !== 'none',
+            warningState
         });
     }
 
     return {
         groups,
         summary: summarizePayrollLoans(employees, selection),
-        invalidCount: groups.filter(group => group.invalid).length
+        invalidCount: groups.filter(group => group.invalid).length,
+        negativeCount: groups.filter(group => group.warningState === 'negative').length,
+        zeroCount: groups.filter(group => group.warningState === 'zero').length
     };
 }
 
@@ -102,9 +128,16 @@ function renderEmployeeGroup(group, expandedIds) {
     const mixed = group.selectionState === 'mixed';
     const { firstName, lastName } = splitEmployeeName(group.employeeName);
     const isExpanded = expandedIds.has(String(group.employeeId));
+    const warningClass = group.warningState === 'none'
+        ? ''
+        : `is-warning-${group.warningState}`;
+    const warningLabel = group.warningState === 'negative'
+        ? ', neto negativo'
+        : group.warningState === 'zero' ? ', neto en cero' : '';
     return `
-        <details class="payroll-loan-group ${group.invalid ? 'is-invalid' : ''}"
+        <details class="payroll-loan-group ${warningClass}"
                  data-employee-id="${safe(group.employeeId)}"
+                 aria-label="${safe(group.employeeName)}${warningLabel}"
                  ${isExpanded ? 'open' : ''}>
             <summary>
                 <span class="payroll-loan-group__number">${safe(group.employeeNumber || '?')}</span>
@@ -114,14 +147,13 @@ function renderEmployeeGroup(group, expandedIds) {
                             <span>${safe(firstName)}</span>
                             <span>${safe(lastName)}</span>
                         </strong>
-                        ${group.invalid ? '<small>El descuento deja el pago en cero o negativo</small>' : ''}
                     </span>
                 </span>
                 <span class="payroll-loan-group__metrics">
                     <span class="payroll-loan-group__count" data-label="Préstamos">${group.selectedCount}/${group.eligibleCount}</span>
                     <span data-label="Interés">${formatCurrency(group.selectedInterest)}</span>
                     <strong data-label="A descontar">${formatCurrency(group.selectedBalance)}</strong>
-                    <strong class="${group.invalid ? 'is-invalid' : ''}" data-label="Neto">${formatCurrency(group.netRemaining)}</strong>
+                    <strong class="${warningClass}" data-label="Neto">${formatCurrency(group.netRemaining)}</strong>
                 </span>
                 <button type="button"
                         class="payroll-loan-disclosure"
@@ -174,8 +206,8 @@ export function renderPayrollLoansDesktop({
                 <span><small>Seleccionados</small><strong>${summary.selectedCount}/${summary.eligibleCount}</strong></span>
                 <span><small>Intereses</small><strong>${formatCurrency(summary.selectedInterest)}</strong></span>
                 <span><small>A descontar</small><strong>${formatCurrency(summary.selectedBalance)}</strong></span>
-                <span class="${model.invalidCount ? 'is-invalid' : ''}">
-                    <small>Revisión</small><strong>${model.invalidCount || 'Sin alertas'}</strong>
+                <span class="payroll-loans-warning-summary ${model.invalidCount ? 'has-warnings' : ''}">
+                    <small>Advertencias</small>${renderWarningSummary(model)}
                 </span>
             </div>
             <div class="payroll-loans-toolbar">

@@ -272,6 +272,36 @@
     color: #f87171;
 }
 
+.payroll-loans-warning-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.payroll-loans-warning-counts strong {
+    margin: 0;
+    padding: 3px 6px;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.62rem;
+    line-height: 1.2;
+}
+
+.payroll-loans-warning-counts strong.is-negative {
+    background: #dc2626;
+    color: #fff;
+}
+
+.payroll-loans-warning-counts strong.is-zero {
+    background: #fbbf24;
+    color: #111820;
+}
+
+.payroll-loans-warning-summary > strong.is-clear {
+    color: #10b973;
+}
+
 .payroll-loans-toolbar {
     display: flex;
     justify-content: flex-end;
@@ -382,8 +412,21 @@
     background: #202a33;
 }
 
-.payroll-loan-group.is-invalid > summary {
-    box-shadow: inset 3px 0 #ef4444;
+.payroll-loan-group.is-warning-negative,
+.payroll-loan-group.is-warning-zero {
+    position: relative;
+    z-index: 1;
+    border-radius: 6px;
+    outline: 2px solid;
+    outline-offset: -2px;
+}
+
+.payroll-loan-group.is-warning-negative {
+    outline-color: #ef4444;
+}
+
+.payroll-loan-group.is-warning-zero {
+    outline-color: #fbbf24;
 }
 
 .payroll-loan-group__metrics > span,
@@ -400,8 +443,12 @@
     color: #eef2f6;
 }
 
-.payroll-loan-group__metrics > strong.is-invalid {
-    color: #f87171;
+.payroll-loan-group__metrics > strong.is-warning-negative {
+    color: #ef4444;
+}
+
+.payroll-loan-group__metrics > strong.is-warning-zero {
+    color: #fbbf24;
 }
 
 .payroll-loan-group__employee {

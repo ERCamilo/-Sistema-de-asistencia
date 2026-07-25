@@ -42,6 +42,57 @@ describe('PayrollLoansDesktop', () => {
         expect(JSON.stringify(employees)).toBe(before);
     });
 
+    test('separates zero and negative payroll warnings', () => {
+        const warningEmployees = [
+            { id: 'zero', number: '010', name: 'Neto Cero' },
+            { id: 'negative', number: '011', name: 'Neto Negativo' },
+            { id: 'valid', number: '012', name: 'Neto Válido' }
+        ].map((employee, index) => ({
+            ...employee,
+            loans: [{
+                id: `loan-${index}`,
+                concept: 'Préstamo',
+                principal: 100,
+                interestRate: 0,
+                interestIncluded: false,
+                status: 'active',
+                payments: [],
+                refinancings: []
+            }]
+        }));
+        const warningSelection = warningEmployees.map((employee, index) => ({
+            employeeId: employee.id,
+            loanIds: [`loan-${index}`]
+        }));
+        const warningRows = [
+            { _employeeId: 'zero', monto: 0, _invalidLoanNet: true },
+            { _employeeId: 'negative', monto: -25, _invalidLoanNet: true },
+            { _employeeId: 'valid', monto: 50, _invalidLoanNet: false }
+        ];
+
+        const model = buildPayrollLoansDesktopModel(
+            warningEmployees,
+            warningSelection,
+            warningRows
+        );
+        expect(model.zeroCount).toBe(1);
+        expect(model.negativeCount).toBe(1);
+        expect(model.invalidCount).toBe(2);
+
+        const host = document.createElement('div');
+        host.innerHTML = renderPayrollLoansDesktop({
+            employees: warningEmployees,
+            selection: warningSelection,
+            payrollRows: warningRows
+        });
+
+        expect(host.querySelectorAll('.payroll-loan-group.is-warning-zero')).toHaveLength(1);
+        expect(host.querySelectorAll('.payroll-loan-group.is-warning-negative')).toHaveLength(1);
+        expect(host.querySelector('.payroll-loans-warning-counts').textContent)
+            .toMatch(/1 negativo\s+1 en cero/);
+        expect(host.textContent).not.toContain('El descuento deja el pago en cero o negativo');
+    });
+
     test('renders a tri-state parent and individual loan checkboxes', () => {
         const host = document.createElement('div');
         host.innerHTML = renderPayrollLoansDesktop({
