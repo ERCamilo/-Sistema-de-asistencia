@@ -113,7 +113,27 @@
     <script type="module" src="js/tests/BrowserWorkflowTests.js"></script>
 
     <!-- 📱 Registro del Service Worker -->
-    <script>
+    <script type="module">
+        import { APP_CONFIG } from './js/modules/config/Config.js';
+        import { BUILD } from './js/modules/config/BuildInfo.js';
+        import { formatBuild } from './js/modules/utils/BuildVersion.js';
+
+        const queryWorkerVersion = (worker, timeoutMs = 2000) => new Promise((resolve) => {
+            if (!worker || typeof MessageChannel === 'undefined') return resolve(null);
+            const channel = new MessageChannel();
+            const timer = setTimeout(() => resolve(null), timeoutMs);
+            channel.port1.onmessage = (event) => {
+                clearTimeout(timer);
+                resolve(event?.data?.version || null);
+            };
+            try {
+                worker.postMessage('GET_VERSION', [channel.port2]);
+            } catch {
+                clearTimeout(timer);
+                resolve(null);
+            }
+        });
+
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js', { scope: './' })
@@ -123,7 +143,7 @@
                         // Detectar actualizaciones
                         registration.addEventListener('updatefound', () => {
                             const newWorker = registration.installing;
-                            newWorker.addEventListener('statechange', () => {
+                            newWorker.addEventListener('statechange', async () => {
                                 if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
                                     // Evitar molestar durante el onboarding
                                     const isShowingOnboarding = window.state && window.state.showOnboarding;
@@ -132,12 +152,19 @@
                                     // Hay una nueva versión activa — ofrecer recargar
                                     // con un botón en vez de pedir un F5 manual.
                                     if (window.Notification) {
+                                        const availableBuild = await queryWorkerVersion(newWorker);
                                         new window.Notification({
                                             message: 'Nueva versión disponible.',
                                             type: 'info',
                                             variant: 'update',
+                                            position: 'top-right',
                                             duration: 0,
-                                            actions: [{ label: 'Recargar', icon: 'sync', onClick: () => window.location.reload() }]
+                                            updateInfo: {
+                                                appVersion: APP_CONFIG.VERSION,
+                                                currentBuild: formatBuild(BUILD).display,
+                                                availableBuild: formatBuild(availableBuild).display
+                                            },
+                                            actions: [{ label: 'Actualizar', icon: 'sync', onClick: () => window.location.reload() }]
                                         }).show();
                                     }
                                 }

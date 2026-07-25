@@ -8,7 +8,11 @@
  * closeOnClick:false, y que sin `actions` no haya regresión.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { Notification } from '../modules/components/Notification.js';
+
+const INDEX_SRC = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
 
 const cleanup = () => {
     Notification.clearAll();
@@ -39,7 +43,12 @@ testRunner.addSuite("Notification — botones de acción", {
             type: 'info',
             variant: 'update',
             duration: 0,
-            actions: [{ label: 'Recargar', icon: 'sync', onClick: () => {} }]
+            updateInfo: {
+                appVersion: '1.7.0',
+                currentBuild: '2026.07.24 18:00:00',
+                availableBuild: '2026.07.24 19:00:00'
+            },
+            actions: [{ label: 'Actualizar', icon: 'sync', onClick: () => {} }]
         }).show();
         testRunner.assert(n.element.classList.contains('notification-update'),
             'la notificación de versión recibe su variante visual aislada');
@@ -47,6 +56,35 @@ testRunner.addSuite("Notification — botones de acción", {
             'mantiene Recargar como acción principal');
         testRunner.assert(!!n.element.querySelector('.notification-close'),
             'mantiene el cierre como control independiente');
+        testRunner.assert(!!n.element.querySelector('.notification-update__disclosure'),
+            'la cápsula compacta puede expandirse sin abrir otro modal');
+        testRunner.assertEquals(
+            n.element.querySelector('[data-update-info=\"available-build\"]').textContent,
+            '2026.07.24 19:00:00',
+            'muestra la compilación disponible real'
+        );
+        cleanup();
+    },
+
+    "la variante update se expande y conserva los datos bajo demanda"() {
+        cleanup();
+        const n = new Notification({
+            message: 'Nueva versión disponible.',
+            type: 'info',
+            variant: 'update',
+            duration: 0,
+            updateInfo: { appVersion: '1.7.0', currentBuild: 'A', availableBuild: 'B' },
+            actions: [{ label: 'Actualizar', onClick: () => {} }]
+        }).show();
+        const disclosure = n.element.querySelector('.notification-update__disclosure');
+        disclosure.open = true;
+        disclosure.dispatchEvent(new Event('toggle'));
+        testRunner.assert(n.element.classList.contains('is-expanded'),
+            'el estado abierto amplía la notificación');
+        disclosure.open = false;
+        disclosure.dispatchEvent(new Event('toggle'));
+        testRunner.assert(!n.element.classList.contains('is-expanded'),
+            'el estado cerrado vuelve a la cápsula compacta');
         cleanup();
     },
 
@@ -187,4 +225,19 @@ testRunner.addSuite("Notification — update() acepta options.actions (U11)", {
             'pasar actions:[] explícitamente debe quitar los botones (p. ej. al confirmar éxito tras un retry)');
         cleanup();
     }
+});
+
+testRunner.addSuite("Notification — actualización del Service Worker", {
+
+    "el aviso usa versiones reales y reserva Actualizar para el estado expandido"() {
+        testRunner.assert(INDEX_SRC.includes("variant: 'update'"),
+            'el Service Worker debe usar la variante compacta');
+        testRunner.assert(INDEX_SRC.includes('queryWorkerVersion(newWorker)'),
+            'consulta la compilación disponible al worker nuevo');
+        testRunner.assert(INDEX_SRC.includes('currentBuild: formatBuild(BUILD).display'),
+            'muestra la compilación instalada desde la fuente de verdad');
+        testRunner.assert(INDEX_SRC.includes("label: 'Actualizar'"),
+            'la acción principal usa el lenguaje acordado');
+    }
+
 });
