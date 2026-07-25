@@ -2162,15 +2162,15 @@
         display: grid !important;
         grid-template-areas:
             "number identity status"
-            "salary salary salary"
-            "actions actions actions";
-        grid-template-columns: 42px minmax(0, 1fr) auto;
+            "salary salary actions";
+        grid-template-columns: 54px minmax(0, 1fr) auto;
+        grid-template-rows: minmax(58px, auto) minmax(52px, auto);
         min-width: 0;
-        min-height: 116px;
+        min-height: 132px;
         margin: 0;
-        padding: 10px 10px 8px 13px;
-        column-gap: 8px;
-        row-gap: 7px;
+        padding: 11px 10px 0 13px;
+        column-gap: 10px;
+        row-gap: 8px;
         overflow: hidden;
         border: 1px solid var(--personnel-border);
         border-radius: 10px;
@@ -2187,7 +2187,8 @@
         grid-area: number;
         align-self: center;
         color: color-mix(in srgb, var(--employee-position-color) 72%, #dce9f7);
-        font-size: 0.8rem;
+        font-size: 1.02rem;
+        font-weight: 780;
     }
 
     .employee-list-row__identity {
@@ -2203,19 +2204,21 @@
 
     .employee-list-row__identity strong {
         overflow: visible;
-        font-size: 0.75rem;
-        line-height: 1.2;
+        font-size: 1rem;
+        line-height: 1.1;
         text-overflow: clip;
         white-space: normal;
     }
 
     .employee-list-row__positions {
-        margin-top: 4px;
+        margin-top: 7px;
     }
 
     .employee-list-row__positions > span {
-        max-width: 98px;
-        font-size: 0.58rem;
+        max-width: 150px;
+        color: #eef2f7;
+        font-size: 0.76rem;
+        font-weight: 650;
     }
 
     .employee-list-row__positions small {
@@ -2229,24 +2232,27 @@
         grid-area: salary;
         min-width: 0;
         align-items: baseline;
-        gap: 5px;
-        padding-left: 50px;
+        align-self: stretch;
+        gap: 7px;
+        padding: 12px 4px 9px 8px;
+        flex-wrap: wrap;
+        border-top: 1px solid #2a3747;
     }
 
     .employee-list-row__salary strong,
     .employee-list-row__salary strong.is-range {
         color: #ffffff;
-        font-size: 0.72rem;
+        font-size: 0.9rem;
     }
 
     .employee-list-row__salary span,
     .employee-list-row__salary span.is-range {
         color: #aab6c5;
-        font-size: 0.66rem;
+        font-size: 0.8rem;
     }
 
     .employee-list-row__salary small {
-        font-size: 0.53rem;
+        font-size: 0.62rem;
     }
 
     .employee-list-row__status {
@@ -2254,10 +2260,10 @@
         z-index: 2;
         grid-area: status;
         align-self: start;
-        min-height: 22px;
-        padding: 3px 7px;
+        min-height: 30px;
+        padding: 5px 10px;
         border-width: 1px;
-        font-size: 0.52rem;
+        font-size: 0.65rem;
     }
 
     .employee-list-row__status.is-active {
@@ -2270,21 +2276,22 @@
         position: relative;
         z-index: 2;
         grid-area: actions;
-        padding-top: 7px;
-        border-top: 1px solid #273444;
+        align-self: stretch;
+        padding: 8px 0 0 6px;
+        border-top: 1px solid #2a3747;
     }
 
     .personnel-page #employees-list .employee-list-row .employee-list-row__actions button {
-        width: 34px;
-        height: 30px;
+        width: 40px;
+        height: 44px;
         background: #111a25;
     }
 
     .employee-list-row__watermarks {
         position: absolute;
         z-index: 0;
-        top: 13px;
-        right: 50px;
+        top: 8px;
+        right: 24px;
         bottom: auto;
         display: flex;
         align-items: center;
@@ -2293,23 +2300,29 @@
 
     .employee-list-row__watermarks > span {
         display: grid;
-        width: 44px;
-        height: 44px;
-        margin-left: -11px;
+        width: 112px;
+        height: 112px;
+        margin-left: -55px;
         place-items: center;
-        color: color-mix(in srgb, var(--watermark-color) 46%, #778394);
-        opacity: 0.16;
+        color: color-mix(in srgb, var(--watermark-color) 34%, #7d8798);
+        opacity: 0.12;
     }
 
     .employee-list-row__watermarks > span:first-child {
         margin-left: 0;
     }
 
+    .employee-list-row__watermarks svg {
+        width: 100%;
+        height: 100%;
+        stroke-width: 1.35;
+    }
+
     .employee-list-row__watermarks small {
-        margin-left: -5px;
+        margin-left: -18px;
         color: #8995a6;
-        font-size: 0.58rem;
-        opacity: 0.42;
+        font-size: 0.7rem;
+        opacity: 0.5;
     }
 
     .position-card-grid,
@@ -2384,17 +2397,29 @@
     }
 
     .personnel-page #employees-list .employee-list-row {
-        grid-template-columns: 36px minmax(0, 1fr) auto;
-        padding-right: 8px;
+        grid-template-columns: 46px minmax(0, 1fr) auto;
+        padding-right: 7px;
         padding-left: 10px;
+        column-gap: 8px;
     }
 
     .employee-list-row__salary {
-        padding-left: 44px;
+        padding-right: 2px;
+        padding-left: 5px;
     }
 
     .employee-list-row__watermarks {
-        right: 43px;
+        right: 15px;
+    }
+
+    .employee-list-row__watermarks > span {
+        width: 104px;
+        height: 104px;
+    }
+
+    .personnel-page #employees-list .employee-list-row .employee-list-row__actions button {
+        width: 36px;
+        height: 44px;
     }
 
     .position-icon-picker {
