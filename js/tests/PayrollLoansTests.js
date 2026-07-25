@@ -289,6 +289,24 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
             ),
             'las tarjetas móviles deben quedar separadas por un canal oscuro'
         );
+    },
+
+    'compacta las columnas internas en escritorios de baja resolución'() {
+        testRunner.assert(
+            /\.payroll-loan-child__interest\s*\{\s*grid-column:\s*3;/.test(
+                PAYROLL_REDESIGN_CSS
+            )
+                && /\.payroll-loan-child__balance\s*\{\s*grid-column:\s*4;/.test(
+                    PAYROLL_REDESIGN_CSS
+                ),
+            'interés y saldo deben comenzar inmediatamente después del nombre del préstamo'
+        );
+        testRunner.assert(
+            /\.payroll-loans-table__columns,[\s\S]*?min-width:\s*700px;/.test(
+                PAYROLL_REDESIGN_CSS
+            ),
+            'la tabla de escritorio debe caber desde 700 px sin reducir la escala del navegador'
+        );
     }
 
 });

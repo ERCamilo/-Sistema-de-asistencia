@@ -345,17 +345,16 @@
     display: grid;
     grid-template-columns:
         48px
-        200px
-        72px
-        105px
-        120px
-        125px
-        24px
-        26px;
+        150px
+        minmax(70px, 0.7fr)
+        minmax(90px, 1fr)
+        minmax(100px, 1fr)
+        minmax(100px, 1fr)
+        30px
+        32px;
     gap: 6px;
     align-items: center;
-    justify-content: space-between;
-    min-width: 760px;
+    min-width: 700px;
 }
 
 .payroll-loans-table__columns {
@@ -386,7 +385,7 @@
 .payroll-loan-group {
     box-sizing: border-box;
     max-width: 100%;
-    min-width: 760px;
+    min-width: 700px;
     overflow: hidden;
     border-bottom: 1px solid #303b46;
 }
@@ -590,16 +589,13 @@
     display: grid;
     grid-template-columns:
         48px
-        200px
-        72px
-        105px
+        150px
         120px
         125px
-        24px
-        26px;
+        minmax(0, 1fr)
+        32px;
     gap: 6px;
     align-items: center;
-    justify-content: space-between;
 }
 
 .payroll-loan-child-columns {
@@ -615,19 +611,19 @@
 }
 
 .payroll-loan-child-columns > span:nth-child(2) {
-    grid-column: 4;
+    grid-column: 3;
 }
 
 .payroll-loan-child-columns > span:nth-child(3) {
-    grid-column: 5;
+    grid-column: 4;
 }
 
 .payroll-loan-child-columns > span:nth-child(4) {
-    grid-column: 6;
+    grid-column: 5;
 }
 
 .payroll-loan-child-columns > span:nth-child(5) {
-    grid-column: 8;
+    grid-column: 6;
 }
 
 .payroll-loan-child-columns > span:nth-child(2),
@@ -648,19 +644,19 @@
 }
 
 .payroll-loan-child__interest {
-    grid-column: 4;
+    grid-column: 3;
 }
 
 .payroll-loan-child__balance {
-    grid-column: 5;
+    grid-column: 4;
 }
 
 .payroll-loan-child__spacer {
-    grid-column: 6;
+    grid-column: 5;
 }
 
 .payroll-loan-child > .payroll-loan-selection {
-    grid-column: 8;
+    grid-column: 6;
 }
 
 .payroll-loan-child__concept strong {
