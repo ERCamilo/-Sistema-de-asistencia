@@ -864,9 +864,10 @@ function adjustmentKindLabel(kind) {
 function buildDesktopAdjustment(kind, draft, current = {}) {
     const state = getState();
     const prefix = kind === 'bonuses' ? 'BON' : 'DED';
+    const defaultName = kind === 'bonuses' ? 'Bono' : 'Descuento';
     const item = {
         id: current.id || `${prefix}-${Date.now()}-${state.exportConfig[kind]?.length || 0}`,
-        name: draft.name,
+        name: draft.name || defaultName,
         type: draft.type,
         value: draft.value,
         scope: draft.scope,
@@ -887,7 +888,7 @@ function buildDesktopAdjustment(kind, draft, current = {}) {
 }
 
 function validateDesktopAdjustment(draft) {
-    if (!draft?.name) return 'Escribí un nombre para identificar el ajuste.';
+    if (!draft) return 'No se pudo leer el ajuste.';
     if (!Number.isFinite(draft.value) || draft.value <= 0) {
         return 'El valor debe ser mayor que cero.';
     }

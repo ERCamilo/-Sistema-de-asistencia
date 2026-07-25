@@ -211,7 +211,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                     <input name="name"
                            type="text"
                            value="${safe(adjustment.name || '')}"
-                           placeholder="${kind === 'bonuses' ? 'Ej. Bono de productividad' : 'Ej. AFP'}">
+                           placeholder="${kind === 'bonuses' ? 'Opcional · por defecto: Bono' : 'Opcional · por defecto: Descuento'}">
                 </label>
                 <fieldset class="payroll-adjustment-value-type">
                     <legend>Tipo de valor</legend>

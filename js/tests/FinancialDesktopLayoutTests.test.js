@@ -194,6 +194,31 @@ describe('Financial desktop layouts', () => {
         expect(render).toHaveBeenCalled();
     });
 
+    test('desktop adjustments use a default name when concept is empty', () => {
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const deductionForm = host.querySelector(
+            '.payroll-adjustment-desktop.is-deduction .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+        const bonusForm = host.querySelector(
+            '.payroll-adjustment-desktop.is-bonus .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+
+        deductionForm.querySelector('[name="value"]').value = '25';
+        bonusForm.querySelector('[name="value"]').value = '50';
+        PayrollUI.addDesktopAdjustment(
+            'deductions',
+            deductionForm.querySelector('[data-payroll-action="add-desktop-adjustment"]')
+        );
+        PayrollUI.addDesktopAdjustment(
+            'bonuses',
+            bonusForm.querySelector('[data-payroll-action="add-desktop-adjustment"]')
+        );
+
+        expect(state.exportConfig.deductions[0].name).toBe('Descuento');
+        expect(state.exportConfig.bonuses[0].name).toBe('Bono');
+    });
+
     test('bonus and deduction detail rows expand independently', () => {
         PayrollUI.togglePayrollSummaryDetail('bonuses');
         const html = PayrollUI.PayrollTab();
