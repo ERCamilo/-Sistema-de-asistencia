@@ -1581,17 +1581,6 @@
     font-size: 1.05rem;
 }
 
-.payroll-adjustment-summary__base {
-    margin-left: auto;
-    text-align: right;
-}
-
-.payroll-adjustment-summary__base > strong {
-    margin-top: 3px;
-    color: #edf2f6;
-    font-size: 0.78rem;
-}
-
 .payroll-adjustment-summary__columns,
 .payroll-adjustment-group > summary,
 .payroll-adjustment-rule > summary {
@@ -1647,7 +1636,7 @@
 }
 
 .payroll-adjustment-group > summary > span:not(:first-child),
-.payroll-adjustment-group > summary > strong:last-child {
+.payroll-adjustment-group__total {
     text-align: right;
 }
 
@@ -1655,7 +1644,7 @@
     color: #8f9aa5;
 }
 
-.payroll-adjustment-group > summary > strong:last-child {
+.payroll-adjustment-group__total {
     color: var(--adjustment-accent-soft);
 }
 
@@ -1671,11 +1660,6 @@
     color: #dce3e9;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.payroll-adjustment-group__rule-count {
-    color: var(--adjustment-accent-soft) !important;
-    font-weight: 780;
 }
 
 .payroll-adjustment-group__toggle {
@@ -1701,15 +1685,15 @@
 }
 
 .payroll-adjustment-group__body {
-    padding: 5px 8px 8px;
+    padding: 5px 0 8px;
     background: #111920;
 }
 
 .payroll-adjustment-rule {
     position: relative;
     overflow: hidden;
-    border: 1px solid transparent;
-    border-bottom-color: #29333c;
+    border: 0;
+    border-bottom: 1px solid #29333c;
     border-radius: 0;
     transition:
         border-color 160ms ease,
@@ -1722,7 +1706,7 @@
 }
 
 .payroll-adjustment-rule[open] {
-    margin: 7px 0;
+    margin: 7px 8px;
     border: 2px solid var(--adjustment-accent);
     border-radius: 8px;
     box-shadow:
@@ -1732,7 +1716,7 @@
 
 .payroll-adjustment-rule > summary {
     min-height: 52px;
-    padding: 8px 4px;
+    padding: 8px 11px;
     color: #c4cdd5;
     font-size: 0.7rem;
 }
@@ -1906,15 +1890,30 @@
     }
 
     .payroll-adjustment-summary {
-        overflow-x: auto;
-        overscroll-behavior-inline: contain;
-        scrollbar-width: thin;
+        overflow-x: hidden;
     }
 
     .payroll-adjustment-summary__columns,
     .payroll-adjustment-summary__groups,
     .payroll-adjustment-summary__notice {
-        min-width: 520px;
+        min-width: 0;
+    }
+
+    .payroll-adjustment-summary__columns,
+    .payroll-adjustment-group > summary,
+    .payroll-adjustment-rule > summary {
+        grid-template-columns:
+            minmax(0, 1.35fr)
+            minmax(48px, 0.52fr)
+            minmax(76px, 0.72fr)
+            30px;
+        gap: 4px;
+    }
+
+    .payroll-adjustment-summary__columns > :nth-child(3),
+    .payroll-adjustment-group > summary > :nth-child(3),
+    .payroll-adjustment-rule > summary > :nth-child(3) {
+        display: none;
     }
 
     .payroll-generator {

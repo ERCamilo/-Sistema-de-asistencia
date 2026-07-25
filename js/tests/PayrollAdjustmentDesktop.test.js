@@ -49,7 +49,6 @@ describe('PayrollAdjustmentDesktop', () => {
             .toEqual([20, 100, 50, 25]);
         expect(summary.categories[1].rules[0].targetLabel).toBe('Equipo Norte');
         expect(summary.categories[3].rules[0].targetLabel).toBe('#007 · Ada Lovelace');
-        expect(summary.base).toBe(1000);
         expect(summary.total).toBe(195);
         expect(summary.overlapCount).toBe(1);
     });
@@ -75,12 +74,13 @@ describe('PayrollAdjustmentDesktop', () => {
         const editableRule = host.querySelector('.payroll-adjustment-rule');
         expect(editableRule.querySelector('.payroll-adjustment-rule__edit svg')).not.toBeNull();
         expect(host.querySelector('.payroll-adjustment-remember span').textContent).toBe('Guardar');
-        expect(host.querySelector('.payroll-adjustment-summary__base').textContent)
-            .toContain('$1,000.00');
+        expect(host.querySelector('.payroll-adjustment-summary__base')).toBeNull();
         expect(host.querySelector('.payroll-adjustment-summary__columns').textContent)
             .not.toContain('Base');
         expect(host.querySelector('.payroll-adjustment-group__rule-count').textContent)
             .toContain('1 regla');
+        expect(host.querySelector('.payroll-adjustment-group__total').textContent)
+            .toContain('$20.00');
         expect(host.textContent).toContain('Agregar deducción');
         expect(host.textContent).toContain('Por líder / equipo');
         expect(host.textContent).toContain('$195.00');

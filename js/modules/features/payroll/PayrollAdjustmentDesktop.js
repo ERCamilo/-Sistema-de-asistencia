@@ -93,7 +93,6 @@ export function buildAdjustmentScopeSummary(kind, adjustments = [], rows = [], s
             ...category,
             employeeCount: category.employeeIds.size
         })),
-        base: rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0),
         total: categories.reduce((sum, category) => sum + category.total, 0),
         overlapCount: rows.filter(row => (row[detailsKey] || []).length > 1).length
     };
@@ -319,10 +318,6 @@ function renderSummary(kind, summary, state, rows) {
                     <span>Resumen del período</span>
                     <strong>${totalLabel}</strong>
                 </div>
-                <div class="payroll-adjustment-summary__base">
-                    <span>Base afectada</span>
-                    <strong>${formatCurrency(summary.base)}</strong>
-                </div>
                 <strong>${formatCurrency(summary.total)}</strong>
             </header>
             <div class="payroll-adjustment-summary__columns" aria-hidden="true">
@@ -344,7 +339,7 @@ function renderSummary(kind, summary, state, rows) {
                                 ${category.rules.length} ${category.rules.length === 1 ? 'regla' : 'reglas'}
                             </span>
                             <span>${category.employeeCount} empl.</span>
-                            <strong>${formatCurrency(category.total)}</strong>
+                            <strong class="payroll-adjustment-group__total">${formatCurrency(category.total)}</strong>
                             <span aria-hidden="true"></span>
                         </summary>
                         <div class="payroll-adjustment-group__body">
