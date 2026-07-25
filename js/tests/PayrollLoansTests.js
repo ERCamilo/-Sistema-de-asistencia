@@ -262,8 +262,14 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
         );
         testRunner.assert(
             PAYROLL_LOANS_RESPONSIVE_SRC.includes('data-label="A descontar"')
-                && PAYROLL_LOANS_RESPONSIVE_SRC.includes('data-label="Neto"'),
+                && PAYROLL_LOANS_RESPONSIVE_SRC.includes('data-label="Neto a pagar"'),
             'las métricas deben conservar etiquetas responsive'
+        );
+        testRunner.assert(
+            PAYROLL_LOANS_RESPONSIVE_SRC.includes(
+                'de ${formatCurrency(group.eligibleBalance)} total'
+            ),
+            'el descuento debe mostrar debajo el total de préstamos elegibles'
         );
         testRunner.assert(
             /@media \(max-width: 900px\)[\s\S]*?\.payroll-loans-desktop\s*\{\s*display:\s*block;/.test(

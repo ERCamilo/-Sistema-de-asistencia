@@ -89,6 +89,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
                 : selectedLoans.length === loans.length ? 'all' : 'mixed',
             selectedInterest: selectedLoans.reduce((sum, loan) => sum + loan.interest, 0),
             selectedBalance,
+            eligibleBalance: loans.reduce((sum, loan) => sum + loan.balance, 0),
             netRemaining: Number(payrollRow?.monto) || 0,
             invalid: warningState !== 'none',
             warningState
@@ -152,9 +153,12 @@ function renderEmployeeGroup(group, expandedIds) {
                 </span>
                 <span class="payroll-loan-group__metrics">
                     <span class="payroll-loan-group__count" data-label="Préstamos">${group.selectedCount}/${group.eligibleCount}</span>
-                    <span data-label="Interés">${formatCurrency(group.selectedInterest)}</span>
-                    <strong data-label="A descontar">${formatCurrency(group.selectedBalance)}</strong>
-                    <strong class="${warningClass}" data-label="Neto">${formatCurrency(group.netRemaining)}</strong>
+                    <span class="payroll-loan-group__interest" data-label="Interés">${formatCurrency(group.selectedInterest)}</span>
+                    <span class="payroll-loan-group__discount" data-label="A descontar">
+                        <strong>${formatCurrency(group.selectedBalance)}</strong>
+                        <small>de ${formatCurrency(group.eligibleBalance)} total</small>
+                    </span>
+                    <strong class="payroll-loan-group__net ${warningClass}" data-label="Neto a pagar">${formatCurrency(group.netRemaining)}</strong>
                 </span>
                 <button type="button"
                         class="payroll-loan-disclosure"
@@ -226,7 +230,7 @@ export function renderPayrollLoansDesktop({
                     <span>N.º</span><span>Empleado</span>
                     <span class="payroll-loans-table__metric-columns">
                         <span>Préstamos</span><span>Interés</span>
-                        <span>A descontar</span><span>Neto restante</span>
+                        <span>A descontar</span><span>Neto a pagar</span>
                     </span>
                     <span></span><span></span>
                 </div>

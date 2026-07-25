@@ -388,7 +388,10 @@
 }
 
 .payroll-loan-group {
+    box-sizing: border-box;
+    max-width: 100%;
     min-width: 650px;
+    overflow: hidden;
     border-bottom: 1px solid #303b46;
 }
 
@@ -397,6 +400,8 @@
 }
 
 .payroll-loan-group > summary {
+    box-sizing: border-box;
+    width: 100%;
     min-height: 52px;
     padding: 8px 11px;
     list-style: none;
@@ -435,8 +440,15 @@
     font-size: 0.68rem;
 }
 
-.payroll-loan-group__metrics > strong {
+.payroll-loan-group__discount > strong {
+    display: block;
     color: #f59e0b;
+    font-size: 0.68rem;
+    text-align: right;
+}
+
+.payroll-loan-group__discount > small {
+    display: none;
 }
 
 .payroll-loan-group__metrics > strong:last-child {
@@ -2367,29 +2379,35 @@
     }
 
     .payroll-loan-group > summary {
-        grid-template-columns: 44px minmax(0, 1fr) 24px 26px;
-        gap: 8px 6px;
+        grid-template-areas:
+            "number employee discount selection"
+            "count interest net disclosure";
+        grid-template-columns: 64px minmax(80px, 1fr) minmax(92px, 1fr) 44px;
+        grid-template-rows: auto auto;
+        gap: 10px 8px;
         min-width: 0;
         padding: 10px 8px;
+        overflow: hidden;
+    }
+
+    .payroll-loan-group > summary::after {
+        content: "";
+        grid-column: 1 / -1;
+        grid-row: 2;
+        align-self: start;
+        border-top: 1px solid #303b46;
     }
 
     .payroll-loan-group__number {
-        grid-column: 1;
-        grid-row: 1;
+        grid-area: number;
     }
 
     .payroll-loan-group__employee {
-        grid-column: 2;
-        grid-row: 1;
+        grid-area: employee;
     }
 
     .payroll-loan-group__metrics {
-        grid-column: 1 / -1;
-        grid-row: 2;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 4px;
-        padding-top: 8px;
-        border-top: 1px solid #303b46;
+        display: contents;
     }
 
     .payroll-loan-group__metrics > span,
@@ -2397,6 +2415,7 @@
         display: block;
         min-width: 0;
         overflow: hidden;
+        padding-top: 10px;
         font-size: 0.66rem;
         text-align: left;
         text-overflow: ellipsis;
@@ -2417,14 +2436,52 @@
         text-transform: uppercase;
     }
 
+    .payroll-loan-group__count {
+        grid-area: count;
+    }
+
+    .payroll-loan-group__interest {
+        grid-area: interest;
+    }
+
+    .payroll-loan-group__discount {
+        grid-area: discount;
+        align-self: center;
+        padding-top: 0 !important;
+    }
+
+    .payroll-loan-group__discount > strong {
+        font-size: 0.78rem;
+        text-align: left;
+    }
+
+    .payroll-loan-group__discount > small {
+        display: block;
+        margin-top: 2px;
+        overflow: hidden;
+        color: #87939e;
+        font-size: 0.56rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .payroll-loan-group__net {
+        grid-area: net;
+    }
+
     .payroll-loan-disclosure {
-        grid-column: 3;
-        grid-row: 1;
+        grid-area: disclosure;
+        width: 44px;
+        height: 44px;
+        margin-top: 10px;
+        justify-self: end;
     }
 
     .payroll-loan-group > summary > .payroll-loan-selection {
-        grid-column: 4;
-        grid-row: 1;
+        grid-area: selection;
+        width: 44px;
+        height: 44px;
+        justify-self: end;
     }
 
     .payroll-loan-group__body {
@@ -2436,7 +2493,7 @@
     }
 
     .payroll-loan-child {
-        grid-template-columns: minmax(0, 1fr) minmax(72px, auto) 26px;
+        grid-template-columns: minmax(0, 1fr) minmax(72px, auto) 44px;
         gap: 4px 8px;
         min-height: 56px;
         padding-block: 6px;
@@ -2446,6 +2503,9 @@
         grid-column: 3;
         grid-row: 1 / 3;
         align-self: center;
+        width: 44px;
+        height: 44px;
+        justify-self: end;
     }
 
     .payroll-loan-child__concept {
@@ -2817,11 +2877,6 @@
 
     .payroll-loans-metrics > span:nth-child(-n + 2) {
         border-bottom: 1px solid #303b46;
-    }
-
-    .payroll-loan-group__metrics {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 7px 12px;
     }
 
     .payroll-guide-step {

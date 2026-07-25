@@ -39,6 +39,7 @@ describe('PayrollLoansDesktop', () => {
         expect(group.selectedCount).toBe(1);
         expect(group.eligibleCount).toBe(2);
         expect(group.selectedBalance).toBe(1100);
+        expect(group.eligibleBalance).toBe(1600);
         expect(JSON.stringify(employees)).toBe(before);
     });
 
@@ -114,6 +115,10 @@ describe('PayrollLoansDesktop', () => {
         ).toEqual(['Juan', 'Pérez']);
         expect(group.querySelector('.payroll-loan-group__count').textContent)
             .toBe('1/2');
+        expect(group.querySelector('.payroll-loan-group__discount small').textContent)
+            .toContain('$1,600.00');
+        expect(group.querySelector('.payroll-loan-group__net').dataset.label)
+            .toBe('Neto a pagar');
         expect(group.querySelector('summary .payroll-loan-selection').getAttribute('aria-checked'))
             .toBe('mixed');
         const summaryControls = [...group.querySelector('summary').children].slice(-2);
