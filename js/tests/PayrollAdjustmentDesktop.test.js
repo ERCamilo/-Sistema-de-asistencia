@@ -59,7 +59,14 @@ describe('PayrollAdjustmentDesktop', () => {
 
         expect(host.querySelector('.payroll-adjustment-desktop.is-deduction')).not.toBeNull();
         expect(host.querySelectorAll('.payroll-adjustment-composer input[name="scope"]')).toHaveLength(4);
+        expect(
+            [...host.querySelectorAll('.payroll-adjustment-composer input[name="type"]')]
+                .map(input => input.value)
+        ).toEqual(['fixed', 'percentage']);
         expect(host.querySelectorAll('.payroll-adjustment-group')).toHaveLength(4);
+        const layoutChildren = [...host.querySelector('.payroll-adjustment-desktop__layout').children];
+        expect(layoutChildren[0].classList).toContain('payroll-adjustment-composer');
+        expect(layoutChildren[1].classList).toContain('payroll-adjustment-summary');
         expect(host.textContent).toContain('Agregar deducción');
         expect(host.textContent).toContain('Por líder / equipo');
         expect(host.textContent).toContain('$195.00');
@@ -76,7 +83,7 @@ describe('PayrollAdjustmentDesktop', () => {
         form.querySelector('input[value="position"]').checked = true;
         form.querySelector('[name="positionTarget"]').value = 'position-1';
         form.querySelector('[name="name"]').value = 'Bono de obra';
-        form.querySelector('[name="type"]').value = 'percentage';
+        form.querySelector('input[name="type"][value="percentage"]').checked = true;
         form.querySelector('[name="value"]').value = '10';
 
         const adjustment = readAdjustmentForm(form);

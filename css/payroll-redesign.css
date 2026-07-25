@@ -1186,9 +1186,9 @@
 }
 
 .payroll-adjustment-desktop {
-    --adjustment-accent: #f0526f;
-    --adjustment-accent-strong: #d93858;
-    --adjustment-accent-soft: #f6a5b3;
+    --adjustment-accent: #ef4444;
+    --adjustment-accent-strong: #dc2626;
+    --adjustment-accent-soft: #f87171;
     margin-bottom: 20px;
     overflow: hidden;
     border: 1px solid #303b46;
@@ -1251,7 +1251,7 @@
 
 .payroll-adjustment-desktop__layout {
     display: grid;
-    grid-template-columns: minmax(285px, 0.85fr) minmax(430px, 1.45fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
     padding: 14px;
 }
@@ -1265,7 +1265,7 @@
 }
 
 .payroll-adjustment-composer {
-    padding: 14px;
+    padding: 16px;
 }
 
 .payroll-adjustment-form {
@@ -1294,7 +1294,7 @@
 
 .payroll-adjustment-scope-options {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
 }
 
@@ -1369,13 +1369,66 @@
 
 .payroll-adjustment-form__fields {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 108px 96px;
+    grid-template-columns: minmax(250px, 1fr) 210px 150px;
     gap: 8px;
     align-items: end;
 }
 
 .payroll-adjustment-form__fields > label:first-child {
-    grid-column: 1 / -1;
+    grid-column: auto;
+}
+
+.payroll-adjustment-value-type > legend {
+    margin-bottom: 6px;
+}
+
+.payroll-adjustment-value-type > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid #394550;
+    border-radius: 6px;
+    background: #222b33;
+}
+
+.payroll-adjustment-value-type label {
+    min-width: 0;
+    cursor: pointer;
+}
+
+.payroll-adjustment-value-type input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.payroll-adjustment-value-type label > span {
+    display: flex;
+    min-height: 36px;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 7px 10px;
+    background: #222b33;
+    color: #b9c2ca;
+    font-size: 0.67rem;
+    font-weight: 800;
+}
+
+.payroll-adjustment-value-type label + label > span {
+    border-left: 1px solid #394550;
+}
+
+.payroll-adjustment-value-type input:checked + span {
+    background: var(--adjustment-accent);
+    color: #fff;
+}
+
+.payroll-adjustment-value-type input:focus-visible + span {
+    outline: 2px solid #4bc5d5;
+    outline-offset: -3px;
 }
 
 .payroll-adjustment-preview {
@@ -1669,7 +1722,7 @@
 }
 
 .payroll-adjustment-rule__editor .payroll-adjustment-form__fields {
-    grid-template-columns: minmax(0, 1fr) 120px 110px;
+    grid-template-columns: minmax(250px, 1fr) 210px 150px;
 }
 
 .payroll-adjustment-rule__editor .payroll-adjustment-form__fields > label:first-child {

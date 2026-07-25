@@ -213,13 +213,25 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                            value="${safe(adjustment.name || '')}"
                            placeholder="${kind === 'bonuses' ? 'Ej. Bono de productividad' : 'Ej. AFP'}">
                 </label>
-                <label>
-                    <span>Tipo</span>
-                    <select name="type">
-                        <option value="fixed" ${adjustment.type !== 'percentage' ? 'selected' : ''}>Monto fijo</option>
-                        <option value="percentage" ${adjustment.type === 'percentage' ? 'selected' : ''}>Porcentaje</option>
-                    </select>
-                </label>
+                <fieldset class="payroll-adjustment-value-type">
+                    <legend>Tipo de valor</legend>
+                    <div>
+                        <label>
+                            <input type="radio"
+                                   name="type"
+                                   value="fixed"
+                                   ${adjustment.type !== 'percentage' ? 'checked' : ''}>
+                            <span>Monto</span>
+                        </label>
+                        <label>
+                            <input type="radio"
+                                   name="type"
+                                   value="percentage"
+                                   ${adjustment.type === 'percentage' ? 'checked' : ''}>
+                            <span>Porcentaje</span>
+                        </label>
+                    </div>
+                </fieldset>
                 <label>
                     <span>Valor</span>
                     <input name="value"

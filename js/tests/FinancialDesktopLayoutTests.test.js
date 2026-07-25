@@ -176,7 +176,7 @@ describe('Financial desktop layouts', () => {
         form.querySelector('input[value="position"]').checked = true;
         form.querySelector('[name="positionTarget"]').value = 'position-1';
         form.querySelector('[name="name"]').value = 'Herramientas';
-        form.querySelector('[name="type"]').value = 'percentage';
+        form.querySelector('input[name="type"][value="percentage"]').checked = true;
         form.querySelector('[name="value"]').value = '3';
         PayrollUI.addDesktopAdjustment(
             'deductions',
