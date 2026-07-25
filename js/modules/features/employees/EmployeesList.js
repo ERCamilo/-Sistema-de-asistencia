@@ -101,7 +101,7 @@ export function EmployeeCard(emp, { selected = false } = {}) {
                  data-action="open-employee-editor" data-id="${employeeId}"
                  style="--employee-position-color: ${color};">
             <span class="employee-list-row__number">${escapeHTML(String(emp.number || '—').padStart(3, '0'))}</span>
-            <div class="employee-list-row__watermarks" aria-hidden="true">
+            <div class="employee-list-row__watermarks has-${watermarkPositions.length}" aria-hidden="true">
                 ${watermarkPositions.map(position => `
                     <span style="--watermark-color: ${safePositionColor(position.color)};">
                         ${renderPositionIconSvg(resolvePositionIcon(position), { size: 42 })}
@@ -128,7 +128,7 @@ export function EmployeeCard(emp, { selected = false } = {}) {
             <div class="employee-list-row__salary"
                  title="${earningsDisplay.isRange ? 'Rango según los puestos asignados' : 'Tarifa del puesto asignado'}">
                 <strong class="${earningsDisplay.daily.isRange ? 'is-range' : ''}">${earningsDisplay.daily.amount}<small>/día</small></strong>
-                <span class="${earningsDisplay.monthly.isRange ? 'is-range' : ''}">${earningsDisplay.monthly.amount}<small>/mes</small>${earningsDisplay.isRange ? ' · según puesto' : ''}</span>
+                <span class="${earningsDisplay.monthly.isRange ? 'is-range' : ''}">${earningsDisplay.monthly.amount}<small>/mes</small></span>
             </div>
             <span class="employee-list-row__status ${emp.active ? 'is-active' : 'is-paused'}">
                 ${emp.active ? 'Activo' : 'Pausado'}

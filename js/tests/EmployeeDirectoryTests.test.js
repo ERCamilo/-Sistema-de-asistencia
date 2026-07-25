@@ -110,7 +110,7 @@ describe('directorio visual de empleados', () => {
         const html = EmployeesUI.EmployeesTab();
         expect(html).toContain('$26,000–$41,600');
         expect(html).toContain('$1,200–$1,600');
-        expect(html).toContain('según puesto');
+        expect(html).not.toContain('según puesto');
     });
 
     test('seleccionar una fila actualiza la selección persistente sin alterar empleados', () => {
@@ -181,7 +181,7 @@ describe('directorio visual de empleados', () => {
 
         const html = EmployeesUI.EmployeesTab();
 
-        expect(html).toContain('class="employee-list-row__watermarks"');
+        expect(html).toContain('class="employee-list-row__watermarks has-2"');
         expect(html).toContain('--watermark-color: #22c4c9');
         expect(html).toContain('--watermark-color: #ef4444');
     });
