@@ -91,8 +91,8 @@ function renderLoanRow(group, loan) {
                 <strong>${safe(loan.concept)}</strong>
                 <small>${loan.selected ? 'Incluido en esta nómina' : 'Excluido de esta nómina'}</small>
             </span>
-            <span>${formatCurrency(loan.interest)}</span>
-            <strong>${formatCurrency(loan.balance)}</strong>
+            <span class="payroll-loan-child__interest">${formatCurrency(loan.interest)}</span>
+            <strong class="payroll-loan-child__balance">${formatCurrency(loan.balance)}</strong>
         </div>
     `;
 }
@@ -117,10 +117,12 @@ function renderEmployeeGroup(group, expandedIds) {
                         ${group.invalid ? '<small>El descuento deja el pago en cero o negativo</small>' : ''}
                     </span>
                 </span>
-                <span class="payroll-loan-group__count">${group.selectedCount}/${group.eligibleCount}</span>
-                <span>${formatCurrency(group.selectedInterest)}</span>
-                <strong>${formatCurrency(group.selectedBalance)}</strong>
-                <strong class="${group.invalid ? 'is-invalid' : ''}">${formatCurrency(group.netRemaining)}</strong>
+                <span class="payroll-loan-group__metrics">
+                    <span class="payroll-loan-group__count" data-label="Préstamos">${group.selectedCount}/${group.eligibleCount}</span>
+                    <span data-label="Interés">${formatCurrency(group.selectedInterest)}</span>
+                    <strong data-label="A descontar">${formatCurrency(group.selectedBalance)}</strong>
+                    <strong class="${group.invalid ? 'is-invalid' : ''}" data-label="Neto">${formatCurrency(group.netRemaining)}</strong>
+                </span>
                 <button type="button"
                         class="payroll-loan-disclosure"
                         aria-expanded="${isExpanded}"
@@ -166,10 +168,10 @@ export function renderPayrollLoansDesktop({
                     <h3>Seleccionar préstamos activos</h3>
                     <p>Esta selección sólo afecta la nómina actual y no registra pagos.</p>
                 </div>
-                <span class="payroll-loans-desktop__badge">${summary.selectedCount} de ${summary.eligibleCount}</span>
+                <span class="payroll-loans-desktop__badge">${summary.selectedCount}/${summary.eligibleCount}</span>
             </header>
             <div class="payroll-loans-metrics">
-                <span><small>Seleccionados</small><strong>${summary.selectedCount} de ${summary.eligibleCount}</strong></span>
+                <span><small>Seleccionados</small><strong>${summary.selectedCount}/${summary.eligibleCount}</strong></span>
                 <span><small>Intereses</small><strong>${formatCurrency(summary.selectedInterest)}</strong></span>
                 <span><small>A descontar</small><strong>${formatCurrency(summary.selectedBalance)}</strong></span>
                 <span class="${model.invalidCount ? 'is-invalid' : ''}">
@@ -187,8 +189,11 @@ export function renderPayrollLoansDesktop({
             </div>
             <div class="payroll-loans-table">
                 <div class="payroll-loans-table__columns" aria-hidden="true">
-                    <span>N.º</span><span>Empleado</span><span>Préstamos</span>
-                    <span>Interés</span><span>A descontar</span><span>Neto restante</span>
+                    <span>N.º</span><span>Empleado</span>
+                    <span class="payroll-loans-table__metric-columns">
+                        <span>Préstamos</span><span>Interés</span>
+                        <span>A descontar</span><span>Neto restante</span>
+                    </span>
                     <span></span><span></span>
                 </div>
                 ${model.groups.length

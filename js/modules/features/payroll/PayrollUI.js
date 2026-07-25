@@ -12,7 +12,6 @@ import {
     getEligiblePayrollLoans,
     getInvalidPayrollLoanRows,
     removeEmployeePayrollLoans as removeEmployeePayrollLoansFromSelection,
-    resolvePayrollLoanSelection,
     setEmployeePayrollLoans,
     summarizePayrollLoans,
     togglePayrollLoan,
@@ -249,11 +248,6 @@ function PayrollGeneratorTab() {
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
     const hasInvalidLoanRows = invalidLoanRows.length > 0;
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
-    const selectedPayrollLoans = resolvePayrollLoanSelection(
-        state.employees,
-        state.exportConfig.payrollLoanSelection || []
-    );
-    const invalidLoanEmployeeIds = new Set(invalidLoanRows.map(item => item._employeeId));
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
         filteredPayrollEmployees,
@@ -549,56 +543,6 @@ function PayrollGeneratorTab() {
                             payrollRows: exportData,
                             expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || []
                         })}
-
-            <div class="payroll-loans-legacy">
-            <!-- Paso 2C: Préstamos -->
-            <div id="export-loans-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2c') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
-                <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step2c')}" aria-controls="export-loans-content" data-payroll-action="toggle-step" data-value="step2c" style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <h3 style="margin: 0; font-size: 1.125rem; color: ${hasInvalidLoanRows ? '#f87171' : '#f59e0b'}; font-weight: 700; display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2c') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
-                        ${icons.get('dollar', { size: 18 })} Paso 2C: Préstamos
-                    </h3>
-                    ${isStepCollapsed('step2c') ? `<div aria-label="Resumen de préstamos de nómina" style="display:flex;flex-wrap:wrap;gap:4px 22px;align-items:baseline;margin-left:16px;">
-                        <span style="white-space:nowrap;"><strong style="font-size:1.15rem;color:#f59e0b;">${loanSummary.selectedCount}</strong><span style="font-size:0.72rem;color:#94a3b8;">/${loanSummary.eligibleCount} préstamos</span></span>
-                        <span style="white-space:nowrap;font-size:0.72rem;color:#94a3b8;">Interés <strong style="font-size:0.95rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedInterest)}</strong> <span style="color:#64748b;">de ${formatCurrency(loanSummary.eligibleInterest)}</span></span>
-                        <span style="white-space:nowrap;font-size:0.72rem;color:#94a3b8;">Saldo <strong style="font-size:0.95rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedBalance)}</strong> <span style="color:#64748b;">de ${formatCurrency(loanSummary.eligibleBalance)}</span></span>
-                    </div>` : ''}
-                </div>
-
-                <div id="export-loans-content" style="display: ${isStepCollapsed('step2c') ? 'none' : 'block'}; margin-top: 20px;">
-                    <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 14px;">
-                        Agrega temporalmente los saldos de préstamos activos. Copiar o descargar no registra abonos ni modifica los préstamos.
-                    </p>
-                    <button type="button" data-payroll-action="add-payroll-loans"
-                            style="padding: 10px 14px; margin-bottom: 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); border: none; border-radius: 7px; color: #000; font-weight: 800; cursor: pointer;">
-                        ${icons.get('add', { size: 16 })} Agregar préstamos activos a nómina
-                    </button>
-
-                    ${selectedPayrollLoans.length === 0 ? `
-                        <div style="text-align: center; color: #64748b; padding: 20px; border: 1px dashed #334155; border-radius: 8px;">
-                            No hay préstamos agregados al listado temporal
-                        </div>
-                    ` : selectedPayrollLoans.map(item => {
-                        const invalid = invalidLoanEmployeeIds.has(item.employeeId);
-                        return `
-                            <div style="background: ${invalid ? 'rgba(239, 68, 68, 0.1)' : '#0f172a'}; border: 1px solid ${invalid ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
-                                    <div style="min-width: 0;">
-                                        <div style="color: #f1f5f9; font-weight: 700;">#${item.employeeNumber || '?'} · ${escapeHTML(item.employeeName || 'Empleado')}</div>
-                                        <div style="color: #94a3b8; font-size: 0.75rem; margin-top: 3px;">${item.loans.length} préstamo(s) activo(s) · Descuento ${formatCurrency(item.total)}</div>
-                                        ${invalid ? `<div role="alert" style="color: #fca5a5; font-size: 0.75rem; font-weight: 700; margin-top: 6px;">⚠️ El descuento deja el pago en cero o negativo. Elimina sus préstamos para continuar.</div>` : ''}
-                                    </div>
-                                    <button type="button" data-payroll-action="remove-employee-payroll-loans" data-id="${item.employeeId}" aria-label="Eliminar préstamos de ${escapeHTML(item.employeeName || 'empleado')} del listado temporal"
-                                            style="background: #ef4444; color: #fff; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; flex-shrink: 0;">
-                                        ${icons.get('delete', { size: 15 })}
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            </div>
-            </div>
                     </section>
 
                     <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>

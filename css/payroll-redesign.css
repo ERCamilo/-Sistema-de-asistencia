@@ -176,10 +176,6 @@
     margin-top: 16px;
 }
 
-.payroll-loans-legacy {
-    display: none;
-}
-
 .payroll-loans-desktop {
     overflow: hidden;
     border: 1px solid #303b46;
@@ -320,10 +316,7 @@
     grid-template-columns:
         48px
         minmax(125px, 1.1fr)
-        minmax(54px, 0.42fr)
-        minmax(78px, 0.55fr)
-        minmax(96px, 0.68fr)
-        minmax(104px, 0.72fr)
+        minmax(360px, 2.37fr)
         24px
         26px;
     gap: 6px;
@@ -345,7 +338,22 @@
     text-align: center;
 }
 
-.payroll-loans-table__columns > span:nth-child(n + 3):nth-child(-n + 6) {
+.payroll-loans-table__metric-columns,
+.payroll-loan-group__metrics {
+    display: grid;
+    grid-template-columns:
+        minmax(54px, 0.42fr)
+        minmax(78px, 0.55fr)
+        minmax(96px, 0.68fr)
+        minmax(104px, 0.72fr);
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+}
+
+.payroll-loans-table__metric-columns > span,
+.payroll-loan-group__metrics > span,
+.payroll-loan-group__metrics > strong {
     text-align: right;
 }
 
@@ -378,22 +386,21 @@
     box-shadow: inset 3px 0 #ef4444;
 }
 
-.payroll-loan-group > summary > span:nth-child(n + 3),
-.payroll-loan-group > summary > strong {
+.payroll-loan-group__metrics > span,
+.payroll-loan-group__metrics > strong {
     color: #9aa5af;
     font-size: 0.68rem;
-    text-align: right;
 }
 
-.payroll-loan-group > summary > strong {
+.payroll-loan-group__metrics > strong {
     color: #f59e0b;
 }
 
-.payroll-loan-group > summary > strong:last-child {
+.payroll-loan-group__metrics > strong:last-child {
     color: #eef2f6;
 }
 
-.payroll-loan-group > summary > strong.is-invalid {
+.payroll-loan-group__metrics > strong.is-invalid {
     color: #f87171;
 }
 
@@ -2251,11 +2258,173 @@
 
 @media (max-width: 900px) {
     .payroll-loans-desktop {
+        display: block;
+    }
+
+    .payroll-guide-panel--loans > .payroll-guide-panel__intro {
         display: none;
     }
 
-    .payroll-loans-legacy {
+    .payroll-loans-desktop__header {
+        gap: 10px;
+        padding: 12px;
+    }
+
+    .payroll-loans-desktop__header h3 {
+        font-size: 0.86rem;
+    }
+
+    .payroll-loans-desktop__header p {
+        max-width: 34rem;
+        font-size: 0.62rem;
+        line-height: 1.4;
+    }
+
+    .payroll-loans-desktop__badge {
+        padding: 6px 8px;
+    }
+
+    .payroll-loans-metrics {
+        margin: 9px;
+    }
+
+    .payroll-loans-metrics > span {
+        padding: 9px;
+    }
+
+    .payroll-loans-toolbar {
+        padding: 0 9px 9px;
+    }
+
+    .payroll-loans-toolbar button {
+        flex: 1 1 0;
+    }
+
+    .payroll-loans-table {
+        margin: 0 9px 9px;
+        overflow-x: visible;
+    }
+
+    .payroll-loans-table__columns {
+        display: none;
+    }
+
+    .payroll-loan-group {
+        min-width: 0;
+    }
+
+    .payroll-loan-group > summary {
+        grid-template-columns: 44px minmax(0, 1fr) 24px 26px;
+        gap: 8px 6px;
+        min-width: 0;
+        padding: 10px 8px;
+    }
+
+    .payroll-loan-group__number {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .payroll-loan-group__employee {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .payroll-loan-group__metrics {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 4px;
+        padding-top: 8px;
+        border-top: 1px solid #303b46;
+    }
+
+    .payroll-loan-group__metrics > span,
+    .payroll-loan-group__metrics > strong {
         display: block;
+        min-width: 0;
+        overflow: hidden;
+        font-size: 0.66rem;
+        text-align: left;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .payroll-loan-group__metrics > span::before,
+    .payroll-loan-group__metrics > strong::before {
+        content: attr(data-label);
+        display: block;
+        margin-bottom: 2px;
+        overflow: hidden;
+        color: #717e89;
+        font-size: 0.49rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-overflow: ellipsis;
+        text-transform: uppercase;
+    }
+
+    .payroll-loan-disclosure {
+        grid-column: 3;
+        grid-row: 1;
+    }
+
+    .payroll-loan-group > summary > .payroll-loan-selection {
+        grid-column: 4;
+        grid-row: 1;
+    }
+
+    .payroll-loan-group__body {
+        padding: 4px 8px 9px;
+    }
+
+    .payroll-loan-child-columns {
+        display: none;
+    }
+
+    .payroll-loan-child {
+        grid-template-columns: 26px minmax(0, 1fr) minmax(72px, auto);
+        gap: 4px 8px;
+        min-height: 56px;
+        padding-block: 6px;
+    }
+
+    .payroll-loan-child > .payroll-loan-selection {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        align-self: center;
+    }
+
+    .payroll-loan-child__concept {
+        grid-column: 2;
+        grid-row: 1 / 3;
+        align-self: center;
+    }
+
+    .payroll-loan-child__interest {
+        grid-column: 3;
+        grid-row: 1;
+        align-self: end;
+    }
+
+    .payroll-loan-child__balance {
+        grid-column: 3;
+        grid-row: 2;
+        align-self: start;
+    }
+
+    .payroll-loan-child__interest::before {
+        content: "Int. ";
+        color: #6f7c88;
+    }
+
+    .payroll-loan-child__balance::before {
+        content: "Saldo ";
+        display: block;
+        color: #6f7c88;
+        font-size: 0.49rem;
+        font-weight: 800;
+        text-transform: uppercase;
     }
 
     .payroll-adjustment-desktop {
@@ -2571,6 +2740,31 @@
 
     .payroll-generator__header {
         padding-inline: 4px;
+    }
+
+    .payroll-loans-desktop__header {
+        align-items: flex-start;
+    }
+
+    .payroll-loans-desktop__header p {
+        max-width: 15rem;
+    }
+
+    .payroll-loans-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .payroll-loans-metrics > span:nth-child(2n) {
+        border-right: 0;
+    }
+
+    .payroll-loans-metrics > span:nth-child(-n + 2) {
+        border-bottom: 1px solid #303b46;
+    }
+
+    .payroll-loan-group__metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px 12px;
     }
 
     .payroll-guide-step {

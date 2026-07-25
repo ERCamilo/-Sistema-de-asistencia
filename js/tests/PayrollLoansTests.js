@@ -17,14 +17,12 @@ import {
 const PAYROLL_UI_SRC = fs.readFileSync(
     path.resolve(__dirname, '../modules/features/payroll/PayrollUI.js'), 'utf8'
 );
-
-/** Collapsed step-2C summary block: from its aria-label to the template-conditional close. */
-function getLoanSummaryMarkup() {
-    const start = PAYROLL_UI_SRC.indexOf('Resumen de préstamos de nómina');
-    if (start === -1) return null;
-    const end = PAYROLL_UI_SRC.indexOf("` : ''}", start);
-    return end === -1 ? null : PAYROLL_UI_SRC.slice(start, end);
-}
+const PAYROLL_LOANS_RESPONSIVE_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../modules/features/payroll/PayrollLoansDesktop.js'), 'utf8'
+);
+const PAYROLL_REDESIGN_CSS = fs.readFileSync(
+    path.resolve(__dirname, '../../css/payroll-redesign.css'), 'utf8'
+);
 
 function buildEmployee() {
     return {
@@ -238,32 +236,41 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
     }
 });
 
-// ─── Resumen colapsado del Paso 2C (contrato de fuente) ──────────────────────
-// El resumen es texto plano minimalista: sin recuadros, etiquetas cortas y
-// cada métrica con su total elegible en chico al lado ("de $X").
+testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
 
-testRunner.addSuite('Paso 2C — resumen colapsado minimalista', {
-
-    'el resumen existe y es texto plano (sin recuadros ni etiquetas largas)'() {
-        const markup = getLoanSummaryMarkup();
-        testRunner.assert(markup !== null, 'el bloque de resumen colapsado debe existir');
-        testRunner.assert(!markup.includes('Préstamos seleccionados'), 'sin etiqueta "Préstamos seleccionados"');
-        testRunner.assert(!markup.includes('Interés seleccionado'), 'la etiqueta corta es "Interés"');
-        testRunner.assert(!markup.includes('Saldo seleccionado'), 'la etiqueta corta es "Saldo"');
-        testRunner.assert(!markup.includes('Valor total elegible'), 'el valor total elegible se elimina del resumen');
-        testRunner.assert(!markup.includes('eligibleTotalDue'), 'eligibleTotalDue ya no se renderiza');
-        testRunner.assert(!markup.includes('background:#0f172a'), 'sin tarjetas con fondo: solo texto');
+    'usa un único componente y elimina el bloque móvil legado'() {
+        testRunner.assert(
+            PAYROLL_UI_SRC.includes('${renderPayrollLoansDesktop({'),
+            'la etapa debe renderizar el workspace responsive'
+        );
+        testRunner.assert(
+            !PAYROLL_UI_SRC.includes('payroll-loans-legacy'),
+            'el diseño móvil legado ya no debe renderizarse'
+        );
+        testRunner.assert(
+            !PAYROLL_UI_SRC.includes('export-loans-section'),
+            'el bloque colapsable antiguo debe eliminarse'
+        );
     },
 
-    'muestra contador ámbar y cada monto con su total elegible en chico'() {
-        const markup = getLoanSummaryMarkup() || '';
-        const counter = /<strong[^>]*#f59e0b[^>]*>\$\{loanSummary\.selectedCount\}<\/strong>/.test(markup);
-        testRunner.assert(counter, 'el contador seleccionado va en ámbar (#f59e0b)');
-        testRunner.assert(markup.includes('/${loanSummary.eligibleCount} préstamos'), 'denominador "/N préstamos" al lado');
-        testRunner.assert(markup.includes('Interés') && markup.includes('loanSummary.selectedInterest'), 'métrica de interés seleccionado');
-        testRunner.assert(markup.includes('de ${formatCurrency(loanSummary.eligibleInterest)}'), 'interés total elegible en chico como "de $X"');
-        testRunner.assert(markup.includes('Saldo') && markup.includes('loanSummary.selectedBalance'), 'métrica de saldo seleccionado');
-        testRunner.assert(markup.includes('de ${formatCurrency(loanSummary.eligibleBalance)}'), 'saldo total activo en chico como "de $X"');
+    'mantiene el contador compacto y habilita la composición móvil'() {
+        testRunner.assert(
+            PAYROLL_LOANS_RESPONSIVE_SRC.includes(
+                '${summary.selectedCount}/${summary.eligibleCount}'
+            ),
+            'el contador general debe usar el formato compacto N/N'
+        );
+        testRunner.assert(
+            PAYROLL_LOANS_RESPONSIVE_SRC.includes('data-label="A descontar"')
+                && PAYROLL_LOANS_RESPONSIVE_SRC.includes('data-label="Neto"'),
+            'las métricas deben conservar etiquetas responsive'
+        );
+        testRunner.assert(
+            /@media \(max-width: 900px\)[\s\S]*?\.payroll-loans-desktop\s*\{\s*display:\s*block;/.test(
+                PAYROLL_REDESIGN_CSS
+            ),
+            'el workspace nuevo debe permanecer visible bajo 900 px'
+        );
     }
 
 });

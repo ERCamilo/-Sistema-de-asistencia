@@ -143,7 +143,7 @@ describe('Financial desktop layouts', () => {
         );
     });
 
-    test('loans are a dedicated fourth step', () => {
+    test('loans use one responsive workspace as the dedicated fourth step', () => {
         PayrollUI.setPayrollGuideStep('loans');
 
         expect(state.exportConfig.payrollGuideStep).toBe('loans');
@@ -153,7 +153,8 @@ describe('Financial desktop layouts', () => {
             /class="payroll-guide-step is-active [^"]*"[\s\S]{0,180}data-value="loans"/
         );
         expect(html).toContain('class="payroll-loans-desktop"');
-        expect(html).toContain('class="payroll-loans-legacy"');
+        expect(html).not.toContain('payroll-loans-legacy');
+        expect(html).not.toContain('export-loans-section');
     });
 
     test('tri-state loan selection toggles all, partial, and none without changing loans', () => {
