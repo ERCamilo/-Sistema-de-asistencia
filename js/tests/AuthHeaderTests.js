@@ -75,6 +75,43 @@ testRunner.addSuite('AuthHeader — avatar abre el CS; login sin sesión', {
         } finally { global.window.currentUser = prev; }
     },
 
+    'la foto de Google llena el círculo y conserva iniciales como respaldo'() {
+        global.window = global.window || {};
+        const prev = global.window.currentUser;
+        global.window.currentUser = {
+            displayName: 'Erlin Camilo',
+            email: 'e@x.com',
+            photoURL: 'https://lh3.googleusercontent.com/photo.jpg'
+        };
+        try {
+            const html = renderHeader();
+            testRunner.assert(/class="header-user-avatar"/.test(html),
+                'el círculo del avatar debe envolver foto e iniciales');
+            testRunner.assert(/class="header-user-avatar-img"/.test(html),
+                'debe renderizar la foto recibida desde Google');
+            testRunner.assert(/header-user-initials[^>]*>EC</.test(html),
+                'las iniciales permanecen detrás de la foto como fallback');
+            testRunner.assert(/onerror="this\.remove\(\)"/.test(html),
+                'si Google no entrega la imagen, se revelan las iniciales');
+        } finally { global.window.currentUser = prev; }
+    },
+
+    'usa la foto del proveedor de Google si photoURL principal está vacío'() {
+        global.window = global.window || {};
+        const prev = global.window.currentUser;
+        global.window.currentUser = {
+            displayName: 'Erlin Camilo',
+            email: 'e@x.com',
+            photoURL: null,
+            providerData: [{ providerId: 'google.com', photoURL: 'https://lh3.googleusercontent.com/provider-photo.jpg' }]
+        };
+        try {
+            const html = renderHeader();
+            testRunner.assert(html.includes('provider-photo.jpg'),
+                'debe recuperar la foto publicada por el proveedor de Google');
+        } finally { global.window.currentUser = prev; }
+    },
+
     'sin sesión, aparece el botón Iniciar sesión que abre el modal de login'() {
         global.window = global.window || {};
         const prev = global.window.currentUser;
@@ -86,6 +123,34 @@ testRunner.addSuite('AuthHeader — avatar abre el CS; login sin sesión', {
             testRunner.assert(/data-app-fn="openLoginModal"/.test(html),
                 'ese botón debe abrir el modal de login explicativo');
         } finally { global.window.currentUser = prev; }
+    }
+
+});
+
+testRunner.addSuite('Header — acciones compactas', {
+
+    'Notas sale del encabezado y vive dentro del menú de cuenta'() {
+        const html = renderHeader();
+        testRunner.assert(!/data-header-action="open-notes-center"/.test(html),
+            'el encabezado no debe conservar el botón independiente de Notas');
+        const idx = APP_SRC.indexOf('function SyncCenterModal');
+        const body = APP_SRC.slice(idx, idx + 7000);
+        testRunner.assert(/syncCenterOpenNotes/.test(body),
+            'el Centro de Sincronización debe ofrecer la acción Notas');
+        testRunner.assert(/window\.syncCenterOpenNotes\s*=/.test(APP_SRC),
+            'la acción debe cerrar el popup de cuenta antes de abrir Notas');
+    },
+
+    'Exportar conserva su acción y usa un SVG de compartir'() {
+        const html = renderHeader();
+        testRunner.assert(/data-header-action="export-data"/.test(html),
+            'la exportación sigue disponible en el encabezado');
+        testRunner.assert(/<svg class="header-export-icon"/.test(html),
+            'el botón debe usar un SVG propio');
+        testRunner.assert(/M12 3v12/.test(html),
+            'el SVG representa una flecha saliendo del contenedor');
+        testRunner.assert(!/icons\.get\('download'/.test(HEADER_SRC),
+            'no debe depender del icono de descarga del set configurable');
     }
 
 });

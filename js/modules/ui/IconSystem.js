@@ -90,6 +90,7 @@ class IconSystem {
 
             // ── Acciones CRUD ─────────────────────────────────────────
             'add': { unicode: '➕', lucide: 'plus', phosphor: 'plus', tabler: 'plus', bootstrap: 'plus-lg' },
+            'subtract': { unicode: '−', lucide: 'minus', phosphor: 'minus', tabler: 'minus', bootstrap: 'dash-lg' },
             'edit': { unicode: '✏️', lucide: 'edit-2', phosphor: 'pencil-simple', tabler: 'edit', bootstrap: 'pencil' },
             'delete': { unicode: '🗑️', lucide: 'trash-2', phosphor: 'trash', tabler: 'trash', bootstrap: 'trash' },
             'save': { unicode: '💾', lucide: 'save', phosphor: 'floppy-disk', tabler: 'device-floppy', bootstrap: 'floppy' },
@@ -117,6 +118,7 @@ class IconSystem {
             'pause': { unicode: '⏸️', lucide: 'pause', phosphor: 'pause', tabler: 'player-pause', bootstrap: 'pause' },
             'date-left': { unicode: '◀', lucide: 'chevron-left', phosphor: 'caret-left', tabler: 'chevron-left', bootstrap: 'chevron-left' },
             'date-right': { unicode: '▶', lucide: 'chevron-right', phosphor: 'caret-right', tabler: 'chevron-right', bootstrap: 'chevron-right' },
+            'arrow-left': { unicode: '←', lucide: 'arrow-left', phosphor: 'arrow-left', tabler: 'arrow-left', bootstrap: 'arrow-left' },
             'chevron-left': { unicode: '◀', lucide: 'chevron-left', phosphor: 'caret-left', tabler: 'chevron-left', bootstrap: 'chevron-left' },
             'chevron-right': { unicode: '▶', lucide: 'chevron-right', phosphor: 'caret-right', tabler: 'chevron-right', bootstrap: 'chevron-right' },
             'map-pin': { unicode: '📍', lucide: 'map-pin', phosphor: 'map-pin', tabler: 'map-pin', bootstrap: 'geo-alt' },

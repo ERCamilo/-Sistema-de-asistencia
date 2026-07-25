@@ -42,6 +42,26 @@ export function removeEmployeePayrollLoans(selection, employeeId) {
     return (selection || []).filter(item => String(item.employeeId) !== normalizedEmployeeId);
 }
 
+export function setEmployeePayrollLoans(selection, employeeId, loanIds = []) {
+    const normalizedEmployeeId = String(employeeId);
+    const uniqueLoanIds = [...new Map(
+        (loanIds || [])
+            .filter(id => id !== null && id !== undefined && String(id) !== '')
+            .map(id => [String(id), id])
+    ).values()];
+    const next = removeEmployeePayrollLoans(selection, normalizedEmployeeId);
+    if (uniqueLoanIds.length === 0) return next;
+    return [...next, { employeeId, loanIds: uniqueLoanIds }];
+}
+
+export function togglePayrollLoan(selection, employeeId, loanId, selected) {
+    const current = (selection || []).find(item => String(item.employeeId) === String(employeeId));
+    const loanIds = new Map((current?.loanIds || []).map(id => [String(id), id]));
+    if (selected) loanIds.set(String(loanId), loanId);
+    else loanIds.delete(String(loanId));
+    return setEmployeePayrollLoans(selection, employeeId, [...loanIds.values()]);
+}
+
 export function resolvePayrollLoanSelection(employees, selection) {
     const employeesById = new Map((employees || []).map(employee => [String(employee.id), employee]));
 

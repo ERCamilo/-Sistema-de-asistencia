@@ -80,43 +80,43 @@ function LedgerOverview() {
     const closedLoansCount = getClosedLoansCount(state);
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto;">
-            <!-- KPI cards: 2 cols on narrow screens (auto-fit grows on wide) -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
-                ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
-                ${kpiCard('Total pagado', formatCurrency(totalPaid), '#10b981', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
-                ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
-                ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
-                ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
-            </div>
-
-            <!-- Search + actions -->
-            <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-                <div style="flex: 1; min-width: 220px;">
-                    <input type="text" autocomplete="off"
-                           placeholder="🔍 Buscar empleado por nombre o número..."
-                           value="${escapeAttr(ledger.search || '')}"
-                           oninput="setLoansSearch(this.value)"
-                           style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+        <div class="loans-overview">
+            <main class="loans-overview__main">
+                <div class="loans-overview__mobile-kpis">
+                    ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
+                    ${kpiCard('Total pagado', formatCurrency(totalPaid), 'rgb(16, 185, 115)', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
+                    ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
+                    ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
+                    ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
                 </div>
-                <button type="button" data-app-fn="openLoansEmployeePicker"
-                        style="padding: 10px 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
-                    ${icons.get('add', { size: 16 })} Agregar nuevo
-                </button>
-                <div style="font-size: 0.8rem; color: #94a3b8;">
-                    Mostrando ${filtered.length} de ${allWithDebt.length}
-                </div>
-            </div>
 
-            <!-- Employee list -->
-            ${filtered.length === 0 ? `
+                <!-- Search + actions -->
+                <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                    <div style="flex: 1; min-width: 220px;">
+                        <input type="text" autocomplete="off"
+                               placeholder="🔍 Buscar empleado por nombre o número..."
+                               value="${escapeAttr(ledger.search || '')}"
+                               oninput="setLoansSearch(this.value)"
+                               style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+                    </div>
+                    <button type="button" data-app-fn="openLoansEmployeePicker"
+                            style="padding: 10px 16px; background: #f59e0b; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
+                        ${icons.get('add', { size: 16 })} Agregar nuevo
+                    </button>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">
+                        Mostrando ${filtered.length} de ${allWithDebt.length}
+                    </div>
+                </div>
+
+                <!-- Employee list -->
+                ${filtered.length === 0 ? `
                 <div style="text-align: center; padding: 60px 20px; background: #1e293b; border-radius: 12px; border: 1px solid #334155;">
                     <div style="font-size: 3rem; margin-bottom: 12px; opacity: 0.4;">${icons.get('payroll')}</div>
                     <div style="color: #94a3b8; font-size: 0.95rem;">
                         ${search ? 'No se encontraron empleados que coincidan con la búsqueda' : 'No hay empleados con préstamos activos'}
                     </div>
                 </div>
-            ` : filtered.map(emp => `
+                ` : filtered.map(emp => `
                 <div role="button" tabindex="0"
                      data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
                      style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px;"
@@ -139,17 +139,17 @@ function LedgerOverview() {
                         <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(emp.totalDue)}</div>
                     </div>
                 </div>
-            `).join('')}
+                `).join('')}
 
-            <!-- Apartado colapsable: Cuentas Saldadas (Inactivas) -->
-            ${allInactive.length > 0 ? `
+                <!-- Apartado colapsable: Cuentas Saldadas (Inactivas) -->
+                ${allInactive.length > 0 ? `
                 <div style="margin-top: 30px; margin-bottom: 20px;">
                     <button type="button" data-app-fn="toggleInactiveHistory"
                             style="width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #1e293b; border: 1px solid #334155; border-radius: 10px; color: #e2e8f0; font-weight: 700; font-size: 0.85rem; cursor: pointer; text-align: left; outline: none; transition: border-color 0.15s;"
                             onmouseover="this.style.borderColor='#94a3b8'"
                             onmouseout="this.style.borderColor='#334155'">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="color: #10b981; display: inline-flex; align-items: center;">${icons.get('check', { size: 16 })}</span>
+                            <span style="color: rgb(16, 185, 115); display: inline-flex; align-items: center;">${icons.get('check', { size: 16 })}</span>
                             <span>Historial de cuentas saldadas (${allInactive.length})</span>
                         </div>
                         <span style="font-size: 0.75rem; color: #64748b;">
@@ -167,10 +167,10 @@ function LedgerOverview() {
                                 <div role="button" tabindex="0"
                                      data-app-fn="selectLoansEmployee" data-arg="${emp.employeeId}"
                                      style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 10px; opacity: 0.8;"
-                                     onmouseover="this.style.borderColor='#10b981'; this.style.opacity='1'"
+                                     onmouseover="this.style.borderColor='rgb(16, 185, 115)'; this.style.opacity='1'"
                                      onmouseout="this.style.borderColor='#334155'; this.style.opacity='0.8'">
                                     <!-- Number avatar -->
-                                    <div style="width: 36px; height: 36px; background: rgba(16,185,129,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #10b981; font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
+                                    <div style="width: 36px; height: 36px; background: rgba(16,185,115,0.12); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: rgb(16, 185, 115); font-weight: 800; font-size: 0.8rem; flex-shrink: 0;">
                                         ${emp.number || '?'}
                                     </div>
                                     <!-- Name + sub-line -->
@@ -182,7 +182,7 @@ function LedgerOverview() {
                                     </div>
                                     <!-- Total paid/due pinned to the right -->
                                     <div style="text-align: right; flex-shrink: 0;">
-                                        <div style="font-size: 0.95rem; font-weight: 800; color: #10b981; line-height: 1.1;">${formatCurrency(emp.totalPaid)}</div>
+                                        <div style="font-size: 0.95rem; font-weight: 800; color: rgb(16, 185, 115); line-height: 1.1;">${formatCurrency(emp.totalPaid)}</div>
                                         <div style="font-size: 0.6rem; color: #64748b; text-transform: uppercase;">recuperado</div>
                                     </div>
                                 </div>
@@ -190,7 +190,40 @@ function LedgerOverview() {
                         </div>
                     ` : ''}
                 </div>
-            ` : ''}
+                ` : ''}
+            </main>
+
+            <aside class="loans-overview__summary" aria-label="Resumen de cuentas por cobrar">
+                <div class="loans-overview__summary-header">
+                    <span>Resumen de cartera</span>
+                    <strong>Actualizado al período vigente</strong>
+                </div>
+                <table>
+                    <tbody>
+                        <tr>
+                            <th scope="row">Saldo pendiente<small>Total facturado ${formatCurrency(totalHistoricalDue)}</small></th>
+                            <td>${formatCurrency(totalExposure)}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Total pagado<small>Histórico ${formatCurrency(totalHistoricalPaid)}</small></th>
+                            <td>${formatCurrency(totalPaid)}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Interés activo<small>Histórico ${formatCurrency(totalHistoricalInterest)}</small></th>
+                            <td>${formatCurrency(totalActiveInterest)}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Empleados con deuda<small>${allInactive.length} cuentas saldadas</small></th>
+                            <td>${allWithDebt.length}</td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Préstamos activos<small>${closedLoansCount} cerrados</small></th>
+                            <td>${totalLoans}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p>Este resumen no modifica saldos ni registra movimientos.</p>
+            </aside>
         </div>
     `;
 }
@@ -231,6 +264,9 @@ function EmployeeLoansDetail(empId) {
     const paid = allLoans.filter(l => l.status === LOAN_STATUS.PAID);
     const writtenOff = allLoans.filter(l => l.status === LOAN_STATUS.WRITTEN_OFF);
     const totalBalance = active.reduce((s, l) => s + getBalance(l), 0);
+    const employeeNameParts = String(emp.name || '').trim().split(/\s+/).filter(Boolean);
+    const employeeFirstName = employeeNameParts.shift() || 'Sin nombre';
+    const employeeRemainingName = employeeNameParts.join(' ');
 
     const ledger = state.loansLedger || {};
     const showAddForm = !!ledger.showAddForm;
@@ -241,18 +277,28 @@ function EmployeeLoansDetail(empId) {
     const duplicateCandidates = detectLoanDuplicateCandidates(emp);
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto;">
+        <div class="loans-employee-detail" style="max-width: 1000px; margin: 0 auto;">
             <!-- Header with back button -->
-            <div style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <button type="button" data-app-fn="clearLoansEmployee" aria-label="Volver"
-                            style="width: 36px; height: 36px; background: transparent; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; cursor: pointer; font-size: 1.1rem;">←</button>
-                    <div>
-                        <div style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">${escapeHTML(emp.name)}</div>
-                        <div style="color: #94a3b8; font-size: 0.8rem;">#${emp.number}</div>
+            <div class="loans-detail-header" style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div class="loans-detail-header__identity" style="display: flex; align-items: center; gap: 12px;">
+                    <button type="button"
+                            class="loans-detail-back"
+                            data-app-fn="clearLoansEmployee"
+                            aria-label="Volver a cuentas por cobrar">
+                        <svg class="loans-detail-back__icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M19 12H5"></path>
+                            <path d="m12 19-7-7 7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="loans-detail-header__employee">
+                        <div class="loans-detail-header__name" style="color: #f1f5f9; font-weight: 800; font-size: 1.1rem;">
+                            <span class="loans-detail-header__name-line">${escapeHTML(employeeFirstName)}</span>
+                            ${employeeRemainingName ? `<span class="loans-detail-header__name-line">${escapeHTML(employeeRemainingName)}</span>` : ''}
+                        </div>
+                        <div class="loans-detail-header__number" style="color: #94a3b8; font-size: 0.8rem;">#${emp.number}</div>
                     </div>
                 </div>
-                <div style="text-align: right;">
+                <div class="loans-detail-header__balance" style="text-align: right;">
                     <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo pendiente</div>
                     <div style="font-size: 1.5rem; font-weight: 900; color: #f59e0b;">${formatCurrency(totalBalance)}</div>
                 </div>
@@ -281,7 +327,7 @@ function EmployeeLoansDetail(empId) {
                                 `).join('')}
                             </div>
                             <button type="button" data-app-fn="resolveDupKeepBoth" data-arg="${escapeAttr(c.a.id)}" data-arg2="${escapeAttr(c.b.id)}"
-                                    style="margin-top: 8px; width: 100%; padding: 6px 10px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.5); color: #6ee7b7; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;">
+                                    style="margin-top: 8px; width: 100%; padding: 6px 10px; background: rgba(16,185,115,0.15); border: 1px solid rgba(16,185,115,0.5); color: #6ee7b7; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer;">
                                 ✓ Son préstamos distintos — conservar ambos
                             </button>
                         </div>
@@ -307,7 +353,7 @@ function EmployeeLoansDetail(empId) {
             <!-- Paid loans -->
             ${paid.length > 0 ? `
                 <details style="margin-top: 20px;">
-                    <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0;">
+                    <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 700; color: rgb(16, 185, 115); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0;">
                         Saldados (${paid.length}) ▾
                     </summary>
                     ${paid.map(loan => LoanCard(loan)).join('')}
@@ -335,6 +381,15 @@ function EmployeeLoansDetail(empId) {
 
 // ─── ONE LOAN CARD ───────────────────────────────────────────────────────────
 
+function DisclosureControl() {
+    return `
+        <span class="loan-card__disclosure-control" aria-hidden="true">
+            <span class="loan-card__disclosure-icon loan-card__disclosure-icon--closed">${icons.get('add', { size: 15 })}</span>
+            <span class="loan-card__disclosure-icon loan-card__disclosure-icon--open">${icons.get('subtract', { size: 15 })}</span>
+        </span>
+    `;
+}
+
 function LoanCard(loan) {
     const balance = getBalance(loan);
     const totalDue = getTotalDue(loan);
@@ -349,10 +404,14 @@ function LoanCard(loan) {
     const refinancings = (loan.refinancings || []).filter(r => !r.voided);
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
-
-    const refinBadge = refinCount > 0
-        ? `<span title="${refinancings.map(r => `${formatDateShort(r.date)}: +${formatCurrency(r.interestAmount)}`).join(' | ')}" style="background: rgba(168,85,247,0.18); border: 1px solid rgba(168,85,247,0.6); color: #d8b4fe; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; white-space: nowrap;">♻️ Refinanciado ${refinCount}×</span>`
-        : '';
+    const activityEntries = [
+        ...visiblePayments.map(item => ({ type: 'payment', date: item.date, item })),
+        ...refinancings.map(item => ({ type: 'refinancing', date: item.date, item }))
+    ].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    const activityMeta = [
+        visiblePayments.length > 0 ? `${formatCurrency(paid)} pagado` : '',
+        refinCount > 0 ? `${refinCount} refinanciamiento${refinCount === 1 ? '' : 's'}` : ''
+    ].filter(Boolean).join(' · ');
 
     // Fase 2 U4: badge "pendiente de subir" — el préstamo tiene cambios con
     // updatedAt POSTERIOR a la última subida de entidades confirmada
@@ -366,13 +425,13 @@ function LoanCard(loan) {
     const statusBadge = isActive
         ? `<span style="background: #f59e0b; color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ACTIVO</span>`
         : loan.status === LOAN_STATUS.PAID
-            ? `<span style="background: #10b981; color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">SALDADO</span>`
+            ? `<span style="background: rgb(16, 185, 115); color: #000; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">SALDADO</span>`
             : `<span style="background: #64748b; color: #fff; padding: 3px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800;">ANULADO</span>`;
 
     return `
-        <div style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 12px; ${isWrittenOff ? 'opacity: 0.6;' : ''}">
+        <div class="loan-card" style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 12px; ${isWrittenOff ? 'opacity: 0.6;' : ''}">
             <!-- Top line: concept + status -->
-            <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+            <div class="loan-card__desktop-header" style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                 <div style="flex: 1; min-width: 200px;">
                     <div style="font-size: 0.95rem; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">${escapeHTML(loan.concept || 'Préstamo')}</div>
                     <div style="font-size: 0.75rem; color: #94a3b8;">
@@ -387,76 +446,130 @@ function LoanCard(loan) {
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
                     ${statusBadge}
-                    ${refinBadge}
                     ${pendingUploadBadge}
                 </div>
             </div>
 
-            <!-- Numbers row -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; padding: 12px; background: #0f172a; border-radius: 8px; margin-bottom: 12px;">
+            <!-- Desktop numbers row -->
+            <div class="loan-card__metrics loan-card__metrics--desktop">
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Capital</div>
-                    <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700;">${formatCurrency(loan.principal)}</div>
+                    <div class="loan-card__metric-label">Capital</div>
+                    <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Interés</div>
-                    <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700;">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                    <div class="loan-card__metric-label">Interés</div>
+                    <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Int. acumulado</div>
-                    <div style="font-size: 0.95rem; color: ${refinCount > 0 ? '#d8b4fe' : '#f1f5f9'}; font-weight: 700;" title="Interés total acumulado (original + refinanciamientos)">${formatCurrency(totalInterest)}</div>
+                    <div class="loan-card__metric-label">Int. acumulado</div>
+                    <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}" title="Interés total acumulado (original + refinanciamientos)">${formatCurrency(totalInterest)}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Total</div>
-                    <div style="font-size: 0.95rem; color: #f1f5f9; font-weight: 700;">${formatCurrency(totalDue)}</div>
+                    <div class="loan-card__metric-label">Total</div>
+                    <div class="loan-card__metric-value">${formatCurrency(totalDue)}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Pagado</div>
-                    <div style="font-size: 0.95rem; color: #10b981; font-weight: 700;">${formatCurrency(paid)}</div>
+                    <div class="loan-card__metric-label">Pagado</div>
+                    <div class="loan-card__metric-value loan-card__metric-value--paid">${formatCurrency(paid)}</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo</div>
-                    <div style="font-size: 0.95rem; color: ${balance > 0 ? '#f59e0b' : '#10b981'}; font-weight: 800;">${formatCurrency(balance)}</div>
+                    <div class="loan-card__metric-label">Saldo pendiente</div>
+                    <div class="loan-card__metric-value ${balance > 0 ? 'loan-card__metric-value--pending' : 'loan-card__metric-value--paid'}">${formatCurrency(balance)}</div>
                 </div>
             </div>
 
-            <!-- Payments history -->
-            ${visiblePayments.length > 0 ? `
-                <div style="margin-bottom: 12px;">
-                    <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Abonos</div>
-                    ${visiblePayments.slice().reverse().map(p => `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="color: #10b981; font-weight: 700;">+${formatCurrency(p.amount)}</span>
-                                <span style="color: #94a3b8;">${formatDateShort(p.date)}</span>
-                                ${p.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(p.note)}"</span>` : ''}
-                            </div>
-                            ${(isActive || isPaid) ? `<button type="button" data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${p.id}"
-                                                  style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
-                                                  title="${isPaid ? 'Anular este abono (reabre el préstamo)' : 'Anular este abono'}">✕</button>` : ''}
+            <!-- Mobile compact summary + financial disclosure -->
+            <details class="loan-card__breakdown">
+                <summary class="loan-card__mobile-summary">
+                    <span class="loan-card__mobile-identity">
+                        <strong>
+                            ${escapeHTML(loan.concept || 'Préstamo')}
+                            ${Number.isFinite(Number(loan.seq)) ? `<b>#${Number(loan.seq)}</b>` : ''}
+                        </strong>
+                        <span>
+                            ${formatDateShort(loan.startDate)} ·
+                            ${loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `${(loan.installments || []).length} cuotas` : 'Pago único'}
+                        </span>
+                        ${loan.updatedAt ? `<small>⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}</small>` : ''}
+                    </span>
+                    <span class="loan-card__pending">
+                        <span>Saldo pendiente</span>
+                        <strong class="${balance > 0 ? '' : 'loan-card__pending--paid'}">${formatCurrency(balance)}</strong>
+                    </span>
+                    <span class="loan-card__mobile-state">
+                        ${statusBadge}
+                        ${DisclosureControl()}
+                    </span>
+                </summary>
+                <div class="loan-card__breakdown-body">
+                    <div class="loan-card__breakdown-title">Desglose financiero</div>
+                    <div class="loan-card__metrics loan-card__metrics--breakdown">
+                        <div>
+                            <div class="loan-card__metric-label">Capital</div>
+                            <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
                         </div>
-                    `).join('')}
+                        <div>
+                            <div class="loan-card__metric-label">Interés</div>
+                            <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Int. acumulado</div>
+                            <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Total</div>
+                            <div class="loan-card__metric-value">${formatCurrency(totalDue)}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Pagado</div>
+                            <div class="loan-card__metric-value loan-card__metric-value--paid">${formatCurrency(paid)}</div>
+                        </div>
+                    </div>
                 </div>
-            ` : ''}
+            </details>
 
-            <!-- Refinancing history -->
-            ${refinancings.length > 0 ? `
-                <div style="margin-bottom: 12px;">
-                    <div style="font-size: 0.7rem; color: #d8b4fe; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">♻️ Refinanciamientos</div>
-                    ${refinancings.slice().reverse().map(r => `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #0f172a; border-radius: 6px; margin-bottom: 4px; font-size: 0.8rem; border-left: 3px solid #a855f7;">
-                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                <span style="color: #d8b4fe; font-weight: 700;">+${formatCurrency(r.interestAmount)}</span>
-                                <span style="color: #94a3b8;">${formatDateShort(r.date)}</span>
-                                <span style="color: #64748b; font-size: 0.72rem;">${r.interestRate}% sobre ${r.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(r.baseAmount)})</span>
-                                ${r.note ? `<span style="color: #64748b; font-style: italic;">"${escapeHTML(r.note)}"</span>` : ''}
+            <!-- Unified activity history -->
+            ${activityEntries.length > 0 ? `
+                <details class="loan-card__history loan-card__history--activity">
+                    <summary>
+                        <span class="loan-card__history-copy">
+                            <span class="loan-card__history-title">Actividad · ${activityEntries.length} movimiento${activityEntries.length === 1 ? '' : 's'}</span>
+                            <span class="loan-card__history-meta">${activityMeta}</span>
+                        </span>
+                        ${DisclosureControl()}
+                    </summary>
+                    <div class="loan-card__history-body">
+                        ${activityEntries.map(({ type, item }) => type === 'payment' ? `
+                            <div class="loan-card__activity-row loan-card__activity-row--payment">
+                                <span class="loan-card__activity-marker" aria-hidden="true"></span>
+                                <div class="loan-card__activity-copy">
+                                    <div>
+                                        <strong>+${formatCurrency(item.amount)}</strong>
+                                        <span>${formatDateShort(item.date)}</span>
+                                    </div>
+                                    ${item.note ? `<small>${escapeHTML(item.note)}</small>` : ''}
+                                </div>
+                                ${(isActive || isPaid) ? `<button type="button" class="loan-card__activity-void"
+                                                      data-app-fn="voidPaymentHandler" data-arg="${loan.id}" data-arg2="${item.id}"
+                                                      title="${isPaid ? 'Anular este abono (reabre el préstamo)' : 'Anular este abono'}">✕</button>` : ''}
                             </div>
-                            ${isActive ? `<button type="button" data-app-fn="voidRefinanceHandler" data-arg="${loan.id}" data-arg2="${r.id}"
-                                                  style="background: transparent; border: 1px solid #334155; color: #94a3b8; padding: 3px 8px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;"
-                                                  title="Anular este refinanciamiento">✕</button>` : ''}
-                        </div>
-                    `).join('')}
-                </div>
+                        ` : `
+                            <div class="loan-card__activity-row loan-card__activity-row--refinancing">
+                                <span class="loan-card__activity-marker" aria-hidden="true"></span>
+                                <div class="loan-card__activity-copy">
+                                    <div>
+                                        <strong>+${formatCurrency(item.interestAmount)}</strong>
+                                        <span>${formatDateShort(item.date)}</span>
+                                    </div>
+                                    <small>${item.interestRate}% sobre ${item.basis === 'balance' ? 'saldo' : 'capital'} (${formatCurrency(item.baseAmount)})${item.note ? ` · ${escapeHTML(item.note)}` : ''}</small>
+                                </div>
+                                ${isActive ? `<button type="button" class="loan-card__activity-void"
+                                                      data-app-fn="voidRefinanceHandler" data-arg="${loan.id}" data-arg2="${item.id}"
+                                                      title="Anular este refinanciamiento">✕</button>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </details>
             ` : ''}
 
             <!-- Payment form -->
@@ -466,29 +579,70 @@ function LoanCard(loan) {
             ${isActive && showRefin ? RefinanceForm(loan, balance) : ''}
 
             <!-- Actions -->
-            ${isActive ? `
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    ${!showPay ? `
-                        <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
-                                style="flex: 1; min-width: 130px; padding: 10px 14px; background: #06b6d4; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
-                            ${icons.get('add', { size: 14 })} Registrar abono
-                        </button>
-                    ` : ''}
-                    ${!showRefin ? `
-                        <button type="button" data-app-fn="toggleRefinanceForm" data-arg="${loan.id}"
-                                style="padding: 10px 14px; background: transparent; color: #d8b4fe; border: 1px solid #a855f7; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;"
-                                title="Agregar interés porque no pudo pagar">
-                            ♻️ Refinanciar
-                        </button>
-                    ` : ''}
-                    <button type="button" data-app-fn="settleLoanByFullPayment" data-arg="${loan.id}"
-                            style="padding: 10px 14px; background: #10b981; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
-                        ${icons.get('check', { size: 14 })} Saldar
+            ${isActive && !showPay && !showRefin ? `
+                <div class="loan-card__actions">
+                    <button type="button"
+                            class="loan-card__action loan-card__action--payment"
+                            data-app-fn="togglePaymentForm"
+                            data-arg="${loan.id}">
+                        Realizar pago
                     </button>
-                    <button type="button" data-app-fn="writeOffLoanWithConfirm" data-arg="${loan.id}"
-                            style="padding: 10px 14px; background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
-                        ${icons.get('delete', { size: 14 })}
-                    </button>
+                    <div class="loan-card__desktop-actions">
+                        <button type="button"
+                                class="loan-card__action loan-card__action--desktop-refinance"
+                                data-app-fn="toggleRefinanceForm"
+                                data-arg="${loan.id}">
+                            Refinanciar
+                        </button>
+                        <button type="button"
+                                class="loan-card__action loan-card__action--desktop-settle"
+                                data-app-fn="settleLoanByFullPayment"
+                                data-arg="${loan.id}">
+                            Saldar
+                        </button>
+                        <button type="button"
+                                class="loan-card__action loan-card__action--desktop-danger"
+                                data-app-fn="writeOffLoanWithConfirm"
+                                data-arg="${loan.id}"
+                                aria-label="Anular préstamo"
+                                title="Anular préstamo">
+                            ${icons.get('delete', { size: 14 })}
+                        </button>
+                    </div>
+                    <details class="loan-card__more-actions">
+                        <summary class="loan-card__action loan-card__action--more">Más acciones</summary>
+                        <div class="loan-card__more-menu">
+                            <button type="button"
+                                    class="loan-card__more-item loan-card__more-item--refinance"
+                                    data-app-fn="toggleRefinanceForm"
+                                    data-arg="${loan.id}">
+                                <svg class="loan-card__more-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 7h-5V2"></path>
+                                    <path d="M20 7a8 8 0 0 0-13.7-2.3L4 7"></path>
+                                    <path d="M4 17h5v5"></path>
+                                    <path d="M4 17a8 8 0 0 0 13.7 2.3L20 17"></path>
+                                </svg>
+                                Refinanciar
+                            </button>
+                            <button type="button"
+                                    class="loan-card__more-item loan-card__more-item--settle"
+                                    data-app-fn="settleLoanByFullPayment"
+                                    data-arg="${loan.id}">
+                                <svg class="loan-card__more-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M15.2 8.5c-.7-.6-1.7-.9-2.8-.9-1.5 0-2.6.7-2.6 1.8 0 2.8 5.1 1.4 5.1 4.3 0 1.1-1.1 1.9-2.8 1.9-1.2 0-2.4-.4-3.2-1.1"></path>
+                                    <path d="M12 5.8v12.4"></path>
+                                </svg>
+                                Saldar <span>(pago total)</span>
+                            </button>
+                            <button type="button"
+                                    class="loan-card__more-item loan-card__more-item--danger"
+                                    data-app-fn="writeOffLoanWithConfirm"
+                                    data-arg="${loan.id}">
+                                ${icons.get('delete', { size: 14 })} Anular préstamo
+                            </button>
+                        </div>
+                    </details>
                 </div>
             ` : isWrittenOff ? `
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -512,11 +666,11 @@ function LoanCard(loan) {
 function PaymentForm(loan, balance) {
     const draft = (state.loansLedger || {}).paymentDraft || { amount: 0, date: '', note: '' };
     return `
-        <div style="background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.3); border-radius: 10px; padding: 12px; margin-bottom: 12px;">
-            <div style="font-size: 0.75rem; color: #06b6d4; font-weight: 800; text-transform: uppercase; margin-bottom: 10px;">Nuevo abono</div>
+        <div class="loan-operation-form loan-operation-form--payment">
+            <div class="loan-operation-form__title">Realizar pago</div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto (saldo: ${formatCurrency(balance)})</label>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto a pagar</label>
                     <input type="number" inputmode="decimal" autocomplete="off"
                            value="${draft.amount || ''}" max="${balance}" min="0" step="0.01"
                            oninput="setPaymentDraftField('amount', this.value)"
@@ -537,13 +691,26 @@ function PaymentForm(loan, balance) {
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
             </div>
-            <div style="display: flex; gap: 8px;">
-                <button type="button" data-app-fn="submitPayment" data-arg="${loan.id}"
-                        style="flex: 1; padding: 10px; background: #06b6d4; color: #000; border: none; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
-                    Guardar abono
+            <div style="margin: -2px 0 10px; color: #7f8b98; font-size: 0.68rem;">
+                Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.
+            </div>
+            <div class="loan-payment-form__actions">
+                <button type="button"
+                        class="loan-payment-form__action loan-payment-form__action--save"
+                        data-app-fn="submitPayment"
+                        data-arg="${loan.id}">
+                    Guardar pago
                 </button>
-                <button type="button" data-app-fn="togglePaymentForm" data-arg="${loan.id}"
-                        style="padding: 10px 14px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                <button type="button"
+                        class="loan-payment-form__action loan-payment-form__action--total"
+                        data-app-fn="settleLoanByFullPayment"
+                        data-arg="${loan.id}">
+                    Pago total
+                </button>
+                <button type="button"
+                        class="loan-payment-form__action loan-payment-form__action--cancel"
+                        data-app-fn="togglePaymentForm"
+                        data-arg="${loan.id}">
                     Cancelar
                 </button>
             </div>
@@ -562,7 +729,7 @@ function RefinanceForm(loan, balance) {
     const newBalance = r2(balance + interestToAdd);
 
     const radio = (val, label, desc) => `
-        <label style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: #0f172a; border: 1px solid ${draft.basis === val ? '#a855f7' : '#334155'}; border-radius: 8px; cursor: pointer; flex: 1; min-width: 160px;">
+        <label style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: #0f172a; border: 1px solid ${draft.basis === val ? '#6d28d9' : '#334155'}; border-radius: 8px; cursor: pointer; flex: 1; min-width: 160px;">
             <input type="radio" name="refin-basis-${loan.id}" ${draft.basis === val ? 'checked' : ''}
                    onchange="setRefinanceDraftField('basis', '${val}')" style="margin-top: 2px;">
             <span><span style="color: #f1f5f9; font-weight: 700; font-size: 0.85rem;">${label}</span><br>
@@ -570,8 +737,8 @@ function RefinanceForm(loan, balance) {
         </label>`;
 
     return `
-        <div style="background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.35); border-radius: 10px; padding: 12px; margin-bottom: 12px;">
-            <div style="font-size: 0.75rem; color: #d8b4fe; font-weight: 800; text-transform: uppercase; margin-bottom: 10px;">♻️ Refinanciar (no pudo pagar)</div>
+        <div class="loan-operation-form loan-operation-form--refinance">
+            <div class="loan-operation-form__title">Refinanciar (no pudo pagar)</div>
             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
                 ${radio('balance', 'Sobre saldo restante', `Interés sobre ${formatCurrency(balance)}`)}
                 ${radio('principal', 'Sobre capital original', `Interés sobre ${formatCurrency(loan.principal)}`)}
@@ -592,16 +759,16 @@ function RefinanceForm(loan, balance) {
                 </div>
             </div>
             <div style="display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; background: #0f172a; border-radius: 8px; margin-bottom: 10px; font-size: 0.82rem;">
-                <span style="color: #94a3b8;">Interés a agregar: <strong style="color: #d8b4fe;">+${formatCurrency(interestToAdd)}</strong></span>
+                <span style="color: #94a3b8;">Interés a agregar: <strong style="color: #a78bfa;">+${formatCurrency(interestToAdd)}</strong></span>
                 <span style="color: #94a3b8;">Nuevo saldo: <strong style="color: #f59e0b;">${formatCurrency(newBalance)}</strong></span>
             </div>
-            <div style="display: flex; gap: 8px;">
+            <div class="loan-refinance-form__actions">
                 <button type="button" data-app-fn="submitRefinance" data-arg="${loan.id}"
-                        style="flex: 1; padding: 10px; background: #a855f7; color: #fff; border: none; border-radius: 6px; font-weight: 800; font-size: 0.85rem; cursor: pointer;">
+                        class="loan-refinance-form__action loan-refinance-form__action--save">
                     Aplicar refinanciamiento
                 </button>
                 <button type="button" data-app-fn="toggleRefinanceForm" data-arg="${loan.id}"
-                        style="padding: 10px 14px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; font-weight: 700; font-size: 0.85rem; cursor: pointer;">
+                        class="loan-refinance-form__action loan-refinance-form__action--cancel">
                     Cancelar
                 </button>
             </div>

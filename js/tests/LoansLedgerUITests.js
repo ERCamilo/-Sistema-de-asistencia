@@ -79,6 +79,173 @@ testRunner.addSuite("LoansLedger UI — recuperar saldados", {
     }
 });
 
+testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
+
+    "prioriza Realizar pago y agrupa las acciones secundarias"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 10, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        state.loansLedger = { selectedEmployeeId: 'e1' };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('Saldo pendiente'), "la métrica usa el nombre completo");
+        testRunner.assert(html.includes('Realizar pago'), "muestra la acción única de pago");
+        testRunner.assert(html.includes('Más acciones'), "agrupa las operaciones secundarias");
+        testRunner.assert(!html.includes('Registrar abono'), "el nombre anterior desaparece");
+        testRunner.assert(html.includes('data-app-fn=\"settleLoanByFullPayment\"'),
+            "mantiene la acción de saldar dentro del menú");
+        testRunner.assert(html.includes('data-app-fn=\"toggleRefinanceForm\"'),
+            "mantiene la acción de refinanciar dentro del menú");
+        testRunner.assert(html.includes('Saldar <span>(pago total)</span>'),
+            "la acción secundaria explica que saldar equivale al pago total");
+        testRunner.assert(
+            (html.match(/class=\"loan-card__more-icon\"/g) || []).length === 2,
+            "refinanciar y saldar usan iconos SVG propios");
+        testRunner.assert(html.includes('class=\"loan-card__actions\"'),
+            "las acciones comparten una sola fila");
+        testRunner.assert(html.includes('class=\"loan-card__more-menu\"'),
+            "las acciones secundarias viven en un único menú");
+        testRunner.assert(html.includes('class=\"loan-card__desktop-actions\"'),
+            "escritorio conserva las acciones secundarias visibles");
+        testRunner.assert(html.includes('loan-card__action--desktop-refinance'),
+            "escritorio muestra Refinanciar directamente");
+        testRunner.assert(html.includes('loan-card__action--desktop-settle'),
+            "escritorio muestra Saldar directamente");
+        testRunner.assert(html.includes('loan-card__action--desktop-danger'),
+            "escritorio muestra Anular como botón compacto");
+        testRunner.assert(html.includes('class=\"loan-card__mobile-summary\"'),
+            "incluye el resumen financiero prioritario para móvil");
+        testRunner.assert(html.includes('class=\"loan-card__breakdown\"'),
+            "el detalle financiero queda disponible bajo demanda");
+        testRunner.assert(html.includes('class=\"loan-card__mobile-identity\"'),
+            "el resumen móvil alinea identidad, saldo y control de expansión");
+        testRunner.assert(html.includes('class=\"loan-card__breakdown-title\">Desglose financiero'),
+            "el botón más revela el desglose dentro de la misma tarjeta");
+        testRunner.assert(!html.includes('class=\"loan-card__summary-secondary\"'),
+            "pagado y total ya no ocupan espacio en el estado móvil colapsado");
+        testRunner.assert(html.includes('class=\"loans-detail-back\"'),
+            "el regreso usa el nuevo botón circular");
+        testRunner.assert(html.includes('class=\"loans-detail-header__balance\"'),
+            "el saldo tiene un bloque propio para permanecer a la derecha");
+        testRunner.assert(
+            (html.match(/loans-detail-header__name-line/g) || []).length >= 2,
+            "el nombre puede dividirse verticalmente en móvil");
+        testRunner.assert(html.includes('class=\"loans-detail-back__icon\"'),
+            "el regreso usa un SVG propio, centrado y consistente");
+        testRunner.assert(html.includes('d=\"M19 12H5\"'),
+            "la flecha conserva un asta visible, no un chevrón");
+    },
+
+    "el formulario aclara que pagar el saldo completo liquida el préstamo"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 0, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showPaymentFormForLoan: 'L1',
+            paymentDraft: { amount: 0, date: '', note: '' }
+        };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('Guardar pago'), "el formulario adopta el nuevo lenguaje");
+        testRunner.assert(html.includes('Monto a pagar'), "el campo usa una etiqueta corta y alineable");
+        testRunner.assert(!html.includes('Monto (saldo pendiente:'),
+            "la etiqueta extensa ya no desalineará los campos");
+        testRunner.assert(html.includes('Pago total'), "ofrece liquidar el saldo junto a Guardar pago");
+        testRunner.assert(html.includes('loan-operation-form--payment'),
+            "el formulario usa la familia visual verde de pagos");
+        testRunner.assert(html.includes('saldo pendiente completo'), "explica el saldado automático");
+        testRunner.assert(!html.includes('Guardar abono'), "el CTA anterior desaparece");
+        testRunner.assert(!html.includes('class=\"loan-card__actions\"'),
+            "oculta las acciones externas mientras se realiza un pago");
+        testRunner.assert(!html.includes('data-app-fn=\"toggleRefinanceForm\"'),
+            "no ofrece refinanciar dentro del contexto de pago");
+        testRunner.assert(!html.includes('data-app-fn=\"writeOffLoanWithConfirm\"'),
+            "no ofrece anular dentro del contexto de pago");
+    },
+
+    "el formulario de refinanciamiento oculta las demás acciones"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 10, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showRefinanceFormForLoan: 'L1',
+            refinanceDraft: { basis: 'balance', interestRate: 5, note: '' }
+        };
+
+        const html = LoansLedger();
+        testRunner.assert(html.includes('Aplicar refinanciamiento'),
+            "muestra el formulario de refinanciamiento");
+        testRunner.assert(html.includes('loan-operation-form--refinance'),
+            "el formulario usa la familia visual morada de refinanciamiento");
+        testRunner.assert(!html.includes('class=\"loan-card__actions\"'),
+            "oculta las acciones externas mientras se refinancia");
+        testRunner.assert(!html.includes('data-app-fn=\"togglePaymentForm\"'),
+            "no ofrece realizar un pago dentro del contexto de refinanciamiento");
+        testRunner.assert(!html.includes('data-app-fn=\"writeOffLoanWithConfirm\"'),
+            "no ofrece anular dentro del contexto de refinanciamiento");
+    },
+
+    "los abonos y refinanciamientos comparten una actividad colapsada"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 2000, interestRate: 5, interestIncluded: false,
+            startDate: '2026-01-01', concept: 'Adelanto', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [],
+            payments: [
+                { id: 'P1', amount: 200, date: '2026-01-10', voided: false },
+                { id: 'P2', amount: 300, date: '2026-01-20', voided: false }
+            ],
+            refinancings: [
+                { id: 'R1', date: '2026-02-01', basis: 'balance', baseAmount: 2000, interestRate: 5, interestAmount: 100, voided: false },
+                { id: 'R2', date: '2026-03-01', basis: 'principal', baseAmount: 2000, interestRate: 5, interestAmount: 100, voided: false }
+            ]
+        }];
+        state.loansLedger = { selectedEmployeeId: 'e1' };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        const activityHistory = host.querySelector('.loan-card__history--activity');
+        const breakdown = host.querySelector('.loan-card__breakdown');
+
+        testRunner.assert(activityHistory && !activityHistory.open,
+            "la actividad unificada inicia colapsada");
+        testRunner.assert(
+            activityHistory?.querySelector('.loan-card__history-meta')?.textContent.trim() === '$500.00 pagado · 2 refinanciamientos',
+            "el resumen combina el total pagado y la cantidad de refinanciamientos");
+        testRunner.assert(
+            activityHistory?.querySelector('.loan-card__history-title')?.textContent.trim() === 'Actividad · 4 movimientos',
+            "el encabezado totaliza todos los movimientos");
+        testRunner.assert(
+            activityHistory?.querySelectorAll('.loan-card__activity-row').length === 4,
+            "el mismo historial contiene abonos y refinanciamientos");
+        testRunner.assert(breakdown && !breakdown.open,
+            "el desglose financiero inicia colapsado");
+        testRunner.assert(
+            host.querySelectorAll('.loan-card__history--payments, .loan-card__history--refinancings').length === 0,
+            "no duplica controles por tipo de movimiento");
+        testRunner.assert(
+            activityHistory?.querySelector('.loan-card__disclosure-icon--closed')
+            && activityHistory?.querySelector('.loan-card__disclosure-icon--open'),
+            "el control usa más y menos en lugar de un chevrón");
+        testRunner.assert(!html.includes('chevron-down'),
+            "el préstamo ya no renderiza chevrones para desplegar información");
+        testRunner.assert(!html.includes('Refinanciado 2×'),
+            "el contador deja de duplicarse como etiqueta superior");
+    }
+});
+
 testRunner.addSuite("LoansLedger UI — picker overlay", {
 
     "opens after openLoansEmployeePicker() is called"() {

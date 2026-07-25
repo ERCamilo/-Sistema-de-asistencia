@@ -9,27 +9,41 @@ import {
     applyPayrollLoanDeductions,
     buildPayrollLoanSelection,
     calculatePayrollBeforeLoans,
+    getEligiblePayrollLoans,
     getInvalidPayrollLoanRows,
     removeEmployeePayrollLoans as removeEmployeePayrollLoansFromSelection,
-    resolvePayrollLoanSelection,
+    setEmployeePayrollLoans,
     summarizePayrollLoans,
+    togglePayrollLoan,
     toSplitXRows
 } from './PayrollLoans.js';
+import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
+import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
     hydrateRememberedAdjustments,
+    resolveAdjustmentScope,
     summarizeGlobalAdjustments,
     updateRememberedDefault
 } from './PayrollAdjustments.js';
+import {
+    readAdjustmentForm,
+    renderDesktopAdjustmentWorkspace,
+    updateAdjustmentFormPresentation
+} from './PayrollAdjustmentDesktop.js';
 
 let context = null;
 let payrollService = null;
+let latestPayrollPreviewRows = [];
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
 // ============================================
 const _ACTION_MAP = {
     'toggle-step': (step) => window.PayrollUI?.toggleStep?.(step),
+    'set-payroll-guide-step': (step) => window.PayrollUI?.setPayrollGuideStep?.(step),
+    'toggle-payroll-mobile-summary': () => window.PayrollUI?.togglePayrollMobileSummary?.(),
+    'toggle-payroll-summary-detail': (kind) => window.PayrollUI?.togglePayrollSummaryDetail?.(kind),
     'set-export-preset': (preset) => window.PayrollUI?.setExportPreset?.(preset),
     'add-export-deduction': () => window.PayrollUI?.addExportDeduction?.(),
     'remove-export-deduction': (idx) => window.PayrollUI?.removeExportDeduction?.(parseInt(idx, 10)),
@@ -41,11 +55,36 @@ const _ACTION_MAP = {
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
     'add-payroll-loans': () => window.PayrollUI?.addPayrollLoansToExport?.(),
     'remove-employee-payroll-loans': (employeeId) => window.PayrollUI?.removeEmployeePayrollLoans?.(employeeId),
+    'clear-payroll-loans': () => window.PayrollUI?.clearPayrollLoans?.(),
+    'toggle-payroll-loan-employee': (employeeId, _target, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.PayrollUI?.toggleEmployeePayrollLoans?.(employeeId);
+    },
+    'toggle-payroll-loan': (employeeId, target, event) => {
+        event.stopPropagation();
+        window.PayrollUI?.togglePayrollLoanSelection?.(employeeId, target.dataset.loanId);
+    },
+    'toggle-payroll-loan-details': (_employeeId, target, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const group = target.closest('.payroll-loan-group');
+        if (!group) return;
+        group.open = !group.open;
+        target.setAttribute('aria-expanded', String(group.open));
+        target.setAttribute(
+            'aria-label',
+            `${group.open ? 'Ocultar' : 'Mostrar'} préstamos de ${group.querySelector('.payroll-loan-group__employee-copy strong')?.textContent || 'empleado'}`
+        );
+    },
     'toggle-remember-adjustment': (index, target) => window.PayrollUI?.toggleRememberGlobalAdjustment?.(
         target.dataset.kind,
         parseInt(index, 10),
         target.checked
     ),
+    'add-desktop-adjustment': (kind, target) => window.PayrollUI?.addDesktopAdjustment?.(kind, target),
+    'update-desktop-adjustment': (kind, target) => window.PayrollUI?.updateDesktopAdjustment?.(kind, target),
+    'remove-desktop-adjustment': (kind, target) => window.PayrollUI?.removeDesktopAdjustment?.(kind, target),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
@@ -70,6 +109,16 @@ function _handlePayrollKeydown(e) {
     _handlePayrollClick(e);
 }
 
+function _handlePayrollAdjustmentInput(e) {
+    const form = e.target.closest('.payroll-adjustment-form');
+    if (!form) return;
+    updateAdjustmentFormPresentation(
+        form,
+        latestPayrollPreviewRows,
+        getState().positions || []
+    );
+}
+
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
@@ -78,12 +127,18 @@ export function init(ctx) {
     if (!_payrollDelegationAttached) {
         document.addEventListener('click', _handlePayrollClick);
         document.addEventListener('keydown', _handlePayrollKeydown);
+        document.addEventListener('input', _handlePayrollAdjustmentInput);
+        document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
     }
 }
 
 function getState() {
     return context.state;
+}
+
+function getSummaryAmountClass(amount, nonZeroClass) {
+    return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
 }
 
 function getEmployeesWithDeductions() {
@@ -115,7 +170,7 @@ export function PayrollTab() {
 
     return `
         <div>
-            <div class="date-controls">
+            <div class="date-controls payroll-view-switcher">
                 <div class="view-controls">
                     <button type="button"
                             class="view-btn ${mode === 'generator' ? 'active' : ''}"
@@ -156,18 +211,23 @@ export function changePayrollViewMode(mode) {
  */
 function PayrollGeneratorTab() {
     const state = getState();
+    const guideSteps = ['period', 'deductions', 'bonuses', 'loans', 'review'];
 
     // Inicializar secciones colapsadas y defaults recordados una sola vez por sesión.
     // Guard first: this runs during render, and batchSetState schedules a render
     // when it closes — entering it unconditionally would re-render on every pass.
     const needsInit = state.exportConfig.collapsedSteps === undefined ||
+        !guideSteps.includes(state.exportConfig.payrollGuideStep) ||
         !state.exportConfig.rememberedGlobalsHydrated ||
         !state.exportConfig.periodStart || !state.exportConfig.periodEnd ||
         !state.exportConfig.leaderFilter;
     if (needsInit) {
         stateManager.batchSetState(() => {
+            if (!guideSteps.includes(state.exportConfig.payrollGuideStep)) {
+                state.exportConfig.payrollGuideStep = 'period';
+            }
             if (state.exportConfig.collapsedSteps === undefined) {
-                state.exportConfig.collapsedSteps = ['step1', 'step2', 'step2b', 'step2c', 'step3'];
+                state.exportConfig.collapsedSteps = ['step2', 'step2b', 'step2c', 'step3'];
             }
             if (!state.exportConfig.rememberedGlobalsHydrated) {
                 const hydrated = hydrateRememberedAdjustments(state.exportConfig, state.settings);
@@ -188,14 +248,10 @@ function PayrollGeneratorTab() {
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
 
     const exportData = generateExportData();
+    latestPayrollPreviewRows = exportData;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
     const hasInvalidLoanRows = invalidLoanRows.length > 0;
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
-    const selectedPayrollLoans = resolvePayrollLoanSelection(
-        state.employees,
-        state.exportConfig.payrollLoanSelection || []
-    );
-    const invalidLoanEmployeeIds = new Set(invalidLoanRows.map(item => item._employeeId));
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
         filteredPayrollEmployees,
@@ -219,19 +275,75 @@ function PayrollGeneratorTab() {
         
     const leaderFilter = state.exportConfig.leaderFilter || 'all';
     const leaders = state.leaders.filter(l => l.active);
+    const guideStep = guideSteps.includes(state.exportConfig.payrollGuideStep)
+        ? state.exportConfig.payrollGuideStep
+        : 'period';
+    const guideStepIndex = guideSteps.indexOf(guideStep);
+    const previousGuideStep = guideSteps[Math.max(guideStepIndex - 1, 0)];
+    const nextGuideStep = guideSteps[Math.min(guideStepIndex + 1, guideSteps.length - 1)];
+    const grossAmount = exportData.reduce((sum, item) => sum + (Number(item._brutoOriginal) || 0), 0);
+    const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
+    const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
+    const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
+    const deductionDetails = summarizeAdjustmentDetails(
+        state.exportConfig.deductions,
+        exportData,
+        'Deducción'
+    );
+    const bonusDetails = summarizeAdjustmentDetails(
+        state.exportConfig.bonuses,
+        exportData,
+        'Bonificación'
+    );
+    const expandedSummary = state.exportConfig.payrollSummaryExpanded || {};
+    const mobileSummaryExpanded = Boolean(state.exportConfig.payrollMobileSummaryExpanded);
+    const guideItems = [
+        ['period', '1', 'Período', 'Seleccionar rango', 'Período'],
+        ['deductions', '2', 'Deducciones', `${formatCurrency(deductionAmount)} aplicado`, 'Deducc.'],
+        ['bonuses', '3', 'Bonificaciones', `${formatCurrency(bonusAmount)} agregado`, 'Bonos'],
+        ['loans', '4', 'Préstamos', `${loanSummary.selectedCount} seleccionados`, 'Préstamos'],
+        ['review', '5', 'Vista previa', `${exportData.length} empleados`, 'Vista']
+    ];
 
     return `
-        <div style="max-width: 1000px; margin: 0 auto; padding: 20px; padding-bottom: 120px;">
+        <div class="payroll-generator">
             <!-- Header -->
-            <div style="margin-bottom: 32px;">
-                <h2 style="margin: 0 0 8px 0; font-size: 1.75rem; display: flex; align-items: center; gap: 12px;">
-                    <span>${icons.get('edit')}</span>
-                    <span class="gradient-text">Nómina</span>
-                </h2>
-                <p style="margin: 0; color: #94a3b8; font-size: 0.875rem;">
-                    Genera archivo JSON con la nómina de empleados para importar en tu sistema de pagos
-                </p>
+            <div class="payroll-generator__header">
+                <div>
+                    <h2>
+                        <span>Nómina</span>
+                    </h2>
+                    <p>
+                        Generá la nómina del período y exportala a tu sistema de pagos.
+                    </p>
+                </div>
             </div>
+
+            <div class="payroll-guided-layout">
+                <nav class="payroll-guide-steps" aria-label="Pasos de nómina">
+                    ${guideItems.map(([id, number, label, detail, mobileLabel], index) => `
+                        <button type="button"
+                                class="payroll-guide-step ${id === guideStep ? 'is-active' : ''} ${index < guideStepIndex ? 'is-complete' : ''}"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${id}"
+                                aria-label="Paso ${number}: ${label}"
+                                aria-current="${id === guideStep ? 'step' : 'false'}">
+                            <span class="payroll-guide-step__number">${index < guideStepIndex ? icons.get('check', { size: 15 }) : number}</span>
+                            <span class="payroll-guide-step__copy" data-mobile-label="${mobileLabel}">
+                                <small>Paso ${number}</small>
+                                <strong>${label}</strong>
+                                <span>${detail}</span>
+                            </span>
+                        </button>
+                    `).join('')}
+                </nav>
+
+                <main class="payroll-guide-content">
+                    <section class="payroll-guide-panel payroll-guide-panel--period" ${guideStep === 'period' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Período de pago</h3>
+                            <p>Seleccioná el rango de fechas a liquidar.</p>
+                        </div>
             
             <!-- Paso 1: Período -->
             <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step1') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
@@ -261,33 +373,34 @@ function PayrollGeneratorTab() {
                         </div>
                     </div>
                 
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button type="button" data-payroll-action="set-export-preset" data-value="thisMonth" 
+                <div class="payroll-period-presets" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="thisMonth"
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'thisMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'thisMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Este mes
                     </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="lastMonth" 
+                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="lastMonth"
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'lastMonth' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'lastMonth' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
                         Mes anterior
                     </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="last15" 
-                            style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'last15' ? '#06b6d4' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'last15' ? '#000' : '#94a3b8'}; cursor: pointer; font-size: 0.75rem; font-weight: 600;">
-                        Últimos 15 días
-                    </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="payPeriod" 
+                    <button type="button" class="payroll-period-preset" data-payroll-action="set-export-preset" data-value="payPeriod"
                             style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#0f172a'}; border: 1px solid ${state.exportConfig.activePreset === 'payPeriod' ? '#8b5cf6' : '#334155'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'payPeriod' ? '#fff' : '#a78bfa'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
                         ${icons.get('calendar', { size: 14 })} Período Actual
-                    </button>
-                    <button type="button" data-payroll-action="set-export-preset" data-value="sinceLastPay" 
-                            style="padding: 6px 12px; background: ${state.exportConfig.activePreset === 'sinceLastPay' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent'}; border: 1px solid ${state.exportConfig.activePreset === 'sinceLastPay' ? 'transparent' : '#f59e0b'}; border-radius: 6px; color: ${state.exportConfig.activePreset === 'sinceLastPay' ? '#000' : '#f59e0b'}; cursor: pointer; font-size: 0.75rem; font-weight: 700;">
-                        Desde Último Pago + 1
                     </button>
                 </div>
                 </div>
             </div>
+                    </section>
+
+                    <section class="payroll-guide-panel" ${guideStep === 'deductions' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Deducciones</h3>
+                            <p>Aplicá descuentos generales, individuales y préstamos activos.</p>
+                        </div>
             
-            <!-- Paso 2: Deducciones Globales -->
-            <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+            ${renderDesktopAdjustmentWorkspace('deductions', state, exportData)}
+
+            <!-- Interfaz móvil heredada: se mantiene hasta el rediseño móvil -->
+            <div id="export-deductions-section" class="payroll-adjustment-legacy" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
                 <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
@@ -348,9 +461,18 @@ function PayrollGeneratorTab() {
                 ${generateExportDeductionsHTML()}
             </div>
             </div>
-            
-            <!-- Paso 2B: Bonificaciones Globales -->
-            <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+                    </section>
+
+                    <section class="payroll-guide-panel" ${guideStep === 'bonuses' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Bonificaciones</h3>
+                            <p>Agregá bonos generales o individuales al período actual.</p>
+                        </div>
+
+            ${renderDesktopAdjustmentWorkspace('bonuses', state, exportData)}
+
+            <!-- Interfaz móvil heredada: se mantiene hasta el rediseño móvil -->
+            <div id="export-bonuses-section" class="payroll-adjustment-legacy" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
                 <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2b" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2b') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
@@ -411,54 +533,27 @@ function PayrollGeneratorTab() {
                 ${generateExportBonusesHTML()}
             </div>
             </div>
-            
-            <!-- Paso 2C: Préstamos -->
-            <div id="export-loans-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2c') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
-                <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step2c')}" aria-controls="export-loans-content" data-payroll-action="toggle-step" data-value="step2c" style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <h3 style="margin: 0; font-size: 1.125rem; color: ${hasInvalidLoanRows ? '#f87171' : '#f59e0b'}; font-weight: 700; display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2c') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
-                        ${icons.get('dollar', { size: 18 })} Paso 2C: Préstamos
-                    </h3>
-                    ${isStepCollapsed('step2c') ? `<div aria-label="Resumen de préstamos de nómina" style="display:flex;flex-wrap:wrap;gap:4px 22px;align-items:baseline;margin-left:16px;">
-                        <span style="white-space:nowrap;"><strong style="font-size:1.15rem;color:#f59e0b;">${loanSummary.selectedCount}</strong><span style="font-size:0.72rem;color:#94a3b8;">/${loanSummary.eligibleCount} préstamos</span></span>
-                        <span style="white-space:nowrap;font-size:0.72rem;color:#94a3b8;">Interés <strong style="font-size:0.95rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedInterest)}</strong> <span style="color:#64748b;">de ${formatCurrency(loanSummary.eligibleInterest)}</span></span>
-                        <span style="white-space:nowrap;font-size:0.72rem;color:#94a3b8;">Saldo <strong style="font-size:0.95rem;color:#f8fafc;">${formatCurrency(loanSummary.selectedBalance)}</strong> <span style="color:#64748b;">de ${formatCurrency(loanSummary.eligibleBalance)}</span></span>
-                    </div>` : ''}
-                </div>
+                    </section>
 
-                <div id="export-loans-content" style="display: ${isStepCollapsed('step2c') ? 'none' : 'block'}; margin-top: 20px;">
-                    <p style="font-size: 0.75rem; color: #94a3b8; margin-bottom: 14px;">
-                        Agrega temporalmente los saldos de préstamos activos. Copiar o descargar no registra abonos ni modifica los préstamos.
-                    </p>
-                    <button type="button" data-payroll-action="add-payroll-loans"
-                            style="padding: 10px 14px; margin-bottom: 16px; background: linear-gradient(135deg, #f59e0b, #fbbf24); border: none; border-radius: 7px; color: #000; font-weight: 800; cursor: pointer;">
-                        ${icons.get('add', { size: 16 })} Agregar préstamos activos a nómina
-                    </button>
-
-                    ${selectedPayrollLoans.length === 0 ? `
-                        <div style="text-align: center; color: #64748b; padding: 20px; border: 1px dashed #334155; border-radius: 8px;">
-                            No hay préstamos agregados al listado temporal
+                    <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'loans' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Préstamos del período</h3>
+                            <p>Esta selección es temporal y no registra abonos en las cuentas por cobrar.</p>
                         </div>
-                    ` : selectedPayrollLoans.map(item => {
-                        const invalid = invalidLoanEmployeeIds.has(item.employeeId);
-                        return `
-                            <div style="background: ${invalid ? 'rgba(239, 68, 68, 0.1)' : '#0f172a'}; border: 1px solid ${invalid ? '#ef4444' : '#334155'}; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
-                                    <div style="min-width: 0;">
-                                        <div style="color: #f1f5f9; font-weight: 700;">#${item.employeeNumber || '?'} · ${escapeHTML(item.employeeName || 'Empleado')}</div>
-                                        <div style="color: #94a3b8; font-size: 0.75rem; margin-top: 3px;">${item.loans.length} préstamo(s) activo(s) · Descuento ${formatCurrency(item.total)}</div>
-                                        ${invalid ? `<div role="alert" style="color: #fca5a5; font-size: 0.75rem; font-weight: 700; margin-top: 6px;">⚠️ El descuento deja el pago en cero o negativo. Elimina sus préstamos para continuar.</div>` : ''}
-                                    </div>
-                                    <button type="button" data-payroll-action="remove-employee-payroll-loans" data-id="${item.employeeId}" aria-label="Eliminar préstamos de ${escapeHTML(item.employeeName || 'empleado')} del listado temporal"
-                                            style="background: #ef4444; color: #fff; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; flex-shrink: 0;">
-                                        ${icons.get('delete', { size: 15 })}
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            </div>
+
+                        ${renderPayrollLoansDesktop({
+                            employees: filteredPayrollEmployees,
+                            selection: state.exportConfig.payrollLoanSelection || [],
+                            payrollRows: exportData,
+                            expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || []
+                        })}
+                    </section>
+
+                    <section class="payroll-guide-panel payroll-guide-panel--review" ${guideStep === 'review' ? '' : 'hidden'}>
+                        <div class="payroll-guide-panel__intro">
+                            <h3>Vista previa · ${exportData.length} empleados</h3>
+                            <p>Revisá los montos antes de exportar.</p>
+                        </div>
 
             <!-- Paso 3: Vista Previa -->
             <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
@@ -490,37 +585,42 @@ function PayrollGeneratorTab() {
                 ` : ''}
 
                 <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina" tabindex="0">
-                    <table style="width: 100%; border-collapse: collapse;">
+                    <table class="payroll-review-table">
                         <thead>
-                            <tr style="background: #0f172a; border-bottom: 2px solid #334155;">
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">REF</th>
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NOMBRE</th>
-                                <th style="padding: 12px; text-align: left; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">POSICIÓN</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BRUTO</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">BONIFIC.</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">DEDUCC.</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">PRÉSTAMOS</th>
-                                <th style="padding: 12px; text-align: right; color: #94a3b8; font-size: 0.75rem; font-weight: 700;">NETO</th>
+                            <tr>
+                                <th class="payroll-review-table__number">#</th>
+                                <th class="payroll-review-table__employee">EMPLEADO</th>
+                                <th>BRUTO</th>
+                                <th>BONIFIC.</th>
+                                <th>DEDUCCIONES</th>
+                                <th>PRÉSTAMOS</th>
+                                <th>NETO</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr style="border-bottom: 1px solid ${emp._invalidLoanNet ? '#ef4444' : '#334155'}; ${emp._invalidLoanNet ? 'background: rgba(239, 68, 68, 0.12);' : (idx % 2 === 0 ? 'background: #0f172a;' : '')}">
-                                    <td style="padding: 12px; color: #06b6d4; font-weight: 600; font-family: monospace;">#${emp._number || emp.id}</td>
-                                    <td style="padding: 12px; color: #f1f5f9; font-weight: 600;">${escapeHTML(emp._employeeName)}${emp._invalidLoanNet ? '<div style="color:#fca5a5;font-size:0.7rem;margin-top:4px;">Pago inválido: elimina préstamos</div>' : ''}</td>
-                                    <td style="padding: 12px; color: #94a3b8; font-size: 0.875rem;">${emp._employeePosition}</td>
-                                     <td style="padding: 12px; text-align: right; color: #10b981;">${formatCurrency(emp._brutoOriginal)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #3b82f6;">+${formatCurrency(emp._bonuses)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #ec4899;">-${formatCurrency(emp._deductions)}</td>
-                                    <td style="padding: 12px; text-align: right; color: #f59e0b;">-${formatCurrency(emp._loans)}</td>
-                                    <td style="padding: 12px; text-align: right; color: ${emp._invalidLoanNet ? '#f87171' : '#06b6d4'}; font-weight: 700; font-size: 1rem;">${formatCurrency(emp.monto)}</td>
+                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${emp._invalidLoanNet ? 'is-invalid' : ''}">
+                                    <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
+                                    <td class="payroll-review-table__employee">
+                                        ${escapeHTML(emp._employeeName)}
+                                        ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
+                                    </td>
+                                    <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
+                                    <td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>
+                                    <td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>
+                                    <td class="payroll-review-table__amount ${Number(emp._loans) > 0 ? 'is-loan' : 'is-empty'}">${Number(emp._loans) > 0 ? `−${formatCurrency(emp._loans)}` : '—'}</td>
+                                    <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
                         <tfoot>
-                            <tr style="background: linear-gradient(135deg, #10b981, #06b6d4); border-top: 2px solid #06b6d4;">
-                                <td colspan="7" style="padding: 16px; color: #000; font-weight: 700; font-size: 1.125rem;">TOTAL NÓMINA:</td>
-                                <td style="padding: 16px; text-align: right; color: #000; font-weight: 900; font-size: 1.25rem;">${formatCurrency(totalAmount)}</td>
+                            <tr>
+                                <td colspan="2">Totales</td>
+                                <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
+                                <td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>
+                                <td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>
+                                <td class="payroll-review-table__amount ${loanAmount > 0 ? 'is-loan' : 'is-empty'}">${loanAmount > 0 ? `−${formatCurrency(loanAmount)}` : '—'}</td>
+                                <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -528,20 +628,156 @@ function PayrollGeneratorTab() {
             </div>
             </div>
             
-            <!-- Paso 4: Exportar -->
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button type="button" data-payroll-action="copy-export-json" ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}
-                        style="flex: 1; min-width: 200px; padding: 16px; background: ${hasInvalidLoanRows ? '#475569' : 'linear-gradient(135deg, #06b6d4, #10b981)'}; border: none; border-radius: 8px; color: #000; font-weight: 700; font-size: 1rem; cursor: ${hasInvalidLoanRows ? 'not-allowed' : 'pointer'}; opacity: ${hasInvalidLoanRows ? '0.65' : '1'}; transition: all 0.2s;"
-                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 16px rgba(6, 182, 212, 0.3)'"
-                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                    Copiar para SplitX
-                </button>
-                <button type="button" data-payroll-action="download-export-json" ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}
-                        style="flex: 1; min-width: 200px; padding: 16px; background: #1e293b; border: 2px solid ${hasInvalidLoanRows ? '#64748b' : '#06b6d4'}; border-radius: 8px; color: ${hasInvalidLoanRows ? '#94a3b8' : '#06b6d4'}; font-weight: 700; font-size: 1rem; cursor: ${hasInvalidLoanRows ? 'not-allowed' : 'pointer'}; opacity: ${hasInvalidLoanRows ? '0.65' : '1'}; transition: all 0.2s;"
-                        onmouseover="this.style.background='rgba(6, 182, 212, 0.1)'"
-                        onmouseout="this.style.background='#1e293b'">
-                    Descargar para SplitX (.json)
-                </button>
+                    </section>
+
+                    <div class="payroll-guide-navigation">
+                        <button type="button"
+                                class="payroll-guide-navigation__back"
+                                data-payroll-action="set-payroll-guide-step"
+                                data-value="${previousGuideStep}"
+                                ${guideStep === 'period' ? 'disabled aria-disabled="true"' : ''}>
+                            Atrás
+                        </button>
+                        ${guideStep !== 'review' ? `
+                            <button type="button"
+                                    class="payroll-guide-navigation__next"
+                                    data-payroll-action="set-payroll-guide-step"
+                                    data-value="${nextGuideStep}">
+                                Continuar <span aria-hidden="true">→</span>
+                            </button>
+                        ` : '<span class="payroll-guide-navigation__ready">Listo para exportar →</span>'}
+                    </div>
+                </main>
+
+                <aside class="payroll-guide-summary ${mobileSummaryExpanded ? 'is-mobile-expanded' : ''}" aria-label="Resumen de nómina">
+                    <button type="button"
+                            class="payroll-guide-summary__mobile-toggle"
+                            data-payroll-action="toggle-payroll-mobile-summary"
+                            aria-expanded="${mobileSummaryExpanded}"
+                            aria-label="${mobileSummaryExpanded ? 'Ocultar' : 'Mostrar'} resumen completo de nómina">
+                        <span class="payroll-guide-summary__mobile-meta">
+                            <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
+                            <small>${exportData.length} empleados</small>
+                        </span>
+                        <span class="payroll-guide-summary__mobile-total">
+                            <small>Total neto</small>
+                            <strong>${formatCurrency(totalAmount)}</strong>
+                        </span>
+                        <span class="payroll-guide-summary__mobile-state ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                            <i aria-hidden="true"></i>
+                            ${hasInvalidLoanRows ? 'Revisar' : 'Listo'}
+                        </span>
+                        <span class="payroll-guide-summary__mobile-label">
+                            ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
+                            ${icons.get(mobileSummaryExpanded ? 'chevron-up' : 'chevron-down', { size: 15 })}
+                        </span>
+                    </button>
+                    <div class="payroll-guide-summary__details">
+                        <div class="payroll-guide-summary__header">
+                            <span>Resumen de nómina</span>
+                            <strong>${formatDateShort(state.exportConfig.periodStart)} – ${formatDateShort(state.exportConfig.periodEnd)}</strong>
+                        </div>
+                        <dl class="payroll-guide-summary__values">
+                        <div class="payroll-guide-summary__employee-count"><dt>Empleados</dt><dd>${exportData.length}</dd></div>
+                        <div><dt>Salario bruto</dt><dd>${formatCurrency(grossAmount)}</dd></div>
+                        <div class="payroll-guide-summary__expandable">
+                            <dt>
+                                <button type="button"
+                                        class="payroll-guide-summary__toggle"
+                                        data-payroll-action="toggle-payroll-summary-detail"
+                                        data-value="bonuses"
+                                        aria-expanded="${Boolean(expandedSummary.bonuses)}"
+                                        aria-label="${expandedSummary.bonuses ? 'Ocultar' : 'Mostrar'} detalle de bonificaciones">
+                                    <span>Bonificaciones</span>
+                                    ${icons.get(expandedSummary.bonuses ? 'chevron-up' : 'chevron-down', { size: 13 })}
+                                </button>
+                            </dt>
+                            <dd class="${getSummaryAmountClass(bonusAmount, 'is-positive')}">+${formatCurrency(bonusAmount)}</dd>
+                        </div>
+                        ${expandedSummary.bonuses ? renderAdjustmentSummaryDetails(bonusDetails, 'bonuses') : ''}
+                        <div class="payroll-guide-summary__expandable">
+                            <dt>
+                                <button type="button"
+                                        class="payroll-guide-summary__toggle"
+                                        data-payroll-action="toggle-payroll-summary-detail"
+                                        data-value="deductions"
+                                        aria-expanded="${Boolean(expandedSummary.deductions)}"
+                                        aria-label="${expandedSummary.deductions ? 'Ocultar' : 'Mostrar'} detalle de deducciones">
+                                    <span>Deducciones</span>
+                                    ${icons.get(expandedSummary.deductions ? 'chevron-up' : 'chevron-down', { size: 13 })}
+                                </button>
+                            </dt>
+                            <dd class="${getSummaryAmountClass(deductionAmount, 'is-negative')}">−${formatCurrency(deductionAmount)}</dd>
+                        </div>
+                        ${expandedSummary.deductions ? renderAdjustmentSummaryDetails(deductionDetails, 'deductions') : ''}
+                        <div class="payroll-guide-summary__loan-row">
+                            <dt>Préstamos</dt>
+                            <span class="${getSummaryAmountClass(loanSummary.selectedInterest, 'is-loan')}">Interés ${formatCurrency(loanSummary.selectedInterest)}</span>
+                            <dd class="${getSummaryAmountClass(loanAmount, 'is-loan')}">−${formatCurrency(loanAmount)}</dd>
+                        </div>
+                        <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
+                        </dl>
+                        <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                        ${hasInvalidLoanRows
+                            ? `${icons.get('alert', { size: 16 })} ${invalidLoanRows.length} pago(s) requieren revisión`
+                            : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
+                        </div>
+                        <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                        <button type="button"
+                                data-payroll-action="copy-export-json"
+                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('copy', { size: 15 })} Copiar JSON
+                        </button>
+                        <button type="button"
+                                data-payroll-action="download-export-json"
+                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('download', { size: 15 })} Descargar .json
+                        </button>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+    `;
+}
+
+function renderAdjustmentSummaryDetails(summary, kind) {
+    const isBonus = kind === 'bonuses';
+    const amountClass = isBonus ? 'is-positive' : 'is-negative';
+    const individualLabel = isBonus ? 'Bonificaciones individuales' : 'Deducciones individuales';
+    const totalLabel = isBonus ? 'Total bonificaciones' : 'Total deducciones';
+    const globalRows = summary.globals.map(item => {
+        const basis = item.type === 'percentage'
+            ? `${item.value}%`
+            : formatCurrency(item.value);
+        return `
+            <div class="payroll-summary-detail__row">
+                <span>
+                    <strong>${escapeHTML(item.label)}</strong>
+                    <small>${basis}</small>
+                </span>
+                <b class="${getSummaryAmountClass(item.amount, amountClass)}">${formatCurrency(item.amount)}</b>
+            </div>
+        `;
+    }).join('');
+    const individualRow = summary.individualCount > 0
+        ? `
+            <div class="payroll-summary-detail__row">
+                <span>
+                    <strong>${individualLabel}</strong>
+                    <small>${summary.individualCount} ajuste(s) agrupado(s)</small>
+                </span>
+                <b class="${getSummaryAmountClass(summary.individualAmount, amountClass)}">${formatCurrency(summary.individualAmount)}</b>
+            </div>
+        `
+        : '';
+
+    return `
+        <div class="payroll-summary-detail payroll-summary-detail--${kind}">
+            ${globalRows || individualRow ? `${globalRows}${individualRow}` : '<p>No hay ajustes incluidos.</p>'}
+            <div class="payroll-summary-detail__total">
+                <span>${totalLabel}</span>
+                <strong class="${getSummaryAmountClass(summary.totalAmount, amountClass)}">${formatCurrency(summary.totalAmount)}</strong>
             </div>
         </div>
     `;
@@ -555,16 +791,17 @@ function generateExportData() {
     const filteredEmployees = getLeaderFilteredEmployees(state);
 
     const baseRows = filteredEmployees.map(emp => {
-        const applicableDeductions = (deductions || []).filter(d => !d.employeeId || d.employeeId === emp.id);
-        const applicableBonuses = (state.exportConfig.bonuses || []).filter(b => !b.employeeId || b.employeeId === emp.id);
+        // PayrollService resuelve el alcance contra el desglose real del período.
+        // Pasar la colección completa evita decidir aquí con posiciones actuales
+        // y perder trabajo histórico o multiposición.
         // Loans are applied once, below, from the temporary selection.
         const payroll = calculatePayrollBeforeLoans(
             payrollService,
             emp.id,
             periodStart,
             periodEnd,
-            applicableDeductions,
-            applicableBonuses
+            deductions || [],
+            state.exportConfig.bonuses || []
         );
         
         const positionIds = (emp.positions && emp.positions.length > 0)
@@ -583,6 +820,9 @@ function generateExportData() {
             _bruto: payroll.bruto,
             _bonuses: payroll.bonuses,
             _deductions: payroll.deductions,
+            _bonusDetails: payroll.bonusBreakdown || [],
+            _deductionDetails: payroll.deductionBreakdown || [],
+            _positionBreakdown: payroll.breakdown || [],
             _employeeId: emp.id,
             _employeeName: emp.name,
             _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion',
@@ -599,6 +839,126 @@ function generateExportData() {
         // so the UI can show the error instead of silently omitting the employee.
         .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
+}
+
+function adjustmentKindLabel(kind) {
+    return kind === 'bonuses' ? 'bonificación' : 'deducción';
+}
+
+function buildDesktopAdjustment(kind, draft, current = {}) {
+    const state = getState();
+    const prefix = kind === 'bonuses' ? 'BON' : 'DED';
+    const defaultName = kind === 'bonuses' ? 'Bono' : 'Descuento';
+    const item = {
+        id: current.id || `${prefix}-${Date.now()}-${state.exportConfig[kind]?.length || 0}`,
+        name: draft.name || defaultName,
+        type: draft.type,
+        value: draft.value,
+        scope: draft.scope,
+        targetId: draft.scope === 'global' ? null : String(draft.targetId),
+        remembered: draft.scope !== 'employee' && draft.remembered,
+        source: current.source || 'manual'
+    };
+
+    if (draft.scope === 'employee') {
+        const employee = (state.employees || []).find(
+            entry => String(entry.id) === String(draft.targetId)
+        );
+        item.employeeId = draft.targetId;
+        item.employeeName = employee?.name || '';
+    }
+
+    return item;
+}
+
+function validateDesktopAdjustment(draft) {
+    if (!draft) return 'No se pudo leer el ajuste.';
+    if (!Number.isFinite(draft.value) || draft.value <= 0) {
+        return 'El valor debe ser mayor que cero.';
+    }
+    if (draft.scope !== 'global' && !draft.targetId) {
+        return 'Seleccioná el destino del ajuste.';
+    }
+    return null;
+}
+
+function persistAdjustmentDefault(kind, previous, next) {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        let defaults = state.settings;
+        if (previous?.id && resolveAdjustmentScope(previous).scope !== 'employee') {
+            state.settings.payrollDefaults = updateRememberedDefault(defaults, kind, previous, false);
+            defaults = state.settings;
+        }
+        if (next?.remembered && resolveAdjustmentScope(next).scope !== 'employee') {
+            state.settings.payrollDefaults = updateRememberedDefault(defaults, kind, next, true);
+        }
+    });
+    context.saveToLocalStorage({ immediate: true, announce: false });
+}
+
+export function addDesktopAdjustment(kind, target) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const form = target?.closest('.payroll-adjustment-form');
+    const draft = readAdjustmentForm(form);
+    const validationError = validateDesktopAdjustment(draft);
+    if (validationError) {
+        window.showNotification?.(validationError, 'error');
+        return;
+    }
+
+    const state = getState();
+    const item = buildDesktopAdjustment(kind, draft);
+    stateManager.batchSetState(() => {
+        if (!state.exportConfig[kind]) state.exportConfig[kind] = [];
+        state.exportConfig[kind].push(item);
+    });
+    if (item.remembered) persistAdjustmentDefault(kind, null, item);
+    window.showNotification?.(`${adjustmentKindLabel(kind)} agregada.`, 'success');
+    context.render();
+}
+
+export function updateDesktopAdjustment(kind, target) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const index = Number(target?.dataset.index);
+    const state = getState();
+    const previous = state.exportConfig[kind]?.[index];
+    if (!previous) return;
+
+    const form = target.closest('.payroll-adjustment-form');
+    const draft = readAdjustmentForm(form);
+    const validationError = validateDesktopAdjustment(draft);
+    if (validationError) {
+        window.showNotification?.(validationError, 'error');
+        return;
+    }
+
+    const next = buildDesktopAdjustment(kind, draft, previous);
+    stateManager.batchSetState(() => {
+        state.exportConfig[kind][index] = next;
+    });
+    if (previous.remembered || next.remembered) {
+        persistAdjustmentDefault(kind, previous, next);
+    }
+    window.showNotification?.(`${adjustmentKindLabel(kind)} actualizada.`, 'success');
+    context.render();
+}
+
+export function removeDesktopAdjustment(kind, target) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const index = Number(target?.dataset.index);
+    const state = getState();
+    const item = state.exportConfig[kind]?.[index];
+    if (!item) return;
+
+    stateManager.batchSetState(() => {
+        state.exportConfig[kind].splice(index, 1);
+    });
+    if (item.remembered || resolveAdjustmentScope(item).scope !== 'employee') {
+        persistAdjustmentDefault(kind, item, null);
+    }
+    window.showNotification?.(`${adjustmentKindLabel(kind)} eliminada.`, 'success');
+    context.render();
 }
 
 function generateExportDeductionsHTML() {
@@ -1170,4 +1530,96 @@ export function toggleStep(stepId) {
         state.exportConfig.collapsedSteps.push(stepId);
     }
     context.render();
+}
+
+function expandedPayrollLoanEmployeeIds() {
+    if (typeof document === 'undefined') return [];
+    return [...document.querySelectorAll('.payroll-loan-group[open]')]
+        .map(group => group.dataset.employeeId)
+        .filter(Boolean);
+}
+
+function updatePayrollLoanSelection(nextSelection) {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollLoanSelection = nextSelection;
+        state.exportConfig.payrollLoanExpandedEmployees = expandedPayrollLoanEmployeeIds();
+    });
+    context.render();
+}
+
+export function clearPayrollLoans() {
+    updatePayrollLoanSelection([]);
+}
+
+export function toggleEmployeePayrollLoans(employeeId) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    if (!employee) return;
+    const eligibleLoanIds = getEligiblePayrollLoans(employee).map(loan => loan.loanId);
+    const current = (state.exportConfig.payrollLoanSelection || [])
+        .find(item => String(item.employeeId) === String(employee.id));
+    const selectedIds = new Set((current?.loanIds || []).map(String));
+    const allSelected = eligibleLoanIds.length > 0 &&
+        eligibleLoanIds.every(loanId => selectedIds.has(String(loanId)));
+    updatePayrollLoanSelection(setEmployeePayrollLoans(
+        state.exportConfig.payrollLoanSelection || [],
+        employee.id,
+        allSelected ? [] : eligibleLoanIds
+    ));
+}
+
+export function togglePayrollLoanSelection(employeeId, loanId) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const loan = employee
+        ? getEligiblePayrollLoans(employee).find(item => String(item.loanId) === String(loanId))
+        : null;
+    if (!employee || !loan) return;
+    const current = (state.exportConfig.payrollLoanSelection || [])
+        .find(item => String(item.employeeId) === String(employee.id));
+    const selected = (current?.loanIds || []).some(id => String(id) === String(loan.loanId));
+    updatePayrollLoanSelection(togglePayrollLoan(
+        state.exportConfig.payrollLoanSelection || [],
+        employee.id,
+        loan.loanId,
+        !selected
+    ));
+}
+
+export function setPayrollGuideStep(stepId) {
+    const stepMap = {
+        period: ['step2', 'step2b', 'step2c', 'step3'],
+        deductions: ['step1', 'step2b', 'step2c', 'step3'],
+        bonuses: ['step1', 'step2', 'step2c', 'step3'],
+        loans: ['step1', 'step2', 'step2b', 'step3'],
+        review: ['step1', 'step2', 'step2b', 'step2c']
+    };
+    if (!Object.hasOwn(stepMap, stepId)) return;
+
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollGuideStep = stepId;
+        state.exportConfig.collapsedSteps = [...stepMap[stepId]];
+    });
+}
+
+export function togglePayrollSummaryDetail(kind) {
+    if (!['bonuses', 'deductions'].includes(kind)) return;
+    stateManager.batchSetState(() => {
+        const state = getState();
+        const expanded = state.exportConfig.payrollSummaryExpanded || {};
+        state.exportConfig.payrollSummaryExpanded = {
+            ...expanded,
+            [kind]: !expanded[kind]
+        };
+    });
+}
+
+export function togglePayrollMobileSummary() {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollMobileSummaryExpanded =
+            !state.exportConfig.payrollMobileSummaryExpanded;
+    });
 }

@@ -31,6 +31,10 @@ export class Notification {
         }
 
         this.position = options.position || 'top-center';
+        this.variant = options.variant === 'update' ? 'update' : '';
+        this.updateInfo = (options.updateInfo && typeof options.updateInfo === 'object')
+            ? options.updateInfo
+            : {};
         this.closable = options.closable !== undefined ? options.closable : (this.type !== 'loading');
         // Acciones opcionales: [{ label, onClick, closeOnClick }]. closeOnClick
         // por defecto cierra la notificación tras ejecutar onClick.
@@ -74,10 +78,11 @@ export class Notification {
         this.container = Notification.getContainer(this.position);
 
         this.element = document.createElement('div');
-        this.element.className = `notification notification-${this.type} notification-enter`;
+        const variantClass = this.variant ? ` notification-${this.variant}` : '';
+        this.element.className = `notification notification-${this.type}${variantClass} notification-enter`;
         this.element.dataset.type = this.type;
 
-        this.element.innerHTML = `
+        this.element.innerHTML = this.variant === 'update' ? this._renderUpdateMarkup() : `
             <div class="notification-icon-wrapper">
                 <span class="notification-icon">${this._getIcon(this.type)}</span>
             </div>
@@ -89,6 +94,11 @@ export class Notification {
                 ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : ''}
             </div>
         `;
+
+        if (this.variant === 'update') {
+            this._hydrateUpdateInfo();
+            this._attachUpdateDisclosureListener();
+        }
 
         // Event listeners (acciones primero, luego cerrar)
         this._attachActionListeners();
@@ -115,6 +125,79 @@ export class Notification {
         this._startDismissTimer();
 
         return this;
+    }
+
+    _renderUpdateMarkup() {
+        return `
+            <details class="notification-update__disclosure">
+                <summary class="notification-update__summary">
+                    <span class="notification-icon-wrapper">
+                        <img class="notification-update__app-icon" src="./icon.svg" alt="">
+                    </span>
+                    <span class="notification-content">
+                        <span class="notification-message"></span>
+                        <small>Toca para ver la actualización</small>
+                    </span>
+                    <span class="notification-update__expand-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 5v14"></path>
+                            <path d="m19 12-7 7-7-7"></path>
+                        </svg>
+                    </span>
+                </summary>
+                <div class="notification-update__panel">
+                    <div class="notification-update__heading">
+                        <strong>Actualización lista</strong>
+                        <span>La nueva compilación ya se descargó y puede instalarse.</span>
+                    </div>
+                    <details class="notification-update__metadata">
+                        <summary>Datos de la actualización</summary>
+                        <dl>
+                            <div><dt>Versión de la app</dt><dd data-update-info="app-version"></dd></div>
+                            <div><dt>Instalada</dt><dd data-update-info="current-build"></dd></div>
+                            <div><dt>Disponible</dt><dd data-update-info="available-build"></dd></div>
+                        </dl>
+                    </details>
+                    <div class="notification-actions">
+                        ${this.actions.map((a, i) => `
+                            <button class="notification-action" data-action-index="${i}">
+                                <span class="notification-action-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M20 11a8 8 0 0 0-14.9-4"></path>
+                                        <path d="M5 3v4h4"></path>
+                                        <path d="M4 13a8 8 0 0 0 14.9 4"></path>
+                                        <path d="M19 21v-4h-4"></path>
+                                    </svg>
+                                </span>
+                                <span class="notification-action-label"></span>
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            </details>
+            ${this.closable ? `<button class="notification-close" aria-label="Cerrar"><span class="notification-close__icon">${icons.get('close')}</span></button>` : ''}
+        `;
+    }
+
+    _hydrateUpdateInfo() {
+        if (!this.element) return;
+        const text = (selector, value, fallback = 'No disponible') => {
+            const target = this.element.querySelector(selector);
+            if (target) target.textContent = value || fallback;
+        };
+        text('.notification-message', this.message, 'Nueva versión disponible');
+        text('[data-update-info="app-version"]', this.updateInfo.appVersion);
+        text('[data-update-info="current-build"]', this.updateInfo.currentBuild);
+        text('[data-update-info="available-build"]', this.updateInfo.availableBuild);
+    }
+
+    _attachUpdateDisclosureListener() {
+        const disclosure = this.element?.querySelector('.notification-update__disclosure');
+        if (!disclosure) return;
+        disclosure.addEventListener('toggle', () => {
+            this.element?.classList.toggle('is-expanded', disclosure.open);
+            Notification.updatePositions(this.position);
+        });
     }
 
     // Actualizar una notificación existente

@@ -21,6 +21,9 @@ const APP_SRC = read('../app.js');
 const HOOK_SRC = (() => {
     try { return read('../../.githooks/pre-commit'); } catch (_) { return ''; }
 })();
+const POST_HOOK_SRC = (() => {
+    try { return read('../../.githooks/post-commit'); } catch (_) { return ''; }
+})();
 
 testRunner.addSuite('BuildVersion — formatBuild', {
 
@@ -36,6 +39,16 @@ testRunner.addSuite('BuildVersion — formatBuild', {
         const out = formatBuild('2026.1231.235959');
         testRunner.assertEquals(out.time, '23:59:59', 'medianoche menos un segundo');
         testRunner.assertEquals(out.date, '2026.12.31');
+    },
+
+    'ofrece fecha DD/MM/AAAA y hora AM/PM para superficies humanas'() {
+        const evening = formatBuild('2026.0724.180000');
+        testRunner.assertEquals(evening.localDate, '24/07/2026');
+        testRunner.assertEquals(evening.time12h, '6:00 PM');
+        testRunner.assertEquals(evening.displayLocal, '24/07/2026 · 6:00 PM');
+
+        const midnight = formatBuild('2026.0724.000000');
+        testRunner.assertEquals(midnight.time12h, '12:00 AM', 'medianoche debe ser 12 AM');
     },
 
     'input malformado → devuelve el crudo tal cual, valid:false (nunca NaN)'() {
@@ -81,6 +94,18 @@ testRunner.addSuite('BuildVersion — cableado del footer (contrato de fuente)',
             'el hook debe regenerar BuildInfo.js en cada commit');
         testRunner.assert(/NEW_VERSION/.test(HOOK_SRC),
             'debe reusar la MISMA NEW_VERSION que sw.js (una sola fuente de fecha)');
+    },
+
+    'el hook invalida el cache cuando cambian iconos SVG o PNG'() {
+        testRunner.assert(/svg/.test(HOOK_SRC) && /png/.test(HOOK_SRC),
+            'los iconos cacheados deben disparar una nueva versión del Service Worker');
+    },
+
+    'el post-commit sincroniza BuildInfo.js sin descartar otros cambios'() {
+        testRunner.assert(POST_HOOK_SRC.includes('HEAD_BUILD')
+            && POST_HOOK_SRC.includes('WT_BUILD')
+            && POST_HOOK_SRC.includes('BuildInfo.js'),
+        'el árbol de trabajo debe conservar el mismo build que el commit');
     },
 
     'el build usa la hora local de Rep. Dominicana (TZ fijo, no UTC)'() {

@@ -1,4 +1,5 @@
 import { getDateKey } from '../../utils/DateUtils.js';
+import { calculateScopedAdjustments } from './PayrollAdjustments.js';
 
 const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
 
@@ -249,50 +250,34 @@ export class PayrollService {
             totalBruto += subtotal;
         });
 
-        // 🎁 NUEVO: Calcular bonificaciones / pagos extra
+        const adjustmentContext = {
+            employeeId: emp.id,
+            totalGross: totalBruto,
+            breakdown,
+            positions: this.state.positions
+        };
+
+        // Calcular bonificaciones sobre bases inmutables según su alcance.
         const bonusesList = bonuses ?? this.state.employeeProfile?.bonuses ?? [];
-        const bonusBreakdown = [];
-        let totalBonuses = 0;
+        const bonusResult = calculateScopedAdjustments(
+            bonusesList,
+            adjustmentContext,
+            'Bono'
+        );
+        const bonusBreakdown = bonusResult.breakdown;
+        const totalBonuses = bonusResult.total;
 
-        bonusesList.forEach((bon, index) => {
-            const val = parseFloat(bon.value) || 0;
-            // El bono porcentual se calcula sobre el Bruto base original (antes de sumarle este u otros bonos)
-            let bonusAmount = (bon.type === 'fixed') ? val : (totalBruto * val) / 100;
-
-            bonusBreakdown.push({
-                id: bon.id || `BON-${index + 1}`,
-                name: bon.name || `Bono ${index + 1}`,
-                type: bon.type,
-                value: val,
-                amount: bonusAmount,
-                appliedTo: totalBruto
-            });
-
-            totalBonuses += bonusAmount;
-        });
-
-        // ⚡ NUEVO: Calcular deducciones encadenadas
-        // Si se pasaron deducciones explícitas (exportación global), usarlas.
-        // Si no, usar las del perfil activo (comportamiento original).
+        // Las deducciones también se calculan sobre el bruto original. Ninguna
+        // regla reduce la base de la siguiente, por lo que el orden no altera el
+        // resultado.
         const deductionsList = deductions ?? this.state.employeeProfile?.deductions ?? [];
-        const deductionBreakdown = [];
-        let totalDeductions = 0;
-
-        deductionsList.forEach((ded, index) => {
-            const val = parseFloat(ded.value) || 0;
-            let deductionAmount = (ded.type === 'fixed') ? val : (totalBruto * val) / 100;
-
-            deductionBreakdown.push({
-                id: ded.id || `DED-${index + 1}`,
-                name: ded.name || `Deducción ${index + 1}`,
-                type: ded.type,
-                value: val,
-                amount: deductionAmount,
-                appliedTo: totalBruto
-            });
-
-            totalDeductions += deductionAmount;
-        });
+        const deductionResult = calculateScopedAdjustments(
+            deductionsList,
+            adjustmentContext,
+            'Deducción'
+        );
+        const deductionBreakdown = deductionResult.breakdown;
+        const totalDeductions = deductionResult.total;
 
         // 🏦 NUEVO: Calcular adelantos y préstamos
         const advancesList = advances ?? this.state.employeeProfile?.advances ?? [];

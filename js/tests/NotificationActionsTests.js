@@ -8,7 +8,14 @@
  * closeOnClick:false, y que sin `actions` no haya regresión.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { Notification } from '../modules/components/Notification.js';
+
+const INDEX_SRC = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+const MANIFEST = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../manifest.json'), 'utf8'));
+const APP_ICON_SRC = fs.readFileSync(path.resolve(__dirname, '../../icon.svg'), 'utf8');
+const SERVICE_WORKER_SRC = fs.readFileSync(path.resolve(__dirname, '../../sw.js'), 'utf8');
 
 const cleanup = () => {
     Notification.clearAll();
@@ -29,6 +36,67 @@ testRunner.addSuite("Notification — botones de acción", {
         const btn = n.element.querySelector('.notification-action');
         testRunner.assert(!!btn, 'debe existir un botón .notification-action');
         testRunner.assertEquals(btn.textContent, 'Recargar', 'la etiqueta debe ser la pasada en la acción');
+        cleanup();
+    },
+
+    "la variante update conserva una acción principal y un cierre independiente"() {
+        cleanup();
+        const n = new Notification({
+            message: 'Nueva versión disponible.',
+            type: 'info',
+            variant: 'update',
+            duration: 0,
+            updateInfo: {
+                appVersion: '1.7.0',
+                currentBuild: '24/07/2026 · 6:00 PM',
+                availableBuild: '24/07/2026 · 7:00 PM'
+            },
+            actions: [{ label: 'Actualizar', onClick: () => {} }]
+        }).show();
+        testRunner.assert(n.element.classList.contains('notification-update'),
+            'la notificación de versión recibe su variante visual aislada');
+        testRunner.assert(!!n.element.querySelector('.notification-action'),
+            'mantiene Recargar como acción principal');
+        testRunner.assert(!!n.element.querySelector('.notification-close'),
+            'mantiene el cierre como control independiente');
+        testRunner.assert(!!n.element.querySelector('.notification-update__disclosure'),
+            'la cápsula compacta puede expandirse sin abrir otro modal');
+        testRunner.assertEquals(
+            n.element.querySelector('[data-update-info=\"available-build\"]').textContent,
+            '24/07/2026 · 7:00 PM',
+            'muestra la compilación disponible real'
+        );
+        testRunner.assert(!!n.element.querySelector('.notification-action-icon svg'),
+            'Actualizar usa un SVG determinista, no un emoji');
+        testRunner.assertEquals(
+            n.element.querySelector('.notification-update__app-icon')?.getAttribute('src'),
+            './icon.svg',
+            'el aviso identifica visualmente la aplicación con su icono vectorial'
+        );
+        testRunner.assert(!!n.element.querySelector('.notification-close__icon'),
+            'el cierre separa su superficie táctil del círculo visible');
+        cleanup();
+    },
+
+    "la variante update se expande y conserva los datos bajo demanda"() {
+        cleanup();
+        const n = new Notification({
+            message: 'Nueva versión disponible.',
+            type: 'info',
+            variant: 'update',
+            duration: 0,
+            updateInfo: { appVersion: '1.7.0', currentBuild: 'A', availableBuild: 'B' },
+            actions: [{ label: 'Actualizar', onClick: () => {} }]
+        }).show();
+        const disclosure = n.element.querySelector('.notification-update__disclosure');
+        disclosure.open = true;
+        disclosure.dispatchEvent(new Event('toggle'));
+        testRunner.assert(n.element.classList.contains('is-expanded'),
+            'el estado abierto amplía la notificación');
+        disclosure.open = false;
+        disclosure.dispatchEvent(new Event('toggle'));
+        testRunner.assert(!n.element.classList.contains('is-expanded'),
+            'el estado cerrado vuelve a la cápsula compacta');
         cleanup();
     },
 
@@ -169,4 +237,59 @@ testRunner.addSuite("Notification — update() acepta options.actions (U11)", {
             'pasar actions:[] explícitamente debe quitar los botones (p. ej. al confirmar éxito tras un retry)');
         cleanup();
     }
+});
+
+testRunner.addSuite("Notification — actualización del Service Worker", {
+
+    "el aviso usa versiones reales y reserva Actualizar para el estado expandido"() {
+        testRunner.assert(INDEX_SRC.includes("variant: 'update'"),
+            'el Service Worker debe usar la variante compacta');
+        testRunner.assert(INDEX_SRC.includes('queryWorkerVersion(newWorker)'),
+            'consulta la compilación disponible al worker nuevo');
+        testRunner.assert(INDEX_SRC.includes('currentBuild: formatBuild(BUILD).displayLocal'),
+            'muestra la compilación instalada con fecha local desde la fuente de verdad');
+        testRunner.assert(INDEX_SRC.includes("position: 'top-center'"),
+            'centra el aviso para que no compita con los controles laterales');
+        testRunner.assert(INDEX_SRC.includes("label: 'Actualizar'"),
+            'la acción principal usa el lenguaje acordado');
+        testRunner.assert(!INDEX_SRC.includes("label: 'Actualizar', icon:"),
+            'la acción no depende de un icono Unicode del registro global');
+    }
+
+});
+
+testRunner.addSuite("Identidad visual — icono SVG", {
+
+    "el documento y el manifiesto publican el icono vectorial"() {
+        testRunner.assert(INDEX_SRC.includes('<link rel="icon" type="image/svg+xml" href="icon.svg">'),
+            'el navegador debe descubrir el favicon SVG');
+        testRunner.assert(
+            MANIFEST.icons.some((icon) => icon.src === 'icon.svg' && icon.sizes === 'any'),
+            'el manifiesto PWA debe publicar el recurso escalable'
+        );
+    },
+
+    "el icono conserva casco y check como trazos SVG, no como imagen embebida"() {
+        testRunner.assert(APP_ICON_SRC.includes('<svg'), 'debe ser un SVG válido');
+        testRunner.assert(APP_ICON_SRC.includes('id="helmet"'), 'incluye el trazo cian del casco');
+        testRunner.assert(APP_ICON_SRC.includes('id="check"'), 'incluye el check verde');
+        testRunner.assert(!APP_ICON_SRC.includes('data:image/'),
+            'no debe esconder un bitmap dentro del SVG');
+    },
+
+    "el shell offline incluye el icono y los estilos directos del documento"() {
+        [
+            './icon.svg',
+            './css/sidebar-shell.css',
+            './css/personnel.css',
+            './css/payroll-redesign.css',
+            './css/settings.css'
+        ].forEach((asset) => {
+            testRunner.assert(
+                SERVICE_WORKER_SRC.includes(`'${asset}'`),
+                `${asset} debe estar disponible desde la primera apertura offline`
+            );
+        });
+    }
+
 });

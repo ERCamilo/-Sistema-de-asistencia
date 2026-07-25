@@ -4716,6 +4716,14 @@ window.syncCenterOpenBackups = () => {
     window.openDatosAjustes?.();
 };
 
+window.syncCenterOpenNotes = () => {
+    stateManager.batchSetState(() => {
+        state.showModal = false;
+        state.modalType = null;
+    });
+    window.openNotesCenter?.();
+};
+
 window.syncCenterResolveConflicts = () => {
     state.showModal = false;
     state.modalType = null;
@@ -4820,10 +4828,18 @@ function SyncCenterModal() {
 
     const isPaused = SYNC_PAUSE_ENABLED && isSyncPaused();
     const isDownloadPausedNow = isDownloadPaused();
+    const notesIcon = `
+        <svg viewBox="0 0 24 24">
+            <path d="M6 3h9l3 3v15H6z"></path>
+            <path d="M14 3v4h4"></path>
+            <path d="M9 12h6"></path>
+            <path d="M9 16h4"></path>
+        </svg>
+    `;
 
     const action = (fn, icon, title, description, extraClass = '') => `
         <button type="button" class="sync-center-action ${extraClass}" data-app-fn="${fn}">
-            <span class="sync-center-action-icon">${icon}</span>
+            <span class="sync-center-action-icon" aria-hidden="true">${icon}</span>
             <span class="sync-center-action-copy">
                 <strong>${title}</strong>
                 <small>${description}</small>
@@ -4886,6 +4902,7 @@ function SyncCenterModal() {
                 <div class="sync-center-actions primary">
                     ${action('syncCenterSyncNow', '↻', 'Sincronizar ahora', 'Guarda y refresca los datos con la nube.')}
                     ${action('syncCenterOpenBackups', '◷', 'Respaldos y restauración', 'Crear copias y recuperar versiones anteriores.', 'secondary')}
+                    ${action('syncCenterOpenNotes', notesIcon, 'Notas', 'Consulta y administra las notas del personal.', 'secondary')}
                 </div>
 
                 <details class="sync-center-advanced">

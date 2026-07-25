@@ -1,6 +1,6 @@
 #!/bin/sh
 # Pre-commit hook — auto-bump sw.js CACHE_VERSION on every commit that
-# touches web assets (JS/CSS/HTML), so browsers always get fresh code.
+# touches web assets (JS/CSS/HTML/SVG/PNG), so browsers always get fresh code.
 #
 # Version format: YYYY.MMDD.HHmmss  (e.g. 2026.0606.143027)
 #   - Seconds precision  → no collision even with rapid successive commits
@@ -42,7 +42,7 @@ fi
 # ── 2. Only bump when files that actually run in the browser change ───────────
 # Excludes pure-Jest wrappers (*.test.js), jest config, and babel config.
 CHANGED_ASSETS=$(git diff --cached --name-only \
-    | grep -E '\.(js|css|html)$' \
+    | grep -E '\.(js|css|html|svg|png)$' \
     | grep -Ev '(\.test\.js$|jest\.(config|setup)\.js$|babel\.config\.js$)')
 
 if [ -z "$CHANGED_ASSETS" ]; then

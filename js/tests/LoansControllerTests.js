@@ -205,6 +205,27 @@ testRunner.addSuite("LoansController — new loan submission", {
 
 testRunner.addSuite("LoansController — payment submission", {
 
+    "pago y refinanciamiento son formularios mutuamente excluyentes"() {
+        resetState();
+        seedEmployee();
+        selectLoansEmployee('emp1');
+
+        toggleRefinanceForm('loan-1');
+        testRunner.assertEquals(state.loansLedger.showRefinanceFormForLoan, 'loan-1',
+            "refinanciamiento abre primero");
+        togglePaymentForm('loan-1');
+        testRunner.assertEquals(state.loansLedger.showPaymentFormForLoan, 'loan-1',
+            "pago queda abierto");
+        testRunner.assertEquals(state.loansLedger.showRefinanceFormForLoan, null,
+            "abrir pago cierra refinanciamiento");
+
+        toggleRefinanceForm('loan-1');
+        testRunner.assertEquals(state.loansLedger.showRefinanceFormForLoan, 'loan-1',
+            "refinanciamiento vuelve a abrir");
+        testRunner.assertEquals(state.loansLedger.showPaymentFormForLoan, null,
+            "abrir refinanciamiento cierra pago");
+    },
+
     "submitPayment reduces balance and closes form"() {
         resetState();
         seedEmployee();
