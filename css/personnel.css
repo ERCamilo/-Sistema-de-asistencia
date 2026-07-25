@@ -27,6 +27,27 @@
     letter-spacing: -0.035em;
 }
 
+.personnel-page__title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.personnel-page__context {
+    display: inline-flex;
+    min-height: 24px;
+    padding: 4px 9px;
+    align-items: center;
+    border: 1px solid #2a4353;
+    border-radius: 7px;
+    background: #102934;
+    color: #67e8f9;
+    font-size: 0.67rem;
+    font-weight: 750;
+    letter-spacing: 0.025em;
+    text-transform: uppercase;
+}
+
 .personnel-page__header p {
     margin: 0;
     color: var(--personnel-muted);
@@ -821,27 +842,179 @@
 /* Employee directory: comparison table plus a persistent editor. */
 .employee-toolbar {
     display: grid;
-    grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(130px, 150px)) auto auto;
+    grid-template-columns: minmax(260px, 1fr) minmax(280px, 390px) auto auto;
     gap: 10px;
     margin-bottom: 16px;
 }
 
-.employee-toolbar > select {
-    min-width: 0;
-    min-height: 40px;
-    padding: 0 11px;
-    border: 1px solid var(--personnel-border);
-    border-radius: 9px;
-    outline: 0;
-    background: #111820;
-    color: #d4dde8;
-    font-size: 0.72rem;
-    font-weight: 650;
+.employee-toolbar__multi-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
 }
 
-.employee-toolbar > select:focus {
-    border-color: #3b536a;
-    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.08);
+.employee-multifilter {
+    position: relative;
+    min-width: 0;
+}
+
+.employee-multifilter > summary {
+    display: flex;
+    min-height: 40px;
+    padding: 0 10px;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--personnel-border);
+    border-radius: 9px;
+    background: #111820;
+    color: #aab6c6;
+    font-size: 0.72rem;
+    font-weight: 650;
+    cursor: pointer;
+    list-style: none;
+}
+
+.employee-multifilter > summary::-webkit-details-marker {
+    display: none;
+}
+
+.employee-multifilter > summary span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.employee-multifilter > summary strong {
+    display: grid;
+    min-width: 20px;
+    height: 20px;
+    margin-left: auto;
+    padding: 0 5px;
+    place-items: center;
+    border-radius: 999px;
+    background: #06b6d4;
+    color: #06131b;
+    font-size: 0.62rem;
+}
+
+.employee-multifilter[open] > summary,
+.employee-multifilter.has-selection > summary {
+    border-color: #2b7182;
+    color: #d8f7fc;
+}
+
+.employee-multifilter__popover {
+    position: absolute;
+    z-index: 35;
+    top: calc(100% + 7px);
+    left: 0;
+    width: min(330px, calc(100vw - 28px));
+    padding: 9px;
+    border: 1px solid #33465d;
+    border-radius: 11px;
+    background: #0c1523;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+}
+
+.employee-multifilter:last-child .employee-multifilter__popover {
+    right: 0;
+    left: auto;
+}
+
+.employee-multifilter__search {
+    display: flex;
+    min-height: 36px;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    border: 1px solid #29384c;
+    border-radius: 8px;
+    background: #111c2b;
+    color: #718198;
+}
+
+.employee-multifilter__search:focus-within {
+    border-color: #27758a;
+}
+
+.employee-multifilter__search input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #edf4fa;
+    font-size: 0.72rem;
+}
+
+.employee-multifilter__options {
+    display: grid;
+    max-height: 250px;
+    gap: 4px;
+    margin-top: 7px;
+    overflow-y: auto;
+}
+
+.employee-multifilter__options > label {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 24px;
+    min-height: 38px;
+    padding: 4px 7px;
+    align-items: center;
+    gap: 8px;
+    border-radius: 7px;
+    color: #c8d2df;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+.employee-multifilter__options > label:hover {
+    background: #152235;
+}
+
+.employee-multifilter__options > label[hidden] {
+    display: none;
+}
+
+.employee-multifilter__option-icon {
+    display: grid;
+    width: 27px;
+    height: 27px;
+    place-items: center;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--filter-option-color) 74%, #152033);
+    color: #ffffff;
+}
+
+.employee-multifilter__options input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.employee-multifilter__check {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    place-items: center;
+    border: 1px solid #405068;
+    border-radius: 6px;
+    color: transparent;
+}
+
+.employee-multifilter__options input:checked + .employee-multifilter__check {
+    border-color: #06b6d4;
+    background: #06b6d4;
+    color: #06131b;
+}
+
+.employee-toolbar__status {
+    min-width: 220px;
+}
+
+.employee-toolbar__status button {
+    flex: 1;
 }
 
 .employee-workspace {
@@ -936,6 +1109,10 @@
     letter-spacing: 0.035em;
 }
 
+.employee-list-row__watermarks {
+    display: none;
+}
+
 .employee-list-row__identity {
     display: flex;
     min-width: 0;
@@ -1016,6 +1193,13 @@
     white-space: nowrap;
 }
 
+.employee-list-row__salary small {
+    margin-left: 3px;
+    color: #8290a2;
+    font-size: 0.58rem;
+    font-weight: 600;
+}
+
 .employee-list-row__salary strong.is-range {
     font-size: 0.68rem;
 }
@@ -1023,6 +1207,10 @@
 .employee-list-row__salary span {
     color: #697689;
     font-size: 0.6rem;
+}
+
+.employee-list-row__salary span.is-range {
+    font-size: 0.56rem;
 }
 
 .employee-list-row__status {
@@ -1820,16 +2008,17 @@
     }
 
     .employee-toolbar {
-        grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(135px, 1fr));
+        grid-template-columns: minmax(240px, 1fr) minmax(280px, 1fr);
     }
 
-    .employee-toolbar > select:nth-of-type(3),
+    .employee-toolbar__status,
     .employee-toolbar > .position-toolbar__add {
         grid-row: 2;
     }
 
     .employee-toolbar > .position-toolbar__add {
-        grid-column: auto;
+        grid-column: 2;
+        justify-self: end;
     }
 
     .employee-workspace {
@@ -1859,13 +2048,14 @@
     }
 
     .employee-toolbar__search,
+    .employee-toolbar__multi-filters,
     .employee-toolbar > .position-toolbar__add {
         grid-column: 1 / -1;
     }
 
-    .employee-toolbar > select:nth-of-type(3),
     .employee-toolbar > .position-toolbar__add {
         grid-row: auto;
+        justify-self: stretch;
     }
 
     .employee-workspace {
@@ -1883,12 +2073,24 @@
     }
 
     .personnel-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         width: 100%;
+        overflow: hidden;
     }
 
     .personnel-tabs button {
-        flex: 1 0 auto;
+        min-width: 0;
+        padding: 0 7px;
         justify-content: center;
+        gap: 4px;
+        font-size: 0.68rem;
+    }
+
+    .personnel-tabs button strong {
+        min-width: 16px;
+        padding: 2px 4px;
+        font-size: 0.58rem;
     }
 
     .personnel-page > .date-controls {
@@ -1911,11 +2113,203 @@
 
     .employee-toolbar {
         grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 12px;
     }
 
     .employee-toolbar__search,
+    .employee-toolbar__multi-filters,
+    .employee-toolbar__status,
     .employee-toolbar > .position-toolbar__add {
         grid-column: auto;
+    }
+
+    .employee-toolbar__multi-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .employee-multifilter > summary {
+        padding: 0 8px;
+    }
+
+    .employee-toolbar__status {
+        min-width: 0;
+    }
+
+    .employee-toolbar__status button {
+        min-height: 38px;
+        padding: 0 7px;
+        font-size: 0.67rem;
+    }
+
+    .employee-table {
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+    }
+
+    .employee-table__header {
+        display: none !important;
+    }
+
+    .personnel-page .employee-table #employees-list {
+        display: grid;
+        gap: 10px;
+    }
+
+    .personnel-page #employees-list .employee-list-row {
+        display: grid !important;
+        grid-template-areas:
+            "number identity status"
+            "salary salary salary"
+            "actions actions actions";
+        grid-template-columns: 42px minmax(0, 1fr) auto;
+        min-width: 0;
+        min-height: 116px;
+        margin: 0;
+        padding: 10px 10px 8px 13px;
+        column-gap: 8px;
+        row-gap: 7px;
+        overflow: hidden;
+        border: 1px solid var(--personnel-border);
+        border-radius: 10px;
+        background: #141d28;
+    }
+
+    .personnel-page #employees-list .employee-list-row:last-child {
+        border-bottom: 1px solid var(--personnel-border);
+    }
+
+    .employee-list-row__number {
+        position: relative;
+        z-index: 2;
+        grid-area: number;
+        align-self: center;
+        color: color-mix(in srgb, var(--employee-position-color) 72%, #dce9f7);
+        font-size: 0.8rem;
+    }
+
+    .employee-list-row__identity {
+        position: relative;
+        z-index: 2;
+        grid-area: identity;
+        align-self: center;
+    }
+
+    .employee-list-row__icon {
+        display: none;
+    }
+
+    .employee-list-row__identity strong {
+        overflow: visible;
+        font-size: 0.75rem;
+        line-height: 1.2;
+        text-overflow: clip;
+        white-space: normal;
+    }
+
+    .employee-list-row__positions {
+        margin-top: 4px;
+    }
+
+    .employee-list-row__positions > span {
+        max-width: 98px;
+        font-size: 0.58rem;
+    }
+
+    .employee-list-row__positions small {
+        display: none;
+    }
+
+    .employee-list-row__salary {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        grid-area: salary;
+        min-width: 0;
+        align-items: baseline;
+        gap: 5px;
+        padding-left: 50px;
+    }
+
+    .employee-list-row__salary strong,
+    .employee-list-row__salary strong.is-range {
+        color: #ffffff;
+        font-size: 0.72rem;
+    }
+
+    .employee-list-row__salary span,
+    .employee-list-row__salary span.is-range {
+        color: #aab6c5;
+        font-size: 0.66rem;
+    }
+
+    .employee-list-row__salary small {
+        font-size: 0.53rem;
+    }
+
+    .employee-list-row__status {
+        position: relative;
+        z-index: 2;
+        grid-area: status;
+        align-self: start;
+        min-height: 22px;
+        padding: 3px 7px;
+        border-width: 1px;
+        font-size: 0.52rem;
+    }
+
+    .employee-list-row__status.is-active {
+        border-color: #10b973;
+        background: #10b973;
+        color: #ffffff;
+    }
+
+    .employee-list-row__actions {
+        position: relative;
+        z-index: 2;
+        grid-area: actions;
+        padding-top: 7px;
+        border-top: 1px solid #273444;
+    }
+
+    .personnel-page #employees-list .employee-list-row .employee-list-row__actions button {
+        width: 34px;
+        height: 30px;
+        background: #111a25;
+    }
+
+    .employee-list-row__watermarks {
+        position: absolute;
+        z-index: 0;
+        top: 13px;
+        right: 50px;
+        bottom: auto;
+        display: flex;
+        align-items: center;
+        pointer-events: none;
+    }
+
+    .employee-list-row__watermarks > span {
+        display: grid;
+        width: 44px;
+        height: 44px;
+        margin-left: -11px;
+        place-items: center;
+        color: color-mix(in srgb, var(--watermark-color) 46%, #778394);
+        opacity: 0.16;
+    }
+
+    .employee-list-row__watermarks > span:first-child {
+        margin-left: 0;
+    }
+
+    .employee-list-row__watermarks small {
+        margin-left: -5px;
+        color: #8995a6;
+        font-size: 0.58rem;
+        opacity: 0.42;
     }
 
     .position-card-grid,
@@ -1946,6 +2340,63 @@
 }
 
 @media (max-width: 440px) {
+    .personnel-page__header {
+        margin-bottom: 12px;
+    }
+
+    .personnel-page__title {
+        gap: 7px;
+    }
+
+    .personnel-page__header h1 {
+        font-size: 1.25rem;
+    }
+
+    .personnel-page__context {
+        min-height: 21px;
+        padding: 3px 6px;
+        font-size: 0.58rem;
+    }
+
+    .personnel-tabs button svg,
+    .personnel-tabs button .icon-unicode {
+        display: none;
+    }
+
+    .employee-multifilter > summary {
+        min-height: 38px;
+        gap: 5px;
+        font-size: 0.66rem;
+    }
+
+    .employee-multifilter__popover {
+        position: fixed;
+        top: auto;
+        right: 10px !important;
+        bottom: 74px;
+        left: 10px !important;
+        width: auto;
+        max-height: min(460px, calc(100vh - 100px));
+    }
+
+    .employee-multifilter__options {
+        max-height: min(360px, calc(100vh - 165px));
+    }
+
+    .personnel-page #employees-list .employee-list-row {
+        grid-template-columns: 36px minmax(0, 1fr) auto;
+        padding-right: 8px;
+        padding-left: 10px;
+    }
+
+    .employee-list-row__salary {
+        padding-left: 44px;
+    }
+
+    .employee-list-row__watermarks {
+        right: 43px;
+    }
+
     .position-icon-picker {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
