@@ -93,6 +93,7 @@ export function buildAdjustmentScopeSummary(kind, adjustments = [], rows = [], s
             ...category,
             employeeCount: category.employeeIds.size
         })),
+        base: rows.reduce((sum, row) => sum + (Number(row._brutoOriginal) || 0), 0),
         total: categories.reduce((sum, category) => sum + category.total, 0),
         overlapCount: rows.filter(row => (row[detailsKey] || []).length > 1).length
     };
@@ -253,7 +254,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
             <div class="payroll-adjustment-form__footer">
                 <label class="payroll-adjustment-remember ${resolved.scope === 'employee' ? 'is-hidden' : ''}">
                     <input type="checkbox" name="remembered" ${adjustment.remembered ? 'checked' : ''}>
-                    <span>Recordar para próximas nóminas</span>
+                    <span>Guardar</span>
                 </label>
                 <div class="payroll-adjustment-form__actions">
                     ${isEditing ? `
@@ -293,11 +294,11 @@ function renderRule(kind, rule, state, rows) {
                 </span>
                 <span>${formula}</span>
                 <span>${rule.employeeCount}</span>
-                <span>${formatCurrency(rule.appliedTo)}</span>
                 <strong>${formatCurrency(rule.amount)}</strong>
                 <span class="payroll-adjustment-rule__edit" aria-label="Editar">
-                    <span class="payroll-adjustment-rule__edit-idle">Editar</span>
-                    <span class="payroll-adjustment-rule__edit-active">Editando</span>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 20h4.25L19.4 8.85a2 2 0 0 0 0-2.83l-1.42-1.42a2 2 0 0 0-2.83 0L4 15.75V20Zm2-3.42L16.56 6.02l1.42 1.42L7.42 18H6v-1.42Z"/>
+                    </svg>
                 </span>
             </summary>
             <div class="payroll-adjustment-rule__editor">
@@ -318,13 +319,16 @@ function renderSummary(kind, summary, state, rows) {
                     <span>Resumen del período</span>
                     <strong>${totalLabel}</strong>
                 </div>
+                <div class="payroll-adjustment-summary__base">
+                    <span>Base afectada</span>
+                    <strong>${formatCurrency(summary.base)}</strong>
+                </div>
                 <strong>${formatCurrency(summary.total)}</strong>
             </header>
             <div class="payroll-adjustment-summary__columns" aria-hidden="true">
                 <span>Alcance / concepto</span>
                 <span>Regla</span>
                 <span>Empl.</span>
-                <span>Base</span>
                 <span>Total</span>
                 <span></span>
             </div>
@@ -332,11 +336,16 @@ function renderSummary(kind, summary, state, rows) {
                 ${summary.categories.map(category => `
                     <details class="payroll-adjustment-group" ${category.id === firstNonEmpty ? 'open' : ''}>
                         <summary>
-                            <span class="payroll-adjustment-group__toggle" aria-hidden="true"></span>
-                            <strong>${category.summary}</strong>
-                            <span>${category.rules.length} ${category.rules.length === 1 ? 'cargo' : 'cargos'}</span>
+                            <span class="payroll-adjustment-group__identity">
+                                <span class="payroll-adjustment-group__toggle" aria-hidden="true"></span>
+                                <strong>${category.summary}</strong>
+                            </span>
+                            <span class="payroll-adjustment-group__rule-count">
+                                ${category.rules.length} ${category.rules.length === 1 ? 'regla' : 'reglas'}
+                            </span>
                             <span>${category.employeeCount} empl.</span>
                             <strong>${formatCurrency(category.total)}</strong>
+                            <span aria-hidden="true"></span>
                         </summary>
                         <div class="payroll-adjustment-group__body">
                             ${category.rules.length
