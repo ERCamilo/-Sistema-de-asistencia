@@ -153,6 +153,47 @@ describe('Financial desktop layouts', () => {
         );
     });
 
+    test('desktop adjustments expose four scopes while retaining the legacy mobile panel', () => {
+        PayrollUI.setPayrollGuideStep('deductions');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+
+        expect(host.querySelector('.payroll-adjustment-desktop.is-deduction')).not.toBeNull();
+        expect(host.querySelector('#export-deductions-section.payroll-adjustment-legacy')).not.toBeNull();
+        expect(
+            [...host.querySelectorAll('.payroll-adjustment-desktop.is-deduction .payroll-adjustment-composer input[name="scope"]')]
+                .map(input => input.value)
+        ).toEqual(['global', 'leader', 'position', 'employee']);
+    });
+
+    test('desktop adjustment form adds a position-scoped deduction', () => {
+        state.positions = [{ id: 'position-1', name: 'Albañil', active: true }];
+        PayrollUI.setPayrollGuideStep('deductions');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const form = host.querySelector('.payroll-adjustment-composer .payroll-adjustment-form');
+
+        form.querySelector('input[value="position"]').checked = true;
+        form.querySelector('[name="positionTarget"]').value = 'position-1';
+        form.querySelector('[name="name"]').value = 'Herramientas';
+        form.querySelector('[name="type"]').value = 'percentage';
+        form.querySelector('[name="value"]').value = '3';
+        PayrollUI.addDesktopAdjustment(
+            'deductions',
+            form.querySelector('[data-payroll-action="add-desktop-adjustment"]')
+        );
+
+        expect(state.exportConfig.deductions).toHaveLength(1);
+        expect(state.exportConfig.deductions[0]).toMatchObject({
+            name: 'Herramientas',
+            type: 'percentage',
+            value: 3,
+            scope: 'position',
+            targetId: 'position-1'
+        });
+        expect(render).toHaveBeenCalled();
+    });
+
     test('bonus and deduction detail rows expand independently', () => {
         PayrollUI.togglePayrollSummaryDetail('bonuses');
         const html = PayrollUI.PayrollTab();

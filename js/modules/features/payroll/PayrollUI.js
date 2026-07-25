@@ -19,12 +19,19 @@ import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPer
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
     hydrateRememberedAdjustments,
+    resolveAdjustmentScope,
     summarizeGlobalAdjustments,
     updateRememberedDefault
 } from './PayrollAdjustments.js';
+import {
+    readAdjustmentForm,
+    renderDesktopAdjustmentWorkspace,
+    updateAdjustmentFormPresentation
+} from './PayrollAdjustmentDesktop.js';
 
 let context = null;
 let payrollService = null;
+let latestPayrollPreviewRows = [];
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -50,6 +57,9 @@ const _ACTION_MAP = {
         parseInt(index, 10),
         target.checked
     ),
+    'add-desktop-adjustment': (kind, target) => window.PayrollUI?.addDesktopAdjustment?.(kind, target),
+    'update-desktop-adjustment': (kind, target) => window.PayrollUI?.updateDesktopAdjustment?.(kind, target),
+    'remove-desktop-adjustment': (kind, target) => window.PayrollUI?.removeDesktopAdjustment?.(kind, target),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
@@ -74,6 +84,16 @@ function _handlePayrollKeydown(e) {
     _handlePayrollClick(e);
 }
 
+function _handlePayrollAdjustmentInput(e) {
+    const form = e.target.closest('.payroll-adjustment-form');
+    if (!form) return;
+    updateAdjustmentFormPresentation(
+        form,
+        latestPayrollPreviewRows,
+        getState().positions || []
+    );
+}
+
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
@@ -82,6 +102,8 @@ export function init(ctx) {
     if (!_payrollDelegationAttached) {
         document.addEventListener('click', _handlePayrollClick);
         document.addEventListener('keydown', _handlePayrollKeydown);
+        document.addEventListener('input', _handlePayrollAdjustmentInput);
+        document.addEventListener('change', _handlePayrollAdjustmentInput);
         _payrollDelegationAttached = true;
     }
 }
@@ -197,6 +219,7 @@ function PayrollGeneratorTab() {
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
 
     const exportData = generateExportData();
+    latestPayrollPreviewRows = exportData;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
     const hasInvalidLoanRows = invalidLoanRows.length > 0;
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
@@ -350,8 +373,10 @@ function PayrollGeneratorTab() {
                             <p>Aplicá descuentos generales, individuales y préstamos activos.</p>
                         </div>
             
-            <!-- Paso 2: Deducciones Globales -->
-            <div id="export-deductions-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+            ${renderDesktopAdjustmentWorkspace('deductions', state, exportData)}
+
+            <!-- Interfaz móvil heredada: se mantiene hasta el rediseño móvil -->
+            <div id="export-deductions-section" class="payroll-adjustment-legacy" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
                 <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
@@ -420,8 +445,10 @@ function PayrollGeneratorTab() {
                             <p>Agregá bonos generales o individuales al período actual.</p>
                         </div>
 
-            <!-- Paso 2B: Bonificaciones Globales -->
-            <div id="export-bonuses-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
+            ${renderDesktopAdjustmentWorkspace('bonuses', state, exportData)}
+
+            <!-- Interfaz móvil heredada: se mantiene hasta el rediseño móvil -->
+            <div id="export-bonuses-section" class="payroll-adjustment-legacy" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2b') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid #334155; transition: all 0.2s;">
                 <div role="button" tabindex="0" data-payroll-action="toggle-step" data-value="step2b" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step2b') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
@@ -809,6 +836,9 @@ function generateExportData() {
             _bruto: payroll.bruto,
             _bonuses: payroll.bonuses,
             _deductions: payroll.deductions,
+            _bonusDetails: payroll.bonusBreakdown || [],
+            _deductionDetails: payroll.deductionBreakdown || [],
+            _positionBreakdown: payroll.breakdown || [],
             _employeeId: emp.id,
             _employeeName: emp.name,
             _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion',
@@ -825,6 +855,125 @@ function generateExportData() {
         // so the UI can show the error instead of silently omitting the employee.
         .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
+}
+
+function adjustmentKindLabel(kind) {
+    return kind === 'bonuses' ? 'bonificación' : 'deducción';
+}
+
+function buildDesktopAdjustment(kind, draft, current = {}) {
+    const state = getState();
+    const prefix = kind === 'bonuses' ? 'BON' : 'DED';
+    const item = {
+        id: current.id || `${prefix}-${Date.now()}-${state.exportConfig[kind]?.length || 0}`,
+        name: draft.name,
+        type: draft.type,
+        value: draft.value,
+        scope: draft.scope,
+        targetId: draft.scope === 'global' ? null : String(draft.targetId),
+        remembered: draft.scope !== 'employee' && draft.remembered,
+        source: current.source || 'manual'
+    };
+
+    if (draft.scope === 'employee') {
+        const employee = (state.employees || []).find(
+            entry => String(entry.id) === String(draft.targetId)
+        );
+        item.employeeId = draft.targetId;
+        item.employeeName = employee?.name || '';
+    }
+
+    return item;
+}
+
+function validateDesktopAdjustment(draft) {
+    if (!draft?.name) return 'Escribí un nombre para identificar el ajuste.';
+    if (!Number.isFinite(draft.value) || draft.value <= 0) {
+        return 'El valor debe ser mayor que cero.';
+    }
+    if (draft.scope !== 'global' && !draft.targetId) {
+        return 'Seleccioná el destino del ajuste.';
+    }
+    return null;
+}
+
+function persistAdjustmentDefault(kind, previous, next) {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        let defaults = state.settings;
+        if (previous?.id && resolveAdjustmentScope(previous).scope !== 'employee') {
+            state.settings.payrollDefaults = updateRememberedDefault(defaults, kind, previous, false);
+            defaults = state.settings;
+        }
+        if (next?.remembered && resolveAdjustmentScope(next).scope !== 'employee') {
+            state.settings.payrollDefaults = updateRememberedDefault(defaults, kind, next, true);
+        }
+    });
+    context.saveToLocalStorage({ immediate: true, announce: false });
+}
+
+export function addDesktopAdjustment(kind, target) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const form = target?.closest('.payroll-adjustment-form');
+    const draft = readAdjustmentForm(form);
+    const validationError = validateDesktopAdjustment(draft);
+    if (validationError) {
+        window.showNotification?.(validationError, 'error');
+        return;
+    }
+
+    const state = getState();
+    const item = buildDesktopAdjustment(kind, draft);
+    stateManager.batchSetState(() => {
+        if (!state.exportConfig[kind]) state.exportConfig[kind] = [];
+        state.exportConfig[kind].push(item);
+    });
+    if (item.remembered) persistAdjustmentDefault(kind, null, item);
+    window.showNotification?.(`${adjustmentKindLabel(kind)} agregada.`, 'success');
+    context.render();
+}
+
+export function updateDesktopAdjustment(kind, target) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const index = Number(target?.dataset.index);
+    const state = getState();
+    const previous = state.exportConfig[kind]?.[index];
+    if (!previous) return;
+
+    const form = target.closest('.payroll-adjustment-form');
+    const draft = readAdjustmentForm(form);
+    const validationError = validateDesktopAdjustment(draft);
+    if (validationError) {
+        window.showNotification?.(validationError, 'error');
+        return;
+    }
+
+    const next = buildDesktopAdjustment(kind, draft, previous);
+    stateManager.batchSetState(() => {
+        state.exportConfig[kind][index] = next;
+    });
+    if (previous.remembered || next.remembered) {
+        persistAdjustmentDefault(kind, previous, next);
+    }
+    window.showNotification?.(`${adjustmentKindLabel(kind)} actualizada.`, 'success');
+    context.render();
+}
+
+export function removeDesktopAdjustment(kind, target) {
+    if (!['deductions', 'bonuses'].includes(kind)) return;
+    const index = Number(target?.dataset.index);
+    const state = getState();
+    const item = state.exportConfig[kind]?.[index];
+    if (!item) return;
+
+    stateManager.batchSetState(() => {
+        state.exportConfig[kind].splice(index, 1);
+    });
+    if (item.remembered || resolveAdjustmentScope(item).scope !== 'employee') {
+        persistAdjustmentDefault(kind, item, null);
+    }
+    window.showNotification?.(`${adjustmentKindLabel(kind)} eliminada.`, 'success');
+    context.render();
 }
 
 function generateExportDeductionsHTML() {
