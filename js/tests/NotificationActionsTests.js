@@ -15,6 +15,7 @@ import { Notification } from '../modules/components/Notification.js';
 const INDEX_SRC = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
 const MANIFEST = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../manifest.json'), 'utf8'));
 const APP_ICON_SRC = fs.readFileSync(path.resolve(__dirname, '../../icon.svg'), 'utf8');
+const SERVICE_WORKER_SRC = fs.readFileSync(path.resolve(__dirname, '../../sw.js'), 'utf8');
 
 const cleanup = () => {
     Notification.clearAll();
@@ -274,6 +275,21 @@ testRunner.addSuite("Identidad visual — icono SVG", {
         testRunner.assert(APP_ICON_SRC.includes('id="check"'), 'incluye el check verde');
         testRunner.assert(!APP_ICON_SRC.includes('data:image/'),
             'no debe esconder un bitmap dentro del SVG');
+    },
+
+    "el shell offline incluye el icono y los estilos directos del documento"() {
+        [
+            './icon.svg',
+            './css/sidebar-shell.css',
+            './css/personnel.css',
+            './css/payroll-redesign.css',
+            './css/settings.css'
+        ].forEach((asset) => {
+            testRunner.assert(
+                SERVICE_WORKER_SRC.includes(`'${asset}'`),
+                `${asset} debe estar disponible desde la primera apertura offline`
+            );
+        });
     }
 
 });
