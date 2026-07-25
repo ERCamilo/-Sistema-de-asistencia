@@ -356,7 +356,7 @@
     padding: 8px 11px;
     list-style: none;
     background: #1b242c;
-    cursor: pointer;
+    cursor: default;
 }
 
 .payroll-loan-group > summary::-webkit-details-marker {
@@ -391,26 +391,68 @@
 }
 
 .payroll-loan-group__employee {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.payroll-loan-group__employee-copy {
     min-width: 0;
 }
 
-.payroll-loan-group__employee strong,
-.payroll-loan-group__employee small {
+.payroll-loan-group__employee-copy strong,
+.payroll-loan-group__employee-copy small {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.payroll-loan-group__employee strong {
+.payroll-loan-group__employee-copy strong {
     color: #f1f4f7;
     font-size: 0.72rem;
 }
 
-.payroll-loan-group__employee small {
+.payroll-loan-group__employee-copy strong b {
+    color: #f59e0b;
+}
+
+.payroll-loan-group__employee-copy small {
     margin-top: 3px;
     color: #f87171;
     font-size: 0.57rem;
+}
+
+.payroll-loan-disclosure {
+    flex: 0 0 auto;
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid #46525d;
+    border-radius: 5px;
+    background: #2b3640;
+    color: #f2f5f7;
+    cursor: pointer;
+}
+
+.payroll-loan-disclosure::before {
+    content: "+";
+    font-size: 0.88rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.payroll-loan-group[open] .payroll-loan-disclosure::before {
+    content: "−";
+}
+
+.payroll-loan-disclosure:focus-visible {
+    outline: 2px solid #4bc5d5;
+    outline-offset: 2px;
 }
 
 .payroll-loan-selection {
@@ -434,10 +476,14 @@
     line-height: 1;
 }
 
-.payroll-loan-selection[aria-checked="true"],
-.payroll-loan-selection[aria-checked="mixed"] {
+.payroll-loan-selection[aria-checked="true"] {
     border-color: #f59e0b;
     background: #f59e0b;
+}
+
+.payroll-loan-selection[aria-checked="mixed"] {
+    border-color: #4bc5d5;
+    background: #4bc5d5;
 }
 
 .payroll-loan-selection[aria-checked="true"]::before {

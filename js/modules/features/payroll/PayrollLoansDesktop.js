@@ -105,8 +105,17 @@ function renderEmployeeGroup(group, expandedIds) {
                         : `Incluir todos los préstamos de ${group.employeeName}`
                 })}
                 <span class="payroll-loan-group__employee">
-                    <strong>#${safe(group.employeeNumber || '?')} · ${safe(group.employeeName)}</strong>
-                    ${group.invalid ? '<small>El descuento deja el pago en cero o negativo</small>' : ''}
+                    <button type="button"
+                            class="payroll-loan-disclosure"
+                            aria-expanded="${expandedIds.has(String(group.employeeId))}"
+                            aria-label="${expandedIds.has(String(group.employeeId)) ? 'Ocultar' : 'Mostrar'} préstamos de ${safe(group.employeeName)}"
+                            data-payroll-action="toggle-payroll-loan-details"
+                            data-id="${safe(group.employeeId)}">
+                    </button>
+                    <span class="payroll-loan-group__employee-copy">
+                        <strong><b>#${safe(group.employeeNumber || '?')}</b> · ${safe(group.employeeName)}</strong>
+                        ${group.invalid ? '<small>El descuento deja el pago en cero o negativo</small>' : ''}
+                    </span>
                 </span>
                 <span>${group.selectedCount} de ${group.eligibleCount}</span>
                 <span>${formatCurrency(group.selectedInterest)}</span>

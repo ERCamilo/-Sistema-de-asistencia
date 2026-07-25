@@ -66,6 +66,18 @@ const _ACTION_MAP = {
         event.stopPropagation();
         window.PayrollUI?.togglePayrollLoanSelection?.(employeeId, target.dataset.loanId);
     },
+    'toggle-payroll-loan-details': (_employeeId, target, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const group = target.closest('.payroll-loan-group');
+        if (!group) return;
+        group.open = !group.open;
+        target.setAttribute('aria-expanded', String(group.open));
+        target.setAttribute(
+            'aria-label',
+            `${group.open ? 'Ocultar' : 'Mostrar'} préstamos de ${group.querySelector('.payroll-loan-group__employee-copy strong')?.textContent || 'empleado'}`
+        );
+    },
     'toggle-remember-adjustment': (index, target) => window.PayrollUI?.toggleRememberGlobalAdjustment?.(
         target.dataset.kind,
         parseInt(index, 10),

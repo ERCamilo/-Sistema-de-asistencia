@@ -189,6 +189,30 @@ describe('Financial desktop layouts', () => {
         expect(JSON.stringify(state.employees[0].loans)).toBe(before);
     });
 
+    test('the dedicated disclosure button expands and collapses employee loans', () => {
+        state.employees = [{
+            id: 'e1',
+            number: '001',
+            name: 'Juan Pérez',
+            active: true,
+            loans: [{
+                id: 'loan-1', principal: 100, interestRate: 0,
+                interestIncluded: false, status: 'active', payments: [], refinancings: []
+            }]
+        }];
+        document.body.innerHTML = PayrollUI.PayrollTab();
+        const group = document.querySelector('.payroll-loan-group');
+        const disclosure = group.querySelector('.payroll-loan-disclosure');
+
+        expect(group.open).toBe(false);
+        disclosure.click();
+        expect(group.open).toBe(true);
+        expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+        disclosure.click();
+        expect(group.open).toBe(false);
+        expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    });
+
     test('desktop adjustments expose four scopes while retaining the legacy mobile panel', () => {
         PayrollUI.setPayrollGuideStep('deductions');
         const host = document.createElement('div');

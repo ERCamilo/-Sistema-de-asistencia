@@ -53,6 +53,10 @@ describe('PayrollLoansDesktop', () => {
 
         const group = host.querySelector('.payroll-loan-group');
         expect(group.open).toBe(true);
+        expect(group.querySelector('.payroll-loan-disclosure').getAttribute('aria-expanded'))
+            .toBe('true');
+        expect(group.querySelector('.payroll-loan-group__employee-copy b').textContent)
+            .toBe('#001');
         expect(group.querySelector('summary .payroll-loan-selection').getAttribute('aria-checked'))
             .toBe('mixed');
         expect(group.querySelectorAll('.payroll-loan-child .payroll-loan-selection'))
