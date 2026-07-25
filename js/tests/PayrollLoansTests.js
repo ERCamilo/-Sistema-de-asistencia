@@ -302,10 +302,10 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
             'interés y saldo deben comenzar inmediatamente después del nombre del préstamo'
         );
         testRunner.assert(
-            /\.payroll-loans-table__columns,[\s\S]*?min-width:\s*700px;/.test(
+            /\.payroll-loans-table__columns,[\s\S]*?min-width:\s*560px;/.test(
                 PAYROLL_REDESIGN_CSS
             ),
-            'la tabla de escritorio debe caber desde 700 px sin reducir la escala del navegador'
+            'la tabla de escritorio debe caber en el panel central sin reducir la escala'
         );
     }
 

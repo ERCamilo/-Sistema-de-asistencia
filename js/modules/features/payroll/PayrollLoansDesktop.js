@@ -106,10 +106,16 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
 }
 
 function renderLoanRow(group, loan) {
+    const concept = String(loan.concept || 'Préstamo').trim();
+    const migrated = /\s*\(migrado\)\s*$/i.test(concept);
+    const conceptLabel = migrated
+        ? concept.replace(/\s*\(migrado\)\s*$/i, '').trim() || 'Préstamo'
+        : concept;
     return `
         <div class="payroll-loan-child" role="row">
             <span class="payroll-loan-child__concept">
-                <strong>${safe(loan.concept)}</strong>
+                <strong>${safe(conceptLabel)}</strong>
+                ${migrated ? '<small>(migrado)</small>' : ''}
             </span>
             <span class="payroll-loan-child__interest">${formatCurrency(loan.interest)}</span>
             <strong class="payroll-loan-child__balance">${formatCurrency(loan.balance)}</strong>

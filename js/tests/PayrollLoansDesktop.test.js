@@ -143,4 +143,24 @@ describe('PayrollLoansDesktop', () => {
             .not.toContain('total');
         expect(host.querySelector('[data-payroll-action="clear-payroll-loans"]')).not.toBeNull();
     });
+
+    test('renders migrated loans on two compact concept lines', () => {
+        const migratedEmployees = [{
+            ...employees[0],
+            loans: [{
+                ...employees[0].loans[0],
+                concept: 'Adelanto (migrado)'
+            }]
+        }];
+        const host = document.createElement('div');
+        host.innerHTML = renderPayrollLoansDesktop({
+            employees: migratedEmployees,
+            selection: [],
+            payrollRows
+        });
+
+        const concept = host.querySelector('.payroll-loan-child__concept');
+        expect(concept.querySelector('strong').textContent).toBe('Adelanto');
+        expect(concept.querySelector('small').textContent).toBe('(migrado)');
+    });
 });
