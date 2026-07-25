@@ -780,16 +780,17 @@ function generateExportData() {
     const filteredEmployees = getLeaderFilteredEmployees(state);
 
     const baseRows = filteredEmployees.map(emp => {
-        const applicableDeductions = (deductions || []).filter(d => !d.employeeId || d.employeeId === emp.id);
-        const applicableBonuses = (state.exportConfig.bonuses || []).filter(b => !b.employeeId || b.employeeId === emp.id);
+        // PayrollService resuelve el alcance contra el desglose real del período.
+        // Pasar la colección completa evita decidir aquí con posiciones actuales
+        // y perder trabajo histórico o multiposición.
         // Loans are applied once, below, from the temporary selection.
         const payroll = calculatePayrollBeforeLoans(
             payrollService,
             emp.id,
             periodStart,
             periodEnd,
-            applicableDeductions,
-            applicableBonuses
+            deductions || [],
+            state.exportConfig.bonuses || []
         );
         
         const positionIds = (emp.positions && emp.positions.length > 0)
