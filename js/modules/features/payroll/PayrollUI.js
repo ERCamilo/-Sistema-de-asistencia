@@ -9,12 +9,16 @@ import {
     applyPayrollLoanDeductions,
     buildPayrollLoanSelection,
     calculatePayrollBeforeLoans,
+    getEligiblePayrollLoans,
     getInvalidPayrollLoanRows,
     removeEmployeePayrollLoans as removeEmployeePayrollLoansFromSelection,
     resolvePayrollLoanSelection,
+    setEmployeePayrollLoans,
     summarizePayrollLoans,
+    togglePayrollLoan,
     toSplitXRows
 } from './PayrollLoans.js';
+import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
@@ -52,6 +56,16 @@ const _ACTION_MAP = {
     'add-employee-bonus-from-form': () => window.PayrollUI?.addEmployeeBonusFromForm?.(),
     'add-payroll-loans': () => window.PayrollUI?.addPayrollLoansToExport?.(),
     'remove-employee-payroll-loans': (employeeId) => window.PayrollUI?.removeEmployeePayrollLoans?.(employeeId),
+    'clear-payroll-loans': () => window.PayrollUI?.clearPayrollLoans?.(),
+    'toggle-payroll-loan-employee': (employeeId, _target, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.PayrollUI?.toggleEmployeePayrollLoans?.(employeeId);
+    },
+    'toggle-payroll-loan': (employeeId, target, event) => {
+        event.stopPropagation();
+        window.PayrollUI?.togglePayrollLoanSelection?.(employeeId, target.dataset.loanId);
+    },
     'toggle-remember-adjustment': (index, target) => window.PayrollUI?.toggleRememberGlobalAdjustment?.(
         target.dataset.kind,
         parseInt(index, 10),
@@ -517,6 +531,14 @@ function PayrollGeneratorTab() {
                             <p>Esta selección es temporal y no registra abonos en las cuentas por cobrar.</p>
                         </div>
 
+                        ${renderPayrollLoansDesktop({
+                            employees: filteredPayrollEmployees,
+                            selection: state.exportConfig.payrollLoanSelection || [],
+                            payrollRows: exportData,
+                            expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || []
+                        })}
+
+            <div class="payroll-loans-legacy">
             <!-- Paso 2C: Préstamos -->
             <div id="export-loans-section" style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step2c') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
                 <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step2c')}" aria-controls="export-loans-content" data-payroll-action="toggle-step" data-value="step2c" style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
@@ -563,6 +585,7 @@ function PayrollGeneratorTab() {
                         `;
                     }).join('')}
                 </div>
+            </div>
             </div>
                     </section>
 
@@ -1546,6 +1569,61 @@ export function toggleStep(stepId) {
         state.exportConfig.collapsedSteps.push(stepId);
     }
     context.render();
+}
+
+function expandedPayrollLoanEmployeeIds() {
+    if (typeof document === 'undefined') return [];
+    return [...document.querySelectorAll('.payroll-loan-group[open]')]
+        .map(group => group.dataset.employeeId)
+        .filter(Boolean);
+}
+
+function updatePayrollLoanSelection(nextSelection) {
+    stateManager.batchSetState(() => {
+        const state = getState();
+        state.exportConfig.payrollLoanSelection = nextSelection;
+        state.exportConfig.payrollLoanExpandedEmployees = expandedPayrollLoanEmployeeIds();
+    });
+    context.render();
+}
+
+export function clearPayrollLoans() {
+    updatePayrollLoanSelection([]);
+}
+
+export function toggleEmployeePayrollLoans(employeeId) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    if (!employee) return;
+    const eligibleLoanIds = getEligiblePayrollLoans(employee).map(loan => loan.loanId);
+    const current = (state.exportConfig.payrollLoanSelection || [])
+        .find(item => String(item.employeeId) === String(employee.id));
+    const selectedIds = new Set((current?.loanIds || []).map(String));
+    const allSelected = eligibleLoanIds.length > 0 &&
+        eligibleLoanIds.every(loanId => selectedIds.has(String(loanId)));
+    updatePayrollLoanSelection(setEmployeePayrollLoans(
+        state.exportConfig.payrollLoanSelection || [],
+        employee.id,
+        allSelected ? [] : eligibleLoanIds
+    ));
+}
+
+export function togglePayrollLoanSelection(employeeId, loanId) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const loan = employee
+        ? getEligiblePayrollLoans(employee).find(item => String(item.loanId) === String(loanId))
+        : null;
+    if (!employee || !loan) return;
+    const current = (state.exportConfig.payrollLoanSelection || [])
+        .find(item => String(item.employeeId) === String(employee.id));
+    const selected = (current?.loanIds || []).some(id => String(id) === String(loan.loanId));
+    updatePayrollLoanSelection(togglePayrollLoan(
+        state.exportConfig.payrollLoanSelection || [],
+        employee.id,
+        loan.loanId,
+        !selected
+    ));
 }
 
 export function setPayrollGuideStep(stepId) {

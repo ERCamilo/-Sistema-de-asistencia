@@ -148,9 +148,45 @@ describe('Financial desktop layouts', () => {
 
         expect(state.exportConfig.payrollGuideStep).toBe('loans');
         expect(state.exportConfig.collapsedSteps).not.toContain('step2c');
-        expect(PayrollUI.PayrollTab()).toMatch(
+        const html = PayrollUI.PayrollTab();
+        expect(html).toMatch(
             /class="payroll-guide-step is-active [^"]*"[\s\S]{0,180}data-value="loans"/
         );
+        expect(html).toContain('class="payroll-loans-desktop"');
+        expect(html).toContain('class="payroll-loans-legacy"');
+    });
+
+    test('tri-state loan selection toggles all, partial, and none without changing loans', () => {
+        state.employees = [{
+            id: 'e1',
+            number: '001',
+            name: 'Juan Pérez',
+            active: true,
+            loans: [
+                {
+                    id: 'loan-1', principal: 100, interestRate: 0,
+                    interestIncluded: false, status: 'active', payments: [], refinancings: []
+                },
+                {
+                    id: 'loan-2', principal: 50, interestRate: 0,
+                    interestIncluded: false, status: 'active', payments: [], refinancings: []
+                }
+            ]
+        }];
+        const before = JSON.stringify(state.employees[0].loans);
+
+        PayrollUI.toggleEmployeePayrollLoans('e1');
+        expect(state.exportConfig.payrollLoanSelection[0].loanIds).toHaveLength(2);
+
+        PayrollUI.togglePayrollLoanSelection('e1', 'loan-2');
+        expect(state.exportConfig.payrollLoanSelection[0].loanIds).toEqual(['loan-1']);
+
+        PayrollUI.toggleEmployeePayrollLoans('e1');
+        expect(state.exportConfig.payrollLoanSelection[0].loanIds).toHaveLength(2);
+
+        PayrollUI.toggleEmployeePayrollLoans('e1');
+        expect(state.exportConfig.payrollLoanSelection).toEqual([]);
+        expect(JSON.stringify(state.employees[0].loans)).toBe(before);
     });
 
     test('desktop adjustments expose four scopes while retaining the legacy mobile panel', () => {
