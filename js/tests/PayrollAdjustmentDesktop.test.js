@@ -67,6 +67,11 @@ describe('PayrollAdjustmentDesktop', () => {
         const layoutChildren = [...host.querySelector('.payroll-adjustment-desktop__layout').children];
         expect(layoutChildren[0].classList).toContain('payroll-adjustment-composer');
         expect(layoutChildren[1].classList).toContain('payroll-adjustment-summary');
+        const editableRule = host.querySelector('.payroll-adjustment-rule');
+        expect(editableRule.querySelector('.payroll-adjustment-rule__edit-idle').textContent)
+            .toBe('Editar');
+        expect(editableRule.querySelector('.payroll-adjustment-rule__edit-active').textContent)
+            .toBe('Editando');
         expect(host.textContent).toContain('Agregar deducción');
         expect(host.textContent).toContain('Por líder / equipo');
         expect(host.textContent).toContain('$195.00');

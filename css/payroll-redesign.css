@@ -1189,6 +1189,7 @@
     --adjustment-accent: #ef4444;
     --adjustment-accent-strong: #dc2626;
     --adjustment-accent-soft: #f87171;
+    --adjustment-accent-glow: rgba(239, 68, 68, 0.2);
     margin-bottom: 20px;
     overflow: hidden;
     border: 1px solid #303b46;
@@ -1200,6 +1201,7 @@
     --adjustment-accent: rgb(16, 185, 115);
     --adjustment-accent-strong: #0f9d64;
     --adjustment-accent-soft: #6ee7b7;
+    --adjustment-accent-glow: rgba(16, 185, 115, 0.2);
 }
 
 .payroll-adjustment-legacy {
@@ -1689,11 +1691,28 @@
 }
 
 .payroll-adjustment-rule {
-    border-bottom: 1px solid #29333c;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-bottom-color: #29333c;
+    border-radius: 0;
+    transition:
+        border-color 160ms ease,
+        box-shadow 160ms ease,
+        margin 160ms ease;
 }
 
 .payroll-adjustment-rule:last-child {
     border-bottom: 0;
+}
+
+.payroll-adjustment-rule[open] {
+    margin: 7px 0;
+    border: 2px solid var(--adjustment-accent);
+    border-radius: 8px;
+    box-shadow:
+        0 0 0 1px var(--adjustment-accent-glow),
+        0 0 18px var(--adjustment-accent-glow);
 }
 
 .payroll-adjustment-rule > summary {
@@ -1701,6 +1720,10 @@
     padding: 8px 4px;
     color: #c4cdd5;
     font-size: 0.7rem;
+}
+
+.payroll-adjustment-rule[open] > summary {
+    background: #202a33;
 }
 
 .payroll-adjustment-rule > summary > span:not(:first-child),
@@ -1747,9 +1770,26 @@
     font-weight: 760;
 }
 
+.payroll-adjustment-rule__edit-active {
+    display: none;
+}
+
+.payroll-adjustment-rule[open] .payroll-adjustment-rule__edit {
+    background: var(--adjustment-accent);
+    color: #fff;
+}
+
+.payroll-adjustment-rule[open] .payroll-adjustment-rule__edit-idle {
+    display: none;
+}
+
+.payroll-adjustment-rule[open] .payroll-adjustment-rule__edit-active {
+    display: inline;
+}
+
 .payroll-adjustment-rule__editor {
     padding: 12px;
-    border-top: 1px solid #303b46;
+    border-top: 1px solid var(--adjustment-accent);
     background: #182028;
 }
 

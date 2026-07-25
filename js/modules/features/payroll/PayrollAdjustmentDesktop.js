@@ -295,7 +295,10 @@ function renderRule(kind, rule, state, rows) {
                 <span>${rule.employeeCount}</span>
                 <span>${formatCurrency(rule.appliedTo)}</span>
                 <strong>${formatCurrency(rule.amount)}</strong>
-                <span class="payroll-adjustment-rule__edit" aria-label="Editar">Editar</span>
+                <span class="payroll-adjustment-rule__edit" aria-label="Editar">
+                    <span class="payroll-adjustment-rule__edit-idle">Editar</span>
+                    <span class="payroll-adjustment-rule__edit-active">Editando</span>
+                </span>
             </summary>
             <div class="payroll-adjustment-rule__editor">
                 ${renderAdjustmentForm(kind, state, rows, adjustment, rule.index)}
