@@ -134,7 +134,13 @@ describe('PayrollLoansDesktop', () => {
             [...group.querySelectorAll('.payroll-loan-child .payroll-loan-selection')]
                 .map(control => control.getAttribute('aria-checked'))
         ).toEqual(['true', 'false']);
-        expect(host.textContent).toContain('Excluir de esta nómina no elimina el préstamo');
+        expect(host.textContent).not.toContain('Incluido en esta nómina');
+        expect(host.textContent).not.toContain('Excluido de esta nómina');
+        expect(host.textContent).not.toContain(
+            'Excluir de esta nómina no elimina el préstamo de cuentas por cobrar'
+        );
+        expect(group.querySelector('.payroll-loan-group__discount small').textContent)
+            .not.toContain('total');
         expect(host.querySelector('[data-payroll-action="clear-payroll-loans"]')).not.toBeNull();
     });
 });

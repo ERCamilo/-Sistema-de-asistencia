@@ -110,7 +110,6 @@ function renderLoanRow(group, loan) {
         <div class="payroll-loan-child" role="row">
             <span class="payroll-loan-child__concept">
                 <strong>${safe(loan.concept)}</strong>
-                <small>${loan.selected ? 'Incluido en esta nómina' : 'Excluido de esta nómina'}</small>
             </span>
             <span class="payroll-loan-child__interest">${formatCurrency(loan.interest)}</span>
             <strong class="payroll-loan-child__balance">${formatCurrency(loan.balance)}</strong>
@@ -156,7 +155,7 @@ function renderEmployeeGroup(group, expandedIds) {
                     <span class="payroll-loan-group__interest" data-label="Interés">${formatCurrency(group.selectedInterest)}</span>
                     <span class="payroll-loan-group__discount" data-label="A descontar">
                         <strong>${formatCurrency(group.selectedBalance)}</strong>
-                        <small>de ${formatCurrency(group.eligibleBalance)} total</small>
+                        <small>de ${formatCurrency(group.eligibleBalance)}</small>
                     </span>
                     <strong class="payroll-loan-group__net ${warningClass}" data-label="Neto a pagar">${formatCurrency(group.netRemaining)}</strong>
                 </span>
@@ -182,7 +181,6 @@ function renderEmployeeGroup(group, expandedIds) {
                     <span></span><span></span>
                 </div>
                 ${group.loans.map(loan => renderLoanRow(group, loan)).join('')}
-                <p>Excluir de esta nómina no elimina el préstamo de cuentas por cobrar.</p>
             </div>
         </details>
     `;

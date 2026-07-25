@@ -267,7 +267,7 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
         );
         testRunner.assert(
             PAYROLL_LOANS_RESPONSIVE_SRC.includes(
-                'de ${formatCurrency(group.eligibleBalance)} total'
+                'de ${formatCurrency(group.eligibleBalance)}'
             ),
             'el descuento debe mostrar debajo el total de préstamos elegibles'
         );
