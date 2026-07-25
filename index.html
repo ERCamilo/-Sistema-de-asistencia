@@ -157,14 +157,14 @@
                                             message: 'Nueva versión disponible.',
                                             type: 'info',
                                             variant: 'update',
-                                            position: 'top-right',
+                                            position: 'top-center',
                                             duration: 0,
                                             updateInfo: {
                                                 appVersion: APP_CONFIG.VERSION,
-                                                currentBuild: formatBuild(BUILD).display,
-                                                availableBuild: formatBuild(availableBuild).display
+                                                currentBuild: formatBuild(BUILD).displayLocal,
+                                                availableBuild: formatBuild(availableBuild).displayLocal
                                             },
-                                            actions: [{ label: 'Actualizar', icon: 'sync', onClick: () => window.location.reload() }]
+                                            actions: [{ label: 'Actualizar', onClick: () => window.location.reload() }]
                                         }).show();
                                     }
                                 }

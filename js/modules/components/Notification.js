@@ -140,8 +140,8 @@ export class Notification {
                     </span>
                     <span class="notification-update__expand-icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24">
-                            <path d="M12 19V5"></path>
-                            <path d="m5 12 7-7 7 7"></path>
+                            <path d="M12 5v14"></path>
+                            <path d="m19 12-7 7-7-7"></path>
                         </svg>
                     </span>
                 </summary>
@@ -159,7 +159,19 @@ export class Notification {
                         </dl>
                     </details>
                     <div class="notification-actions">
-                        ${this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${icons.get(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('')}
+                        ${this.actions.map((a, i) => `
+                            <button class="notification-action" data-action-index="${i}">
+                                <span class="notification-action-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M20 11a8 8 0 0 0-14.9-4"></path>
+                                        <path d="M5 3v4h4"></path>
+                                        <path d="M4 13a8 8 0 0 0 14.9 4"></path>
+                                        <path d="M19 21v-4h-4"></path>
+                                    </svg>
+                                </span>
+                                <span class="notification-action-label"></span>
+                            </button>
+                        `).join('')}
                     </div>
                 </div>
             </details>

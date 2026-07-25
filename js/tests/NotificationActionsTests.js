@@ -45,10 +45,10 @@ testRunner.addSuite("Notification — botones de acción", {
             duration: 0,
             updateInfo: {
                 appVersion: '1.7.0',
-                currentBuild: '2026.07.24 18:00:00',
-                availableBuild: '2026.07.24 19:00:00'
+                currentBuild: '24/07/2026 · 6:00 PM',
+                availableBuild: '24/07/2026 · 7:00 PM'
             },
-            actions: [{ label: 'Actualizar', icon: 'sync', onClick: () => {} }]
+            actions: [{ label: 'Actualizar', onClick: () => {} }]
         }).show();
         testRunner.assert(n.element.classList.contains('notification-update'),
             'la notificación de versión recibe su variante visual aislada');
@@ -60,9 +60,11 @@ testRunner.addSuite("Notification — botones de acción", {
             'la cápsula compacta puede expandirse sin abrir otro modal');
         testRunner.assertEquals(
             n.element.querySelector('[data-update-info=\"available-build\"]').textContent,
-            '2026.07.24 19:00:00',
+            '24/07/2026 · 7:00 PM',
             'muestra la compilación disponible real'
         );
+        testRunner.assert(!!n.element.querySelector('.notification-action-icon svg'),
+            'Actualizar usa un SVG determinista, no un emoji');
         cleanup();
     },
 
@@ -234,10 +236,14 @@ testRunner.addSuite("Notification — actualización del Service Worker", {
             'el Service Worker debe usar la variante compacta');
         testRunner.assert(INDEX_SRC.includes('queryWorkerVersion(newWorker)'),
             'consulta la compilación disponible al worker nuevo');
-        testRunner.assert(INDEX_SRC.includes('currentBuild: formatBuild(BUILD).display'),
-            'muestra la compilación instalada desde la fuente de verdad');
+        testRunner.assert(INDEX_SRC.includes('currentBuild: formatBuild(BUILD).displayLocal'),
+            'muestra la compilación instalada con fecha local desde la fuente de verdad');
+        testRunner.assert(INDEX_SRC.includes("position: 'top-center'"),
+            'centra el aviso para que no compita con los controles laterales');
         testRunner.assert(INDEX_SRC.includes("label: 'Actualizar'"),
             'la acción principal usa el lenguaje acordado');
+        testRunner.assert(!INDEX_SRC.includes("label: 'Actualizar', icon:"),
+            'la acción no depende de un icono Unicode del registro global');
     }
 
 });

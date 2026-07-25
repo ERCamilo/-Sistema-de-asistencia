@@ -38,6 +38,16 @@ testRunner.addSuite('BuildVersion — formatBuild', {
         testRunner.assertEquals(out.date, '2026.12.31');
     },
 
+    'ofrece fecha DD/MM/AAAA y hora AM/PM para superficies humanas'() {
+        const evening = formatBuild('2026.0724.180000');
+        testRunner.assertEquals(evening.localDate, '24/07/2026');
+        testRunner.assertEquals(evening.time12h, '6:00 PM');
+        testRunner.assertEquals(evening.displayLocal, '24/07/2026 · 6:00 PM');
+
+        const midnight = formatBuild('2026.0724.000000');
+        testRunner.assertEquals(midnight.time12h, '12:00 AM', 'medianoche debe ser 12 AM');
+    },
+
     'input malformado → devuelve el crudo tal cual, valid:false (nunca NaN)'() {
         const out = formatBuild('cualquier-cosa');
         testRunner.assertEquals(out.valid, false, 'no debe fingir que entendió');

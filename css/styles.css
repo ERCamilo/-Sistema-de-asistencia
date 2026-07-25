@@ -2750,6 +2750,29 @@
                 opacity 220ms ease;
         }
 
+        /* El mismo efecto de "líquido en el tubo" que confirma la
+           sincronización de asistencia, aplicado al aviso de actualización. */
+        .notification-update::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: inherit;
+            padding: 2px;
+            background:
+                conic-gradient(from var(--cloud-angle),
+                    transparent 0deg 235deg,
+                    rgba(34, 211, 238, 0.48) 280deg,
+                    #67e8f9 325deg,
+                    #06b6d4 360deg),
+                rgba(6, 182, 212, 0.2);
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+                    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+                    mask-composite: exclude;
+            animation: cloud-ring-spin 1.1s linear infinite;
+            pointer-events: none;
+        }
+
         .notification-update.is-expanded {
             width: min(340px, calc(100vw - 40px));
             border-radius: 18px;
@@ -2769,7 +2792,7 @@
             grid-template-columns: 32px minmax(0, 1fr) 28px;
             gap: 8px;
             align-items: center;
-            padding: 7px 10px;
+            padding: 7px 46px 7px 10px;
             list-style: none;
             cursor: pointer;
             user-select: none;
@@ -2952,31 +2975,42 @@
         .notification-update .notification-action {
             width: 100%;
             min-height: 34px;
+            justify-content: center;
             padding: 7px 11px;
-            border-color: rgba(34, 211, 238, 0.32);
+            border-color: #06b6d4;
             border-radius: 9px;
-            background: #075e78;
-            color: #e6fbff;
+            background: #06b6d4;
+            color: #06131a;
             font-size: 0.72rem;
-            box-shadow: 0 6px 14px rgba(6, 182, 212, 0.14);
+            box-shadow: 0 6px 16px rgba(6, 182, 212, 0.24);
         }
 
         .notification-update .notification-action:hover {
-            background: #087694;
-            color: #ffffff;
+            border-color: #22d3ee;
+            background: #22d3ee;
+            color: #06131a;
             transform: translateY(-1px);
+        }
+
+        .notification-update .notification-action-icon svg {
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         .notification-update .notification-close {
             position: absolute;
-            right: -8px;
-            bottom: -8px;
-            width: 27px;
-            height: 27px;
+            top: 10px;
+            right: 10px;
+            bottom: auto;
+            width: 28px;
+            height: 28px;
             border: 1px solid rgba(148, 163, 184, 0.08);
-            background: #243149;
+            background: rgba(36, 49, 73, 0.88);
             color: #8491a3;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.24);
+            box-shadow: none;
         }
 
         .notification-update .notification-close:hover {
@@ -3072,6 +3106,10 @@
             }
 
             .notification-update__panel {
+                animation: none;
+            }
+
+            .notification-update::before {
                 animation: none;
             }
         }
