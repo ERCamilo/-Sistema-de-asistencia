@@ -1,10 +1,10 @@
 import icons from './IconSystem.js';
+import { escapeHTML, escapeAttr } from '../utils/Sanitize.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-header-action)
 // ============================================
 const _HEADER_ACTION_MAP = {
-    'open-notes-center': () => window.openNotesCenter?.(),
     'export-data': () => window.exportData?.(),
     'change-tab': (tab) => window.changeTab?.(tab)
 };
@@ -64,14 +64,23 @@ function _renderUserPill() {
         ? `${parts[0]} ${parts[1][0]}.`
         : parts[0] || 'Usuario';
     const initials = (parts[0]?.[0] || 'U').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
-    const avatar = u.photoURL
-        ? `<img src="${u.photoURL}" alt="" class="header-user-avatar-img" onerror="this.style.display='none'">`
-        : `<span class="header-user-avatar">${initials}</span>`;
+    const photoURL = u.photoURL
+        || u.providerData?.find((provider) => provider?.photoURL)?.photoURL
+        || '';
+    const avatar = `
+        <span class="header-user-avatar" aria-hidden="true">
+            <span class="header-user-initials">${escapeHTML(initials)}</span>
+            ${photoURL
+                ? `<img src="${escapeAttr(photoURL)}" alt="" class="header-user-avatar-img"
+                        referrerpolicy="no-referrer" decoding="async" onerror="this.remove()">`
+                : ''}
+        </span>
+    `;
     return `<button type="button" class="header-user-pill" data-app-fn="openSyncCenterModal"
-                title="${displayName} — abrir Centro de Sincronización"
+                title="${escapeAttr(displayName)} — abrir Centro de Sincronización"
                 aria-label="Cuenta y sincronización">
                 ${avatar}
-                <span class="header-user-name">${compact}</span>
+                <span class="header-user-name">${escapeHTML(compact)}</span>
             </button>`;
 }
 
@@ -103,12 +112,12 @@ export const Header = ({
 
                         ${window._systemAlerts ? window._systemAlerts.renderAlertButton() : ''}
 
-                        <button class="header-icon-btn" type="button" data-header-action="open-notes-center" aria-label="Notas" title="Notas">
-                            <span class="header-icon-emoji">📝</span>
-                        </button>
-
                         <button class="header-icon-btn primary" type="button" data-header-action="export-data" aria-label="Exportar Backup" title="Exportar Backup">
-                            ${icons.get('download', { size: 20 })}
+                            <svg class="header-export-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M12 3v12"></path>
+                                <path d="m7 8 5-5 5 5"></path>
+                                <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path>
+                            </svg>
                         </button>
 
                         ${_renderUserPill()}

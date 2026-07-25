@@ -1198,7 +1198,9 @@ body.has-sidebar {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px 4px 4px;
+    min-height: 44px;
+    padding: 3px 12px 3px 3px;
+    box-sizing: border-box;
     border-radius: 999px;
     background: #1e293b;
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1295,9 +1297,10 @@ body.has-sidebar {
     font-size: 0.76rem;
     text-align: center;
 }
-.header-user-pill .header-user-avatar,
-.header-user-pill .header-user-avatar-img {
-    width: 28px; height: 28px;
+.header-user-pill .header-user-avatar {
+    position: relative;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     background: #475569;
     color: #fff;
@@ -1305,11 +1308,25 @@ body.has-sidebar {
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 11px;
+    font-size: 12px;
     flex: none;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.2);
 }
+
+.header-user-initials {
+    line-height: 1;
+}
+
 .header-user-pill .header-user-avatar-img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
     object-fit: cover;
+    object-position: center;
+    border-radius: inherit;
     background: #475569;
 }
 .header-user-name {
@@ -1322,7 +1339,17 @@ body.has-sidebar {
 /* Hide the user pill on small screens to save header room */
 @media (max-width: 640px) {
     .header-user-pill .header-user-name { display: none; }
-    .header-user-pill { padding: 2px; }
+    .header-user-pill {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        padding: 0;
+        justify-content: center;
+    }
+    .header-user-pill .header-user-avatar {
+        width: 42px;
+        height: 42px;
+    }
     .header-context-sub { display: none; }
 }
 
