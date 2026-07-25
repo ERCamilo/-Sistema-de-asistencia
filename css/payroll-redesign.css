@@ -32,6 +32,15 @@
     align-items: start;
 }
 
+@media (min-width: 901px) {
+    .payroll-view-switcher {
+        position: sticky;
+        z-index: 90;
+        top: 60px;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+    }
+}
+
 .payroll-guide-steps {
     grid-area: steps;
     display: grid;
@@ -873,6 +882,9 @@
 }
 
 .payroll-guide-summary {
+    --payroll-summary-positive: rgb(16, 185, 115);
+    --payroll-summary-negative: #ef4444;
+    --payroll-summary-loan: #f59e0b;
     grid-area: summary;
     position: sticky;
     top: 16px;
@@ -941,11 +953,19 @@
 }
 
 .payroll-guide-summary__values dd.is-positive {
-    color: #68d5ae;
+    color: var(--payroll-summary-positive);
 }
 
 .payroll-guide-summary__values dd.is-negative {
-    color: #ef7d89;
+    color: var(--payroll-summary-negative);
+}
+
+.payroll-guide-summary__values .is-loan {
+    color: var(--payroll-summary-loan);
+}
+
+.payroll-guide-summary .is-zero {
+    color: #fff !important;
 }
 
 .payroll-guide-summary__toggle {
@@ -972,7 +992,6 @@
 }
 
 .payroll-guide-summary__loan-row > span {
-    color: #e2b86e;
     font-size: 0.6rem;
     font-weight: 750;
     white-space: nowrap;
@@ -1030,11 +1049,11 @@
 }
 
 .payroll-summary-detail--bonuses .payroll-summary-detail__row b {
-    color: #68d5ae;
+    color: var(--payroll-summary-positive);
 }
 
 .payroll-summary-detail--deductions .payroll-summary-detail__row b {
-    color: #ef8e98;
+    color: var(--payroll-summary-negative);
 }
 
 .payroll-summary-detail__total {
@@ -1051,6 +1070,14 @@
     color: #eef2f5;
 }
 
+.payroll-summary-detail__total strong.is-positive {
+    color: var(--payroll-summary-positive);
+}
+
+.payroll-summary-detail__total strong.is-negative {
+    color: var(--payroll-summary-negative);
+}
+
 .payroll-guide-summary__values > div.is-total {
     margin-top: 5px;
     padding: 13px 0;
@@ -1063,7 +1090,7 @@
 }
 
 .payroll-guide-summary__values .is-total dd {
-    color: #4bc5d5;
+    color: #fff;
     font-size: 1.08rem;
 }
 
@@ -2809,7 +2836,7 @@
 
     .payroll-guide-summary__mobile-total strong {
         overflow: hidden;
-        color: #4bc5d5;
+        color: #fff;
         font-size: 1.25rem;
         font-variant-numeric: tabular-nums;
         text-overflow: ellipsis;

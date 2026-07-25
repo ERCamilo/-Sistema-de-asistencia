@@ -137,6 +137,10 @@ function getState() {
     return context.state;
 }
 
+function getSummaryAmountClass(amount, nonZeroClass) {
+    return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
+}
+
 function getEmployeesWithDeductions() {
     const state = getState();
     return state.employees.filter(e => Array.isArray(e.deductions) && e.deductions.length > 0);
@@ -166,7 +170,7 @@ export function PayrollTab() {
 
     return `
         <div>
-            <div class="date-controls">
+            <div class="date-controls payroll-view-switcher">
                 <div class="view-controls">
                     <button type="button"
                             class="view-btn ${mode === 'generator' ? 'active' : ''}"
@@ -688,7 +692,7 @@ function PayrollGeneratorTab() {
                                     ${icons.get(expandedSummary.bonuses ? 'chevron-up' : 'chevron-down', { size: 13 })}
                                 </button>
                             </dt>
-                            <dd class="is-positive">+${formatCurrency(bonusAmount)}</dd>
+                            <dd class="${getSummaryAmountClass(bonusAmount, 'is-positive')}">+${formatCurrency(bonusAmount)}</dd>
                         </div>
                         ${expandedSummary.bonuses ? renderAdjustmentSummaryDetails(bonusDetails, 'bonuses') : ''}
                         <div class="payroll-guide-summary__expandable">
@@ -703,13 +707,13 @@ function PayrollGeneratorTab() {
                                     ${icons.get(expandedSummary.deductions ? 'chevron-up' : 'chevron-down', { size: 13 })}
                                 </button>
                             </dt>
-                            <dd class="is-negative">−${formatCurrency(deductionAmount)}</dd>
+                            <dd class="${getSummaryAmountClass(deductionAmount, 'is-negative')}">−${formatCurrency(deductionAmount)}</dd>
                         </div>
                         ${expandedSummary.deductions ? renderAdjustmentSummaryDetails(deductionDetails, 'deductions') : ''}
                         <div class="payroll-guide-summary__loan-row">
                             <dt>Préstamos</dt>
-                            <span>Interés ${formatCurrency(loanSummary.selectedInterest)}</span>
-                            <dd class="is-negative">−${formatCurrency(loanAmount)}</dd>
+                            <span class="${getSummaryAmountClass(loanSummary.selectedInterest, 'is-loan')}">Interés ${formatCurrency(loanSummary.selectedInterest)}</span>
+                            <dd class="${getSummaryAmountClass(loanAmount, 'is-loan')}">−${formatCurrency(loanAmount)}</dd>
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
@@ -739,6 +743,7 @@ function PayrollGeneratorTab() {
 
 function renderAdjustmentSummaryDetails(summary, kind) {
     const isBonus = kind === 'bonuses';
+    const amountClass = isBonus ? 'is-positive' : 'is-negative';
     const individualLabel = isBonus ? 'Bonificaciones individuales' : 'Deducciones individuales';
     const totalLabel = isBonus ? 'Total bonificaciones' : 'Total deducciones';
     const globalRows = summary.globals.map(item => {
@@ -751,7 +756,7 @@ function renderAdjustmentSummaryDetails(summary, kind) {
                     <strong>${escapeHTML(item.label)}</strong>
                     <small>${basis}</small>
                 </span>
-                <b>${formatCurrency(item.amount)}</b>
+                <b class="${getSummaryAmountClass(item.amount, amountClass)}">${formatCurrency(item.amount)}</b>
             </div>
         `;
     }).join('');
@@ -762,7 +767,7 @@ function renderAdjustmentSummaryDetails(summary, kind) {
                     <strong>${individualLabel}</strong>
                     <small>${summary.individualCount} ajuste(s) agrupado(s)</small>
                 </span>
-                <b>${formatCurrency(summary.individualAmount)}</b>
+                <b class="${getSummaryAmountClass(summary.individualAmount, amountClass)}">${formatCurrency(summary.individualAmount)}</b>
             </div>
         `
         : '';
@@ -772,7 +777,7 @@ function renderAdjustmentSummaryDetails(summary, kind) {
             ${globalRows || individualRow ? `${globalRows}${individualRow}` : '<p>No hay ajustes incluidos.</p>'}
             <div class="payroll-summary-detail__total">
                 <span>${totalLabel}</span>
-                <strong>${formatCurrency(summary.totalAmount)}</strong>
+                <strong class="${getSummaryAmountClass(summary.totalAmount, amountClass)}">${formatCurrency(summary.totalAmount)}</strong>
             </div>
         </div>
     `;

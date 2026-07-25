@@ -1,6 +1,13 @@
 import { state } from '../modules/core/AppState.js';
 import * as PayrollUI from '../modules/features/payroll/PayrollUI.js';
 import { LoansLedger } from '../modules/features/loans/LoansLedger.js';
+import fs from 'fs';
+import path from 'path';
+
+const PAYROLL_REDESIGN_CSS = fs.readFileSync(
+    path.resolve(__dirname, '../../css/payroll-redesign.css'),
+    'utf8'
+);
 
 function resetFinancialState() {
     state.employees = [];
@@ -61,6 +68,10 @@ describe('Financial desktop layouts', () => {
     test('payroll renders the horizontal five-step guide and export summary', () => {
         const html = PayrollUI.PayrollTab();
 
+        expect(html).toContain('class="date-controls payroll-view-switcher"');
+        expect(PAYROLL_REDESIGN_CSS).toMatch(
+            /\.payroll-view-switcher\s*\{[^}]*position:\s*sticky;[^}]*top:\s*60px;/
+        );
         expect(html).toContain('class="payroll-guided-layout"');
         expect(html).toContain('aria-label="Pasos de nómina"');
         expect(html).toContain('data-value="period"');
@@ -72,6 +83,35 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('Total neto');
         expect(html).toContain('data-payroll-action="copy-export-json"');
         expect(html).toContain('data-payroll-action="download-export-json"');
+    });
+
+    test('summary renders zero amounts and net total in white', () => {
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const summary = host.querySelector('.payroll-guide-summary');
+        const bonus = summary.querySelector('[data-value="bonuses"]')
+            .closest('.payroll-guide-summary__expandable')
+            .querySelector('dd');
+        const deduction = summary.querySelector('[data-value="deductions"]')
+            .closest('.payroll-guide-summary__expandable')
+            .querySelector('dd');
+        const loans = summary.querySelector('.payroll-guide-summary__loan-row');
+
+        expect(bonus.classList).toContain('is-zero');
+        expect(deduction.classList).toContain('is-zero');
+        expect(loans.querySelector('span').classList).toContain('is-zero');
+        expect(loans.querySelector('dd').classList).toContain('is-zero');
+        expect(PAYROLL_REDESIGN_CSS).toMatch(
+            /\.payroll-guide-summary\s+\.is-zero\s*\{[^}]*color:\s*#fff\s*!important;/
+        );
+        expect(PAYROLL_REDESIGN_CSS).toMatch(
+            /\.payroll-guide-summary__values\s+\.is-total dd\s*\{[^}]*color:\s*#fff;/
+        );
+        expect(PAYROLL_REDESIGN_CSS).toContain(
+            '--payroll-summary-positive: rgb(16, 185, 115);'
+        );
+        expect(PAYROLL_REDESIGN_CSS).toContain('--payroll-summary-negative: #ef4444;');
+        expect(PAYROLL_REDESIGN_CSS).toContain('--payroll-summary-loan: #f59e0b;');
     });
 
     test('period presets share one responsive alignment row', () => {
