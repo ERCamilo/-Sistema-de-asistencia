@@ -8,7 +8,9 @@ import {
     getEligiblePayrollLoans,
     removeEmployeePayrollLoans,
     resolvePayrollLoanSelection,
+    setEmployeePayrollLoans,
     summarizePayrollLoans,
+    togglePayrollLoan,
     toSplitXRows
 } from '../modules/features/payroll/PayrollLoans.js';
 
@@ -138,6 +140,25 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
         const selection = [{ employeeId: 42, loanIds: ['loan-1'] }];
         const cleaned = removeEmployeePayrollLoans(selection, '42');
         testRunner.assertEquals(cleaned.length, 0, 'La frontera DOM string debe coincidir con el id numérico');
+    },
+
+    'actualiza una selección parcial por préstamo sin mutar la original'() {
+        const selection = [{ employeeId: 'e1', loanIds: ['loan-1', 'loan-2'] }];
+        const partial = togglePayrollLoan(selection, 'e1', 'loan-2', false);
+        const restored = togglePayrollLoan(partial, 'e1', 'loan-2', true);
+
+        testRunner.assertEquals(selection[0].loanIds.length, 2, 'La selección original no se muta');
+        testRunner.assertEquals(partial[0].loanIds.length, 1, 'Permite excluir un préstamo individual');
+        testRunner.assertEquals(restored[0].loanIds.length, 2, 'Permite volver a incluirlo');
+    },
+
+    'el estado vacío elimina al empleado y el estado total conserva IDs únicos'() {
+        const selection = [{ employeeId: 'e1', loanIds: ['loan-1'] }];
+        const empty = setEmployeePayrollLoans(selection, 'e1', []);
+        const all = setEmployeePayrollLoans(empty, 'e1', ['loan-1', 'loan-1', 'loan-2']);
+
+        testRunner.assertEquals(empty.length, 0, 'Sin préstamos no deja una selección vacía');
+        testRunner.assertEquals(all[0].loanIds.length, 2, 'La selección total deduplica préstamos');
     },
 
     'calcular, resolver y exportar no muta préstamos ni pagos persistidos'() {
