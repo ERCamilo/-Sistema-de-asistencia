@@ -2366,8 +2366,12 @@
     }
 
     .payroll-loans-table {
+        display: grid;
+        gap: 8px;
         margin: 0 9px 9px;
+        padding: 6px;
         overflow-x: visible;
+        background: #080d12;
     }
 
     .payroll-loans-table__columns {
@@ -2376,6 +2380,9 @@
 
     .payroll-loan-group {
         min-width: 0;
+        border: 1px solid #303b46;
+        border-radius: 6px;
+        background: #1b242c;
     }
 
     .payroll-loan-group > summary {
@@ -2384,9 +2391,9 @@
             "count interest net disclosure";
         grid-template-columns: 64px minmax(80px, 1fr) minmax(92px, 1fr) 44px;
         grid-template-rows: auto auto;
-        gap: 10px 8px;
+        gap: 12px 8px;
         min-width: 0;
-        padding: 10px 8px;
+        padding: 9px 6px 10px;
         overflow: hidden;
     }
 
@@ -2400,10 +2407,16 @@
 
     .payroll-loan-group__number {
         grid-area: number;
+        font-size: 0.76rem;
+        font-weight: 900;
     }
 
     .payroll-loan-group__employee {
         grid-area: employee;
+    }
+
+    .payroll-loan-group__employee-copy strong {
+        font-size: 0.76rem;
     }
 
     .payroll-loan-group__metrics {
@@ -2438,10 +2451,19 @@
 
     .payroll-loan-group__count {
         grid-area: count;
+        overflow: visible !important;
+        padding-left: 8px;
+        text-align: center !important;
+    }
+
+    .payroll-loan-group__count::before {
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
 
     .payroll-loan-group__interest {
         grid-area: interest;
+        padding-left: 8px;
     }
 
     .payroll-loan-group__discount {
@@ -2451,7 +2473,7 @@
     }
 
     .payroll-loan-group__discount > strong {
-        font-size: 0.78rem;
+        font-size: 0.84rem;
         text-align: left;
     }
 
@@ -2467,6 +2489,7 @@
 
     .payroll-loan-group__net {
         grid-area: net;
+        padding-left: 8px;
     }
 
     .payroll-loan-disclosure {

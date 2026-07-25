@@ -277,6 +277,18 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
             ),
             'el workspace nuevo debe permanecer visible bajo 900 px'
         );
+        testRunner.assert(
+            /\.payroll-loan-group__count\s*\{[^}]*padding-left:\s*8px;[^}]*text-align:\s*center\s*!important;/.test(
+                PAYROLL_REDESIGN_CSS
+            ),
+            'el contador de préstamos móvil debe quedar centrado y separado del borde'
+        );
+        testRunner.assert(
+            /\.payroll-loans-table\s*\{[^}]*display:\s*grid;[^}]*gap:\s*8px;[^}]*background:\s*#080d12;/.test(
+                PAYROLL_REDESIGN_CSS
+            ),
+            'las tarjetas móviles deben quedar separadas por un canal oscuro'
+        );
     }
 
 });
