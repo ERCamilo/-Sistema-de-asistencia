@@ -7,7 +7,6 @@
 import icons from '../../ui/IconSystem.js';
 import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { state, stateManager } from '../../core/AppState.js';
-import { payrollService as payroll } from '../../services/index.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, enqueueEmployeeTombstone, ensureAllAttendanceHistory } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
@@ -17,90 +16,125 @@ import { canDeleteEmployee } from '../../services/EmployeeDeletionGuard.js';
 import { deleteEmployeePermanently } from '../../services/EmployeeDeletion.js';
 import { countLiveAttendance } from '../../services/AttendanceCleanup.js';
 import { purgeEmployeeAttendanceHistory } from '../../services/AttendanceCleanupRunner.js';
+import {
+    renderPositionIconSvg,
+    renderPositionUiSvg,
+    resolvePositionIcon,
+    safePositionColor
+} from './PositionVisuals.js';
+import { hourlyToDaily } from '../payroll/SalaryConversion.js';
+import { resolvePositionBaseHourlyRate } from './EmployeePositionMetrics.js';
 
-export function EmployeeCard(emp) {
+const WEEKS_PER_MONTH = 52 / 12;
 
-    const leaders = (emp.positions || []).map(posId => {
-        const pos = state.positions.find(p => p.id === posId);
-        if (!pos || !pos.leaderId) return null;
-        const ldr = state.leaders.find(l => l.id === pos.leaderId);
-        return ldr ? ldr.number : null;
-    }).filter(Boolean);
-
-    const salaryConfig = payroll.getSalaryConfig(emp);
-    const salaryDisplay = payroll.formatSalaryDisplay(salaryConfig);
-
-    // ⚡ Detect "custom" salary in both legacy and new systems
-    const hasPositionSalaries = emp.positionSalaries && Object.keys(emp.positionSalaries).length > 0;
-    const isCustom = emp.salaryConfig?.type === 'custom' || emp.customSalary || hasPositionSalaries;
-    const isMonthly = salaryConfig.period === 'month';
-    const salaryType = isCustom ? 'Personalizado' : 'Estándar';
-    const salaryLabel = isMonthly ? `Aprox. ${salaryType}` : salaryType;
-
-    const createdDate = emp.createdDate
-        ? new Date(emp.createdDate).toLocaleDateString('es-DO', { year: 'numeric', month: 'short', day: 'numeric' })
-        : 'N/A';
-    const lastChange = emp.lastStatusChange
-        ? new Date(emp.lastStatusChange).toLocaleDateString('es-DO', { year: 'numeric', month: 'short', day: 'numeric' })
-        : null;
-
-    const statusBadge = emp.active
-        ? '<span style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);"><span style="width: 6px; height: 6px; background: #fff; border-radius: 50%; animation: pulse 2s infinite;"></span>ACTIVO</span>'
-        : '<span style="background: #475569; color: #cbd5e1; padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;"><span style="width: 6px; height: 6px; background: #64748b; border-radius: 50%;"></span>INACTIVO</span>';
-
-    return `
-        <div class="employee-row" style="${!emp.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
-            <div class="employee-info" style="flex: 1;">
-                <div class="employee-header">
-                    <div class="employee-name" role="button" tabindex="0" data-action="open-employee-floating" data-id="${emp.key || emp.id}" title="${escapeAttr(emp.name)}">${escapeHTML(emp.name)}</div>
-                    <div class="employee-number">${emp.number}</div>
-                    ${statusBadge}
-                </div>
-                <div class="position-toggles">
-                    ${(emp.positions || []).map(posId => {
-        const pos = state.positions.find(p => p.id === posId);
-        if (!pos) return `<span class="position-toggle" style="opacity:0.4;cursor:default;border-color:#475569;"><span class="pos-dot" style="background:#475569;"></span>⚠️ Eliminada</span>`;
-        return `<span class="position-toggle" style="opacity:0.8;cursor:default;border-color:${pos.color};"><span class="pos-dot" style="background:${pos.color};"></span>${escapeHTML(pos.name)}</span>`;
-    }).join('')}
-                </div>
-                <div class="employee-meta">
-                    <div class="employee-meta-item">${icons.get('zap')} ${salaryDisplay.full} <span style="color: #64748b;">(${salaryLabel})</span></div>
-                    ${leaders.length > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${leaders.join(', ')}</div>` : ''}
-                </div>
-                <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
-                    <div class="employee-meta-item" style="color: #64748b;">${icons.get('clock')} Trabaja: ${salaryDisplay.workDays}</div>
-                </div>
-                <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b;">
-                    <div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${icons.get('calendar')} Creado: ${createdDate}</div>
-                    ${lastChange ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="font-size: 0.7rem; color: #64748b;">${emp.active ? `${icons.get('info')} Activado` : `${icons.get('x-circle')} Desactivado`}: ${lastChange}</div>` : ''}
-                </div>
-
-                <!-- 📝 General notes preview -->
-                ${emp.notes && emp.notes.trim() ? `
-                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                         title="${emp.notes.replace(/"/g, '&quot;')}">
-                        <div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px;">
-                            ${icons.get('file', { size: 12 })} ${escapeHTML(emp.notes)}
-                        </div>
-                    </div>
-                ` : ''}
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="view-btn" type="button" data-action="open-employee-profile" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem; background: linear-gradient(135deg, #06b6d4, #10b981); color: #000; font-weight: 700; border: none;" aria-label="Ver perfil completo">${icons.get('user')}</button>
-                <button class="view-btn" type="button" data-action="open-employee-form" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="Editar empleado">${icons.get('edit')}</button>
-                <button class="view-btn ${emp.active ? '' : 'active'}" type="button" data-action="toggle-employee-status" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem;" aria-label="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}">
-                    ${emp.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
-                </button>
-                ${!emp.active ? `
-                <button class="view-btn" type="button" data-action="delete-employee" data-id="${emp.key || emp.id}" style="padding: 8px 16px; font-size: 0.875rem; border-color: rgba(239,68,68,0.4); color: #fca5a5;" aria-label="Eliminar empleado permanentemente" title="Eliminar permanentemente">
-                    ${icons.get('delete')}
-                </button>
-                ` : ''}
-            </div>
-        </div>
-    `;
+function formatMoney(amount) {
+    return `$${Math.round(Number(amount) || 0).toLocaleString()}`;
 }
 
+export function getEmployeeEarningsDisplay(emp, positions) {
+    const salaryView = state.employeeSalaryView === 'day' ? 'day' : 'month';
+    const regularHours = Number(state.settings?.regularHoursPerDay) || 8;
+    const amounts = positions.length
+        ? positions.map(position => {
+            const customRate = Number(emp.positionSalaries?.[position.id]);
+            const hourlyRate = Number.isFinite(customRate) && customRate > 0
+                ? customRate
+                : resolvePositionBaseHourlyRate(position, regularHours);
+            const dailyAmount = hourlyToDaily(hourlyRate, regularHours);
+            if (salaryView === 'day') return dailyAmount;
+            const workDays = Array.isArray(position.workingDays) && position.workingDays.length
+                ? position.workingDays.length
+                : 6;
+            return dailyAmount * workDays * WEEKS_PER_MONTH;
+        })
+        : [0];
+    const rounded = amounts.map(Math.round);
+    const minimum = Math.min(...rounded);
+    const maximum = Math.max(...rounded);
+    const isRange = minimum !== maximum;
+
+    return {
+        amount: isRange
+            ? `${formatMoney(minimum)}–${formatMoney(maximum)}`
+            : formatMoney(minimum),
+        period: salaryView === 'day' ? 'día' : 'mes',
+        isRange
+    };
+}
+
+function getEmployeeViewData(emp) {
+    const positions = (emp.positions || [])
+        .map(positionId => state.positions.find(position => position.id === positionId))
+        .filter(Boolean);
+    const leaders = positions.map(position => {
+        if (!position.leaderId) return null;
+        return state.leaders.find(leader => leader.id === position.leaderId) || null;
+    }).filter(Boolean);
+    const earningsDisplay = getEmployeeEarningsDisplay(emp, positions);
+    return { positions, leaders, earningsDisplay, primaryPosition: positions[0] || null };
+}
+
+export function EmployeeCard(emp, { selected = false } = {}) {
+    const { positions, leaders, earningsDisplay, primaryPosition } = getEmployeeViewData(emp);
+    const employeeId = escapeAttr(emp.key || emp.id);
+    const color = safePositionColor(primaryPosition?.color);
+    const icon = resolvePositionIcon(primaryPosition || {});
+    const leaderNumbers = [...new Set(leaders.map(leader => leader.number)
+        .filter(value => value !== undefined && value !== null))];
+
+    return `
+        <article class="employee-row employee-list-row${selected ? ' is-selected' : ''}${emp.active ? '' : ' is-inactive'}"
+                 data-action="open-employee-editor" data-id="${employeeId}"
+                 style="--employee-position-color: ${color};">
+            <span class="employee-list-row__number">${escapeHTML(String(emp.number || '—').padStart(3, '0'))}</span>
+            <div class="employee-list-row__identity">
+                <span class="employee-list-row__icon">
+                    ${renderPositionIconSvg(icon, { size: 20 })}
+                </span>
+                <div>
+                    <strong title="${escapeAttr(emp.name)}">${escapeHTML(emp.name)}</strong>
+                    <div class="employee-list-row__positions">
+                        ${positions.length ? positions.map(position => `
+                            <span>${escapeHTML(position.name)}</span>
+                        `).join('') : '<span class="is-empty">Sin puesto</span>'}
+                        ${leaderNumbers.length
+        ? `<small>${leaderNumbers.map(number => `L-${escapeHTML(String(number).padStart(3, '0'))}`).join(', ')}</small>`
+        : ''}
+                    </div>
+                </div>
+            </div>
+            <div class="employee-list-row__salary"
+                 title="${earningsDisplay.isRange ? 'Rango según los puestos asignados' : 'Tarifa del puesto asignado'}">
+                <strong class="${earningsDisplay.isRange ? 'is-range' : ''}">${earningsDisplay.amount}</strong>
+                <span>/ ${earningsDisplay.period}${earningsDisplay.isRange ? ' · según puesto' : ''}</span>
+            </div>
+            <span class="employee-list-row__status ${emp.active ? 'is-active' : 'is-paused'}">
+                ${emp.active ? 'Activo' : 'Pausado'}
+            </span>
+            <div class="employee-list-row__actions">
+                <button type="button" data-action="open-employee-profile" data-id="${employeeId}"
+                        aria-label="Ver perfil completo de ${escapeHTML(emp.name)}" title="Ver perfil completo">
+                    ${renderPositionUiSvg('eye', { size: 15 })}
+                </button>
+                <button type="button" data-action="open-employee-editor" data-id="${employeeId}"
+                        aria-label="Editar empleado" title="Editar">
+                    ${renderPositionUiSvg('edit', { size: 15 })}
+                </button>
+                <button type="button" data-action="toggle-employee-status" data-id="${employeeId}"
+                        aria-label="${emp.active ? 'Desactivar empleado' : 'Activar empleado'}"
+                        title="${emp.active ? 'Desactivar' : 'Activar'}">
+                    ${renderPositionUiSvg(emp.active ? 'pause' : 'play', { size: 15 })}
+                </button>
+                ${!emp.active ? `
+                    <button type="button" class="is-danger" data-action="delete-employee" data-id="${employeeId}"
+                            aria-label="Eliminar empleado permanentemente" title="Eliminar permanentemente">
+                        ${renderPositionUiSvg('trash', { size: 15 })}
+                    </button>
+                ` : ''}
+            </div>
+        </article>
+    `;
+}
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -181,6 +215,28 @@ export function resetEmployeeFilters() {
 
 export function openEmployeeForm(employeeId = null) {
     EmployeeModal.open(employeeId);
+}
+
+export function openEmployeeEditor(employeeId) {
+    const isCompact = typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(max-width: 900px)').matches;
+    if (isCompact) {
+        EmployeeModal.open(employeeId);
+        return;
+    }
+    const exists = state.employees.some(employee => employee.id === employeeId || employee.key === employeeId);
+    if (!exists) return;
+    stateManager.batchSetState(() => {
+        state.selectedPersonnelEmployeeId = employeeId;
+    });
+}
+
+export function setEmployeeSalaryView(view) {
+    const nextView = view === 'day' ? 'day' : 'month';
+    stateManager.batchSetState(() => {
+        state.employeeSalaryView = nextView;
+    });
 }
 
 export function toggleEmployeeStatus(employeeId) {

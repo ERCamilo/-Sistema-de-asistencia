@@ -11,13 +11,15 @@ function setupContext() {
     EmployeesUI.init({ state, saveToLocalStorage: jest.fn(), render: jest.fn(), services: {} });
 }
 
-function makeModalEl({ name, rate, mode }) {
+function makeModalEl({ name, rate, mode, icon = 'briefcase', color = '#06b6d4' }) {
     const el = document.createElement('div');
     el.innerHTML = `
         <input id="posName" value="${name}">
         <input id="posHourlyRate" value="${rate}">
         <input type="hidden" id="posSalaryMode" value="${mode}">
         <select id="posLeader"><option value="" selected></option></select>
+        <input type="radio" name="posIcon" value="${icon}" checked>
+        <input type="radio" name="posColor" value="${color}" checked>
     `;
     return el;
 }
@@ -54,5 +56,23 @@ describe('PositionModal.save — toggle hora/día', () => {
         PositionModal.save(modal, state.positions[0]);
         expect(state.positions[0].hourlyRate).toBe(100);          // 800 / 8h
         expect(state.positions[0].salaryInputMode).toBe('daily');
+    });
+
+    test('guarda el icono y color elegidos como metadatos visuales', () => {
+        const modal = {
+            element: makeModalEl({
+                name: 'Electricista',
+                rate: '220',
+                mode: 'hourly',
+                icon: 'electrical',
+                color: '#3b82f6'
+            }),
+            close: jest.fn()
+        };
+
+        PositionModal.save(modal, null);
+
+        expect(state.positions[0].icon).toBe('electrical');
+        expect(state.positions[0].color).toBe('#3b82f6');
     });
 });

@@ -5,6 +5,7 @@ import icons from '../../ui/IconSystem.js';
 import { slugify, generateUUID } from '../../utils/Helpers.js';
 import { HelpTooltip } from '../../components/HelpTooltip.js';
 import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
+import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -120,15 +121,18 @@ export class PositionModal {
                     </select>
                 </div>
                 
-                <div class="form-group">
-                    <label class="form-label">🎨 Color Identificador</label>
-                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 12px;" id="posColorContainer">
+                <div class="position-appearance-panel">
+                    <div class="form-group">
+                        <label class="form-label">Color identificador</label>
+                        <p class="position-picker-help">El color se usa como acento, no como fondo completo.</p>
+                        <div class="position-color-picker" id="posColorContainer">
                         ${COLOR_PALETTE.map(color => `
-                            <label style="cursor: pointer; position: relative;">
-                                <input type="radio" name="posColor" value="${color}" ${selectedColor === color ? 'checked' : ''} style="position: absolute; opacity: 0;">
-                                <div class="color-swatch ${selectedColor === color ? 'selected' : ''}" style="width: 100%; aspect-ratio: 1; border-radius: 12px; background: ${color}; border: 4px solid ${selectedColor === color ? '#06b6d4' : 'transparent'}; transition: all 0.2s;"></div>
+                            <label class="position-color-option" title="${color}">
+                                <input type="radio" name="posColor" value="${color}" ${selectedColor === color ? 'checked' : ''}>
+                                <span style="--swatch-color: ${color};"></span>
                             </label>
                         `).join('')}
+                        </div>
                     </div>
                 </div>
                 
@@ -300,6 +304,7 @@ export class PositionModal {
         const salaryMode = el.querySelector('#posSalaryMode')?.value === 'daily' ? 'daily' : 'hourly';
         const leaderId = el.querySelector('#posLeader').value;
         const color = el.querySelector('input[name="posColor"]:checked')?.value || COLOR_PALETTE[0];
+        const icon = existingPos?.icon || resolvePositionIcon({ name });
         const workingDays = Array.from(el.querySelectorAll('input[name="workingDay"]:checked')).map(cb => parseInt(cb.value));
 
         if (!name) {
@@ -341,6 +346,7 @@ export class PositionModal {
                 posToEdit.salaryInputMode = salaryMode;
                 posToEdit.leaderId = leaderId || null;
                 posToEdit.color = color;
+                posToEdit.icon = icon;
                 posToEdit.workingDays = workingDays;
                 posToEdit.updatedAt = Date.now();
                 posToEdit._isDirty = true;
@@ -356,6 +362,7 @@ export class PositionModal {
                 workingDays: workingDays,
                 leaderId: leaderId || null,
                 color: color,
+                icon: icon,
                 active: true,
                 updatedAt: Date.now(),
                 _isDirty: true

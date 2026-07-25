@@ -14,114 +14,147 @@ import { Modal } from '../../components/Modal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
 import { hourlyToDaily } from '../payroll/SalaryConversion.js';
 import { collectPositionDays } from '../../services/AttendancePositionAudit.js';
+import {
+    renderPositionIconSvg,
+    renderPositionUiSvg,
+    resolvePositionIcon,
+    safePositionColor
+} from './PositionVisuals.js';
+
+let positionGridFrame = null;
+let positionGridResizeBound = false;
+
+export function layoutPositionCardGrid() {
+    if (typeof document === 'undefined') return;
+    const grid = document.querySelector('.position-card-grid');
+    if (!grid) return;
+
+    const styles = getComputedStyle(grid);
+    const rowHeight = Number.parseFloat(styles.gridAutoRows) || 8;
+    const rowGap = Number.parseFloat(styles.rowGap) || 12;
+    grid.querySelectorAll('.position-card').forEach(card => {
+        card.style.gridRowEnd = 'auto';
+        const height = card.getBoundingClientRect().height;
+        const span = Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)));
+        card.style.gridRowEnd = `span ${span}`;
+    });
+}
+
+export function schedulePositionCardGridLayout() {
+    if (typeof window === 'undefined' || typeof requestAnimationFrame !== 'function') return;
+    if (!positionGridResizeBound) {
+        window.addEventListener('resize', schedulePositionCardGridLayout, { passive: true });
+        positionGridResizeBound = true;
+    }
+    if (positionGridFrame) cancelAnimationFrame(positionGridFrame);
+    positionGridFrame = requestAnimationFrame(() => {
+        positionGridFrame = null;
+        layoutPositionCardGrid();
+    });
+}
 
 export function PositionCard(pos) {
-    const ldr = pos.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
     const empCount = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active).length;
     const totalAssigned = state.employees.filter(e => (e.positions || []).includes(pos.id)).length;
     const canDelete = totalAssigned === 0 && !pos.active;
     const employeesInPosition = state.employees.filter(e => (e.positions || []).includes(pos.id) && e.active);
-
-    // 💱 Equivalente por día junto a la tarifa por hora (la app guarda por hora).
-    // Solo se muestra si la tarifa es un número válido > 0, para no mostrar $0/día.
     const hoursPerDay = state.settings?.regularHoursPerDay || 8;
     const rateNum = Number(pos.hourlyRate);
-    const dailyHint = (Number.isFinite(rateNum) && rateNum > 0)
-        ? ` <span style="color:#64748b;">= $${Math.round(hourlyToDaily(rateNum, hoursPerDay)).toLocaleString()}/día</span>`
-        : '';
-
-    return `
-        <div class="employee-row" style="border-left: 4px solid ${pos.color}; ${!pos.active ? 'opacity: 0.6; border-color: #475569;' : ''}">
-            <div class="employee-info" style="flex: 1;">
-                <div class="employee-header">
-                    <div class="employee-name" style="color: ${pos.color};">${escapeHTML(pos.name)}</div>
-                    ${!pos.active ? '<span style="background: #475569; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem;">INACTIVA</span>' : ''}
-                </div>
-                <div class="employee-meta">
-                    <div class="employee-meta-item">${icons.get('payroll')} Tarifa: $${pos.hourlyRate}/hr${dailyHint}</div>
-                    <div class="employee-meta-divider"></div>
-                     <div class="employee-meta-item">${icons.get('personnel')} ${empCount} empleados</div>
-                    ${ldr ? `<div class="employee-meta-divider"></div><div class="employee-meta-item">${icons.get('key')} ${escapeHTML(ldr.name)}</div>` : ''}
-                </div>
-                <div class="employee-meta" style="margin-top: 4px; font-size: 0.7rem;">
-                    <div class="employee-meta-item" style="color: #64748b;">
-                        ${icons.get('calendar')} Dias: ${pos.workingDays && pos.workingDays.length > 0 ? pos.workingDays.map(d => ['D', 'L', 'M', 'X', 'J', 'V', 'S'][d]).join(', ') : 'Todos'}
-                    </div>
-                </div>
-                ${employeesInPosition.length > 0 ? `
-                    <div style="margin-top: 8px;">
-                        <button class="view-btn" type="button" data-action="toggle-position-employees" data-id="${pos.id}" style="padding: 6px 12px; font-size: 0.75rem; width: 100%;">
-                            ${icons.get('eye')} Ver Empleados (${employeesInPosition.length})
-                        </button>
-                        <div id="pos-employees-${pos.id}" style="display: none; margin-top: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 8px;">
-                            ${employeesInPosition.slice().sort((a, b) => {
+    const hourlyRate = Number.isFinite(rateNum) ? rateNum : 0;
+    const dailyRate = hourlyRate > 0 ? Math.round(hourlyToDaily(hourlyRate, hoursPerDay)) : 0;
+    const color = safePositionColor(pos.color);
+    const iconName = resolvePositionIcon(pos);
+    const workingDays = Array.isArray(pos.workingDays) && pos.workingDays.length > 0
+        ? pos.workingDays
+        : [0, 1, 2, 3, 4, 5, 6];
+    const employeeRows = employeesInPosition.slice().sort((a, b) => {
         const aNum = parseInt(a.number, 10);
         const bNum = parseInt(b.number, 10);
         if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
         return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
-    }).map((emp, idx) => {
-        const customRate = emp.positionSalaries && emp.positionSalaries[pos.id] !== undefined
-            ? Number(emp.positionSalaries[pos.id])
-            : null;
-        const baseRate = Number(pos.hourlyRate);
-        const showCustomRate = customRate !== null && !Number.isNaN(customRate) && (Number.isNaN(baseRate) || customRate !== baseRate);
+    }).map(emp => `
+        <button class="position-person-row" type="button"
+                data-action="open-employee-floating" data-id="${emp.key || emp.id}">
+            <span>${escapeHTML(emp.number || '—')}</span>
+            <strong>${escapeHTML(emp.name)}</strong>
+        </button>
+    `).join('');
 
-        const deductions = Array.isArray(emp.deductions) ? emp.deductions : [];
-        let deductionText = '';
-        if (deductions.length > 0) {
-            let fixedTotal = 0;
-            let percentTotal = 0;
-            let hasFixed = false;
-            let hasPercent = false;
-            deductions.forEach(d => {
-                if (d.type === 'fixed') {
-                    fixedTotal += Number(d.value) || 0;
-                    hasFixed = true;
-                } else {
-                    percentTotal += Number(d.value) || 0;
-                    hasPercent = true;
-                }
-            });
-            if (hasFixed && hasPercent) {
-                deductionText = `-$${fixedTotal.toLocaleString()} + ${percentTotal}%`;
-            } else if (hasFixed) {
-                deductionText = `-$${fixedTotal.toLocaleString()}`;
-            } else if (hasPercent) {
-                deductionText = `-${percentTotal}%`;
-            }
-        }
-
-        return `
-                <div style="padding: 4px 0; color: #f1f5f9; ${idx < employeesInPosition.length - 1 ? 'border-bottom: 1px solid #334155;' : ''}">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                        <div style="min-width:40px; color:#94a3b8; font-weight:700;">${emp.number || ''}</div>
-                        <div role="button" tabindex="0" style="flex:1; cursor: pointer; text-decoration: underline rgba(6, 182, 212, 0.2);" data-action="open-employee-floating" data-id="${emp.key || emp.id}">${escapeHTML(emp.name)}</div>
-                        <div style="display:flex; align-items:center; gap:8px; justify-content:flex-end; min-width:140px;">
-                            ${showCustomRate ? `<span style="color:#38bdf8; font-weight:700;">$${customRate}/hr</span>` : ''}
-                            ${deductionText ? `<span style="color:#f87171; font-weight:700;">${deductionText}</span>` : ''}
+    return `
+        <article class="position-card${pos.active ? '' : ' is-inactive'}"
+                 style="--position-color: ${color};">
+            <div class="position-card__top">
+                <div class="position-card__head">
+                    <div class="position-card__identity">
+                        <button class="position-card__icon" type="button"
+                                data-action="open-position-icon" data-id="${pos.id}"
+                                aria-label="Cambiar icono de ${escapeHTML(pos.name)}"
+                                title="Cambiar icono">
+                            ${renderPositionIconSvg(iconName, { size: 23 })}
+                        </button>
+                        <div>
+                            <div class="position-card__title-line">
+                                <h3>${escapeHTML(pos.name)}</h3>
+                                ${!pos.active ? '<span class="personnel-status-badge">Inactiva</span>' : ''}
+                            </div>
+                            <p class="position-card__rate">
+                                $${hourlyRate}/hr
+                                ${dailyRate ? `<span>= $${dailyRate.toLocaleString()}/día</span>` : ''}
+                            </p>
                         </div>
+                    </div>
+                    <div class="position-card__quick-actions">
+                        <button type="button" data-action="open-position-form" data-id="${pos.id}"
+                                aria-label="Editar posición" title="Editar">
+                            ${renderPositionUiSvg('edit', { size: 15 })}
+                        </button>
+                        <button type="button" data-action="toggle-position-status" data-id="${pos.id}"
+                                aria-label="${pos.active ? 'Desactivar posición' : 'Activar posición'}"
+                                title="${pos.active ? 'Desactivar' : 'Activar'}">
+                            ${renderPositionUiSvg(pos.active ? 'pause' : 'play', { size: 15 })}
+                        </button>
+                        ${!pos.active ? `
+                            <button type="button" class="is-danger"
+                                    ${canDelete ? `data-action="delete-position" data-id="${pos.id}"` : 'disabled'}
+                                    aria-label="${canDelete ? 'Eliminar posición' : 'No se puede eliminar porque tiene empleados asignados'}"
+                                    title="Eliminar">
+                                ${renderPositionUiSvg('trash', { size: 15 })}
+                            </button>
+                        ` : ''}
                     </div>
                 </div>
-            `;
-    }).join('')}
-                        </div>
-                    </div>
-                ` : ''}
             </div>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="view-btn" type="button" data-action="open-position-form" data-id="${pos.id}" style="padding: 8px;" aria-label="Editar posición">${icons.get('edit')}</button>
-                <button class="view-btn ${pos.active ? '' : 'active'}" type="button" data-action="toggle-position-status" data-id="${pos.id}" style="padding: 8px;" aria-label="${pos.active ? 'Desactivar posición' : 'Activar posición'}">
-                    ${pos.active ? `${icons.get('pause')}` : `${icons.get('play')}`}
-                </button>
 
-                ${pos.active ? "" :
-            `<button class="view-btn" type="button" ${canDelete ? `data-action="delete-position" data-id="${pos.id}"` : 'disabled'} style="padding: 8px; ${canDelete ? '' : 'opacity: 0.4; cursor: not-allowed;'}" aria-label="${canDelete ? 'Eliminar posición' : 'No se puede eliminar: hay empleados asignados o la posición está activa'}">
-                    ${icons.get('delete')}
-                    </button>`}
-
-
+            <div class="position-card__facts">
+                ${employeesInPosition.length ? `
+                    <button type="button" class="position-card__employee-count"
+                            data-action="toggle-position-employees" data-id="${pos.id}"
+                            aria-expanded="false"
+                            aria-controls="pos-employees-${pos.id}">
+                        ${renderPositionUiSvg('users', { size: 14 })}
+                        ${empCount} ${empCount === 1 ? 'empleado' : 'empleados'}
+                    </button>
+                ` : `
+                    <span>
+                        ${renderPositionUiSvg('users', { size: 14 })}
+                        0 empleados
+                    </span>
+                `}
+                <span class="position-card__days-text" aria-label="Días laborales">
+                    ${renderPositionUiSvg('calendar', { size: 14 })}
+                    ${[1, 2, 3, 4, 5, 6, 0]
+        .filter(day => workingDays.includes(day))
+        .map(day => ['D', 'L', 'M', 'X', 'J', 'V', 'S'][day])
+        .join('·') || 'Sin días'}
+                </span>
             </div>
-        </div>
+
+            ${employeesInPosition.length ? `
+                <div id="pos-employees-${pos.id}" class="position-card__people" hidden>
+                    ${employeeRows}
+                </div>
+            ` : ''}
+        </article>
     `;
 }
 
@@ -131,7 +164,11 @@ export function PositionCard(pos) {
 export function togglePositionEmployees(positionId) {
     const elem = document.getElementById(`pos-employees-${positionId}`);
     if (elem) {
-        elem.style.display = elem.style.display === 'none' ? 'block' : 'none';
+        elem.hidden = !elem.hidden;
+        const trigger = Array.from(document.querySelectorAll('.position-card__employee-count'))
+            .find(button => button.dataset.id === positionId);
+        trigger?.setAttribute('aria-expanded', String(!elem.hidden));
+        schedulePositionCardGridLayout();
     }
 }
 
@@ -149,8 +186,22 @@ export function setPositionSearchFilter(value) {
     if (!state.positionFilters) {
         state.positionFilters = { search: '', leaderId: 'all', status: 'active' };
     }
+    const input = typeof document !== 'undefined'
+        ? document.querySelector('.position-toolbar__search input')
+        : null;
+    const keepFocus = input && document.activeElement === input;
+    const cursorPosition = keepFocus ? input.selectionStart : null;
     state.positionFilters.search = value;
     render();
+    if (keepFocus && typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const nextInput = document.querySelector('.position-toolbar__search input');
+            if (!nextInput) return;
+            nextInput.focus();
+            const position = cursorPosition ?? nextInput.value.length;
+            nextInput.setSelectionRange(position, position);
+        }));
+    }
 }
 
 export function setPositionLeaderFilter(leaderId) {
@@ -163,8 +214,9 @@ export function setPositionLeaderFilter(leaderId) {
 }
 
 export function setPositionSortBy(sortBy) {
+    const nextSort = ['employees', 'name', 'salary'].includes(sortBy) ? sortBy : 'employees';
     stateManager.batchSetState(() => {
-        state.positionSortBy = sortBy;
+        state.positionSortBy = nextSort;
     });
 }
 

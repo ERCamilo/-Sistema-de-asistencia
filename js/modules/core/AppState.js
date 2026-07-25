@@ -129,6 +129,10 @@ const initialState = {
     attendanceByDate: {}, // ⚡ P3-OPT: Índice rápido { dateKey -> [records] }
     positions: [],
     leaders: [],
+    positionSortBy: 'employees',
+    leaderSortBy: 'employees',
+    employeeSalaryView: 'month',
+    selectedPersonnelEmployeeId: null,
     settings: {
         regularHoursPerDay: 8,
         syncEnabled: true,

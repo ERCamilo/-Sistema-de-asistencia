@@ -7,8 +7,14 @@ import { escapeHTML, escapeAttr } from '../../utils/Sanitize.js';
 import { EmployeeModal } from '../../ui/modals/EmployeeModal.js';
 import { LeaderModal } from '../../ui/modals/LeaderModal.js';
 import { PositionModal } from '../../ui/modals/PositionModal.js';
+import { PositionIconModal } from '../../ui/modals/PositionIconModal.js';
+import { LeaderIconModal } from '../../ui/modals/LeaderIconModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
 import { state as _appState, stateManager } from '../../core/AppState.js';
+import { EmployeeCard } from './EmployeesList.js';
+import { LeaderCard, scheduleLeaderCardGridLayout } from './LeadersList.js';
+import { PositionCard, schedulePositionCardGridLayout } from './PositionsList.js';
+import { renderPositionUiSvg } from './PositionVisuals.js';
 
 export let context = null;
 
@@ -21,16 +27,21 @@ const _ACTION_MAP = {
     'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
     'toggle-employee-status': (id) => window.toggleEmployeeStatus?.(id),
     'delete-employee': (id) => window.deleteEmployeeHandler?.(id),
+    'open-employee-editor': (id) => window.openEmployeeEditor?.(id),
     'open-leader-form': (id) => window.openLeaderForm?.(id || undefined),
+    'open-leader-icon': (id) => LeaderIconModal.open(id),
     'toggle-leader-status': (id) => window.toggleLeaderStatus?.(id),
     'toggle-leader-employees': (id) => window.toggleLeaderEmployees?.(id),
+    'set-leader-sort-by': (mode) => window.setLeaderSortBy?.(mode),
     'open-position-form': (id) => window.openPositionForm?.(id || undefined),
+    'open-position-icon': (id) => PositionIconModal.open(id),
     'toggle-position-status': (id) => window.togglePositionStatus?.(id),
     'toggle-position-employees': (id) => window.togglePositionEmployees?.(id),
     'delete-position': (id) => window.deletePosition?.(id),
     'reset-employee-filters': () => window.resetEmployeeFilters?.(),
     'change-view-mode': (mode) => window.changeEmployeeViewMode?.(mode),
     'set-position-sort-by': (mode) => window.setPositionSortBy?.(mode),
+    'set-employee-salary-view': (mode) => window.setEmployeeSalaryView?.(mode),
     'set-employee-status-filter': (status) => window.setEmployeeStatusFilter?.(status),
     // DOM closures (no necesitan llamar a window): manipulación local
     'open-search': (_, el) => {
@@ -77,6 +88,27 @@ function _handleDelegatedKeydown(e) {
 }
 
 let _delegationAttached = false;
+let _employeeEditorFrame = null;
+
+function scheduleEmployeeEditorPanel(employeeId) {
+    if (typeof requestAnimationFrame !== 'function') return;
+    if (_employeeEditorFrame) cancelAnimationFrame(_employeeEditorFrame);
+    _employeeEditorFrame = requestAnimationFrame(() => {
+        _employeeEditorFrame = null;
+        const host = document.getElementById('employee-editor-panel');
+        if (!host) return;
+        if (!employeeId) {
+            host.innerHTML = `
+                <div class="employee-editor-panel__empty">
+                    <strong>Sin empleado seleccionado</strong>
+                    <span>Ajusta los filtros para editar un empleado.</span>
+                </div>
+            `;
+            return;
+        }
+        EmployeeModal.open(employeeId, { inlineHost: host });
+    });
+}
 
 export function init(ctx) {
     context = ctx;
@@ -103,36 +135,40 @@ function getServices() {
 
 export function EmployeesTab() {
     const state = getState();
-    // Nuevo: agregar subtab de posiciones
     const subTab = state.employeeViewMode || 'employees'; // 'employees', 'leaders', 'positions'
     const isEmployees = subTab === 'employees';
     const isLeaders = subTab === 'leaders';
     const isPositions = subTab === 'positions';
+    const activeEmployees = state.employees.filter(employee => employee.active !== false).length;
 
-    // Renderizar sub-tabs siempre
     const subTabsHTML = `
-                <div class="date-controls">
-                    <div class="view-controls">
-                        <button class="view-btn ${isEmployees ? 'active' : ''}"
+                <section class="personnel-page">
+                    <header class="personnel-page__header">
+                        <div>
+                            <h1>Personal</h1>
+                            <p>${activeEmployees} activos · ${state.employees.length} empleados · ${state.leaders.length} líderes · ${state.positions.length} puestos</p>
+                        </div>
+                    </header>
+                    <nav class="personnel-tabs" aria-label="Secciones de personal">
+                        <button class="${isEmployees ? 'active' : ''}"
                                 type="button"
                                 data-action="change-view-mode" data-value="employees"
                                 aria-label="Ver empleados">
-                            ${icons.get('personnel')} Empleados
+                            ${icons.get('user', { size: 16 })} <span>Empleados</span> <strong>${state.employees.length}</strong>
                         </button>
-                        <button class="view-btn ${isLeaders ? 'active' : ''}"
+                        <button class="${isLeaders ? 'active' : ''}"
                                 type="button"
                                 data-action="change-view-mode" data-value="leaders"
                                 aria-label="Ver líderes">
-                            ${icons.get('key')} Líderes
+                            ${icons.get('personnel', { size: 16 })} <span>Líderes</span> <strong>${state.leaders.length}</strong>
                         </button>
-                        <button class="view-btn ${isPositions ? 'active' : ''}"
+                        <button class="${isPositions ? 'active' : ''}"
                                 type="button"
                                 data-action="change-view-mode" data-value="positions"
                                 aria-label="Ver posiciones">
-                            ${icons.get('briefcase')} Puestos
+                            ${icons.get('briefcase', { size: 16 })} <span>Puestos</span> <strong>${state.positions.length}</strong>
                         </button>
-                    </div>
-                </div>
+                    </nav>
             `;
 
     // Si es posiciones, mostrar contenido de posiciones
@@ -147,7 +183,9 @@ export function EmployeesTab() {
             ? state.leaders.find(l => l.id === positionFilters.leaderId)
             : null;
         const statusLabel = statusFilter === 'inactive' ? 'Inactivas' : (statusFilter === 'all' ? 'Todas' : 'Activas');
-        const sortBy = state.positionSortBy;
+        const sortBy = state.positionSortBy || 'employees';
+        const activeExtraFilters = (positionFilters.leaderId !== 'all' ? 1 : 0)
+            + (statusFilter !== 'active' ? 1 : 0);
 
         let filteredPositions = state.positions.filter(pos => {
             if (statusFilter === 'active') return pos.active;
@@ -168,102 +206,259 @@ export function EmployeesTab() {
             });
         }
 
+        const employeeCountByPosition = new Map();
+        state.employees.forEach(employee => {
+            if (!employee.active) return;
+            (employee.positions || []).forEach(positionId => {
+                employeeCountByPosition.set(
+                    positionId,
+                    (employeeCountByPosition.get(positionId) || 0) + 1
+                );
+            });
+        });
+
         filteredPositions.sort((a, b) => {
             if (a.active !== b.active) return a.active ? -1 : 1;
             if (sortBy === 'name') return a.name.localeCompare(b.name);
-            if (sortBy === 'salary') return (b.salaryConfig?.amount || 0) - (a.salaryConfig?.amount || 0);
-            return 0;
+            if (sortBy === 'salary') return Number(b.hourlyRate || 0) - Number(a.hourlyRate || 0);
+            if (sortBy === 'employees') {
+                const countDifference = (employeeCountByPosition.get(b.id) || 0)
+                    - (employeeCountByPosition.get(a.id) || 0);
+                if (countDifference !== 0) return countDifference;
+            }
+            return (a.name || '').localeCompare(b.name || '');
         });
+        schedulePositionCardGridLayout();
 
         return `
                     ${subTabsHTML}
-                    <div class="date-controls" style="margin-bottom: 16px;">
-                        <div class="search-container filters-bar" style="margin-bottom: 12px;">
-                            <div class="employee-search${positionFilters.search ? ' open' : ''}">
-                                <button class="employee-search-btn"
-                                        type="button"
-                                        data-action="open-search" type="button"
-                                        aria-label="Buscar">
-                                    ${icons.get('search')}
+                    <div class="position-toolbar">
+                        <label class="position-toolbar__search">
+                            ${renderPositionUiSvg('search', { size: 17 })}
+                            <input type="search"
+                                   value="${escapeAttr(positionFilters.search || '')}"
+                                   oninput="setPositionSearchFilter(this.value)"
+                                   placeholder="Buscar posición...">
+                            ${positionFilters.search ? `
+                                <button type="button" data-action="clear-search-position"
+                                        aria-label="Limpiar búsqueda">
+                                    ${renderPositionUiSvg('close', { size: 15 })}
                                 </button>
-                                <input type="text"
-                                       value="${positionFilters.search || ''}"
-                                       oninput="setPositionSearchFilter(this.value)"
-                                       onfocus="this.closest('.employee-search').classList.add('open')"
-                                       onblur="if(!this.value){this.closest('.employee-search').classList.remove('open')}"
-                                       placeholder="Buscar posición o líder..."
-                                       class="employee-search-input">
-                                ${positionFilters.search ? `
-                                    <button type="button" data-action="clear-search-position"
-                                            class="employee-search-clear"
-                                            aria-label="Limpiar búsqueda">
-                                        ${icons.get('close')}
-                                    </button>
-                                ` : ''}
-                            </div>
+                            ` : ''}
+                        </label>
 
-                            <div class="filter-pill ${positionFilters.leaderId !== 'all' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
-                                    ${icons.get('key')}
-                                </button>
-                                <span class="filter-pill-label">
-                                    ${selectedLeader ? `Lider: ${selectedLeader.name}` : 'Lider: Todos'}
-                                </span>
-                                <select class="filter-pill-select"
-                                        onchange="setPositionLeaderFilter(this.value)"
-                                        onfocus="this.closest('.filter-pill').classList.add('open')"
-                                        onblur="this.closest('.filter-pill').classList.remove('open')">
-                                    <option value="all" ${(positionFilters.leaderId || 'all') === 'all' ? 'selected' : ''}>Todos los lideres</option>
-                                    ${state.leaders.map(l => `
-                                        <option value="${l.id}" ${positionFilters.leaderId === l.id ? 'selected' : ''}>
-                                            ${l.name}
-                                        </option>
-                                    `).join('')}
-                                </select>
+                        <details class="position-toolbar__filters">
+                            <summary aria-label="Filtros adicionales" title="Filtros">
+                                ${renderPositionUiSvg('filter', { size: 16 })}
+                                ${activeExtraFilters ? `<strong>${activeExtraFilters}</strong>` : ''}
+                            </summary>
+                            <div class="position-toolbar__filter-popover">
+                                <label>
+                                    <span>Líder</span>
+                                    <select onchange="setPositionLeaderFilter(this.value)">
+                                        <option value="all" ${(positionFilters.leaderId || 'all') === 'all' ? 'selected' : ''}>Todos</option>
+                                        ${state.leaders.map(leader => `
+                                            <option value="${escapeAttr(leader.id)}" ${positionFilters.leaderId === leader.id ? 'selected' : ''}>
+                                                ${escapeHTML(leader.name)}
+                                            </option>
+                                        `).join('')}
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Estado</span>
+                                    <select onchange="setPositionStatusFilter(this.value)">
+                                        <option value="active" ${statusFilter === 'active' ? 'selected' : ''}>Activas</option>
+                                        <option value="inactive" ${statusFilter === 'inactive' ? 'selected' : ''}>Inactivas</option>
+                                        <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>Todas</option>
+                                    </select>
+                                </label>
+                                <p>${selectedLeader ? `Líder: ${escapeHTML(selectedLeader.name)} · ` : ''}${statusLabel}</p>
                             </div>
+                        </details>
 
-                            <div class="filter-pill ${statusFilter !== 'active' ? 'active take-row' : ''}">
-                                <button class="filter-pill-btn" type="button" data-action="open-filter-pill">
-                                    ${icons.get('check')}
-                                </button>
-                                <span class="filter-pill-label">${statusLabel}</span>
-                                <select class="filter-pill-select"
-                                        onchange="setPositionStatusFilter(this.value)"
-                                        onfocus="this.closest('.filter-pill').classList.add('open')"
-                                        onblur="this.closest('.filter-pill').classList.remove('open')">
-                                    <option value="active" ${statusFilter === 'active' ? 'selected' : ''}>Activas</option>
-                                    <option value="inactive" ${statusFilter === 'inactive' ? 'selected' : ''}>Inactivas</option>
-                                    <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>Todas</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                            <button class="view-btn ${sortBy === 'name' ? 'active' : ''}" type="button" data-action="set-position-sort-by" data-value="name" style="flex: 1;">
-                                ${icons.get('search')} Por Nombre
+                        <div class="position-toolbar__sort" aria-label="Ordenar puestos">
+                            <button class="${sortBy === 'employees' ? 'active' : ''}" type="button"
+                                    data-action="set-position-sort-by" data-value="employees">
+                                Por empleados
                             </button>
-                            <button class="view-btn ${sortBy === 'salary' ? 'active' : ''}" type="button" data-action="set-position-sort-by" data-value="salary" style="flex: 1;">
-                                ${icons.get('payroll')} Por Sueldo
+                            <button class="${sortBy === 'name' ? 'active' : ''}" type="button"
+                                    data-action="set-position-sort-by" data-value="name">
+                                Por nombre
+                            </button>
+                            <button class="${sortBy === 'salary' ? 'active' : ''}" type="button"
+                                    data-action="set-position-sort-by" data-value="salary">
+                                Por tarifa
                             </button>
                         </div>
-                        
-                        <button class="view-btn" type="button" data-action="open-position-form" style="width: 100%; background: #06b6d4; color: #000; border-color: #06b6d4;">
-                            ${icons.get('add')} Nueva Posicion
+
+                        <button class="position-toolbar__add" type="button" data-action="open-position-form">
+                            ${renderPositionUiSvg('add', { size: 17 })} Nueva posición
                         </button>
                     </div>
                     
+                    <div class="position-card-grid">
                     ${filteredPositions.length === 0 ? EmptyState.render({
                         icon: 'briefcase',
                         title: `No hay posiciones ${statusFilter === 'active' ? 'activas' : statusFilter === 'inactive' ? 'inactivas' : ''}`.trim(),
                         description: statusFilter === 'active' ? 'Crea una posición o cambia el filtro para ver otras.' : 'Cambia el filtro para ver las posiciones disponibles.',
                         size: 'large'
                     }) : filteredPositions.map(PositionCard).join('')}
+                    </div>
+                </section>
                 `;
     }
 
     // Si es empleados o líderes — usar lógica compartida
     const { filteredItems, statusFilter, positionFilter, leaderFilter, selectedPosition, selectedLeader, statusLabel } = getFilteredEmployeesOrLeaders();
     const employeeFilters = state.employeeFilters || { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+
+    if (isLeaders) {
+        const sortBy = state.leaderSortBy || 'employees';
+        scheduleLeaderCardGridLayout();
+
+        return `
+                ${subTabsHTML}
+                <div class="position-toolbar leader-toolbar">
+                    <label class="position-toolbar__search">
+                        ${renderPositionUiSvg('search', { size: 17 })}
+                        <input type="search"
+                               value="${escapeAttr(employeeFilters.search || '')}"
+                               oninput="setEmployeeSearchFilter(this.value)"
+                               placeholder="Buscar líder por nombre o código...">
+                        ${employeeFilters.search ? `
+                            <button type="button" data-action="clear-search-employee"
+                                    aria-label="Limpiar búsqueda">
+                                ${renderPositionUiSvg('close', { size: 15 })}
+                            </button>
+                        ` : ''}
+                    </label>
+
+                    <div class="position-toolbar__sort leader-toolbar__status" aria-label="Filtrar líderes por estado">
+                        <button class="${statusFilter === 'active' ? 'active' : ''}" type="button"
+                                data-action="set-employee-status-filter" data-value="active">
+                            Activos
+                        </button>
+                        <button class="${statusFilter === 'inactive' ? 'active' : ''}" type="button"
+                                data-action="set-employee-status-filter" data-value="inactive">
+                            Inactivos
+                        </button>
+                        <button class="${statusFilter === 'all' ? 'active' : ''}" type="button"
+                                data-action="set-employee-status-filter" data-value="all">
+                            Todos
+                        </button>
+                    </div>
+
+                    <div class="position-toolbar__sort leader-toolbar__sort" aria-label="Ordenar líderes">
+                        <button class="${sortBy === 'employees' ? 'active' : ''}" type="button"
+                                data-action="set-leader-sort-by" data-value="employees">
+                            Por empleados
+                        </button>
+                        <button class="${sortBy === 'name' ? 'active' : ''}" type="button"
+                                data-action="set-leader-sort-by" data-value="name">
+                            Por nombre
+                        </button>
+                    </div>
+
+                    <button class="position-toolbar__add" type="button" data-action="open-leader-form">
+                        ${renderPositionUiSvg('add', { size: 17 })} Nuevo líder
+                    </button>
+                </div>
+
+                <div id="employees-list" class="leader-card-grid" data-preserve-scroll="employees-list">
+                    ${buildEmployeesListHTML()}
+                </div>
+            </section>
+        `;
+    }
+
+    if (isEmployees) {
+        const salaryView = state.employeeSalaryView === 'day' ? 'day' : 'month';
+        const selectedEmployee = filteredItems.find(employee =>
+            employee.id === state.selectedPersonnelEmployeeId
+            || employee.key === state.selectedPersonnelEmployeeId
+        ) || filteredItems[0] || null;
+        const selectedEmployeeId = selectedEmployee?.key || selectedEmployee?.id || null;
+        scheduleEmployeeEditorPanel(selectedEmployeeId);
+
+        return `
+                ${subTabsHTML}
+                <div class="employee-toolbar">
+                    <label class="position-toolbar__search employee-toolbar__search">
+                        ${renderPositionUiSvg('search', { size: 17 })}
+                        <input type="search"
+                               value="${escapeAttr(employeeFilters.search || '')}"
+                               oninput="setEmployeeSearchFilter(this.value)"
+                               placeholder="Buscar por nombre, número o posición...">
+                        ${employeeFilters.search ? `
+                            <button type="button" data-action="clear-search-employee"
+                                    aria-label="Limpiar búsqueda">
+                                ${renderPositionUiSvg('close', { size: 15 })}
+                            </button>
+                        ` : ''}
+                    </label>
+
+                    <select aria-label="Filtrar por puesto" onchange="setEmployeePositionFilter(this.value)">
+                        <option value="all" ${positionFilter === 'all' ? 'selected' : ''}>Todos los puestos</option>
+                        ${state.positions.slice().sort((a, b) => a.name.localeCompare(b.name)).map(position => `
+                            <option value="${escapeAttr(position.id)}" ${positionFilter === position.id ? 'selected' : ''}>
+                                ${escapeHTML(position.name)}
+                            </option>
+                        `).join('')}
+                    </select>
+
+                    <select aria-label="Filtrar por líder" onchange="setEmployeeLeaderFilter(this.value)">
+                        <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los líderes</option>
+                        ${state.leaders.filter(leader => leader.active).sort((a, b) => a.name.localeCompare(b.name)).map(leader => `
+                            <option value="${escapeAttr(leader.id)}" ${leaderFilter === leader.id ? 'selected' : ''}>
+                                ${escapeHTML(leader.name)}
+                            </option>
+                        `).join('')}
+                    </select>
+
+                    <select aria-label="Filtrar por estado" onchange="setEmployeeStatusFilter(this.value)">
+                        <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>Cualquier estado</option>
+                        <option value="active" ${statusFilter === 'active' ? 'selected' : ''}>Activos</option>
+                        <option value="inactive" ${statusFilter === 'inactive' ? 'selected' : ''}>Pausados</option>
+                    </select>
+
+                    <div class="position-toolbar__sort employee-toolbar__earnings"
+                         aria-label="Mostrar ganancias por período">
+                        <button class="${salaryView === 'day' ? 'active' : ''}" type="button"
+                                data-action="set-employee-salary-view" data-value="day">
+                            Por día
+                        </button>
+                        <button class="${salaryView === 'month' ? 'active' : ''}" type="button"
+                                data-action="set-employee-salary-view" data-value="month">
+                            Por mes
+                        </button>
+                    </div>
+
+                    <button class="position-toolbar__add" type="button" data-action="open-employee-form">
+                        ${renderPositionUiSvg('add', { size: 17 })} Nuevo empleado
+                    </button>
+                </div>
+
+                <div class="employee-workspace">
+                    <section class="employee-table" aria-label="Listado de empleados">
+                        <header class="employee-table__header">
+                            <span>#</span>
+                            <span>Empleado</span>
+                            <span>Salario</span>
+                            <span>Estado</span>
+                            <span>Acciones</span>
+                        </header>
+                        <div id="employees-list" data-preserve-scroll="employees-list">
+                            ${buildEmployeesListHTML(selectedEmployeeId)}
+                        </div>
+                    </section>
+                    <aside id="employee-editor-panel" class="employee-editor-panel"
+                           aria-label="Editor de empleado">
+                        <div class="employee-editor-panel__loading">Cargando editor…</div>
+                    </aside>
+                </div>
+            </section>
+        `;
+    }
 
     return `
                 ${subTabsHTML}
@@ -353,7 +548,28 @@ export function EmployeesTab() {
                             </button>
                         </div>
                     ` : `
-                        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                        <div class="search-container">
+                            <div class="employee-search${employeeFilters.search ? ' open' : ''}">
+                                <button class="employee-search-btn"
+                                        type="button"
+                                        data-action="open-search"
+                                        aria-label="Buscar líder">
+                                    ${icons.get('search')}
+                                </button>
+                                <input type="text"
+                                       value="${escapeAttr(employeeFilters.search || '')}"
+                                       oninput="setEmployeeSearchFilter(this.value)"
+                                       placeholder="Buscar líder por nombre o código..."
+                                       class="employee-search-input">
+                                ${employeeFilters.search ? `
+                                    <button type="button" data-action="clear-search-employee"
+                                            class="employee-search-clear"
+                                            aria-label="Limpiar búsqueda">
+                                        ${icons.get('close')}
+                                    </button>
+                                ` : ''}
+                            </div>
+                            <div class="personnel-segments">
                             <button class="view-btn ${statusFilter === 'active' ? 'active' : ''}" type="button" data-action="set-employee-status-filter" data-value="active" style="flex: 1;">
                                 Activos
                             </button>
@@ -363,6 +579,7 @@ export function EmployeesTab() {
                             <button class="view-btn ${statusFilter === 'all' ? 'active' : ''}" type="button" data-action="set-employee-status-filter" data-value="all" style="flex: 1;">
                                 Todos
                             </button>
+                            </div>
                         </div>
                     `}
 
@@ -374,6 +591,7 @@ export function EmployeesTab() {
                 <div id="employees-list" data-preserve-scroll="employees-list">
                     ${buildEmployeesListHTML()}
                 </div>
+            </section>
             `;
 }
 
@@ -427,7 +645,7 @@ function getFilteredEmployeesOrLeaders() {
         if (searchValue) {
             filteredItems = filteredItems.filter(emp => {
                 const nameMatch = (emp.name || '').toLowerCase().includes(searchValue);
-                const numberMatch = (emp.number || '').toLowerCase().includes(searchValue);
+                const numberMatch = String(emp.number || '').toLowerCase().includes(searchValue);
                 const positionMatch = (emp.positions || []).some(pid => {
                     const pos = state.positions.find(p => p.id === pid);
                     return pos && pos.name && pos.name.toLowerCase().includes(searchValue);
@@ -435,6 +653,30 @@ function getFilteredEmployeesOrLeaders() {
                 return nameMatch || numberMatch || positionMatch;
             });
         }
+    } else {
+        const searchValue = (employeeFilters.search || '').trim().toLowerCase();
+        statusLabel = statusFilter === 'inactive' ? 'Inactivos' : (statusFilter === 'all' ? 'Todos' : 'Activos');
+        if (searchValue) {
+            filteredItems = filteredItems.filter(leader =>
+                (leader.name || '').toLowerCase().includes(searchValue)
+                || String(leader.number || '').toLowerCase().includes(searchValue)
+            );
+        }
+    }
+
+    const leaderEmployeeCounts = new Map();
+    if (!isEmployees) {
+        state.leaders.forEach(leader => {
+            const positionIds = new Set(
+                state.positions
+                    .filter(position => position.active && position.leaderId === leader.id)
+                    .map(position => position.id)
+            );
+            const employeeCount = state.employees.filter(employee =>
+                employee.active && (employee.positions || []).some(id => positionIds.has(id))
+            ).length;
+            leaderEmployeeCounts.set(leader.id, employeeCount);
+        });
     }
 
     filteredItems.sort((a, b) => {
@@ -445,14 +687,20 @@ function getFilteredEmployeesOrLeaders() {
             if (!Number.isNaN(aNum) && !Number.isNaN(bNum) && aNum !== bNum) return aNum - bNum;
             return String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true });
         }
+        if ((state.leaderSortBy || 'employees') === 'employees') {
+            const countDifference = (leaderEmployeeCounts.get(b.id) || 0)
+                - (leaderEmployeeCounts.get(a.id) || 0);
+            if (countDifference !== 0) return countDifference;
+        }
         return (a.name || '').localeCompare(b.name || '');
     });
 
     return { filteredItems, statusFilter, positionFilter, leaderFilter, selectedPosition, selectedLeader, statusLabel, isEmployees };
 }
 
-function buildEmployeesListHTML() {
+function buildEmployeesListHTML(selectedEmployeeId = null) {
     const state = getState();
+    selectedEmployeeId ??= state.selectedPersonnelEmployeeId;
     const subTab = state.employeeViewMode || 'employees';
     const isEmployees = subTab === 'employees';
     const isLeaders = subTab === 'leaders';
@@ -471,7 +719,11 @@ function buildEmployeesListHTML() {
         });
     }
 
-    return filteredItems.map(item => isEmployees ? EmployeeCard(item) : LeaderCard(item)).join('');
+    return filteredItems.map(item => isEmployees
+        ? EmployeeCard(item, {
+            selected: item.id === selectedEmployeeId || item.key === selectedEmployeeId
+        })
+        : LeaderCard(item)).join('');
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -499,12 +751,15 @@ export {
     setEmployeeLeaderFilter,
     resetEmployeeFilters,
     openEmployeeForm,
+    openEmployeeEditor,
+    setEmployeeSalaryView,
     toggleEmployeeStatus,
     deleteEmployeeHandler
 } from './EmployeesList.js';
 
 export {
     openLeaderForm,
+    setLeaderSortBy,
     toggleLeaderEmployees,
     toggleLeaderStatus
 } from './LeadersList.js';
@@ -563,12 +818,13 @@ export function changeProfileEndMonth(delta) {
 
 export function openEmployeeProfile(employeeId) {
     const state = getState();
-    const employee = state.employees.find(e => e.id === employeeId);
+    const employee = state.employees.find(e => e.id === employeeId || e.key === employeeId);
+    if (!employee) return;
     stateManager.batchSetState(() => {
         state.selectedEmployee = employee;
 
         state.employeeProfile = {
-            employeeId,
+            employeeId: employee.id,
             activeTab: 'resumen', // Empezar en resumen es más natural
             periodStart: state.exportConfig?.periodStart || getDateKey(new Date(Date.now() - 14 * 86400000)),
             periodEnd: state.exportConfig?.periodEnd || getDateKey(new Date()),
