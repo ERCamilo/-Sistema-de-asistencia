@@ -63,6 +63,10 @@ describe('PayrollAdjustmentDesktop', () => {
             [...host.querySelectorAll('.payroll-adjustment-composer input[name="type"]')]
                 .map(input => input.value)
         ).toEqual(['fixed', 'percentage']);
+        expect(
+            [...host.querySelectorAll('.payroll-adjustment-composer .payroll-adjustment-value-type [data-mobile-label]')]
+                .map(label => label.dataset.mobileLabel)
+        ).toEqual(['$', '%']);
         expect(host.querySelectorAll('.payroll-adjustment-group')).toHaveLength(4);
         const layoutChildren = [...host.querySelector('.payroll-adjustment-desktop__layout').children];
         expect(layoutChildren[0].classList).toContain('payroll-adjustment-composer');

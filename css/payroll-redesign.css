@@ -1836,11 +1836,75 @@
 
 @media (max-width: 900px) {
     .payroll-adjustment-desktop {
-        display: none;
+        display: block;
     }
 
     .payroll-adjustment-legacy {
-        display: block;
+        display: none;
+    }
+
+    .payroll-adjustment-desktop__header {
+        flex-wrap: wrap;
+        align-items: flex-start;
+        padding: 14px;
+    }
+
+    .payroll-adjustment-desktop__header p {
+        max-width: none;
+    }
+
+    .payroll-adjustment-desktop__layout {
+        gap: 10px;
+        padding: 8px;
+    }
+
+    .payroll-adjustment-composer {
+        padding: 10px;
+    }
+
+    .payroll-adjustment-scope-options {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .payroll-adjustment-form__fields,
+    .payroll-adjustment-rule__editor .payroll-adjustment-form__fields {
+        grid-template-columns: minmax(0, 1fr) minmax(72px, 0.62fr);
+        gap: 7px;
+    }
+
+    .payroll-adjustment-form__fields > label:first-child,
+    .payroll-adjustment-rule__editor .payroll-adjustment-form__fields > label:first-child {
+        grid-column: 1 / -1;
+    }
+
+    .payroll-adjustment-value-type label > span {
+        font-size: 0;
+    }
+
+    .payroll-adjustment-value-type label > span::after {
+        content: attr(data-mobile-label);
+        font-size: 0.82rem;
+        line-height: 1;
+    }
+
+    .payroll-adjustment-form__footer {
+        flex-wrap: wrap;
+    }
+
+    .payroll-adjustment-form__actions {
+        margin-left: auto;
+    }
+
+    .payroll-adjustment-summary {
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+    }
+
+    .payroll-adjustment-summary__columns,
+    .payroll-adjustment-summary__groups,
+    .payroll-adjustment-summary__notice {
+        min-width: 580px;
     }
 
     .payroll-generator {

@@ -221,14 +221,14 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                                    name="type"
                                    value="fixed"
                                    ${adjustment.type !== 'percentage' ? 'checked' : ''}>
-                            <span>Monto</span>
+                            <span data-mobile-label="$">Monto</span>
                         </label>
                         <label>
                             <input type="radio"
                                    name="type"
                                    value="percentage"
                                    ${adjustment.type === 'percentage' ? 'checked' : ''}>
-                            <span>Porcentaje</span>
+                            <span data-mobile-label="%">Porcentaje</span>
                         </label>
                     </div>
                 </fieldset>
