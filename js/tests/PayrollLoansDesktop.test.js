@@ -55,10 +55,19 @@ describe('PayrollLoansDesktop', () => {
         expect(group.open).toBe(true);
         expect(group.querySelector('.payroll-loan-disclosure').getAttribute('aria-expanded'))
             .toBe('true');
-        expect(group.querySelector('.payroll-loan-group__employee-copy b').textContent)
-            .toBe('#001');
+        expect(group.querySelector('.payroll-loan-group__number').textContent)
+            .toBe('001');
+        expect(
+            [...group.querySelectorAll('.payroll-loan-group__employee-copy strong > span')]
+                .map(line => line.textContent)
+        ).toEqual(['Juan', 'Pérez']);
+        expect(group.querySelector('.payroll-loan-group__count').textContent)
+            .toBe('1/2');
         expect(group.querySelector('summary .payroll-loan-selection').getAttribute('aria-checked'))
             .toBe('mixed');
+        const summaryControls = [...group.querySelector('summary').children].slice(-2);
+        expect(summaryControls[0].classList).toContain('payroll-loan-disclosure');
+        expect(summaryControls[1].classList).toContain('payroll-loan-selection');
         expect(group.querySelectorAll('.payroll-loan-child .payroll-loan-selection'))
             .toHaveLength(2);
         expect(

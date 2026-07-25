@@ -6,6 +6,15 @@ function safe(value) {
     return escapeHTML(String(value ?? ''));
 }
 
+function splitEmployeeName(name) {
+    const parts = String(name || 'Empleado').trim().split(/\s+/).filter(Boolean);
+    const firstName = parts.shift() || 'Empleado';
+    return {
+        firstName,
+        lastName: parts.join(' ')
+    };
+}
+
 function renderSelectionControl({ checked, mixed = false, employeeId, loanId = null, label }) {
     const action = loanId === null ? 'toggle-payroll-loan-employee' : 'toggle-payroll-loan';
     return `
@@ -91,11 +100,34 @@ function renderLoanRow(group, loan) {
 function renderEmployeeGroup(group, expandedIds) {
     const selectedAll = group.selectionState === 'all';
     const mixed = group.selectionState === 'mixed';
+    const { firstName, lastName } = splitEmployeeName(group.employeeName);
+    const isExpanded = expandedIds.has(String(group.employeeId));
     return `
         <details class="payroll-loan-group ${group.invalid ? 'is-invalid' : ''}"
                  data-employee-id="${safe(group.employeeId)}"
-                 ${expandedIds.has(String(group.employeeId)) ? 'open' : ''}>
+                 ${isExpanded ? 'open' : ''}>
             <summary>
+                <span class="payroll-loan-group__number">${safe(group.employeeNumber || '?')}</span>
+                <span class="payroll-loan-group__employee">
+                    <span class="payroll-loan-group__employee-copy">
+                        <strong>
+                            <span>${safe(firstName)}</span>
+                            <span>${safe(lastName)}</span>
+                        </strong>
+                        ${group.invalid ? '<small>El descuento deja el pago en cero o negativo</small>' : ''}
+                    </span>
+                </span>
+                <span class="payroll-loan-group__count">${group.selectedCount}/${group.eligibleCount}</span>
+                <span>${formatCurrency(group.selectedInterest)}</span>
+                <strong>${formatCurrency(group.selectedBalance)}</strong>
+                <strong class="${group.invalid ? 'is-invalid' : ''}">${formatCurrency(group.netRemaining)}</strong>
+                <button type="button"
+                        class="payroll-loan-disclosure"
+                        aria-expanded="${isExpanded}"
+                        aria-label="${isExpanded ? 'Ocultar' : 'Mostrar'} préstamos de ${safe(group.employeeName)}"
+                        data-payroll-action="toggle-payroll-loan-details"
+                        data-id="${safe(group.employeeId)}">
+                </button>
                 ${renderSelectionControl({
                     checked: selectedAll,
                     mixed,
@@ -104,23 +136,6 @@ function renderEmployeeGroup(group, expandedIds) {
                         ? `Excluir todos los préstamos de ${group.employeeName}`
                         : `Incluir todos los préstamos de ${group.employeeName}`
                 })}
-                <span class="payroll-loan-group__employee">
-                    <button type="button"
-                            class="payroll-loan-disclosure"
-                            aria-expanded="${expandedIds.has(String(group.employeeId))}"
-                            aria-label="${expandedIds.has(String(group.employeeId)) ? 'Ocultar' : 'Mostrar'} préstamos de ${safe(group.employeeName)}"
-                            data-payroll-action="toggle-payroll-loan-details"
-                            data-id="${safe(group.employeeId)}">
-                    </button>
-                    <span class="payroll-loan-group__employee-copy">
-                        <strong><b>#${safe(group.employeeNumber || '?')}</b> · ${safe(group.employeeName)}</strong>
-                        ${group.invalid ? '<small>El descuento deja el pago en cero o negativo</small>' : ''}
-                    </span>
-                </span>
-                <span>${group.selectedCount} de ${group.eligibleCount}</span>
-                <span>${formatCurrency(group.selectedInterest)}</span>
-                <strong>${formatCurrency(group.selectedBalance)}</strong>
-                <strong class="${group.invalid ? 'is-invalid' : ''}">${formatCurrency(group.netRemaining)}</strong>
             </summary>
             <div class="payroll-loan-group__body">
                 <div class="payroll-loan-child-columns" aria-hidden="true">
@@ -172,8 +187,9 @@ export function renderPayrollLoansDesktop({
             </div>
             <div class="payroll-loans-table">
                 <div class="payroll-loans-table__columns" aria-hidden="true">
-                    <span></span><span>Empleado</span><span>Préstamos</span>
+                    <span>N.º</span><span>Empleado</span><span>Préstamos</span>
                     <span>Interés</span><span>A descontar</span><span>Neto restante</span>
+                    <span></span><span></span>
                 </div>
                 ${model.groups.length
                     ? model.groups.map(group => renderEmployeeGroup(group, expandedIds)).join('')
