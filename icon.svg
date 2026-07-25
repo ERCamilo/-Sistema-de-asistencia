@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Sistema de Asistencia</title>
+  <desc id="description">Casco de construcción cian con una marca de verificación verde.</desc>
+  <defs>
+    <linearGradient id="background" x1="88" y1="40" x2="424" y2="472" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111c31"/>
+      <stop offset="1" stop-color="#0b1324"/>
+    </linearGradient>
+    <linearGradient id="helmet" x1="80" y1="110" x2="452" y2="392" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="check" x1="184" y1="270" x2="362" y2="218" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#86ef78"/>
+    </linearGradient>
+    <filter id="cyanGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feFlood flood-color="#22d3ee" flood-opacity=".62"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="greenGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="11" result="blur"/>
+      <feFlood flood-color="#4ade80" flood-opacity=".56"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="104" fill="url(#background)"/>
+
+  <g fill="none" stroke="url(#helmet)" stroke-width="25" stroke-linecap="round" stroke-linejoin="round" filter="url(#cyanGlow)">
+    <path d="M82 356v-29c0-14 9-25 23-29 10-78 55-139 117-166"/>
+    <path d="M322 132c63 27 108 88 118 166 14 4 23 15 23 29v29"/>
+    <path d="M82 356c0 12 8 21 20 25 94 31 247 31 341 0 12-4 20-13 20-25"/>
+    <path d="M211 139 224 91c2-9 10-15 20-15h67c10 0 18 6 20 15l13 48"/>
+    <path d="m211 139 16 70"/>
+    <path d="m344 139-16 70"/>
+  </g>
+
+  <path d="m181 265 67 65 111-111" fill="none" stroke="url(#check)" stroke-width="35" stroke-linecap="round" stroke-linejoin="round" filter="url(#greenGlow)"/>
+</svg>

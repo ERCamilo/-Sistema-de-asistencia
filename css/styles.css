@@ -2821,6 +2821,13 @@
             font-size: 0.9rem;
         }
 
+        .notification-update__app-icon {
+            display: block;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+        }
+
         .notification-update .notification-content {
             min-width: 0;
             padding-right: 0;
@@ -3013,10 +3020,57 @@
             box-shadow: none;
         }
 
+        .notification-update .notification-close__icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .notification-update .notification-close:hover {
             background: #31405b;
             color: #f8fafc;
             transform: scale(1.06);
+        }
+
+        @media (max-width: 640px) {
+            .notification-update__summary {
+                padding-right: 56px;
+            }
+
+            .notification-update.is-expanded .notification-content small {
+                display: none;
+            }
+
+            /* La superficie táctil conserva 44px, pero el círculo visible
+               mantiene 28px y queda alineado con el control de despliegue. */
+            .notification-update .notification-close {
+                top: 2px;
+                right: 2px;
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
+                min-height: 44px;
+                border: 0;
+                background: transparent;
+            }
+
+            .notification-update .notification-close__icon {
+                width: 28px;
+                height: 28px;
+                border: 1px solid rgba(148, 163, 184, 0.08);
+                border-radius: 999px;
+                background: rgba(36, 49, 73, 0.88);
+            }
+
+            .notification-update .notification-close:hover {
+                background: transparent;
+                transform: none;
+            }
+
+            .notification-update .notification-close:hover .notification-close__icon {
+                background: #31405b;
+                color: #f8fafc;
+            }
         }
 
         /* Animaciones y Estados */

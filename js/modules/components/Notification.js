@@ -132,7 +132,7 @@ export class Notification {
             <details class="notification-update__disclosure">
                 <summary class="notification-update__summary">
                     <span class="notification-icon-wrapper">
-                        <span class="notification-icon">${this._getIcon(this.type)}</span>
+                        <img class="notification-update__app-icon" src="./icon.svg" alt="">
                     </span>
                     <span class="notification-content">
                         <span class="notification-message"></span>
@@ -175,7 +175,7 @@ export class Notification {
                     </div>
                 </div>
             </details>
-            ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : ''}
+            ${this.closable ? `<button class="notification-close" aria-label="Cerrar"><span class="notification-close__icon">${icons.get('close')}</span></button>` : ''}
         `;
     }
 

@@ -13,6 +13,8 @@ import path from 'path';
 import { Notification } from '../modules/components/Notification.js';
 
 const INDEX_SRC = fs.readFileSync(path.resolve(__dirname, '../../index.html'), 'utf8');
+const MANIFEST = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../manifest.json'), 'utf8'));
+const APP_ICON_SRC = fs.readFileSync(path.resolve(__dirname, '../../icon.svg'), 'utf8');
 
 const cleanup = () => {
     Notification.clearAll();
@@ -65,6 +67,13 @@ testRunner.addSuite("Notification — botones de acción", {
         );
         testRunner.assert(!!n.element.querySelector('.notification-action-icon svg'),
             'Actualizar usa un SVG determinista, no un emoji');
+        testRunner.assertEquals(
+            n.element.querySelector('.notification-update__app-icon')?.getAttribute('src'),
+            './icon.svg',
+            'el aviso identifica visualmente la aplicación con su icono vectorial'
+        );
+        testRunner.assert(!!n.element.querySelector('.notification-close__icon'),
+            'el cierre separa su superficie táctil del círculo visible');
         cleanup();
     },
 
@@ -244,6 +253,27 @@ testRunner.addSuite("Notification — actualización del Service Worker", {
             'la acción principal usa el lenguaje acordado');
         testRunner.assert(!INDEX_SRC.includes("label: 'Actualizar', icon:"),
             'la acción no depende de un icono Unicode del registro global');
+    }
+
+});
+
+testRunner.addSuite("Identidad visual — icono SVG", {
+
+    "el documento y el manifiesto publican el icono vectorial"() {
+        testRunner.assert(INDEX_SRC.includes('<link rel="icon" type="image/svg+xml" href="icon.svg">'),
+            'el navegador debe descubrir el favicon SVG');
+        testRunner.assert(
+            MANIFEST.icons.some((icon) => icon.src === 'icon.svg' && icon.sizes === 'any'),
+            'el manifiesto PWA debe publicar el recurso escalable'
+        );
+    },
+
+    "el icono conserva casco y check como trazos SVG, no como imagen embebida"() {
+        testRunner.assert(APP_ICON_SRC.includes('<svg'), 'debe ser un SVG válido');
+        testRunner.assert(APP_ICON_SRC.includes('id="helmet"'), 'incluye el trazo cian del casco');
+        testRunner.assert(APP_ICON_SRC.includes('id="check"'), 'incluye el check verde');
+        testRunner.assert(!APP_ICON_SRC.includes('data:image/'),
+            'no debe esconder un bitmap dentro del SVG');
     }
 
 });
