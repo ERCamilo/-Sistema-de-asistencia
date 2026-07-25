@@ -2246,7 +2246,7 @@
         align-self: stretch;
         justify-content: center;
         gap: 3px;
-        padding: 12px 4px 9px 8px;
+        padding: 12px 4px 9px 64px;
         border-top: 1px solid #2a3747;
     }
 
@@ -2430,7 +2430,7 @@
 
     .employee-list-row__salary {
         padding-right: 2px;
-        padding-left: 5px;
+        padding-left: 54px;
     }
 
     .employee-list-row__salary strong.is-range {
@@ -2499,6 +2499,27 @@
 
     .employee-position-assignment__mode button {
         flex: 1;
+    }
+}
+
+@media (max-width: 340px) {
+    .personnel-page #employees-list .employee-list-row {
+        grid-template-areas:
+            "number identity identity"
+            "salary salary salary"
+            ". actions actions";
+        grid-template-rows: minmax(72px, auto) minmax(52px, auto) 52px;
+        min-height: 203px;
+    }
+
+    .employee-list-row__salary {
+        padding-right: 0;
+        padding-left: 54px;
+    }
+
+    .employee-list-row__actions {
+        width: max-content;
+        justify-self: end;
     }
 }
 
