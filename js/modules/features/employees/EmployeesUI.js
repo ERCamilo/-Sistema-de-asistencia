@@ -11,10 +11,16 @@ import { PositionIconModal } from '../../ui/modals/PositionIconModal.js';
 import { LeaderIconModal } from '../../ui/modals/LeaderIconModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
 import { state as _appState, stateManager } from '../../core/AppState.js';
-import { EmployeeCard } from './EmployeesList.js';
+import { EmployeeCard, getEmployeeOpenFilter } from './EmployeesList.js';
 import { LeaderCard, scheduleLeaderCardGridLayout } from './LeadersList.js';
 import { PositionCard, schedulePositionCardGridLayout } from './PositionsList.js';
-import { renderPositionUiSvg } from './PositionVisuals.js';
+import {
+    renderPositionIconSvg,
+    renderPositionUiSvg,
+    resolveLeaderIcon,
+    resolvePositionIcon,
+    safePositionColor
+} from './PositionVisuals.js';
 
 export let context = null;
 
@@ -128,6 +134,63 @@ function getServices() {
     return context.services;
 }
 
+function renderEmployeeMultiFilter({
+    kind,
+    label,
+    searchPlaceholder,
+    items,
+    selectedIds,
+    toggleHandler,
+    iconResolver,
+    colorResolver
+}) {
+    const selected = new Set(selectedIds);
+    const count = selected.size;
+    const isOpen = getEmployeeOpenFilter() === kind;
+    return `
+        <details class="employee-multifilter${count ? ' has-selection' : ''}"
+                 ${isOpen ? 'open' : ''}
+                 ontoggle="setEmployeeFilterMenuOpen('${kind}', this.open)">
+            <summary aria-label="${escapeAttr(`Filtrar por ${label.toLowerCase()}`)}">
+                ${renderPositionUiSvg(kind === 'positions' ? 'filter' : 'leader', { size: 15 })}
+                <span>${escapeHTML(label)}</span>
+                ${count ? `<strong>${count}</strong>` : ''}
+            </summary>
+            <div class="employee-multifilter__popover">
+                <label class="employee-multifilter__search">
+                    ${renderPositionUiSvg('search', { size: 15 })}
+                    <input type="search"
+                           placeholder="${escapeAttr(searchPlaceholder)}"
+                           oninput="filterEmployeeFilterOptions(this)">
+                </label>
+                <div class="employee-multifilter__options">
+                    ${items.map(item => {
+                        const itemId = String(item.id);
+                        const checked = selected.has(itemId);
+                        const color = colorResolver ? colorResolver(item) : '#64748b';
+                        return `
+                            <label data-filter-label="${escapeAttr(item.name || '')}">
+                                <span class="employee-multifilter__option-icon"
+                                      style="--filter-option-color: ${safePositionColor(color, '#64748b')};">
+                                    ${renderPositionIconSvg(iconResolver(item), { size: 17 })}
+                                </span>
+                                <span>${escapeHTML(item.name || 'Sin nombre')}</span>
+                                <input type="checkbox"
+                                       value="${escapeAttr(itemId)}"
+                                       ${checked ? 'checked' : ''}
+                                       onchange="${toggleHandler}(this.value, this.checked)">
+                                <span class="employee-multifilter__check" aria-hidden="true">
+                                    ${renderPositionUiSvg('check', { size: 13 })}
+                                </span>
+                            </label>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        </details>
+    `;
+}
+
 // ============================================
 // EMPLOYEES TAB
 // ============================================
@@ -140,12 +203,16 @@ export function EmployeesTab() {
     const isLeaders = subTab === 'leaders';
     const isPositions = subTab === 'positions';
     const activeEmployees = state.employees.filter(employee => employee.active !== false).length;
+    const sectionLabel = isEmployees ? 'Empleados' : isLeaders ? 'Líderes' : 'Puestos';
 
     const subTabsHTML = `
                 <section class="personnel-page">
                     <header class="personnel-page__header">
                         <div>
-                            <h1>Personal</h1>
+                            <div class="personnel-page__title">
+                                <h1>Personal</h1>
+                                <span class="personnel-page__context">${sectionLabel}</span>
+                            </div>
                             <p>${activeEmployees} activos · ${state.employees.length} empleados · ${state.leaders.length} líderes · ${state.positions.length} puestos</p>
                         </div>
                     </header>
@@ -309,8 +376,25 @@ export function EmployeesTab() {
     }
 
     // Si es empleados o líderes — usar lógica compartida
-    const { filteredItems, statusFilter, positionFilter, leaderFilter, selectedPosition, selectedLeader, statusLabel } = getFilteredEmployeesOrLeaders();
-    const employeeFilters = state.employeeFilters || { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+    const {
+        filteredItems,
+        statusFilter,
+        positionFilter,
+        leaderFilter,
+        positionFilters,
+        leaderFilters,
+        selectedPosition,
+        selectedLeader,
+        statusLabel
+    } = getFilteredEmployeesOrLeaders();
+    const employeeFilters = state.employeeFilters || {
+        search: '',
+        positionId: 'all',
+        leaderId: 'all',
+        positionIds: [],
+        leaderIds: [],
+        status: 'active'
+    };
 
     if (isLeaders) {
         const sortBy = state.leaderSortBy || 'employees';
@@ -372,7 +456,6 @@ export function EmployeesTab() {
     }
 
     if (isEmployees) {
-        const salaryView = state.employeeSalaryView === 'day' ? 'day' : 'month';
         const selectedEmployee = filteredItems.find(employee =>
             employee.id === state.selectedPersonnelEmployeeId
             || employee.key === state.selectedPersonnelEmployeeId
@@ -397,39 +480,43 @@ export function EmployeesTab() {
                         ` : ''}
                     </label>
 
-                    <select aria-label="Filtrar por puesto" onchange="setEmployeePositionFilter(this.value)">
-                        <option value="all" ${positionFilter === 'all' ? 'selected' : ''}>Todos los puestos</option>
-                        ${state.positions.slice().sort((a, b) => a.name.localeCompare(b.name)).map(position => `
-                            <option value="${escapeAttr(position.id)}" ${positionFilter === position.id ? 'selected' : ''}>
-                                ${escapeHTML(position.name)}
-                            </option>
-                        `).join('')}
-                    </select>
+                    <div class="employee-toolbar__multi-filters">
+                        ${renderEmployeeMultiFilter({
+                            kind: 'positions',
+                            label: 'Puestos',
+                            searchPlaceholder: 'Buscar puesto...',
+                            items: state.positions.slice().sort((a, b) => a.name.localeCompare(b.name)),
+                            selectedIds: positionFilters,
+                            toggleHandler: 'toggleEmployeePositionFilter',
+                            iconResolver: resolvePositionIcon,
+                            colorResolver: position => position.color
+                        })}
+                        ${renderEmployeeMultiFilter({
+                            kind: 'leaders',
+                            label: 'Líderes',
+                            searchPlaceholder: 'Buscar líder...',
+                            items: state.leaders.filter(leader => leader.active)
+                                .sort((a, b) => a.name.localeCompare(b.name)),
+                            selectedIds: leaderFilters,
+                            toggleHandler: 'toggleEmployeeLeaderFilter',
+                            iconResolver: resolveLeaderIcon,
+                            colorResolver: leader => leader.color
+                        })}
+                    </div>
 
-                    <select aria-label="Filtrar por líder" onchange="setEmployeeLeaderFilter(this.value)">
-                        <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los líderes</option>
-                        ${state.leaders.filter(leader => leader.active).sort((a, b) => a.name.localeCompare(b.name)).map(leader => `
-                            <option value="${escapeAttr(leader.id)}" ${leaderFilter === leader.id ? 'selected' : ''}>
-                                ${escapeHTML(leader.name)}
-                            </option>
-                        `).join('')}
-                    </select>
-
-                    <select aria-label="Filtrar por estado" onchange="setEmployeeStatusFilter(this.value)">
-                        <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>Cualquier estado</option>
-                        <option value="active" ${statusFilter === 'active' ? 'selected' : ''}>Activos</option>
-                        <option value="inactive" ${statusFilter === 'inactive' ? 'selected' : ''}>Pausados</option>
-                    </select>
-
-                    <div class="position-toolbar__sort employee-toolbar__earnings"
-                         aria-label="Mostrar ganancias por período">
-                        <button class="${salaryView === 'day' ? 'active' : ''}" type="button"
-                                data-action="set-employee-salary-view" data-value="day">
-                            Por día
+                    <div class="position-toolbar__sort employee-toolbar__status"
+                         aria-label="Filtrar empleados por estado">
+                        <button class="${statusFilter === 'active' ? 'active' : ''}" type="button"
+                                data-action="set-employee-status-filter" data-value="active">
+                            Activos
                         </button>
-                        <button class="${salaryView === 'month' ? 'active' : ''}" type="button"
-                                data-action="set-employee-salary-view" data-value="month">
-                            Por mes
+                        <button class="${statusFilter === 'inactive' ? 'active' : ''}" type="button"
+                                data-action="set-employee-status-filter" data-value="inactive">
+                            Inactivos
+                        </button>
+                        <button class="${statusFilter === 'all' ? 'active' : ''}" type="button"
+                                data-action="set-employee-status-filter" data-value="all">
+                            Todos
                         </button>
                     </div>
 
@@ -609,6 +696,8 @@ function getFilteredEmployeesOrLeaders() {
         search: '',
         positionId: 'all',
         leaderId: 'all',
+        positionIds: [],
+        leaderIds: [],
         status: state.employeeStatusFilter || 'active'
     };
     const statusFilter = employeeFilters.status || state.employeeStatusFilter || 'active';
@@ -621,6 +710,8 @@ function getFilteredEmployeesOrLeaders() {
 
     let positionFilter = 'all';
     let leaderFilter = 'all';
+    let positionFilters = [];
+    let leaderFilters = [];
     let selectedPosition = null;
     let selectedLeader = null;
     let statusLabel = 'Activos';
@@ -628,17 +719,25 @@ function getFilteredEmployeesOrLeaders() {
     if (isEmployees) {
         positionFilter = employeeFilters.positionId || 'all';
         leaderFilter = employeeFilters.leaderId || 'all';
+        positionFilters = Array.isArray(employeeFilters.positionIds)
+            ? [...new Set(employeeFilters.positionIds.filter(Boolean))]
+            : (positionFilter !== 'all' ? [positionFilter] : []);
+        leaderFilters = Array.isArray(employeeFilters.leaderIds)
+            ? [...new Set(employeeFilters.leaderIds.filter(Boolean))]
+            : (leaderFilter !== 'all' ? [leaderFilter] : []);
         const searchValue = (employeeFilters.search || '').trim().toLowerCase();
         selectedPosition = positionFilter !== 'all' ? state.positions.find(p => p.id === positionFilter) : null;
         selectedLeader = leaderFilter !== 'all' ? state.leaders.find(l => l.id === leaderFilter) : null;
         statusLabel = statusFilter === 'inactive' ? 'Desactivados' : (statusFilter === 'all' ? 'Todos' : 'Activos');
 
-        if (positionFilter !== 'all') {
-            filteredItems = filteredItems.filter(emp => (emp.positions || []).includes(positionFilter));
+        if (positionFilters.length) {
+            filteredItems = filteredItems.filter(emp =>
+                (emp.positions || []).some(positionId => positionFilters.includes(positionId))
+            );
         }
-        if (leaderFilter !== 'all') {
+        if (leaderFilters.length) {
             const leaderPositions = state.positions
-                .filter(p => p.leaderId === leaderFilter)
+                .filter(p => leaderFilters.includes(p.leaderId))
                 .map(p => p.id);
             filteredItems = filteredItems.filter(emp => (emp.positions || []).some(pid => leaderPositions.includes(pid)));
         }
@@ -695,7 +794,18 @@ function getFilteredEmployeesOrLeaders() {
         return (a.name || '').localeCompare(b.name || '');
     });
 
-    return { filteredItems, statusFilter, positionFilter, leaderFilter, selectedPosition, selectedLeader, statusLabel, isEmployees };
+    return {
+        filteredItems,
+        statusFilter,
+        positionFilter,
+        leaderFilter,
+        positionFilters,
+        leaderFilters,
+        selectedPosition,
+        selectedLeader,
+        statusLabel,
+        isEmployees
+    };
 }
 
 function buildEmployeesListHTML(selectedEmployeeId = null) {
@@ -749,6 +859,10 @@ export {
     setEmployeeSearchFilter,
     setEmployeePositionFilter,
     setEmployeeLeaderFilter,
+    toggleEmployeePositionFilter,
+    toggleEmployeeLeaderFilter,
+    filterEmployeeFilterOptions,
+    setEmployeeFilterMenuOpen,
     resetEmployeeFilters,
     openEmployeeForm,
     openEmployeeEditor,
