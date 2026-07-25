@@ -122,6 +122,10 @@ describe('PayrollLoansDesktop', () => {
         expect(group.querySelectorAll('.payroll-loan-child .payroll-loan-selection'))
             .toHaveLength(2);
         expect(
+            [...group.querySelectorAll('.payroll-loan-child')]
+                .every(row => row.lastElementChild.classList.contains('payroll-loan-selection'))
+        ).toBe(true);
+        expect(
             [...group.querySelectorAll('.payroll-loan-child .payroll-loan-selection')]
                 .map(control => control.getAttribute('aria-checked'))
         ).toEqual(['true', 'false']);

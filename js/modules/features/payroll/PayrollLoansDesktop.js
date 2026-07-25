@@ -107,18 +107,19 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
 function renderLoanRow(group, loan) {
     return `
         <div class="payroll-loan-child" role="row">
-            ${renderSelectionControl({
-                checked: loan.selected,
-                employeeId: group.employeeId,
-                loanId: loan.loanId,
-                label: `${loan.selected ? 'Excluir' : 'Incluir'} ${loan.concept} de esta nómina`
-            })}
             <span class="payroll-loan-child__concept">
                 <strong>${safe(loan.concept)}</strong>
                 <small>${loan.selected ? 'Incluido en esta nómina' : 'Excluido de esta nómina'}</small>
             </span>
             <span class="payroll-loan-child__interest">${formatCurrency(loan.interest)}</span>
             <strong class="payroll-loan-child__balance">${formatCurrency(loan.balance)}</strong>
+            <span class="payroll-loan-child__spacer" aria-hidden="true"></span>
+            ${renderSelectionControl({
+                checked: loan.selected,
+                employeeId: group.employeeId,
+                loanId: loan.loanId,
+                label: `${loan.selected ? 'Excluir' : 'Incluir'} ${loan.concept} de esta nómina`
+            })}
         </div>
     `;
 }
@@ -173,7 +174,8 @@ function renderEmployeeGroup(group, expandedIds) {
             </summary>
             <div class="payroll-loan-group__body">
                 <div class="payroll-loan-child-columns" aria-hidden="true">
-                    <span></span><span>Préstamo</span><span>Interés</span><span>Saldo</span>
+                    <span>Préstamo</span><span>Interés</span><span>Saldo</span>
+                    <span></span><span></span>
                 </div>
                 ${group.loans.map(loan => renderLoanRow(group, loan)).join('')}
                 <p>Excluir de esta nómina no elimina el préstamo de cuentas por cobrar.</p>
