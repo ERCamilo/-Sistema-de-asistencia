@@ -120,6 +120,12 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "incluye el resumen financiero prioritario para móvil");
         testRunner.assert(html.includes('class=\"loan-card__breakdown\"'),
             "el detalle financiero queda disponible bajo demanda");
+        testRunner.assert(html.includes('class=\"loan-card__mobile-identity\"'),
+            "el resumen móvil alinea identidad, saldo y control de expansión");
+        testRunner.assert(html.includes('class=\"loan-card__breakdown-title\">Desglose financiero'),
+            "el botón más revela el desglose dentro de la misma tarjeta");
+        testRunner.assert(!html.includes('class=\"loan-card__summary-secondary\"'),
+            "pagado y total ya no ocupan espacio en el estado móvil colapsado");
         testRunner.assert(html.includes('class=\"loans-detail-back\"'),
             "el regreso usa el nuevo botón circular");
         testRunner.assert(html.includes('class=\"loans-detail-header__balance\"'),

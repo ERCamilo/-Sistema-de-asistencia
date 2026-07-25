@@ -431,7 +431,7 @@ function LoanCard(loan) {
     return `
         <div class="loan-card" style="background: #1e293b; border-radius: 12px; padding: 16px 18px; border: 1px solid #334155; margin-bottom: 12px; ${isWrittenOff ? 'opacity: 0.6;' : ''}">
             <!-- Top line: concept + status -->
-            <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+            <div class="loan-card__desktop-header" style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                 <div style="flex: 1; min-width: 200px;">
                     <div style="font-size: 0.95rem; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">${escapeHTML(loan.concept || 'Préstamo')}</div>
                     <div style="font-size: 0.75rem; color: #94a3b8;">
@@ -478,49 +478,52 @@ function LoanCard(loan) {
                 </div>
             </div>
 
-            <!-- Mobile priority summary -->
-            <div class="loan-card__mobile-summary">
-                <div class="loan-card__pending">
-                    <span>Saldo pendiente</span>
-                    <strong class="${balance > 0 ? '' : 'loan-card__pending--paid'}">${formatCurrency(balance)}</strong>
-                </div>
-                <div class="loan-card__summary-secondary">
-                    <div>
-                        <span>Pagado</span>
-                        <strong class="loan-card__summary-paid">${formatCurrency(paid)}</strong>
-                    </div>
-                    <div>
-                        <span>Total</span>
-                        <strong>${formatCurrency(totalDue)}</strong>
-                    </div>
-                </div>
-            </div>
-
+            <!-- Mobile compact summary + financial disclosure -->
             <details class="loan-card__breakdown">
-                <summary>
-                    <span>Desglose financiero</span>
-                    ${DisclosureControl()}
+                <summary class="loan-card__mobile-summary">
+                    <span class="loan-card__mobile-identity">
+                        <strong>
+                            ${escapeHTML(loan.concept || 'Préstamo')}
+                            ${Number.isFinite(Number(loan.seq)) ? `<b>#${Number(loan.seq)}</b>` : ''}
+                        </strong>
+                        <span>
+                            ${formatDateShort(loan.startDate)} ·
+                            ${loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `${(loan.installments || []).length} cuotas` : 'Pago único'}
+                        </span>
+                        ${loan.updatedAt ? `<small>⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}</small>` : ''}
+                    </span>
+                    <span class="loan-card__pending">
+                        <span>Saldo pendiente</span>
+                        <strong class="${balance > 0 ? '' : 'loan-card__pending--paid'}">${formatCurrency(balance)}</strong>
+                    </span>
+                    <span class="loan-card__mobile-state">
+                        ${statusBadge}
+                        ${DisclosureControl()}
+                    </span>
                 </summary>
-                <div class="loan-card__metrics loan-card__metrics--breakdown">
-                    <div>
-                        <div class="loan-card__metric-label">Capital</div>
-                        <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
-                    </div>
-                    <div>
-                        <div class="loan-card__metric-label">Interés</div>
-                        <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
-                    </div>
-                    <div>
-                        <div class="loan-card__metric-label">Int. acumulado</div>
-                        <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
-                    </div>
-                    <div>
-                        <div class="loan-card__metric-label">Total</div>
-                        <div class="loan-card__metric-value">${formatCurrency(totalDue)}</div>
-                    </div>
-                    <div>
-                        <div class="loan-card__metric-label">Pagado</div>
-                        <div class="loan-card__metric-value loan-card__metric-value--paid">${formatCurrency(paid)}</div>
+                <div class="loan-card__breakdown-body">
+                    <div class="loan-card__breakdown-title">Desglose financiero</div>
+                    <div class="loan-card__metrics loan-card__metrics--breakdown">
+                        <div>
+                            <div class="loan-card__metric-label">Capital</div>
+                            <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Interés</div>
+                            <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Int. acumulado</div>
+                            <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Total</div>
+                            <div class="loan-card__metric-value">${formatCurrency(totalDue)}</div>
+                        </div>
+                        <div>
+                            <div class="loan-card__metric-label">Pagado</div>
+                            <div class="loan-card__metric-value loan-card__metric-value--paid">${formatCurrency(paid)}</div>
+                        </div>
                     </div>
                 </div>
             </details>

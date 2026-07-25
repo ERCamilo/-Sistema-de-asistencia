@@ -715,7 +715,6 @@
     color: #a78bfa;
 }
 
-.loan-card__mobile-summary,
 .loan-card__breakdown {
     display: none;
 }
@@ -747,6 +746,17 @@
 
 .loan-card__breakdown > summary {
     color: #dce4ec;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.loan-card__breakdown-body {
+    border-top: 1px solid #334155;
+}
+
+.loan-card__breakdown-title {
+    padding: 10px 12px;
+    color: #f1f5f9;
     font-size: 0.78rem;
     font-weight: 800;
 }
@@ -1478,78 +1488,134 @@
     }
 
     .loan-card {
-        padding: 14px !important;
+        padding: 12px !important;
+    }
+
+    .loan-card__desktop-header {
+        display: none !important;
     }
 
     .loan-card__metrics--desktop {
         display: none;
     }
 
-    .loan-card__mobile-summary,
     .loan-card__breakdown {
         display: block;
     }
 
-    .loan-card__mobile-summary {
-        padding: 12px;
+    .loan-card__breakdown {
         margin-bottom: 10px;
-        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .loan-card__breakdown:not([open]) + .loan-card__history {
+        display: none;
+    }
+
+    .loan-card__mobile-summary {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1.35fr) minmax(94px, 0.8fr) auto;
+        gap: 10px !important;
+        min-height: 84px !important;
+        align-items: center !important;
+        padding: 10px 12px !important;
+        background: transparent;
+    }
+
+    .loan-card__mobile-identity {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .loan-card__mobile-identity > strong {
+        overflow: hidden;
+        color: #f1f5f9;
+        font-size: 0.82rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .loan-card__mobile-identity > strong b {
+        color: #f59e0b;
+        font-weight: 800;
+    }
+
+    .loan-card__mobile-identity > span,
+    .loan-card__mobile-identity > small {
+        overflow: hidden;
+        color: #8290a0;
+        font-size: 0.63rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .loan-card__mobile-identity > small {
+        color: #64748b;
+    }
+
+    .loan-card__mobile-state {
+        display: flex;
+        align-self: stretch;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .loan-card__mobile-state .loan-card__disclosure-control {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+        border-color: #3b4755;
         background: #0f172a;
+        color: #a78bfa;
     }
 
     .loan-card__pending {
-        padding-bottom: 10px;
-        border-bottom: 1px solid #2d3947;
+        min-width: 0;
+        padding: 0;
+        border: 0;
     }
 
-    .loan-card__pending span,
-    .loan-card__summary-secondary span {
+    .loan-card__pending > span {
         display: block;
         color: #8c99a7;
-        font-size: 0.64rem;
+        font-size: 0.57rem;
         font-weight: 800;
         text-transform: uppercase;
+        white-space: nowrap;
     }
 
     .loan-card__pending strong {
         display: block;
         margin-top: 2px;
         color: #f59e0b;
-        font-size: 1.4rem;
+        font-size: 1.15rem;
         line-height: 1.15;
+        white-space: nowrap;
     }
 
     .loan-card__pending strong.loan-card__pending--paid {
         color: rgb(16, 185, 115);
     }
 
-    .loan-card__summary-secondary {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        padding-top: 10px;
+    .loan-card__breakdown-body {
+        padding: 0 8px 8px;
+        background: rgba(15, 23, 42, 0.45);
     }
 
-    .loan-card__summary-secondary > div + div {
-        padding-left: 14px;
-        border-left: 1px solid #2d3947;
-    }
-
-    .loan-card__summary-secondary strong {
-        display: block;
-        margin-top: 2px;
-        color: #f1f5f9;
-        font-size: 0.88rem;
-    }
-
-    .loan-card__summary-secondary .loan-card__summary-paid {
-        color: rgb(16, 185, 115);
+    .loan-card__breakdown-title {
+        padding-inline: 4px;
     }
 
     .loan-card__metrics--breakdown {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
-        padding-top: 8px;
-        border-radius: 0 0 8px 8px;
+        padding: 12px;
+        border-radius: 7px;
     }
 
     .loan-card__actions {
