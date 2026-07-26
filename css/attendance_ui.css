@@ -981,6 +981,93 @@
 }
 
 /* --- 👤 FILAS DE EMPLEADO --- */
+.employee-list .employee-row {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+}
+
+.employee-list .employee-row > :not(.attendance-position-watermarks) {
+    position: relative;
+    z-index: 1;
+}
+
+.attendance-position-watermarks {
+    position: absolute;
+    z-index: 0;
+    top: 8px;
+    right: 18px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    pointer-events: none;
+}
+
+.attendance-position-watermarks > span {
+    display: grid;
+    width: 112px;
+    height: 112px;
+    place-items: center;
+    color: color-mix(in srgb, var(--watermark-color) 34%, #7d8798);
+    opacity: 0.12;
+}
+
+.attendance-position-watermarks.has-2 {
+    top: 18px;
+}
+
+.attendance-position-watermarks.has-2 > span {
+    width: 82px;
+    height: 82px;
+}
+
+.attendance-position-watermarks.has-3 {
+    top: 24px;
+}
+
+.attendance-position-watermarks.has-3 > span {
+    width: 64px;
+    height: 64px;
+}
+
+.attendance-position-watermarks svg {
+    width: 100%;
+    height: 100%;
+    stroke-width: 1.35;
+}
+
+.attendance-position-watermarks small {
+    margin-left: -18px;
+    color: #8995a6;
+    font-size: 0.7rem;
+    opacity: 0.5;
+}
+
+.employee-row-compact .attendance-position-watermarks {
+    top: 3px;
+    right: 58px;
+}
+
+.employee-row-compact .attendance-position-watermarks > span {
+    width: 54px;
+    height: 54px;
+}
+
+.employee-row-compact .attendance-position-watermarks.has-2,
+.employee-row-compact .attendance-position-watermarks.has-3 {
+    top: 8px;
+}
+
+.employee-row-compact .attendance-position-watermarks.has-2 > span {
+    width: 42px;
+    height: 42px;
+}
+
+.employee-row-compact .attendance-position-watermarks.has-3 > span {
+    width: 34px;
+    height: 34px;
+}
+
 .employee-row-compact {
     padding: 8px 12px;
     height: 60px;

@@ -272,6 +272,7 @@ class OnboardingWizard {
         state.settings = {
             companyName: 'Mi Empresa',
             regularHoursPerDay: 8,
+            attendancePositionWatermarks: true,
             holidayFactor: 2,
             iconSet: resolveIconSet(),
             holidays: []

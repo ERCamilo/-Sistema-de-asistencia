@@ -95,7 +95,7 @@ testRunner.addSuite("SettingsDraftBar — isSettingsDraftDirty (value vs default
     },
 
     "los switches auto-save NO participan del draft"() {
-        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled']) {
+        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks']) {
             testRunner.assert(!SETTINGS_DRAFT_FIELD_IDS.includes(id),
                 `${id} se comete solo al cambiar (commitAutoSaveSwitch) — no es borrador`);
         }

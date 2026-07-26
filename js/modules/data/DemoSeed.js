@@ -14,6 +14,7 @@ export function getDemoSeed(options = {}) {
     const settings = {
         companyName: 'Constructora Horizon S.R.L.',
         regularHoursPerDay: 8,
+        attendancePositionWatermarks: true,
         holidayFactor: 2,
         holidays: [] 
     };
