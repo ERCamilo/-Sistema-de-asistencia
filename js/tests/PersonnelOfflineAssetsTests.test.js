@@ -11,4 +11,17 @@ describe('recursos offline del rediseño de Personal', () => {
         expect(indexHtml).toContain('href="css/personnel.css"');
         expect(serviceWorker).toContain("'./css/personnel.css'");
     });
+
+    test('mantiene las rutas del manifest dentro del origen que sirve la aplicación', () => {
+        const manifest = JSON.parse(
+            fs.readFileSync(path.join(projectRoot, 'manifest.json'), 'utf8')
+        );
+
+        expect(manifest.id).toBe('./index.html');
+        expect(manifest.start_url).toBe('./index.html');
+        expect(manifest.scope).toBe('./');
+        manifest.shortcuts.forEach(shortcut => {
+            expect(shortcut.url).toMatch(/^\.\/index\.html\?/);
+        });
+    });
 });

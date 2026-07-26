@@ -42,7 +42,7 @@ export class EmployeeModal {
                            value="${suggestedNumber}" 
                            placeholder="001" 
                            required 
-                           pattern="[0-9A-Za-z-]+" 
+                           pattern="[0-9A-Za-z\\-]+"
                            maxlength="10"
                            style="${!isEdit ? 'border-color: rgba(16, 185, 129, 0.5); background: rgba(16, 185, 129, 0.05); color: #10b981; font-weight: 700;' : ''}">
                 </div>

@@ -185,6 +185,7 @@ describe('directorio visual de empleados', () => {
 
         expect(host.querySelector('.employee-inline-editor')).not.toBeNull();
         expect(host.querySelector('#empName').value).toBe('Franklin');
+        expect(host.querySelector('#empNumber').pattern).toBe('[0-9A-Za-z\\-]+');
         expect(host.querySelector('.modal-overlay')).toBeNull();
         expect(document.body.style.overflow).toBe('');
         host.remove();
