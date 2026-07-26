@@ -17,7 +17,7 @@ import {
 import {
     DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
     EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
-    DateControls, DateControlsCompact, getDayHours, getCheckColor
+    DateControls, DateControlsCompact, getDayHours, getCheckColor, getFilteredEmployeesForDay
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
@@ -72,6 +72,11 @@ import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
 import { Attendance } from './modules/features/attendance/Attendance.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from './modules/features/attendance/AttendanceRecordWriter.js';
+import {
+    buildBulkUndoPlan,
+    buildClearVisibleAttendancePlan,
+    buildMarkVisiblePresentPlan
+} from './modules/features/attendance/AttendanceBulkActions.js';
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
@@ -2265,6 +2270,116 @@ function updateCheckboxOnly(empId) {
         }
     }
 }
+
+function commitBulkAttendancePlan(changes, label, dateKey) {
+    if (changes.length === 0) return 0;
+
+    stateManager.batchSetState(() => {
+        changes.forEach(change => {
+            state.attendance[change.key] = stampAttendanceWrite(change.next);
+            invalidateEmployeeStats(change.employeeId);
+        });
+        buildAttendanceIndex(dateKey);
+    });
+
+    UndoManager.push(
+        changes,
+        label,
+        () => {
+            const undoChanges = buildBulkUndoPlan(changes, state.attendance);
+            stateManager.batchSetState(() => {
+                undoChanges.forEach(change => {
+                    state.attendance[change.key] = stampAttendanceWrite(change.next);
+                    invalidateEmployeeStats(change.employeeId);
+                });
+                buildAttendanceIndex(dateKey);
+            });
+
+            if (window.currentUser) {
+                undoChanges.forEach(change => attendanceSyncTracker.markPending(change.employeeId));
+            }
+        }
+    );
+
+    saveApplicationData({ dateKey });
+
+    if (window.currentUser) {
+        changes.forEach(change => attendanceSyncTracker.markPending(change.employeeId));
+    }
+
+    return changes.length;
+}
+
+window.markVisibleEmployeesPresent = () => {
+    const selectedDate = new Date(state.selectedDate);
+    const dateKey = getDateKey(selectedDate);
+    const employees = getFilteredEmployeesForDay();
+    const changes = buildMarkVisiblePresentPlan({
+        employees,
+        attendance: state.attendance,
+        dateKey,
+        dayHours: getDayHours(selectedDate),
+        isHoliday: isDayHoliday(selectedDate, state.settings.holidays)
+    });
+
+    if (changes.length === 0) {
+        showNotification('Los empleados visibles ya están marcados como presentes.', 'info');
+        return;
+    }
+
+    const changed = commitBulkAttendancePlan(
+        changes,
+        `${changes.length} asistencia${changes.length === 1 ? '' : 's'} marcada${changes.length === 1 ? '' : 's'}`,
+        dateKey
+    );
+    showNotification(`${changed} empleado${changed === 1 ? '' : 's'} marcado${changed === 1 ? '' : 's'} como presente${changed === 1 ? '' : 's'}.`, 'success');
+};
+
+window.clearVisibleAttendance = async () => {
+    const selectedDate = new Date(state.selectedDate);
+    const dateKey = getDateKey(selectedDate);
+    const visibleEmployeeIds = getFilteredEmployeesForDay().map(employee => employee.id);
+    const visibleEmployeeIdSet = new Set(visibleEmployeeIds);
+    const visibleEmployees = state.employees.filter(employee => visibleEmployeeIdSet.has(employee.id));
+    const currentPlan = buildClearVisibleAttendancePlan({
+        employees: visibleEmployees,
+        attendance: state.attendance,
+        dateKey
+    });
+
+    if (currentPlan.length === 0) {
+        showNotification('No hay asistencias visibles para limpiar.', 'info');
+        return;
+    }
+
+    const confirmed = await Modal.confirm({
+        title: 'Limpiar asistencias del día',
+        message: `Se quitarán ${currentPlan.length} asistencia${currentPlan.length === 1 ? '' : 's'} del ${formatDateShort(selectedDate)}. Los filtros actuales definen el alcance.`,
+        confirmText: `Limpiar ${currentPlan.length}`,
+        cancelText: 'Cancelar',
+        type: 'danger'
+    });
+    if (!confirmed) return;
+
+    const employeesAtConfirmation = state.employees.filter(employee => visibleEmployeeIdSet.has(employee.id));
+    const changes = buildClearVisibleAttendancePlan({
+        employees: employeesAtConfirmation,
+        attendance: state.attendance,
+        dateKey
+    });
+
+    if (changes.length === 0) {
+        showNotification('Las asistencias visibles ya estaban limpias.', 'info');
+        return;
+    }
+
+    const changed = commitBulkAttendancePlan(
+        changes,
+        `${changes.length} asistencia${changes.length === 1 ? '' : 's'} limpiada${changes.length === 1 ? '' : 's'}`,
+        dateKey
+    );
+    showNotification(`${changed} asistencia${changed === 1 ? '' : 's'} limpiada${changed === 1 ? '' : 's'}.`, 'success');
+};
 
 window.openCheckMenu = (event, empId) => {
     event.stopPropagation();

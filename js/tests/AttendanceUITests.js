@@ -2,7 +2,7 @@
  * AttendanceUITests - Tests for Attendance UI controls and components
  */
 
-import { DateControls, formatSplitName, WeekView, SearchBar, DayView, EmployeeRow, EmployeeRowCompact } from '../modules/ui/AttendanceUI.js';
+import { AttendanceBulkActions, DateControls, formatSplitName, WeekView, SearchBar, DayView, EmployeeRow, EmployeeRowCompact } from '../modules/ui/AttendanceUI.js';
 import { CalendarView } from '../modules/ui/components/CalendarView.js';
 
 testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
@@ -62,11 +62,33 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
     "SearchBar: contiene controles conectados y responsivos"() {
         const html = SearchBar();
         testRunner.assert(html.includes('class="search-wrapper"'), 'Debe contener la clase search-wrapper');
-        testRunner.assert(html.includes('class="search-input-group"'), 'Debe contener la clase search-input-group');
+        testRunner.assert(html.includes('search-input-group'), 'Debe contener la clase search-input-group');
         testRunner.assert(html.includes('data-att-action="set-search-filter"'), 'La busqueda debe estar conectada al handler de asistencia');
+        testRunner.assert(html.includes('data-att-action="set-position-filter"'), 'El filtro de posición debe compartir la barra compacta');
         testRunner.assert(html.includes('data-att-action="set-leader-filter"'), 'El filtro de lider debe estar conectado al handler de asistencia');
         testRunner.assert(html.includes('employee-search-input'), 'Debe preservar el foco mientras se escribe en la busqueda');
         testRunner.assert(html.includes('data-app-fn="openAttendanceLayoutModal"'), 'Debe incluir el boton de opciones de distribucion');
+    },
+
+    "AttendanceBulkActions: muestra alcance visible y conteos accionables"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        window.state.selectedDate = new Date('2026-07-26T12:00:00');
+        window.state.attendance = {
+            'e1-2026-07-26': { employeeId: 'e1', date: '2026-07-26', present: true, hoursWorked: 8 }
+        };
+
+        try {
+            const html = AttendanceBulkActions([{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }]);
+            testRunner.assert(html.includes('3 empleados visibles'), 'debe explicar el alcance filtrado');
+            testRunner.assert(html.includes('data-att-action="mark-visible-present"'), 'debe conectar la acción de marcar presentes');
+            testRunner.assert(html.includes('data-att-action="clear-visible-attendance"'), 'debe conectar la acción de limpiar');
+            testRunner.assert(html.includes('Poner todos presentes'), 'debe conservar una etiqueta comprensible');
+            testRunner.assert(html.includes('Limpiar asistencias'), 'debe evitar el ambiguo Limpiar todo');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+        }
     },
 
     "DayView: aplica clase de distribucion de columnas"() {

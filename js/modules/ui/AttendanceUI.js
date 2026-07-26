@@ -38,7 +38,9 @@ const _ACTION_MAP = {
     'toggle-weather': () => window.toggleWeatherExpanded?.(),
     'toggle-position': (_, el) => window.togglePosition?.(el.dataset.empId, el.dataset.posId),
     'select-temp-position': (_, el, e) => { e?.stopPropagation(); window.selectTempPosition?.(el.dataset.empId, el.dataset.posId); },
-    'handle-checkbox-click': (_, el, e) => window.handleCheckboxClick?.(e, el.dataset.empId)
+    'handle-checkbox-click': (_, el, e) => window.handleCheckboxClick?.(e, el.dataset.empId),
+    'mark-visible-present': () => window.markVisibleEmployeesPresent?.(),
+    'clear-visible-attendance': () => window.clearVisibleAttendance?.()
 };
 
 function _handleAttendanceClick(e) {
@@ -46,7 +48,7 @@ function _handleAttendanceClick(e) {
     const target = e.target.closest('[data-att-action]');
     if (!target) return;
     const action = target.dataset.attAction;
-    if (action === 'set-search-filter' || action === 'set-leader-filter') return;
+    if (action === 'set-search-filter' || action === 'set-leader-filter' || action === 'set-position-filter') return;
     const handler = _ACTION_MAP[action];
     if (!handler) return;
     const arg = target.dataset.id ?? target.dataset.value ?? null;
@@ -61,8 +63,10 @@ function _handleAttendanceInput(e) {
 
 function _handleAttendanceChange(e) {
     const target = e.target.closest('[data-att-action]');
-    if (!target || target.dataset.attAction !== 'set-leader-filter') return;
-    _ACTION_MAP['set-leader-filter']?.(null, target, e);
+    if (!target) return;
+    const action = target.dataset.attAction;
+    if (action !== 'set-leader-filter' && action !== 'set-position-filter') return;
+    _ACTION_MAP[action]?.(target.value, target, e);
 }
 
 function _handleAttendanceKeydown(e) {
@@ -466,10 +470,20 @@ export function PositionFilters() {
 export function SearchBar() {
     const searchValue = state.filters.search || '';
     const leaderFilter = state.filters.leaderId || 'all';
+    const positionFilter = state.filters.position || 'all';
+    const seenPositionNames = new Set();
+    const activePositions = state.positions
+        .filter(position => position.active)
+        .filter(position => {
+            if (seenPositionNames.has(position.name)) return false;
+            seenPositionNames.add(position.name);
+            return true;
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
 
     return `
         <div class="search-wrapper">
-            <div class="search-input-group">
+            <div class="search-input-group attendance-search-group">
                 <input type="text" id="search-input" value="${escapeHTML(searchValue)}"
                        data-att-action="set-search-filter"
                        placeholder="Buscar por nombre, número o posición..."
@@ -477,16 +491,27 @@ export function SearchBar() {
                 <span class="search-icon-fixed">🔍</span>
                 ${searchValue ? `<button type="button" data-att-action="clear-search-filter" aria-label="Limpiar búsqueda" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">${icons.get('close', { size: 12 })}</button>` : ''}
             </div>
-            <div class="search-input-group" style="flex: 2;">
+            <div class="search-input-group attendance-select-group">
+                <div class="search-icon-fixed">
+                    ${icons.get('briefcase', { size: 16 })}
+                </div>
+                <select data-att-action="set-position-filter"
+                        class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
+                    <option value="all" ${positionFilter === 'all' ? 'selected' : ''}>Todas las posiciones</option>
+                    ${activePositions.map(position => `<option value="${position.id}" ${positionFilter === position.id ? 'selected' : ''}>${escapeHTML(position.name)}</option>`).join('')}
+                </select>
+                <div class="attendance-select-chevron">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
+            </div>
+            <div class="search-input-group attendance-select-group">
                 <div class="search-icon-fixed">
                     ${icons.get('key')}
                 </div>
                 <select data-att-action="set-leader-filter"
                         class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
                     <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
-                    ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${l.name}</option>`).join('')}
+                    ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${escapeHTML(l.name)}</option>`).join('')}
                 </select>
-                <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.55; display:inline-flex;">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
+                <div class="attendance-select-chevron">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
             </div>
             <button type="button"
                     class="attendance-layout-btn"
@@ -495,6 +520,41 @@ export function SearchBar() {
                     title="Opciones de distribución">
                 ${icons.get('settings', { size: 18 })}
             </button>
+        </div>
+    `;
+}
+
+export function AttendanceBulkActions(employees) {
+    const dateKey = getDateKey(state.selectedDate);
+    const presentCount = employees.filter(employee => state.attendance[`${employee.id}-${dateKey}`]?.present).length;
+    const absentCount = employees.length - presentCount;
+
+    return `
+        <div class="attendance-bulk-bar" aria-label="Acciones masivas del día">
+            <div class="attendance-bulk-context">
+                <span class="attendance-bulk-title">Acciones del día</span>
+                <span class="attendance-bulk-scope">${employees.length} empleado${employees.length === 1 ? '' : 's'} visible${employees.length === 1 ? '' : 's'}</span>
+            </div>
+            <div class="attendance-bulk-actions">
+                <button type="button"
+                        class="attendance-bulk-btn attendance-bulk-btn-present"
+                        data-att-action="mark-visible-present"
+                        ${absentCount === 0 ? 'disabled' : ''}
+                        aria-label="Poner presentes a los empleados visibles">
+                    ${icons.get('check', { size: 17 })}
+                    <span>Poner todos presentes</span>
+                    <span class="attendance-bulk-count">${absentCount}</span>
+                </button>
+                <button type="button"
+                        class="attendance-bulk-btn attendance-bulk-btn-clear"
+                        data-att-action="clear-visible-attendance"
+                        ${presentCount === 0 ? 'disabled' : ''}
+                        aria-label="Limpiar la asistencia de los empleados visibles">
+                    ${icons.get('delete', { size: 17 })}
+                    <span>Limpiar asistencias</span>
+                    <span class="attendance-bulk-count">${presentCount}</span>
+                </button>
+            </div>
         </div>
     `;
 }
@@ -710,10 +770,10 @@ export function DayView() {
         <div class="day-view-page-mode ${isHoliday ? 'holiday-theme' : ''}">
             ${StatsGrid()}
             ${Legend()}
-            ${PositionFilters()}
             
             <div class="sticky-controls-wrapper" style="margin-top: 12px; margin-bottom: 0;">
                 ${SearchBar()}
+                ${AttendanceBulkActions(filtered)}
             </div>
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
