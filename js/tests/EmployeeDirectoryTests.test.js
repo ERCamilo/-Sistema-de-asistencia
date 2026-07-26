@@ -1,10 +1,22 @@
 import { state } from '../modules/core/AppState.js';
 import * as EmployeesUI from '../modules/features/employees/EmployeesUI.js';
-import { openEmployeeEditor, setEmployeeSalaryView } from '../modules/features/employees/EmployeesList.js';
+import fs from 'fs';
+import path from 'path';
+import {
+    openEmployeeEditor,
+    toggleEmployeeLeaderFilter,
+    toggleEmployeePositionFilter
+} from '../modules/features/employees/EmployeesList.js';
 import { EmployeeModal } from '../modules/ui/modals/EmployeeModal.js';
+
+const PERSONNEL_CSS = fs.readFileSync(
+    path.resolve(__dirname, '../../css/personnel.css'),
+    'utf8'
+);
 
 describe('directorio visual de empleados', () => {
     beforeEach(() => {
+        document.body.innerHTML = '';
         EmployeesUI.init({
             state,
             saveToLocalStorage: jest.fn(),
@@ -12,8 +24,12 @@ describe('directorio visual de empleados', () => {
             services: {}
         });
         state.employeeViewMode = 'employees';
-        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
-        state.employeeSalaryView = 'month';
+        state.employeeFilters = {
+            search: '',
+            positionIds: [],
+            leaderIds: [],
+            status: 'active'
+        };
         state.selectedPersonnelEmployeeId = null;
         state.settings.regularHoursPerDay = 8;
         state.positions = [{
@@ -60,32 +76,65 @@ describe('directorio visual de empleados', () => {
         };
     });
 
-    test('renderiza tabla comparativa, filtros y selector de ganancias', () => {
+    test('renderiza el directorio con contexto y filtros multiselección compactos', () => {
         const html = EmployeesUI.EmployeesTab();
 
         expect(html).toContain('class="employee-toolbar"');
         expect(html).toContain('class="employee-table__header"');
         expect(html).not.toContain('class="employee-preview"');
-        expect(html).toContain('Todos los puestos');
-        expect(html).toContain('Todos los líderes');
-        expect(html).toContain('Cualquier estado');
-        expect(html).toContain('Por día');
-        expect(html).toContain('Por mes');
+        expect(html).toContain('class="personnel-page__context">Empleados</span>');
+        expect(html).toContain('class="employee-multifilter');
+        expect(html).toContain('Buscar puesto...');
+        expect(html).toContain('Buscar líder...');
+        expect(html).toContain('employee-multifilter__backdrop');
+        expect(html).toContain('employee-multifilter__header');
+        expect(html).toContain('data-action="close-employee-filter"');
+        expect(html).toContain('employee-toolbar__status');
+        expect(html).not.toContain('Mostrar ganancias por período');
         expect(html).toContain('id="employee-editor-panel"');
         expect(html).toContain('employee-list-row is-selected');
     });
 
-    test('muestra ganancias mensuales o diarias sin alterar la tarifa guardada', () => {
+    test('cambia la tabla por tarjetas según el espacio disponible de Personal', () => {
+        expect(PERSONNEL_CSS).toMatch(
+            /\.personnel-page\s*\{[^}]*container:\s*personnel-page\s*\/\s*inline-size;/
+        );
+        expect(PERSONNEL_CSS).toContain('@container personnel-page (max-width: 1080px)');
+        expect(PERSONNEL_CSS).toMatch(
+            /@container personnel-page \(max-width: 1080px\)[\s\S]*?\.employee-table__header\s*\{[^}]*display:\s*none !important;/
+        );
+        expect(PERSONNEL_CSS).toMatch(
+            /@container personnel-page \(max-width: 1080px\)[\s\S]*?grid-template-areas:\s*"number identity identity"\s*"salary salary actions";/
+        );
+    });
+
+    test('cierra el filtro desde la X, al tocar fuera y con Escape', () => {
+        document.body.innerHTML = EmployeesUI.EmployeesTab();
+        const filter = document.querySelector('[data-filter-kind="positions"]');
+        const closeButton = filter.querySelector('.employee-multifilter__header [data-action="close-employee-filter"]');
+
+        filter.open = true;
+        closeButton.click();
+        expect(filter.open).toBe(false);
+
+        filter.open = true;
+        document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        expect(filter.open).toBe(false);
+
+        filter.open = true;
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(filter.open).toBe(false);
+        expect(document.activeElement).toBe(filter.querySelector('summary'));
+    });
+
+    test('muestra ganancias diarias y mensuales a la vez sin alterar la tarifa guardada', () => {
         const originalSalary = state.employees[0].positionSalaries.p1;
-        const monthly = EmployeesUI.EmployeesTab();
-        expect(monthly).toContain('$26,000');
-        expect(monthly).toContain('/ mes');
+        const html = EmployeesUI.EmployeesTab();
 
-        setEmployeeSalaryView('day');
-        const daily = EmployeesUI.EmployeesTab();
-
-        expect(daily).toContain('$1,200');
-        expect(daily).toContain('/ día');
+        expect(html).toContain('$1,200');
+        expect(html).toContain('/día');
+        expect(html).toContain('$26,000');
+        expect(html).toContain('/mes');
         expect(state.employees[0].positionSalaries.p1).toBe(originalSalary);
     });
 
@@ -101,14 +150,10 @@ describe('directorio visual de empleados', () => {
         state.employees[0].positions = ['p1', 'p2'];
         state.employees[0].positionSalaries = { p1: 150, p2: 200 };
 
-        const monthly = EmployeesUI.EmployeesTab();
-        expect(monthly).toContain('$26,000–$41,600');
-        expect(monthly).toContain('/ mes · según puesto');
-
-        setEmployeeSalaryView('day');
-        const daily = EmployeesUI.EmployeesTab();
-        expect(daily).toContain('$1,200–$1,600');
-        expect(daily).toContain('/ día · según puesto');
+        const html = EmployeesUI.EmployeesTab();
+        expect(html).toContain('$26,000–$41,600');
+        expect(html).toContain('$1,200–$1,600');
+        expect(html).not.toContain('según puesto');
     });
 
     test('seleccionar una fila actualiza la selección persistente sin alterar empleados', () => {
@@ -140,6 +185,7 @@ describe('directorio visual de empleados', () => {
 
         expect(host.querySelector('.employee-inline-editor')).not.toBeNull();
         expect(host.querySelector('#empName').value).toBe('Franklin');
+        expect(host.querySelector('#empNumber').pattern).toBe('[0-9A-Za-z\\-]+');
         expect(host.querySelector('.modal-overlay')).toBeNull();
         expect(document.body.style.overflow).toBe('');
         host.remove();
@@ -154,13 +200,65 @@ describe('directorio visual de empleados', () => {
         expect(html).toContain('employee-list-row__status is-active');
     });
 
-    test('el ojo abre el perfil completo y el lápiz conserva el editor lateral', () => {
+    test('el botón de perfil usa un icono de persona y el lápiz conserva el editor lateral', () => {
         const html = EmployeesUI.EmployeesTab();
 
         expect(html).toContain('data-action="open-employee-profile" data-id="e1"');
         expect(html).toContain('title="Ver perfil completo"');
+        expect(html).toContain('employee-profile-icon');
         expect(html).toContain('data-action="open-employee-editor" data-id="e1"');
         expect(html).toContain('title="Editar"');
+    });
+
+    test('renderiza los iconos de todos los puestos como fondo decorativo', () => {
+        state.positions.push({
+            id: 'p2',
+            name: 'Capataz',
+            active: true,
+            leaderId: 'l2',
+            hourlyRate: 200,
+            color: '#ef4444',
+            icon: 'hammer',
+            workingDays: [1, 2, 3, 4, 5, 6]
+        });
+        state.employees[0].positions = ['p1', 'p2'];
+
+        const html = EmployeesUI.EmployeesTab();
+
+        expect(html).toContain('class="employee-list-row__watermarks has-2"');
+        expect(html).toContain('--watermark-color: #22c4c9');
+        expect(html).toContain('--watermark-color: #ef4444');
+    });
+
+    test('combina posiciones con OR, líderes con OR y ambos grupos con AND', () => {
+        state.positions.push({
+            id: 'p2',
+            name: 'Capataz',
+            active: true,
+            leaderId: 'l2',
+            hourlyRate: 200,
+            color: '#ef4444',
+            workingDays: [1, 2, 3, 4, 5, 6]
+        });
+        state.leaders.push({ id: 'l2', number: 2, name: 'Johan', active: true });
+        state.employees.push({
+            id: 'e3',
+            key: 'e3',
+            number: 3,
+            name: 'Varnet',
+            active: true,
+            positions: ['p2'],
+            positionSalaries: { p2: 200 }
+        });
+
+        toggleEmployeePositionFilter('p1', true);
+        toggleEmployeePositionFilter('p2', true);
+        toggleEmployeeLeaderFilter('l2', true);
+        const html = EmployeesUI.EmployeesTab();
+
+        expect(html).toContain('Varnet');
+        expect(html).not.toContain('Franklin</strong>');
+        expect(html).not.toContain('Pauliny</strong>');
     });
 
     test('el perfil completo acepta la key utilizada por la fila', () => {

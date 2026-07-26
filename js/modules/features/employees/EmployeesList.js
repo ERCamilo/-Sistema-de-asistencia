@@ -26,13 +26,13 @@ import { hourlyToDaily } from '../payroll/SalaryConversion.js';
 import { resolvePositionBaseHourlyRate } from './EmployeePositionMetrics.js';
 
 const WEEKS_PER_MONTH = 52 / 12;
+let employeeOpenFilter = null;
 
 function formatMoney(amount) {
     return `$${Math.round(Number(amount) || 0).toLocaleString()}`;
 }
 
 export function getEmployeeEarningsDisplay(emp, positions) {
-    const salaryView = state.employeeSalaryView === 'day' ? 'day' : 'month';
     const regularHours = Number(state.settings?.regularHoursPerDay) || 8;
     const amounts = positions.length
         ? positions.map(position => {
@@ -41,24 +41,36 @@ export function getEmployeeEarningsDisplay(emp, positions) {
                 ? customRate
                 : resolvePositionBaseHourlyRate(position, regularHours);
             const dailyAmount = hourlyToDaily(hourlyRate, regularHours);
-            if (salaryView === 'day') return dailyAmount;
             const workDays = Array.isArray(position.workingDays) && position.workingDays.length
                 ? position.workingDays.length
                 : 6;
-            return dailyAmount * workDays * WEEKS_PER_MONTH;
+            return {
+                daily: dailyAmount,
+                monthly: dailyAmount * workDays * WEEKS_PER_MONTH
+            };
         })
-        : [0];
-    const rounded = amounts.map(Math.round);
-    const minimum = Math.min(...rounded);
-    const maximum = Math.max(...rounded);
-    const isRange = minimum !== maximum;
+        : [{ daily: 0, monthly: 0 }];
 
-    return {
-        amount: isRange
+    const buildPeriod = (period) => {
+        const rounded = amounts.map(amount => Math.round(amount[period]));
+        const minimum = Math.min(...rounded);
+        const maximum = Math.max(...rounded);
+        const isRange = minimum !== maximum;
+        return {
+            amount: isRange
             ? `${formatMoney(minimum)}–${formatMoney(maximum)}`
             : formatMoney(minimum),
-        period: salaryView === 'day' ? 'día' : 'mes',
-        isRange
+            isRange
+        };
+    };
+
+    const daily = buildPeriod('daily');
+    const monthly = buildPeriod('monthly');
+
+    return {
+        daily,
+        monthly,
+        isRange: daily.isRange || monthly.isRange
     };
 }
 
@@ -79,6 +91,8 @@ export function EmployeeCard(emp, { selected = false } = {}) {
     const employeeId = escapeAttr(emp.key || emp.id);
     const color = safePositionColor(primaryPosition?.color);
     const icon = resolvePositionIcon(primaryPosition || {});
+    const watermarkPositions = positions.slice(0, 3);
+    const hiddenWatermarks = Math.max(0, positions.length - watermarkPositions.length);
     const leaderNumbers = [...new Set(leaders.map(leader => leader.number)
         .filter(value => value !== undefined && value !== null))];
 
@@ -87,6 +101,14 @@ export function EmployeeCard(emp, { selected = false } = {}) {
                  data-action="open-employee-editor" data-id="${employeeId}"
                  style="--employee-position-color: ${color};">
             <span class="employee-list-row__number">${escapeHTML(String(emp.number || '—').padStart(3, '0'))}</span>
+            <div class="employee-list-row__watermarks has-${watermarkPositions.length}" aria-hidden="true">
+                ${watermarkPositions.map(position => `
+                    <span style="--watermark-color: ${safePositionColor(position.color)};">
+                        ${renderPositionIconSvg(resolvePositionIcon(position), { size: 42 })}
+                    </span>
+                `).join('')}
+                ${hiddenWatermarks ? `<small>+${hiddenWatermarks}</small>` : ''}
+            </div>
             <div class="employee-list-row__identity">
                 <span class="employee-list-row__icon">
                     ${renderPositionIconSvg(icon, { size: 20 })}
@@ -105,8 +127,8 @@ export function EmployeeCard(emp, { selected = false } = {}) {
             </div>
             <div class="employee-list-row__salary"
                  title="${earningsDisplay.isRange ? 'Rango según los puestos asignados' : 'Tarifa del puesto asignado'}">
-                <strong class="${earningsDisplay.isRange ? 'is-range' : ''}">${earningsDisplay.amount}</strong>
-                <span>/ ${earningsDisplay.period}${earningsDisplay.isRange ? ' · según puesto' : ''}</span>
+                <strong class="${earningsDisplay.daily.isRange ? 'is-range' : ''}">${earningsDisplay.daily.amount}<small>/día</small></strong>
+                <span class="${earningsDisplay.monthly.isRange ? 'is-range' : ''}">${earningsDisplay.monthly.amount}<small>/mes</small></span>
             </div>
             <span class="employee-list-row__status ${emp.active ? 'is-active' : 'is-paused'}">
                 ${emp.active ? 'Activo' : 'Pausado'}
@@ -114,7 +136,7 @@ export function EmployeeCard(emp, { selected = false } = {}) {
             <div class="employee-list-row__actions">
                 <button type="button" data-action="open-employee-profile" data-id="${employeeId}"
                         aria-label="Ver perfil completo de ${escapeHTML(emp.name)}" title="Ver perfil completo">
-                    ${renderPositionUiSvg('eye', { size: 15 })}
+                    ${renderPositionUiSvg('profile', { size: 16, className: 'employee-profile-icon' })}
                 </button>
                 <button type="button" data-action="open-employee-editor" data-id="${employeeId}"
                         aria-label="Editar empleado" title="Editar">
@@ -148,7 +170,7 @@ export function setEmployeeStatusFilter(filter) {
     stateManager.batchSetState(() => {
         state.employeeStatusFilter = filter;
         if (!state.employeeFilters) {
-            state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+            state.employeeFilters = createDefaultEmployeeFilters();
         }
         state.employeeFilters.status = filter;
     });
@@ -156,7 +178,7 @@ export function setEmployeeStatusFilter(filter) {
 
 export function setEmployeeSearchFilter(value) {
     if (!state.employeeFilters) {
-        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+        state.employeeFilters = createDefaultEmployeeFilters();
     }
     state.employeeFilters.search = value;
 
@@ -191,24 +213,94 @@ export function setEmployeeSearchFilter(value) {
 export function setEmployeePositionFilter(positionId) {
     stateManager.batchSetState(() => {
         if (!state.employeeFilters) {
-            state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+            state.employeeFilters = createDefaultEmployeeFilters();
         }
         state.employeeFilters.positionId = positionId;
+        state.employeeFilters.positionIds = positionId && positionId !== 'all' ? [positionId] : [];
     });
 }
 
 export function setEmployeeLeaderFilter(leaderId) {
     stateManager.batchSetState(() => {
         if (!state.employeeFilters) {
-            state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+            state.employeeFilters = createDefaultEmployeeFilters();
         }
         state.employeeFilters.leaderId = leaderId;
+        state.employeeFilters.leaderIds = leaderId && leaderId !== 'all' ? [leaderId] : [];
     });
 }
 
-export function resetEmployeeFilters() {
+function createDefaultEmployeeFilters() {
+    return {
+        search: '',
+        positionId: 'all',
+        leaderId: 'all',
+        positionIds: [],
+        leaderIds: [],
+        status: 'active'
+    };
+}
+
+function toggleFilterValue(currentValues, value, checked) {
+    const values = new Set(Array.isArray(currentValues) ? currentValues : []);
+    if (checked) values.add(value);
+    else values.delete(value);
+    return [...values];
+}
+
+export function toggleEmployeePositionFilter(positionId, checked) {
+    employeeOpenFilter = 'positions';
     stateManager.batchSetState(() => {
-        state.employeeFilters = { search: '', positionId: 'all', leaderId: 'all', status: 'active' };
+        if (!state.employeeFilters) state.employeeFilters = createDefaultEmployeeFilters();
+        state.employeeFilters.positionIds = toggleFilterValue(
+            state.employeeFilters.positionIds,
+            positionId,
+            checked
+        );
+        state.employeeFilters.positionId = 'all';
+    });
+}
+
+export function toggleEmployeeLeaderFilter(leaderId, checked) {
+    employeeOpenFilter = 'leaders';
+    stateManager.batchSetState(() => {
+        if (!state.employeeFilters) state.employeeFilters = createDefaultEmployeeFilters();
+        state.employeeFilters.leaderIds = toggleFilterValue(
+            state.employeeFilters.leaderIds,
+            leaderId,
+            checked
+        );
+        state.employeeFilters.leaderId = 'all';
+    });
+}
+
+export function setEmployeeFilterMenuOpen(kind, isOpen) {
+    if (isOpen) {
+        employeeOpenFilter = kind;
+    } else if (employeeOpenFilter === kind) {
+        employeeOpenFilter = null;
+    }
+}
+
+export function getEmployeeOpenFilter() {
+    return employeeOpenFilter;
+}
+
+export function filterEmployeeFilterOptions(input) {
+    const query = String(input?.value || '').trim().toLocaleLowerCase('es');
+    input?.closest('.employee-multifilter__popover')
+        ?.querySelectorAll('[data-filter-label]')
+        .forEach(option => {
+            option.hidden = query
+                ? !String(option.dataset.filterLabel || '').toLocaleLowerCase('es').includes(query)
+                : false;
+        });
+}
+
+export function resetEmployeeFilters() {
+    employeeOpenFilter = null;
+    stateManager.batchSetState(() => {
+        state.employeeFilters = createDefaultEmployeeFilters();
         state.employeeStatusFilter = 'active';
     });
 }

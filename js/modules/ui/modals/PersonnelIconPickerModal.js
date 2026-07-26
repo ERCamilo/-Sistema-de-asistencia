@@ -13,12 +13,13 @@ export class PersonnelIconPickerModal {
                 <label class="position-icon-search">
                     ${renderPositionUiSvg('search', { size: 16 })}
                     <input type="search" data-position-icon-search
-                           placeholder="Buscar herramienta u oficio...">
+                           placeholder="Buscar icono...">
                 </label>
                 <div class="position-icon-filters" role="group" aria-label="Filtrar iconos">
                     <button type="button" class="active" data-icon-category="heavy">Herramientas</button>
                     <button type="button" data-icon-category="trades">Oficios</button>
                     <button type="button" data-icon-category="management">Gestión</button>
+                    <button type="button" data-icon-category="other">Otros</button>
                     <button type="button" data-icon-category="all">Todos</button>
                 </div>
                 <div class="position-icon-picker position-icon-picker--popup">

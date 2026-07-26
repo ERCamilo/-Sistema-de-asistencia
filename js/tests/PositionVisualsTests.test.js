@@ -33,7 +33,7 @@ describe('metadatos visuales de puestos', () => {
     });
 
     test('el catálogo prioriza herramientas y renderiza SVG sin depender del set global', () => {
-        expect(POSITION_ICON_OPTIONS).toHaveLength(39);
+        expect(POSITION_ICON_OPTIONS).toHaveLength(64);
         expect(POSITION_ICON_OPTIONS[0].category).toBe('heavy');
         expect(POSITION_ICON_OPTIONS[0].value).toBe('hard-hat');
 
@@ -42,6 +42,44 @@ describe('metadatos visuales de puestos', () => {
         expect(svg).toContain('width="28"');
         expect(svg).toContain('stroke="currentColor"');
         expect(renderPositionUiSvg('edit')).toContain('<svg');
+    });
+
+    test('integra el lote Tabler sin duplicados y separa los iconos generales', () => {
+        const values = POSITION_ICON_OPTIONS.map(option => option.value);
+        const suppliedIcons = [
+            'building-community',
+            'building-skyscraper',
+            'firetruck',
+            'wrecking-ball',
+            'user-hexagon',
+            'hammer-drill',
+            'garden-cart',
+            'mood-crazy-happy',
+            'karate',
+            'pick',
+            'plunger',
+            'battery-charging',
+            'toilet-paper',
+            'pipeline',
+            'school',
+            'paint',
+            'hand-love-you',
+            'hand-little-finger',
+            'hand-middle-finger',
+            'brand-among-us',
+            'cat',
+            'fish-bone',
+            'paw',
+            'geometry',
+            'wall'
+        ];
+
+        expect(new Set(values).size).toBe(values.length);
+        suppliedIcons.forEach(icon => {
+            expect(values).toContain(icon);
+            expect(renderPositionIconSvg(icon)).toContain('<svg');
+        });
+        expect(POSITION_ICON_OPTIONS.some(option => option.category === 'other')).toBe(true);
     });
 
     test('incluye maquinaria, materiales y herramientas de construcción como SVG válidos', () => {

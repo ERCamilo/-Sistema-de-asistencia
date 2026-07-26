@@ -1238,6 +1238,62 @@ body.has-sidebar {
     outline: none;
 }
 
+@media (max-width: 440px) {
+    .header-content {
+        min-width: 0;
+        padding-right: 10px;
+        padding-left: 10px;
+    }
+
+    .header-left {
+        min-width: 0;
+        gap: 8px;
+    }
+
+    .header-left .company-name {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 0.88rem;
+        line-height: 1.05;
+        overflow-wrap: anywhere;
+    }
+
+    .header-right {
+        flex: 0 0 auto;
+        gap: 6px;
+    }
+
+    .header-login-btn {
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        padding: 0;
+        justify-content: center;
+        margin-left: 0;
+    }
+
+    .header-login-text {
+        display: none;
+    }
+}
+
+@media (max-width: 380px) {
+    .bottom-nav {
+        height: 58px;
+        padding-right: 2px;
+        padding-left: 2px;
+    }
+
+    .bottom-nav-tab {
+        min-width: 0;
+        padding: 6px 0;
+    }
+
+    .bottom-nav-text {
+        display: none;
+    }
+}
+
 /* Botón oficial "Iniciar sesión con Google" (guías de marca de Google:
    fondo blanco, texto oscuro, logo G de 4 colores, ~40px de alto). */
 .google-signin-btn {
