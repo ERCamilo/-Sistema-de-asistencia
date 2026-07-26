@@ -1,11 +1,18 @@
 import { state } from '../modules/core/AppState.js';
 import * as EmployeesUI from '../modules/features/employees/EmployeesUI.js';
+import fs from 'fs';
+import path from 'path';
 import {
     openEmployeeEditor,
     toggleEmployeeLeaderFilter,
     toggleEmployeePositionFilter
 } from '../modules/features/employees/EmployeesList.js';
 import { EmployeeModal } from '../modules/ui/modals/EmployeeModal.js';
+
+const PERSONNEL_CSS = fs.readFileSync(
+    path.resolve(__dirname, '../../css/personnel.css'),
+    'utf8'
+);
 
 describe('directorio visual de empleados', () => {
     beforeEach(() => {
@@ -86,6 +93,19 @@ describe('directorio visual de empleados', () => {
         expect(html).not.toContain('Mostrar ganancias por período');
         expect(html).toContain('id="employee-editor-panel"');
         expect(html).toContain('employee-list-row is-selected');
+    });
+
+    test('cambia la tabla por tarjetas según el espacio disponible de Personal', () => {
+        expect(PERSONNEL_CSS).toMatch(
+            /\.personnel-page\s*\{[^}]*container:\s*personnel-page\s*\/\s*inline-size;/
+        );
+        expect(PERSONNEL_CSS).toContain('@container personnel-page (max-width: 1080px)');
+        expect(PERSONNEL_CSS).toMatch(
+            /@container personnel-page \(max-width: 1080px\)[\s\S]*?\.employee-table__header\s*\{[^}]*display:\s*none !important;/
+        );
+        expect(PERSONNEL_CSS).toMatch(
+            /@container personnel-page \(max-width: 1080px\)[\s\S]*?grid-template-areas:\s*"number identity identity"\s*"salary salary actions";/
+        );
     });
 
     test('cierra el filtro desde la X, al tocar fuera y con Escape', () => {

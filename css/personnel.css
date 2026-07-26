@@ -8,6 +8,7 @@
     --personnel-text: #e8edf5;
     --personnel-accent: #06b6d4;
     --personnel-accent-strong: #22d3ee;
+    container: personnel-page / inline-size;
     width: 100%;
     color: var(--personnel-text);
 }
@@ -2219,6 +2220,38 @@
         font-size: 0.67rem;
     }
 
+    .position-card-grid,
+    .leader-card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .position-icon-picker {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .position-icon-picker--popup {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .position-color-picker {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .employee-position-picker__item {
+        grid-template-columns: 38px minmax(0, 1fr) auto;
+    }
+
+    .employee-position-picker__rates {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+}
+
+@container personnel-page (max-width: 1080px) {
+    .employee-workspace {
+        grid-template-columns: minmax(300px, 1fr) minmax(340px, 380px);
+    }
+
     .employee-table {
         overflow: visible;
         border: 0;
@@ -2425,32 +2458,6 @@
         color: #8995a6;
         font-size: 0.7rem;
         opacity: 0.5;
-    }
-
-    .position-card-grid,
-    .leader-card-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .position-icon-picker {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-
-    .position-icon-picker--popup {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-
-    .position-color-picker {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-
-    .employee-position-picker__item {
-        grid-template-columns: 38px minmax(0, 1fr) auto;
-    }
-
-    .employee-position-picker__rates {
-        grid-column: 1 / -1;
-        grid-row: 2;
     }
 }
 
