@@ -883,8 +883,22 @@ window.App.setProfilePeriod = function (periodType) {
 
 // Toggle mostrar/ocultar filtros
 window.toggleFilters = function () {
-    state.showFilters = !state.showFilters;
-    render();
+    window.openAttendanceFilterCatalog(state.attendanceFilterCatalog || 'positions');
+};
+
+window.openAttendanceFilterCatalog = function (mode) {
+    const normalizedMode = mode === 'leaders' ? 'leaders' : 'positions';
+    const shouldClose = state.showFilters && state.attendanceFilterCatalog === normalizedMode;
+    stateManager.batchSetState(() => {
+        state.attendanceFilterCatalog = normalizedMode;
+        state.showFilters = !shouldClose;
+    });
+};
+
+window.closeAttendanceFilterCatalog = function () {
+    stateManager.batchSetState(() => {
+        state.showFilters = false;
+    });
 };
 
 // Establecer filtro de posición

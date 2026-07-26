@@ -2,7 +2,7 @@
  * AttendanceUITests - Tests for Attendance UI controls and components
  */
 
-import { AttendanceBulkActions, DateControls, formatSplitName, WeekView, SearchBar, DayView, EmployeeRow, EmployeeRowCompact } from '../modules/ui/AttendanceUI.js';
+import { AttendanceBulkActions, DateControls, formatSplitName, WeekView, SearchBar, PositionFilters, DayView, EmployeeRow, EmployeeRowCompact } from '../modules/ui/AttendanceUI.js';
 import { CalendarView } from '../modules/ui/components/CalendarView.js';
 
 testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
@@ -64,10 +64,56 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         testRunner.assert(html.includes('class="search-wrapper"'), 'Debe contener la clase search-wrapper');
         testRunner.assert(html.includes('search-input-group'), 'Debe contener la clase search-input-group');
         testRunner.assert(html.includes('data-att-action="set-search-filter"'), 'La busqueda debe estar conectada al handler de asistencia');
-        testRunner.assert(html.includes('data-att-action="set-position-filter"'), 'El filtro de posición debe compartir la barra compacta');
-        testRunner.assert(html.includes('data-att-action="set-leader-filter"'), 'El filtro de lider debe estar conectado al handler de asistencia');
+        testRunner.assert(html.includes('data-att-action="open-filter-catalog"'), 'Los filtros visuales deben abrirse desde la barra compacta');
+        testRunner.assert(html.includes('data-value="positions"'), 'Debe permitir abrir el catálogo de profesiones');
+        testRunner.assert(html.includes('data-value="leaders"'), 'Debe permitir abrir el catálogo de líderes');
         testRunner.assert(html.includes('employee-search-input'), 'Debe preservar el foco mientras se escribe en la busqueda');
         testRunner.assert(html.includes('data-app-fn="openAttendanceLayoutModal"'), 'Debe incluir el boton de opciones de distribucion');
+    },
+
+    "PositionFilters: alterna un mismo catálogo visual entre profesiones y líderes"() {
+        const originalShowFilters = window.state.showFilters;
+        const originalCatalog = window.state.attendanceFilterCatalog;
+        const originalDate = window.state.selectedDate;
+        const originalPositions = window.state.positions;
+        const originalLeaders = window.state.leaders;
+        const originalEmployees = window.state.employees;
+
+        window.state.showFilters = true;
+        window.state.selectedDate = new Date('2026-07-26T12:00:00');
+        window.state.positions = [
+            { id: 'p1', name: 'Albañil', color: '#f59e0b', icon: 'bricks', leaderId: 'l1', active: true }
+        ];
+        window.state.leaders = [
+            { id: 'l1', number: 'L-001', name: 'Juan Líder', icon: 'supervisor', active: true }
+        ];
+        window.state.employees = [
+            { id: 'e1', name: 'Empleado Uno', positions: ['p1'], active: true }
+        ];
+
+        try {
+            window.state.attendanceFilterCatalog = 'positions';
+            const positionsHTML = PositionFilters();
+            testRunner.assert(positionsHTML.includes('Filtrar por profesiones'), 'Debe identificar el catálogo de profesiones');
+            testRunner.assert(positionsHTML.includes('Albañil'), 'Debe mostrar las profesiones disponibles');
+            testRunner.assert(positionsHTML.includes('data-att-action="set-position-filter"'), 'Debe conectar la selección de profesión');
+
+            window.state.attendanceFilterCatalog = 'leaders';
+            const leadersHTML = PositionFilters();
+            testRunner.assert(leadersHTML.includes('Filtrar por líderes'), 'Debe identificar el catálogo de líderes');
+            testRunner.assert(leadersHTML.includes('Juan Líder'), 'Debe mostrar los líderes disponibles');
+            testRunner.assert(leadersHTML.includes('data-att-action="set-leader-filter"'), 'Debe conectar la selección de líder');
+
+            window.state.showFilters = false;
+            testRunner.assert(PositionFilters() === '', 'El catálogo debe quedar oculto al cerrarse');
+        } finally {
+            window.state.showFilters = originalShowFilters;
+            window.state.attendanceFilterCatalog = originalCatalog;
+            window.state.selectedDate = originalDate;
+            window.state.positions = originalPositions;
+            window.state.leaders = originalLeaders;
+            window.state.employees = originalEmployees;
+        }
     },
 
     "AttendanceBulkActions: muestra alcance visible y conteos accionables"() {

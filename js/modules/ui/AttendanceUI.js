@@ -10,6 +10,12 @@ import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { escapeHTML } from '../utils/Sanitize.js';
+import {
+    renderPositionIconSvg,
+    resolveLeaderIcon,
+    resolvePositionIcon,
+    safePositionColor
+} from '../features/employees/PositionVisuals.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -27,8 +33,10 @@ const _ACTION_MAP = {
     'set-employee-filter': (val) => window.setEmployeeFilter?.(val === 'null' ? null : val),
     'set-position-filter': (id) => window.setPositionFilter?.(id),
     'set-search-filter': (_, el) => window.setSearchFilter?.(el.value),
-    'set-leader-filter': (_, el) => window.setLeaderFilter?.(el.value),
+    'set-leader-filter': (id, el) => window.setLeaderFilter?.(id ?? el?.value),
     'toggle-filters': () => window.toggleFilters?.(),
+    'open-filter-catalog': (mode) => window.openAttendanceFilterCatalog?.(mode),
+    'close-filter-catalog': () => window.closeAttendanceFilterCatalog?.(),
     'clear-search-filter': () => window.setSearchFilter?.(''),
     'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
     'open-advanced-attendance': (id, _el, e) => { e?.stopPropagation(); window.openAdvancedAttendance?.(id); },
@@ -48,7 +56,8 @@ function _handleAttendanceClick(e) {
     const target = e.target.closest('[data-att-action]');
     if (!target) return;
     const action = target.dataset.attAction;
-    if (action === 'set-search-filter' || action === 'set-leader-filter' || action === 'set-position-filter') return;
+    if (action === 'set-search-filter') return;
+    if ((action === 'set-leader-filter' || action === 'set-position-filter') && target.tagName === 'SELECT') return;
     const handler = _ACTION_MAP[action];
     if (!handler) return;
     const arg = target.dataset.id ?? target.dataset.value ?? null;
@@ -410,57 +419,132 @@ export function Legend() {
 }
 
 /**
- * 🎯 Filtros rápidos por Posición
+ * 🎯 Catálogo visual compartido de filtros por profesión o líder
  */
 export function PositionFilters() {
+    if (!state.showFilters) return '';
+
     const allActivePositions = state.positions.filter(p => p.active);
     const seenNames = new Set();
-    const activePositions = allActivePositions.filter(pos => {
-        if (seenNames.has(pos.name)) return false;
-        seenNames.add(pos.name);
+    const activePositions = allActivePositions.filter(position => {
+        const normalizedName = String(position.name || '').trim().toLocaleLowerCase('es');
+        if (seenNames.has(normalizedName)) return false;
+        seenNames.add(normalizedName);
         return true;
-    });
-    const activeEmployees = state.employees.filter(e => wasEmployeeActiveOnDate(e, state.selectedDate));
+    }).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    const activeLeaders = state.leaders
+        .filter(leader => leader.active)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    const activeEmployees = state.employees.filter(employee =>
+        wasEmployeeActiveOnDate(employee, state.selectedDate)
+    );
+    const mode = state.attendanceFilterCatalog === 'leaders' ? 'leaders' : 'positions';
 
-    const positionCounts = {};
-    activePositions.forEach(pos => {
-        const sameNameIds = allActivePositions.filter(p => p.name === pos.name).map(p => p.id);
-        positionCounts[pos.id] = activeEmployees.filter(emp =>
-            emp.positions.some(pId => sameNameIds.includes(pId))
-        ).length;
+    const positionCounts = new Map();
+    activePositions.forEach(position => {
+        const matchingIds = new Set(allActivePositions
+            .filter(candidate => candidate.name === position.name)
+            .map(candidate => candidate.id));
+        positionCounts.set(position.id, activeEmployees.filter(employee =>
+            employee.positions?.some(positionId => matchingIds.has(positionId))
+        ).length);
     });
 
-    const totalCount = activeEmployees.length;
-    const currentFilter = state.filters.position;
-    const filterChevron = icons.get(state.showFilters ? 'chevron-down' : 'chevron-right', { size: 18, color: '#94a3b8' });
+    const leaderCounts = new Map();
+    activeLeaders.forEach(leader => {
+        const leaderPositionIds = new Set(allActivePositions
+            .filter(position => position.leaderId === leader.id)
+            .map(position => position.id));
+        leaderCounts.set(leader.id, activeEmployees.filter(employee =>
+            employee.positions?.some(positionId => leaderPositionIds.has(positionId))
+        ).length);
+    });
+
+    const currentFilter = mode === 'leaders'
+        ? (state.filters.leaderId || 'all')
+        : (state.filters.position || 'all');
+    const cards = mode === 'leaders'
+        ? activeLeaders.map(leader => {
+            const selected = currentFilter === leader.id;
+            return `
+                <button class="attendance-filter-card ${selected ? 'is-selected' : ''}"
+                        type="button"
+                        data-att-action="set-leader-filter"
+                        data-id="${escapeHTML(leader.id)}"
+                        style="--filter-accent: #06b6d4;"
+                        aria-pressed="${selected}">
+                    <span class="attendance-filter-card-icon">
+                        ${renderPositionIconSvg(resolveLeaderIcon(leader), { size: 23 })}
+                    </span>
+                    <span class="attendance-filter-card-copy">
+                        <strong>${escapeHTML(leader.name)}</strong>
+                        <small>${escapeHTML(leader.number || 'Líder')}</small>
+                    </span>
+                    <span class="attendance-filter-card-count">${leaderCounts.get(leader.id) || 0}</span>
+                </button>
+            `;
+        }).join('')
+        : activePositions.map(position => {
+            const selected = currentFilter === position.id;
+            const color = safePositionColor(position.color);
+            return `
+                <button class="attendance-filter-card ${selected ? 'is-selected' : ''}"
+                        type="button"
+                        data-att-action="set-position-filter"
+                        data-id="${escapeHTML(position.id)}"
+                        style="--filter-accent: ${color};"
+                        aria-pressed="${selected}">
+                    <span class="attendance-filter-card-icon">
+                        ${renderPositionIconSvg(resolvePositionIcon(position), { size: 23 })}
+                    </span>
+                    <span class="attendance-filter-card-copy">
+                        <strong>${escapeHTML(position.name)}</strong>
+                        <small>Profesión</small>
+                    </span>
+                    <span class="attendance-filter-card-count">${positionCounts.get(position.id) || 0}</span>
+                </button>
+            `;
+        }).join('');
+
+    const allSelected = currentFilter === 'all';
+    const action = mode === 'leaders' ? 'set-leader-filter' : 'set-position-filter';
+    const emptyMessage = mode === 'leaders'
+        ? 'No hay líderes activos para mostrar.'
+        : 'No hay profesiones activas para mostrar.';
 
     return `
-        <div class="position-filters-container" style="margin-top: 16px;">
-            <button class="filters-toggle view-btn" type="button" data-att-action="toggle-filters" style="width: 100%; justify-content: space-between;">
-                <span style="color: #f1f5f9; font-weight: 600; font-size: 0.875rem;">🎯 Filtrar Posición</span>
-                <span style="display:inline-flex;color:#94a3b8;">${filterChevron}</span>
-            </button>
-            ${state.showFilters ? `
-                <div class="filters-content position-filters-grid">
-                    <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}"
-                            type="button" data-att-action="set-position-filter" data-id="all"
-                            style="background: ${currentFilter === 'all' ? 'linear-gradient(135deg, #06b6d4, #10b981)' : '#1e293b'}; border: 2px solid ${currentFilter === 'all' ? '#06b6d4' : '#334155'}; 
-                            padding: 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                        <span style="font-size: 0.875rem; font-weight: 600; color: #f1f5f9;">Todos</span>
-                        <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === 'all' ? '#fff' : '#06b6d4'};">${totalCount}</span>
-                    </button>
-                    ${activePositions.map(pos => `
-                        <button class="filter-btn ${currentFilter === pos.id ? 'active' : ''}"
-                                type="button" data-att-action="set-position-filter" data-id="${pos.id}"
-                                style="background: ${currentFilter === pos.id ? pos.color : '#1e293b'}; border: 2px solid ${currentFilter === pos.id ? pos.color : '#334155'}; padding: 10px; border-radius: 
-                                8px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-                            <span style="font-size: 0.875rem; font-weight: 600; color: ${currentFilter === pos.id ? '#fff' : '#f1f5f9'};">${pos.name}</span>
-                            <span style="font-size: 1.25rem; font-weight: 700; color: ${currentFilter === pos.id ? '#fff' : pos.color};">${positionCounts[pos.id] || 0}</span>
-                        </button>
-                    `).join('')}
+        <section class="attendance-filter-panel" aria-label="Filtros visuales de asistencia">
+            <header class="attendance-filter-panel-header">
+                <div>
+                    <span class="attendance-filter-panel-eyebrow">Explorar filtros</span>
+                    <h3>Filtrar por ${mode === 'leaders' ? 'líderes' : 'profesiones'}</h3>
                 </div>
-            ` : ''}
-        </div>
+                <button type="button"
+                        class="attendance-filter-panel-close"
+                        data-att-action="close-filter-catalog"
+                        aria-label="Cerrar filtros">
+                    ${icons.get('close', { size: 17 })}
+                </button>
+            </header>
+            <div class="position-filters-grid">
+                <button class="attendance-filter-card attendance-filter-card-all ${allSelected ? 'is-selected' : ''}"
+                        type="button"
+                        data-att-action="${action}"
+                        data-id="all"
+                        style="--filter-accent: #06b6d4;"
+                        aria-pressed="${allSelected}">
+                    <span class="attendance-filter-card-icon">
+                        ${icons.get(mode === 'leaders' ? 'personnel' : 'briefcase', { size: 22 })}
+                    </span>
+                    <span class="attendance-filter-card-copy">
+                        <strong>${mode === 'leaders' ? 'Todos los líderes' : 'Todas las profesiones'}</strong>
+                        <small>Sin filtrar</small>
+                    </span>
+                    <span class="attendance-filter-card-count">${activeEmployees.length}</span>
+                </button>
+                ${cards || `<p class="attendance-filter-empty">${emptyMessage}</p>`}
+            </div>
+        </section>
     `;
 }
 
@@ -471,15 +555,9 @@ export function SearchBar() {
     const searchValue = state.filters.search || '';
     const leaderFilter = state.filters.leaderId || 'all';
     const positionFilter = state.filters.position || 'all';
-    const seenPositionNames = new Set();
-    const activePositions = state.positions
-        .filter(position => position.active)
-        .filter(position => {
-            if (seenPositionNames.has(position.name)) return false;
-            seenPositionNames.add(position.name);
-            return true;
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
+    const openMode = state.showFilters
+        ? (state.attendanceFilterCatalog === 'leaders' ? 'leaders' : 'positions')
+        : '';
 
     return `
         <div class="search-wrapper">
@@ -491,28 +569,24 @@ export function SearchBar() {
                 <span class="search-icon-fixed">🔍</span>
                 ${searchValue ? `<button type="button" data-att-action="clear-search-filter" aria-label="Limpiar búsqueda" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;">${icons.get('close', { size: 12 })}</button>` : ''}
             </div>
-            <div class="search-input-group attendance-select-group">
-                <div class="search-icon-fixed">
-                    ${icons.get('briefcase', { size: 16 })}
-                </div>
-                <select data-att-action="set-position-filter"
-                        class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
-                    <option value="all" ${positionFilter === 'all' ? 'selected' : ''}>Todas las posiciones</option>
-                    ${activePositions.map(position => `<option value="${position.id}" ${positionFilter === position.id ? 'selected' : ''}>${escapeHTML(position.name)}</option>`).join('')}
-                </select>
-                <div class="attendance-select-chevron">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
-            </div>
-            <div class="search-input-group attendance-select-group">
-                <div class="search-icon-fixed">
-                    ${icons.get('key')}
-                </div>
-                <select data-att-action="set-leader-filter"
-                        class="search-input-field" style="padding-left: 36px; appearance: none; -webkit-appearance: none;">
-                    <option value="all" ${leaderFilter === 'all' ? 'selected' : ''}>Todos los Líderes</option>
-                    ${state.leaders.filter(l => l.active).sort((a, b) => a.name.localeCompare(b.name)).map(l => `<option value="${l.id}" ${leaderFilter === l.id ? 'selected' : ''}>${escapeHTML(l.name)}</option>`).join('')}
-                </select>
-                <div class="attendance-select-chevron">${icons.get('chevron-down', { size: 14, color: '#94a3b8' })}</div>
-            </div>
+            <button type="button"
+                    class="attendance-filter-catalog-btn ${openMode === 'positions' ? 'is-open' : ''} ${positionFilter !== 'all' ? 'has-selection' : ''}"
+                    data-att-action="open-filter-catalog"
+                    data-value="positions"
+                    aria-expanded="${openMode === 'positions'}">
+                ${icons.get('briefcase', { size: 17 })}
+                <span>Profesiones</span>
+                ${positionFilter !== 'all' ? '<span class="attendance-filter-selection">1</span>' : ''}
+            </button>
+            <button type="button"
+                    class="attendance-filter-catalog-btn ${openMode === 'leaders' ? 'is-open' : ''} ${leaderFilter !== 'all' ? 'has-selection' : ''}"
+                    data-att-action="open-filter-catalog"
+                    data-value="leaders"
+                    aria-expanded="${openMode === 'leaders'}">
+                ${icons.get('personnel', { size: 17 })}
+                <span>Líderes</span>
+                ${leaderFilter !== 'all' ? '<span class="attendance-filter-selection">1</span>' : ''}
+            </button>
             <button type="button"
                     class="attendance-layout-btn"
                     data-app-fn="openAttendanceLayoutModal"
@@ -775,6 +849,7 @@ export function DayView() {
                 ${SearchBar()}
                 ${AttendanceBulkActions(filtered)}
             </div>
+            ${PositionFilters()}
             
             <div id="day-view-list-parent" style="position: relative; margin-top: 16px;">
                 <div id="day-view-list" data-preserve-scroll="attendance-day-list" class="employee-list employee-list-cols-${columns} ${state.listDisplayMode === 'compact' ? 'compact-list' : ''} sticky-table-container modern-scroll">
@@ -862,6 +937,7 @@ export function WeekView() {
         <div class="sticky-controls-wrapper" style="margin: 8px 0 16px 0;">
             ${SearchBar()}
         </div>
+        ${PositionFilters()}
         <div id="week-view-list" data-preserve-scroll="attendance-week-list" class="sticky-table-container modern-scroll">
             <table class="week-view-table" style="margin-bottom: 100px;">
                 <thead class="sticky-header">

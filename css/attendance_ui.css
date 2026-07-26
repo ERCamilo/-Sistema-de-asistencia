@@ -364,19 +364,161 @@
     font-weight: 600;
 }
 
-/* --- 🎯 POSICIONES --- */
+/* --- 🎯 CATÁLOGO VISUAL DE PROFESIONES Y LÍDERES --- */
+.attendance-filter-panel {
+    margin-top: 10px;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #0f1926;
+    box-shadow: 0 12px 30px rgba(2, 6, 23, 0.24);
+}
+
+.attendance-filter-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #263548;
+}
+
+.attendance-filter-panel-eyebrow {
+    color: #67e8f9;
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.attendance-filter-panel-header h3 {
+    margin: 2px 0 0;
+    color: #f8fafc;
+    font-size: 0.9rem;
+}
+
+.attendance-filter-panel-close {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    border: 1px solid #3b4b60;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #cbd5e1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.attendance-filter-panel-close:hover,
+.attendance-filter-panel-close:focus-visible {
+    border-color: #06b6d4;
+    color: #fff;
+    outline: none;
+}
+
 .position-filters-grid {
     margin-top: 12px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 8px;
+}
+
+.attendance-filter-card {
+    --filter-accent: #06b6d4;
+    min-width: 0;
+    min-height: 62px;
+    padding: 8px 10px;
+    border: 1px solid #334155;
+    border-left: 4px solid var(--filter-accent);
+    border-radius: 9px;
+    background: #182331;
+    color: #f8fafc;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.attendance-filter-card:hover,
+.attendance-filter-card:focus-visible {
+    border-color: var(--filter-accent);
+    background: #1d2a39;
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.attendance-filter-card.is-selected {
+    border-color: var(--filter-accent);
+    background: color-mix(in srgb, var(--filter-accent) 23%, #15202d);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--filter-accent) 55%, transparent);
+}
+
+.attendance-filter-card-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: var(--filter-accent);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.attendance-filter-card-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.attendance-filter-card-copy strong,
+.attendance-filter-card-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attendance-filter-card-copy strong {
+    color: #fff;
+    font-size: 0.78rem;
+}
+
+.attendance-filter-card-copy small {
+    color: #94a3b8;
+    font-size: 0.66rem;
+}
+
+.attendance-filter-card-count {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.attendance-filter-empty {
+    margin: 0;
+    padding: 14px;
+    color: #94a3b8;
+    font-size: 0.76rem;
 }
 
 /* --- 🔍 BÚSQUEDA --- */
 .search-wrapper {
     margin-bottom: 10px;
     display: grid;
-    grid-template-columns: minmax(240px, 3fr) minmax(150px, 1.2fr) minmax(150px, 1.2fr) 44px;
+    grid-template-columns: minmax(240px, 3fr) minmax(132px, 1fr) minmax(112px, 0.85fr) 44px;
     gap: 12px;
     width: 100%;
     align-items: stretch;
@@ -421,6 +563,52 @@
     pointer-events: none;
     opacity: 0.55;
     display: inline-flex;
+}
+
+.attendance-filter-catalog-btn {
+    min-width: 0;
+    min-height: 42px;
+    padding: 8px 11px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #cbd5e1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 0.76rem;
+    font-weight: 750;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.attendance-filter-catalog-btn:hover,
+.attendance-filter-catalog-btn:focus-visible,
+.attendance-filter-catalog-btn.is-open {
+    border-color: #06b6d4;
+    background: #164454;
+    color: #fff;
+    outline: none;
+}
+
+.attendance-filter-catalog-btn.has-selection {
+    border-color: #06b6d4;
+    color: #fff;
+}
+
+.attendance-filter-selection {
+    min-width: 19px;
+    height: 19px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #06b6d4;
+    color: #06202a;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 900;
 }
 
 .attendance-layout-btn {
@@ -551,6 +739,43 @@
     .attendance-layout-btn {
         width: 42px;
         min-width: 42px;
+    }
+
+    .attendance-filter-catalog-btn {
+        padding: 8px 6px;
+        font-size: 0.7rem;
+    }
+
+    .attendance-filter-panel {
+        padding: 9px;
+    }
+
+    .position-filters-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px;
+    }
+
+    .attendance-filter-card {
+        min-height: 58px;
+        padding: 7px;
+        grid-template-columns: 32px minmax(0, 1fr) auto;
+        gap: 7px;
+    }
+
+    .attendance-filter-card-icon {
+        width: 32px;
+        height: 32px;
+    }
+
+    .attendance-filter-card-copy strong {
+        font-size: 0.7rem;
+    }
+
+    .attendance-filter-card-count {
+        min-width: 24px;
+        height: 24px;
+        padding: 0 5px;
+        font-size: 0.64rem;
     }
 
     .attendance-bulk-bar {
