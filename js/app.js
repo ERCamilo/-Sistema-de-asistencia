@@ -17,7 +17,8 @@ import {
 import {
     DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
     EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
-    DateControls, DateControlsCompact, getDayHours, getCheckColor, getFilteredEmployeesForDay
+    DateControls, DateControlsCompact, getDayHours, getCheckColor, getFilteredEmployeesForDay,
+    getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
@@ -4022,7 +4023,7 @@ function _AttendanceDetailPanelInner() {
     }
 
     // Resolve the selected employee — fall back to first active, then first.
-    const selId = state.selectedDetailEmployeeId;
+    const selId = getEffectiveAttendanceDetailEmployeeId();
     let emp = selId ? state.employees.find(e => e.id === selId) : null;
     if (!emp) emp = state.employees.find(e => e.active !== false) || state.employees[0];
 
@@ -4558,27 +4559,39 @@ window.saveQuickNoteFromDetail = (empId) => {
     if (typeof saveApplicationData === 'function') saveApplicationData({ announce: _noteLabel });
 };
 
-// ⚡ Click delegation: select an employee for the right detail panel when the
-// user clicks on a row body (not on any interactive child). Selection updates
-// `state.selectedDetailEmployeeId` and triggers a re-render. Cheap because
-// DOMDiff only patches the changed parts.
+// Click delegation and responsive employee-detail routing live below.
+// ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
+// han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
+
+window.viewAttendanceEmployee = function (employeeId) {
+    if (!state.employees.some(employee => employee.id === employeeId)) return;
+
+    if (!usesAttendanceDetailPanel(window.innerWidth)) {
+        EmployeesUI.openEmployeeFloating(employeeId);
+        return;
+    }
+
+    if (state.selectedDetailEmployeeId === employeeId) return;
+    stateManager.batchSetState(() => {
+        state.selectedDetailEmployeeId = employeeId;
+    });
+};
+
+// Click delegation keeps the non-interactive body of each card useful. Named
+// controls (checkbox, positions, +) retain their own action and never select by
+// accident. The responsive handler decides whether to update the desktop panel
+// or open the mobile floating detail.
 if (!window._detailSelectionDelegationAttached) {
     document.addEventListener('click', (e) => {
-        // Skip if the click was on something interactive — let that handler run.
         if (e.target.closest('button, input, a, select, textarea, [data-att-action], [data-app-fn], [data-app-action]')) return;
         const row = e.target.closest('.employee-row');
         if (!row) return;
         const m = row.id && row.id.match(/^emp-row-(.+)$/);
         if (!m) return;
-        if (state.selectedDetailEmployeeId === m[1]) return; // no-op
-        state.selectedDetailEmployeeId = m[1];
-        window.render?.();
+        window.viewAttendanceEmployee(m[1]);
     });
     window._detailSelectionDelegationAttached = true;
 }
-
-// ⚡ Los componentes UI (StatsGrid, Legend, PositionFilters, EmployeeRow, DateControls, DateControlsCompact, DayView, WeekView, etc.)
-// han sido movidos a ./modules/ui/AttendanceUI.js para mejor mantenimiento.
 
 // ============================================
 // 📊 REPORTES Y ESTADÍSTICAS — (Refactorizados)
