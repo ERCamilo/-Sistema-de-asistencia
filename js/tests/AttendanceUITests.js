@@ -2,7 +2,19 @@
  * AttendanceUITests - Tests for Attendance UI controls and components
  */
 
-import { AttendanceBulkActions, DateControls, formatSplitName, WeekView, SearchBar, PositionFilters, DayView, EmployeeRow, EmployeeRowCompact } from '../modules/ui/AttendanceUI.js';
+import {
+    AttendanceBulkActions,
+    DateControls,
+    formatSplitName,
+    WeekView,
+    SearchBar,
+    PositionFilters,
+    DayView,
+    EmployeeRow,
+    EmployeeRowCompact,
+    getEffectiveAttendanceDetailEmployeeId,
+    usesAttendanceDetailPanel
+} from '../modules/ui/AttendanceUI.js';
 import { CalendarView } from '../modules/ui/components/CalendarView.js';
 
 testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
@@ -165,21 +177,71 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         window.state.listDisplayMode = originalMode;
     },
 
-    "EmployeeRow: agrega clase visual cuando esta seleccionado en detalle desktop"() {
+    "EmployeeRow: mantiene selección visual coherente con el panel desktop"() {
         const originalSelected = window.state.selectedDetailEmployeeId;
         const originalPositions = window.state.positions;
+        const originalEmployees = window.state.employees;
 
-        window.state.selectedDetailEmployeeId = 'emp-selected';
         window.state.positions = [{ id: 'pos1', name: 'Ayudante', color: '#10b981' }];
+        const selectedEmployee = { id: 'emp-selected', name: 'Empleado Seleccionado', number: '007', positions: ['pos1'], active: true };
+        const otherEmployee = { id: 'emp-other', name: 'Otro Empleado', number: '008', positions: ['pos1'], active: true };
+        window.state.employees = [selectedEmployee, otherEmployee];
 
         try {
-            const emp = { id: 'emp-selected', name: 'Empleado Seleccionado', number: '007', positions: ['pos1'], active: true };
-            testRunner.assert(EmployeeRow(emp).includes('is-detail-selected'), 'La tarjeta normal debe marcarse como seleccionada');
-            testRunner.assert(EmployeeRowCompact(emp).includes('is-detail-selected'), 'La tarjeta reducida debe marcarse como seleccionada');
+            window.state.selectedDetailEmployeeId = null;
+            testRunner.assertEquals(
+                getEffectiveAttendanceDetailEmployeeId(),
+                'emp-selected',
+                'El primer empleado activo debe ser la selección efectiva inicial'
+            );
+            testRunner.assert(EmployeeRow(selectedEmployee).includes('is-detail-selected'), 'La tarjeta inicial debe coincidir con el panel');
+            testRunner.assert(!EmployeeRow(otherEmployee).includes('is-detail-selected'), 'Solo una tarjeta debe quedar seleccionada');
+
+            window.state.selectedDetailEmployeeId = 'emp-other';
+            testRunner.assert(EmployeeRow(otherEmployee).includes('is-detail-selected'), 'La tarjeta normal debe mover la selección');
+            testRunner.assert(EmployeeRowCompact(otherEmployee).includes('is-detail-selected'), 'La tarjeta reducida debe mover la selección');
         } finally {
             window.state.selectedDetailEmployeeId = originalSelected;
             window.state.positions = originalPositions;
+            window.state.employees = originalEmployees;
         }
+    },
+
+    "EmployeeRow: la huella de memo cambia al mover el marco seleccionado"() {
+        const originalSelected = window.state.selectedDetailEmployeeId;
+        const originalPositions = window.state.positions;
+        const originalEmployees = window.state.employees;
+        const originalAttendance = window.state.attendance;
+        const employee = { id: 'emp-a', name: 'Empleado A', number: '001', positions: ['pos1'], active: true };
+        const employeeB = { id: 'emp-b', name: 'Empleado B', number: '002', positions: ['pos1'], active: true };
+
+        window.state.positions = [{ id: 'pos1', name: 'Ayudante', color: '#10b981' }];
+        window.state.employees = [employee, employeeB];
+        window.state.attendance = {};
+
+        try {
+            window.state.selectedDetailEmployeeId = 'emp-a';
+            const selectedHTML = EmployeeRow(employee);
+            window.state.selectedDetailEmployeeId = 'emp-b';
+            const idleHTML = EmployeeRow(employee);
+            const selectedFingerprint = selectedHTML.match(/data-memo-f="([^"]+)"/)?.[1];
+            const idleFingerprint = idleHTML.match(/data-memo-f="([^"]+)"/)?.[1];
+
+            testRunner.assert(selectedFingerprint && idleFingerprint, 'Ambas tarjetas deben exponer su huella de memo');
+            testRunner.assert(selectedFingerprint !== idleFingerprint, 'La selección debe invalidar la caché visual');
+            testRunner.assert(selectedHTML.includes('data-att-action="view-employee-details"'), 'El nombre debe usar la interacción responsiva unificada');
+            testRunner.assert(!selectedHTML.includes('data-att-action="open-employee-floating"'), 'El nombre no debe forzar el modal móvil en desktop');
+        } finally {
+            window.state.selectedDetailEmployeeId = originalSelected;
+            window.state.positions = originalPositions;
+            window.state.employees = originalEmployees;
+            window.state.attendance = originalAttendance;
+        }
+    },
+
+    "usesAttendanceDetailPanel: coincide con el breakpoint visual de 1024px"() {
+        testRunner.assert(!usesAttendanceDetailPanel(1023), 'En móvil/tablet debe abrir el detalle flotante');
+        testRunner.assert(usesAttendanceDetailPanel(1024), 'En desktop debe actualizar el panel lateral');
     },
 
     "CalendarView: marca asistencia con clases de color check"() {

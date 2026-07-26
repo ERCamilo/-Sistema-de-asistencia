@@ -38,7 +38,7 @@ const _ACTION_MAP = {
     'open-filter-catalog': (mode) => window.openAttendanceFilterCatalog?.(mode),
     'close-filter-catalog': () => window.closeAttendanceFilterCatalog?.(),
     'clear-search-filter': () => window.setSearchFilter?.(''),
-    'open-employee-floating': (id) => window.openEmployeeFloating?.(id),
+    'view-employee-details': (id) => window.viewAttendanceEmployee?.(id),
     'open-advanced-attendance': (id, _el, e) => { e?.stopPropagation(); window.openAdvancedAttendance?.(id); },
     'handle-week-check': (_, el, e) => { e?.stopPropagation(); window.handleWeekCheck?.(el.dataset.empId, el.dataset.dateKey); },
     'toggle-week-position': (_, el, e) => { e?.stopPropagation(); window.toggleWeekPosition?.(el.dataset.empId, el.dataset.posId, el.dataset.dateKey); },
@@ -548,6 +548,21 @@ export function PositionFilters() {
     `;
 }
 
+export function usesAttendanceDetailPanel(viewportWidth) {
+    return Number(viewportWidth) >= 1024;
+}
+
+export function getEffectiveAttendanceDetailEmployeeId() {
+    const selectedId = state.selectedDetailEmployeeId;
+    if (selectedId && state.employees.some(employee => employee.id === selectedId)) {
+        return selectedId;
+    }
+
+    return state.employees.find(employee => employee.active !== false)?.id
+        || state.employees[0]?.id
+        || null;
+}
+
 /**
  * 🔍 Barra de Búsqueda con Filtro de Líder
  */
@@ -641,6 +656,7 @@ export function EmployeeRow(emp) {
     const dateKey = getDateKey(state.selectedDate);
     const attKey = `${emp.id}-${dateKey}`;
     const att = state.attendance[attKey];
+    const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
 
     // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
     // - att.updatedAt: cambia cuando se registra/modifica asistencia de este empleado
@@ -658,7 +674,8 @@ export function EmployeeRow(emp) {
             getDayHours(state.selectedDate),
             (state.settings.holidays || []).join(','),
             state.tempPositionSelection?.[attKey] || '',
-            att?.selectedPosition || ''
+            att?.selectedPosition || '',
+            isDetailSelected
         ]
     );
 }
@@ -694,7 +711,7 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
     const workedPositionIds = isChecked
         ? (isMultiPosition ? (att.positionHours || []).map(ph => ph.positionId) : [selPos])
         : [];
-    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
+    const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
 
     // 🚩 Empleado activo HOY pero que, según el historial de estados, no estaba
     // activo en esta fecha. Lo mostramos igual (totalmente funcional) con la
@@ -705,11 +722,11 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         ? `<div class="inactive-on-date-flag" title="Según el registro de estados, este empleado no estaba activo el ${dateKey}. Puedes registrar su asistencia igualmente; corrige las fechas en su perfil si fue un error." style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 10px;border-radius:999px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.55);color:#fca5a5;font-size:0.7rem;font-weight:600;line-height:1.2;white-space:nowrap;">${icons.get('alert', { size: 12 })} No activo en esta fecha</div>`
         : '';
 
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}`;
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}-${isDetailSelected ? 'selected' : 'idle'}`;
     return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${inactiveOnDate ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}"${inactiveOnDate ? ' style="opacity:0.62;"' : ''}>
                 <div class="employee-info">
                     <div class="employee-header">
-                        <div class="employee-name" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
+                        <div class="employee-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
                         <div class="employee-number">${emp.number}</div>
                     </div>
                     ${inactiveFlagHTML}
@@ -800,7 +817,7 @@ export function EmployeeRowCompact(emp) {
     const att = state.attendance[key];
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
-    const isDetailSelected = state.selectedDetailEmployeeId === emp.id;
+    const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
@@ -808,7 +825,7 @@ export function EmployeeRowCompact(emp) {
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}">
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${escapeHTML(emp.name)}</div>
+                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
                     <div style="font-size: 0.7rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         ${emp.positions.map(pid => state.positions.find(p => p.id === pid)?.name).join(', ')}
                     </div>
@@ -988,8 +1005,8 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
         <tr id="week-row-${emp.id}" data-memo-f="${fingerprint}">
             <td class="sticky-column">
                 <div class="week-employee-cell">
-                    <div class="week-employee-name-container">
-                        <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="open-employee-floating" data-id="${emp.id}">${formatSplitName(emp.name)}</div>
+                        <div class="week-employee-name-container">
+                            <div class="week-employee-name" style="cursor: pointer;" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${formatSplitName(emp.name)}</div>
                         <div class="week-employee-positions" style="font-size: 0.65rem; color: #94a3b8; margin-top: 2px;">
                             ${emp.positions?.map(pid => positionMap.get(pid)?.name).filter(Boolean).join(' • ') || 'Sin posición'}
                         </div>
