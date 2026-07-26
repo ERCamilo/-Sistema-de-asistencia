@@ -155,6 +155,7 @@ const initialState = {
         leaderId: 'all'
     },
     showFilters: false,
+    attendanceFilterCatalog: 'positions',
     showLegend: false,
     showDatePicker: false,
     datePickerTarget: null,
