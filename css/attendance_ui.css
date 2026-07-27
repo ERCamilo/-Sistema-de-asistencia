@@ -345,6 +345,17 @@
     margin-bottom: 16px;
 }
 
+.attendance-overtime-icon {
+    width: 1.55rem;
+    height: 1.55rem;
+    fill: none;
+    stroke: #fb923c;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vertical-align: middle;
+}
+
 .filter-status-notification {
     margin-top: 12px;
     padding: 8px 12px;

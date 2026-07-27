@@ -6,6 +6,7 @@ import {
     AttendanceBulkActions,
     DateControls,
     formatSplitName,
+    StatsGrid,
     WeekView,
     SearchBar,
     PositionFilters,
@@ -37,6 +38,14 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         testRunner.assert(htmlWeek.includes('Semana'), 'Debe mostrar Semana cuando esta en vista semanal');
 
         window.state.viewMode = originalViewMode;
+    },
+
+    "StatsGrid: representa las horas extra con un reloj y signo de suma en SVG"() {
+        const html = StatsGrid();
+
+        testRunner.assert(html.includes('attendance-overtime-icon'), 'Debe usar el icono SVG específico de horas extra');
+        testRunner.assert(html.includes('M18.5 3.5v6M15.5 6.5h6'), 'Debe incluir el signo de suma en el reloj');
+        testRunner.assert(!html.includes('⚡'), 'No debe conservar el rayo como icono de horas extra');
     },
 
     "formatSplitName: divide correctamente nombres largos en primer nombre y primer apellido"() {
