@@ -20,7 +20,7 @@
  * se verifica a nivel fuente (mismo idioma que SettingsLiveSyncWiringTests).
  */
 
-import { commitAutoSaveSwitch } from '../modules/ui/SettingsUI.js';
+import { commitAutoSaveOption, commitAutoSaveSwitch } from '../modules/ui/SettingsUI.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -37,6 +37,8 @@ function makeHarness(settingsOverrides = {}) {
             hideDuplicateAlerts: false,
             weatherEnabled: false,
             attendancePositionWatermarks: true,
+            attendanceWatermarkVisibility: 'present',
+            attendanceWatermarkContent: 'position',
             ...settingsOverrides
         }
     };
@@ -110,6 +112,43 @@ testRunner.addSuite("SettingsUI — commitAutoSaveSwitch (auto-save de switches)
     }
 });
 
+testRunner.addSuite("SettingsUI — commitAutoSaveOption (opciones cerradas)", {
+
+    "comete visibilidad y contenido de la marca de agua"() {
+        const cases = [
+            ['attendanceWatermarkVisibility', 'always'],
+            ['attendanceWatermarkContent', 'number']
+        ];
+
+        for (const [name, value] of cases) {
+            const { st, calls, deps } = makeHarness();
+            const result = commitAutoSaveOption({ name, value, deps });
+
+            testRunner.assert(result.committed === true, `${name}: debe reportar committed=true`);
+            testRunner.assertEquals(st.settings[name], value, `${name}: debe guardar una opción válida`);
+            testRunner.assertEquals(calls.save, 1, `${name}: debe persistir inmediatamente`);
+            testRunner.assertEquals(calls.batch, 1, `${name}: debe usar batchSetState`);
+        }
+    },
+
+    "rechaza nombres y valores fuera del dominio"() {
+        const { st, calls, deps } = makeHarness();
+        const badValue = commitAutoSaveOption({
+            name: 'attendanceWatermarkVisibility',
+            value: 'sometimes',
+            deps
+        });
+        const badName = commitAutoSaveOption({ name: 'companyName', value: 'always', deps });
+
+        testRunner.assert(badValue.committed === false, 'no debe aceptar una visibilidad inventada');
+        testRunner.assert(badName.committed === false, 'no debe aceptar un control no registrado');
+        testRunner.assertEquals(st.settings.attendanceWatermarkVisibility, 'present',
+            'una opción inválida no debe modificar el valor actual');
+        testRunner.assertEquals(calls.save, 0, 'las opciones inválidas no deben persistir');
+        testRunner.assertEquals(calls.batch, 0, 'las opciones inválidas no deben tocar state');
+    }
+});
+
 testRunner.addSuite("SettingsUI — cableado del listener de change (source-level)", {
 
     "el camino del evento change delega en commitAutoSaveSwitch"() {
@@ -127,6 +166,10 @@ testRunner.addSuite("SettingsUI — cableado del listener de change (source-leve
         testRunner.assert(
             /_handleSettingsSwitch\s*\(/.test(changeBody),
             'el listener de change debe rutear los checkboxes a _handleSettingsSwitch'
+        );
+        testRunner.assert(
+            /_handleSettingsOption\s*\(/.test(changeBody),
+            'el listener de change debe rutear los radios a _handleSettingsOption'
         );
     },
 

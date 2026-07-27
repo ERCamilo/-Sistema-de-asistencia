@@ -125,14 +125,15 @@ function _handleSettingsKeydown(e) {
 //
 // 1. CONTROLES AUTO-COMMIT (sin validación, efecto inmediato): se comprometen
 //    SOLOS al cambiar. Los switches (checkboxes toggle) se registran en
-//    AUTO_SAVE_SWITCH_IDS y los comete commitAutoSaveSwitch; los selects de
-//    efecto inmediato tienen su propio commit (iconSet → window.commitIconSet
-//    en app.js, modo de ayuda → acción set-help-mode). El commit muta state
-//    vía batchSetState, estampa updatedAt/_isDirty y dispara
-//    saveApplicationData, así el cambio persiste en IndexedDB y viaja en vivo
-//    a los demás dispositivos (Fase 2B: doc per-registro de settings). NO los
-//    leas en window.saveSettings desde el DOM como si fueran borrador: ya
-//    están comprometidos en state.
+//    AUTO_SAVE_SWITCH_IDS y los comete commitAutoSaveSwitch; las opciones
+//    cerradas (radios) se registran en AUTO_SAVE_OPTION_VALUES y las comete
+//    commitAutoSaveOption. Los selects de efecto inmediato tienen su propio
+//    commit (iconSet → window.commitIconSet en app.js, modo de ayuda → acción
+//    set-help-mode). El commit muta state vía batchSetState, estampa
+//    updatedAt/_isDirty y dispara saveApplicationData, así el cambio persiste
+//    en IndexedDB y viaja en vivo a los demás dispositivos (Fase 2B: doc
+//    per-registro de settings). NO los leas en window.saveSettings desde el
+//    DOM como si fueran borrador: ya están comprometidos en state.
 //
 // 2. INPUTS VALIDADOS (texto/número/selects del formulario: companyName,
 //    factores, horas, clima, etc. — la lista viva es
@@ -150,6 +151,27 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
     'weatherEnabled',
     'attendancePositionWatermarks'
 ]);
+const AUTO_SAVE_OPTION_VALUES = new Map([
+    ['attendanceWatermarkVisibility', new Set(['always', 'present'])],
+    ['attendanceWatermarkContent', new Set(['number', 'position'])]
+]);
+
+function commitAutoSaveSetting({ key, value, deps = {} } = {}) {
+    const {
+        state: st = state,
+        batchSetState = (cb) => stateManager.batchSetState(cb),
+        save = saveApplicationData,
+        now = Date.now
+    } = deps;
+
+    batchSetState(() => {
+        st.settings[key] = value;
+        st.settings.updatedAt = now();
+        st.settings._isDirty = true;
+    });
+    save();
+    return { committed: true, key };
+}
 
 /**
  * Comete un switch auto-save: escribe el valor en state.settings (dentro de
@@ -165,22 +187,18 @@ const AUTO_SAVE_SWITCH_IDS = new Set([
  * @returns {{committed: boolean, key?: string}}
  */
 export function commitAutoSaveSwitch({ id, checked, deps = {} } = {}) {
-    const {
-        state: st = state,
-        batchSetState = (cb) => stateManager.batchSetState(cb),
-        save = saveApplicationData,
-        now = Date.now
-    } = deps;
-
     if (!id || !AUTO_SAVE_SWITCH_IDS.has(id)) return { committed: false };
+    return commitAutoSaveSetting({ key: id, value: checked, deps });
+}
 
-    batchSetState(() => {
-        st.settings[id] = checked;
-        st.settings.updatedAt = now();
-        st.settings._isDirty = true;
-    });
-    save();
-    return { committed: true, key: id };
+/**
+ * Comete una elección cerrada de Ajustes y rechaza valores fuera de su
+ * dominio para evitar configuraciones imposibles por DOM manipulado.
+ */
+export function commitAutoSaveOption({ name, value, deps = {} } = {}) {
+    const allowedValues = AUTO_SAVE_OPTION_VALUES.get(name);
+    if (!allowedValues?.has(value)) return { committed: false };
+    return commitAutoSaveSetting({ key: name, value, deps });
 }
 
 function _isDraftField(target) {
@@ -193,6 +211,11 @@ function _toggleWeatherPanel(visible) {
     if (configPanel) configPanel.style.display = visible ? 'block' : 'none';
 }
 
+function _toggleAttendanceWatermarkPanel(visible) {
+    const configPanel = document.getElementById('attendanceWatermarkConfigPanel');
+    if (configPanel) configPanel.style.display = visible ? 'grid' : 'none';
+}
+
 function _handleSettingsSwitch(target) {
     const row = target.closest('.stg-switch-row');
     if (!row) return;
@@ -200,11 +223,27 @@ function _handleSettingsSwitch(target) {
     row.setAttribute('aria-checked', target.checked ? 'true' : 'false');
     commitAutoSaveSwitch({ id: target.id, checked: target.checked });
     if (target.id === 'weatherEnabled') _toggleWeatherPanel(target.checked);
+    if (target.id === 'attendancePositionWatermarks') {
+        _toggleAttendanceWatermarkPanel(target.checked);
+    }
+}
+
+function _handleSettingsOption(target) {
+    const result = commitAutoSaveOption({ name: target.name, value: target.value });
+    if (!result.committed) return;
+
+    target.closest('.stg-choice-group')
+        ?.querySelectorAll('.stg-choice-option')
+        .forEach(option => option.classList.toggle(
+            'is-selected',
+            option.querySelector('input')?.checked === true
+        ));
 }
 
 function _handleSettingsChange(e) {
     const target = e.target;
     if (target?.type === 'checkbox') _handleSettingsSwitch(target);
+    if (target?.type === 'radio') _handleSettingsOption(target);
     // Selects del formulario disparan 'change' (no siempre 'input'): refrescar
     // la barra de draft si el control editado es un campo borrador.
     if (_isDraftField(target)) refreshSettingsDraftBar(document);

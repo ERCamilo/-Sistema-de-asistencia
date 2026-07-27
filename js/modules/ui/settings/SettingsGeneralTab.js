@@ -77,13 +77,57 @@ export function SettingsGeneralTab(context) {
                                id="attendancePositionWatermarks"
                                ${state.settings.attendancePositionWatermarks !== false ? 'checked' : ''}>
                         <span class="stg-switch-copy">
-                            <strong>Mostrar Puesto Trabajado en Asistencia</strong>
-                            <small>Cuando un empleado esté presente, muestra como marca de agua el icono del puesto desempeñado ese día.</small>
+                            <strong>Mostrar Marca de Agua en Asistencia</strong>
+                            <small>Identifica visualmente cada tarjeta mediante el número del empleado o el icono del puesto.</small>
                         </span>
                         <span class="stg-switch-track" aria-hidden="true">
                             <span class="stg-switch-handle"></span>
                         </span>
                     </label>
+
+                    <div id="attendanceWatermarkConfigPanel"
+                         class="stg-card stg-watermark-config"
+                         style="display: ${state.settings.attendancePositionWatermarks !== false ? 'grid' : 'none'};">
+                        <fieldset class="stg-choice-fieldset">
+                            <legend>Cuándo mostrarla</legend>
+                            <div class="stg-choice-group">
+                                <label class="stg-choice-option ${state.settings.attendanceWatermarkVisibility === 'always' ? 'is-selected' : ''}">
+                                    <input type="radio"
+                                           name="attendanceWatermarkVisibility"
+                                           value="always"
+                                           ${state.settings.attendanceWatermarkVisibility === 'always' ? 'checked' : ''}>
+                                    <span>Siempre visible</span>
+                                </label>
+                                <label class="stg-choice-option ${state.settings.attendanceWatermarkVisibility !== 'always' ? 'is-selected' : ''}">
+                                    <input type="radio"
+                                           name="attendanceWatermarkVisibility"
+                                           value="present"
+                                           ${state.settings.attendanceWatermarkVisibility !== 'always' ? 'checked' : ''}>
+                                    <span>Solo si está presente</span>
+                                </label>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="stg-choice-fieldset">
+                            <legend>Qué mostrar</legend>
+                            <div class="stg-choice-group">
+                                <label class="stg-choice-option ${state.settings.attendanceWatermarkContent === 'number' ? 'is-selected' : ''}">
+                                    <input type="radio"
+                                           name="attendanceWatermarkContent"
+                                           value="number"
+                                           ${state.settings.attendanceWatermarkContent === 'number' ? 'checked' : ''}>
+                                    <span>Número del empleado</span>
+                                </label>
+                                <label class="stg-choice-option ${state.settings.attendanceWatermarkContent !== 'number' ? 'is-selected' : ''}">
+                                    <input type="radio"
+                                           name="attendanceWatermarkContent"
+                                           value="position"
+                                           ${state.settings.attendanceWatermarkContent !== 'number' ? 'checked' : ''}>
+                                    <span>Icono del trabajo</span>
+                                </label>
+                            </div>
+                        </fieldset>
+                    </div>
 
                     <div id="weatherConfigPanel" class="stg-card" style="margin-top: 4px; margin-left: 0; display: ${state.settings.weatherEnabled === true ? 'block' : 'none'};">
                         <div class="stg-card-title">Configuración del Clima</div>

@@ -40,9 +40,10 @@ export const SETTINGS_DRAFT_BAR_ID = 'settings-draft-bar';
  * Configuración" (los mismos que lee window.saveSettings del DOM). Los
  * controles auto-commit NO están acá: los switches (legacyNavigation,
  * hideDuplicateAlerts, weatherEnabled, attendancePositionWatermarks) se
- * cometen vía commitAutoSaveSwitch
- * (SettingsUI.js) y el select de iconos vía window.commitIconSet (app.js) —
- * aplicar el set YA es su vista previa, así que se comete al elegirlo.
+ * cometen vía commitAutoSaveSwitch; attendanceWatermarkVisibility y
+ * attendanceWatermarkContent vía commitAutoSaveOption (SettingsUI.js), y el
+ * select de iconos vía window.commitIconSet (app.js) — aplicar el set YA es
+ * su vista previa, así que se comete al elegirlo.
  */
 export const SETTINGS_DRAFT_FIELD_IDS = [
     'companyName',
