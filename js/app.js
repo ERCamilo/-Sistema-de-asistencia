@@ -2330,7 +2330,7 @@ function commitBulkAttendancePlan(changes, label, dateKey) {
 }
 
 window.markVisibleEmployeesPresent = () => {
-    const selectedDate = new Date(state.selectedDate);
+    const selectedDate = parseDate(state.selectedDate);
     const dateKey = getDateKey(selectedDate);
     const employees = getFilteredEmployeesForDay();
     const changes = buildMarkVisiblePresentPlan({
@@ -2355,7 +2355,7 @@ window.markVisibleEmployeesPresent = () => {
 };
 
 window.clearVisibleAttendance = async () => {
-    const selectedDate = new Date(state.selectedDate);
+    const selectedDate = parseDate(state.selectedDate);
     const dateKey = getDateKey(selectedDate);
     const visibleEmployeeIds = getFilteredEmployeesForDay().map(employee => employee.id);
     const visibleEmployeeIdSet = new Set(visibleEmployeeIds);
