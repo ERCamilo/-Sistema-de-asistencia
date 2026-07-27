@@ -56,7 +56,8 @@ export function AttendanceDetailCalendar({
             selectAction,
             showLegend: false,
             displayMode: view === 'period' ? 'period' : 'month',
-            payPeriod
+            payPeriod,
+            hideRegularHours: true
         });
     }
 

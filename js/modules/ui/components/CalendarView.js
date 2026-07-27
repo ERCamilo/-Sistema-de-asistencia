@@ -133,6 +133,7 @@ if (!_cvDelegationAttached) {
  * @param {Boolean} [options.showLegend=false] - Si mostrar la leyenda al pie
  * @param {'month'|'period'} [options.displayMode='month'] - Mes completo o fechas exactas del período
  * @param {Object} [options.payPeriod] - Período usado por displayMode='period'
+ * @param {Boolean} [options.hideRegularHours=false] - Oculta la jornada esperada para reducir ruido visual
  */
 export function CalendarView({
     employee,
@@ -142,7 +143,8 @@ export function CalendarView({
     selectedDate = null,
     selectAction = '',
     displayMode = 'month',
-    payPeriod = state.settings.payPeriod
+    payPeriod = state.settings.payPeriod,
+    hideRegularHours = false
 }) {
     const isPeriodView = displayMode === 'period';
     if (!employee || (!isPeriodView && !month)) return '<div class="empty-state">No hay datos</div>';
@@ -177,6 +179,15 @@ export function CalendarView({
         const isPresent = att && att.present;
         const checkColor = getCheckColor(att, d.date);
         const positionMarkers = _positionMarkerData(att, employee);
+        const expectedHours = Number(state.dayHoursConfig?.[dKey])
+            || Number(state.settings?.regularHoursPerDay)
+            || 8;
+        const workedHours = Number(att?.hoursWorked) || 0;
+        const showWorkedHours = isPresent && (
+            !hideRegularHours
+            || workedHours !== expectedHours
+            || checkColor === 'check-holiday'
+        );
         
         // Estados de Pago
         const isInPeriod = isDateInPayPeriod(dKey, payPeriod);
@@ -216,7 +227,7 @@ export function CalendarView({
             <div class="${classes}" title="${escapeAttr(enrichedTooltip)}"
                  ${selectAction && isCurrentMonth ? `role="button" tabindex="0" data-cv-select-action="${selectAction}" data-cv-date="${dKey}"` : ''}>
                 <span class="day-number">${d.date.getDate()}</span>
-                ${isPresent ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
+                ${showWorkedHours ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
                 ${positionDots}
                 ${todayIcon}
                 ${paydayIcon}
@@ -229,10 +240,7 @@ export function CalendarView({
         <div class="calendar-container premium-calendar" data-calendar-display="${isPeriodView ? 'period' : 'month'}">
             ${isPeriodView ? `
                 <div class="calendar-header calendar-period-header">
-                    <div>
-                        <span class="calendar-period-kicker">Período actual</span>
-                        <div class="calendar-month-title">${formatPayPeriodRange(periodDates)}</div>
-                    </div>
+                    <div class="calendar-month-title">${formatPayPeriodRange(periodDates)}</div>
                 </div>
             ` : `
                 <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">

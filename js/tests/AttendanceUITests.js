@@ -349,6 +349,8 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
     },
 
     "AttendanceDetailCalendar: usa período por defecto y conserva el calendario completo como alternativa"() {
+        const originalAttendance = window.state.attendance;
+        const originalSettings = window.state.settings;
         const employee = {
             id: 'emp-detail-calendar',
             name: 'Empleado Detalle',
@@ -362,19 +364,57 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             payPeriod: { periodStart: '2026-05-25', periodLength: 10 }
         };
 
-        const defaultHTML = AttendanceDetailCalendar(args);
-        const fullHTML = AttendanceDetailCalendar({ ...args, activeView: 'full' });
+        window.state.attendance = {
+            'emp-detail-calendar-2026-05-25': {
+                employeeId: 'emp-detail-calendar',
+                date: '2026-05-25',
+                present: true,
+                hoursWorked: 8
+            },
+            'emp-detail-calendar-2026-05-26': {
+                employeeId: 'emp-detail-calendar',
+                date: '2026-05-26',
+                present: true,
+                hoursWorked: 6
+            },
+            'emp-detail-calendar-2026-05-27': {
+                employeeId: 'emp-detail-calendar',
+                date: '2026-05-27',
+                present: true,
+                hoursWorked: 8
+            }
+        };
+        window.state.settings = {
+            ...window.state.settings,
+            regularHoursPerDay: 8,
+            holidays: ['2026-05-27']
+        };
 
-        testRunner.assertEquals(normalizeAttendanceDetailCalendarView(undefined), 'period',
-            'el modo principal debe ser período');
-        testRunner.assert(defaultHTML.includes('data-detail-calendar-view="period"'),
-            'debe abrir directamente el período actual');
-        testRunner.assert(defaultHTML.includes('Período actual') && defaultHTML.includes('Calendario completo'),
-            'debe ofrecer las dos vistas');
-        testRunner.assert(fullHTML.includes('data-detail-calendar-view="full"'),
-            'debe permitir el calendario completo');
-        testRunner.assert(fullHTML.includes('aria-label="Mes anterior"'),
-            'el calendario completo debe conservar su navegación mensual');
+        try {
+            const defaultHTML = AttendanceDetailCalendar(args);
+            const fullHTML = AttendanceDetailCalendar({ ...args, activeView: 'full' });
+
+            testRunner.assertEquals(normalizeAttendanceDetailCalendarView(undefined), 'period',
+                'el modo principal debe ser período');
+            testRunner.assert(defaultHTML.includes('data-detail-calendar-view="period"'),
+                'debe abrir directamente el período actual');
+            testRunner.assert(defaultHTML.includes('Período actual') && defaultHTML.includes('Calendario completo'),
+                'debe ofrecer las dos vistas');
+            testRunner.assertEquals(
+                (defaultHTML.match(/<span class="hours-dot">8h<\/span>/g) || []).length,
+                1,
+                'debe ocultar la jornada normal repetida, pero conservarla en feriados'
+            );
+            testRunner.assert(defaultHTML.includes('<span class="hours-dot">6h</span>'),
+                'debe conservar las horas que requieren atención');
+            testRunner.assert(fullHTML.includes('data-detail-calendar-view="full"'),
+                'debe permitir el calendario completo');
+            testRunner.assert(fullHTML.includes('aria-label="Mes anterior"'),
+                'el calendario completo debe conservar su navegación mensual');
+        } finally {
+            window.state.attendance = originalAttendance;
+            window.state.settings = originalSettings;
+        }
     },
 
     "AttendanceDetailCalendar: sin período ofrece acceso directo a su configuración"() {

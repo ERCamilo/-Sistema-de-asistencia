@@ -835,7 +835,7 @@ body.has-sidebar {
 
 .detail-calendar-view {
     display: grid;
-    gap: 12px;
+    gap: 8px;
 }
 
 .detail-calendar-view-switch {
@@ -849,8 +849,8 @@ body.has-sidebar {
 }
 
 .detail-calendar-view-option {
-    min-height: 32px;
-    padding: 7px 8px;
+    min-height: 30px;
+    padding: 6px 8px;
     border: 0;
     border-radius: 6px;
     background: #1e293b;
@@ -931,17 +931,8 @@ body.has-sidebar {
 
 .detail-panel-body .premium-calendar .calendar-period-header {
     display: block;
-    margin-bottom: 12px;
-}
-
-.detail-panel-body .premium-calendar .calendar-period-kicker {
-    display: block;
-    margin-bottom: 3px;
-    color: #22d3ee;
-    font-size: 9px;
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    margin-bottom: 8px;
+    text-align: center;
 }
 
 .detail-panel-body .premium-calendar .period-placeholder {
