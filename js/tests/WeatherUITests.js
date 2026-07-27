@@ -205,6 +205,25 @@ testRunner.addSuite("WeatherBar — operational collapsed / expanded", {
         testRunner.assert(html.includes('°'), 'Some temperature displayed');
     },
 
+    async "main weather illustration exposes only the animations for its condition"() {
+        resetWeatherState();
+        await refreshWeather();
+        state.weather.cache.current.data.icon = 'stormy';
+
+        let html = WeatherBar();
+        testRunner.assert(html.includes('weather-current-hero'), 'Hero illustration occupies the current-weather corner');
+        testRunner.assert(html.includes('weather-hero-svg--stormy'), 'Storm scene is selected');
+        testRunner.assert(html.includes('weather-hero-rain'), 'Storm scene includes animated rain');
+        testRunner.assert(html.includes('weather-hero-lightning'), 'Storm scene includes animated lightning');
+        testRunner.assert(!html.includes('weather-hero-sun-rays'), 'Storm scene does not include sunny animation');
+
+        state.weather.cache.current.data.icon = 'sunny';
+        html = WeatherBar();
+        testRunner.assert(html.includes('weather-hero-svg--sunny'), 'Sunny scene is selected');
+        testRunner.assert(html.includes('weather-hero-sun-rays'), 'Sunny scene includes animated rays');
+        testRunner.assert(!html.includes('weather-hero-rain'), 'Sunny scene does not include rain animation');
+    },
+
     async "expanded bar shows current detail + hourly + daily"() {
         resetWeatherState();
         toggleWeatherExpanded(); // populate cache + expand
