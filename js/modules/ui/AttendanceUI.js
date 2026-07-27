@@ -378,14 +378,6 @@ function statCard_clock(f, nombreID, nombre, icon, stats, filtro) {
     </div>`
 }
 
-const overtimeClockIcon = `
-    <svg class="attendance-overtime-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="10.5" cy="11.5" r="7"></circle>
-        <path d="M10.5 7.5v4.4l2.8 1.7"></path>
-        <path d="M18.5 3.5v6M15.5 6.5h6"></path>
-    </svg>`;
-
-
 export function StatsGrid() {
     const stats = calculateStats();
     const f = state.employeeFilter;
@@ -399,7 +391,7 @@ export function StatsGrid() {
              ${statCard(f, 'present', 'Presente', '✅', stats.present, 'present')}
              ${statCard(f, 'absent', 'Ausentes', '❌', stats.absent, 'absent')}
              ${statCard_clock(f, 'time', 'Horas', '⏱️', stats.totalHours, '')}
-             ${statCard(f, 'overtime', 'Extras', overtimeClockIcon, stats.overtimeHours, 'overtime')}
+             ${statCard(f, 'overtime', 'Extras', '⚡', stats.overtimeHours, 'overtime')}
 
 
             </div>${f ? `<div class="filter-status-notification">
