@@ -5557,7 +5557,9 @@ window.saveSettings = function () {
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks son switches
     // auto-save: ya están comprometidos en state (commitAutoSaveSwitch, ver
-    // convención en SettingsUI.js). NO se leen del DOM como borrador acá.
+    // convención en SettingsUI.js). attendanceWatermarkVisibility y
+    // attendanceWatermarkContent también son opciones auto-save. NO se leen
+    // del DOM como borrador acá.
     const weatherEnabled = state.settings.weatherEnabled === true;
     const weatherApiKeyElement = document.getElementById('weatherApiKey');
     const weatherApiKey = weatherApiKeyElement ? weatherApiKeyElement.value.trim() : (state.settings.weatherApiKey || '');
@@ -5622,7 +5624,9 @@ window.saveSettings = function () {
     state.settings.scrollbarMode = scrollbarMode;
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks NO se reasignan
-    // acá: ya están comprometidos en state por commitAutoSaveSwitch.
+    // acá: ya están comprometidos en state por commitAutoSaveSwitch. Tampoco
+    // las opciones attendanceWatermarkVisibility / attendanceWatermarkContent,
+    // comprometidas por commitAutoSaveOption.
 
     // Guardar ubicación y limpiar caché si cambia
     const prevLocRaw = state.settings.weatherLocationRaw || '';

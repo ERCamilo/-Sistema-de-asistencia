@@ -124,7 +124,9 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
                 regularHoursPerDay: 8, syncEnabled: true, overtimeFactor: 1, holidayFactor: 2,
                 holidays: [], scrollbarMode: 'on-scroll', iconSet: 'default',
                 companyName: 'Empresa Test', backupFrequency: 'none', hideDuplicateAlerts: false,
-                weatherEnabled: false, attendancePositionWatermarks: true
+                weatherEnabled: false, attendancePositionWatermarks: true,
+                attendanceWatermarkVisibility: 'present',
+                attendanceWatermarkContent: 'position'
             },
             employees: [], positions: [], attendance: {}, swVersion: '1.0.0'
         };
@@ -141,10 +143,24 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
         const html = SettingsTab();
         testRunner.assert(html.includes('id="attendancePositionWatermarks"'),
             'debe renderizar el interruptor de marcas de agua');
-        testRunner.assert(html.includes('Mostrar Puesto Trabajado en Asistencia'),
+        testRunner.assert(html.includes('Mostrar Marca de Agua en Asistencia'),
             'debe explicar claramente qué controla');
         testRunner.assert(/id="attendancePositionWatermarks"[\s\S]*?checked/.test(html),
             'debe estar activo por defecto');
+        testRunner.assert(html.includes('id="attendanceWatermarkConfigPanel"'),
+            'debe mostrar las opciones dependientes debajo del interruptor');
+        testRunner.assert(html.includes('name="attendanceWatermarkVisibility"'),
+            'debe permitir elegir cuándo se muestra');
+        testRunner.assert(html.includes('Solo si está presente'),
+            'debe conservar el comportamiento actual como opción');
+        testRunner.assert(html.includes('name="attendanceWatermarkContent"'),
+            'debe permitir elegir el contenido');
+        testRunner.assert(html.includes('Número del empleado') && html.includes('Icono del trabajo'),
+            'debe ofrecer número o icono como opciones exclusivas');
+        testRunner.assert(/name="attendanceWatermarkVisibility"[\s\S]*?value="present"[\s\S]*?checked/.test(html),
+            'solo presente debe ser el valor inicial');
+        testRunner.assert(/name="attendanceWatermarkContent"[\s\S]*?value="position"[\s\S]*?checked/.test(html),
+            'icono del trabajo debe ser el valor inicial');
     },
 
     "SettingsTab: renderiza la pestaña correcta según el tab activo"() {

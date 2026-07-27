@@ -3,8 +3,8 @@
  *
  * Convención de controles de Ajustes (ver nota en SettingsUI.js, commit
  * 3fcd428): los switches auto-save (legacyNavigation, hideDuplicateAlerts,
- * weatherEnabled, attendancePositionWatermarks) se comprometen SOLOS en state al cambiar
- * (commitAutoSaveSwitch) — ya NO son borrador del DOM. window.saveSettings
+ * weatherEnabled, attendancePositionWatermarks) y las opciones cerradas de
+ * marca de agua se comprometen SOLAS en state al cambiar — ya NO son borrador del DOM. window.saveSettings
  * (app.js) los leía igual de 3 checkboxes como si fueran borrador,
  * contradiciendo esa convención documentada.
  *
@@ -54,13 +54,28 @@ testRunner.addSuite("window.saveSettings — no lee los switches auto-save del D
             'attendancePositionWatermarks ya está comprometido en state por commitAutoSaveSwitch; no es borrador del DOM');
     },
 
+    "no lee las opciones de marca de agua desde el DOM"() {
+        for (const key of ['attendanceWatermarkVisibility', 'attendanceWatermarkContent']) {
+            const re = new RegExp(`getElementById\\(\\s*['"]${key}['"]\\s*\\)`);
+            testRunner.assert(!re.test(SAVE_SETTINGS_SRC),
+                `${key} ya está comprometido en state por commitAutoSaveOption; no es borrador del DOM`);
+        }
+    },
+
     "weatherEnabled se sigue leyendo (de state.settings, no del checkbox) para la validación de ubicación"() {
         testRunner.assert(/weatherEnabled\s*=\s*state\.settings\.weatherEnabled\s*===\s*true/.test(SAVE_SETTINGS_SRC),
             'weatherEnabled debe tomarse de state.settings, no del checkbox del DOM');
     },
 
     "no reasigna state.settings.legacyNavigation / hideDuplicateAlerts / weatherEnabled (ya comprometidos)"() {
-        for (const key of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks']) {
+        for (const key of [
+            'legacyNavigation',
+            'hideDuplicateAlerts',
+            'weatherEnabled',
+            'attendancePositionWatermarks',
+            'attendanceWatermarkVisibility',
+            'attendanceWatermarkContent'
+        ]) {
             // (?!=) evita falsos positivos con comparaciones (=== true)
             const re = new RegExp(`state\\.settings\\.${key}\\s*=(?!=)`);
             testRunner.assert(!re.test(SAVE_SETTINGS_SRC),

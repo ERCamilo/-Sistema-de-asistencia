@@ -94,10 +94,17 @@ testRunner.addSuite("SettingsDraftBar — isSettingsDraftDirty (value vs default
             'sin formulario no hay draft');
     },
 
-    "los switches auto-save NO participan del draft"() {
-        for (const id of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks']) {
+    "los controles auto-save NO participan del draft"() {
+        for (const id of [
+            'legacyNavigation',
+            'hideDuplicateAlerts',
+            'weatherEnabled',
+            'attendancePositionWatermarks',
+            'attendanceWatermarkVisibility',
+            'attendanceWatermarkContent'
+        ]) {
             testRunner.assert(!SETTINGS_DRAFT_FIELD_IDS.includes(id),
-                `${id} se comete solo al cambiar (commitAutoSaveSwitch) — no es borrador`);
+                `${id} se comete solo al cambiar — no es borrador`);
         }
     }
 });

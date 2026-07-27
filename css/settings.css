@@ -211,6 +211,80 @@
     pointer-events: none;
 }
 
+/* ─── Opciones dependientes de marca de agua ─── */
+.stg-watermark-config {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0 0 8px 18px;
+    border-left: 3px solid var(--stg-accent);
+}
+
+.stg-choice-fieldset {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.stg-choice-fieldset legend {
+    margin-bottom: 8px;
+    color: var(--stg-text-secondary);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.stg-choice-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.stg-choice-option {
+    min-height: 40px;
+    display: grid;
+    place-items: center;
+    padding: 8px 10px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #cbd5e1;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.stg-choice-option:hover {
+    border-color: #475569;
+    color: #f8fafc;
+}
+
+.stg-choice-option.is-selected {
+    border-color: var(--stg-accent);
+    background: var(--stg-accent);
+    color: #07131b;
+}
+
+.stg-choice-option span {
+    font-size: 0.76rem;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.stg-choice-option input[type="radio"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.stg-choice-option:focus-within {
+    outline: 2px solid #67e8f9;
+    outline-offset: 2px;
+}
+
 /* ─── Grid de acciones (2x2) ─── */
 .stg-actions-grid {
     display: grid;
@@ -473,6 +547,11 @@
 
 /* ─── Responsive ─── */
 @media (max-width: 640px) {
+    .stg-watermark-config {
+        grid-template-columns: 1fr;
+        margin-left: 0;
+    }
+
     .stg-status-bar {
         grid-template-columns: 1fr;
     }
