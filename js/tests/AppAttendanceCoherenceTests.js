@@ -453,6 +453,16 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
             /window\.setAttendanceDetailCalendarView\s*=\s*\(view\)\s*=>\s*\{[\s\S]*?normalizeAttendanceDetailCalendarView\(view\)/.test(panelBody),
             'el handler global debe rechazar modos no soportados mediante el normalizador'
         );
+    },
+
+    "el panel lateral oculta el editor de nota rápida sin eliminar su persistencia"() {
+        const panelBody = between('function _AttendanceDetailPanelInner', 'function getAttendanceDetailPositionHours');
+        testRunner.assert(!panelBody.includes('detail-quick-note'),
+            'el panel desktop no debe renderizar el textarea de nota rápida');
+        testRunner.assert(!panelBody.includes('💾 Guardar nota'),
+            'el panel desktop no debe renderizar la acción de guardar notas');
+        testRunner.assert(SRC.includes('window.saveQuickNoteFromDetail ='),
+            'la persistencia existente debe conservarse para los otros flujos de notas');
     }
 });
 
