@@ -27,14 +27,19 @@ testRunner.addSuite('Attendance bulk actions — wiring y coherencia', {
 
         testRunner.assert(body.includes('getFilteredEmployeesForDay()'), 'debe obtener los empleados visibles');
         testRunner.assert(body.includes('buildMarkVisiblePresentPlan'), 'debe construir un plan seguro y testeable');
+        testRunner.assert(body.includes('parseDate(state.selectedDate)'), 'debe conservar la fecha local elegida');
+        testRunner.assert(!body.includes('new Date(state.selectedDate)'), 'no debe interpretar YYYY-MM-DD como UTC');
         testRunner.assert(body.includes('getDayHours(selectedDate)'), 'debe respetar las horas configuradas');
         testRunner.assert(body.includes('isDayHoliday(selectedDate'), 'debe respetar los feriados');
     },
 
     'limpiar confirma cantidad, fecha y alcance antes de tombstonear'() {
         const body = between('window.clearVisibleAttendance', 'function updateCheckboxOnly');
+        const selectedDateInit = body.match(/const selectedDate\s*=\s*[^;]+;/)?.[0] || '';
 
         testRunner.assert(body.includes('Modal.confirm'), 'la operación destructiva debe pedir confirmación');
+        testRunner.assert(body.includes('parseDate(state.selectedDate)'), 'debe confirmar y limpiar la fecha local elegida');
+        testRunner.assert(!selectedDateInit.includes('new Date('), 'no debe desplazar la fecha por zona horaria');
         testRunner.assert(body.includes('Los filtros actuales definen el alcance'), 'debe explicar que solo afecta la lista visible');
         testRunner.assert(body.includes('buildClearVisibleAttendancePlan'), 'debe generar tombstones sincronizables');
         testRunner.assert(body.includes("type: 'danger'"), 'el modal debe comunicar el riesgo destructivo');

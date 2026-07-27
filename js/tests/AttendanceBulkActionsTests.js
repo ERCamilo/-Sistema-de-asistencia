@@ -69,6 +69,47 @@ testRunner.addSuite('AttendanceBulkActions — operaciones sobre empleados visib
         testRunner.assertEquals(plan[0].previous.positionHours[0].hours, 8, 'el snapshot no debe compartir referencias anidadas');
     },
 
+    'pasado, presente y futuro conservan exactamente la fecha elegida'() {
+        const employees = [
+            { id: 'visible-1', positions: ['p1'] },
+            { id: 'visible-2', positions: ['p2'] }
+        ];
+        const dates = ['2026-07-13', '2026-07-27', '2026-07-28'];
+
+        dates.forEach((dateKey, index) => {
+            const markPlan = buildMarkVisiblePresentPlan({
+                employees,
+                attendance: {},
+                dateKey,
+                dayHours: 8,
+                isHoliday: false,
+                now: 500 + index
+            });
+
+            testRunner.assertEquals(markPlan.length, 2, `${dateKey}: debe incluir a todos los visibles`);
+            testRunner.assert(
+                markPlan.every(change => change.key.endsWith(`-${dateKey}`) && change.next.date === dateKey),
+                `${dateKey}: ninguna escritura puede desplazarse a otra fecha`
+            );
+
+            const markedAttendance = Object.fromEntries(
+                markPlan.map(change => [change.key, change.next])
+            );
+            const clearPlan = buildClearVisibleAttendancePlan({
+                employees,
+                attendance: markedAttendance,
+                dateKey,
+                now: 600 + index
+            });
+
+            testRunner.assertEquals(clearPlan.length, 2, `${dateKey}: debe limpiar a todos los visibles`);
+            testRunner.assert(
+                clearPlan.every(change => change.key.endsWith(`-${dateKey}`)),
+                `${dateKey}: la limpieza no puede desplazarse a otra fecha`
+            );
+        });
+    },
+
     'deshacer restaura registros previos y tombstonea altas nuevas'() {
         const markChanges = [{
             key: 'e1-2026-07-26',
