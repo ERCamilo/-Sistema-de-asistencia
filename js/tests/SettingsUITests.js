@@ -117,6 +117,36 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
             'Debe aclarar que NO se borran los datos del usuario');
     },
 
+    "SettingsTab: permite activar o desactivar la marca del puesto trabajado"() {
+        const stateMock = {
+            settingsActiveTab: 'general',
+            settings: {
+                regularHoursPerDay: 8, syncEnabled: true, overtimeFactor: 1, holidayFactor: 2,
+                holidays: [], scrollbarMode: 'on-scroll', iconSet: 'default',
+                companyName: 'Empresa Test', backupFrequency: 'none', hideDuplicateAlerts: false,
+                weatherEnabled: false, attendancePositionWatermarks: true
+            },
+            employees: [], positions: [], attendance: {}, swVersion: '1.0.0'
+        };
+        const dependencies = {
+            state: stateMock,
+            icons: { get: (name) => `[icon:${name}]`, getAvailableSets: () => ['default'] },
+            holidayService: { renderSettingsCalendar: () => '' },
+            get currentUser() { return null; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({ percentage: 10, usedMB: 0.5, available: '4.5MB' })
+        };
+        initSettingsUI(dependencies);
+
+        const html = SettingsTab();
+        testRunner.assert(html.includes('id="attendancePositionWatermarks"'),
+            'debe renderizar el interruptor de marcas de agua');
+        testRunner.assert(html.includes('Mostrar Puesto Trabajado en Asistencia'),
+            'debe explicar claramente qué controla');
+        testRunner.assert(/id="attendancePositionWatermarks"[\s\S]*?checked/.test(html),
+            'debe estar activo por defecto');
+    },
+
     "SettingsTab: renderiza la pestaña correcta según el tab activo"() {
         const stateMock = {
             settingsActiveTab: 'data',

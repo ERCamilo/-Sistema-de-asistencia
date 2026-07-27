@@ -5554,7 +5554,8 @@ window.saveSettings = function () {
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
-    // legacyNavigation, hideDuplicateAlerts y weatherEnabled son switches
+    // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
+    // attendancePositionWatermarks son switches
     // auto-save: ya están comprometidos en state (commitAutoSaveSwitch, ver
     // convención en SettingsUI.js). NO se leen del DOM como borrador acá.
     const weatherEnabled = state.settings.weatherEnabled === true;
@@ -5619,7 +5620,8 @@ window.saveSettings = function () {
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.scrollbarMode = scrollbarMode;
-    // legacyNavigation, hideDuplicateAlerts y weatherEnabled NO se reasignan
+    // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
+    // attendancePositionWatermarks NO se reasignan
     // acá: ya están comprometidos en state por commitAutoSaveSwitch.
 
     // Guardar ubicación y limpiar caché si cambia

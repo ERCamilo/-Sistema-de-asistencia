@@ -13,6 +13,7 @@ import {
     DayView,
     EmployeeRow,
     EmployeeRowCompact,
+    getAttendanceWatermarkPositions,
     getEffectiveAttendanceDetailEmployeeId,
     usesAttendanceDetailPanel
 } from '../modules/ui/AttendanceUI.js';
@@ -274,6 +275,117 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.positions = originalPositions;
             window.state.employees = originalEmployees;
             window.state.attendance = originalAttendance;
+        }
+    },
+
+    "EmployeeRow: muestra como marca de agua el puesto realmente trabajado ese día"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const originalEmployees = window.state.employees;
+        const originalSettings = window.state.settings;
+        const employee = {
+            id: 'emp-watermark',
+            name: 'Empleado Marca',
+            number: '019',
+            positions: ['pos-primary', 'pos-worked'],
+            active: true
+        };
+
+        window.state.selectedDate = new Date('2026-07-26T12:00:00');
+        window.state.positions = [
+            { id: 'pos-primary', name: 'Ayudante', color: '#8b5cf6', icon: 'crew' },
+            { id: 'pos-worked', name: 'Albañil', color: '#f59e0b', icon: 'bricks' }
+        ];
+        window.state.employees = [employee];
+        window.state.attendance = {
+            'emp-watermark-2026-07-26': {
+                employeeId: employee.id,
+                date: '2026-07-26',
+                present: true,
+                hoursWorked: 8,
+                selectedPosition: 'pos-worked',
+                updatedAt: 1
+            }
+        };
+        window.state.settings = {
+            ...window.state.settings,
+            attendancePositionWatermarks: true
+        };
+
+        try {
+            const attendance = window.state.attendance['emp-watermark-2026-07-26'];
+            const positions = getAttendanceWatermarkPositions(employee, attendance);
+            const html = EmployeeRow(employee);
+
+            testRunner.assertEquals(positions.length, 1, 'debe resolver una sola labor trabajada');
+            testRunner.assertEquals(positions[0].id, 'pos-worked', 'debe usar el puesto registrado, no el puesto principal');
+            testRunner.assert(html.includes('attendance-position-watermarks has-1'), 'debe renderizar la marca de agua');
+            testRunner.assert(html.includes('--watermark-color: #f59e0b'), 'debe conservar el color del puesto trabajado');
+            testRunner.assert(!html.includes('--watermark-color: #8b5cf6'), 'no debe mostrar el puesto principal que no se trabajó');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+            window.state.employees = originalEmployees;
+            window.state.settings = originalSettings;
+        }
+    },
+
+    "EmployeeRow: respeta el ajuste de marcas de agua y admite varias labores del día"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const originalEmployees = window.state.employees;
+        const originalSettings = window.state.settings;
+        const employee = {
+            id: 'emp-watermark-multi',
+            name: 'Empleado Multi',
+            number: '020',
+            positions: ['pos-a', 'pos-b'],
+            active: true
+        };
+
+        window.state.selectedDate = new Date('2026-07-26T12:00:00');
+        window.state.positions = [
+            { id: 'pos-a', name: 'Albañil', color: '#f59e0b', icon: 'bricks' },
+            { id: 'pos-b', name: 'Operador', color: '#06b6d4', icon: 'tractor' }
+        ];
+        window.state.employees = [employee];
+        window.state.attendance = {
+            'emp-watermark-multi-2026-07-26': {
+                employeeId: employee.id,
+                date: '2026-07-26',
+                present: true,
+                hoursWorked: 8,
+                multiPosition: true,
+                positionHours: [
+                    { positionId: 'pos-a', hours: 4 },
+                    { positionId: 'pos-b', hours: 4 }
+                ],
+                updatedAt: 1
+            }
+        };
+        window.state.settings = {
+            ...window.state.settings,
+            attendancePositionWatermarks: true
+        };
+
+        try {
+            const enabledHTML = EmployeeRow(employee);
+            testRunner.assert(enabledHTML.includes('attendance-position-watermarks has-2'),
+                'debe mostrar las dos labores realmente trabajadas');
+
+            window.state.settings.attendancePositionWatermarks = false;
+            const disabledHTML = EmployeeRow(employee);
+            testRunner.assert(!disabledHTML.includes('attendance-position-watermarks'),
+                'debe ocultar las marcas inmediatamente al apagar el ajuste');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+            window.state.employees = originalEmployees;
+            window.state.settings = originalSettings;
         }
     },
 

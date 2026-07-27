@@ -136,6 +136,7 @@ const initialState = {
     settings: {
         regularHoursPerDay: 8,
         syncEnabled: true,
+        attendancePositionWatermarks: true,
         overtimeFactor: 1,
         holidayFactor: 2,
         holidays: [],

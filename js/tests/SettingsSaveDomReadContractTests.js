@@ -3,7 +3,7 @@
  *
  * Convención de controles de Ajustes (ver nota en SettingsUI.js, commit
  * 3fcd428): los switches auto-save (legacyNavigation, hideDuplicateAlerts,
- * weatherEnabled) se comprometen SOLOS en state al cambiar
+ * weatherEnabled, attendancePositionWatermarks) se comprometen SOLOS en state al cambiar
  * (commitAutoSaveSwitch) — ya NO son borrador del DOM. window.saveSettings
  * (app.js) los leía igual de 3 checkboxes como si fueran borrador,
  * contradiciendo esa convención documentada.
@@ -49,13 +49,18 @@ testRunner.addSuite("window.saveSettings — no lee los switches auto-save del D
             'weatherEnabled ya está comprometido en state por commitAutoSaveSwitch; no es borrador del DOM');
     },
 
+    "no consulta document.getElementById('attendancePositionWatermarks')"() {
+        testRunner.assert(!/getElementById\(\s*['"]attendancePositionWatermarks['"]\s*\)/.test(SAVE_SETTINGS_SRC),
+            'attendancePositionWatermarks ya está comprometido en state por commitAutoSaveSwitch; no es borrador del DOM');
+    },
+
     "weatherEnabled se sigue leyendo (de state.settings, no del checkbox) para la validación de ubicación"() {
         testRunner.assert(/weatherEnabled\s*=\s*state\.settings\.weatherEnabled\s*===\s*true/.test(SAVE_SETTINGS_SRC),
             'weatherEnabled debe tomarse de state.settings, no del checkbox del DOM');
     },
 
     "no reasigna state.settings.legacyNavigation / hideDuplicateAlerts / weatherEnabled (ya comprometidos)"() {
-        for (const key of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled']) {
+        for (const key of ['legacyNavigation', 'hideDuplicateAlerts', 'weatherEnabled', 'attendancePositionWatermarks']) {
             // (?!=) evita falsos positivos con comparaciones (=== true)
             const re = new RegExp(`state\\.settings\\.${key}\\s*=(?!=)`);
             testRunner.assert(!re.test(SAVE_SETTINGS_SRC),

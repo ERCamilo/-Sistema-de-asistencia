@@ -71,6 +71,20 @@ export function SettingsGeneralTab(context) {
                         </span>
                     </label>
 
+                    <label class="stg-switch-row ${state.settings.attendancePositionWatermarks !== false ? 'is-active' : ''}"
+                           role="switch" aria-checked="${state.settings.attendancePositionWatermarks !== false}">
+                        <input type="checkbox"
+                               id="attendancePositionWatermarks"
+                               ${state.settings.attendancePositionWatermarks !== false ? 'checked' : ''}>
+                        <span class="stg-switch-copy">
+                            <strong>Mostrar Puesto Trabajado en Asistencia</strong>
+                            <small>Cuando un empleado esté presente, muestra como marca de agua el icono del puesto desempeñado ese día.</small>
+                        </span>
+                        <span class="stg-switch-track" aria-hidden="true">
+                            <span class="stg-switch-handle"></span>
+                        </span>
+                    </label>
+
                     <div id="weatherConfigPanel" class="stg-card" style="margin-top: 4px; margin-left: 0; display: ${state.settings.weatherEnabled === true ? 'block' : 'none'};">
                         <div class="stg-card-title">Configuración del Clima</div>
                         <div class="form-group" style="margin-bottom: 16px;">

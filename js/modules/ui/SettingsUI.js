@@ -147,7 +147,8 @@ function _handleSettingsKeydown(e) {
 const AUTO_SAVE_SWITCH_IDS = new Set([
     'legacyNavigation',
     'hideDuplicateAlerts',
-    'weatherEnabled'
+    'weatherEnabled',
+    'attendancePositionWatermarks'
 ]);
 
 /**

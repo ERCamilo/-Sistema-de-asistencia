@@ -93,6 +93,7 @@ export class LegacyMigrator {
         // Asegurar que settings tenga campos mínimos
         const s = data.settings;
         if (s.regularHoursPerDay === undefined) s.regularHoursPerDay = 8;
+        if (s.attendancePositionWatermarks === undefined) s.attendancePositionWatermarks = true;
         if (s.overtimeFactor === undefined) s.overtimeFactor = 1;
         if (s.holidayFactor === undefined) s.holidayFactor = 2;
         if (!s.iconSet) s.iconSet = 'default';

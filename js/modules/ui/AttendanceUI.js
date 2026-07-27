@@ -563,6 +563,43 @@ export function getEffectiveAttendanceDetailEmployeeId() {
         || null;
 }
 
+export function getAttendanceWatermarkPositions(emp, attendance, positions = state.positions) {
+    if (!attendance?.present) return [];
+
+    const positionHours = Array.isArray(attendance.positionHours)
+        ? attendance.positionHours
+        : [];
+    const usesMultiplePositions = attendance.multiPosition || positionHours.length > 1;
+    const positionIds = usesMultiplePositions
+        ? positionHours.map(item => item?.positionId)
+        : [attendance.selectedPosition || emp.positions?.[0] || emp.positionId];
+
+    return [...new Set(positionIds.filter(Boolean))]
+        .map(positionId => positions.find(position => position.id === positionId))
+        .filter(Boolean);
+}
+
+function renderAttendancePositionWatermarks(emp, attendance, resolvedPositions) {
+    if (state.settings?.attendancePositionWatermarks === false) return '';
+
+    const positions = resolvedPositions || getAttendanceWatermarkPositions(emp, attendance);
+    if (!positions.length) return '';
+
+    const visiblePositions = positions.slice(0, 3);
+    const hiddenCount = Math.max(0, positions.length - visiblePositions.length);
+
+    return `
+        <div class="attendance-position-watermarks has-${visiblePositions.length}" aria-hidden="true">
+            ${visiblePositions.map(position => `
+                <span style="--watermark-color: ${safePositionColor(position.color)};">
+                    ${renderPositionIconSvg(resolvePositionIcon(position), { size: 112 })}
+                </span>
+            `).join('')}
+            ${hiddenCount ? `<small>+${hiddenCount}</small>` : ''}
+        </div>
+    `;
+}
+
 /**
  * 🔍 Barra de Búsqueda con Filtro de Líder
  */
@@ -657,6 +694,15 @@ export function EmployeeRow(emp) {
     const attKey = `${emp.id}-${dateKey}`;
     const att = state.attendance[attKey];
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
+    const watermarkEnabled = state.settings?.attendancePositionWatermarks !== false;
+    const watermarkPositions = watermarkEnabled
+        ? getAttendanceWatermarkPositions(emp, att)
+        : [];
+    const watermarkFingerprint = watermarkEnabled
+        ? watermarkPositions
+            .map(position => `${position.id}:${position.updatedAt || 0}:${position.icon || ''}:${position.color || ''}`)
+            .join('|')
+        : 'hidden';
 
     // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
     // - att.updatedAt: cambia cuando se registra/modifica asistencia de este empleado
@@ -664,7 +710,7 @@ export function EmployeeRow(emp) {
     // - dateKey: cambia cuando el usuario navega a otra fecha
     return componentMemo.get(
         `emp-row-${emp.id}`,
-        () => _buildEmployeeRow(emp, dateKey, attKey, att),
+        () => _buildEmployeeRow(emp, dateKey, attKey, att, watermarkPositions),
         [
             dateKey,
             att?.updatedAt ?? 0,
@@ -675,12 +721,13 @@ export function EmployeeRow(emp) {
             (state.settings.holidays || []).join(','),
             state.tempPositionSelection?.[attKey] || '',
             att?.selectedPosition || '',
-            isDetailSelected
+            isDetailSelected,
+            watermarkFingerprint
         ]
     );
 }
 
-function _buildEmployeeRow(emp, dateKey, key, att) {
+function _buildEmployeeRow(emp, dateKey, key, att, watermarkPositions = []) {
     // Defensa: empleados con formato viejo (positionId sin positions[])
     if (!emp.positions) {
         emp.positions = emp.positionId ? [emp.positionId] : [];
@@ -722,8 +769,12 @@ function _buildEmployeeRow(emp, dateKey, key, att) {
         ? `<div class="inactive-on-date-flag" title="Según el registro de estados, este empleado no estaba activo el ${dateKey}. Puedes registrar su asistencia igualmente; corrige las fechas en su perfil si fue un error." style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 10px;border-radius:999px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.55);color:#fca5a5;font-size:0.7rem;font-weight:600;line-height:1.2;white-space:nowrap;">${icons.get('alert', { size: 12 })} No activo en esta fecha</div>`
         : '';
 
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}-${isDetailSelected ? 'selected' : 'idle'}`;
+    const watermarkFingerprint = watermarkPositions
+        .map(position => `${position.id}:${position.updatedAt || 0}:${position.icon || ''}:${position.color || ''}`)
+        .join('|') || 'none';
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkFingerprint}`;
     return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${inactiveOnDate ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}"${inactiveOnDate ? ' style="opacity:0.62;"' : ''}>
+                ${renderAttendancePositionWatermarks(emp, att, watermarkPositions)}
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
@@ -823,6 +874,7 @@ export function EmployeeRowCompact(emp) {
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}">
+                ${renderAttendancePositionWatermarks(emp, att)}
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
