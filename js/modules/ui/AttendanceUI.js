@@ -123,6 +123,7 @@ export function DateControlsCompact() {
     const classes = [
         'date-controls-compact',
         isVisible ? 'visible' : '',
+        showPicker ? 'date-picker-open' : '',
         isWeek ? 'at-bottom' : '',
         isAsBottomBar ? 'as-bottom-bar' : ''
     ].filter(Boolean).join(' ');
@@ -216,7 +217,7 @@ function navPillSelectorDeFecha(isToday, displayText, datePickerHTML) {
     const iconoCalendario = icons.get('calendar', { size: 18, color: isToday ? '#06b6d4' : undefined });
     const flechaDerecha = icons.get('chevron-right');
     const flechaIzquierda = icons.get('chevron-left');
-    let colorBorde = isToday ? 'rgba(6, 182, 212, 0.5)' : '';
+    let colorBorde = isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : '';
     let colorTexto = isToday ? '#06b6d4' : '';
 
     return `<div class="pill-nav" style="margin-bottom: 20px;">
@@ -320,7 +321,7 @@ export function DateControls() {
         : '';
 
     return `
-        <div class="attendance-toolbar glass-effect" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
+        <div class="attendance-toolbar glass-effect ${showPicker ? 'date-picker-open' : ''}" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
             
             <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
             <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
@@ -376,7 +377,6 @@ function statCard_clock(f, nombreID, nombre, icon, stats, filtro) {
         <div class="stat-label">${nombre}</div>
     </div>`
 }
-
 
 export function StatsGrid() {
     const stats = calculateStats();

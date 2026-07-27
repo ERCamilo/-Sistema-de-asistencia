@@ -21,6 +21,10 @@ import {
     getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
+import {
+    AttendanceDetailCalendar,
+    normalizeAttendanceDetailCalendarView
+} from './modules/ui/components/AttendanceDetailCalendar.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
@@ -4195,10 +4199,6 @@ function _AttendanceDetailPanelInner() {
     // ----- Format money -----
     const money = (n) => '$' + (Number(n) || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    // Fase 1 (U2c): un tombstone (deletedAt seteado) no debe mostrar su nota vieja.
-    const todayAttRaw = state.attendance[`${emp.id}-${getDateKey(today)}`];
-    const todayNoteAtt = (todayAttRaw && todayAttRaw.deletedAt == null) ? todayAttRaw : null;
-
     return `<aside class="attendance-detail" data-emp-id="${emp.id}">
         <div class="detail-card">
             <div class="detail-head">
@@ -4256,20 +4256,9 @@ function _AttendanceDetailPanelInner() {
 
             ${detailInteractivePanel}
 
-            <div class="detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
-                <span>Nota rápida (${escapeHTML(today.toLocaleDateString('es', { day: 'numeric', month: 'short' }))})</span>
-                ${(todayNoteAtt?.notes) ? '<span style="font-size:10px;color:#10b981;text-transform:none;letter-spacing:0;">● guardada</span>' : ''}
-            </div>
-            <textarea class="detail-quick-note" id="detail-quick-note-${emp.id}" rows="3"
-                placeholder="Anota algo sobre ${escapeHTML(emp.name.split(/\s+/)[0] || 'el empleado')} (ej. salió temprano por cita médica)…"
-                data-emp-id="${emp.id}">${escapeHTML(todayNoteAtt?.notes || '')}</textarea>
-
             <div class="detail-actions">
                 <button class="detail-btn ghost" type="button" data-app-fn="openEmployeeProfile" data-arg="${emp.id}">
                     📋 Ver perfil completo
-                </button>
-                <button class="detail-btn primary" type="button" data-app-fn="saveQuickNoteFromDetail" data-arg="${emp.id}">
-                    💾 Guardar nota
                 </button>
             </div>
         </div>
@@ -4320,13 +4309,12 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
         </button>
     `;
 
-    const calendarContent = CalendarView({
+    const calendarContent = AttendanceDetailCalendar({
         employee: emp,
-        month: calendarMonth,
-        navAction: 'changeAttendanceDetailMonth',
         selectedDate,
-        selectAction: 'selectAttendanceDetailDate',
-        showLegend: false
+        calendarMonth,
+        activeView: state.attendanceDetailCalendarView,
+        payPeriod: state.settings?.payPeriod
     });
 
     const hoursContent = `
@@ -4416,6 +4404,11 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
 
 window.setAttendanceDetailPanelTab = (tab) => {
     state.attendanceDetailPanelTab = tab === 'hours' ? 'hours' : 'calendar';
+    if (typeof window.render === 'function') window.render();
+};
+
+window.setAttendanceDetailCalendarView = (view) => {
+    state.attendanceDetailCalendarView = normalizeAttendanceDetailCalendarView(view);
     if (typeof window.render === 'function') window.render();
 };
 

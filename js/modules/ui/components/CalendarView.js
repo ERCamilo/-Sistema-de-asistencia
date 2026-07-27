@@ -61,6 +61,40 @@ function _positionMarkerData(att, employee) {
     return Array.from(byPosition.values());
 }
 
+export function getPayPeriodCalendarDays(payPeriod) {
+    const startKey = String(payPeriod?.periodStart || '').trim();
+    const length = Number(payPeriod?.periodLength);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startKey)
+        || !Number.isInteger(length)
+        || length < 1
+        || length > 366) {
+        return [];
+    }
+
+    const start = new Date(`${startKey}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || getDateKey(start) !== startKey) return [];
+
+    return Array.from({ length }, (_, index) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + index);
+        return date;
+    });
+}
+
+function formatPayPeriodRange(days) {
+    if (!days.length) return '';
+    const start = days[0];
+    const end = days[days.length - 1];
+    const startOptions = start.getFullYear() === end.getFullYear()
+        ? { day: 'numeric', month: 'short' }
+        : { day: 'numeric', month: 'short', year: 'numeric' };
+    return `${start.toLocaleDateString('es', startOptions)} – ${end.toLocaleDateString('es', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+    })}`;
+}
+
 // Delegación: los botones de CalendarView usan data-cv-nav-action + data-cv-delta
 // para resolver dinámicamente la función global a llamar (preserva la API original).
 let _cvDelegationAttached = false;
@@ -97,15 +131,39 @@ if (!_cvDelegationAttached) {
  * @param {Date} options.month - El mes a mostrar
  * @param {String} options.navAction - El handler global para cambiar mes (ej: 'window.changeFloatingMonth')
  * @param {Boolean} [options.showLegend=false] - Si mostrar la leyenda al pie
+ * @param {'month'|'period'} [options.displayMode='month'] - Mes completo o fechas exactas del período
+ * @param {Object} [options.payPeriod] - Período usado por displayMode='period'
+ * @param {Boolean} [options.hideRegularHours=false] - Oculta la jornada esperada para reducir ruido visual
  */
-export function CalendarView({ employee, month, navAction, showLegend = false, selectedDate = null, selectAction = '' }) {
-    if (!employee || !month) return '<div class="empty-state">No hay datos</div>';
+export function CalendarView({
+    employee,
+    month,
+    navAction,
+    showLegend = false,
+    selectedDate = null,
+    selectAction = '',
+    displayMode = 'month',
+    payPeriod = state.settings.payPeriod,
+    hideRegularHours = false
+}) {
+    const isPeriodView = displayMode === 'period';
+    if (!employee || (!isPeriodView && !month)) return '<div class="empty-state">No hay datos</div>';
 
-    const days = getDaysInMonth(month);
+    const periodDates = isPeriodView ? getPayPeriodCalendarDays(payPeriod) : [];
+    if (isPeriodView && periodDates.length === 0) {
+        return '<div class="empty-state">No hay un período configurado</div>';
+    }
+    const days = isPeriodView
+        ? periodDates.map(date => ({ date, currentMonth: true }))
+        : getDaysInMonth(month);
     const dayNames = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
     const todayKey = getDateKey(new Date());
     const selectedKey = selectedDate ? getDateKey(selectedDate) : '';
-    const payPeriod = state.settings.payPeriod;
+    const leadingPeriodCells = isPeriodView
+        ? Array.from({ length: periodDates[0].getDay() }, () => (
+            '<div class="calendar-day calendar-day-empty period-placeholder" aria-hidden="true"></div>'
+        )).join('')
+        : '';
 
     // Generar las celdas de los días
     const daysHTML = days.map(d => {
@@ -121,6 +179,15 @@ export function CalendarView({ employee, month, navAction, showLegend = false, s
         const isPresent = att && att.present;
         const checkColor = getCheckColor(att, d.date);
         const positionMarkers = _positionMarkerData(att, employee);
+        const expectedHours = Number(state.dayHoursConfig?.[dKey])
+            || Number(state.settings?.regularHoursPerDay)
+            || 8;
+        const workedHours = Number(att?.hoursWorked) || 0;
+        const showWorkedHours = isPresent && (
+            !hideRegularHours
+            || workedHours !== expectedHours
+            || checkColor === 'check-holiday'
+        );
         
         // Estados de Pago
         const isInPeriod = isDateInPayPeriod(dKey, payPeriod);
@@ -160,7 +227,7 @@ export function CalendarView({ employee, month, navAction, showLegend = false, s
             <div class="${classes}" title="${escapeAttr(enrichedTooltip)}"
                  ${selectAction && isCurrentMonth ? `role="button" tabindex="0" data-cv-select-action="${selectAction}" data-cv-date="${dKey}"` : ''}>
                 <span class="day-number">${d.date.getDate()}</span>
-                ${isPresent ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
+                ${showWorkedHours ? `<span class="hours-dot">${att.hoursWorked}h</span>` : ''}
                 ${positionDots}
                 ${todayIcon}
                 ${paydayIcon}
@@ -170,17 +237,24 @@ export function CalendarView({ employee, month, navAction, showLegend = false, s
     }).join('');
 
     return `
-        <div class="calendar-container premium-calendar">
-            <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior">${icons.get('chevron-left')}</button>
-                <div class="calendar-month-title" style="font-weight: 700; color: #f1f5f9; font-size: 0.9rem;">
-                    ${formatMonthYear(month)}
+        <div class="calendar-container premium-calendar" data-calendar-display="${isPeriodView ? 'period' : 'month'}">
+            ${isPeriodView ? `
+                <div class="calendar-header calendar-period-header">
+                    <div class="calendar-month-title">${formatPayPeriodRange(periodDates)}</div>
                 </div>
-                <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>
-            </div>
+            ` : `
+                <div class="calendar-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="-1" aria-label="Mes anterior">${icons.get('chevron-left')}</button>
+                    <div class="calendar-month-title" style="font-weight: 700; color: #f1f5f9; font-size: 0.9rem;">
+                        ${formatMonthYear(month)}
+                    </div>
+                    <button class="nav-btn" type="button" data-cv-nav-action="${navAction}" data-cv-delta="1" aria-label="Mes siguiente">${icons.get('chevron-right')}</button>
+                </div>
+            `}
             
             <div class="calendar-grid">
                 ${dayNames.map(name => `<div class="calendar-day-name">${name}</div>`).join('')}
+                ${leadingPeriodCells}
                 ${daysHTML}
             </div>
 
