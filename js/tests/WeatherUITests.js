@@ -20,6 +20,12 @@ import {
     refreshWeather
 } from '../modules/features/weather/WeatherController.js';
 import { fetchCurrent } from '../modules/features/weather/WeatherService.js';
+import {
+    DEFAULT_WEATHER_SUMMARY_METRICS,
+    normalizeWeatherSummaryMetrics,
+    resolveWeatherSummaryMetric,
+    updateWeatherSummaryMetric
+} from '../modules/features/weather/WeatherSummaryMetrics.js';
 
 function resetWeatherState() {
     state.weather = null;
@@ -244,6 +250,49 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         await refreshWeather();
         const html = WeatherBar();
         testRunner.assert(html.includes('Punta Cana'), 'Custom location displayed');
+    }
+});
+
+testRunner.addSuite("Weather summary metrics — configurable slots", {
+
+    "normalizes missing, duplicated and invalid metric identifiers"() {
+        testRunner.assertEquals(
+            JSON.stringify(normalizeWeatherSummaryMetrics(['rainTotalToday', 'rainTotalToday', 'invalid'])),
+            JSON.stringify(['rainTotalToday', 'rainChanceToday', 'wind']),
+            'Debe completar tres métricas válidas sin duplicados'
+        );
+        testRunner.assertEquals(
+            JSON.stringify(normalizeWeatherSummaryMetrics()),
+            JSON.stringify(DEFAULT_WEATHER_SUMMARY_METRICS),
+            'Debe conservar una configuración predeterminada estable'
+        );
+    },
+
+    "swaps slots when the selected metric is already visible"() {
+        const updated = updateWeatherSummaryMetric(['rainChanceToday', 'wind', 'feelsLike'], 0, 'wind');
+        testRunner.assertEquals(
+            JSON.stringify(updated),
+            JSON.stringify(['wind', 'rainChanceToday', 'feelsLike']),
+            'Debe intercambiar métricas en lugar de duplicarlas'
+        );
+    },
+
+    "resolves daily rain totals and tomorrow forecast from forecast data"() {
+        const context = {
+            todayKey: '2026-07-26',
+            current: { precipMm: 0.5, precipChance: 20, temp: 27 },
+            forecast: [
+                { date: '2026-07-26', icon: 'rainy', tempMax: 30, tempMin: 23, precipChance: 70, precipMm: 8.4 },
+                { date: '2026-07-27', icon: 'partly-cloudy', tempMax: 31, tempMin: 24, precipChance: 35, precipMm: 2.1 }
+            ]
+        };
+
+        const rain = resolveWeatherSummaryMetric('rainTotalToday', context);
+        const tomorrow = resolveWeatherSummaryMetric('tomorrow', context);
+
+        testRunner.assertEquals(rain.value, '8.4 mm', 'Debe usar el acumulado diario, no solo la lluvia actual');
+        testRunner.assertEquals(tomorrow.value, '31° / 24°', 'Debe mostrar máxima y mínima de mañana');
+        testRunner.assertEquals(tomorrow.detail, 'Parc. nublado', 'Debe describir la condición de mañana');
     }
 });
 
