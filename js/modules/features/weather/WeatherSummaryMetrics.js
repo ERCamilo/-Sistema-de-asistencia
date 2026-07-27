@@ -50,8 +50,8 @@ export function normalizeWeatherSummaryMetrics(metrics) {
     }
 
     for (const fallback of DEFAULT_WEATHER_SUMMARY_METRICS) {
+        if (normalized.length >= 3) break;
         if (!normalized.includes(fallback)) normalized.push(fallback);
-        if (normalized.length === 3) break;
     }
 
     return normalized;

@@ -17,6 +17,9 @@ import {
     toggleWeatherPanel,
     closeWeatherPanel,
     toggleWeatherExpanded,
+    toggleWeatherMetricEditor,
+    toggleWeatherForecastExpanded,
+    setWeatherSummaryMetric,
     refreshWeather
 } from '../modules/features/weather/WeatherController.js';
 import { fetchCurrent } from '../modules/features/weather/WeatherService.js';
@@ -30,9 +33,12 @@ import {
 function resetWeatherState() {
     state.weather = null;
     state.weatherExpanded = false;
+    state.weatherForecastExpanded = false;
+    state.weatherMetricEditorOpen = false;
     if (state.settings) {
         delete state.settings.weatherProvider;
         delete state.settings.weatherLocation;
+        delete state.settings.weatherSummaryMetrics;
     }
     // Force weather visible for tests that need to render UI. Individual
     // tests can flip this off to exercise the kill-switch.
@@ -172,9 +178,9 @@ testRunner.addSuite("WeatherPanel — render", {
     }
 });
 
-testRunner.addSuite("WeatherBar — collapsed / expanded", {
+testRunner.addSuite("WeatherBar — operational collapsed / expanded", {
 
-    async "collapsed bar shows today + next 2 days and API sync age"() {
+    async "collapsed bar shows current condition, three configurable widgets and work notice"() {
         resetWeatherState();
         await refreshWeather(); // populate cache without expanding
         
@@ -189,18 +195,13 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         state.weather.cache.current.data.visKm = 10;
 
         const html = WeatherBar();
-        testRunner.assert(html.includes('Hoy'), 'Today summary shown');
+        testRunner.assert(html.includes('Clima para la jornada'), 'Operational summary shown');
         testRunner.assert(html.includes('toggle-weather'), 'Toggle action wired');
-        testRunner.assertEquals((html.match(/data-weather-preview-day=/g) || []).length, 3, 'Collapsed preview limited to 3 days');
-        testRunner.assert(html.includes('Última sincronización con la API'), 'API sync tooltip shown');
-        testRunner.assert(/hace (un momento|\d+ min|\d+h|\d+ d)/.test(html), 'Relative API sync age shown');
-        testRunner.assert(html.includes('weather-sync-full'), 'Desktop sync label rendered');
-        testRunner.assert(html.includes('weather-sync-compact'), 'Mobile sync label rendered');
-        testRunner.assert(/>\d+(s|m|H|D)<\/span>/.test(html), 'Compact mobile sync age shown');
+        testRunner.assertEquals((html.match(/data-weather-metric=/g) || []).length, 3, 'Exactly three summary widgets shown');
+        testRunner.assert(html.includes('weather-notice'), 'Workday notice shown without expanding');
         // Collapsed view should NOT contain the expanded-only labels.
-        testRunner.assert(!html.includes('Próximas 24 horas'), 'Hourly section hidden when collapsed');
+        testRunner.assert(!html.includes('Próximas horas'), 'Hourly section hidden when collapsed');
         testRunner.assert(!html.includes('Próximos días'), 'Daily section header hidden when collapsed');
-        // The preview row uses HH labels like ☀️ + temp, so we expect at least one ° symbol.
         testRunner.assert(html.includes('°'), 'Some temperature displayed');
     },
 
@@ -210,12 +211,12 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         await refreshWeather();
         const html = WeatherBar();
         testRunner.assert(state.weatherExpanded === true, 'state flag set');
-        testRunner.assert(html.includes('Próximas 24 horas'), 'Hourly section shown');
+        testRunner.assert(html.includes('Próximas horas'), 'Hourly section shown');
         testRunner.assert(html.includes('Próximos días'), 'Daily section shown');
         testRunner.assert(html.includes('Ahora'), 'Now marker shown in hourly strip');
         testRunner.assert(html.includes('data-app-fn="forceRefreshWeather"'), 'Refresh button rendered in bar');
-        testRunner.assert(html.includes('Actualizar clima'), 'Refresh button label rendered in bar');
-        testRunner.assert(html.includes('Fuente:'), 'Provider footer shown');
+        testRunner.assert(html.includes('Personalizar resumen'), 'Metric customization entry point shown');
+        testRunner.assert(html.includes('Actualizado hace'), 'Sync age shown in expanded footer');
     },
 
     async "toggleWeatherExpanded twice returns to collapsed"() {
@@ -225,7 +226,7 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         await refreshWeather();
         const html = WeatherBar();
         testRunner.assertEquals(state.weatherExpanded, false, 'Collapsed again');
-        testRunner.assert(!html.includes('Próximas 24 horas'), 'Detail no longer rendered');
+        testRunner.assert(!html.includes('Próximas horas'), 'Detail no longer rendered');
     },
 
     "settings.weatherEnabled=false hides the entire bar"() {
@@ -250,6 +251,34 @@ testRunner.addSuite("WeatherBar — collapsed / expanded", {
         await refreshWeather();
         const html = WeatherBar();
         testRunner.assert(html.includes('Punta Cana'), 'Custom location displayed');
+    },
+
+    async "metric editor changes a slot and persists the selection in settings"() {
+        resetWeatherState();
+        toggleWeatherExpanded();
+        toggleWeatherMetricEditor();
+        await refreshWeather();
+
+        let html = WeatherBar();
+        testRunner.assert(html.includes('data-weather-metric-slot="0"'), 'Editor shows the first configurable slot');
+
+        setWeatherSummaryMetric(0, 'rainTotalToday');
+        html = WeatherBar();
+        testRunner.assertEquals(state.settings.weatherSummaryMetrics[0], 'rainTotalToday', 'Selected metric stored in settings');
+        testRunner.assert(html.includes('data-weather-metric="rainTotalToday"'), 'Summary re-renders the selected metric');
+    },
+
+    async "daily forecast stays collapsed until explicitly requested"() {
+        resetWeatherState();
+        toggleWeatherExpanded();
+        await refreshWeather();
+
+        let html = WeatherBar();
+        testRunner.assert(!html.includes('weather-day-grid'), 'Daily cards hidden initially');
+
+        toggleWeatherForecastExpanded();
+        html = WeatherBar();
+        testRunner.assert(html.includes('weather-day-grid'), 'Daily cards shown after expanding the section');
     }
 });
 
@@ -265,6 +294,11 @@ testRunner.addSuite("Weather summary metrics — configurable slots", {
             JSON.stringify(normalizeWeatherSummaryMetrics()),
             JSON.stringify(DEFAULT_WEATHER_SUMMARY_METRICS),
             'Debe conservar una configuración predeterminada estable'
+        );
+        testRunner.assertEquals(
+            JSON.stringify(normalizeWeatherSummaryMetrics(['rainTotalToday', 'wind', 'tomorrow'])),
+            JSON.stringify(['rainTotalToday', 'wind', 'tomorrow']),
+            'Debe conservar exactamente tres métricas válidas no predeterminadas'
         );
     },
 
