@@ -5,6 +5,7 @@
 import {
     AttendanceBulkActions,
     DateControls,
+    DateControlsCompact,
     formatSplitName,
     StatsGrid,
     WeekView,
@@ -46,6 +47,39 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         testRunner.assert(html.includes('attendance-overtime-icon'), 'Debe usar el icono SVG específico de horas extra');
         testRunner.assert(html.includes('M18.5 3.5v6M15.5 6.5h6'), 'Debe incluir el signo de suma en el reloj');
         testRunner.assert(!html.includes('⚡'), 'No debe conservar el rayo como icono de horas extra');
+    },
+
+    "DateControls: eleva la capa activa del calendario normal y flotante"() {
+        const originalShowDatePicker = window.state.showDatePicker;
+        const originalDatePickerTarget = window.state.datePickerTarget;
+        const originalIsScrolled = window.state.isScrolled;
+        const originalActiveTab = window.state.activeTab;
+        const originalDatePicker = window.DatePicker;
+
+        window.DatePicker = () => '<div class="calendar-picker">Calendario</div>';
+        window.state.showDatePicker = true;
+        window.state.activeTab = 'attendance';
+
+        try {
+            window.state.datePickerTarget = 'full';
+            testRunner.assert(
+                DateControls().includes('attendance-toolbar glass-effect date-picker-open'),
+                'El calendario normal debe elevar el contenedor que crea su capa'
+            );
+
+            window.state.datePickerTarget = 'compact';
+            window.state.isScrolled = true;
+            testRunner.assert(
+                DateControlsCompact().includes('date-controls-compact visible date-picker-open'),
+                'El calendario flotante debe elevarse cuando está abierto'
+            );
+        } finally {
+            window.state.showDatePicker = originalShowDatePicker;
+            window.state.datePickerTarget = originalDatePickerTarget;
+            window.state.isScrolled = originalIsScrolled;
+            window.state.activeTab = originalActiveTab;
+            window.DatePicker = originalDatePicker;
+        }
     },
 
     "formatSplitName: divide correctamente nombres largos en primer nombre y primer apellido"() {

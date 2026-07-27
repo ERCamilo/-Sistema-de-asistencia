@@ -116,6 +116,41 @@
     color: #06b6d4;
 }
 
+.attendance-toolbar.date-picker-open {
+    z-index: 1600 !important;
+    overflow: visible;
+}
+
+.date-controls-compact.date-picker-open {
+    z-index: 21000;
+}
+
+.attendance-toolbar.date-picker-open .calendar-picker,
+.date-controls-compact.date-picker-open .calendar-picker {
+    max-height: calc(100dvh - var(--header-height, 60px) - 88px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #06b6d4 #0f172a;
+}
+
+.attendance-toolbar.date-picker-open .calendar-picker::-webkit-scrollbar,
+.date-controls-compact.date-picker-open .calendar-picker::-webkit-scrollbar {
+    width: 6px;
+}
+
+.attendance-toolbar.date-picker-open .calendar-picker::-webkit-scrollbar-thumb,
+.date-controls-compact.date-picker-open .calendar-picker::-webkit-scrollbar-thumb {
+    background: #06b6d4;
+    border-radius: 999px;
+}
+
+.attendance-toolbar.date-picker-open .calendar-picker::-webkit-scrollbar-track,
+.date-controls-compact.date-picker-open .calendar-picker::-webkit-scrollbar-track {
+    background: #0f172a;
+    border-radius: 999px;
+}
+
 .segmented-control {
     display: flex;
     background: #1e293b;
