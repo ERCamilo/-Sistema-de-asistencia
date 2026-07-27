@@ -15,6 +15,8 @@ export function getDemoSeed(options = {}) {
         companyName: 'Constructora Horizon S.R.L.',
         regularHoursPerDay: 8,
         attendancePositionWatermarks: true,
+        attendanceWatermarkVisibility: 'present',
+        attendanceWatermarkContent: 'position',
         holidayFactor: 2,
         holidays: [] 
     };

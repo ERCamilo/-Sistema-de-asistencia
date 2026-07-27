@@ -94,6 +94,12 @@ export class LegacyMigrator {
         const s = data.settings;
         if (s.regularHoursPerDay === undefined) s.regularHoursPerDay = 8;
         if (s.attendancePositionWatermarks === undefined) s.attendancePositionWatermarks = true;
+        if (!['always', 'present'].includes(s.attendanceWatermarkVisibility)) {
+            s.attendanceWatermarkVisibility = 'present';
+        }
+        if (!['number', 'position'].includes(s.attendanceWatermarkContent)) {
+            s.attendanceWatermarkContent = 'position';
+        }
         if (s.overtimeFactor === undefined) s.overtimeFactor = 1;
         if (s.holidayFactor === undefined) s.holidayFactor = 2;
         if (!s.iconSet) s.iconSet = 'default';

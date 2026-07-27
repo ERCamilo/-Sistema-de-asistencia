@@ -14,6 +14,7 @@ import {
     EmployeeRow,
     EmployeeRowCompact,
     getAttendanceWatermarkPositions,
+    getAttendanceWatermarkModel,
     getEffectiveAttendanceDetailEmployeeId,
     usesAttendanceDetailPanel
 } from '../modules/ui/AttendanceUI.js';
@@ -310,7 +311,9 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         };
         window.state.settings = {
             ...window.state.settings,
-            attendancePositionWatermarks: true
+            attendancePositionWatermarks: true,
+            attendanceWatermarkVisibility: 'present',
+            attendanceWatermarkContent: 'position'
         };
 
         try {
@@ -320,7 +323,7 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
 
             testRunner.assertEquals(positions.length, 1, 'debe resolver una sola labor trabajada');
             testRunner.assertEquals(positions[0].id, 'pos-worked', 'debe usar el puesto registrado, no el puesto principal');
-            testRunner.assert(html.includes('attendance-position-watermarks has-1'), 'debe renderizar la marca de agua');
+            testRunner.assert(html.includes('attendance-watermarks is-position has-1'), 'debe renderizar la marca de agua');
             testRunner.assert(html.includes('--watermark-color: #f59e0b'), 'debe conservar el color del puesto trabajado');
             testRunner.assert(!html.includes('--watermark-color: #8b5cf6'), 'no debe mostrar el puesto principal que no se trabajó');
         } finally {
@@ -368,18 +371,77 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
         };
         window.state.settings = {
             ...window.state.settings,
-            attendancePositionWatermarks: true
+            attendancePositionWatermarks: true,
+            attendanceWatermarkVisibility: 'present',
+            attendanceWatermarkContent: 'position'
         };
 
         try {
             const enabledHTML = EmployeeRow(employee);
-            testRunner.assert(enabledHTML.includes('attendance-position-watermarks has-2'),
+            testRunner.assert(enabledHTML.includes('attendance-watermarks is-position has-2'),
                 'debe mostrar las dos labores realmente trabajadas');
 
             window.state.settings.attendancePositionWatermarks = false;
             const disabledHTML = EmployeeRow(employee);
-            testRunner.assert(!disabledHTML.includes('attendance-position-watermarks'),
+            testRunner.assert(!disabledHTML.includes('attendance-watermarks'),
                 'debe ocultar las marcas inmediatamente al apagar el ajuste');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+            window.state.employees = originalEmployees;
+            window.state.settings = originalSettings;
+        }
+    },
+
+    "EmployeeRow: permite usar el número y elegir si la marca se ve estando ausente"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const originalEmployees = window.state.employees;
+        const originalSettings = window.state.settings;
+        const employee = {
+            id: 'emp-watermark-number',
+            name: 'Empleado Número',
+            number: '042',
+            positions: ['pos-primary'],
+            active: true
+        };
+
+        window.state.selectedDate = new Date('2026-07-26T12:00:00');
+        window.state.positions = [
+            { id: 'pos-primary', name: 'Albañil', color: '#f59e0b', icon: 'bricks' }
+        ];
+        window.state.employees = [employee];
+        window.state.attendance = {};
+        window.state.settings = {
+            ...window.state.settings,
+            attendancePositionWatermarks: true,
+            attendanceWatermarkVisibility: 'always',
+            attendanceWatermarkContent: 'number'
+        };
+
+        try {
+            const numberModel = getAttendanceWatermarkModel(employee, undefined);
+            const numberHTML = EmployeeRow(employee);
+            testRunner.assert(numberModel.visible === true, 'siempre visible debe incluir empleados ausentes');
+            testRunner.assert(numberHTML.includes('attendance-watermarks is-number'),
+                'debe renderizar la variante numérica');
+            testRunner.assert(numberHTML.includes('<span>042</span>'),
+                'debe conservar ceros iniciales del número');
+
+            window.state.settings.attendanceWatermarkVisibility = 'present';
+            const presentOnlyHTML = EmployeeRow(employee);
+            testRunner.assert(!presentOnlyHTML.includes('attendance-watermarks'),
+                'solo presente debe ocultarla mientras no exista asistencia');
+
+            window.state.settings.attendanceWatermarkVisibility = 'always';
+            window.state.settings.attendanceWatermarkContent = 'position';
+            const fallbackPositionHTML = EmployeeRow(employee);
+            testRunner.assert(fallbackPositionHTML.includes('attendance-watermarks is-position has-1'),
+                'el icono siempre visible debe usar el puesto principal antes de marcar asistencia');
+            testRunner.assert(fallbackPositionHTML.includes('--watermark-color: #f59e0b'),
+                'el puesto de respaldo debe conservar su color');
         } finally {
             window.state.selectedDate = originalDate;
             window.state.attendance = originalAttendance;

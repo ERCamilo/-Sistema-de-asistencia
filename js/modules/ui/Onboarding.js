@@ -273,6 +273,8 @@ class OnboardingWizard {
             companyName: 'Mi Empresa',
             regularHoursPerDay: 8,
             attendancePositionWatermarks: true,
+            attendanceWatermarkVisibility: 'present',
+            attendanceWatermarkContent: 'position',
             holidayFactor: 2,
             iconSet: resolveIconSet(),
             holidays: []

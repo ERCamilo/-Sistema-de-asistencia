@@ -563,33 +563,90 @@ export function getEffectiveAttendanceDetailEmployeeId() {
         || null;
 }
 
-export function getAttendanceWatermarkPositions(emp, attendance, positions = state.positions) {
-    if (!attendance?.present) return [];
+export function getAttendanceWatermarkPositions(
+    emp,
+    attendance,
+    positions = state.positions,
+    { allowAbsent = false } = {}
+) {
+    if (!attendance?.present && !allowAbsent) return [];
 
-    const positionHours = Array.isArray(attendance.positionHours)
+    const positionHours = Array.isArray(attendance?.positionHours)
         ? attendance.positionHours
         : [];
-    const usesMultiplePositions = attendance.multiPosition || positionHours.length > 1;
+    const usesMultiplePositions = attendance?.present
+        && (attendance.multiPosition || positionHours.length > 1);
     const positionIds = usesMultiplePositions
         ? positionHours.map(item => item?.positionId)
-        : [attendance.selectedPosition || emp.positions?.[0] || emp.positionId];
+        : [attendance?.selectedPosition || emp.positions?.[0] || emp.positionId];
 
     return [...new Set(positionIds.filter(Boolean))]
         .map(positionId => positions.find(position => position.id === positionId))
         .filter(Boolean);
 }
 
-function renderAttendancePositionWatermarks(emp, attendance, resolvedPositions) {
-    if (state.settings?.attendancePositionWatermarks === false) return '';
+export function getAttendanceWatermarkModel(emp, attendance, positions = state.positions) {
+    const enabled = state.settings?.attendancePositionWatermarks !== false;
+    const visibility = state.settings?.attendanceWatermarkVisibility === 'always'
+        ? 'always'
+        : 'present';
+    const content = state.settings?.attendanceWatermarkContent === 'number'
+        ? 'number'
+        : 'position';
+    const visible = enabled && (visibility === 'always' || attendance?.present === true);
 
-    const positions = resolvedPositions || getAttendanceWatermarkPositions(emp, attendance);
-    if (!positions.length) return '';
+    if (!visible) {
+        return { visible: false, visibility, content, positions: [], fingerprint: 'hidden' };
+    }
 
-    const visiblePositions = positions.slice(0, 3);
-    const hiddenCount = Math.max(0, positions.length - visiblePositions.length);
+    if (content === 'number') {
+        const number = String(emp.number ?? '').trim();
+        return {
+            visible: !!number,
+            visibility,
+            content,
+            number,
+            positions: [],
+            fingerprint: number ? `${visibility}:number:${number}` : 'hidden'
+        };
+    }
+
+    const resolvedPositions = getAttendanceWatermarkPositions(
+        emp,
+        attendance,
+        positions,
+        { allowAbsent: visibility === 'always' }
+    );
+    const positionFingerprint = resolvedPositions
+        .map(position => `${position.id}:${position.updatedAt || 0}:${position.icon || ''}:${position.color || ''}`)
+        .join('|');
+    return {
+        visible: resolvedPositions.length > 0,
+        visibility,
+        content,
+        positions: resolvedPositions,
+        fingerprint: positionFingerprint
+            ? `${visibility}:position:${positionFingerprint}`
+            : 'hidden'
+    };
+}
+
+function renderAttendanceWatermark(model) {
+    if (!model?.visible) return '';
+
+    if (model.content === 'number') {
+        return `
+            <div class="attendance-watermarks is-number" aria-hidden="true">
+                <span>${escapeHTML(model.number)}</span>
+            </div>
+        `;
+    }
+
+    const visiblePositions = model.positions.slice(0, 3);
+    const hiddenCount = Math.max(0, model.positions.length - visiblePositions.length);
 
     return `
-        <div class="attendance-position-watermarks has-${visiblePositions.length}" aria-hidden="true">
+        <div class="attendance-watermarks is-position has-${visiblePositions.length}" aria-hidden="true">
             ${visiblePositions.map(position => `
                 <span style="--watermark-color: ${safePositionColor(position.color)};">
                     ${renderPositionIconSvg(resolvePositionIcon(position), { size: 112 })}
@@ -694,15 +751,7 @@ export function EmployeeRow(emp) {
     const attKey = `${emp.id}-${dateKey}`;
     const att = state.attendance[attKey];
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
-    const watermarkEnabled = state.settings?.attendancePositionWatermarks !== false;
-    const watermarkPositions = watermarkEnabled
-        ? getAttendanceWatermarkPositions(emp, att)
-        : [];
-    const watermarkFingerprint = watermarkEnabled
-        ? watermarkPositions
-            .map(position => `${position.id}:${position.updatedAt || 0}:${position.icon || ''}:${position.color || ''}`)
-            .join('|')
-        : 'hidden';
+    const watermarkModel = getAttendanceWatermarkModel(emp, att);
 
     // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
     // - att.updatedAt: cambia cuando se registra/modifica asistencia de este empleado
@@ -710,7 +759,7 @@ export function EmployeeRow(emp) {
     // - dateKey: cambia cuando el usuario navega a otra fecha
     return componentMemo.get(
         `emp-row-${emp.id}`,
-        () => _buildEmployeeRow(emp, dateKey, attKey, att, watermarkPositions),
+        () => _buildEmployeeRow(emp, dateKey, attKey, att, watermarkModel),
         [
             dateKey,
             att?.updatedAt ?? 0,
@@ -722,12 +771,12 @@ export function EmployeeRow(emp) {
             state.tempPositionSelection?.[attKey] || '',
             att?.selectedPosition || '',
             isDetailSelected,
-            watermarkFingerprint
+            watermarkModel.fingerprint
         ]
     );
 }
 
-function _buildEmployeeRow(emp, dateKey, key, att, watermarkPositions = []) {
+function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel) {
     // Defensa: empleados con formato viejo (positionId sin positions[])
     if (!emp.positions) {
         emp.positions = emp.positionId ? [emp.positionId] : [];
@@ -769,12 +818,9 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkPositions = []) {
         ? `<div class="inactive-on-date-flag" title="Según el registro de estados, este empleado no estaba activo el ${dateKey}. Puedes registrar su asistencia igualmente; corrige las fechas en su perfil si fue un error." style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 10px;border-radius:999px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.55);color:#fca5a5;font-size:0.7rem;font-weight:600;line-height:1.2;white-space:nowrap;">${icons.get('alert', { size: 12 })} No activo en esta fecha</div>`
         : '';
 
-    const watermarkFingerprint = watermarkPositions
-        .map(position => `${position.id}:${position.updatedAt || 0}:${position.icon || ''}:${position.color || ''}`)
-        .join('|') || 'none';
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkFingerprint}`;
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkModel?.fingerprint || 'hidden'}`;
     return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${inactiveOnDate ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}"${inactiveOnDate ? ' style="opacity:0.62;"' : ''}>
-                ${renderAttendancePositionWatermarks(emp, att, watermarkPositions)}
+                ${renderAttendanceWatermark(watermarkModel)}
                 <div class="employee-info">
                     <div class="employee-header">
                         <div class="employee-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
@@ -869,12 +915,13 @@ export function EmployeeRowCompact(emp) {
     const checkColor = getCheckColor(att, state.selectedDate);
     const isChecked = att && att.present;
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
+    const watermarkModel = getAttendanceWatermarkModel(emp, att);
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}">
-                ${renderAttendancePositionWatermarks(emp, att)}
+                ${renderAttendanceWatermark(watermarkModel)}
                 <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                     <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
