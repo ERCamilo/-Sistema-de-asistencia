@@ -10,6 +10,10 @@ import { state, stateManager } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { fetchCurrent, fetchForecast, fetchHourly } from './WeatherService.js';
+import {
+    normalizeWeatherSummaryMetrics,
+    updateWeatherSummaryMetric
+} from './WeatherSummaryMetrics.js';
 
 function ensureWeatherState() {
     if (!state.weather) state.weather = {};
@@ -96,6 +100,31 @@ export function toggleWeatherExpanded() {
     if (state.weatherExpanded) refreshWeather();
 }
 
+export function toggleWeatherForecastExpanded() {
+    stateManager.setState({
+        weatherForecastExpanded: !state.weatherForecastExpanded
+    });
+}
+
+export function toggleWeatherMetricEditor() {
+    stateManager.setState({
+        weatherMetricEditorOpen: !state.weatherMetricEditorOpen
+    });
+}
+
+export function setWeatherSummaryMetric(slot, metricId) {
+    const currentMetrics = normalizeWeatherSummaryMetrics(state.settings?.weatherSummaryMetrics);
+    const nextMetrics = updateWeatherSummaryMetric(currentMetrics, slot, metricId);
+    stateManager.setState({
+        settings: {
+            ...state.settings,
+            weatherSummaryMetrics: nextMetrics,
+            updatedAt: Date.now()
+        }
+    });
+    saveApplicationData();
+}
+
 export function closeWeatherPanel() {
     ensureWeatherState();
     stateManager.batchSetState(() => {
@@ -122,14 +151,29 @@ function _installOutsideClickHandler() {
     });
 }
 
+function _installMetricChangeHandler() {
+    if (typeof document === 'undefined') return;
+    if (document._weatherMetricChangeHandlerInstalled) return;
+    document._weatherMetricChangeHandlerInstalled = true;
+    document.addEventListener('change', (event) => {
+        const select = event.target.closest('[data-weather-metric-slot]');
+        if (!select) return;
+        setWeatherSummaryMetric(select.dataset.weatherMetricSlot, select.value);
+    });
+}
+
 export function registerLegacyGlobals() {
     if (typeof window === 'undefined') return;
     window.toggleWeatherPanel = toggleWeatherPanel;
     window.closeWeatherPanel = closeWeatherPanel;
     window.toggleWeatherExpanded = toggleWeatherExpanded;
+    window.toggleWeatherForecastExpanded = toggleWeatherForecastExpanded;
+    window.toggleWeatherMetricEditor = toggleWeatherMetricEditor;
+    window.setWeatherSummaryMetric = setWeatherSummaryMetric;
     window.refreshWeather = refreshWeather;
     window.forceRefreshWeather = forceRefreshWeather;
     _installOutsideClickHandler();
+    _installMetricChangeHandler();
     // Kick a refresh at boot so the chip has fresh data on first render.
     // Fire-and-forget: don't block module initialization on network.
     refreshWeather();
