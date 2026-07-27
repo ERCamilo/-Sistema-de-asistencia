@@ -21,6 +21,10 @@ import {
     getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
+import {
+    AttendanceDetailCalendar,
+    normalizeAttendanceDetailCalendarView
+} from './modules/ui/components/AttendanceDetailCalendar.js';
 import { RestoreUI } from './modules/ui/RestoreUI.js';
 import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
@@ -4320,13 +4324,12 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
         </button>
     `;
 
-    const calendarContent = CalendarView({
+    const calendarContent = AttendanceDetailCalendar({
         employee: emp,
-        month: calendarMonth,
-        navAction: 'changeAttendanceDetailMonth',
         selectedDate,
-        selectAction: 'selectAttendanceDetailDate',
-        showLegend: false
+        calendarMonth,
+        activeView: state.attendanceDetailCalendarView,
+        payPeriod: state.settings?.payPeriod
     });
 
     const hoursContent = `
@@ -4416,6 +4419,11 @@ function renderAttendanceDetailWorkPanel(emp, selectedDate) {
 
 window.setAttendanceDetailPanelTab = (tab) => {
     state.attendanceDetailPanelTab = tab === 'hours' ? 'hours' : 'calendar';
+    if (typeof window.render === 'function') window.render();
+};
+
+window.setAttendanceDetailCalendarView = (view) => {
+    state.attendanceDetailCalendarView = normalizeAttendanceDetailCalendarView(view);
     if (typeof window.render === 'function') window.render();
 };
 

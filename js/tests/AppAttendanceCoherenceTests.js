@@ -435,6 +435,24 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
         testRunner.assertEquals(withInvalidate, 2, 'ambos callers guardados deben invalidar todas las stats');
         const withRebuild = (SRC.match(/if \(sanitizePositions\(state\)\) \{[\s\S]{0,300}?buildAttendanceIndex\(/g) || []).length;
         testRunner.assertEquals(withRebuild, 0, 'NO debe haber buildAttendanceIndex en los sanitize callers (no cambian claves)');
+    },
+
+    "el panel lateral conecta la vista de período y normaliza su selector"() {
+        const panelBody = between('function renderAttendanceDetailWorkPanel', 'window.changeAttendanceDetailMonth');
+        testRunner.assert(
+            /import\s*\{[\s\S]*?\bAttendanceDetailCalendar\b[\s\S]*?\bnormalizeAttendanceDetailCalendarView\b[\s\S]*?\}\s*from\s*['"]\.\/modules\/ui\/components\/AttendanceDetailCalendar\.js['"]/.test(SRC),
+            'app.js debe importar el componente y el normalizador de vista'
+        );
+        testRunner.assert(panelBody.includes('AttendanceDetailCalendar({'),
+            'el panel debe delegar el contenido del calendario al componente especializado');
+        testRunner.assert(panelBody.includes('activeView: state.attendanceDetailCalendarView'),
+            'la selección de período/calendario completo debe venir del estado');
+        testRunner.assert(panelBody.includes('payPeriod: state.settings?.payPeriod'),
+            'el período configurado debe ser la única fuente del rango');
+        testRunner.assert(
+            /window\.setAttendanceDetailCalendarView\s*=\s*\(view\)\s*=>\s*\{[\s\S]*?normalizeAttendanceDetailCalendarView\(view\)/.test(panelBody),
+            'el handler global debe rechazar modos no soportados mediante el normalizador'
+        );
     }
 });
 

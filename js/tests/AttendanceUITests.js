@@ -15,7 +15,11 @@ import {
     getEffectiveAttendanceDetailEmployeeId,
     usesAttendanceDetailPanel
 } from '../modules/ui/AttendanceUI.js';
-import { CalendarView } from '../modules/ui/components/CalendarView.js';
+import { CalendarView, getPayPeriodCalendarDays } from '../modules/ui/components/CalendarView.js';
+import {
+    AttendanceDetailCalendar,
+    normalizeAttendanceDetailCalendarView
+} from '../modules/ui/components/AttendanceDetailCalendar.js';
 
 testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
 
@@ -298,5 +302,99 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.settings = originalSettings;
             window.state.positions = originalPositions;
         }
+    },
+
+    "CalendarView: el modo período muestra únicamente sus fechas aunque cruce de mes"() {
+        const originalAttendance = window.state.attendance;
+        const originalSettings = window.state.settings;
+        const employee = {
+            id: 'emp-period-calendar',
+            name: 'Empleado Período',
+            positions: [],
+            active: true
+        };
+        const payPeriod = {
+            periodStart: '2026-05-25',
+            periodLength: 10,
+            payDay: '2026-06-03'
+        };
+
+        window.state.attendance = {};
+        window.state.settings = { ...window.state.settings, payPeriod };
+
+        try {
+            const days = getPayPeriodCalendarDays(payPeriod);
+            const html = CalendarView({
+                employee,
+                month: new Date('2026-05-01T12:00:00'),
+                navAction: 'noop',
+                selectAction: 'selectAttendanceDetailDate',
+                displayMode: 'period',
+                payPeriod
+            });
+            const renderedDates = [...html.matchAll(/data-cv-date="([^"]+)"/g)].map(match => match[1]);
+
+            testRunner.assertEquals(days.length, 10, 'debe resolver la duración exacta del período');
+            testRunner.assertEquals(renderedDates.length, 10, 'debe dibujar solo sus diez días');
+            testRunner.assertEquals(renderedDates[0], '2026-05-25', 'debe comenzar en la fecha configurada');
+            testRunner.assertEquals(renderedDates[9], '2026-06-03', 'debe cruzar de mes sin cortar el período');
+            testRunner.assert(!html.includes('data-cv-date="2026-05-24"'), 'no debe incluir días anteriores');
+            testRunner.assert(!html.includes('data-cv-date="2026-06-04"'), 'no debe incluir días posteriores');
+            testRunner.assert(html.includes('data-calendar-display="period"'), 'debe identificar el modo período');
+            testRunner.assert(!html.includes('aria-label="Mes anterior"'), 'el período exacto no necesita navegación mensual');
+        } finally {
+            window.state.attendance = originalAttendance;
+            window.state.settings = originalSettings;
+        }
+    },
+
+    "AttendanceDetailCalendar: usa período por defecto y conserva el calendario completo como alternativa"() {
+        const employee = {
+            id: 'emp-detail-calendar',
+            name: 'Empleado Detalle',
+            positions: [],
+            active: true
+        };
+        const args = {
+            employee,
+            selectedDate: new Date('2026-05-28T12:00:00'),
+            calendarMonth: new Date('2026-05-01T12:00:00'),
+            payPeriod: { periodStart: '2026-05-25', periodLength: 10 }
+        };
+
+        const defaultHTML = AttendanceDetailCalendar(args);
+        const fullHTML = AttendanceDetailCalendar({ ...args, activeView: 'full' });
+
+        testRunner.assertEquals(normalizeAttendanceDetailCalendarView(undefined), 'period',
+            'el modo principal debe ser período');
+        testRunner.assert(defaultHTML.includes('data-detail-calendar-view="period"'),
+            'debe abrir directamente el período actual');
+        testRunner.assert(defaultHTML.includes('Período actual') && defaultHTML.includes('Calendario completo'),
+            'debe ofrecer las dos vistas');
+        testRunner.assert(fullHTML.includes('data-detail-calendar-view="full"'),
+            'debe permitir el calendario completo');
+        testRunner.assert(fullHTML.includes('aria-label="Mes anterior"'),
+            'el calendario completo debe conservar su navegación mensual');
+    },
+
+    "AttendanceDetailCalendar: sin período ofrece acceso directo a su configuración"() {
+        const html = AttendanceDetailCalendar({
+            employee: {
+                id: 'emp-no-period',
+                name: 'Empleado Sin Período',
+                positions: [],
+                active: true
+            },
+            selectedDate: new Date('2026-05-28T12:00:00'),
+            calendarMonth: new Date('2026-05-01T12:00:00'),
+            payPeriod: { periodStart: null, periodLength: 21 }
+        });
+
+        testRunner.assert(html.includes('data-calendar-period-empty'),
+            'debe explicar que falta configurar el período');
+        testRunner.assert(html.includes('data-app-fn="openCalendarioAjustes"'),
+            'debe enlazar directamente a Ajustes > Calendario');
+        testRunner.assert(html.includes('Configurar período'),
+            'el llamado a la acción debe ser explícito');
     }
 });
