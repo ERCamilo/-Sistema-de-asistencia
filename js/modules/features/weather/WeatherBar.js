@@ -66,6 +66,8 @@ function _iconSvg(name, className = '') {
         add: `<svg ${common}><path d="M12 5v14M5 12h14"/></svg>`,
         subtract: `<svg ${common}><path d="M5 12h14"/></svg>`,
         refresh: `<svg ${common}><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.5-2L20 8M4 16l2.4 2a7 7 0 0 0 11.5-2"/></svg>`,
+        warning: `<svg ${common}><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></svg>`,
+        'check-circle': `<svg ${common}><circle cx="12" cy="12" r="9"/><path d="m8 12 2.7 2.7L16.5 9"/></svg>`,
         sliders: `<svg ${common}><path d="M4 6h10M18 6h2M4 12h2m4 0h10M4 18h7m4 0h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></svg>`
     };
     return icons[name] || icons.cloudy;
@@ -76,6 +78,109 @@ function _conditionIcon(icon, className = '') {
     if (icon === 'rainy') return _iconSvg('rain', className);
     if (icon === 'stormy' || icon === 'hurricane') return _iconSvg('stormy', className);
     return _iconSvg('cloudy', className);
+}
+
+function _heroConditionSvg(icon) {
+    const normalizedIcon = [
+        'sunny',
+        'partly-cloudy',
+        'cloudy',
+        'rainy',
+        'stormy',
+        'windy',
+        'hot',
+        'hurricane'
+    ].includes(icon) ? icon : 'cloudy';
+
+    const definitions = `
+        <defs>
+            <linearGradient id="weather-cloud-front" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#f8fafc"/>
+                <stop offset="1" stop-color="#8fa9c5"/>
+            </linearGradient>
+            <linearGradient id="weather-cloud-dark" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#64748b"/>
+                <stop offset="1" stop-color="#26364b"/>
+            </linearGradient>
+            <linearGradient id="weather-rain-drop" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#67e8f9"/>
+                <stop offset="1" stop-color="#0ea5e9"/>
+            </linearGradient>
+            <radialGradient id="weather-sun-core">
+                <stop offset="0" stop-color="#fef08a"/>
+                <stop offset="0.7" stop-color="#fbbf24"/>
+                <stop offset="1" stop-color="#f97316"/>
+            </radialGradient>
+        </defs>`;
+    const sun = `
+        <g class="weather-hero-sun">
+            <g class="weather-hero-sun-rays">
+                <path d="M47 5v8M47 47v8M20 30h8M66 30h8M28 11l6 6M60 43l6 6M28 49l6-6M60 17l6-6"/>
+            </g>
+            <circle cx="47" cy="30" r="14" fill="url(#weather-sun-core)"/>
+        </g>`;
+    const frontCloud = `
+        <g class="weather-hero-cloud weather-hero-cloud--front">
+            <path d="M20 47c0-7 5-12 12-13 3-10 17-13 24-5 3-2 7-2 10-1 6 1 10 6 10 12 0 7-5 12-13 12H31c-7 0-11-2-11-5Z"
+                  fill="url(#weather-cloud-front)"/>
+            <path d="M29 51h35" fill="none" stroke="#d8e5f2" stroke-width="2" stroke-linecap="round"/>
+        </g>`;
+    const darkCloud = `
+        <g class="weather-hero-cloud weather-hero-cloud--storm">
+            <path d="M17 42c0-8 6-14 14-15 4-11 19-14 27-5 3-2 8-3 12-1 7 2 11 7 11 14 0 8-6 13-15 13H30c-8 0-13-2-13-6Z"
+                  fill="url(#weather-cloud-dark)"/>
+            <path d="M27 47h41" fill="none" stroke="#71859c" stroke-width="2" stroke-linecap="round"/>
+        </g>`;
+    const rain = `
+        <g class="weather-hero-rain">
+            <path d="m29 54-4 9M43 54l-4 9M57 54l-4 9M71 54l-4 9"
+                  fill="none" stroke="url(#weather-rain-drop)" stroke-width="4" stroke-linecap="round"/>
+        </g>`;
+    const lightning = `
+        <g class="weather-hero-lightning">
+            <path d="m50 43-9 15h8l-5 12 16-20h-9l7-7Z" fill="#facc15" stroke="#fde68a" stroke-width="1.2"/>
+        </g>`;
+    const wind = `
+        <g class="weather-hero-wind">
+            <path d="M14 29h45c8 0 8-10 1-10-4 0-6 2-7 5M10 40h61c8 0 8 10 1 10-4 0-6-2-7-5M21 52h28"
+                  fill="none" stroke="#67e8f9" stroke-width="4" stroke-linecap="round"/>
+        </g>`;
+    const heat = `
+        <g class="weather-hero-heat">
+            <path d="M25 55c-5-6 5-9 0-15M47 62c-5-6 5-9 0-15M69 55c-5-6 5-9 0-15"
+                  fill="none" stroke="#fb7185" stroke-width="3" stroke-linecap="round"/>
+        </g>`;
+    const hurricane = `
+        <g class="weather-hero-hurricane">
+            <path d="M18 38c9-22 40-29 58-11M78 34c-8 22-39 30-59 13M31 25c4 5 11 8 18 8s14-3 18-8M66 51c-4-5-11-8-18-8s-14 3-18 8"
+                  fill="none" stroke="#67e8f9" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="48" cy="38" r="5" fill="#f8fafc"/>
+        </g>`;
+
+    const scenes = {
+        sunny: `${sun}`,
+        hot: `${sun}${heat}`,
+        'partly-cloudy': `${sun}${frontCloud}`,
+        cloudy: `
+            <g class="weather-hero-cloud weather-hero-cloud--back">
+                <path d="M12 39c0-6 5-11 12-11 4-9 17-10 23-3 10-4 20 2 20 11 0 6-5 10-12 10H23c-7 0-11-2-11-7Z"
+                      fill="#46617f"/>
+            </g>
+            ${frontCloud}`,
+        rainy: `${frontCloud}${rain}`,
+        stormy: `${darkCloud}${rain}${lightning}`,
+        windy: `${frontCloud}${wind}`,
+        hurricane
+    };
+
+    return `
+        <svg class="weather-hero-svg weather-hero-svg--${normalizedIcon}"
+             viewBox="0 0 96 72"
+             role="img"
+             aria-label="${escapeHTML(labelFor(normalizedIcon))}">
+            ${definitions}
+            ${scenes[normalizedIcon]}
+        </svg>`;
 }
 
 function _metricIcon(metric) {
@@ -112,9 +217,8 @@ function _renderMetric(metric) {
         <div class="weather-metric-card" data-weather-metric="${metric.id}">
             <span class="weather-metric-icon">${_metricIcon(metric)}</span>
             <span class="weather-metric-copy">
-                <span class="weather-metric-label">${escapeHTML(metric.label)}</span>
                 <strong>${escapeHTML(metric.value)}</strong>
-                <small>${escapeHTML(metric.detail)}</small>
+                <small>${escapeHTML(metric.label)}</small>
             </span>
         </div>`;
 }
@@ -134,7 +238,7 @@ function _renderSummary(current, forecast, todayKey, notice, expanded) {
                     data-att-action="toggle-weather"
                     aria-expanded="${expanded}"
                     aria-label="${expanded ? 'Ocultar detalle del clima' : 'Ver detalle del clima'}">
-                <span class="weather-current-icon">${_conditionIcon(current.icon, 'is-current')}</span>
+                <span class="weather-current-hero">${_heroConditionSvg(current.icon)}</span>
                 <span class="weather-current-copy">
                     <span class="weather-current-title">Clima para la jornada</span>
                     <span class="weather-current-condition">${escapeHTML(labelFor(current.icon))} · ${escapeHTML(formatTemp(current.temp))}</span>
@@ -153,7 +257,7 @@ function _renderSummary(current, forecast, todayKey, notice, expanded) {
             </button>
         </div>
         <div class="weather-notice weather-notice--${notice.level}">
-            <span class="weather-notice-dot" aria-hidden="true"></span>
+            ${_iconSvg(notice.level === 'favorable' ? 'check-circle' : 'warning')}
             <span>${escapeHTML(notice.label)}</span>
         </div>`;
 }
