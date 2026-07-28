@@ -29,6 +29,44 @@ export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
 }
 
 /**
+ * Conserva una copia binaria independiente del archivo elegido por el usuario.
+ * `Blob.slice()` mantiene los bytes y el MIME type, pero evita depender de que
+ * el objeto File original siga vivo después de cerrar el selector/cámara.
+ */
+export function cloneOriginalReceipt(file) {
+    if (!file || typeof file.slice !== 'function' || !Number.isFinite(Number(file.size))) return null;
+    return file.slice(0, file.size, file.type || 'application/octet-stream');
+}
+
+/** Convierte un Blob local a data URL únicamente cuando la UI/OCR lo necesita. */
+export function blobToDataUrl(blob) {
+    if (!blob) return Promise.resolve(null);
+    if (typeof FileReader === 'undefined') return Promise.resolve(null);
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => reject(reader.error || new Error('No se pudo leer el comprobante local.'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+/**
+ * Solicita almacenamiento persistente para reducir el riesgo de que el
+ * navegador expulse comprobantes locales bajo presión de espacio. El usuario
+ * todavía puede borrarlos manualmente desde los datos del sitio.
+ */
+export async function requestPersistentReceiptStorage() {
+    try {
+        const storage = typeof navigator !== 'undefined' ? navigator.storage : null;
+        if (!storage) return false;
+        if (typeof storage.persisted === 'function' && await storage.persisted()) return true;
+        return typeof storage.persist === 'function' ? !!(await storage.persist()) : false;
+    } catch (_) {
+        return false;
+    }
+}
+
+/**
  * 🧮 Escala para una miniatura: el lado MAYOR no debe exceder maxDim.
  * Función pura (sin canvas) → testeable. Nunca agranda (escala ≤ 1) y tolera
  * dimensiones inválidas devolviendo 1.
@@ -72,4 +110,12 @@ export async function downscaleDataUrl(dataUrl, maxDim = 480, quality = 0.5) {
     }
 }
 
-export default { receiptStoragePath, compressImage, receiptThumbnailScale, downscaleDataUrl };
+export default {
+    receiptStoragePath,
+    compressImage,
+    cloneOriginalReceipt,
+    blobToDataUrl,
+    requestPersistentReceiptStorage,
+    receiptThumbnailScale,
+    downscaleDataUrl
+};

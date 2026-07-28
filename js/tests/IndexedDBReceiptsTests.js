@@ -42,9 +42,21 @@ testRunner.addSuite("IndexedDBService — store de comprobantes (v9+)", {
 
     "expone los métodos de comprobantes"() {
         testRunner.assert(/saveReceipt\s*\(/.test(SRC), 'saveReceipt');
+        testRunner.assert(/saveReceiptOriginal\s*\(/.test(SRC), 'saveReceiptOriginal');
+        testRunner.assert(/updateReceiptJob\s*\(/.test(SRC), 'updateReceiptJob');
+        testRunner.assert(/listReceiptJobs\s*\(/.test(SRC), 'listReceiptJobs');
         testRunner.assert(/getReceipt\s*\(/.test(SRC), 'getReceipt');
         testRunner.assert(/deleteReceipt\s*\(/.test(SRC), 'deleteReceipt');
         testRunner.assert(/listPendingReceipts\s*\(/.test(SRC), 'listPendingReceipts');
+    },
+
+    "los originales nuevos quedan explícitamente sólo en local"() {
+        const block = SRC.match(/async saveReceiptOriginal[\s\S]{0,2200}?\n    \}/);
+        testRunner.assert(!!block, 'saveReceiptOriginal debe existir');
+        testRunner.assert(/originalBlob/.test(block[0]), 'debe persistir el Blob original');
+        testRunner.assert(/status:\s*['"]local-only['"]/.test(block[0]), 'status debe ser local-only');
+        testRunner.assert(/uploadStatus:\s*['"]deferred['"]/.test(block[0]), 'la subida debe quedar diferida');
+        testRunner.assert(/previewDataUrl/.test(block[0]), 'la miniatura debe guardarse por separado');
     }
 
 });
