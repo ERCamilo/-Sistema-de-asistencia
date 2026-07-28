@@ -75,7 +75,7 @@ testRunner.addSuite("Comprobantes — conservación del original + cascada al bo
     },
 
     "eliminar un movimiento borra su comprobante (cascade, 3 sitios)"() {
-        const cascades = UI_SRC.match(/if\s*\(\s*m?o?v?\.?receiptStatus\s*\)\s*indexedDBService\.deleteReceipt/g) || [];
+        const cascades = UI_SRC.match(/if\s*\(\s*m?o?v?\.?receiptStatus\s*\)\s*(?:await\s+)?indexedDBService\.deleteReceipt/g) || [];
         testRunner.assert(cascades.length >= 3,
             'los handlers de borrado deben hacer cascade deleteReceipt (esperados 3)');
     }
