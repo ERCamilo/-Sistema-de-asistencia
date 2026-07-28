@@ -133,6 +133,7 @@ class IconSystem {
             'file-pdf': { unicode: '📑', lucide: 'file-type', phosphor: 'file-pdf', tabler: 'file-type-pdf', bootstrap: 'file-earmark-pdf' },
             'folder': { unicode: '📁', lucide: 'folder', phosphor: 'folder', tabler: 'folder', bootstrap: 'folder' },
             'folder-open': { unicode: '📂', lucide: 'folder-open', phosphor: 'folder-open', tabler: 'folder-open', bootstrap: 'folder2-open' },
+            'camera': { unicode: '📷', lucide: 'camera', phosphor: 'camera', tabler: 'camera', bootstrap: 'camera' },
             'image': { unicode: '🖼️', lucide: 'image', phosphor: 'image', tabler: 'photo', bootstrap: 'image' },
             'link': { unicode: '🔗', lucide: 'link', phosphor: 'link', tabler: 'link', bootstrap: 'link' },
             'attachment': { unicode: '📎', lucide: 'paperclip', phosphor: 'paperclip', tabler: 'paperclip', bootstrap: 'paperclip' },

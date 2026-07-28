@@ -211,6 +211,74 @@ export class IndexedDBService {
         });
     }
 
+    /**
+     * Guarda el archivo ORIGINAL de un comprobante y sus estados de trabajo.
+     * Estos registros son deliberadamente `local-only`: no participan de la
+     * subida heredada a Supabase hasta que el respaldo remoto sea habilitado.
+     */
+    async saveReceiptOriginal(txId, originalBlob, previewDataUrl = null, metadata = {}) {
+        if (!txId || !originalBlob) return;
+        await this.init();
+        const existing = await this.getReceipt(txId);
+        const now = Date.now();
+        const record = {
+            ...(existing || {}),
+            ...metadata,
+            txId,
+            originalBlob,
+            previewDataUrl: previewDataUrl || existing?.previewDataUrl || null,
+            status: 'local-only',
+            storage: 'local-only',
+            queueStatus: metadata.queueStatus || existing?.queueStatus || 'queued',
+            ocrStatus: metadata.ocrStatus || existing?.ocrStatus || 'pending',
+            uploadStatus: 'deferred',
+            attempts: Number.isFinite(Number(existing?.attempts)) ? Number(existing.attempts) : 0,
+            lastError: metadata.lastError ?? existing?.lastError ?? null,
+            createdAt: existing?.createdAt || now,
+            updatedAt: now
+        };
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readwrite');
+            const req = tx.objectStore('pettyCashReceipts').put(record);
+            req.onsuccess = () => resolve(record);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /** Actualiza estados de una captura sin reemplazar su Blob original. */
+    async updateReceiptJob(txId, patch = {}) {
+        if (!txId) return null;
+        await this.init();
+        const existing = await this.getReceipt(txId);
+        if (!existing) return null;
+        const record = { ...existing, ...patch, txId, updatedAt: Date.now() };
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readwrite');
+            const req = tx.objectStore('pettyCashReceipts').put(record);
+            req.onsuccess = () => resolve(record);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    /** Lista la cola durable de originales locales, opcionalmente por estado. */
+    async listReceiptJobs(queueStatuses = null) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readonly');
+            const req = tx.objectStore('pettyCashReceipts').getAll();
+            req.onsuccess = () => {
+                const wanted = Array.isArray(queueStatuses) && queueStatuses.length
+                    ? new Set(queueStatuses)
+                    : null;
+                const jobs = (req.result || []).filter((record) =>
+                    record?.originalBlob && (!wanted || wanted.has(record.queueStatus))
+                );
+                resolve(jobs);
+            };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
     /** Devuelve el registro del comprobante { txId, dataUrl, status } o null. */
     async getReceipt(txId) {
         if (!txId) return null;
