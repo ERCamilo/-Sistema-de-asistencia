@@ -1,22 +1,15 @@
 /**
  * 🧪 ReceiptRetentionTests (Auditoría 2026-06-09, hallazgo M4)
  *
- * Las fotos de comprobantes se acumulaban en IndexedDB sin límite: tras una
- * subida exitosa a Supabase, uploadPendingReceipts guardaba OTRA VEZ el data
- * URL completo (full-res, ~100–500 KB) con status 'uploaded'. El original ya
- * vive en la nube (mov.receiptUrl), así que la copia local full-res es pura
- * acumulación.
- *
- * Fix: tras confirmar la subida, la copia local se reduce a una MINIATURA
- * (downscaleDataUrl) — suficiente para "Ver comprobante" sin romper la UX,
- * pero una fracción del tamaño. El borrado en cascada al eliminar el
- * movimiento ya existía; aquí se verifica que siga.
+ * Política vigente: el original local NO se poda mientras la recuperación
+ * remota no esté disponible y el usuario no haya confirmado el movimiento.
+ * La miniatura vive en un campo separado y nunca reemplaza el único original.
  *
  * Contratos / comportamiento:
  *   - receiptThumbnailScale capa imágenes grandes a maxDim y deja las pequeñas
  *     en escala 1 (función pura, testeable sin canvas).
- *   - uploadPendingReceipts, en el camino de éxito, reduce a miniatura en vez
- *     de re-guardar el data URL full-res.
+ *   - uploadPendingReceipts no llama downscaleDataUrl en el camino de éxito.
+ *   - las capturas nuevas usan saveReceiptOriginal y quedan local-only.
  *   - eliminar un movimiento borra su comprobante (cascade) en los 3 sitios.
  */
 
@@ -56,21 +49,29 @@ testRunner.addSuite("Comprobantes — escala de miniatura (M4)", {
 
 });
 
-testRunner.addSuite("Comprobantes — poda tras subir + cascada al borrar (M4)", {
+testRunner.addSuite("Comprobantes — conservación del original + cascada al borrar", {
 
     "downscaleDataUrl está disponible para podar la copia local"() {
         testRunner.assert(typeof PHOTO.downscaleDataUrl === 'function',
             'debe existir downscaleDataUrl(dataUrl, maxDim, quality) para generar la miniatura');
     },
 
-    "uploadPendingReceipts reduce a miniatura tras subir (no re-guarda full-res)"() {
+    "uploadPendingReceipts conserva la copia completa hasta habilitar recuperación remota"() {
         const block = UI_SRC.match(/export async function uploadPendingReceipts[\s\S]{0,2200}?\n\}/);
         testRunner.assert(!!block, 'uploadPendingReceipts debe existir');
-        testRunner.assert(/downscaleDataUrl|thumb/i.test(block[0]),
-            'el camino de éxito debe reducir a miniatura (downscaleDataUrl) para no acumular full-res');
-        // No debe re-guardar el data URL crudo tal cual con status 'uploaded'.
-        testRunner.assert(!/saveReceipt\(\s*rec\.txId\s*,\s*rec\.dataUrl\s*,\s*'uploaded'\s*\)/.test(block[0]),
-            'no debe re-guardar rec.dataUrl full-res con status uploaded — eso es la acumulación que arregla M4');
+        testRunner.assert(!/downscaleDataUrl\s*\(\s*rec\./.test(block[0]),
+            'la subida no debe reemplazar el original por una miniatura');
+        testRunner.assert(/updateReceiptJob/.test(block[0]),
+            'debe actualizar únicamente el estado del registro existente');
+    },
+
+    "las capturas nuevas persisten original y miniatura como recursos separados"() {
+        testRunner.assert(/saveReceiptOriginal/.test(UI_SRC),
+            'la UI debe usar saveReceiptOriginal para las capturas nuevas');
+        testRunner.assert(/receiptStorage\s*=\s*['"]local-only['"]|receiptStorage:\s*['"]local-only['"]/.test(UI_SRC),
+            'el movimiento debe declarar que la imagen sólo está local');
+        testRunner.assert(/originalBlob/.test(UI_SRC) && /previewDataUrl/.test(UI_SRC),
+            'la preparación debe separar original y miniatura');
     },
 
     "eliminar un movimiento borra su comprobante (cascade, 3 sitios)"() {

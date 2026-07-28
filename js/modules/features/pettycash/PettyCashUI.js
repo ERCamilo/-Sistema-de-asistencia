@@ -23,7 +23,13 @@ import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashStore } from './PettyCashStore.js';
-import { compressImage, downscaleDataUrl } from './PettyCashPhoto.js';
+import {
+    compressImage,
+    downscaleDataUrl,
+    cloneOriginalReceipt,
+    blobToDataUrl,
+    requestPersistentReceiptStorage
+} from './PettyCashPhoto.js';
 import { buildPeriodSheets } from './PettyCashExport.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
@@ -66,6 +72,38 @@ const saveMovement = (m, announce) => PettyCashStore.save('movements', m, { anno
 const removeProjectDoc  = (id, announce) => PettyCashStore.remove('projects', id, { announce });
 const removePeriodDoc   = (id, announce) => PettyCashStore.remove('periods', id, { announce });
 const removeMovementDoc = (id, announce) => PettyCashStore.remove('movements', id, { announce });
+
+async function prepareReceiptCapture(file) {
+    const originalBlob = cloneOriginalReceipt(file);
+    if (!originalBlob) throw new Error('Archivo de imagen inválido.');
+    await requestPersistentReceiptStorage();
+    const processingDataUrl = await compressImage(file);
+    const previewDataUrl = await downscaleDataUrl(processingDataUrl, 480, 0.5);
+    return {
+        originalBlob,
+        processingDataUrl,
+        previewDataUrl,
+        originalName: file?.name || null,
+        originalType: file?.type || originalBlob.type || null,
+        originalSize: Number(file?.size) || Number(originalBlob.size) || 0,
+        originalLastModified: Number(file?.lastModified) || null
+    };
+}
+
+async function saveLocalReceiptCapture(txId, capture, metadata = {}) {
+    return indexedDBService.saveReceiptOriginal(
+        txId,
+        capture.originalBlob,
+        capture.previewDataUrl,
+        {
+            originalName: capture.originalName,
+            originalType: capture.originalType,
+            originalSize: capture.originalSize,
+            originalLastModified: capture.originalLastModified,
+            ...metadata
+        }
+    );
+}
 
 function dedupById(arr) {
     return arr ? [...new Map(arr.map(i => [i.id, i])).values()] : [];
@@ -174,11 +212,15 @@ export async function uploadPendingReceipts() {
                 if (!resp.ok) continue;
                 const data = await resp.json().catch(() => null);
                 if (!data || data.ok === false) continue;
-                // M4: el full-res ya está en la nube (data.path). Localmente
-                // guardamos sólo una miniatura para no acumular cientos de KB
-                // por comprobante; "Ver comprobante" sigue mostrando la imagen.
-                const thumb = await downscaleDataUrl(rec.dataUrl);
-                await indexedDBService.saveReceipt(rec.txId, thumb, 'uploaded');
+                // Los registros heredados todavía pueden subir por este flujo,
+                // pero ya no se reemplaza la única copia completa por una
+                // miniatura. La poda se habilitará cuando exista recuperación
+                // remota y el usuario haya confirmado el movimiento.
+                await indexedDBService.updateReceiptJob(rec.txId, {
+                    status: 'uploaded',
+                    uploadStatus: 'uploaded',
+                    remotePath: data.path || null
+                });
                 const mov = pc().movements.find(m => m.id === rec.txId);
                 if (mov) {
                     mov.receiptStatus = 'uploaded';
@@ -389,9 +431,9 @@ function _movementForm(form) {
             </label>
             <div style="grid-column:1/-1;">
                 <label style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:6px;">📷 Foto de la factura</label>
-                ${form.photoDataUrl
+                ${(form.photoPreviewDataUrl || form.photoDataUrl)
                     ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                        <img src="${form.photoDataUrl}" style="max-height:120px;border-radius:8px;border:1px solid #334155;">
+                        <img src="${form.photoPreviewDataUrl || form.photoDataUrl}" style="max-height:120px;border-radius:8px;border:1px solid #334155;">
                         <button type="button" data-app-fn="pcScanReceipt" style="background:#8b5cf6;color:#fff;border:none;border-radius:7px;padding:8px 12px;font-weight:700;cursor:pointer;">⚡ Escanear con IA</button>
                         <button type="button" data-app-fn="pcRemovePhotoNew" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">Quitar</button>
                         ${form.scanStatus ? `<span style="font-size:.72rem;color:#94a3b8;">${esc(form.scanStatus)}</span>` : ''}
@@ -603,11 +645,26 @@ export function registerPettyCashGlobals() {
     };
 
     window.pcOpenForm = (type) => {
-        pc().form = { type, amount: '', date: today(), category: CATEGORIAS[0], hasReceipt: false };
+        pc().form = {
+            id: uid('mov'),
+            type,
+            amount: '',
+            date: today(),
+            category: CATEGORIAS[0],
+            hasReceipt: false
+        };
         pc().periodForm = null; pc().editMov = null;
         window.render?.();
     };
-    window.pcCancelForm = () => { pc().form = null; window.render?.(); };
+    window.pcCancelForm = async () => {
+        const form = pc().form;
+        pc().form = null;
+        window.render?.();
+        if (form?.receiptStoredLocally && form?.id) {
+            try { await indexedDBService.deleteReceipt(form.id); }
+            catch (e) { console.warn('delete receipt draft', e); }
+        }
+    };
 
     window.pcSaveMovement = async () => {
         const d = pc();
@@ -617,8 +674,9 @@ export function registerPettyCashGlobals() {
         const amount = parseFloat(document.getElementById('pc-amount')?.value);
         if (!Number.isFinite(amount) || amount <= 0) { Modal.alert({ title: 'Monto inválido', message: 'Ingresa un monto válido mayor que 0.' }); return; }
         const photo = form.photoDataUrl || null;
+        const hasLocalOriginal = !!form.receiptStoredLocally;
         const mov = {
-            id: uid('mov'), periodId: period.id, projectId: period.projectId,
+            id: form.id || uid('mov'), periodId: period.id, projectId: period.projectId,
             type: form.type, amount: round2(amount),
             date: document.getElementById('pc-date')?.value || today(),
             description: document.getElementById('pc-desc')?.value?.trim() || '',
@@ -628,6 +686,10 @@ export function registerPettyCashGlobals() {
             mov.paidTo = document.getElementById('pc-tienda')?.value?.trim() || '';
             mov.category = document.getElementById('pc-cat')?.value || '';
             mov.hasReceipt = !!document.getElementById('pc-receipt')?.checked || !!photo;
+            if (hasLocalOriginal) {
+                mov.receiptStatus = 'local';
+                mov.receiptStorage = 'local-only';
+            }
             // Datos fiscales pre-extraídos por el OCR (no visibles en el form rápido)
             if (form.ocr) {
                 if (form.ocr.rncEmisor) mov.rncEmisor = form.ocr.rncEmisor;
@@ -645,13 +707,32 @@ export function registerPettyCashGlobals() {
         d.movements.push(mov);
         d.form = null;
         persist(); saveMovement(mov, mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado'); window.render?.();
-        // Guardar la foto localmente en IndexedDB (cola para subir a Supabase vía n8n).
+        // La captura se guarda al seleccionarla. Aquí se confirma el borrador y
+        // se conserva el Blob original; no se habilita todavía el respaldo remoto.
         if (photo && mov.type === 'gasto') {
             try {
-                await indexedDBService.saveReceipt(mov.id, photo, 'pending');
-                mov.receiptStatus = 'local'; mov.hasReceipt = true; mov.updatedAt = Date.now();
+                if (!hasLocalOriginal && form.photoCapture) {
+                    await saveLocalReceiptCapture(mov.id, form.photoCapture, {
+                        periodId: period.id,
+                        projectId: period.projectId,
+                        queueStatus: 'queued',
+                        ocrStatus: form.ocr ? 'extracted' : 'pending',
+                        userConfirmedAt: Date.now()
+                    });
+                } else {
+                    await indexedDBService.updateReceiptJob(mov.id, {
+                        periodId: period.id,
+                        projectId: period.projectId,
+                        queueStatus: 'queued',
+                        ocrStatus: form.ocr ? 'extracted' : 'pending',
+                        userConfirmedAt: Date.now()
+                    });
+                }
+                mov.receiptStatus = 'local';
+                mov.receiptStorage = 'local-only';
+                mov.hasReceipt = true;
+                mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
-                uploadPendingReceipts();
             } catch (e) {
                 console.warn('⚠️ saveReceipt local:', e);
                 Modal.alert({ title: 'Foto', message: 'El gasto se guardó, pero la foto no se pudo guardar localmente.' });
@@ -660,17 +741,38 @@ export function registerPettyCashGlobals() {
     };
 
     window.pcOpenMovement = (movId) => {
-        pc().editMov = movId; pc().form = null; pc().periodForm = null; pc()._editPhoto = null; pc()._rescanStatus = null;
+        pc().editMov = movId;
+        pc().form = null;
+        pc().periodForm = null;
+        pc()._editPhoto = null;
+        pc()._editPhotoCapture = null;
+        pc()._rescanStatus = null;
         window.render?.();
     };
-    window.pcCancelMovementEdit = () => { pc().editMov = null; pc()._editPhoto = null; pc()._rescanStatus = null; window.render?.(); };
+    window.pcCancelMovementEdit = () => {
+        pc().editMov = null;
+        pc()._editPhoto = null;
+        pc()._editPhotoCapture = null;
+        pc()._rescanStatus = null;
+        window.render?.();
+    };
 
-    window.pcConfirmMovement = (movId) => {
+    window.pcConfirmMovement = async (movId) => {
         const mov = pc().movements.find(m => m.id === movId);
         if (!mov) return;
         mov.reviewPending = false;
         mov.updatedAt = Date.now();
         persist(); saveMovement(mov, 'Movimiento confirmado'); window.render?.();
+        if (mov.receiptStatus) {
+            try {
+                await indexedDBService.updateReceiptJob(movId, {
+                    queueStatus: 'confirmed',
+                    userConfirmedAt: Date.now()
+                });
+            } catch (e) {
+                console.warn('confirm receipt job', e);
+            }
+        }
     };
 
     window.pcExportExcel = async () => {
@@ -719,12 +821,21 @@ export function registerPettyCashGlobals() {
         if (!mov) return;
         let dataUrl = d._editPhoto;
         if (!dataUrl) {
-            try { const rec = await indexedDBService.getReceipt(movId); dataUrl = rec && rec.dataUrl; } catch { /* noop */ }
+            try {
+                const rec = await indexedDBService.getReceipt(movId);
+                if (rec?.originalBlob) dataUrl = await compressImage(rec.originalBlob);
+                else dataUrl = rec?.dataUrl || rec?.previewDataUrl || null;
+            } catch { /* noop */ }
         }
         if (!dataUrl) { Modal.alert({ title: 'Re-escanear', message: 'No hay foto para escanear. Agrega o cambia la foto primero.' }); return; }
         d._rescanStatus = '⏳ Escaneando...';
         window.render?.();
         try {
+            await indexedDBService.updateReceiptJob(movId, {
+                queueStatus: 'processing',
+                ocrStatus: 'processing',
+                lastError: null
+            });
             const idToken = await user.getIdToken();
             const base64 = String(dataUrl).split(',')[1] || dataUrl;
             const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: base64, idToken }) });
@@ -748,9 +859,21 @@ export function registerPettyCashGlobals() {
             if (Array.isArray(data.items) && data.items.length) mov.items = data.items;
             mov.updatedAt = Date.now();
             d._rescanStatus = null;
+            await indexedDBService.updateReceiptJob(movId, {
+                queueStatus: 'awaiting-review',
+                ocrStatus: 'extracted',
+                lastError: null
+            });
             persist(); saveMovement(mov, 'Movimiento actualizado'); window.render?.();
         } catch (e) {
             console.warn('rescan OCR:', e);
+            const rec = await indexedDBService.getReceipt(movId).catch(() => null);
+            await indexedDBService.updateReceiptJob(movId, {
+                queueStatus: 'paused',
+                ocrStatus: 'failed',
+                attempts: (Number(rec?.attempts) || 0) + 1,
+                lastError: e.message || 'Error de OCR'
+            }).catch(() => null);
             pc()._rescanStatus = null;
             window.render?.();
             Modal.alert({ title: 'Re-escanear', message: 'No se pudo escanear. (' + (e.message || '') + ')' });
@@ -773,23 +896,39 @@ export function registerPettyCashGlobals() {
             d.batchStatus = `Procesando ${i + 1} de ${files.length}...`;
             window.render?.();
 
-            let dataUrl;
-            try { dataUrl = await compressImage(files[i]); } catch (e) { console.warn('batch compress', e); continue; }
+            let capture;
+            try { capture = await prepareReceiptCapture(files[i]); }
+            catch (e) { console.warn('batch prepare receipt', e); continue; }
 
             const mov = {
                 id: uid('mov'), periodId: period.id, projectId: period.projectId,
                 type: 'gasto', amount: 0, date: today(),
-                hasReceipt: true, receiptStatus: 'local', reviewPending: true,
+                hasReceipt: true, receiptStatus: 'local', receiptStorage: 'local-only', reviewPending: true,
                 createdBy: 'app', updatedAt: Date.now()
             };
+            try {
+                await saveLocalReceiptCapture(mov.id, capture, {
+                    periodId: period.id,
+                    projectId: period.projectId,
+                    queueStatus: 'queued',
+                    ocrStatus: 'pending'
+                });
+            } catch (e) {
+                console.warn('batch save original receipt', e);
+                continue;
+            }
             d.movements.push(mov);
             persist(); saveMovement(mov);
-            try { await indexedDBService.saveReceipt(mov.id, dataUrl, 'pending'); } catch (e) { console.warn('batch saveReceipt', e); }
             window.render?.();
 
             if (ocrUrl && idToken) {
                 try {
-                    const base64 = String(dataUrl).split(',')[1] || dataUrl;
+                    await indexedDBService.updateReceiptJob(mov.id, {
+                        queueStatus: 'processing',
+                        ocrStatus: 'processing',
+                        lastError: null
+                    });
+                    const base64 = String(capture.processingDataUrl).split(',')[1] || capture.processingDataUrl;
                     const resp = await fetch(ocrUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ imageBase64: base64, idToken }) });
                     if (resp.ok) {
                         const data = await resp.json().catch(() => null);
@@ -810,25 +949,72 @@ export function registerPettyCashGlobals() {
                             if (data.notas) mov.notas = data.notas;
                             if (Array.isArray(data.items) && data.items.length) mov.items = data.items;
                             mov.updatedAt = Date.now();
+                            await indexedDBService.updateReceiptJob(mov.id, {
+                                queueStatus: 'awaiting-review',
+                                ocrStatus: 'extracted',
+                                lastError: null
+                            });
                             persist(); saveMovement(mov); window.render?.();
+                        } else {
+                            throw new Error((data && data.error) || 'Respuesta de OCR vacía');
                         }
+                    } else {
+                        throw new Error('HTTP ' + resp.status);
                     }
-                } catch (e) { console.warn('batch OCR', e); }
+                } catch (e) {
+                    console.warn('batch OCR', e);
+                    const rec = await indexedDBService.getReceipt(mov.id).catch(() => null);
+                    await indexedDBService.updateReceiptJob(mov.id, {
+                        queueStatus: 'paused',
+                        ocrStatus: 'failed',
+                        attempts: (Number(rec?.attempts) || 0) + 1,
+                        lastError: e.message || 'Error de OCR'
+                    }).catch(() => null);
+                }
             }
         }
 
         d.batchStatus = null;
         persist(); window.render?.();
-        uploadPendingReceipts();
     };
 
     window.pcPhotoNew = async (input) => {
         const file = input?.files?.[0];
         if (!file || !pc().form) return;
-        try { pc().form.photoDataUrl = await compressImage(file); pc().form.hasReceipt = true; window.render?.(); }
+        try {
+            const form = pc().form;
+            const period = currentPeriod();
+            const capture = await prepareReceiptCapture(file);
+            await saveLocalReceiptCapture(form.id, capture, {
+                periodId: period?.id || null,
+                projectId: period?.projectId || null,
+                queueStatus: 'draft',
+                ocrStatus: 'pending'
+            });
+            form.photoCapture = capture;
+            form.photoDataUrl = capture.processingDataUrl;
+            form.photoPreviewDataUrl = capture.previewDataUrl;
+            form.receiptStoredLocally = true;
+            form.hasReceipt = true;
+            window.render?.();
+        }
         catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
     };
-    window.pcRemovePhotoNew = () => { if (pc().form) { pc().form.photoDataUrl = null; pc().form.scanStatus = null; pc().form.ocr = null; window.render?.(); } };
+    window.pcRemovePhotoNew = async () => {
+        const form = pc().form;
+        if (!form) return;
+        if (form.receiptStoredLocally && form.id) {
+            try { await indexedDBService.deleteReceipt(form.id); }
+            catch (e) { console.warn('delete receipt draft', e); }
+        }
+        form.photoCapture = null;
+        form.photoDataUrl = null;
+        form.photoPreviewDataUrl = null;
+        form.receiptStoredLocally = false;
+        form.scanStatus = null;
+        form.ocr = null;
+        window.render?.();
+    };
 
     window.pcScanReceipt = async () => {
         const form = pc().form;
@@ -840,6 +1026,11 @@ export function registerPettyCashGlobals() {
         form.scanStatus = '⏳ Escaneando...';
         window.render?.();
         try {
+            await indexedDBService.updateReceiptJob(form.id, {
+                queueStatus: 'processing',
+                ocrStatus: 'processing',
+                lastError: null
+            });
             const idToken = await user.getIdToken();
             const base64 = String(form.photoDataUrl).split(',')[1] || form.photoDataUrl;
             const resp = await fetch(url, {
@@ -870,6 +1061,11 @@ export function registerPettyCashGlobals() {
             f.hasReceipt = true;
             const got = [data.emisor, data.total, data.ncf, data.fecha].some(v => v != null && v !== '');
             f.scanStatus = got ? '✅ Datos extraídos — revisa y guarda' : '⚠️ La IA no pudo leer datos de esta foto';
+            await indexedDBService.updateReceiptJob(form.id, {
+                queueStatus: 'awaiting-review',
+                ocrStatus: got ? 'extracted' : 'needs-review',
+                lastError: null
+            });
             window.render?.();
             // El re-render puede preservar los inputs existentes (no reescribe .value);
             // los seteamos directo tras el frame de render para garantizar que se vean.
@@ -886,6 +1082,13 @@ export function registerPettyCashGlobals() {
             console.warn('OCR scan:', e);
             const f = pc().form;
             if (f) f.scanStatus = '❌ No se pudo escanear';
+            const rec = await indexedDBService.getReceipt(form.id).catch(() => null);
+            await indexedDBService.updateReceiptJob(form.id, {
+                queueStatus: 'paused',
+                ocrStatus: 'failed',
+                attempts: (Number(rec?.attempts) || 0) + 1,
+                lastError: e.message || 'Error de OCR'
+            }).catch(() => null);
             window.render?.();
             Modal.alert({ title: 'Escaneo', message: 'No se pudo escanear la factura; llena los datos a mano. (' + (e.message || '') + ')' });
         }
@@ -894,18 +1097,26 @@ export function registerPettyCashGlobals() {
     window.pcPhotoEdit = async (input) => {
         const file = input?.files?.[0];
         if (!file) return;
-        try { pc()._editPhoto = await compressImage(file); window.render?.(); }
+        try {
+            const capture = await prepareReceiptCapture(file);
+            pc()._editPhoto = capture.processingDataUrl;
+            pc()._editPhotoCapture = capture;
+            window.render?.();
+        }
         catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
     };
 
     window.pcViewReceipt = async (movId) => {
         try {
             const rec = await indexedDBService.getReceipt(movId);
-            if (!rec || !rec.dataUrl) {
+            let source = null;
+            if (rec?.originalBlob) source = await blobToDataUrl(rec.originalBlob);
+            if (!source) source = rec?.dataUrl || rec?.previewDataUrl || null;
+            if (!source) {
                 Modal.alert({ title: 'Comprobante', message: 'No hay foto guardada para este movimiento.' });
                 return;
             }
-            Modal.alert({ title: '🧾 Comprobante', message: `<img src="${rec.dataUrl}" style="max-width:100%;border-radius:8px;">` });
+            Modal.alert({ title: '🧾 Comprobante', message: `<img src="${source}" style="max-width:100%;border-radius:8px;">` });
         } catch (e) {
             console.warn('getReceipt', e);
             Modal.alert({ title: 'Comprobante', message: 'No se pudo cargar la imagen.' });
@@ -941,15 +1152,24 @@ export function registerPettyCashGlobals() {
         mov.reviewPending = false; // guardar el detalle = revisado/confirmado
         mov.updatedAt = Date.now();
         const pendingPhoto = d._editPhoto;
-        d.editMov = null; d._editPhoto = null;
+        const pendingCapture = d._editPhotoCapture;
+        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null;
         persist(); saveMovement(mov, 'Movimiento actualizado'); window.render?.();
-        // Subir foto reemplazada (si hay)
-        if (pendingPhoto && mov.type === 'gasto') {
+        // Sustituir la copia local únicamente después de que el usuario guarde.
+        if (pendingPhoto && pendingCapture && mov.type === 'gasto') {
             try {
-                await indexedDBService.saveReceipt(mov.id, pendingPhoto, 'pending');
-                mov.receiptStatus = 'local'; mov.hasReceipt = true; mov.updatedAt = Date.now();
+                await saveLocalReceiptCapture(mov.id, pendingCapture, {
+                    periodId: mov.periodId,
+                    projectId: mov.projectId,
+                    queueStatus: 'confirmed',
+                    ocrStatus: 'pending',
+                    userConfirmedAt: Date.now()
+                });
+                mov.receiptStatus = 'local';
+                mov.receiptStorage = 'local-only';
+                mov.hasReceipt = true;
+                mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
-                uploadPendingReceipts();
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
                 Modal.alert({ title: 'Foto', message: 'Los cambios se guardaron, pero la foto no se pudo guardar localmente.' });
