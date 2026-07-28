@@ -113,7 +113,52 @@ async function saveLocalReceiptCapture(txId, capture, metadata = {}) {
     );
 }
 
+async function enqueueReceiptFile(file, period) {
+    if (!file || !period) throw new Error('No hay una factura o periodo válido.');
+    const capture = await prepareReceiptCapture(file);
+    const movement = {
+        id: uid('mov'),
+        periodId: period.id,
+        projectId: period.projectId,
+        type: 'gasto',
+        amount: 0,
+        date: today(),
+        hasReceipt: true,
+        receiptStatus: 'local',
+        receiptStorage: 'local-only',
+        reviewPending: true,
+        createdBy: 'app',
+        updatedAt: Date.now()
+    };
+    await saveLocalReceiptCapture(movement.id, capture, {
+        periodId: period.id,
+        projectId: period.projectId,
+        queueStatus: 'queued',
+        ocrStatus: 'pending'
+    });
+    pc().movements.push(movement);
+    await saveMovement(movement);
+    return { movement, capture };
+}
+
 let _receiptQueueProcessor = null;
+let _receiptQueueFollowUpTimer = null;
+
+function scheduleReceiptQueueFollowUp() {
+    if (_receiptQueueFollowUpTimer !== null) return;
+    _receiptQueueFollowUpTimer = setTimeout(() => {
+        _receiptQueueFollowUpTimer = null;
+        const processor = getReceiptQueueProcessor();
+        if (processor.isRunning()) {
+            scheduleReceiptQueueFollowUp();
+            return;
+        }
+        pc().receiptQueueRequested = false;
+        processPendingReceiptJobs().catch((error) => {
+            console.warn('receipt queue follow-up', error);
+        });
+    }, 250);
+}
 
 async function refreshReceiptQueueSummary() {
     try {
@@ -156,7 +201,11 @@ function getReceiptQueueProcessor() {
 export async function processPendingReceiptJobs(options = {}) {
     const d = pc();
     const processor = getReceiptQueueProcessor();
-    if (processor.isRunning()) return { running: true, processed: 0, failed: 0, skipped: 0 };
+    if (processor.isRunning()) {
+        d.receiptQueueRequested = true;
+        scheduleReceiptQueueFollowUp();
+        return { running: true, processed: 0, failed: 0, skipped: 0 };
+    }
     d.receiptQueueRunning = true;
     window.render?.();
     try {
@@ -164,12 +213,22 @@ export async function processPendingReceiptJobs(options = {}) {
     } finally {
         d.receiptQueueRunning = false;
         await refreshReceiptQueueSummary();
+        if (d.receiptQueueRequested) {
+            scheduleReceiptQueueFollowUp();
+        }
     }
 }
 
 async function recoverLocalReceiptDrafts() {
     const d = pc();
-    const jobs = await indexedDBService.listReceiptJobs(['draft']).catch(() => []);
+    const jobs = await indexedDBService.listReceiptJobs([
+        'draft',
+        'queued',
+        'retry-wait',
+        'waiting-network',
+        'waiting-session',
+        'processing'
+    ]).catch(() => []);
     if (!jobs.length) return 0;
     const periodById = new Map(d.periods.map((period) => [period.id, period]));
     let recovered = 0;
@@ -177,10 +236,12 @@ async function recoverLocalReceiptDrafts() {
     for (const job of jobs) {
         const existing = d.movements.find((movement) => movement.id === job.txId);
         if (existing) {
-            await indexedDBService.updateReceiptJob(job.txId, {
-                queueStatus: 'queued',
-                ocrStatus: job.ocrStatus === 'extracted' ? 'extracted' : 'pending'
-            });
+            if (job.queueStatus === 'draft' || job.queueStatus === 'processing') {
+                await indexedDBService.updateReceiptJob(job.txId, {
+                    queueStatus: 'queued',
+                    ocrStatus: job.ocrStatus === 'extracted' ? 'extracted' : 'pending'
+                });
+            }
             recovered++;
             continue;
         }
@@ -404,6 +465,38 @@ function _receiptQueueBanner(d) {
     </div>`;
 }
 
+function _cameraBatchModal(session) {
+    if (!session?.active) return '';
+    const count = Number(session.count) || 0;
+    return `
+    <div role="dialog" aria-modal="true" aria-labelledby="pc-camera-batch-title"
+        style="position:fixed;inset:0;z-index:1200;background:rgba(2,6,23,.82);display:flex;align-items:center;justify-content:center;padding:18px;">
+        <div style="width:min(430px,100%);background:#111827;border:1px solid #334155;border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden;">
+            <div style="padding:16px 18px;border-bottom:1px solid #273449;">
+                <div id="pc-camera-batch-title" style="font-size:1rem;font-weight:800;color:#f8fafc;">Facturas desde la cámara</div>
+                <div style="font-size:.76rem;color:#94a3b8;margin-top:4px;">Cada foto se guarda completa en este dispositivo antes de continuar.</div>
+            </div>
+            <div style="padding:16px 18px;">
+                ${session.lastPreviewDataUrl
+                    ? `<img src="${session.lastPreviewDataUrl}" alt="Última factura capturada" style="display:block;width:100%;height:190px;object-fit:contain;background:#020617;border:1px solid #26364d;border-radius:10px;">`
+                    : '<div style="height:150px;border:1px dashed #475569;border-radius:10px;display:grid;place-items:center;color:#64748b;">Sin capturas todavía</div>'}
+                <div aria-live="polite" style="margin-top:12px;padding:10px 12px;background:#0b1220;border:1px solid #26364d;border-radius:9px;display:flex;justify-content:space-between;gap:12px;">
+                    <span style="color:#94a3b8;font-size:.78rem;">Guardadas localmente</span>
+                    <strong style="color:#22d3ee;">${count}</strong>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1.35fr;gap:10px;padding:0 18px 18px;">
+                <button type="button" data-app-fn="pcFinishCameraBatch"
+                    style="min-height:44px;background:#263244;border:1px solid #475569;border-radius:9px;color:#f8fafc;font-weight:750;cursor:pointer;">Terminar</button>
+                <label style="min-height:44px;background:#06b6d4;border-radius:9px;color:#06202a;font-weight:850;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">
+                    ${icons.get('camera', { size: 17 })} Otra foto
+                    <input type="file" accept="image/*" capture="environment" onchange="window.pcCameraBatchPhoto(this)" style="display:none;">
+                </label>
+            </div>
+        </div>
+    </div>`;
+}
+
 function _projectBar(d) {
     const options = d.projects.map(p =>
         `<option value="${p.id}" ${p.id === d.selectedProjectId ? 'selected' : ''}>${esc(p.name)}</option>`
@@ -486,11 +579,19 @@ function _periodPanel(period) {
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="button" data-app-fn="pcOpenForm" data-arg="reposicion" style="background:#22c55e;color:#062;border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;">+ Reposición</button>
                 <button type="button" data-app-fn="pcOpenForm" data-arg="gasto" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;">− Gasto</button>
-                <label style="background:#8b5cf6;color:#fff;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;" title="Subir varias facturas; se registran automáticamente para revisar">📸 Lote<input type="file" accept="image/*" multiple onchange="window.pcBatchPhotos(this)" style="display:none;"></label>
+                <label style="background:#8b5cf6;color:#fff;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;" title="Tomar varias fotos consecutivas">
+                    ${icons.get('camera', { size: 16 })} Cámara
+                    <input type="file" accept="image/*" capture="environment" onchange="window.pcCameraBatchPhoto(this)" style="display:none;">
+                </label>
+                <label style="background:#263244;color:#fff;border:1px solid #475569;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;" title="Elegir varias facturas de la galería">
+                    ${icons.get('image', { size: 16 })} Galería
+                    <input type="file" accept="image/*" multiple onchange="window.pcBatchPhotos(this)" style="display:none;">
+                </label>
             </div>`}
         </div>
 
         ${d.batchStatus ? `<div style="margin:10px 0;font-size:.85rem;color:#a78bfa;display:flex;align-items:center;gap:8px;">⏳ ${esc(d.batchStatus)}</div>` : ''}
+        ${_cameraBatchModal(d.cameraBatchSession)}
 
         ${periodForm ? _periodEditForm(period) : ''}
 
@@ -1032,30 +1133,13 @@ export function registerPettyCashGlobals() {
             d.batchStatus = `Guardando ${i + 1} de ${files.length}...`;
             window.render?.();
 
-            let capture;
-            try { capture = await prepareReceiptCapture(files[i]); }
-            catch (e) { console.warn('batch prepare receipt', e); continue; }
-
-            const mov = {
-                id: uid('mov'), periodId: period.id, projectId: period.projectId,
-                type: 'gasto', amount: 0, date: today(),
-                hasReceipt: true, receiptStatus: 'local', receiptStorage: 'local-only', reviewPending: true,
-                createdBy: 'app', updatedAt: Date.now()
-            };
             try {
-                await saveLocalReceiptCapture(mov.id, capture, {
-                    periodId: period.id,
-                    projectId: period.projectId,
-                    queueStatus: 'queued',
-                    ocrStatus: 'pending'
-                });
+                const { movement } = await enqueueReceiptFile(files[i], period);
+                queuedIds.push(movement.id);
             } catch (e) {
                 console.warn('batch save original receipt', e);
                 continue;
             }
-            d.movements.push(mov);
-            persist(); saveMovement(mov);
-            queuedIds.push(mov.id);
             window.render?.();
         }
 
@@ -1066,6 +1150,46 @@ export function registerPettyCashGlobals() {
             processPendingReceiptJobs({ txIds: queuedIds })
                 .catch((e) => console.warn('batch OCR queue', e));
         }
+    };
+
+    window.pcCameraBatchPhoto = async (input) => {
+        const file = input?.files?.[0];
+        if (input) input.value = '';
+        const period = currentPeriod();
+        if (!file || !period) return;
+        const d = pc();
+        if (!d.cameraBatchSession?.active) {
+            d.cameraBatchSession = { active: true, count: 0, queuedIds: [], lastPreviewDataUrl: null };
+        }
+        d.batchStatus = 'Guardando foto original...';
+        window.render?.();
+        try {
+            const { movement, capture } = await enqueueReceiptFile(file, period);
+            d.cameraBatchSession.count++;
+            d.cameraBatchSession.queuedIds.push(movement.id);
+            d.cameraBatchSession.lastPreviewDataUrl = capture.previewDataUrl;
+            d.batchStatus = null;
+            await refreshReceiptQueueSummary();
+            window.render?.();
+            processPendingReceiptJobs({ txIds: [movement.id] })
+                .catch((error) => console.warn('camera batch OCR queue', error));
+        } catch (error) {
+            d.batchStatus = null;
+            window.render?.();
+            console.warn('camera batch receipt', error);
+            Modal.alert({
+                title: 'No se guardó la foto',
+                message: 'La factura no se agregó. Puedes volver a tomarla sin perder las anteriores.'
+            });
+        }
+    };
+
+    window.pcFinishCameraBatch = () => {
+        const d = pc();
+        d.cameraBatchSession = null;
+        d.batchStatus = null;
+        window.render?.();
+        processPendingReceiptJobs().catch((error) => console.warn('camera batch finish', error));
     };
 
     window.pcPhotoNew = async (input) => {
