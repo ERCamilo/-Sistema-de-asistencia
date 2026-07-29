@@ -24,7 +24,9 @@ export const APP_CONFIG = {
     // migrable a Firebase Function sin tocar la app).
     OCR_WEBHOOK_URL: "https://n8n.erlin.do/webhook/caja-chica-ocr",
     // 📤 Caja chica — subir foto del comprobante a Supabase (vía n8n).
-    RECEIPT_UPLOAD_URL: "https://n8n.erlin.do/webhook/caja-chica-subir"
+    RECEIPT_UPLOAD_URL: "https://n8n.erlin.do/webhook/caja-chica-subir",
+    // 🪞 Espejo privado de movimientos. Firebase conserva la fuente de verdad.
+    PETTY_CASH_MIRROR_URL: "https://odokvayemjbrjgkhbtqj.supabase.co/functions/v1/petty-cash-movement"
 };
 
 // Cache en memoria del id de ESTA pestaña (contexto de página). Garantiza un

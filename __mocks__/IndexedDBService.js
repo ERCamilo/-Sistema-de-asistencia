@@ -23,6 +23,7 @@ const mockService = {
     listPendingReceipts: jest.fn().mockResolvedValue([]),
     // Métodos genéricos usados por PettyCashStore (caja chica v10)
     getAll: jest.fn().mockResolvedValue([]),
+    get: jest.fn().mockResolvedValue(null),
     update: jest.fn().mockResolvedValue(1),
     delete: jest.fn().mockResolvedValue(undefined),
     batchUpdate: jest.fn().mockResolvedValue(0),

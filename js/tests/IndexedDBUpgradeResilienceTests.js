@@ -44,11 +44,11 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
 
 });
 
-testRunner.addSuite("IndexedDB — schema v12: stores mainSyncOutbox y syncLocks", {
+testRunner.addSuite("IndexedDB — schema v13: outboxes y syncLocks", {
 
-    "la versión de la DB subió a 12"() {
-        testRunner.assert(/version\s*=\s*12/.test(IDB_SRC),
-            'IndexedDBService debe abrir la DB en versión 12 (subida desde 11 para syncLocks)');
+    "la versión de la DB subió a 13"() {
+        testRunner.assert(/version\s*=\s*13/.test(IDB_SRC),
+            'IndexedDBService debe abrir la DB en versión 13 para crear pettyCashMirrorOutbox');
     },
 
     "existe el store mainSyncOutbox con keyPath 'key' autoIncrement (NO reutiliza sync_queue)"() {
@@ -64,6 +64,15 @@ testRunner.addSuite("IndexedDB — schema v12: stores mainSyncOutbox y syncLocks
         const block = IDB_SRC.match(/mainSyncOutbox['"][\s\S]{0,400}/);
         testRunner.assert(/createIndex\(\s*['"]status['"]/.test(block[0]),
             "mainSyncOutbox debe indexar 'status' para separar pending/dead");
+    },
+
+    "pettyCashMirrorOutbox compacta por id y tiene índice 'status'"() {
+        const block = IDB_SRC.match(/pettyCashMirrorOutbox['"][\s\S]{0,400}/);
+        testRunner.assert(!!block, 'debe existir la creación del store pettyCashMirrorOutbox');
+        testRunner.assert(/keyPath\s*:\s*['"]id['"]/.test(block[0]),
+            "pettyCashMirrorOutbox debe compactar la última operación usando keyPath:'id'");
+        testRunner.assert(/createIndex\(\s*['"]status['"]/.test(block[0]),
+            "pettyCashMirrorOutbox debe indexar 'status'");
     },
 
     "mainSyncOutbox NO está en la lista ownStores de clearFirst (no debe borrarse en un restore)"() {
