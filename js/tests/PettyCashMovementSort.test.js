@@ -45,6 +45,31 @@ describe('PettyCashMovementSort', () => {
         expect(movements).toEqual(source);
     });
 
+    test('mantiene estables las filas existentes mientras aparece un lote', () => {
+        const existing = { id: 'old', recordNumber: 10, amount: 50 };
+        const firstBatchResult = { id: 'batch-11', recordNumber: 11, amount: 900 };
+        const secondBatchResult = { id: 'batch-12', recordNumber: 12, amount: 100 };
+        const requestedSort = { field: 'recordNumber', direction: 'desc' };
+        const options = { activeBatchIds: ['batch-11', 'batch-12'] };
+
+        expect(sortPettyCashMovements(
+            [existing, firstBatchResult],
+            requestedSort,
+            options
+        ).map((item) => item.id)).toEqual(['old', 'batch-11']);
+
+        expect(sortPettyCashMovements(
+            [existing, firstBatchResult, secondBatchResult],
+            requestedSort,
+            options
+        ).map((item) => item.id)).toEqual(['old', 'batch-11', 'batch-12']);
+
+        expect(sortPettyCashMovements(
+            [existing, firstBatchResult, secondBatchResult],
+            requestedSort
+        ).map((item) => item.id)).toEqual(['batch-12', 'batch-11', 'old']);
+    });
+
     test('normaliza valores desconocidos al orden seguro', () => {
         expect(normalizePettyCashMovementSort({
             field: 'proveedor',
