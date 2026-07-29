@@ -70,6 +70,28 @@ describe('PettyCashReceiptBackup', () => {
         });
     });
 
+    test('respalda un PDF nativo y conserva su cantidad de páginas', async () => {
+        const fetchImpl = jest.fn(async () => ({
+            ok: true,
+            json: async () => ({ ok: true })
+        }));
+        await uploadReceiptBackup({
+            url: 'https://example.test/upload',
+            idToken: 'firebase-token',
+            txId: 'mov-pdf',
+            fileDataUrl: 'data:application/pdf;base64,JVBERg==',
+            mimeType: 'application/pdf',
+            originalName: 'factura.pdf',
+            pageCount: 3,
+            fetchImpl
+        });
+        const body = JSON.parse(fetchImpl.mock.calls[0][1].body);
+        expect(body.fileBase64).toBe('JVBERg==');
+        expect(body.imageBase64).toBeUndefined();
+        expect(body.mimeType).toBe('application/pdf');
+        expect(body.pageCount).toBe(3);
+    });
+
     test('propaga un error legible del servidor', async () => {
         await expect(lookupReceiptBackup({
             url: 'https://example.test/upload',

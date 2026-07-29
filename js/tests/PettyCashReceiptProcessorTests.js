@@ -1,5 +1,11 @@
 jest.mock('../modules/features/pettycash/PettyCashPhoto.js', () => ({
-    compressImage: jest.fn(async () => 'data:image/jpeg;base64,YWJj')
+    prepareReceiptForOcr: jest.fn(async (blob) => ({
+        fileDataUrl: blob.type === 'application/pdf'
+            ? 'data:application/pdf;base64,JVBERg=='
+            : 'data:image/jpeg;base64,YWJj',
+        mimeType: blob.type || 'image/jpeg',
+        fileName: blob.type === 'application/pdf' ? 'factura.pdf' : 'factura.jpg'
+    }))
 }));
 
 import { createReceiptQueueProcessor } from '../modules/features/pettycash/PettyCashReceiptProcessor.js';
@@ -60,6 +66,25 @@ testRunner.addSuite('Caja chica — procesador persistente de facturas', {
         testRunner.assertEquals(harness.records[0].queueStatus, 'awaiting-review');
         testRunner.assertEquals(harness.records[0].ocrStatus, 'extracted');
         testRunner.assertEquals(harness.saved.length, 1);
+    },
+
+    async 'envía el MIME PDF conservado en la cola'() {
+        const harness = buildHarness({
+            jobs: [{
+                txId: 'mov-1',
+                originalBlob: new Blob(['%PDF'], { type: 'application/pdf' }),
+                originalType: 'application/pdf',
+                originalName: 'factura.pdf',
+                queueStatus: 'queued',
+                ocrStatus: 'pending',
+                attempts: 0
+            }]
+        });
+        await harness.processor.process();
+        const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+        testRunner.assertEquals(body.mimeType, 'application/pdf');
+        testRunner.assertEquals(body.fileBase64, 'JVBERg==');
+        testRunner.assertEquals(Object.hasOwn(body, 'imageBase64'), false);
     },
 
     async 'sin conexión pausa sin consumir intentos ni llamar al webhook'() {

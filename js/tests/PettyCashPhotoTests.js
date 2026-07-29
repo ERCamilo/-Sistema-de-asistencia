@@ -9,7 +9,12 @@
 import {
     receiptStoragePath,
     cloneOriginalReceipt,
-    blobToDataUrl
+    blobToDataUrl,
+    receiptMimeType,
+    isPdfReceipt,
+    validateReceiptFile,
+    prepareReceiptForOcr,
+    RECEIPT_MAX_PDF_BYTES
 } from '../modules/features/pettycash/PettyCashPhoto.js';
 
 testRunner.addSuite("PettyCashPhoto — receiptStoragePath", {
@@ -50,6 +55,46 @@ testRunner.addSuite("PettyCashPhoto — original local", {
         testRunner.assert(
             typeof result === 'string' && result.startsWith('data:image/jpeg;base64,'),
             'debe producir un data URL JPEG'
+        );
+    }
+
+});
+
+testRunner.addSuite("PettyCashPhoto — documentos PDF", {
+
+    "detecta PDF por MIME o por extensión"() {
+        const byMime = Object.assign(new Blob(['pdf'], { type: 'application/pdf' }), { name: 'factura' });
+        const byName = Object.assign(new Blob(['pdf']), { name: 'factura.PDF' });
+        testRunner.assertEquals(receiptMimeType(byMime), 'application/pdf');
+        testRunner.assertEquals(receiptMimeType(byName), 'application/pdf');
+        testRunner.assertEquals(isPdfReceipt(byName), true);
+    },
+
+    "rechaza PDF que supera 10 MB"() {
+        let failed = false;
+        try {
+            validateReceiptFile({
+                name: 'grande.pdf',
+                type: 'application/pdf',
+                size: RECEIPT_MAX_PDF_BYTES + 1,
+                slice() {}
+            });
+        } catch (error) {
+            failed = /10 MB/.test(error.message);
+        }
+        testRunner.assert(failed, 'debe aplicar el límite antes de persistir o enviar');
+    },
+
+    async "conserva el PDF original para OCR sin convertirlo a imagen"() {
+        const source = Object.assign(
+            new Blob(['%PDF-1.7 original'], { type: 'application/pdf' }),
+            { name: 'factura.pdf' }
+        );
+        const prepared = await prepareReceiptForOcr(source);
+        testRunner.assertEquals(prepared.mimeType, 'application/pdf');
+        testRunner.assert(
+            prepared.fileDataUrl.startsWith('data:application/pdf;base64,'),
+            'el OCR debe recibir el PDF original'
         );
     }
 

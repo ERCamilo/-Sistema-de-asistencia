@@ -1,4 +1,4 @@
-import { compressImage } from './PettyCashPhoto.js';
+import { prepareReceiptForOcr } from './PettyCashPhoto.js';
 import {
     normalizeReceiptOcr,
     applyReceiptOcrToMovement,
@@ -116,11 +116,13 @@ export function createReceiptQueueProcessor({
                 await notify();
 
                 try {
-                    const imageDataUrl = await compressImage(job.originalBlob);
+                    const prepared = await prepareReceiptForOcr(job.originalBlob);
                     const raw = await requestReceiptOcr({
                         url: getOcrUrl(),
                         idToken,
-                        imageDataUrl
+                        fileDataUrl: prepared.fileDataUrl,
+                        mimeType: job.originalType || prepared.mimeType,
+                        fileName: job.originalName || prepared.fileName
                     });
                     const normalized = normalizeReceiptOcr(raw, allowedCategories);
                     applyReceiptOcrToMovement(movement, normalized);

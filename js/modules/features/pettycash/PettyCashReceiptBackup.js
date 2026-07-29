@@ -8,8 +8,8 @@ function requireCommon({ url, idToken, txId }) {
     }
 }
 
-function imageBase64FromDataUrl(imageDataUrl) {
-    const value = String(imageDataUrl || '');
+function fileBase64FromDataUrl(fileDataUrl) {
+    const value = String(fileDataUrl || '');
     const separator = value.indexOf(',');
     return separator >= 0 ? value.slice(separator + 1) : value;
 }
@@ -50,9 +50,11 @@ export async function uploadReceiptBackup({
     url,
     idToken,
     txId,
+    fileDataUrl,
     imageDataUrl,
     mimeType = 'image/jpeg',
     originalName = null,
+    pageCount = null,
     projectId = null,
     periodId = null,
     userConfirmedAt,
@@ -60,8 +62,8 @@ export async function uploadReceiptBackup({
     movement = {},
     fetchImpl = globalThis.fetch
 }) {
-    const imageBase64 = imageBase64FromDataUrl(imageDataUrl);
-    if (!imageBase64) throw new Error('El comprobante no contiene una imagen válida.');
+    const fileBase64 = fileBase64FromDataUrl(fileDataUrl || imageDataUrl);
+    if (!fileBase64) throw new Error('El comprobante no contiene un archivo válido.');
     return postReceiptAction({
         url,
         idToken,
@@ -69,9 +71,11 @@ export async function uploadReceiptBackup({
         action: 'upload',
         fetchImpl,
         body: {
-            imageBase64,
+            fileBase64,
+            imageBase64: String(mimeType).startsWith('image/') ? fileBase64 : undefined,
             mimeType,
             originalName,
+            pageCount,
             projectId,
             periodId,
             userConfirmedAt,
