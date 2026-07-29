@@ -52,6 +52,11 @@ import {
     summarizeReceiptBatch
 } from './PettyCashPresentation.js';
 import { buildPeriodSheets } from './PettyCashExport.js';
+import {
+    allocatePettyCashRecordNumber,
+    formatPettyCashRecordNumber,
+    normalizePettyCashRecordNumbers
+} from './PettyCashRecordNumber.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
@@ -93,6 +98,28 @@ const saveMovement = (m, announce) => PettyCashStore.save('movements', m, { anno
 const removeProjectDoc  = (id, announce) => PettyCashStore.remove('projects', id, { announce });
 const removePeriodDoc   = (id, announce) => PettyCashStore.remove('periods', id, { announce });
 const removeMovementDoc = (id, announce) => PettyCashStore.remove('movements', id, { announce });
+
+async function assignNewMovementIdentity(movement, period, createdAt = Date.now()) {
+    const d = pc();
+    const project = d.projects.find((item) => item.id === period?.projectId);
+    if (!project) throw new Error('No se encontró el proyecto del movimiento.');
+    movement.createdAt = Number(createdAt) || Date.now();
+    movement.recordNumber = allocatePettyCashRecordNumber(project, d.movements, movement.createdAt);
+    await saveProject(project);
+    return movement;
+}
+
+async function normalizeMovementIdentity(d = pc()) {
+    const { changedProjects, changedMovements } = normalizePettyCashRecordNumbers(
+        d.projects,
+        d.movements
+    );
+    await Promise.all([
+        ...changedProjects.map((project) => saveProject(project)),
+        ...changedMovements.map((movement) => saveMovement(movement))
+    ]);
+    return { changedProjects, changedMovements };
+}
 
 async function prepareReceiptCapture(file) {
     const isPdf = isPdfReceipt(file);
@@ -141,6 +168,7 @@ async function saveLocalReceiptCapture(txId, capture, metadata = {}) {
 async function enqueueReceiptFile(file, period) {
     if (!file || !period) throw new Error('No hay una factura o periodo válido.');
     const capture = await prepareReceiptCapture(file);
+    const now = Date.now();
     const movement = {
         id: uid('mov'),
         periodId: period.id,
@@ -156,8 +184,9 @@ async function enqueueReceiptFile(file, period) {
         receiptPageCount: capture.pageCount,
         reviewPending: true,
         createdBy: 'app',
-        updatedAt: Date.now()
+        updatedAt: now
     };
+    await assignNewMovementIdentity(movement, period, now);
     await saveLocalReceiptCapture(movement.id, capture, {
         periodId: period.id,
         projectId: period.projectId,
@@ -289,6 +318,7 @@ async function recoverLocalReceiptDrafts() {
         const period = periodById.get(job.periodId);
         if (!period) continue;
         const captured = Number(job.createdAt) ? new Date(Number(job.createdAt)) : new Date();
+        const now = Date.now();
         const movement = {
             id: job.txId,
             periodId: period.id,
@@ -302,8 +332,9 @@ async function recoverLocalReceiptDrafts() {
             reviewPending: true,
             recoveredFromReceipt: true,
             createdBy: 'app',
-            updatedAt: Date.now()
+            updatedAt: now
         };
+        await assignNewMovementIdentity(movement, period, Number(job.createdAt) || now);
         d.movements.push(movement);
         await saveMovement(movement);
         await indexedDBService.updateReceiptJob(job.txId, {
@@ -347,6 +378,7 @@ export async function loadPettyCashLocal() {
             d.projects = dedupById(local.projects);
             d.periods = dedupById(local.periods);
             d.movements = dedupById(local.movements);
+            await normalizeMovementIdentity(d);
             await recoverLocalReceiptDrafts();
             await refreshReceiptQueueSummary();
             window.render?.();
@@ -374,9 +406,12 @@ export async function startPettyCashSync() {
             d.periods = dedupById(periods);
             d.movements = dedupById(movements);
             // Espejar lo de la nube al IndexedDB local (caché offline).
-            PettyCashStore.applyRemote('projects', d.projects);
-            PettyCashStore.applyRemote('periods', d.periods);
-            PettyCashStore.applyRemote('movements', d.movements);
+            await Promise.all([
+                PettyCashStore.applyRemote('projects', d.projects),
+                PettyCashStore.applyRemote('periods', d.periods),
+                PettyCashStore.applyRemote('movements', d.movements)
+            ]);
+            await normalizeMovementIdentity(d);
             window.render?.();
         }
     } catch (e) {
@@ -394,7 +429,13 @@ export async function startPettyCashSync() {
         },
         movements: {
             subscribe: (cb) => PettyCashRepository.movements.subscribe(cb),
-            onApply: (list) => { const l = dedupById(list); pc().movements = l; PettyCashStore.applyRemote('movements', l); window.render?.(); }
+            onApply: async (list) => {
+                const l = dedupById(list);
+                pc().movements = l;
+                await PettyCashStore.applyRemote('movements', l);
+                await normalizeMovementIdentity(pc());
+                window.render?.();
+            }
         }
     });
 
@@ -837,7 +878,9 @@ function _movementEditForm(mov, cerrada) {
 }
 
 function _movementsList(movs, cerrada) {
-    const list = (movs || []).slice().reverse();
+    const list = (movs || []).slice().sort((left, right) =>
+        (Number(right.recordNumber) || 0) - (Number(left.recordNumber) || 0)
+    );
     if (!list.length) return '<div style="color:#64748b;padding:14px 0;">Sin movimientos aún.</div>';
     return `<div style="display:flex;flex-direction:column;gap:6px;">
         ${list.map(m => {
@@ -849,6 +892,7 @@ function _movementsList(movs, cerrada) {
                 style="display:flex;align-items:center;gap:10px;background:#0f172a;border:1px solid #1e293b;border-radius:9px;padding:10px 12px;cursor:pointer;">
                 <div style="flex:1;min-width:0;">
                     <div style="font-weight:600;font-size:.9rem;display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:.68rem;color:#38bdf8;font-variant-numeric:tabular-nums;">${formatPettyCashRecordNumber(m.recordNumber)}</span>
                         ${isGasto ? '🏪' : '💰'} ${esc(titulo)}
                         ${m.reviewPending ? '<span title="Creado automáticamente — toca para revisar y confirmar" style="font-size:.62rem;background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5);padding:1px 7px;border-radius:999px;font-weight:700;">⚠️ Revisar</span>' : ''}
                         ${isGasto && m.hasReceipt ? '<span title="Tiene comprobante">🧾</span>' : ''}
@@ -1018,13 +1062,15 @@ export function registerPettyCashGlobals() {
         if (!Number.isFinite(amount) || amount <= 0) { Modal.alert({ title: 'Monto inválido', message: 'Ingresa un monto válido mayor que 0.' }); return; }
         const photo = form.photoDataUrl || null;
         const hasLocalOriginal = !!form.receiptStoredLocally;
+        const now = Date.now();
         const mov = {
             id: form.id || uid('mov'), periodId: period.id, projectId: period.projectId,
             type: form.type, amount: round2(amount),
             date: document.getElementById('pc-date')?.value || today(),
             description: document.getElementById('pc-desc')?.value?.trim() || '',
-            createdBy: 'app', updatedAt: Date.now()
+            createdBy: 'app', updatedAt: now
         };
+        await assignNewMovementIdentity(mov, period, now);
         if (form.type === 'gasto') {
             mov.paidTo = document.getElementById('pc-tienda')?.value?.trim() || '';
             mov.category = document.getElementById('pc-cat')?.value || '';
