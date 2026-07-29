@@ -39,6 +39,11 @@ import {
 } from './PettyCashReceiptOCR.js';
 import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
 import {
+    isReceiptReadyForBackup,
+    uploadReceiptBackup,
+    lookupReceiptBackup
+} from './PettyCashReceiptBackup.js';
+import {
     formatPettyCashDate,
     isEmptyReceiptPlaceholder,
     isReceiptJobIncomplete,
@@ -379,12 +384,26 @@ export async function startPettyCashSync() {
     // Reanudar OCR local después de tener movimientos y sesión disponibles.
     processPendingReceiptJobs().catch((e) => console.warn('receipt queue startup', e));
 
-    // Subir comprobantes pendientes (los que quedaron solo en local).
+    // Respaldar comprobantes confirmados que todavía están solo en local.
     uploadPendingReceipts();
 }
 
-// Sube a Supabase (vía n8n) las fotos con status 'pending' en IndexedDB.
-// No-op sin sesión / sin URL. Tolerante a fallos (reintenta en el próximo ciclo).
+function receiptOcrMetadata(movement) {
+    if (!movement) return {};
+    const fields = [
+        'rncEmisor', 'ncf', 'cliente', 'rncCliente', 'subtotal', 'itbis',
+        'total', 'fechaEmision', 'fechaVencimiento', 'notas', 'items'
+    ];
+    return fields.reduce((result, field) => {
+        if (movement[field] !== undefined && movement[field] !== null) {
+            result[field] = movement[field];
+        }
+        return result;
+    }, {});
+}
+
+// Respalda en Supabase (vía n8n) únicamente originales ya confirmados por el
+// usuario. El Blob local se conserva; los reintentos son idempotentes por txId.
 let _uploadingReceipts = false;
 export async function uploadPendingReceipts() {
     if (_uploadingReceipts) return;
@@ -392,40 +411,58 @@ export async function uploadPendingReceipts() {
     const user = auth && auth.currentUser;
     if (!url || !user) return;
     let pend = [];
-    try { pend = await indexedDBService.listPendingReceipts(); } catch { return; }
+    try {
+        const confirmed = await indexedDBService.listReceiptJobs(['confirmed']);
+        pend = confirmed.filter(isReceiptReadyForBackup);
+    } catch { return; }
     if (!pend || !pend.length) return;
     _uploadingReceipts = true;
     try {
         const idToken = await user.getIdToken();
         for (const rec of pend) {
             try {
-                const base64 = String(rec.dataUrl).split(',')[1] || rec.dataUrl;
-                const resp = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ idToken, txId: rec.txId, imageBase64: base64 })
+                const movement = pc().movements.find(m => m.id === rec.txId);
+                const imageDataUrl = await blobToDataUrl(rec.originalBlob);
+                await indexedDBService.updateReceiptJob(rec.txId, {
+                    uploadStatus: 'uploading',
+                    uploadLastError: null
                 });
-                if (!resp.ok) continue;
-                const data = await resp.json().catch(() => null);
-                if (!data || data.ok === false) continue;
-                // Los registros heredados todavía pueden subir por este flujo,
-                // pero ya no se reemplaza la única copia completa por una
-                // miniatura. La poda se habilitará cuando exista recuperación
-                // remota y el usuario haya confirmado el movimiento.
+                const data = await uploadReceiptBackup({
+                    url,
+                    idToken,
+                    txId: rec.txId,
+                    imageDataUrl,
+                    mimeType: rec.originalType || rec.originalBlob?.type || 'image/jpeg',
+                    originalName: rec.originalName || null,
+                    projectId: rec.projectId || movement?.projectId || null,
+                    periodId: rec.periodId || movement?.periodId || null,
+                    userConfirmedAt: rec.userConfirmedAt,
+                    ocr: receiptOcrMetadata(movement),
+                    movement: movement || {}
+                });
                 await indexedDBService.updateReceiptJob(rec.txId, {
                     status: 'uploaded',
                     uploadStatus: 'uploaded',
-                    remotePath: data.path || null
+                    remotePath: data.path || data.receipt?.storage_path || null,
+                    remoteUploadedAt: Date.now(),
+                    uploadLastError: null
                 });
-                const mov = pc().movements.find(m => m.id === rec.txId);
-                if (mov) {
-                    mov.receiptStatus = 'uploaded';
-                    mov.receiptUrl = data.path || null;
-                    mov.updatedAt = Date.now();
-                    saveMovement(mov);
+                if (movement) {
+                    movement.receiptStatus = 'uploaded';
+                    movement.receiptStorage = 'supabase';
+                    movement.receiptUrl = data.path || data.receipt?.storage_path || null;
+                    movement.updatedAt = Date.now();
+                    saveMovement(movement);
                 }
             } catch (e) {
                 console.warn('⚠️ uploadPendingReceipts(' + rec.txId + '):', e);
+                const attempts = (Number(rec.uploadAttempts) || 0) + 1;
+                await indexedDBService.updateReceiptJob(rec.txId, {
+                    uploadStatus: 'retry-wait',
+                    uploadAttempts: attempts,
+                    uploadLastError: e.message || 'Error de respaldo',
+                    nextUploadRetryAt: Date.now() + Math.min(60 * 60 * 1000, 15_000 * (2 ** Math.min(attempts, 6)))
+                }).catch(() => null);
             }
         }
         persist(); window.render?.();
@@ -978,8 +1015,8 @@ export function registerPettyCashGlobals() {
         d.movements.push(mov);
         d.form = null;
         persist(); saveMovement(mov, mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado'); window.render?.();
-        // La captura se guarda al seleccionarla. Aquí se confirma el borrador y
-        // se conserva el Blob original; no se habilita todavía el respaldo remoto.
+        // La captura se guarda al seleccionarla. Aquí se confirma el borrador,
+        // se conserva el Blob original y se inicia el respaldo remoto.
         if (photo && mov.type === 'gasto') {
             try {
                 if (!hasLocalOriginal && form.photoCapture) {
@@ -1004,6 +1041,7 @@ export function registerPettyCashGlobals() {
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
+                uploadPendingReceipts().catch((error) => console.warn('receipt backup after save', error));
             } catch (e) {
                 console.warn('⚠️ saveReceipt local:', e);
                 Modal.alert({ title: 'Foto', message: 'El gasto se guardó, pero la foto no se pudo guardar localmente.' });
@@ -1041,6 +1079,7 @@ export function registerPettyCashGlobals() {
                     userConfirmedAt: Date.now()
                 });
                 await refreshReceiptQueueSummary();
+                uploadPendingReceipts().catch((error) => console.warn('receipt backup after confirm', error));
             } catch (e) {
                 console.warn('confirm receipt job', e);
             }
@@ -1339,11 +1378,17 @@ export function registerPettyCashGlobals() {
             let source = null;
             if (rec?.originalBlob) source = await blobToDataUrl(rec.originalBlob);
             if (!source) source = rec?.dataUrl || rec?.previewDataUrl || null;
-            if (!source) {
-                Modal.alert({ title: 'Comprobante', message: 'No hay foto guardada para este movimiento.' });
-                return;
+            if (!source && auth?.currentUser && APP_CONFIG?.RECEIPT_UPLOAD_URL) {
+                const idToken = await auth.currentUser.getIdToken();
+                const remote = await lookupReceiptBackup({
+                    url: APP_CONFIG.RECEIPT_UPLOAD_URL,
+                    idToken,
+                    txId: movId
+                });
+                source = remote.signedUrl || null;
             }
-            Modal.alert({ title: '🧾 Comprobante', message: `<img src="${source}" style="max-width:100%;border-radius:8px;">` });
+            if (!source) throw new Error('Comprobante no disponible');
+            Modal.alert({ title: '🧾 Comprobante', message: `<img src="${esc(source)}" style="max-width:100%;border-radius:8px;">` });
         } catch (e) {
             console.warn('getReceipt', e);
             Modal.alert({ title: 'Comprobante', message: 'No se pudo cargar la imagen.' });
@@ -1397,9 +1442,20 @@ export function registerPettyCashGlobals() {
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
+                uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
                 Modal.alert({ title: 'Foto', message: 'Los cambios se guardaron, pero la foto no se pudo guardar localmente.' });
+            }
+        } else if (mov.receiptStatus) {
+            try {
+                await indexedDBService.updateReceiptJob(mov.id, {
+                    queueStatus: 'confirmed',
+                    userConfirmedAt: Date.now()
+                });
+                uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
+            } catch (e) {
+                console.warn('confirm existing receipt after edit', e);
             }
         }
     };
