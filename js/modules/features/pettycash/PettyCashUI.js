@@ -709,6 +709,10 @@ function _periodPanel(period) {
     const duplicatesByMovement = new Map(
         duplicateFindings.map((finding) => [finding.movementId, finding])
     );
+    const activeMovementBatchIds = [
+        ...(d.receiptBatchProgress?.queuedIds || []),
+        ...(d.cameraBatchSession?.queuedIds || [])
+    ];
     const hiddenReceiptIds = new Set(d.receiptQueueHiddenIds || []);
     const visibleMovs = movs.filter((movement) =>
         !hiddenReceiptIds.has(movement.id) || !isEmptyReceiptPlaceholder(movement)
@@ -765,7 +769,7 @@ function _periodPanel(period) {
         ${_movementsList(visibleMovs, cerrada, {
             field: d.movementSortBy,
             direction: d.movementSortDirection
-        }, duplicatesByMovement)}
+        }, duplicatesByMovement, activeMovementBatchIds)}
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -963,8 +967,14 @@ function _duplicateSummary(movements, duplicatesByMovement) {
     </div>`;
 }
 
-function _movementsList(movs, cerrada, requestedSort, duplicatesByMovement = new Map()) {
-    const list = sortPettyCashMovements(movs, requestedSort);
+function _movementsList(
+    movs,
+    cerrada,
+    requestedSort,
+    duplicatesByMovement = new Map(),
+    activeBatchIds = []
+) {
+    const list = sortPettyCashMovements(movs, requestedSort, { activeBatchIds });
     if (!list.length) return '<div style="color:#64748b;padding:14px 0;">Sin movimientos aún.</div>';
     return `<div style="display:flex;flex-direction:column;gap:6px;">
         ${list.map(m => {
