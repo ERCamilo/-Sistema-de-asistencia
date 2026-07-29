@@ -61,6 +61,7 @@ import {
     normalizePettyCashMovementSort,
     sortPettyCashMovements
 } from './PettyCashMovementSort.js';
+import { detectPettyCashDuplicates } from './PettyCashDuplicateDetection.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
@@ -704,6 +705,10 @@ function _projectBody(proj) {
 function _periodPanel(period) {
     const d = pc();
     const movs = movementsOfPeriod(d.movements, period.id);
+    const duplicateFindings = detectPettyCashDuplicates(d.movements, d.periods);
+    const duplicatesByMovement = new Map(
+        duplicateFindings.map((finding) => [finding.movementId, finding])
+    );
     const hiddenReceiptIds = new Set(d.receiptQueueHiddenIds || []);
     const visibleMovs = movs.filter((movement) =>
         !hiddenReceiptIds.has(movement.id) || !isEmptyReceiptPlaceholder(movement)
@@ -755,11 +760,12 @@ function _periodPanel(period) {
         ${cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : ''}
         ${form && !cerrada ? _movementForm(form) : ''}
         ${editMov ? _movementEditForm(editMov, cerrada) : ''}
+        ${_duplicateSummary(visibleMovs, duplicatesByMovement)}
         ${_movementSortControls(d, visibleMovs.length)}
         ${_movementsList(visibleMovs, cerrada, {
             field: d.movementSortBy,
             direction: d.movementSortDirection
-        })}
+        }, duplicatesByMovement)}
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -945,7 +951,19 @@ function _movementSortControls(d, count) {
     </div>`;
 }
 
-function _movementsList(movs, cerrada, requestedSort) {
+function _duplicateSummary(movements, duplicatesByMovement) {
+    const count = movements.reduce(
+        (total, movement) => total + (duplicatesByMovement.has(movement.id) ? 1 : 0),
+        0
+    );
+    if (!count) return '';
+    return `<div role="status" style="margin:0 0 10px;background:#7c2d12;border:1px solid #fb923c;color:#fff7ed;border-radius:9px;padding:9px 11px;font-size:.76rem;line-height:1.35;">
+        <strong>${count} registro${count === 1 ? '' : 's'} requiere${count === 1 ? '' : 'n'} revisión por posible duplicado.</strong>
+        La app no elimina datos automáticamente.
+    </div>`;
+}
+
+function _movementsList(movs, cerrada, requestedSort, duplicatesByMovement = new Map()) {
     const list = sortPettyCashMovements(movs, requestedSort);
     if (!list.length) return '<div style="color:#64748b;padding:14px 0;">Sin movimientos aún.</div>';
     return `<div style="display:flex;flex-direction:column;gap:6px;">
@@ -954,6 +972,9 @@ function _movementsList(movs, cerrada, requestedSort) {
             const sign = isGasto ? '−' : '+';
             const color = isGasto ? '#f87171' : '#34d399';
             const titulo = isGasto ? (m.paidTo || m.description || 'Gasto') : 'Reposición';
+            const duplicate = duplicatesByMovement.get(m.id);
+            const duplicateLabel = duplicate?.confidence === 'exact' ? 'Coincide con' : 'Se parece a';
+            const duplicateColor = duplicate?.confidence === 'exact' ? '#dc2626' : '#ea580c';
             return `<div data-app-fn="pcOpenMovement" data-arg="${m.id}" role="button" tabindex="0" title="Ver / editar detalle"
                 style="display:flex;align-items:center;gap:10px;background:#0f172a;border:1px solid #1e293b;border-radius:9px;padding:10px 12px;cursor:pointer;">
                 <div style="flex:1;min-width:0;">
@@ -965,6 +986,11 @@ function _movementsList(movs, cerrada, requestedSort) {
                         ${isGasto && m.category ? `<span style="font-size:.68rem;background:#1e293b;border:1px solid #334155;padding:1px 7px;border-radius:999px;color:#94a3b8;">${esc(m.category)}</span>` : ''}
                     </div>
                     <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(m.date))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
+                    ${duplicate ? `<button type="button" data-app-fn="pcOpenDuplicateReference" data-arg="${esc(duplicate.referenceId)}" data-app-stop="1"
+                        title="${esc(duplicate.reason)}. Abrir registro de referencia."
+                        style="margin-top:6px;background:${duplicateColor};border:none;color:#fff;border-radius:999px;padding:4px 8px;font-size:.66rem;font-weight:800;cursor:pointer;">
+                        ⚠ ${duplicateLabel} ${formatPettyCashRecordNumber(duplicate.referenceNumber)} · ${esc(duplicate.referencePeriodLabel)}
+                    </button>` : ''}
                 </div>
                 <div style="font-weight:800;color:${color};white-space:nowrap;">${sign} ${rd(m.amount)}</div>
                 ${cerrada ? '' : `<button type="button" data-app-fn="pcDeleteMovement" data-arg="${m.id}" data-app-stop="1" aria-label="Eliminar" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:1rem;padding:4px 6px;">✕</button>`}
@@ -1226,6 +1252,21 @@ export function registerPettyCashGlobals() {
         pc()._editPhoto = null;
         pc()._editPhotoCapture = null;
         pc()._rescanStatus = null;
+        window.render?.();
+    };
+    window.pcOpenDuplicateReference = (movId) => {
+        const d = pc();
+        const movement = d.movements.find((item) => item.id === movId);
+        if (!movement) return;
+        d.selectedProjectId = movement.projectId;
+        d.selectedPeriodId = movement.periodId;
+        d.editMov = movement.id;
+        d.form = null;
+        d.periodForm = null;
+        d._editPhoto = null;
+        d._editPhotoCapture = null;
+        d._rescanStatus = null;
+        persist();
         window.render?.();
     };
     window.pcCancelMovementEdit = () => {
