@@ -47,6 +47,8 @@ testRunner.addSuite('Caja chica — conexión de la cola OCR', {
             'la cámara debe abrir la captura trasera');
         testRunner.assert(/multiple[\s\S]*?pcBatchPhotos/.test(SOURCE),
             'la galería debe conservar la selección múltiple');
+        testRunner.assert(/accept="image\/\*,application\/pdf"[\s\S]*?multiple[\s\S]*?pcBatchPhotos/.test(SOURCE),
+            'el selector por lote debe aceptar imágenes y PDF');
         testRunner.assert(/function _cameraBatchModal/.test(SOURCE),
             'debe existir el paso Otra foto o Terminar');
         testRunner.assert(/Otra foto/.test(SOURCE) && /pcFinishCameraBatch/.test(SOURCE),

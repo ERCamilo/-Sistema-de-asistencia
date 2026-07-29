@@ -24,10 +24,12 @@ import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashStore } from './PettyCashStore.js';
 import {
-    compressImage,
-    downscaleDataUrl,
+    createReceiptPreview,
+    prepareReceiptForOcr,
     cloneOriginalReceipt,
     blobToDataUrl,
+    isPdfReceipt,
+    receiptMimeType,
     requestPersistentReceiptStorage
 } from './PettyCashPhoto.js';
 import {
@@ -93,19 +95,29 @@ const removePeriodDoc   = (id, announce) => PettyCashStore.remove('periods', id,
 const removeMovementDoc = (id, announce) => PettyCashStore.remove('movements', id, { announce });
 
 async function prepareReceiptCapture(file) {
+    const isPdf = isPdfReceipt(file);
     const originalBlob = cloneOriginalReceipt(file);
-    if (!originalBlob) throw new Error('Archivo de imagen inválido.');
+    if (!originalBlob) throw new Error('Comprobante inválido.');
     await requestPersistentReceiptStorage();
-    const processingDataUrl = await compressImage(file);
-    const previewDataUrl = await downscaleDataUrl(processingDataUrl, 480, 0.5);
+    const preview = await createReceiptPreview(file);
+    const prepared = preview.processingDataUrl
+        ? {
+            fileDataUrl: preview.processingDataUrl,
+            mimeType: 'image/jpeg',
+            fileName: file?.name || 'factura.jpg'
+        }
+        : await prepareReceiptForOcr(file);
     return {
         originalBlob,
-        processingDataUrl,
-        previewDataUrl,
+        processingDataUrl: prepared.fileDataUrl,
+        processingMimeType: prepared.mimeType,
+        previewDataUrl: preview.previewDataUrl,
         originalName: file?.name || null,
-        originalType: file?.type || originalBlob.type || null,
+        originalType: receiptMimeType(file) || originalBlob.type || null,
         originalSize: Number(file?.size) || Number(originalBlob.size) || 0,
-        originalLastModified: Number(file?.lastModified) || null
+        originalLastModified: Number(file?.lastModified) || null,
+        receiptKind: isPdf ? 'pdf' : 'image',
+        pageCount: preview.pageCount
     };
 }
 
@@ -119,6 +131,8 @@ async function saveLocalReceiptCapture(txId, capture, metadata = {}) {
             originalType: capture.originalType,
             originalSize: capture.originalSize,
             originalLastModified: capture.originalLastModified,
+            receiptKind: capture.receiptKind,
+            pageCount: capture.pageCount,
             ...metadata
         }
     );
@@ -137,6 +151,9 @@ async function enqueueReceiptFile(file, period) {
         hasReceipt: true,
         receiptStatus: 'local',
         receiptStorage: 'local-only',
+        receiptKind: capture.receiptKind,
+        receiptMimeType: capture.originalType,
+        receiptPageCount: capture.pageCount,
         reviewPending: true,
         createdBy: 'app',
         updatedAt: Date.now()
@@ -422,7 +439,7 @@ export async function uploadPendingReceipts() {
         for (const rec of pend) {
             try {
                 const movement = pc().movements.find(m => m.id === rec.txId);
-                const imageDataUrl = await blobToDataUrl(rec.originalBlob);
+                const fileDataUrl = await blobToDataUrl(rec.originalBlob);
                 await indexedDBService.updateReceiptJob(rec.txId, {
                     uploadStatus: 'uploading',
                     uploadLastError: null
@@ -431,9 +448,10 @@ export async function uploadPendingReceipts() {
                     url,
                     idToken,
                     txId: rec.txId,
-                    imageDataUrl,
+                    fileDataUrl,
                     mimeType: rec.originalType || rec.originalBlob?.type || 'image/jpeg',
                     originalName: rec.originalName || null,
+                    pageCount: rec.pageCount || null,
                     projectId: rec.projectId || movement?.projectId || null,
                     periodId: rec.periodId || movement?.periodId || null,
                     userConfirmedAt: rec.userConfirmedAt,
@@ -644,8 +662,8 @@ function _periodPanel(period) {
                     <input type="file" accept="image/*" capture="environment" onchange="window.pcCameraBatchPhoto(this)" style="display:none;">
                 </label>
                 <label style="background:#263244;color:#fff;border:1px solid #475569;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;" title="Elegir varias facturas de la galería">
-                    ${icons.get('image', { size: 16 })} Galería
-                    <input type="file" accept="image/*" multiple onchange="window.pcBatchPhotos(this)" style="display:none;">
+                    ${icons.get('image', { size: 16 })} Archivos
+                    <input type="file" accept="image/*,application/pdf" multiple onchange="window.pcBatchPhotos(this)" style="display:none;">
                 </label>
             </div>`}
         </div>
@@ -729,10 +747,10 @@ function _movementForm(form) {
                 <input id="pc-desc" type="text" value="${esc(form.description || '')}" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">
             </label>
             <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;">
-                <input id="pc-receipt" type="checkbox" ${form.hasReceipt ? 'checked' : ''}> 📷 Tiene foto/imagen de la factura
+                <input id="pc-receipt" type="checkbox" ${form.hasReceipt ? 'checked' : ''}> Tiene comprobante (foto o PDF)
             </label>
             <div style="grid-column:1/-1;">
-                <label style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:6px;">📷 Foto de la factura</label>
+                <label style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:6px;">Comprobante de la factura</label>
                 ${(form.photoPreviewDataUrl || form.photoDataUrl)
                     ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                         <img src="${form.photoPreviewDataUrl || form.photoDataUrl}" style="max-height:120px;border-radius:8px;border:1px solid #334155;">
@@ -740,7 +758,16 @@ function _movementForm(form) {
                         <button type="button" data-app-fn="pcRemovePhotoNew" style="background:transparent;border:1px solid #475569;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">Quitar</button>
                         ${form.scanStatus ? `<span style="font-size:.72rem;color:#94a3b8;">${esc(form.scanStatus)}</span>` : ''}
                        </div>`
-                    : `<label style="display:inline-block;background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:.85rem;">➕ Elegir / tomar foto<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoNew(this)" style="display:none;"></label>`}
+                    : `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <label style="display:inline-flex;align-items:center;gap:6px;background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:.85rem;">
+                            ${icons.get('camera', { size: 16 })} Tomar foto
+                            <input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoNew(this)" style="display:none;">
+                        </label>
+                        <label style="display:inline-flex;align-items:center;gap:6px;background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:8px 12px;cursor:pointer;font-size:.85rem;">
+                            ${icons.get('image', { size: 16 })} Elegir imagen o PDF
+                            <input type="file" accept="image/*,application/pdf" onchange="window.pcPhotoNew(this)" style="display:none;">
+                        </label>
+                       </div>`}
             </div>` : `
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Nota (opcional)
                 <input id="pc-desc" type="text" value="${esc(form.description || '')}" style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">
@@ -772,12 +799,20 @@ function _movementEditForm(mov, cerrada) {
             ${lab('NCF · N° de comprobante fiscal', inp('pce-ncf', mov.ncf))}
             ${lab('Categoría', `<select id="pce-cat" ${ro} style="width:100%;margin-top:4px;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:8px;color:#e2e8f0;">${CATEGORIAS.map(c => `<option ${mov.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
             <label style="font-size:.75rem;color:#94a3b8;grid-column:1/-1;">Descripción${inp('pce-desc', mov.description)}</label>
-            <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;"><input id="pce-receipt" type="checkbox" ${ro} ${mov.hasReceipt ? 'checked' : ''}> 📷 Tiene foto/imagen de la factura</label>
+            <label style="font-size:.8rem;color:#cbd5e1;display:flex;align-items:center;gap:8px;grid-column:1/-1;"><input id="pce-receipt" type="checkbox" ${ro} ${mov.hasReceipt ? 'checked' : ''}> Tiene comprobante (foto o PDF)</label>
             <div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                 <label style="font-size:.75rem;color:#94a3b8;">📷 Comprobante:</label>
-                ${pc()._editPhoto ? `<img src="${pc()._editPhoto}" style="max-height:90px;border-radius:8px;border:1px solid #0ea5e9;"><span style="font-size:.7rem;color:#34d399;">(nueva foto)</span>`
-                    : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button>` : '<span style="font-size:.75rem;color:#64748b;">Sin foto</span>')}
-                ${ro ? '' : `<label style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:.8rem;">${(mov.receiptStatus || pc()._editPhoto) ? '🔄 Cambiar foto' : '➕ Agregar foto'}<input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoEdit(this)" style="display:none;"></label>`}
+                ${pc()._editPhoto ? `<img src="${pc()._editPhoto}" style="max-height:90px;border-radius:8px;border:1px solid #0ea5e9;"><span style="font-size:.7rem;color:#34d399;">(nuevo comprobante)</span>`
+                    : (mov.receiptStatus ? `<button type="button" data-app-fn="pcViewReceipt" data-arg="${mov.id}" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;">🧾 Ver comprobante</button>` : '<span style="font-size:.75rem;color:#64748b;">Sin comprobante</span>')}
+                ${ro ? '' : `
+                    <label style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:.8rem;">
+                        ${icons.get('camera', { size: 15 })} Cámara
+                        <input type="file" accept="image/*" capture="environment" onchange="window.pcPhotoEdit(this)" style="display:none;">
+                    </label>
+                    <label style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:.8rem;">
+                        ${icons.get('image', { size: 15 })} Imagen o PDF
+                        <input type="file" accept="image/*,application/pdf" onchange="window.pcPhotoEdit(this)" style="display:none;">
+                    </label>`}
                 ${(!ro && (mov.receiptStatus || pc()._editPhoto)) ? `<button type="button" data-app-fn="pcRescanReceipt" data-arg="${mov.id}" style="background:#8b5cf6;color:#fff;border:none;border-radius:7px;padding:6px 10px;font-weight:700;cursor:pointer;">⚡ Re-escanear con IA</button>` : ''}
                 ${pc()._rescanStatus ? `<span style="font-size:.72rem;color:#a78bfa;">${esc(pc()._rescanStatus)}</span>` : ''}
             </div>
@@ -997,6 +1032,9 @@ export function registerPettyCashGlobals() {
             if (hasLocalOriginal) {
                 mov.receiptStatus = 'local';
                 mov.receiptStorage = 'local-only';
+                mov.receiptKind = form.photoCapture?.receiptKind || null;
+                mov.receiptMimeType = form.photoCapture?.originalType || null;
+                mov.receiptPageCount = form.photoCapture?.pageCount || null;
             }
             // Datos fiscales pre-extraídos por el OCR (no visibles en el form rápido)
             if (form.ocr) {
@@ -1044,7 +1082,7 @@ export function registerPettyCashGlobals() {
                 uploadPendingReceipts().catch((error) => console.warn('receipt backup after save', error));
             } catch (e) {
                 console.warn('⚠️ saveReceipt local:', e);
-                Modal.alert({ title: 'Foto', message: 'El gasto se guardó, pero la foto no se pudo guardar localmente.' });
+                Modal.alert({ title: 'Comprobante', message: 'El gasto se guardó, pero el comprobante no se pudo guardar localmente.' });
             }
         }
     };
@@ -1121,7 +1159,7 @@ export function registerPettyCashGlobals() {
         }
     };
 
-    // ⚡ Re-escanear con IA la foto de un movimiento existente (desde el detalle).
+    // Re-escanear con IA un comprobante existente (desde el detalle).
     window.pcRescanReceipt = async (movId) => {
         const url = APP_CONFIG && APP_CONFIG.OCR_WEBHOOK_URL;
         const user = auth && auth.currentUser;
@@ -1130,15 +1168,30 @@ export function registerPettyCashGlobals() {
         const d = pc();
         const mov = d.movements.find(m => m.id === movId);
         if (!mov) return;
-        let dataUrl = d._editPhoto;
-        if (!dataUrl) {
+        let prepared = d._editPhotoCapture
+            ? {
+                fileDataUrl: d._editPhotoCapture.processingDataUrl,
+                mimeType: d._editPhotoCapture.processingMimeType,
+                fileName: d._editPhotoCapture.originalName
+            }
+            : null;
+        if (!prepared) {
             try {
                 const rec = await indexedDBService.getReceipt(movId);
-                if (rec?.originalBlob) dataUrl = await compressImage(rec.originalBlob);
-                else dataUrl = rec?.dataUrl || rec?.previewDataUrl || null;
+                if (rec?.originalBlob) {
+                    prepared = await prepareReceiptForOcr(rec.originalBlob);
+                    prepared.mimeType = rec.originalType || prepared.mimeType;
+                    prepared.fileName = rec.originalName || prepared.fileName;
+                } else if (rec?.dataUrl || rec?.previewDataUrl) {
+                    prepared = {
+                        fileDataUrl: rec.dataUrl || rec.previewDataUrl,
+                        mimeType: 'image/jpeg',
+                        fileName: rec.originalName || 'factura.jpg'
+                    };
+                }
             } catch { /* noop */ }
         }
-        if (!dataUrl) { Modal.alert({ title: 'Re-escanear', message: 'No hay foto para escanear. Agrega o cambia la foto primero.' }); return; }
+        if (!prepared?.fileDataUrl) { Modal.alert({ title: 'Re-escanear', message: 'No hay un comprobante para escanear. Agrega o cambia el archivo primero.' }); return; }
         d._rescanStatus = '⏳ Escaneando...';
         window.render?.();
         try {
@@ -1148,7 +1201,13 @@ export function registerPettyCashGlobals() {
                 lastError: null
             });
             const idToken = await user.getIdToken();
-            const data = await requestReceiptOcr({ url, idToken, imageDataUrl: dataUrl });
+            const data = await requestReceiptOcr({
+                url,
+                idToken,
+                fileDataUrl: prepared.fileDataUrl,
+                mimeType: prepared.mimeType,
+                fileName: prepared.fileName
+            });
             const normalized = normalizeReceiptOcr(data, CATEGORIAS);
             applyReceiptOcrToMovement(mov, normalized);
             mov.reviewPending = true;
@@ -1182,7 +1241,7 @@ export function registerPettyCashGlobals() {
         }
     };
 
-    // 📸 Lote: varias facturas → un gasto por foto, OCR automático, badge "por revisar".
+    // Lote: varios comprobantes → un gasto por archivo, OCR automático y revisión.
     window.pcBatchPhotos = async (input) => {
         const files = input && input.files ? Array.from(input.files) : [];
         if (input) input.value = '';
@@ -1195,7 +1254,7 @@ export function registerPettyCashGlobals() {
             queuedIds,
             failedToSave: 0
         };
-        d.batchStatus = `0/${files.length} procesadas · ${files.length} aún procesándose`;
+        d.batchStatus = `0/${files.length} procesados · ${files.length} aún procesándose`;
         window.render?.();
 
         for (let i = 0; i < files.length; i++) {
@@ -1281,7 +1340,10 @@ export function registerPettyCashGlobals() {
             form.hasReceipt = true;
             window.render?.();
         }
-        catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
+        catch (e) {
+            console.warn('prepareReceiptCapture', e);
+            Modal.alert({ title: 'Comprobante', message: e.message || 'No se pudo procesar el archivo.' });
+        }
     };
     window.pcRemovePhotoNew = async () => {
         const form = pc().form;
@@ -1318,7 +1380,9 @@ export function registerPettyCashGlobals() {
             const data = await requestReceiptOcr({
                 url,
                 idToken,
-                imageDataUrl: form.photoDataUrl
+                fileDataUrl: form.photoDataUrl,
+                mimeType: form.photoCapture?.processingMimeType || 'image/jpeg',
+                fileName: form.photoCapture?.originalName || null
             });
             console.log('🤖 OCR respuesta:', data);
             const f = pc().form;
@@ -1326,7 +1390,7 @@ export function registerPettyCashGlobals() {
             const normalized = normalizeReceiptOcr(data, CATEGORIAS);
             applyReceiptOcrToForm(f, normalized);
             const got = normalized.got;
-            f.scanStatus = got ? '✅ Datos extraídos — revisa y guarda' : '⚠️ La IA no pudo leer datos de esta foto';
+            f.scanStatus = got ? '✅ Datos extraídos — revisa y guarda' : '⚠️ La IA no pudo leer datos de este comprobante';
             await indexedDBService.updateReceiptJob(form.id, {
                 queueStatus: 'awaiting-review',
                 ocrStatus: got ? 'extracted' : 'needs-review',
@@ -1365,18 +1429,30 @@ export function registerPettyCashGlobals() {
         if (!file) return;
         try {
             const capture = await prepareReceiptCapture(file);
-            pc()._editPhoto = capture.processingDataUrl;
+            pc()._editPhoto = capture.previewDataUrl;
             pc()._editPhotoCapture = capture;
             window.render?.();
         }
-        catch (e) { console.warn('compressImage', e); Modal.alert({ title: 'Foto', message: 'No se pudo procesar la imagen.' }); }
+        catch (e) {
+            console.warn('prepareReceiptCapture', e);
+            Modal.alert({ title: 'Comprobante', message: e.message || 'No se pudo procesar el archivo.' });
+        }
     };
 
     window.pcViewReceipt = async (movId) => {
         try {
             const rec = await indexedDBService.getReceipt(movId);
             let source = null;
-            if (rec?.originalBlob) source = await blobToDataUrl(rec.originalBlob);
+            let mimeType = rec?.originalType || rec?.originalBlob?.type || null;
+            let objectUrl = null;
+            if (rec?.originalBlob) {
+                if (mimeType === 'application/pdf') {
+                    objectUrl = URL.createObjectURL(rec.originalBlob);
+                    source = objectUrl;
+                } else {
+                    source = await blobToDataUrl(rec.originalBlob);
+                }
+            }
             if (!source) source = rec?.dataUrl || rec?.previewDataUrl || null;
             if (!source && auth?.currentUser && APP_CONFIG?.RECEIPT_UPLOAD_URL) {
                 const idToken = await auth.currentUser.getIdToken();
@@ -1386,12 +1462,24 @@ export function registerPettyCashGlobals() {
                     txId: movId
                 });
                 source = remote.signedUrl || null;
+                mimeType = remote.receipt?.mime_type || mimeType;
             }
             if (!source) throw new Error('Comprobante no disponible');
-            Modal.alert({ title: '🧾 Comprobante', message: `<img src="${esc(source)}" style="max-width:100%;border-radius:8px;">` });
+            if (mimeType === 'application/pdf') {
+                Modal.alert({
+                    title: '🧾 Comprobante PDF',
+                    message: `<div style="display:grid;gap:12px;text-align:center;">
+                        ${rec?.previewDataUrl ? `<img src="${esc(rec.previewDataUrl)}" alt="Vista previa del PDF" style="max-width:100%;max-height:260px;margin:auto;border-radius:8px;">` : ''}
+                        <a href="${esc(source)}" target="_blank" rel="noopener" style="display:inline-flex;justify-content:center;background:#06b6d4;color:#06202a;border-radius:8px;padding:10px 14px;font-weight:800;text-decoration:none;">Abrir PDF original</a>
+                    </div>`
+                });
+                if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 300000);
+            } else {
+                Modal.alert({ title: '🧾 Comprobante', message: `<img src="${esc(source)}" style="max-width:100%;border-radius:8px;">` });
+            }
         } catch (e) {
             console.warn('getReceipt', e);
-            Modal.alert({ title: 'Comprobante', message: 'No se pudo cargar la imagen.' });
+            Modal.alert({ title: 'Comprobante', message: 'No se pudo cargar el archivo.' });
         }
     };
 
@@ -1439,13 +1527,16 @@ export function registerPettyCashGlobals() {
                 });
                 mov.receiptStatus = 'local';
                 mov.receiptStorage = 'local-only';
+                mov.receiptKind = pendingCapture.receiptKind;
+                mov.receiptMimeType = pendingCapture.originalType;
+                mov.receiptPageCount = pendingCapture.pageCount;
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
                 persist(); saveMovement(mov); window.render?.();
                 uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
-                Modal.alert({ title: 'Foto', message: 'Los cambios se guardaron, pero la foto no se pudo guardar localmente.' });
+                Modal.alert({ title: 'Comprobante', message: 'Los cambios se guardaron, pero el comprobante no se pudo guardar localmente.' });
             }
         } else if (mov.receiptStatus) {
             try {
