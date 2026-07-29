@@ -8,7 +8,7 @@ import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 12) {
+    constructor(dbName = 'attendance-app-db', version = 13) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -152,6 +152,13 @@ export class IndexedDBService {
                 if (!db.objectStoreNames.contains('pettyCashOutbox')) {
                     const oStore = db.createObjectStore('pettyCashOutbox', { keyPath: 'key', autoIncrement: true });
                     oStore.createIndex('status', 'status', { unique: false });
+                }
+                // Store: espejo privado de movimientos en Supabase (v13).
+                // Usa el id del movimiento como clave para compactar múltiples
+                // ediciones offline y conservar únicamente la operación final.
+                if (!db.objectStoreNames.contains('pettyCashMirrorOutbox')) {
+                    const mirrorStore = db.createObjectStore('pettyCashMirrorOutbox', { keyPath: 'id' });
+                    mirrorStore.createIndex('status', 'status', { unique: false });
                 }
 
                 // Store: Outbox de sincronización principal (v11) — mirror snapshot,

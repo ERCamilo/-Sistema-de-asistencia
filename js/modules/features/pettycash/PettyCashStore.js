@@ -14,10 +14,13 @@ import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
 import { auth } from '../../data/firebase.js';
 import { saveOutcomeNotifier } from '../../services/SaveOutcomeNotifier.js';
+import { APP_CONFIG } from '../../config/Config.js';
+import { sendMovementMirror } from './PettyCashMovementMirror.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
 const OUTBOX = 'pettyCashOutbox';
+const MIRROR_OUTBOX = 'pettyCashMirrorOutbox';
 const LS_KEY = '_pettycash_local_v2'; // caché viejo (a migrar una sola vez)
 
 // ☠️ M2: tras este número de intentos fallidos, la entrada pasa a 'dead' y
@@ -26,6 +29,7 @@ const LS_KEY = '_pettycash_local_v2'; // caché viejo (a migrar una sola vez)
 export const MAX_FLUSH_ATTEMPTS = 5;
 
 let _flushing = false;
+let _flushingMirror = false;
 
 export const PettyCashStore = {
 
@@ -55,6 +59,9 @@ export const PettyCashStore = {
         let localOk = true;
         try { await indexedDBService.update(STORE[col], item); } catch (e) { localOk = false; console.warn('pc save local:', e); }
         try { await indexedDBService.update(OUTBOX, { op: 'save', col, id: item.id, data: item, ts: Date.now(), status: 'pending' }); } catch (e) { console.warn('pc enqueue:', e); }
+        if (col === 'movements') {
+            await this.enqueueMovementMirror('save', item).catch((e) => console.warn('pc mirror enqueue:', e));
+        }
         if (opts.announce) {
             saveOutcomeNotifier.recordLocalResult({
                 localOk,
@@ -63,15 +70,23 @@ export const PettyCashStore = {
             });
         }
         this.flush();
+        this.flushMirror();
     },
 
     /** Borra un item: local + encola delete + intenta flush.
      *  opts.announce: igual que en save(). */
     async remove(col, id, opts = {}) {
         if (!STORE[col] || !id) return;
+        let removedSnapshot = null;
+        if (col === 'movements') {
+            try { removedSnapshot = await indexedDBService.get(STORE[col], id); } catch { /* noop */ }
+        }
         let localOk = true;
         try { await indexedDBService.delete(STORE[col], id); } catch (e) { localOk = false; console.warn('pc del local:', e); }
         try { await indexedDBService.update(OUTBOX, { op: 'delete', col, id, ts: Date.now(), status: 'pending' }); } catch (e) { console.warn('pc enqueue del:', e); }
+        if (col === 'movements') {
+            await this.enqueueMovementMirror('delete', removedSnapshot || { id }).catch((e) => console.warn('pc mirror delete enqueue:', e));
+        }
         if (opts.announce) {
             saveOutcomeNotifier.recordLocalResult({
                 localOk,
@@ -80,6 +95,75 @@ export const PettyCashStore = {
             });
         }
         this.flush();
+        this.flushMirror();
+    },
+
+    /** Compacta por id la última operación que falta reflejar en Supabase. */
+    async enqueueMovementMirror(op, movement) {
+        if (!movement?.id) return;
+        const now = Date.now();
+        await indexedDBService.update(MIRROR_OUTBOX, {
+            id: movement.id,
+            op: op === 'delete' ? 'delete' : 'save',
+            data: { ...movement },
+            ownerUid: auth?.currentUser?.uid || null,
+            ts: now,
+            status: 'pending',
+            attempts: 0,
+            lastError: null
+        });
+    },
+
+    /**
+     * Drena el espejo de Supabase sin bloquear ni alterar la cola principal de
+     * Firebase. Una edición posterior con el mismo id reemplaza la anterior.
+     */
+    async flushMirror() {
+        if (_flushingMirror) return;
+        const user = auth?.currentUser;
+        const url = APP_CONFIG?.PETTY_CASH_MIRROR_URL;
+        if (!user || typeof user.getIdToken !== 'function' || !url) return;
+        _flushingMirror = true;
+        try {
+            const idToken = await user.getIdToken();
+            let pending = [];
+            try { pending = (await indexedDBService.getAll(MIRROR_OUTBOX)) || []; } catch { pending = []; }
+            pending = pending
+                .filter((entry) => entry?.status === 'pending')
+                .sort((left, right) => (Number(left.ts) || 0) - (Number(right.ts) || 0));
+
+            for (const entry of pending) {
+                if (entry.ownerUid && entry.ownerUid !== user.uid) continue;
+                try {
+                    await sendMovementMirror({ url, entry, idToken });
+                    // No borrar una edición más nueva que haya reemplazado esta
+                    // entrada mientras la petición estaba en vuelo.
+                    const current = await indexedDBService.get(MIRROR_OUTBOX, entry.id).catch(() => null);
+                    if (current && current.ts === entry.ts && current.op === entry.op) {
+                        await indexedDBService.delete(MIRROR_OUTBOX, entry.id);
+                    }
+                } catch (error) {
+                    const attempts = (Number(entry.attempts) || 0) + 1;
+                    const updated = {
+                        ...entry,
+                        attempts,
+                        lastError: String(error?.message || error),
+                        status: attempts >= MAX_FLUSH_ATTEMPTS ? 'dead' : 'pending'
+                    };
+                    await indexedDBService.update(MIRROR_OUTBOX, updated).catch(() => null);
+                    if (updated.status === 'dead') {
+                        console.error(`☠️ Espejo de Caja Chica: ${entry.id} agotó sus reintentos.`, error);
+                        continue;
+                    }
+                    console.warn(`⚠️ Espejo de Caja Chica: ${entry.id} se reintentará.`, error);
+                    break;
+                }
+            }
+        } catch (error) {
+            console.warn('⚠️ No se pudo iniciar el espejo de Caja Chica:', error);
+        } finally {
+            _flushingMirror = false;
+        }
     },
 
     /** Aplica una lista que viene de la nube (LiveSync/loadAll): reemplaza el
@@ -209,6 +293,7 @@ export const PettyCashStore = {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('online', () => {
         try { PettyCashStore.flush(); } catch { /* noop */ }
+        try { PettyCashStore.flushMirror(); } catch { /* noop */ }
     });
 }
 

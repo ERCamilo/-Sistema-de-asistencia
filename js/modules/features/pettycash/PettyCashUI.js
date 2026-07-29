@@ -394,6 +394,7 @@ export async function startPettyCashSync() {
     const d = pc();
     await loadPettyCashLocal();          // primero lo local (offline-safe)
     PettyCashStore.flush();              // empujar cambios pendientes (offline → nube)
+    PettyCashStore.flushMirror();        // espejo secundario; nunca bloquea Firebase
 
     try {
         const [projects, periods, movements] = await Promise.all([
@@ -918,6 +919,7 @@ export function registerPettyCashGlobals() {
         window._pcOnlineHooked = true;
         window.addEventListener('online', () => {
             PettyCashStore.flush();
+            PettyCashStore.flushMirror();
             processPendingReceiptJobs().catch((e) => console.warn('receipt queue online', e));
             uploadPendingReceipts();
         });
