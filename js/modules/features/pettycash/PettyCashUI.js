@@ -62,6 +62,9 @@ import {
     sortPettyCashMovements
 } from './PettyCashMovementSort.js';
 import { detectPettyCashDuplicates } from './PettyCashDuplicateDetection.js';
+import {
+    filterPettyCashMovements
+} from './PettyCashMovementSearch.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
@@ -82,6 +85,7 @@ function _base() {
         selectedPeriodId: null,
         movementSortBy: 'recordNumber',
         movementSortDirection: 'desc',
+        movementSearchQuery: '',
         form: null,
         periodForm: null,
         editMov: null
@@ -717,6 +721,8 @@ function _periodPanel(period) {
     const visibleMovs = movs.filter((movement) =>
         !hiddenReceiptIds.has(movement.id) || !isEmptyReceiptPlaceholder(movement)
     );
+    const movementSearchQuery = String(d.movementSearchQuery || '').slice(0, 120);
+    const searchedMovs = filterPettyCashMovements(visibleMovs, movementSearchQuery);
     const r = resumenPeriodo(movs);
     const cerrada = period.status === 'cerrada';
     const form = d.form;
@@ -764,12 +770,13 @@ function _periodPanel(period) {
         ${cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : ''}
         ${form && !cerrada ? _movementForm(form) : ''}
         ${editMov ? _movementEditForm(editMov, cerrada) : ''}
-        ${_duplicateSummary(visibleMovs, duplicatesByMovement)}
-        ${_movementSortControls(d, visibleMovs.length)}
-        ${_movementsList(visibleMovs, cerrada, {
+        ${_movementSearchControl(movementSearchQuery)}
+        ${_duplicateSummary(searchedMovs, duplicatesByMovement)}
+        ${_movementSortControls(d, searchedMovs.length, visibleMovs.length)}
+        ${_movementsList(searchedMovs, cerrada, {
             field: d.movementSortBy,
             direction: d.movementSortDirection
-        }, duplicatesByMovement, activeMovementBatchIds)}
+        }, duplicatesByMovement, activeMovementBatchIds, movementSearchQuery)}
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -922,7 +929,23 @@ function _movementEditForm(mov, cerrada) {
     </div>`;
 }
 
-function _movementSortControls(d, count) {
+function _movementSearchControl(query) {
+    return `<div style="position:relative;margin:0 0 10px;">
+        <span aria-hidden="true" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#64748b;display:flex;pointer-events:none;">
+            ${icons.get('search', { size: 17 })}
+        </span>
+        <input type="search" value="${esc(query)}"
+            class="employee-search-input petty-cash-search-input"
+            aria-label="Buscar movimientos del periodo"
+            placeholder="Buscar por número, proveedor, NCF, fecha o monto..."
+            oninput="window.pcSetMovementSearch(this.value)"
+            style="width:100%;min-height:40px;background:#172033;color:#f8fafc;border:1px solid #334155;border-radius:9px;padding:8px ${query ? '42px' : '12px'} 8px 38px;font-size:.82rem;outline:none;">
+        ${query ? `<button type="button" data-app-fn="pcClearMovementSearch" aria-label="Limpiar búsqueda"
+            style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:30px;height:30px;background:#334155;color:#fff;border:none;border-radius:7px;display:grid;place-items:center;cursor:pointer;">✕</button>` : ''}
+    </div>`;
+}
+
+function _movementSortControls(d, count, totalCount = count) {
     const sort = normalizePettyCashMovementSort({
         field: d.movementSortBy,
         direction: d.movementSortDirection
@@ -934,7 +957,7 @@ function _movementSortControls(d, count) {
         ? 'M12 4v14m0 0 5-5m-5 5-5-5'
         : 'M12 20V6m0 0 5 5m-5-5-5 5';
     return `<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;">
-        <div style="font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums;">${count} registro${count === 1 ? '' : 's'}</div>
+        <div style="font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums;">${count === totalCount ? count : `${count} de ${totalCount}`} registro${totalCount === 1 ? '' : 's'}</div>
         <div style="display:flex;align-items:flex-end;gap:8px;flex:1;justify-content:flex-end;min-width:min(100%,280px);">
             <label style="display:flex;flex-direction:column;gap:4px;flex:1;max-width:220px;font-size:.62rem;font-weight:800;letter-spacing:.05em;color:#64748b;">
                 ORDENAR
@@ -972,10 +995,15 @@ function _movementsList(
     cerrada,
     requestedSort,
     duplicatesByMovement = new Map(),
-    activeBatchIds = []
+    activeBatchIds = [],
+    searchQuery = ''
 ) {
     const list = sortPettyCashMovements(movs, requestedSort, { activeBatchIds });
-    if (!list.length) return '<div style="color:#64748b;padding:14px 0;">Sin movimientos aún.</div>';
+    if (!list.length) {
+        return searchQuery
+            ? '<div style="color:#94a3b8;background:#172033;border:1px dashed #334155;border-radius:9px;padding:16px;text-align:center;">No encontramos movimientos con esa búsqueda.</div>'
+            : '<div style="color:#64748b;padding:14px 0;">Sin movimientos aún.</div>';
+    }
     return `<div style="display:flex;flex-direction:column;gap:6px;">
         ${list.map(m => {
             const isGasto = m.type === 'gasto';
@@ -1046,6 +1074,14 @@ export function registerPettyCashGlobals() {
         persist();
         window.render?.();
     };
+    window.pcSetMovementSearch = (query) => {
+        pc().movementSearchQuery = String(query || '').slice(0, 120);
+        window.render?.();
+    };
+    window.pcClearMovementSearch = () => {
+        pc().movementSearchQuery = '';
+        window.render?.();
+    };
 
     window.pcNewProject = async () => {
         const name = (await Modal.prompt({ title: '🏗️ Nuevo proyecto / obra', message: 'Nombre del proyecto u obra:', placeholder: 'Ej. Torre A', confirmText: 'Crear' }) || '').trim();
@@ -1055,6 +1091,7 @@ export function registerPettyCashGlobals() {
         d.projects.push(p);
         d.selectedProjectId = p.id;
         d.selectedPeriodId = null;
+        d.movementSearchQuery = '';
         persist(); saveProject(p, 'Proyecto creado'); window.render?.();
     };
 
@@ -1062,6 +1099,7 @@ export function registerPettyCashGlobals() {
         const d = pc();
         d.selectedProjectId = id || null;
         d.selectedPeriodId = null;
+        d.movementSearchQuery = '';
         d.form = null; d.periodForm = null; d.editMov = null;
         persist(); window.render?.();
     };
@@ -1105,6 +1143,7 @@ export function registerPettyCashGlobals() {
         const per = { id: uid('per'), projectId: proj.id, label, status: 'abierta', openingDate: today(), closingDate: null, createdBy: 'app', updatedAt: Date.now() };
         d.periods.push(per);
         d.selectedPeriodId = per.id;
+        d.movementSearchQuery = '';
         d.form = null; d.periodForm = null; d.editMov = null;
         persist(); savePeriod(per, 'Periodo creado'); window.render?.();
     };
@@ -1112,6 +1151,7 @@ export function registerPettyCashGlobals() {
     window.pcSelectPeriod = (id) => {
         const d = pc();
         d.selectedPeriodId = id;
+        d.movementSearchQuery = '';
         d.form = null; d.periodForm = null; d.editMov = null;
         persist(); window.render?.();
     };
