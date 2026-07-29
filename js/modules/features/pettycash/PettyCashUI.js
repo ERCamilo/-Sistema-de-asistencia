@@ -38,6 +38,12 @@ import {
     receiptRetryState
 } from './PettyCashReceiptOCR.js';
 import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
+import {
+    formatPettyCashDate,
+    isEmptyReceiptPlaceholder,
+    isReceiptJobIncomplete,
+    summarizeReceiptBatch
+} from './PettyCashPresentation.js';
 import { buildPeriodSheets } from './PettyCashExport.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
@@ -175,7 +181,20 @@ async function refreshReceiptQueueSummary() {
             else if (job.queueStatus === 'awaiting-review') counts.review++;
             else if (['queued', 'retry-wait', 'waiting-network', 'waiting-session', 'processing'].includes(job.queueStatus)) counts.active++;
         });
-        pc().receiptQueueSummary = counts;
+        const d = pc();
+        d.receiptQueueSummary = counts;
+        d.receiptQueueHiddenIds = jobs
+            .filter(isReceiptJobIncomplete)
+            .map((job) => job.txId);
+
+        const batchProgress = summarizeReceiptBatch(d.receiptBatchProgress, jobs);
+        if (batchProgress) {
+            d.batchStatus = batchProgress.label;
+            if (batchProgress.finished && batchProgress.failedToSave === 0) {
+                d.receiptBatchProgress = null;
+                d.batchStatus = null;
+            }
+        }
         window.render?.();
         return counts;
     } catch (error) {
@@ -558,6 +577,10 @@ function _projectBody(proj) {
 function _periodPanel(period) {
     const d = pc();
     const movs = movementsOfPeriod(d.movements, period.id);
+    const hiddenReceiptIds = new Set(d.receiptQueueHiddenIds || []);
+    const visibleMovs = movs.filter((movement) =>
+        !hiddenReceiptIds.has(movement.id) || !isEmptyReceiptPlaceholder(movement)
+    );
     const r = resumenPeriodo(movs);
     const cerrada = period.status === 'cerrada';
     const form = d.form;
@@ -573,7 +596,7 @@ function _periodPanel(period) {
                     <button type="button" data-app-fn="pcEditPeriod" title="Editar nombre / fechas" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:.85rem;">✏️</button>
                     <button type="button" data-app-fn="pcDeletePeriod" title="Eliminar periodo" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:.85rem;">🗑️</button>
                 </div>
-                <div style="font-size:.72rem;color:#64748b;margin-top:4px;">📅 Apertura: ${esc(period.openingDate || '—')} · Cierre: ${esc(period.closingDate || '—')}</div>
+                <div style="font-size:.72rem;color:#64748b;margin-top:4px;">📅 Apertura: ${esc(formatPettyCashDate(period.openingDate))} · Cierre: ${esc(formatPettyCashDate(period.closingDate))}</div>
             </div>
             ${cerrada ? '' : `
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -605,7 +628,7 @@ function _periodPanel(period) {
         ${cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : ''}
         ${form && !cerrada ? _movementForm(form) : ''}
         ${editMov ? _movementEditForm(editMov, cerrada) : ''}
-        ${_movementsList(movs, cerrada)}
+        ${_movementsList(visibleMovs, cerrada)}
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -759,7 +782,7 @@ function _movementsList(movs, cerrada) {
                         ${isGasto && m.hasReceipt ? '<span title="Tiene comprobante">🧾</span>' : ''}
                         ${isGasto && m.category ? `<span style="font-size:.68rem;background:#1e293b;border:1px solid #334155;padding:1px 7px;border-radius:999px;color:#94a3b8;">${esc(m.category)}</span>` : ''}
                     </div>
-                    <div style="font-size:.72rem;color:#64748b;">📅 ${esc(m.date)}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
+                    <div style="font-size:.72rem;color:#64748b;">📅 ${esc(formatPettyCashDate(m.date))}${isGasto && m.ncf ? ' · NCF: ' + esc(m.ncf) : ''}${m.description && isGasto && m.paidTo ? ' · ' + esc(m.description) : ''}</div>
                 </div>
                 <div style="font-weight:800;color:${color};white-space:nowrap;">${sign} ${rd(m.amount)}</div>
                 ${cerrada ? '' : `<button type="button" data-app-fn="pcDeleteMovement" data-arg="${m.id}" data-app-stop="1" aria-label="Eliminar" style="background:transparent;border:none;color:#64748b;cursor:pointer;font-size:1rem;padding:4px 6px;">✕</button>`}
@@ -1128,22 +1151,29 @@ export function registerPettyCashGlobals() {
         if (!files.length || !period) return;
         const d = pc();
         const queuedIds = [];
+        d.receiptBatchProgress = {
+            total: files.length,
+            queuedIds,
+            failedToSave: 0
+        };
+        d.batchStatus = `0/${files.length} procesadas · ${files.length} aún procesándose`;
+        window.render?.();
 
         for (let i = 0; i < files.length; i++) {
-            d.batchStatus = `Guardando ${i + 1} de ${files.length}...`;
-            window.render?.();
-
             try {
                 const { movement } = await enqueueReceiptFile(files[i], period);
                 queuedIds.push(movement.id);
+                d.receiptQueueHiddenIds = [
+                    ...new Set([...(d.receiptQueueHiddenIds || []), movement.id])
+                ];
             } catch (e) {
                 console.warn('batch save original receipt', e);
+                d.receiptBatchProgress.failedToSave++;
                 continue;
             }
             window.render?.();
         }
 
-        d.batchStatus = null;
         await refreshReceiptQueueSummary();
         persist(); window.render?.();
         if (queuedIds.length) {
