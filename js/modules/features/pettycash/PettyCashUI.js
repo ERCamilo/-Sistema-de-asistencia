@@ -57,6 +57,10 @@ import {
     formatPettyCashRecordNumber,
     normalizePettyCashRecordNumbers
 } from './PettyCashRecordNumber.js';
+import {
+    normalizePettyCashMovementSort,
+    sortPettyCashMovements
+} from './PettyCashMovementSort.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
@@ -69,7 +73,18 @@ const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano 
 // y se cargan async a state.pettyCash en el arranque. localStorage solo guarda
 // la selección de UI (proyecto/periodo activos), que es chica y desechable.
 function _base() {
-    return { projects: [], periods: [], movements: [], selectedProjectId: null, selectedPeriodId: null, form: null, periodForm: null, editMov: null };
+    return {
+        projects: [],
+        periods: [],
+        movements: [],
+        selectedProjectId: null,
+        selectedPeriodId: null,
+        movementSortBy: 'recordNumber',
+        movementSortDirection: 'desc',
+        form: null,
+        periodForm: null,
+        editMov: null
+    };
 }
 function _loadSelection() {
     try { return JSON.parse(localStorage.getItem(SEL_KEY)) || {}; } catch { return {}; }
@@ -77,7 +92,17 @@ function _loadSelection() {
 function pc() {
     if (!state.pettyCash) {
         const sel = _loadSelection();
-        state.pettyCash = { ..._base(), selectedProjectId: sel.selectedProjectId || null, selectedPeriodId: sel.selectedPeriodId || null };
+        const sort = normalizePettyCashMovementSort({
+            field: sel.movementSortBy,
+            direction: sel.movementSortDirection
+        });
+        state.pettyCash = {
+            ..._base(),
+            selectedProjectId: sel.selectedProjectId || null,
+            selectedPeriodId: sel.selectedPeriodId || null,
+            movementSortBy: sort.field,
+            movementSortDirection: sort.direction
+        };
     }
     return state.pettyCash;
 }
@@ -85,7 +110,12 @@ function pc() {
 function persist() {
     try {
         const d = pc();
-        localStorage.setItem(SEL_KEY, JSON.stringify({ selectedProjectId: d.selectedProjectId, selectedPeriodId: d.selectedPeriodId }));
+        localStorage.setItem(SEL_KEY, JSON.stringify({
+            selectedProjectId: d.selectedProjectId,
+            selectedPeriodId: d.selectedPeriodId,
+            movementSortBy: d.movementSortBy,
+            movementSortDirection: d.movementSortDirection
+        }));
     } catch { /* noop */ }
 }
 
@@ -725,7 +755,11 @@ function _periodPanel(period) {
         ${cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : ''}
         ${form && !cerrada ? _movementForm(form) : ''}
         ${editMov ? _movementEditForm(editMov, cerrada) : ''}
-        ${_movementsList(visibleMovs, cerrada)}
+        ${_movementSortControls(d, visibleMovs.length)}
+        ${_movementsList(visibleMovs, cerrada, {
+            field: d.movementSortBy,
+            direction: d.movementSortDirection
+        })}
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -878,10 +912,41 @@ function _movementEditForm(mov, cerrada) {
     </div>`;
 }
 
-function _movementsList(movs, cerrada) {
-    const list = (movs || []).slice().sort((left, right) =>
-        (Number(right.recordNumber) || 0) - (Number(left.recordNumber) || 0)
-    );
+function _movementSortControls(d, count) {
+    const sort = normalizePettyCashMovementSort({
+        field: d.movementSortBy,
+        direction: d.movementSortDirection
+    });
+    const directionLabel = sort.direction === 'desc'
+        ? (sort.field === 'amount' ? 'Mayor primero' : 'Más reciente')
+        : (sort.field === 'amount' ? 'Menor primero' : 'Más antiguo');
+    const arrowPath = sort.direction === 'desc'
+        ? 'M12 4v14m0 0 5-5m-5 5-5-5'
+        : 'M12 20V6m0 0 5 5m-5-5-5 5';
+    return `<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;">
+        <div style="font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums;">${count} registro${count === 1 ? '' : 's'}</div>
+        <div style="display:flex;align-items:flex-end;gap:8px;flex:1;justify-content:flex-end;min-width:min(100%,280px);">
+            <label style="display:flex;flex-direction:column;gap:4px;flex:1;max-width:220px;font-size:.62rem;font-weight:800;letter-spacing:.05em;color:#64748b;">
+                ORDENAR
+                <select aria-label="Ordenar registros" onchange="window.pcSetMovementSort(this.value)"
+                    style="width:100%;min-height:38px;background:#263244;color:#f8fafc;border:1px solid #475569;border-radius:8px;padding:7px 30px 7px 10px;font-size:.78rem;font-weight:700;">
+                    <option value="recordNumber" ${sort.field === 'recordNumber' ? 'selected' : ''}>Número de registro</option>
+                    <option value="invoiceDate" ${sort.field === 'invoiceDate' ? 'selected' : ''}>Fecha de factura</option>
+                    <option value="amount" ${sort.field === 'amount' ? 'selected' : ''}>Monto</option>
+                </select>
+            </label>
+            <button type="button" data-app-fn="pcToggleMovementSortDirection"
+                aria-label="Cambiar dirección del orden" title="Cambiar dirección del orden"
+                style="min-height:38px;background:#06b6d4;color:#06202a;border:none;border-radius:8px;padding:7px 11px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:.72rem;font-weight:850;white-space:nowrap;cursor:pointer;">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="${arrowPath}"/></svg>
+                ${directionLabel}
+            </button>
+        </div>
+    </div>`;
+}
+
+function _movementsList(movs, cerrada, requestedSort) {
+    const list = sortPettyCashMovements(movs, requestedSort);
     if (!list.length) return '<div style="color:#64748b;padding:14px 0;">Sin movimientos aún.</div>';
     return `<div style="display:flex;flex-direction:column;gap:6px;">
         ${list.map(m => {
@@ -926,6 +991,25 @@ export function registerPettyCashGlobals() {
     }
 
     window.pcContinueReceiptQueue = () => processPendingReceiptJobs({ force: true });
+
+    window.pcSetMovementSort = (field) => {
+        const d = pc();
+        const sort = normalizePettyCashMovementSort({
+            field,
+            direction: d.movementSortDirection
+        });
+        d.movementSortBy = sort.field;
+        d.movementSortDirection = sort.direction;
+        persist();
+        window.render?.();
+    };
+
+    window.pcToggleMovementSortDirection = () => {
+        const d = pc();
+        d.movementSortDirection = d.movementSortDirection === 'asc' ? 'desc' : 'asc';
+        persist();
+        window.render?.();
+    };
 
     window.pcNewProject = async () => {
         const name = (await Modal.prompt({ title: '🏗️ Nuevo proyecto / obra', message: 'Nombre del proyecto u obra:', placeholder: 'Ej. Torre A', confirmText: 'Crear' }) || '').trim();
