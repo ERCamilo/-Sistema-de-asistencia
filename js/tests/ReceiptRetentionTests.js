@@ -57,7 +57,7 @@ testRunner.addSuite("Comprobantes — conservación del original + cascada al bo
     },
 
     "uploadPendingReceipts conserva la copia completa hasta habilitar recuperación remota"() {
-        const block = UI_SRC.match(/export async function uploadPendingReceipts[\s\S]{0,2200}?\n\}/);
+        const block = UI_SRC.match(/export async function uploadPendingReceipts[\s\S]{0,6000}?\n\}/);
         testRunner.assert(!!block, 'uploadPendingReceipts debe existir');
         testRunner.assert(!/downscaleDataUrl\s*\(\s*rec\./.test(block[0]),
             'la subida no debe reemplazar el original por una miniatura');
