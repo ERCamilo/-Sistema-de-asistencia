@@ -3,11 +3,13 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const FIREBASE_API_KEY = "AIzaSyDF8sJaHAMx4mRqMWo_J6Cpd6_ZjIc4jYA";
 const BUCKET = "petty-cash-receipts";
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_BASE64_LENGTH = 14_000_000;
 const ALLOWED_MIME_TYPES = new Map([
     ["image/jpeg", "jpg"],
     ["image/png", "png"],
     ["image/webp", "webp"],
+    ["application/pdf", "pdf"],
 ]);
 
 const corsHeaders = {
@@ -45,26 +47,53 @@ async function verifyFirebaseToken(idToken: string) {
     return String(uid);
 }
 
-function parseImage(imageBase64: unknown, requestedMimeType: unknown) {
-    let encoded = String(imageBase64 || "").trim();
+function hasValidSignature(binary: Uint8Array, mimeType: string) {
+    if (mimeType === "application/pdf") {
+        return binary.length >= 5 &&
+            binary[0] === 0x25 && binary[1] === 0x50 &&
+            binary[2] === 0x44 && binary[3] === 0x46 && binary[4] === 0x2d;
+    }
+    if (mimeType === "image/jpeg") {
+        return binary.length >= 3 &&
+            binary[0] === 0xff && binary[1] === 0xd8 && binary[2] === 0xff;
+    }
+    if (mimeType === "image/png") {
+        return binary.length >= 8 &&
+            binary[0] === 0x89 && binary[1] === 0x50 &&
+            binary[2] === 0x4e && binary[3] === 0x47;
+    }
+    if (mimeType === "image/webp") {
+        return binary.length >= 12 &&
+            String.fromCharCode(...binary.slice(0, 4)) === "RIFF" &&
+            String.fromCharCode(...binary.slice(8, 12)) === "WEBP";
+    }
+    return false;
+}
+
+function parseReceiptFile(fileBase64: unknown, requestedMimeType: unknown) {
+    let encoded = String(fileBase64 || "").trim();
     let mimeType = String(requestedMimeType || "image/jpeg").toLowerCase();
-    const dataUrlMatch = encoded.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/s);
+    const dataUrlMatch = encoded.match(
+        /^data:(image\/(?:jpeg|png|webp)|application\/pdf);base64,(.+)$/s,
+    );
     if (dataUrlMatch) {
         mimeType = dataUrlMatch[1].toLowerCase();
         encoded = dataUrlMatch[2];
     }
-    if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error("UNSUPPORTED_IMAGE_TYPE");
-    if (!encoded || encoded.length > 7_000_000) throw new Error("IMAGE_TOO_LARGE");
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error("UNSUPPORTED_FILE_TYPE");
+    encoded = encoded.replace(/\s+/g, "");
+    if (!encoded || encoded.length > MAX_BASE64_LENGTH) throw new Error("FILE_TOO_LARGE");
 
     let binary: Uint8Array;
     try {
         binary = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
     } catch {
-        throw new Error("INVALID_IMAGE_BASE64");
+        throw new Error("INVALID_FILE_BASE64");
     }
     if (!binary.byteLength || binary.byteLength > MAX_FILE_BYTES) {
-        throw new Error("IMAGE_TOO_LARGE");
+        throw new Error("FILE_TOO_LARGE");
     }
+    if (!hasValidSignature(binary, mimeType)) throw new Error("FILE_SIGNATURE_MISMATCH");
     return { binary, mimeType };
 }
 
@@ -73,7 +102,7 @@ Deno.serve(async (request: Request) => {
     if (request.method !== "POST") return respond({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
 
     const contentLength = Number(request.headers.get("content-length") || 0);
-    if (contentLength > 7_500_000) {
+    if (contentLength > 14_500_000) {
         return respond({ ok: false, error: "PAYLOAD_TOO_LARGE" }, 413);
     }
 
@@ -98,7 +127,7 @@ Deno.serve(async (request: Request) => {
         if (action === "lookup") {
             const { data: receipt, error: lookupError } = await supabase
                 .from("petty_cash_receipts")
-                .select("transaction_id, project_id, period_id, storage_bucket, storage_path, mime_type, file_size_bytes, original_name, ocr_data, movement_data, status, confirmed_at, uploaded_at")
+                .select("transaction_id, project_id, period_id, storage_bucket, storage_path, mime_type, file_size_bytes, page_count, original_name, ocr_data, movement_data, status, confirmed_at, uploaded_at")
                 .eq("firebase_uid", uid)
                 .eq("transaction_id", txId)
                 .maybeSingle();
@@ -116,14 +145,21 @@ Deno.serve(async (request: Request) => {
             return respond({ ok: false, error: "INVALID_ACTION" }, 400);
         }
 
-        const image = parseImage(body.imageBase64, body.mimeType);
-        // Ruta estable: reemplazar una foto JPEG por PNG no deja un objeto
+        const file = parseReceiptFile(body.fileBase64 || body.imageBase64, body.mimeType);
+        const requestedPageCount = body.pageCount == null ? null : Number(body.pageCount);
+        if (
+            requestedPageCount !== null &&
+            (!Number.isInteger(requestedPageCount) || requestedPageCount < 1 || requestedPageCount > 10)
+        ) {
+            return respond({ ok: false, error: "INVALID_PAGE_COUNT" }, 400);
+        }
+        // Ruta estable: reemplazar una imagen por PDF (o viceversa) no deja un objeto
         // huérfano con otra extensión.
         const storagePath = `${uid}/${txId}`;
         const { error: uploadError } = await supabase.storage
             .from(BUCKET)
-            .upload(storagePath, image.binary, {
-                contentType: image.mimeType,
+            .upload(storagePath, file.binary, {
+                contentType: file.mimeType,
                 upsert: true,
                 cacheControl: "3600",
             });
@@ -140,8 +176,9 @@ Deno.serve(async (request: Request) => {
             period_id: body.periodId ? String(body.periodId) : null,
             storage_bucket: BUCKET,
             storage_path: storagePath,
-            mime_type: image.mimeType,
-            file_size_bytes: image.binary.byteLength,
+            mime_type: file.mimeType,
+            file_size_bytes: file.binary.byteLength,
+            page_count: requestedPageCount,
             original_name: body.originalName ? String(body.originalName).slice(0, 255) : null,
             ocr_data: safeObject(body.ocr),
             movement_data: safeObject(body.movement),
@@ -153,14 +190,24 @@ Deno.serve(async (request: Request) => {
         const { data: receipt, error: upsertError } = await supabase
             .from("petty_cash_receipts")
             .upsert(row, { onConflict: "firebase_uid,transaction_id" })
-            .select("transaction_id, storage_bucket, storage_path, mime_type, file_size_bytes, status, confirmed_at, uploaded_at")
+            .select("transaction_id, storage_bucket, storage_path, mime_type, file_size_bytes, page_count, status, confirmed_at, uploaded_at")
             .single();
         if (upsertError) throw upsertError;
 
         return respond({ ok: true, path: `${BUCKET}/${storagePath}`, receipt });
     } catch (error) {
         const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
-        const status = message === "INVALID_FIREBASE_TOKEN" ? 401 : 500;
+        const status = message === "INVALID_FIREBASE_TOKEN"
+            ? 401
+            : message === "FILE_TOO_LARGE"
+            ? 413
+            : [
+                "UNSUPPORTED_FILE_TYPE",
+                "INVALID_FILE_BASE64",
+                "FILE_SIGNATURE_MISMATCH",
+            ].includes(message)
+            ? 400
+            : 500;
         console.error("petty-cash-receipt", message);
         return respond({ ok: false, error: message }, status);
     }
