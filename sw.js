@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0729.120405';
+const CACHE_VERSION = '2026.0729.184224';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -233,14 +233,26 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 5) Navegación (HTML) → Network First con fallback a cache
+    // 5) JavaScript propio → Network First con fallback a cache.
+    // Un grafo ESM no puede mezclar módulos de builds distintos. Servir JS
+    // obsoleto mientras se revalida en segundo plano puede romper imports
+    // aunque el despliegue actual sea correcto.
+    if (
+        url.origin === self.location.origin
+        && event.request.destination === 'script'
+    ) {
+        event.respondWith(networkFirst(event.request));
+        return;
+    }
+
+    // 6) Navegación (HTML) → Network First con fallback a cache
     //    Esto asegura que siempre se obtenga la versión más reciente
     if (event.request.mode === 'navigate') {
         event.respondWith(networkFirst(event.request));
         return;
     }
 
-    // 6) Assets propios (JS, CSS, imágenes) → Stale While Revalidate
+    // 7) Resto de assets propios (CSS, imágenes) → Stale While Revalidate
     //    Sirve rápido desde cache, pero actualiza en background
     event.respondWith(staleWhileRevalidate(event.request));
 });
