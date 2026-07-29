@@ -69,8 +69,29 @@ testRunner.addSuite('Caja chica — contrato OCR compartido', {
         const body = JSON.parse(request.options.body);
         testRunner.assertEquals(request.url, 'https://example.test/ocr');
         testRunner.assertEquals(body.idToken, 'token');
+        testRunner.assertEquals(body.fileBase64, 'YWJj');
         testRunner.assertEquals(body.imageBase64, 'YWJj');
+        testRunner.assertEquals(body.mimeType, 'image/jpeg');
         testRunner.assertEquals(result.total, 10);
+    },
+
+    async 'envía PDF nativo sin disfrazarlo como imagen'() {
+        let body = null;
+        await requestReceiptOcr({
+            url: 'https://example.test/ocr',
+            idToken: 'token',
+            fileDataUrl: 'data:application/pdf;base64,JVBERg==',
+            mimeType: 'application/pdf',
+            fileName: 'factura.pdf',
+            fetchImpl: async (_url, options) => {
+                body = JSON.parse(options.body);
+                return { ok: true, json: async () => ({ ok: true }) };
+            }
+        });
+        testRunner.assertEquals(body.fileBase64, 'JVBERg==');
+        testRunner.assertEquals(body.mimeType, 'application/pdf');
+        testRunner.assertEquals(body.fileName, 'factura.pdf');
+        testRunner.assertEquals(Object.hasOwn(body, 'imageBase64'), false);
     },
 
     async 'propaga HTTP y respuestas vacías como error'() {

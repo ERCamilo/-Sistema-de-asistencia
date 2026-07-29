@@ -1,3 +1,5 @@
+import { ensurePdfJsLoaded } from '../../utils/LazyPdfJS.js';
+
 /**
  * PettyCashPhoto.js — compresión de comprobantes + ruta de Storage.
  *
@@ -6,6 +8,34 @@
  * Aquí solo vive la compresión (browser) y el helper puro de ruta (que se
  * usará cuando la subida a Supabase exista).
  */
+
+export const RECEIPT_PDF_MIME_TYPE = 'application/pdf';
+export const RECEIPT_MAX_PDF_BYTES = 10 * 1024 * 1024;
+export const RECEIPT_MAX_PDF_PAGES = 10;
+
+export function receiptMimeType(file) {
+    const declared = String(file?.type || '').trim().toLowerCase();
+    if (declared) return declared;
+    return /\.pdf$/i.test(String(file?.name || '')) ? RECEIPT_PDF_MIME_TYPE : '';
+}
+
+export function isPdfReceipt(file) {
+    return receiptMimeType(file) === RECEIPT_PDF_MIME_TYPE;
+}
+
+export function validateReceiptFile(file) {
+    if (!file || typeof file.slice !== 'function' || !Number.isFinite(Number(file.size))) {
+        throw new Error('Selecciona una imagen o un PDF válido.');
+    }
+    const mimeType = receiptMimeType(file);
+    if (!mimeType.startsWith('image/') && mimeType !== RECEIPT_PDF_MIME_TYPE) {
+        throw new Error('Formato no compatible. Usa una imagen o un PDF.');
+    }
+    if (mimeType === RECEIPT_PDF_MIME_TYPE && Number(file.size) > RECEIPT_MAX_PDF_BYTES) {
+        throw new Error('El PDF supera el límite de 10 MB.');
+    }
+    return { mimeType, kind: mimeType === RECEIPT_PDF_MIME_TYPE ? 'pdf' : 'image' };
+}
 
 /** Ruta destino en Supabase Storage (para la subida futura vía n8n). null si faltan args. */
 export function receiptStoragePath(uid, txId) {
@@ -26,6 +56,86 @@ export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
     canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     if (typeof bitmap.close === 'function') bitmap.close();
     return canvas.toDataURL('image/jpeg', quality);
+}
+
+function pdfFallbackThumbnail(fileName = 'Factura PDF') {
+    const safeName = String(fileName || 'Factura PDF')
+        .replace(/[<>&"']/g, '')
+        .slice(0, 34);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
+        <rect width="480" height="320" rx="24" fill="#0f172a"/>
+        <rect x="124" y="36" width="232" height="248" rx="16" fill="#172033" stroke="#475569" stroke-width="3"/>
+        <path d="M294 36v66h62" fill="#26364d" stroke="#64748b" stroke-width="3"/>
+        <rect x="160" y="126" width="160" height="64" rx="12" fill="#dc2626"/>
+        <text x="240" y="168" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="34" font-weight="700">PDF</text>
+        <text x="240" y="230" text-anchor="middle" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="17">${safeName}</text>
+    </svg>`;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+export async function createPdfThumbnail(file, maxDim = 480) {
+    let documentTask = null;
+    let pdfDocument = null;
+    try {
+        const pdfjs = await ensurePdfJsLoaded();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        documentTask = pdfjs.getDocument({ data: bytes });
+        pdfDocument = await documentTask.promise;
+        const pageCount = Number(pdfDocument.numPages) || 0;
+        if (!pageCount) throw new Error('El PDF no contiene páginas.');
+        if (pageCount > RECEIPT_MAX_PDF_PAGES) {
+            throw new Error(`El PDF supera el límite de ${RECEIPT_MAX_PDF_PAGES} páginas.`);
+        }
+        const page = await pdfDocument.getPage(1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, maxDim / Math.max(baseViewport.width, baseViewport.height));
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(viewport.width));
+        canvas.height = Math.max(1, Math.round(viewport.height));
+        const context = canvas.getContext('2d', { alpha: false });
+        await page.render({ canvasContext: context, viewport }).promise;
+        return {
+            previewDataUrl: canvas.toDataURL('image/jpeg', 0.72),
+            pageCount
+        };
+    } catch (error) {
+        if (/supera el límite|no contiene páginas/i.test(String(error?.message || ''))) throw error;
+        return {
+            previewDataUrl: pdfFallbackThumbnail(file?.name),
+            pageCount: null
+        };
+    } finally {
+        try { await pdfDocument?.destroy?.(); } catch (_) { /* noop */ }
+        try { documentTask?.destroy?.(); } catch (_) { /* noop */ }
+    }
+}
+
+export async function prepareReceiptForOcr(file) {
+    const { mimeType, kind } = validateReceiptFile(file);
+    if (kind === 'pdf') {
+        return {
+            fileDataUrl: await blobToDataUrl(file),
+            mimeType,
+            fileName: file?.name || 'factura.pdf'
+        };
+    }
+    return {
+        fileDataUrl: await compressImage(file),
+        mimeType: 'image/jpeg',
+        fileName: file?.name || 'factura.jpg'
+    };
+}
+
+export async function createReceiptPreview(file) {
+    const { kind } = validateReceiptFile(file);
+    if (kind === 'pdf') return createPdfThumbnail(file);
+    const processingDataUrl = await compressImage(file);
+    return {
+        previewDataUrl: await downscaleDataUrl(processingDataUrl, 480, 0.5),
+        pageCount: 1,
+        processingDataUrl
+    };
 }
 
 /**
@@ -112,7 +222,13 @@ export async function downscaleDataUrl(dataUrl, maxDim = 480, quality = 0.5) {
 
 export default {
     receiptStoragePath,
+    receiptMimeType,
+    isPdfReceipt,
+    validateReceiptFile,
     compressImage,
+    createPdfThumbnail,
+    createReceiptPreview,
+    prepareReceiptForOcr,
     cloneOriginalReceipt,
     blobToDataUrl,
     requestPersistentReceiptStorage,

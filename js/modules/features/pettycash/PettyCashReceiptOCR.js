@@ -67,17 +67,33 @@ export function applyReceiptOcrToForm(form, normalized) {
     return form;
 }
 
-export async function requestReceiptOcr({ url, idToken, imageDataUrl, fetchImpl = globalThis.fetch }) {
+export async function requestReceiptOcr({
+    url,
+    idToken,
+    fileDataUrl,
+    imageDataUrl,
+    mimeType = 'image/jpeg',
+    fileName = null,
+    fetchImpl = globalThis.fetch
+}) {
     if (!url) throw new Error('No hay URL de OCR configurada.');
     if (!idToken) throw new Error('No hay una sesión válida para procesar la factura.');
-    if (!imageDataUrl) throw new Error('No hay imagen para procesar.');
+    const source = fileDataUrl || imageDataUrl;
+    if (!source) throw new Error('No hay un comprobante para procesar.');
     if (typeof fetchImpl !== 'function') throw new Error('El navegador no permite enviar la factura.');
 
-    const base64 = String(imageDataUrl).split(',')[1] || String(imageDataUrl);
+    const base64 = String(source).split(',')[1] || String(source);
+    const normalizedMimeType = String(mimeType || 'image/jpeg').toLowerCase();
     const response = await fetchImpl(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, idToken })
+        body: JSON.stringify({
+            fileBase64: base64,
+            imageBase64: normalizedMimeType.startsWith('image/') ? base64 : undefined,
+            mimeType: normalizedMimeType,
+            fileName,
+            idToken
+        })
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json().catch(() => null);
