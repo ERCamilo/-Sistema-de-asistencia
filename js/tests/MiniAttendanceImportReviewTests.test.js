@@ -246,11 +246,19 @@ describe('Mini attendance import review slice', () => {
             { stayOnAutomatic: true }
         );
 
+        const panel = host.querySelector('[data-mini-automatic-review]');
+        const modalBody = document.createElement('div');
+        modalBody.className = 'modal-body';
+        host.parentNode?.insertBefore(modalBody, host);
+        modalBody.append(host);
+        modalBody.scrollTop = 240;
         expect(host.querySelector('[data-mini-inline-source]').textContent)
-            .toMatch(/SA 6 h.*Mini 9 h/);
+            .toMatch(/Mini 9 h.*SA 6 h/);
         expect(host.querySelector('[data-mini-attention-source]:checked')).toBeNull();
         host.querySelector('[data-mini-attention-source="use_imported"]').click();
 
+        expect(host.querySelector('[data-mini-automatic-review]')).toBe(panel);
+        expect(modalBody.scrollTop).toBe(240);
         expect(host.querySelector('[data-mini-review-unit]')).toBeNull();
         expect(host.querySelector('[data-mini-attention-status="resolved"]')).not.toBeNull();
         expect(host.querySelector('[data-mini-attention-source="use_imported"]').checked)

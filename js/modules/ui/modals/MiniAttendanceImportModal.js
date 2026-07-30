@@ -966,12 +966,15 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-reconciliation-heading'
         });
         attentionHeading.append(
-            element('h4', `Requieren atención (${pendingAttentionItems.length})`),
+            element('h4', `Requieren atención (${pendingAttentionItems.length})`, {
+                dataset: { miniAttentionHeading: '' }
+            }),
             element(
                 'span',
                 resolvedAttentionCount
                     ? `${resolvedAttentionCount} resuelto${resolvedAttentionCount === 1 ? '' : 's'}`
-                    : 'SA necesita una decisión'
+                    : 'SA necesita una decisión',
+                { dataset: { miniAttentionResolution: '' } }
             )
         );
         panel.append(
@@ -991,19 +994,56 @@ export class MiniAttendanceImportModal {
         );
         const accept = actionButton('', 'accept-automatic');
         accept.classList.add('mini-import-action-primary');
-        const syncLabel = () => {
+        panel.addEventListener('change', () => this.syncAutomaticReviewStatus(panel));
+        accept.addEventListener('click', () => this.acceptAutomaticMatches(panel));
+        panel.append(note, accept);
+        this.syncAutomaticReviewStatus(panel, view);
+        return panel;
+    }
+
+    syncAutomaticReviewStatus(panel, view = this.buildReviewView()) {
+        const attentionItems = this.attentionReviewItems(view);
+        const pendingCount = attentionItems.filter(item => !item.confirmed).length;
+        const resolvedCount = attentionItems.length - pendingCount;
+        const heading = panel.querySelector('[data-mini-attention-heading]');
+        const resolution = panel.querySelector('[data-mini-attention-resolution]');
+        const hint = panel.querySelector('[data-mini-automatic-hint]');
+        const accept = panel.querySelector('[data-mini-action="accept-automatic"]');
+        if (heading) heading.textContent = `Requieren atención (${pendingCount})`;
+        if (resolution) {
+            resolution.textContent = resolvedCount
+                ? `${resolvedCount} resuelto${resolvedCount === 1 ? '' : 's'}`
+                : 'SA necesita una decisión';
+        }
+        if (hint) {
+            hint.textContent = pendingCount
+                ? `${pendingCount} empleado${pendingCount === 1 ? '' : 's'} ` +
+                    `${pendingCount === 1 ? 'pasará' : 'pasarán'} a ` +
+                    'revisión individual después de aceptar esta tabla.'
+                : 'Todas las filas están listas para pasar al resumen final.';
+        }
+        if (accept) {
             const modifyCount = panel.querySelectorAll(
                 '[data-mini-auto-choice]:checked[value="modify"]'
             ).length;
-            accept.textContent = !attentionCount && !modifyCount
+            accept.textContent = !pendingCount && !modifyCount
                 ? 'Aceptar y revisar resumen'
                 : 'Aceptar selección y continuar';
-        };
-        panel.addEventListener('change', syncLabel);
-        accept.addEventListener('click', () => this.acceptAutomaticMatches(panel));
-        syncLabel();
-        panel.append(note, accept);
-        return panel;
+        }
+    }
+
+    refreshAttentionReviewTable() {
+        const panel = this.host?.querySelector('[data-mini-automatic-review]');
+        const current = panel?.querySelector('[data-mini-attention-table]');
+        if (!panel || !current) return;
+        const modalBody = current.closest('.modal-body');
+        const scrollTop = modalBody?.scrollTop;
+        const view = this.buildReviewView();
+        const items = this.attentionReviewItems(view);
+        const pendingItems = items.filter(item => !item.confirmed);
+        current.replaceWith(this.renderAttentionReviewTable(items, pendingItems));
+        this.syncAutomaticReviewStatus(panel, view);
+        if (modalBody && Number.isFinite(scrollTop)) modalBody.scrollTop = scrollTop;
     }
 
     renderAttentionReviewTable(items, pendingItems = items.filter(item => !item.confirmed)) {
@@ -1111,8 +1151,8 @@ export class MiniAttendanceImportModal {
         });
         field.append(element('legend', 'Horas a usar'));
         [
-            ['keep_existing', `SA ${saTotal} h`],
-            ['use_imported', `Mini ${miniTotal} h`]
+            ['use_imported', `Mini ${miniTotal} h`],
+            ['keep_existing', `SA ${saTotal} h`]
         ].forEach(([value, labelText]) => {
             const id = `mini-inline-source-${this.controlId}-${key}-${value}`;
             const label = element('label', null, { htmlFor: id });
@@ -1156,8 +1196,7 @@ export class MiniAttendanceImportModal {
                 (row.existing?.breakdown.length || 0) > 1
         });
         this.resetApplyState();
-        this.render();
-        this.resetReviewViewport();
+        this.refreshAttentionReviewTable();
     }
 
     renderIndividualReview(view) {
