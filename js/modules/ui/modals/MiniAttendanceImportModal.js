@@ -7,6 +7,7 @@ import {
     createMiniAttendanceDraft,
     editMiniAttendanceDraftRow,
     excludeMiniAttendanceDraftRow,
+    isMiniAttendanceEmployeeEligible,
     reviewMiniAttendanceConflict,
     reviewMiniAttendanceDraftRow,
     setMiniAttendanceAllocationMode
@@ -517,7 +518,7 @@ export class MiniAttendanceImportModal {
     async rememberSelectedMatch(item, employeeId) {
         if (!this.aliasStore || !this.aliasScope) return;
         const employee = this.employees.find(candidate => candidate.id === employeeId);
-        if (!employee) return;
+        if (!isMiniAttendanceEmployeeEligible(employee)) return;
         try {
             for (const occurrence of item.occurrences) {
                 await this.aliasStore.record({
@@ -773,7 +774,7 @@ export class MiniAttendanceImportModal {
     reviewUnitValidation(model, container) {
         const employeeId = container.querySelector('[data-mini-employee]')?.value || '';
         const employee = this.employees.find(candidate => candidate.id === employeeId);
-        const employeeValid = Boolean(employee);
+        const employeeValid = isMiniAttendanceEmployeeEligible(employee);
         const selectedDecision = container
             .querySelector('[data-mini-attendance-source]:checked')?.value;
         const requiresAllocation = model.existingBreakdown.length === 0 ||

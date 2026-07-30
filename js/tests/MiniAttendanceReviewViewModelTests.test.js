@@ -32,6 +32,29 @@ function project(state, filter = 'all') {
     return buildMiniAttendanceReviewViewModel({ ...state, employees, positions, filter });
 }
 describe('Mini attendance review projection', () => {
+    test('hides inactive employees from every selector in the review projection', () => {
+        const roster = [
+            ...employees,
+            { id: 'inactive', number: '6', name: 'Empleado Inactivo', positions: ['p1'],
+                active: false }
+        ];
+        let draft = createMiniAttendanceDraft({
+            parsed: parseMiniAttendanceReport('006. Empleado Inactivo *8h*'),
+            employees: roster,
+            proposedDate: DATE
+        });
+        draft = confirmMiniAttendanceDraftDate(draft, DATE);
+        const conflictPlan = createMiniAttendanceConflictPlan(draft, {});
+        const view = buildMiniAttendanceReviewViewModel({
+            draft, conflictPlan, employees: roster, positions
+        });
+
+        expect(draft.rows[0]).toMatchObject({
+            excluded: true, exclusionReason: 'inactive_employee'
+        });
+        expect(view.items).toEqual([]);
+    });
+
     test('joins draft occurrences to conflicts and derives stable summaries and filters', () => {
         const current = {
             employeeId: 'e3',

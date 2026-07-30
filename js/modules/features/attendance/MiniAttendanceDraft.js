@@ -18,6 +18,10 @@ export {
     normalizeNumber as normalizeMiniAttendanceNumber
 };
 
+export function isMiniAttendanceEmployeeEligible(employee) {
+    return Boolean(employee) && employee.active !== false && employee.deletedAt == null;
+}
+
 function editDistance(left, right) {
     if (left === right) return 0;
     if (!left.length) return right.length;
@@ -101,6 +105,21 @@ function employeeCandidate(employee) {
     };
 }
 
+function matchesSourceIdentity(sourceRow, employee) {
+    const sourceNumber = normalizeNumber(sourceRow.rawNumber);
+    return sourceNumber !== null &&
+        sourceNumber === normalizeNumber(employee.number) &&
+        normalizeName(sourceRow.rawName) === normalizeName(employee.name);
+}
+
+function matchesOnlyInactiveEmployee(sourceRow, employees, eligibleEmployees) {
+    const hasEligibleIdentity = eligibleEmployees.some(employee =>
+        matchesSourceIdentity(sourceRow, employee));
+    return !hasEligibleIdentity && employees.some(employee =>
+        !isMiniAttendanceEmployeeEligible(employee) &&
+        matchesSourceIdentity(sourceRow, employee));
+}
+
 function rememberedEmployee(sourceRow, employees, aliases, scope) {
     if (!scope || !Array.isArray(aliases) || aliases.length === 0) return null;
     const number = normalizeNumber(sourceRow.rawNumber);
@@ -117,7 +136,7 @@ function rememberedEmployee(sourceRow, employees, aliases, scope) {
     if (matches.length !== 1) return null;
     const alias = matches[0];
     const employee = employees.find(item => item.id === alias.targetEmployeeId);
-    if (!employee || employee.active === false || employee.deletedAt != null) return null;
+    if (!isMiniAttendanceEmployeeEligible(employee)) return null;
     return { alias, employee };
 }
 
@@ -293,15 +312,24 @@ export function createMiniAttendanceDraft({
     regularLimit = 8
 }) {
     const allocationMode = 'all_normal';
-    const rows = parsed.rows.map(sourceRow => ({
-        sourceRow,
-        match: matchEmployee(sourceRow, employees, aliases, aliasScope),
-        allocation: allocate(sourceRow.totalHours, allocationMode, regularLimit),
-        duplicateStatus: null,
-        excluded: false,
-        reviewed: false,
-        approved: false
-    }));
+    const eligibleEmployees = employees.filter(isMiniAttendanceEmployeeEligible);
+    const rows = parsed.rows.map(sourceRow => {
+        const inactiveIdentity = matchesOnlyInactiveEmployee(
+            sourceRow,
+            employees,
+            eligibleEmployees
+        );
+        return {
+            sourceRow,
+            match: matchEmployee(sourceRow, eligibleEmployees, aliases, aliasScope),
+            allocation: allocate(sourceRow.totalHours, allocationMode, regularLimit),
+            duplicateStatus: null,
+            excluded: inactiveIdentity,
+            exclusionReason: inactiveIdentity ? 'inactive_employee' : null,
+            reviewed: inactiveIdentity,
+            approved: false
+        };
+    });
     const duplicateStatuses = classifyDuplicates(rows);
     const dated = inspectDate(parsed, proposedDate, false);
     return finalize({
@@ -311,7 +339,7 @@ export function createMiniAttendanceDraft({
         ...dated,
         regularLimit,
         allocationMode,
-        employeeOptions: employees.map(employeeCandidate),
+        employeeOptions: eligibleEmployees.map(employeeCandidate),
         rows: rows.map((row, index) => ({ ...row, duplicateStatus: duplicateStatuses[index] }))
     });
 }

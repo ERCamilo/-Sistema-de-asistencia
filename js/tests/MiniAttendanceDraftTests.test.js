@@ -152,6 +152,51 @@ describe('MiniAttendanceDraft employee reconciliation', () => {
         expect(row.blockers).toContain('employee_ambiguous');
     });
 
+    test('never matches or exposes inactive and deleted employees as import targets', () => {
+        const roster = [
+            { id: 'active', number: '1', name: 'Persona Activa', positions: ['p1'] },
+            { id: 'inactive', number: '2', name: 'Persona Inactiva', positions: ['p1'],
+                active: false },
+            { id: 'deleted', number: '3', name: 'Persona Eliminada', positions: ['p1'],
+                deletedAt: 123 }
+        ];
+        const draft = draftFor(
+            '002. Persona Inactiva *8h* 003. Persona Eliminada *8h*',
+            { employees: roster }
+        );
+
+        expect(draft.employeeOptions.map(option => option.employeeId)).toEqual(['active']);
+        expect(draft.rows.map(row => row.match)).toEqual([
+            expect.objectContaining({ status: 'unmatched', employeeId: null }),
+            expect.objectContaining({ status: 'unmatched', employeeId: null })
+        ]);
+        expect(draft.rows).toEqual([
+            expect.objectContaining({
+                excluded: true, reviewed: true, exclusionReason: 'inactive_employee'
+            }),
+            expect.objectContaining({
+                excluded: true, reviewed: true, exclusionReason: 'inactive_employee'
+            })
+        ]);
+        expect(() => reviewMiniAttendanceDraftRow(draft, 0, { employeeId: 'inactive' }))
+            .toThrow('Employee is not in the draft roster: inactive');
+    });
+
+    test('does not auto-ignore an inactive identity when an active duplicate exists', () => {
+        const roster = [
+            { id: 'active', number: '2', name: 'Persona Repetida', positions: ['p1'],
+                active: true },
+            { id: 'inactive', number: '2', name: 'Persona Repetida', positions: ['p1'],
+                active: false }
+        ];
+        const row = draftFor('002. Persona Repetida *8h*', { employees: roster }).rows[0];
+
+        expect(row).toMatchObject({
+            excluded: false,
+            match: { status: 'number_match', employeeId: 'active' }
+        });
+    });
+
     test('uses normalized exact names to disambiguate employees with the same number', () => {
         const row = draftFor('501. hector, excavadora *4h*').rows[0];
 

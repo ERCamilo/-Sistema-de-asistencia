@@ -1,3 +1,7 @@
+import {
+    isMiniAttendanceEmployeeEligible
+} from '../features/attendance/MiniAttendanceDraft.js';
+
 function deepFreeze(value, seen = new WeakSet()) {
     if (value === null || typeof value !== 'object' || seen.has(value)) return value;
     seen.add(value);
@@ -153,9 +157,10 @@ function isSafeBulkItem({ issue, row, draftRows, probableDuplicate, stale }) {
 export function buildMiniAttendanceReviewViewModel({
     draft, conflictPlan, employees = [], positions = [], filter = 'all'
 }) {
-    const employeeById = new Map(employees.map(employee => [employee.id, employee]));
+    const eligibleEmployees = employees.filter(isMiniAttendanceEmployeeEligible);
+    const employeeById = new Map(eligibleEmployees.map(employee => [employee.id, employee]));
     const positionById = new Map(positions.map(position => [position.id, position]));
-    const employeeOptions = employees.map(employeeView).sort(compareEmployeeOrder);
+    const employeeOptions = eligibleEmployees.map(employeeView).sort(compareEmployeeOrder);
     const globalBlockers = [
         ...(draft?.dateBlockers || []),
         ...(draft?.sourceBlockers || []),
