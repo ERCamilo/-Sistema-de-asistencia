@@ -260,6 +260,40 @@ describe('Mini attendance conflict planning', () => {
         expect(allocationConflict.rows[0].blockers).toContain('conflicting_duplicate');
     });
 
+    test('resolves conflicting hours by consolidating an explicit choice or keeping SA', () => {
+        let consolidated = confirmedDraft(
+            '001. Ana Perez *5h* 1. Ana Perez *9h*'
+        );
+        [0, 1].forEach(index => {
+            consolidated = editMiniAttendanceDraftRow(
+                consolidated,
+                index,
+                { normalHours: 9, overtimeHours: 0 }
+            );
+            consolidated = reviewMiniAttendanceDraftRow(consolidated, index, {
+                employeeId: 'e1',
+                approved: true
+            });
+        });
+        const imported = createMiniAttendanceConflictPlan(consolidated, {});
+
+        expect(imported.rows[0].imported)
+            .toEqual({ normalHours: 9, overtimeHours: 0 });
+        expect(imported.rows[0].blockers).not.toContain('conflicting_duplicate');
+        expect(imported.hasBlockingIssues).toBe(false);
+
+        const keepPlan = createMiniAttendanceConflictPlan(
+            confirmedDraft('001. Ana Perez *5h* 1. Ana Perez *9h*'),
+            { [`e1-${DATE}`]: existing('e1') }
+        );
+        const kept = reviewMiniAttendanceConflict(keepPlan, 0, {
+            action: 'keep_existing',
+            acknowledged: true
+        });
+        expect(kept.rows[0].blockers).not.toContain('conflicting_duplicate');
+        expect(kept.hasBlockingIssues).toBe(false);
+    });
+
     test('resolves conflicting source numbers when each row is explicitly assigned', () => {
         let draft = createMiniAttendanceDraft({
             parsed: parseMiniAttendanceReport(

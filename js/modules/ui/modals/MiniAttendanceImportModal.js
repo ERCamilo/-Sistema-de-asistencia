@@ -106,6 +106,7 @@ export class MiniAttendanceImportModal {
         this.reviewPageIndex = 0;
         this.automaticReviewKeys = [];
         this.automaticReviewChoices = new Map();
+        this.duplicateHourChoices = new Map();
         this.individualReviewKeys = [];
         this.individualReviewMode = 'queue';
         this.hideAssignedEmployees = true;
@@ -150,6 +151,7 @@ export class MiniAttendanceImportModal {
             regularLimit: this.regularLimit
         });
         this.pendingDate = this.proposedDate;
+        this.duplicateHourChoices.clear();
         this.stage = 'setup';
         this.render();
     }
@@ -161,6 +163,7 @@ export class MiniAttendanceImportModal {
 
     setAllocationMode(mode) {
         this.draft = setMiniAttendanceAllocationMode(this.draft, mode);
+        this.duplicateHourChoices.clear();
         this.resetApplyState();
         this.render();
     }
@@ -474,8 +477,23 @@ export class MiniAttendanceImportModal {
         const remember = container.querySelector('[data-mini-remember-match]')?.checked === true;
         const selectedDecision = container
             .querySelector('[data-mini-attendance-source]:checked')?.value;
+        const conflictingSourceHours = new Set(item.occurrences.map(occurrence =>
+            occurrence.totalHours
+        )).size > 1;
+        const consolidatedAllocation = positionAllocations.reduce((summary, allocation) => ({
+            normalHours: summary.normalHours + allocation.normalHours,
+            overtimeHours: summary.overtimeHours + allocation.overtimeHours
+        }), { normalHours: 0, overtimeHours: 0 });
 
         item.sourceIndexes.forEach(sourceIndex => {
+            if (conflictingSourceHours && selectedDecision !== 'keep_existing' &&
+                positionAllocations.length > 0) {
+                this.draft = editMiniAttendanceDraftRow(
+                    this.draft,
+                    sourceIndex,
+                    consolidatedAllocation
+                );
+            }
             this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, {
                 ...(employeeId ? { employeeId } : {}),
                 approved: true
@@ -795,14 +813,22 @@ export class MiniAttendanceImportModal {
         const decisionValid = model.existingBreakdown.length === 0 ||
             Boolean(selectedDecision);
         const allocationRequirementMet = !requiresAllocation || allocationValid;
+        const hasConflictingSourceHours = new Set(model.occurrences.map(occurrence =>
+            occurrence.totalHours
+        )).size > 1;
+        const duplicateHoursValid = !hasConflictingSourceHours ||
+            selectedDecision === 'keep_existing' ||
+            Boolean(container.querySelector('[data-mini-duplicate-hour-choice]:checked'));
         return {
             complete: model.confirmed ||
-                (employeeValid && allocationRequirementMet && decisionValid),
+                (employeeValid && allocationRequirementMet && decisionValid &&
+                    duplicateHoursValid),
             employeeValid,
             employeeNeedsConfirmation: !model.confirmed &&
                 ['identity', 'duplicate'].includes(model.issue),
             allocationValid: allocationRequirementMet,
-            decisionValid
+            decisionValid,
+            duplicateHoursValid
         };
     }
 
@@ -1595,6 +1621,20 @@ export class MiniAttendanceImportModal {
             dataset: { miniPositionAllocationList: '' }
         });
         let syncCompletion = () => {};
+        const duplicateChoiceKey = this.reviewItemKey(model);
+        const duplicateHourTotals = [...new Set(model.occurrences
+            .map(occurrence => Number(occurrence.totalHours))
+            .filter(Number.isFinite))];
+        const allocationForMiniTotal = totalHours => this.draft.allocationMode === 'all_normal'
+            ? { normalHours: totalHours, overtimeHours: 0 }
+            : {
+                normalHours: Math.min(totalHours, this.draft.regularLimit),
+                overtimeHours: Math.max(0, totalHours - this.draft.regularLimit)
+            };
+        const rememberedDuplicateTotal = this.duplicateHourChoices.get(duplicateChoiceKey);
+        let selectedMiniBaseAllocation = Number.isFinite(rememberedDuplicateTotal)
+            ? allocationForMiniTotal(rememberedDuplicateTotal)
+            : null;
         const renderPositionSegments = (employeeId, preferredAllocations = []) => {
             const employee = this.employees.find(candidate => candidate.id === employeeId);
             const positionIds = Array.isArray(employee?.positions) ? employee.positions : [];
@@ -1609,15 +1649,21 @@ export class MiniAttendanceImportModal {
                 const id = `mini-position-${this.controlId}-${model.id}-${position.id}`;
                 const saved = allocationByPosition.get(position.id);
                 const defaultSingle = !allocationByPosition.size && options.length === 1;
+                const defaultFromMiniBase = !allocationByPosition.size &&
+                    selectedMiniBaseAllocation && index === 0;
                 const normalValue = saved?.normalHours ??
-                    (defaultSingle ? model.allocation.normalHours : 0);
+                    (defaultFromMiniBase
+                        ? selectedMiniBaseAllocation.normalHours
+                        : defaultSingle ? model.allocation.normalHours : 0);
                 const overtimeValue = saved?.overtimeHours ??
-                    (defaultSingle ? model.allocation.overtimeHours : 0);
+                    (defaultFromMiniBase
+                        ? selectedMiniBaseAllocation.overtimeHours
+                        : defaultSingle ? model.allocation.overtimeHours : 0);
                 const toggle = element('input', null, {
                     id,
                     type: 'checkbox',
                     value: position.id,
-                    checked: Boolean(saved) || defaultSingle,
+                    checked: Boolean(saved) || defaultSingle || Boolean(defaultFromMiniBase),
                     dataset: { miniTargetPositionOption: '' }
                 });
                 const label = element('label', null, {
@@ -1685,6 +1731,48 @@ export class MiniAttendanceImportModal {
         });
         positionChoices.append(positionSegments);
 
+        const duplicateHoursChoice = element('fieldset', null, {
+            className: 'mini-import-duplicate-hours',
+            dataset: { miniDuplicateHours: '' },
+            hidden: duplicateHourTotals.length < 2 ||
+                (model.existingBreakdown.length > 0 &&
+                    model.decision?.action !== 'use_imported')
+        });
+        duplicateHoursChoice.append(
+            element('legend', 'Mini envió horas diferentes'),
+            element(
+                'p',
+                'Elige una cifra como base. Después puedes ajustar las horas por cargo.',
+                { className: 'mini-import-help' }
+            )
+        );
+        const duplicateHourSegments = element('div', null, {
+            className: 'mini-import-segmented',
+            role: 'radiogroup',
+            'aria-label': 'Horas de Mini que se usarán como base'
+        });
+        duplicateHourTotals.forEach(totalHours => {
+            const id = `mini-duplicate-hours-${this.controlId}-${model.id}-${totalHours}`;
+            const input = element('input', null, {
+                id,
+                type: 'radio',
+                name: `mini-duplicate-hours-${this.controlId}-${model.id}`,
+                value: totalHours,
+                checked: rememberedDuplicateTotal === totalHours,
+                dataset: { miniDuplicateHourChoice: '' }
+            });
+            const label = element('label', null, { htmlFor: id });
+            label.append(input, element('span', `Usar ${totalHours} h`));
+            input.addEventListener('change', () => {
+                if (!input.checked) return;
+                this.duplicateHourChoices.set(duplicateChoiceKey, totalHours);
+                selectedMiniBaseAllocation = allocationForMiniTotal(totalHours);
+                renderPositionSegments(employeeSelect.value, []);
+            });
+            duplicateHourSegments.append(label);
+        });
+        duplicateHoursChoice.append(duplicateHourSegments);
+
         const decisionField = element('fieldset', null, {
             className: 'mini-import-segmented-field mini-import-source-choice',
             dataset: { miniAttendanceDecision: '' },
@@ -1725,8 +1813,10 @@ export class MiniAttendanceImportModal {
             element('strong', 'Registro actual de Mini'),
             element(
                 'p',
-                `Total: ${model.allocation.normalHours} normales · ` +
-                `${model.allocation.overtimeHours} extra`
+                duplicateHourTotals.length > 1
+                    ? `Valores detectados: ${duplicateHourTotals.map(total => `${total} h`).join(' · ')}`
+                    : `Total: ${model.allocation.normalHours} normales · ` +
+                        `${model.allocation.overtimeHours} extra`
             )
         );
         const existing = element('div', null, {
@@ -1757,6 +1847,7 @@ export class MiniAttendanceImportModal {
             const previousScrollTop = modalBody?.scrollTop;
             const useMini = decisionSegments
                 .querySelector('[data-mini-attendance-source]:checked')?.value === 'use_imported';
+            duplicateHoursChoice.hidden = duplicateHourTotals.length < 2 || !useMini;
             collapse.hidden = model.existingBreakdown.length < 2 || !useMini;
             if (overlay) overlay.scrollTop = 0;
             if (modalBody && Number.isFinite(previousScrollTop)) {
@@ -1806,7 +1897,12 @@ export class MiniAttendanceImportModal {
         const choiceControls = element('div', null, {
             className: 'mini-import-review-choices'
         });
-        choiceControls.append(decisionField, recordComparison, positionChoices);
+        choiceControls.append(
+            decisionField,
+            duplicateHoursChoice,
+            recordComparison,
+            positionChoices
+        );
         const reviewControls = element('div', null, {
             className: 'mini-import-review-controls'
         });
@@ -1830,10 +1926,17 @@ export class MiniAttendanceImportModal {
             const allocations = this.readPositionAllocations(container);
             const saTotal = allocations.reduce((total, allocation) =>
                 total + allocation.normalHours + allocation.overtimeHours, 0);
-            const miniTotal = model.allocation.normalHours + model.allocation.overtimeHours;
+            const miniTotal = selectedMiniBaseAllocation
+                ? selectedMiniBaseAllocation.normalHours +
+                    selectedMiniBaseAllocation.overtimeHours
+                : model.allocation.normalHours + model.allocation.overtimeHours;
             const difference = Math.round((saTotal - miniTotal) * 100) / 100;
-            localHours.textContent = `Mini: ${miniTotal} h · SA: ${saTotal} h · ` +
-                `Diferencia: ${difference > 0 ? '+' : ''}${difference} h`;
+            localHours.textContent = duplicateHourTotals.length > 1 &&
+                !selectedMiniBaseAllocation
+                ? `Mini: ${duplicateHourTotals.join(' / ')} h · SA: ${saTotal} h · ` +
+                    'Elige una base'
+                : `Mini: ${miniTotal} h · SA: ${saTotal} h · ` +
+                    `Diferencia: ${difference > 0 ? '+' : ''}${difference} h`;
             localHours.dataset.miniHoursComparison = '';
             const activeNames = allocations.map(allocation =>
                 this.positionName(allocation.positionId)
@@ -1853,6 +1956,10 @@ export class MiniAttendanceImportModal {
                 'mini-import-invalid',
                 !validation.decisionValid
             );
+            duplicateHoursChoice.classList.toggle(
+                'mini-import-invalid',
+                !validation.duplicateHoursValid
+            );
             if (model.confirmed) {
                 completionHint.textContent =
                     'Asistencia confirmada. Puedes continuar con el siguiente paso.';
@@ -1866,6 +1973,9 @@ export class MiniAttendanceImportModal {
             }
             if (!validation.allocationValid) missing.push('asignar horas y cargo');
             if (!validation.decisionValid) missing.push('elegir SA o Mini');
+            if (!validation.duplicateHoursValid) {
+                missing.push('elegir una de las horas enviadas por Mini');
+            }
             completionHint.textContent = missing.length
                 ? `Falta: ${missing.join('; ')}.`
                 : model.nextAction;

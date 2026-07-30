@@ -419,6 +419,44 @@ describe('Mini attendance import review slice', () => {
             .toBe('Revisar resumen');
     });
 
+    test('asks which Mini hours to use when the same employee has conflicting entries', () => {
+        const attendance = { [`e1-${DATE}`]: existingSingle() };
+        const { controller, host } = enterReview(
+            '001. Ana Perez *5h* 001. Ana Perez *9h*',
+            attendance
+        );
+        const unit = host.querySelector('[data-mini-review-unit]');
+
+        expect(unit.querySelector('[data-mini-duplicate-hours]').hidden).toBe(true);
+        selectRadio(unit, '[data-mini-attendance-source]', 'use_imported');
+        expect(unit.querySelector('[data-mini-duplicate-hours]').hidden).toBe(false);
+        expect([...unit.querySelectorAll('[data-mini-duplicate-hour-choice]')]
+            .map(input => input.nextElementSibling.textContent))
+            .toEqual(['Usar 5 h', 'Usar 9 h']);
+        expect(unit.querySelector('[data-mini-imported-breakdown]').textContent)
+            .toContain('Valores detectados: 5 h · 9 h');
+        expect(unit.querySelector('[data-mini-hours-comparison]').textContent)
+            .toContain('Mini: 5 / 9 h');
+        expect(unit.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(true);
+        expect(unit.querySelector('[data-mini-completion-hint]').textContent)
+            .toContain('elegir una de las horas enviadas por Mini');
+
+        selectRadio(unit, '[data-mini-duplicate-hour-choice]', '9');
+        expect(unit.querySelector('[data-mini-position-normal]').value).toBe('9');
+        expect(unit.querySelector('[data-mini-hours-comparison]').textContent)
+            .toContain('Mini: 9 h · SA: 9 h · Diferencia: 0 h');
+        expect(unit.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(false);
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        expect(controller.draft.rows.map(row => row.allocation)).toEqual([
+            { normalHours: 9, overtimeHours: 0 },
+            { normalHours: 9, overtimeHours: 0 }
+        ]);
+        expect(controller.conflictPlan.rows[0].blockers)
+            .not.toContain('conflicting_duplicate');
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+    });
+
     test('employee/hour approval uses draft transitions and rebuilds conflicts', () => {
         const { controller, host } = enterReview('001. Ana Perez *8h*');
         const previousPlan = controller.conflictPlan;

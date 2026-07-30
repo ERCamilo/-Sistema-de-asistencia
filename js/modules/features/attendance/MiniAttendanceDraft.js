@@ -489,7 +489,9 @@ function positionAllocationBlockers(row) {
 }
 
 function conflictBlockers(row) {
-    const blockers = [...row.draftBlockers];
+    const blockers = row.decision.action === 'keep_existing'
+        ? row.draftBlockers.filter(blocker => blocker !== 'conflicting_duplicate')
+        : [...row.draftBlockers];
     if (row.existing && !row.decision.acknowledged) blockers.push('decision_unacknowledged');
     if (row.decision.action === 'use_imported') {
         if (!row.allReviewed) blockers.push('row_review_required');
@@ -536,7 +538,12 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
         const positionIds = employee?.positionIds || [];
         const draftBlockers = group.flatMap(item => item.row.blockers);
         const allocations = new Set(group.map(item => JSON.stringify(item.row.allocation)));
-        if (group.length > 1 &&
+        const explicitlyConsolidated = allocations.size === 1 && group.every(item =>
+            item.row.reviewed === true &&
+            item.row.approved === true &&
+            item.row.match.status === 'confirmed'
+        );
+        if (!explicitlyConsolidated && group.length > 1 &&
             (!group.every(item => item.row.duplicateStatus === 'probable_duplicate') ||
                 allocations.size > 1)) {
             draftBlockers.push('conflicting_duplicate');
