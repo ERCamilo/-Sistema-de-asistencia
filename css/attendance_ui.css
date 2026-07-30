@@ -1353,6 +1353,66 @@ select[aria-invalid="true"] {
     grid-column: auto;
 }
 
+.mini-import-source-choice {
+    display: grid;
+    justify-items: center;
+    padding: 2px 0 0;
+}
+
+.mini-import-source-choice[hidden],
+.mini-import-record-comparison[hidden],
+.mini-import-source-record[hidden] {
+    display: none;
+}
+
+.mini-import-source-choice legend {
+    width: 100%;
+    text-align: center;
+}
+
+.mini-import-source-choice .mini-import-segmented {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(110px, 1fr));
+    width: min(100%, 430px);
+}
+
+.mini-import-source-choice .mini-import-segmented label {
+    min-width: 0;
+}
+
+.mini-import-record-comparison {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.mini-import-source-record {
+    min-width: 0;
+    padding: 11px 13px;
+    border: 1px solid #334155;
+    border-radius: 9px;
+    background: rgba(2, 6, 23, 0.5);
+}
+
+.mini-import-source-record > strong {
+    display: block;
+    margin-bottom: 5px;
+    color: #e2e8f0;
+}
+
+.mini-import-source-record p {
+    margin: 4px 0 0;
+    color: #cbd5e1;
+}
+
+.mini-import-source-record-mini {
+    border-top: 2px solid #22d3ee;
+}
+
+.mini-import-source-record-sa {
+    border-top: 2px solid #64748b;
+}
+
 .mini-import-position-allocation-field {
     display: grid;
     gap: 10px;
@@ -1807,6 +1867,10 @@ select[aria-invalid="true"] {
     }
 
     .mini-import-position-allocation {
+        grid-template-columns: 1fr;
+    }
+
+    .mini-import-record-comparison {
         grid-template-columns: 1fr;
     }
 

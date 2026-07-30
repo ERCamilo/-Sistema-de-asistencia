@@ -1647,7 +1647,7 @@ export class MiniAttendanceImportModal {
         positionChoices.append(positionSegments);
 
         const decisionField = element('fieldset', null, {
-            className: 'mini-import-segmented-field',
+            className: 'mini-import-segmented-field mini-import-source-choice',
             dataset: { miniAttendanceDecision: '' },
             hidden: model.existingBreakdown.length === 0
         });
@@ -1658,8 +1658,8 @@ export class MiniAttendanceImportModal {
             'aria-label': 'Origen de la asistencia'
         });
         [
-            ['keep_existing', 'SA'],
-            ['use_imported', 'Mini']
+            ['use_imported', 'Mini'],
+            ['keep_existing', 'SA']
         ].forEach(([value, labelText]) => {
             const id = `mini-source-${this.controlId}-${model.id}-${value}`;
             const label = element('label', null, { htmlFor: id });
@@ -1677,8 +1677,21 @@ export class MiniAttendanceImportModal {
             decisionSegments.append(label);
         });
         decisionField.append(decisionSegments);
+        const imported = element('div', null, {
+            className: 'mini-import-source-record mini-import-source-record-mini',
+            dataset: { miniImportedBreakdown: '' },
+            hidden: model.existingBreakdown.length === 0
+        });
+        imported.append(
+            element('strong', 'Registro actual de Mini'),
+            element(
+                'p',
+                `Total: ${model.allocation.normalHours} normales · ` +
+                `${model.allocation.overtimeHours} extra`
+            )
+        );
         const existing = element('div', null, {
-            className: 'mini-import-unit-existing',
+            className: 'mini-import-source-record mini-import-source-record-sa',
             dataset: { miniExistingBreakdown: '' },
             hidden: model.existingBreakdown.length === 0
         });
@@ -1687,6 +1700,12 @@ export class MiniAttendanceImportModal {
             `${part.position?.name || part.positionId}: ${part.hours} normales · ` +
             `${part.overtimeHours} extra`
         )));
+        const recordComparison = element('div', null, {
+            className: 'mini-import-record-comparison',
+            dataset: { miniRecordComparison: '' },
+            hidden: model.existingBreakdown.length === 0
+        });
+        recordComparison.append(imported, existing);
         const collapse = element('p',
             'Al aceptar Mini se reemplazará la distribución actual por las horas indicadas.', {
             className: 'mini-import-warning',
@@ -1748,7 +1767,7 @@ export class MiniAttendanceImportModal {
         const choiceControls = element('div', null, {
             className: 'mini-import-review-choices'
         });
-        choiceControls.append(positionChoices, decisionField);
+        choiceControls.append(decisionField, recordComparison, positionChoices);
         const reviewControls = element('div', null, {
             className: 'mini-import-review-controls'
         });
@@ -1759,7 +1778,6 @@ export class MiniAttendanceImportModal {
         actions.append(confirm, ignore);
         container.append(
             identityMap,
-            existing,
             reviewControls,
             collapse,
             remember,

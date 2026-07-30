@@ -475,6 +475,8 @@ describe('Mini attendance import review slice', () => {
         const attendance = { [`e2-${DATE}`]: existingMulti() };
         const { controller, host } = enterReview('002. <img src=x> Luis Garcia *9h*', attendance);
 
+        expect(host.querySelector('[data-mini-imported-breakdown]').textContent)
+            .toContain('Total: 9 normales · 0 extra');
         expect(host.querySelector('[data-mini-existing-breakdown]').textContent)
             .toContain('Oficial: 4 normales · 0 extra');
         expect(host.querySelector('[data-mini-existing-breakdown]').textContent)
@@ -494,6 +496,16 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelector('[data-mini-action="confirm-unit"]').textContent)
             .toBe('Guardar selección');
         expect(host.querySelectorAll('[data-mini-attendance-source]')).toHaveLength(2);
+        expect([...host.querySelectorAll('[data-mini-attendance-source]')].map(input =>
+            input.nextElementSibling.textContent
+        )).toEqual(['Mini', 'SA']);
+        const sourceChoice = host.querySelector('[data-mini-attendance-decision]');
+        const comparison = host.querySelector('[data-mini-record-comparison]');
+        const positions = host.querySelector('[data-mini-target-position]');
+        expect(sourceChoice.compareDocumentPosition(comparison) &
+            Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(comparison.compareDocumentPosition(positions) &
+            Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(host.querySelectorAll('[data-mini-target-position-option]')).toHaveLength(2);
         selectRadio(host, '[data-mini-attendance-source]', 'use_imported');
         expect(host.querySelector('[data-mini-collapse-warning]').hidden).toBe(false);
