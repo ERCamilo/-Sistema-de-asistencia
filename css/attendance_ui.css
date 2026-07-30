@@ -948,10 +948,47 @@
 
 .mini-import-preview {
     min-width: 0;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.52);
+}
+
+.mini-import-preview > summary {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    min-height: 44px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    color: #e2e8f0;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.mini-import-preview > summary::before {
+    content: "▸";
+    color: #22d3ee;
+    transition: transform 0.15s;
+}
+
+.mini-import-preview[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.mini-import-preview > summary span {
+    color: #94a3b8;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: right;
+}
+
+.mini-import-preview[open] > summary {
+    border-bottom: 1px solid #334155;
 }
 
 .mini-import-preview > .mini-import-help {
-    margin: 5px 0 10px;
+    margin: 10px 12px;
 }
 
 .mini-import-rows {
@@ -959,6 +996,10 @@
     border-collapse: collapse;
     border: 1px solid #334155;
     background: rgba(15, 23, 42, 0.52);
+}
+
+.mini-import-preview > .mini-import-rows {
+    border-width: 1px 0 0;
 }
 
 .mini-import-rows th,

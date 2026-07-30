@@ -10,7 +10,8 @@ import {
     isMiniAttendanceEmployeeEligible,
     reviewMiniAttendanceConflict,
     reviewMiniAttendanceDraftRow,
-    setMiniAttendanceAllocationMode
+    setMiniAttendanceAllocationMode,
+    suggestMiniAttendanceDate
 } from '../../features/attendance/MiniAttendanceDraft.js';
 import { applyMiniAttendancePlan } from '../../features/attendance/MiniAttendanceImportService.js';
 import { buildMiniAttendanceReviewViewModel } from '../MiniAttendanceReviewViewModel.js';
@@ -142,15 +143,16 @@ export class MiniAttendanceImportModal {
 
     analyze() {
         this.parsed = parseMiniAttendanceReport(this.source);
+        const suggestedDate = suggestMiniAttendanceDate(this.parsed, this.proposedDate);
         this.draft = createMiniAttendanceDraft({
             parsed: this.parsed,
             employees: this.employees,
             aliases: this.aliases,
             aliasScope: this.aliasScope,
-            proposedDate: this.proposedDate,
+            proposedDate: suggestedDate,
             regularLimit: this.regularLimit
         });
-        this.pendingDate = this.proposedDate;
+        this.pendingDate = suggestedDate;
         this.duplicateHourChoices.clear();
         this.stage = 'setup';
         this.render();
@@ -414,9 +416,22 @@ export class MiniAttendanceImportModal {
     }
 
     renderRows() {
-        const section = element('section', null, { className: 'mini-import-preview' });
+        const warningCount = this.draft.rows.filter(row => row.blockers.length > 0).length;
+        const section = element('details', null, {
+            className: 'mini-import-preview',
+            dataset: { miniRowsDetails: '' }
+        });
+        const summary = element('summary', null);
+        summary.append(
+            element('strong', 'Vista previa de empleados'),
+            element(
+                'span',
+                `${this.draft.rows.length} fila${this.draft.rows.length === 1 ? '' : 's'} · ` +
+                `${warningCount} ${warningCount === 1 ? 'requiere' : 'requieren'} atención`
+            )
+        );
         section.append(
-            element('h3', 'Vista previa de empleados'),
+            summary,
             element('p', 'Estas coincidencias todavía pueden corregirse en la revisión.', {
                 className: 'mini-import-help'
             })

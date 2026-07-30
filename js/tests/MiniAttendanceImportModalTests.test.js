@@ -98,6 +98,10 @@ describe('MiniAttendanceImportModal setup slice', () => {
             .toContain('martes, 28/7');
         expect(host.querySelector('[data-mini-date-hint]').textContent)
             .toContain('año no incluido');
+        const rowsDetails = host.querySelector('[data-mini-rows-details]');
+        expect(rowsDetails.open).toBe(false);
+        expect(rowsDetails.querySelector('summary').textContent)
+            .toContain('1 fila · 0 requieren atención');
         const table = host.querySelector('table[data-mini-rows-table]');
         expect([...table.querySelectorAll('th')].map(cell => cell.textContent)).toEqual([
             'N.º Mini', 'Nombre', 'Total', 'Normales', 'Extra', 'Coincidencia SA'
@@ -111,6 +115,20 @@ describe('MiniAttendanceImportModal setup slice', () => {
         ]);
         expect(controller.draft.allocationMode).toBe('all_normal');
         expect(host.querySelector('[value="all_normal"]').checked).toBe(true);
+    });
+
+    test('suggests the report date instead of forcing the currently selected day', () => {
+        const { controller, host } = mounted({ proposedDate: '2026-07-30' });
+        analyze(
+            host,
+            '*Asistencia de hoy miércoles, 29 de julio* 001. Ana Perez *8h*'
+        );
+
+        expect(host.querySelector('[data-mini-date]').value).toBe('2026-07-29');
+        expect(controller.draft.proposedDate).toBe('2026-07-29');
+        host.querySelector('[data-mini-action="confirm-date"]').click();
+        expect(controller.draft.confirmedDate).toBe('2026-07-29');
+        expect(host.querySelector('[data-mini-action="continue"]').disabled).toBe(false);
     });
 
     test('requires explicit matching ISO-date confirmation before continuing', () => {

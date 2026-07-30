@@ -1,7 +1,7 @@
 import { parseMiniAttendanceReport } from '../modules/features/attendance/MiniAttendanceParser.js';
 import { confirmMiniAttendanceDraftDate, createMiniAttendanceDraft, editMiniAttendanceDraftRow,
     excludeMiniAttendanceDraftRow,
-    reviewMiniAttendanceDraftRow, setMiniAttendanceAllocationMode
+    reviewMiniAttendanceDraftRow, setMiniAttendanceAllocationMode, suggestMiniAttendanceDate
 } from '../modules/features/attendance/MiniAttendanceDraft.js';
 
 const employees = [
@@ -36,6 +36,14 @@ function rememberedAlias(overrides = {}) {
 }
 
 describe('MiniAttendanceDraft date setup', () => {
+    test('infers the nearest matching year for a report from another day', () => {
+        const parsed = parseMiniAttendanceReport(
+            '*Asistencia de hoy miércoles, 30 de diciembre* 001. Franklin *8h*'
+        );
+
+        expect(suggestMiniAttendanceDate(parsed, '2027-01-02')).toBe('2026-12-30');
+    });
+
     test('requires distinct confirmation of a complete matching ISO date', () => {
         const draft = draftFor('*Asistencia de hoy martes, 28 de julio* 001. Franklin *12h*');
 

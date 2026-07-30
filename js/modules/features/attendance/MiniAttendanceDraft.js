@@ -291,6 +291,41 @@ function inspectDate(parsed, isoDate, confirmed) {
         : { confirmedDate: null, dateBlockers: ['date_confirmation_required'] };
 }
 
+export function suggestMiniAttendanceDate(parsed, referenceIsoDate) {
+    const hint = parsed?.header?.dateHint;
+    const referenceMatch = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(referenceIsoDate || '');
+    if (!hint || !referenceMatch) return referenceIsoDate || null;
+    const referenceYear = Number(referenceMatch[1]);
+    const years = Number.isInteger(hint.year)
+        ? [hint.year]
+        : [referenceYear - 1, referenceYear, referenceYear + 1];
+    const candidates = years.map(year => {
+        const date = new Date(Date.UTC(year, hint.month - 1, hint.day));
+        const valid = date.getUTCFullYear() === year &&
+            date.getUTCMonth() + 1 === hint.month &&
+            date.getUTCDate() === hint.day;
+        if (!valid) return null;
+        return {
+            date,
+            isoDate: `${year}-${String(hint.month).padStart(2, '0')}-` +
+                String(hint.day).padStart(2, '0'),
+            weekdayMatches: normalizeName(hint.weekday) === WEEKDAYS[date.getUTCDay()]
+        };
+    }).filter(Boolean);
+    const weekdayCandidates = candidates.filter(candidate => candidate.weekdayMatches);
+    const eligible = weekdayCandidates.length ? weekdayCandidates : candidates;
+    const referenceTime = Date.UTC(
+        referenceYear,
+        Number(referenceMatch[2]) - 1,
+        Number(referenceMatch[3])
+    );
+    eligible.sort((left, right) =>
+        Math.abs(left.date.getTime() - referenceTime) -
+        Math.abs(right.date.getTime() - referenceTime)
+    );
+    return eligible[0]?.isoDate || referenceIsoDate || null;
+}
+
 function finalize(draft) {
     const rows = draft.rows.map(row => ({ ...row, blockers: rowBlockers(row) }));
     const sourceBlockers = draft.parsed.unparsedFragments.length ? ['unparsed_source'] : [];
