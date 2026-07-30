@@ -509,7 +509,7 @@ export class MiniAttendanceImportModal {
             this.showAutomaticReview();
             return;
         }
-        this.advanceReviewPageAfter(item.id);
+        this.advanceReviewPageAfter(this.reviewItemKey(item));
         this.render();
         this.resetReviewViewport();
     }
@@ -748,9 +748,9 @@ export class MiniAttendanceImportModal {
         this.resetReviewViewport();
     }
 
-    advanceReviewPageAfter(reviewItemId) {
+    advanceReviewPageAfter(reviewKey) {
         const items = this.visibleReviewItems();
-        const retainedIndex = items.findIndex(item => item.id === reviewItemId);
+        const retainedIndex = items.findIndex(item => this.reviewItemKey(item) === reviewKey);
         if (retainedIndex >= 0 && retainedIndex < items.length - 1) {
             this.reviewPageIndex = retainedIndex + 1;
             return;
@@ -761,10 +761,13 @@ export class MiniAttendanceImportModal {
     }
 
     isReviewUnitComplete(model, container) {
-        if (model.confirmed) return false;
+        return this.reviewUnitValidation(model, container).complete;
+    }
+
+    reviewUnitValidation(model, container) {
         const employeeId = container.querySelector('[data-mini-employee]')?.value || '';
         const employee = this.employees.find(candidate => candidate.id === employeeId);
-        if (!employee) return false;
+        const employeeValid = Boolean(employee);
         const selectedDecision = container
             .querySelector('[data-mini-attendance-source]:checked')?.value;
         const requiresAllocation = model.existingBreakdown.length === 0 ||
@@ -772,9 +775,9 @@ export class MiniAttendanceImportModal {
         const allocations = this.readPositionAllocations(container);
         const totalHours = allocations.reduce((total, allocation) =>
             total + allocation.normalHours + allocation.overtimeHours, 0);
-        const validAllocations = allocations.length > 0 &&
+        const allocationValid = allocations.length > 0 &&
             allocations.every(allocation =>
-                (employee.positions || []).includes(allocation.positionId) &&
+                (employee?.positions || []).includes(allocation.positionId) &&
                 Number.isFinite(allocation.normalHours) &&
                 Number.isFinite(allocation.overtimeHours) &&
                 allocation.normalHours >= 0 &&
@@ -782,12 +785,18 @@ export class MiniAttendanceImportModal {
             ) &&
             totalHours > 0 &&
             totalHours <= 24;
-        if (requiresAllocation && !validAllocations) return false;
-        if (model.existingBreakdown.length > 0 &&
-            !selectedDecision) {
-            return false;
-        }
-        return true;
+        const decisionValid = model.existingBreakdown.length === 0 ||
+            Boolean(selectedDecision);
+        const allocationRequirementMet = !requiresAllocation || allocationValid;
+        return {
+            complete: model.confirmed ||
+                (employeeValid && allocationRequirementMet && decisionValid),
+            employeeValid,
+            employeeNeedsConfirmation: !model.confirmed &&
+                ['identity', 'duplicate'].includes(model.issue),
+            allocationValid: allocationRequirementMet,
+            decisionValid
+        };
     }
 
     readPositionAllocations(container) {
@@ -1098,12 +1107,32 @@ export class MiniAttendanceImportModal {
             });
             const previous = actionButton('Anterior', 'previous-unit', currentIndex === 0);
             previous.addEventListener('click', () => this.setReviewPage(currentIndex - 1));
+            const unresolvedIndexes = visibleItems
+                .map((item, index) => item.confirmed ? -1 : index)
+                .filter(index => index >= 0);
+            const isLast = currentIndex === visibleItems.length - 1;
+            const allComplete = unresolvedIndexes.length === 0;
+            const nextLabel = isLast && currentItem.confirmed
+                ? allComplete
+                    ? 'Revisar resumen'
+                    : `Ir al pendiente (${unresolvedIndexes.length})`
+                : 'Siguiente';
             const next = actionButton(
-                'Siguiente',
+                nextLabel,
                 'next-unit',
-                currentIndex === visibleItems.length - 1 || !currentItem.confirmed
+                !currentItem.confirmed
             );
-            next.addEventListener('click', () => this.setReviewPage(currentIndex + 1));
+            next.addEventListener('click', () => {
+                if (isLast && allComplete) {
+                    this.showFinalSummary();
+                    return;
+                }
+                if (isLast) {
+                    this.setReviewPage(unresolvedIndexes[0]);
+                    return;
+                }
+                this.setReviewPage(currentIndex + 1);
+            });
             navigation.append(previous, next);
             section.append(navigation);
         }
@@ -1609,8 +1638,8 @@ export class MiniAttendanceImportModal {
             actions
         );
         syncCompletion = () => {
-            const complete = this.isReviewUnitComplete(model, container);
-            confirm.disabled = model.confirmed || !complete;
+            const validation = this.reviewUnitValidation(model, container);
+            confirm.disabled = model.confirmed || !validation.complete;
             const allocations = this.readPositionAllocations(container);
             const saTotal = allocations.reduce((total, allocation) =>
                 total + allocation.normalHours + allocation.overtimeHours, 0);
@@ -1625,10 +1654,38 @@ export class MiniAttendanceImportModal {
             localPosition.textContent = activeNames.length
                 ? activeNames.join(' · ')
                 : 'Selecciona al menos un cargo';
-            completionHint.textContent = complete
-                ? model.nextAction
-                : 'Completa el empleado, las horas y el cargo antes de continuar.';
-            completionHint.classList.toggle('attention', !complete || model.needsAttention);
+            const employeeInvalid = !validation.employeeValid ||
+                validation.employeeNeedsConfirmation;
+            localIdentity.classList.toggle('mini-import-invalid', employeeInvalid);
+            employeeSelect.setAttribute('aria-invalid', String(employeeInvalid));
+            positionChoices.classList.toggle(
+                'mini-import-invalid',
+                !validation.allocationValid
+            );
+            decisionField.classList.toggle(
+                'mini-import-invalid',
+                !validation.decisionValid
+            );
+            if (model.confirmed) {
+                completionHint.textContent =
+                    'Asistencia confirmada. Puedes continuar con el siguiente paso.';
+                completionHint.classList.remove('attention');
+                return;
+            }
+            const missing = [];
+            if (!validation.employeeValid) missing.push('seleccionar el empleado');
+            else if (validation.employeeNeedsConfirmation) {
+                missing.push('confirmar la coincidencia del empleado');
+            }
+            if (!validation.allocationValid) missing.push('asignar horas y cargo');
+            if (!validation.decisionValid) missing.push('elegir SA o Mini');
+            completionHint.textContent = missing.length
+                ? `Falta: ${missing.join('; ')}.`
+                : model.nextAction;
+            completionHint.classList.toggle(
+                'attention',
+                missing.length > 0 || model.needsAttention
+            );
         };
         container.querySelectorAll('[data-mini-hour-adjust]').forEach(button => {
             button.addEventListener('click', () => {

@@ -464,9 +464,9 @@ describe('Mini attendance import review slice', () => {
         unit.querySelector('[data-mini-employee]')
             .dispatchEvent(new Event('change', { bubbles: true }));
         unit.querySelector('[data-mini-action="confirm-unit"]').click();
-        host.querySelector('[data-mini-action="next-unit"]').click();
 
         unit = host.querySelector('[data-mini-review-unit]');
+        expect(unit.textContent).toContain('901 · Segunda persona');
         expect([...unit.querySelector('[data-mini-employee]').options]
             .map(option => option.value)).not.toContain('e1');
         const filter = unit.querySelector('[data-mini-hide-assigned]');
@@ -476,6 +476,38 @@ describe('Mini attendance import review slice', () => {
         unit = host.querySelector('[data-mini-review-unit]');
         expect([...unit.querySelector('[data-mini-employee]').options]
             .map(option => option.value)).toContain('e1');
+    });
+
+    test('marks missing editor sections and exposes the summary after confirmation', () => {
+        const { host } = enterReview('777. Persona por confirmar *8h*');
+        let unit = host.querySelector('[data-mini-review-unit]');
+        expect(unit.querySelector('.mini-import-identity-local')
+            .classList.contains('mini-import-invalid')).toBe(true);
+        expect(unit.querySelector('[data-mini-completion-hint]').textContent)
+            .toContain('seleccionar el empleado');
+
+        const employee = unit.querySelector('[data-mini-employee]');
+        employee.value = 'e2';
+        employee.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(unit.querySelector('[data-mini-target-position]')
+            .classList.contains('mini-import-invalid')).toBe(true);
+        expect(unit.querySelector('[data-mini-completion-hint]').textContent)
+            .toMatch(/confirmar la coincidencia.*asignar horas y cargo/);
+
+        selectRadio(unit, '[data-mini-target-position-option]', 'p1');
+        expect(unit.querySelector('[data-mini-target-position]')
+            .classList.contains('mini-import-invalid')).toBe(false);
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        unit = host.querySelector('[data-mini-review-unit]');
+        expect(unit.querySelector('.mini-import-invalid')).toBeNull();
+        expect(unit.querySelector('[data-mini-completion-hint]').textContent)
+            .toContain('Asistencia confirmada');
+        const next = host.querySelector('[data-mini-action="next-unit"]');
+        expect(next.textContent).toBe('Revisar resumen');
+        expect(next.disabled).toBe(false);
+        next.click();
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
     });
 
     test('confirms and excludes a person that does not exist in SA', async () => {
