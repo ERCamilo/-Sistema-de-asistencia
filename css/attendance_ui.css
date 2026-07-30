@@ -1066,6 +1066,11 @@
     color: #e2e8f0;
 }
 
+.mini-import-reconciliation-copy {
+    display: grid;
+    gap: 3px;
+}
+
 .mini-import-reconciliation-heading span {
     color: #94a3b8;
     font-size: 0.75rem;

@@ -512,6 +512,59 @@ describe('Mini attendance import review slice', () => {
             .toContain('1 aplicadas');
     });
 
+    test('accepts every ready row with Mini and sends each one as a write', async () => {
+        const roster = [
+            ...employees,
+            { id: 'e3', number: '3', name: 'Mara Díaz', positions: ['p1'] }
+        ];
+        const attendance = {
+            [`e1-${DATE}`]: {
+                ...existingSingle(),
+                hoursWorked: 8,
+                positionHours: [
+                    { positionId: 'p1', hours: 8, overtimeHours: 0 }
+                ]
+            }
+        };
+        const applyPlan = jest.fn(async plan => ({
+            appliedCount: plan.writes.length,
+            keptCount: plan.keptKeys.length
+        }));
+        const { controller, host } = enterReview(
+            '001. Ana Perez *8h* 003. Mara Diaz *6h*',
+            attendance,
+            roster,
+            { stayOnAutomatic: true, applyPlan }
+        );
+
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(2);
+        expect(host.querySelector('[data-mini-action="accept-all-ready"]').textContent)
+            .toBe('Aceptar todos con Mini');
+        host.querySelector('[data-mini-auto-choice][value="modify"]').click();
+        host.querySelector('[data-mini-action="accept-all-ready"]').click();
+
+        expect(controller.conflictPlan.rows.map(row => row.decision.action))
+            .toEqual(['use_imported', 'use_imported']);
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+
+        host.querySelector('[data-mini-action="apply"]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(applyPlan).toHaveBeenCalledTimes(1);
+        const [plan] = applyPlan.mock.calls[0];
+        expect(plan.keptKeys).toEqual([]);
+        expect(plan.writes.map(write => ({
+            key: write.key,
+            hoursWorked: write.record.hoursWorked,
+            source: write.record.miniImportAudit.source
+        }))).toEqual([
+            { key: `e1-${DATE}`, hoursWorked: 8, source: 'mini' },
+            { key: `e3-${DATE}`, hoursWorked: 6, source: 'mini' }
+        ]);
+    });
+
     test('resolves an ambiguous 501 duplicate group across all occurrences before confirmation', () => {
         const roster = [
             { id: 'e501a', number: '501', name: 'Héctor Excavadora', positions: ['p1'] },

@@ -711,6 +711,15 @@ export class MiniAttendanceImportModal {
         }
     }
 
+    acceptAllReadyMatches(container) {
+        container.querySelectorAll('[data-mini-auto-choice][value="accept"]')
+            .forEach(input => {
+                input.checked = true;
+                this.automaticReviewChoices.set(input.dataset.miniAutoChoice, 'accept');
+            });
+        this.acceptAutomaticMatches(container);
+    }
+
     showFinalSummary() {
         if (this.conflictPlan?.hasBlockingIssues) return;
         this.reviewStep = 'summary';
@@ -959,10 +968,23 @@ export class MiniAttendanceImportModal {
         const readyHeading = element('div', null, {
             className: 'mini-import-reconciliation-heading'
         });
-        readyHeading.append(
+        const readyHeadingCopy = element('div', null, {
+            className: 'mini-import-reconciliation-copy'
+        });
+        readyHeadingCopy.append(
             element('h4', `Listos para aceptar (${automaticItems.length})`),
-            element('span', 'Sin conflictos detectados')
+            element('span', 'Se aplicarán las horas importadas desde Mini')
         );
+        const acceptAllReady = actionButton(
+            'Aceptar todos con Mini',
+            'accept-all-ready',
+            automaticItems.length === 0
+        );
+        acceptAllReady.classList.add('mini-import-action-primary');
+        acceptAllReady.addEventListener('click', () =>
+            this.acceptAllReadyMatches(panel)
+        );
+        readyHeading.append(readyHeadingCopy, acceptAllReady);
         panel.append(readyHeading);
         const table = element('table', null, {
             className: 'mini-import-rows mini-import-auto-table',
