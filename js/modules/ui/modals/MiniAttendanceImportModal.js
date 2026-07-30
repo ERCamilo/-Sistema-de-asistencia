@@ -106,6 +106,7 @@ export class MiniAttendanceImportModal {
         this.automaticReviewKeys = [];
         this.automaticReviewChoices = new Map();
         this.individualReviewKeys = [];
+        this.individualReviewMode = 'queue';
         this.stage = 'paste';
         this.source = '';
         this.parsed = null;
@@ -183,7 +184,7 @@ export class MiniAttendanceImportModal {
                 next = reviewMiniAttendanceConflict(next, rowIndex, {
                     action: reviewed.decision.action,
                     acknowledged: true,
-                    targetPositionId: reviewed.targetPositionId || undefined,
+                    positionAllocations: reviewed.positionAllocations,
                     collapseAcknowledged:
                         reviewed.decision.collapseAcknowledged === true
                 });
@@ -467,18 +468,12 @@ export class MiniAttendanceImportModal {
 
     acceptReviewUnit(item, container) {
         const employeeId = container.querySelector('[data-mini-employee]')?.value || '';
-        const allocation = {
-            normalHours: Number(container.querySelector('[data-mini-normal]')?.value),
-            overtimeHours: Number(container.querySelector('[data-mini-overtime]')?.value)
-        };
+        const positionAllocations = this.readPositionAllocations(container);
         const remember = container.querySelector('[data-mini-remember-match]')?.checked === true;
         const selectedDecision = container
             .querySelector('[data-mini-attendance-source]:checked')?.value;
-        const selectedPosition = container
-            .querySelector('[data-mini-target-position-option]:checked')?.value;
 
         item.sourceIndexes.forEach(sourceIndex => {
-            this.draft = editMiniAttendanceDraftRow(this.draft, sourceIndex, allocation);
             this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, {
                 ...(employeeId ? { employeeId } : {}),
                 approved: true
@@ -497,7 +492,7 @@ export class MiniAttendanceImportModal {
             this.conflictPlan = reviewMiniAttendanceConflict(this.conflictPlan, rowIndex, {
                 action,
                 acknowledged: true,
-                targetPositionId: selectedPosition || row.targetPositionId || undefined,
+                positionAllocations,
                 collapseAcknowledged: action === 'use_imported' &&
                     (row.existing?.breakdown.length || 0) > 1
             });
@@ -508,6 +503,10 @@ export class MiniAttendanceImportModal {
         }
         if (this.automaticReviewKeys.includes(this.reviewItemKey(item))) {
             this.automaticReviewChoices.set(this.reviewItemKey(item), 'accept');
+        }
+        if (this.individualReviewMode === 'single') {
+            this.showAutomaticReview();
+            return;
         }
         this.advanceReviewPageAfter(item.id);
         this.render();
@@ -630,6 +629,7 @@ export class MiniAttendanceImportModal {
         this.individualReviewKeys = nextView.items
             .filter(item => !item.confirmed)
             .map(item => this.reviewItemKey(item));
+        this.individualReviewMode = 'queue';
         this.reviewPageIndex = 0;
         this.render();
         this.resetReviewViewport();
@@ -695,6 +695,7 @@ export class MiniAttendanceImportModal {
     openIndividualReview(keys) {
         this.reviewStep = 'individual';
         this.individualReviewKeys = [...new Set(keys)];
+        this.individualReviewMode = this.individualReviewKeys.length === 1 ? 'single' : 'queue';
         this.reviewPageIndex = 0;
         this.render();
         this.resetReviewViewport();
@@ -751,29 +752,45 @@ export class MiniAttendanceImportModal {
         const employeeId = container.querySelector('[data-mini-employee]')?.value || '';
         const employee = this.employees.find(candidate => candidate.id === employeeId);
         if (!employee) return false;
-        const normalHours = Number(container.querySelector('[data-mini-normal]')?.value);
-        const overtimeHours = Number(container.querySelector('[data-mini-overtime]')?.value);
-        const validHours = [normalHours, overtimeHours].every(value =>
-            Number.isFinite(value) && value >= 0
-        ) && normalHours + overtimeHours > 0 && normalHours + overtimeHours <= 24;
-        if (!validHours) return false;
-        const availablePositionIds = (employee.positions || [])
-            .filter(positionId => this.positions.some(position => position.id === positionId));
-        const selectedPosition = container
-            .querySelector('[data-mini-target-position-option]:checked')?.value;
         const selectedDecision = container
             .querySelector('[data-mini-attendance-source]:checked')?.value;
-        const requiresPosition = model.existingBreakdown.length === 0 ||
+        const requiresAllocation = model.existingBreakdown.length === 0 ||
             selectedDecision === 'use_imported';
-        if (requiresPosition && availablePositionIds.length > 0 &&
-            !availablePositionIds.includes(selectedPosition)) {
-            return false;
-        }
+        const allocations = this.readPositionAllocations(container);
+        const totalHours = allocations.reduce((total, allocation) =>
+            total + allocation.normalHours + allocation.overtimeHours, 0);
+        const validAllocations = allocations.length > 0 &&
+            allocations.every(allocation =>
+                (employee.positions || []).includes(allocation.positionId) &&
+                Number.isFinite(allocation.normalHours) &&
+                Number.isFinite(allocation.overtimeHours) &&
+                allocation.normalHours >= 0 &&
+                allocation.overtimeHours >= 0
+            ) &&
+            totalHours > 0 &&
+            totalHours <= 24;
+        if (requiresAllocation && !validAllocations) return false;
         if (model.existingBreakdown.length > 0 &&
             !selectedDecision) {
             return false;
         }
         return true;
+    }
+
+    readPositionAllocations(container) {
+        return [...container.querySelectorAll('[data-mini-position-allocation]')]
+            .map(row => ({
+                active: row.querySelector('[data-mini-target-position-option]')?.checked === true,
+                positionId: row.dataset.miniPositionAllocation,
+                normalHours: Number(row.querySelector('[data-mini-position-normal]')?.value),
+                overtimeHours: Number(row.querySelector('[data-mini-position-overtime]')?.value)
+            }))
+            .filter(allocation =>
+                allocation.active ||
+                allocation.normalHours > 0 ||
+                allocation.overtimeHours > 0
+            )
+            .map(({ active: _active, ...allocation }) => allocation);
     }
 
     renderReview() {
@@ -1017,7 +1034,12 @@ export class MiniAttendanceImportModal {
             `${view.summary.needsAttention} ` +
             `${view.summary.needsAttention === 1 ? 'requiere' : 'requieren'} atención · ` +
             `${view.summary.confirmed} confirmadas · ${view.summary.ignored} ignoradas`;
-        section.append(element('h3', 'Revisión individual'), summary);
+        section.append(
+            element('h3', this.individualReviewMode === 'single'
+                ? 'Modificar asistencia'
+                : 'Revisión de pendientes'),
+            summary
+        );
         const visibleItems = this.clampReviewPage(view);
         if (visibleItems.length) {
             const currentIndex = this.reviewPageIndex;
@@ -1027,7 +1049,12 @@ export class MiniAttendanceImportModal {
                 dataset: { miniReviewProgress: '' }
             });
             progress.append(
-                element('strong', `Empleado ${currentIndex + 1} de ${visibleItems.length}`),
+                element(
+                    'strong',
+                    this.individualReviewMode === 'single'
+                        ? 'Edición puntual'
+                        : `Empleado ${currentIndex + 1} de ${visibleItems.length}`
+                ),
                 element('span', currentItem.confirmed ? 'Completo' : 'Pendiente')
             );
             section.append(
@@ -1167,25 +1194,7 @@ export class MiniAttendanceImportModal {
             }),
             localIdentity
         );
-        const normal = element('input', null, {
-            type: 'number',
-            min: 0,
-            max: 24,
-            step: 0.25,
-            value: model.allocation.normalHours,
-            dataset: { miniNormal: '' },
-            'aria-label': 'Horas normales'
-        });
-        const overtime = element('input', null, {
-            type: 'number',
-            min: 0,
-            max: 24,
-            step: 0.25,
-            value: model.allocation.overtimeHours,
-            dataset: { miniOvertime: '' },
-            'aria-label': 'Horas extra'
-        });
-        const buildHourControl = (labelText, input, kind) => {
+        const buildHourControl = (labelText, input, kind, positionName) => {
             const controls = element('div', null, {
                 className: 'mini-import-hour-stepper',
                 dataset: { miniHourStepper: kind }
@@ -1194,76 +1203,122 @@ export class MiniAttendanceImportModal {
                 type: 'button',
                 className: 'mini-import-hour-step',
                 dataset: { miniHourAdjust: '-0.25' },
-                'aria-label': `Restar 15 minutos a ${labelText.toLowerCase()}`
+                'aria-label': `Restar 15 minutos a ${labelText.toLowerCase()} de ${positionName}`
             });
             const increase = element('button', '+', {
                 type: 'button',
                 className: 'mini-import-hour-step',
                 dataset: { miniHourAdjust: '0.25' },
-                'aria-label': `Agregar 15 minutos a ${labelText.toLowerCase()}`
+                'aria-label': `Agregar 15 minutos a ${labelText.toLowerCase()} de ${positionName}`
             });
             controls.append(decrease, input, increase);
             const field = element('div', null, { className: 'mini-import-hour-field' });
             field.append(element('span', labelText), controls);
             return field;
         };
-        const normalControl = buildHourControl('Horas normales', normal, 'normal');
-        const overtimeControl = buildHourControl('Horas extra', overtime, 'overtime');
         const positionChoices = element('fieldset', null, {
-            className: 'mini-import-segmented-field',
+            className: 'mini-import-position-allocation-field',
             dataset: { miniTargetPosition: '' },
             hidden: model.targetPositionOptions.length === 0
         });
-        positionChoices.append(element('legend', 'Cargo desempeñado'));
+        positionChoices.append(element('legend', 'Horas por cargo desempeñado'));
+        positionChoices.append(element(
+            'p',
+            'Activa uno o más cargos y asigna sus horas normales y extra.',
+            { className: 'mini-import-help' }
+        ));
         const positionSegments = element('div', null, {
-            className: 'mini-import-segmented',
-            role: 'radiogroup',
-            'aria-label': 'Cargo desempeñado'
+            className: 'mini-import-position-allocation-list',
+            dataset: { miniPositionAllocationList: '' }
         });
         let syncCompletion = () => {};
-        const renderPositionSegments = (employeeId, preferredPositionId = null) => {
+        const renderPositionSegments = (employeeId, preferredAllocations = []) => {
             const employee = this.employees.find(candidate => candidate.id === employeeId);
             const positionIds = Array.isArray(employee?.positions) ? employee.positions : [];
             const options = positionIds
                 .map(positionId => this.positions.find(position => position.id === positionId))
                 .filter(Boolean);
+            const allocationByPosition = new Map(
+                preferredAllocations.map(allocation => [allocation.positionId, allocation])
+            );
             positionSegments.replaceChildren();
             options.forEach((position, index) => {
                 const id = `mini-position-${this.controlId}-${model.id}-${position.id}`;
-                const label = element('label', null, { htmlFor: id });
-                label.append(
-                    element('input', null, {
-                        id,
-                        type: 'radio',
-                        name: `mini-position-${this.controlId}-${model.id}`,
-                        value: position.id,
-                        checked: preferredPositionId === position.id ||
-                            (!preferredPositionId && options.length === 1 && index === 0),
-                        dataset: { miniTargetPositionOption: '' }
-                    }),
-                    element('span', position.name)
+                const saved = allocationByPosition.get(position.id);
+                const defaultSingle = !allocationByPosition.size && options.length === 1;
+                const normalValue = saved?.normalHours ??
+                    (defaultSingle ? model.allocation.normalHours : 0);
+                const overtimeValue = saved?.overtimeHours ??
+                    (defaultSingle ? model.allocation.overtimeHours : 0);
+                const toggle = element('input', null, {
+                    id,
+                    type: 'checkbox',
+                    value: position.id,
+                    checked: Boolean(saved) || defaultSingle,
+                    dataset: { miniTargetPositionOption: '' }
+                });
+                const label = element('label', null, {
+                    htmlFor: id,
+                    className: 'mini-import-position-toggle'
+                });
+                label.append(toggle, element('span', position.name));
+                const normal = element('input', null, {
+                    type: 'number',
+                    min: 0,
+                    max: 24,
+                    step: 0.25,
+                    value: normalValue,
+                    dataset: { miniPositionNormal: '' },
+                    'aria-label': `Horas normales de ${position.name}`
+                });
+                const overtime = element('input', null, {
+                    type: 'number',
+                    min: 0,
+                    max: 24,
+                    step: 0.25,
+                    value: overtimeValue,
+                    dataset: { miniPositionOvertime: '' },
+                    'aria-label': `Horas extra de ${position.name}`
+                });
+                const allocationRow = element('div', null, {
+                    className: 'mini-import-position-allocation',
+                    dataset: { miniPositionAllocation: position.id }
+                });
+                allocationRow.append(
+                    label,
+                    buildHourControl('Normales', normal, 'normal', position.name),
+                    buildHourControl('Extra', overtime, 'overtime', position.name)
                 );
-                positionSegments.append(label);
+                toggle.addEventListener('change', () => {
+                    if (!toggle.checked) {
+                        normal.value = '0';
+                        overtime.value = '0';
+                    } else {
+                        const totalAssigned = this.readPositionAllocations(container)
+                            .reduce((total, allocation) =>
+                                total + allocation.normalHours + allocation.overtimeHours, 0);
+                        if (totalAssigned === 0) {
+                            normal.value = String(model.allocation.normalHours);
+                            overtime.value = String(model.allocation.overtimeHours);
+                        }
+                    }
+                    syncCompletion();
+                });
+                [normal, overtime].forEach(input => input.addEventListener('input', () => {
+                    if (Number(input.value) > 0) toggle.checked = true;
+                    syncCompletion();
+                }));
+                positionSegments.append(allocationRow);
             });
             positionChoices.hidden = options.length === 0;
-            const selected = positionSegments
-                .querySelector('[data-mini-target-position-option]:checked')?.value;
-            localPosition.textContent = selected
-                ? this.positionName(selected)
-                : options.length ? 'Selecciona un cargo' : 'Sin cargo disponible';
+            localPosition.textContent = options.length
+                ? 'Distribución pendiente'
+                : 'Sin cargo disponible';
             syncCompletion();
         };
-        renderPositionSegments(model.employee?.id, model.targetPositionId);
+        renderPositionSegments(model.employee?.id, model.positionAllocations);
         employeeSelect.addEventListener('change', () => {
-            renderPositionSegments(employeeSelect.value);
-        });
-        positionSegments.addEventListener('change', () => {
-            const selected = positionSegments
-                .querySelector('[data-mini-target-position-option]:checked')?.value;
-            localPosition.textContent = selected
-                ? this.positionName(selected)
-                : 'Selecciona un cargo';
-            syncCompletion();
+            renderPositionSegments(employeeSelect.value, []);
         });
         positionChoices.append(positionSegments);
 
@@ -1309,7 +1364,7 @@ export class MiniAttendanceImportModal {
             `${part.overtimeHours} extra`
         )));
         const collapse = element('p',
-            'Al aceptar Mini se reemplazará la distribución actual de cargos por el cargo elegido.', {
+            'Al aceptar Mini se reemplazará la distribución actual por las horas indicadas.', {
             className: 'mini-import-warning',
             dataset: { miniCollapseWarning: '' },
             hidden: model.existingBreakdown.length < 2 || model.decision?.action !== 'use_imported'
@@ -1328,15 +1383,20 @@ export class MiniAttendanceImportModal {
             syncCompletion();
         });
         const remember = element('label', null, {
-            className: 'mini-import-remember',
-            hidden: model.rememberedMatch || !this.aliasStore || !this.aliasScope
+            className: 'mini-import-remember mini-import-switch',
+            hidden: model.rememberedMatch ||
+                !model.canRememberMatch ||
+                !this.aliasStore ||
+                !this.aliasScope
         });
         remember.append(
             element('input', null, {
                 type: 'checkbox',
+                checked: true,
                 dataset: { miniRememberMatch: '' }
             }),
-            document.createTextNode(' Recordar esta coincidencia para próximas importaciones')
+            element('span', '', { className: 'mini-import-switch-track', 'aria-hidden': 'true' }),
+            element('strong', 'Recordar esta asociación')
         );
         const remembered = element('p', 'Coincidencia recordada en este dispositivo.', {
             className: 'mini-import-remembered',
@@ -1362,14 +1422,10 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-review-choices'
         });
         choiceControls.append(positionChoices, decisionField);
-        const hourControls = element('div', null, {
-            className: 'mini-import-review-hours'
-        });
-        hourControls.append(normalControl, overtimeControl);
         const reviewControls = element('div', null, {
             className: 'mini-import-review-controls'
         });
-        reviewControls.append(choiceControls, hourControls);
+        reviewControls.append(choiceControls);
         const actions = element('div', null, {
             className: 'mini-import-unit-actions'
         });
@@ -1387,14 +1443,25 @@ export class MiniAttendanceImportModal {
         syncCompletion = () => {
             const complete = this.isReviewUnitComplete(model, container);
             confirm.disabled = model.confirmed || !complete;
-            localHours.textContent = `${Number(normal.value) + Number(overtime.value)} h importadas`;
+            const allocations = this.readPositionAllocations(container);
+            const saTotal = allocations.reduce((total, allocation) =>
+                total + allocation.normalHours + allocation.overtimeHours, 0);
+            const miniTotal = model.allocation.normalHours + model.allocation.overtimeHours;
+            const difference = Math.round((saTotal - miniTotal) * 100) / 100;
+            localHours.textContent = `Mini: ${miniTotal} h · SA: ${saTotal} h · ` +
+                `Diferencia: ${difference > 0 ? '+' : ''}${difference} h`;
+            localHours.dataset.miniHoursComparison = '';
+            const activeNames = allocations.map(allocation =>
+                this.positionName(allocation.positionId)
+            );
+            localPosition.textContent = activeNames.length
+                ? activeNames.join(' · ')
+                : 'Selecciona al menos un cargo';
             completionHint.textContent = complete
                 ? model.nextAction
                 : 'Completa el empleado, las horas y el cargo antes de continuar.';
             completionHint.classList.toggle('attention', !complete || model.needsAttention);
         };
-        normal.addEventListener('input', syncCompletion);
-        overtime.addEventListener('input', syncCompletion);
         container.querySelectorAll('[data-mini-hour-adjust]').forEach(button => {
             button.addEventListener('click', () => {
                 const input = button.closest('[data-mini-hour-stepper]')?.querySelector('input');

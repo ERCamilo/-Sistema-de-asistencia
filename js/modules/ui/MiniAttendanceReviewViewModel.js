@@ -172,6 +172,15 @@ export function buildMiniAttendanceReviewViewModel({
         const employee = employeeById.get(row.employeeId);
         const matchStatuses = draftRows.map(draftRow => draftRow.match?.status);
         const { nextAction, confirmation } = actionView(issue);
+        const positionAllocations = (row.positionAllocations || []).map(allocation => ({
+            positionId: allocation.positionId,
+            normalHours: allocation.normalHours,
+            overtimeHours: allocation.overtimeHours
+        }));
+        const appliedAllocation = positionAllocations.reduce((summary, allocation) => ({
+            normalHours: summary.normalHours + allocation.normalHours,
+            overtimeHours: summary.overtimeHours + allocation.overtimeHours
+        }), { normalHours: 0, overtimeHours: 0 });
         return {
             id: row.key || `mini-review-${sourceIndexes.join('-') || index}`,
             sourceIndexes,
@@ -182,6 +191,8 @@ export function buildMiniAttendanceReviewViewModel({
                 normalHours: row.imported?.normalHours ?? 0,
                 overtimeHours: row.imported?.overtimeHours ?? 0
             },
+            positionAllocations,
+            appliedAllocation,
             targetPositionOptions: (row.employeePositionIds || [])
                 .map(positionId => positionView(positionById.get(positionId)))
                 .filter(Boolean),

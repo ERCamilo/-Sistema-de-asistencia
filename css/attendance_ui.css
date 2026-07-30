@@ -1167,7 +1167,7 @@
 
 .mini-import-review-controls {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(210px, 0.75fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
     gap: 14px;
 }
@@ -1180,6 +1180,114 @@
 
 .mini-import-review-choices .mini-import-segmented-field {
     grid-column: auto;
+}
+
+.mini-import-position-allocation-field {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+}
+
+.mini-import-position-allocation-field legend {
+    padding: 0 6px;
+    color: #a5f3fc;
+    font-weight: 800;
+}
+
+.mini-import-position-allocation-list {
+    display: grid;
+    gap: 10px;
+}
+
+.mini-import-position-allocation {
+    display: grid;
+    grid-template-columns: minmax(150px, 0.7fr) repeat(2, minmax(220px, 1fr));
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    border: 1px solid #334155;
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.58);
+}
+
+.mini-import-position-toggle {
+    display: grid;
+    grid-template-columns: 1fr;
+    cursor: pointer;
+}
+
+.mini-import-position-toggle input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.mini-import-position-toggle span {
+    padding: 11px 12px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    color: #cbd5e1;
+    text-align: center;
+    font-weight: 800;
+}
+
+.mini-import-position-toggle input:checked + span {
+    border-color: #22d3ee;
+    background: #0e7490;
+    color: #ecfeff;
+}
+
+.mini-import-switch {
+    display: inline-grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.mini-import-switch input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.mini-import-switch-track {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    border-radius: 999px;
+    background: #475569;
+    transition: background 0.15s;
+}
+
+.mini-import-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #f8fafc;
+    transition: transform 0.15s;
+}
+
+.mini-import-switch input:checked + .mini-import-switch-track {
+    background: #0891b2;
+}
+
+.mini-import-switch input:checked + .mini-import-switch-track::after {
+    transform: translateX(20px);
+}
+
+.mini-import-switch input:focus-visible + .mini-import-switch-track {
+    outline: 2px solid #67e8f9;
+    outline-offset: 2px;
 }
 
 .mini-import-hour-field {
@@ -1515,6 +1623,10 @@
 
     .mini-import-identity-map,
     .mini-import-review-controls {
+        grid-template-columns: 1fr;
+    }
+
+    .mini-import-position-allocation {
         grid-template-columns: 1fr;
     }
 

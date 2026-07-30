@@ -76,9 +76,12 @@ function reviewUnit(host, {
         row.querySelector('[data-mini-employee]')
             .dispatchEvent(new Event('change', { bubbles: true }));
     }
-    row.querySelector('[data-mini-normal]').value = normal;
-    row.querySelector('[data-mini-overtime]').value = overtime;
     if (position) selectRadio(row, '[data-mini-target-position-option]', position);
+    const allocationRow = position
+        ? row.querySelector(`[data-mini-position-allocation="${position}"]`)
+        : row.querySelector('[data-mini-position-allocation]');
+    allocationRow.querySelector('[data-mini-position-normal]').value = normal;
+    allocationRow.querySelector('[data-mini-position-overtime]').value = overtime;
     if (source) selectRadio(row, '[data-mini-attendance-source]', source);
     row.querySelector('[data-mini-action="confirm-unit"]').click();
 }
@@ -117,14 +120,15 @@ describe('Mini attendance import review slice', () => {
         expect(unit.querySelector('[data-mini-action="confirm-unit"]').textContent)
             .toBe('Guardar selección');
         expect(unit.querySelector('[data-mini-identity-map]')).not.toBeNull();
+        expect(unit.querySelector('[data-mini-position-allocation="p1"]')).not.toBeNull();
         expect(unit.querySelector('[data-mini-hour-stepper="normal"]')).not.toBeNull();
         expect(unit.querySelector('[data-mini-hour-stepper="overtime"]')).not.toBeNull();
         unit.querySelector(
             '[data-mini-hour-stepper="normal"] [data-mini-hour-adjust="0.25"]'
         ).click();
-        expect(unit.querySelector('[data-mini-normal]').value).toBe('8.25');
+        expect(unit.querySelector('[data-mini-position-normal]').value).toBe('8.25');
         expect(unit.querySelector('.mini-import-identity-local').textContent)
-            .toContain('8.25 h importadas');
+            .toContain('Mini: 8 h · SA: 8.25 h · Diferencia: +0.25 h');
         expect(unit.querySelector('[data-mini-target-position-option]:checked').value)
             .toBe('p1');
         expect(host.querySelector('[data-mini-conflict-row]')).toBeNull();
@@ -191,6 +195,25 @@ describe('Mini attendance import review slice', () => {
         host.querySelector('[data-mini-action="review-all-attention"]').click();
         expect(host.querySelector('[data-mini-review-progress]').textContent)
             .toContain('Empleado 1 de 2');
+    });
+
+    test('returns to reconciliation after saving one punctual correction', () => {
+        const attendance = { [`e2-${DATE}`]: existingMulti() };
+        const { host } = enterReview(
+            '002. <img src=x> Luis Garcia *9h* 777. Persona inexistente *6h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        host.querySelector('[data-mini-action="edit-attention"]').click();
+        expect(host.textContent).toContain('Edición puntual');
+        host.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        expect(host.querySelector('[data-mini-automatic-review]')).not.toBeNull();
+        expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-attention-row]').textContent)
+            .toContain('777 · Persona inexistente');
     });
 
     test('accepts safe rows and skips them while unresolved people continue individually', () => {
@@ -287,14 +310,46 @@ describe('Mini attendance import review slice', () => {
         expect(controller.draft.rows[0]).toMatchObject({
             reviewed: true,
             approved: true,
-            allocation: { normalHours: 7, overtimeHours: 1 }
+            allocation: { normalHours: 8, overtimeHours: 0 }
         });
         expect(controller.draft.rows[0].match.employeeId).toBe('e2');
         expect(controller.conflictPlan).not.toBe(previousPlan);
         expect(controller.conflictPlan.rows[0].employeeId).toBe('e2');
         expect(controller.conflictPlan.rows[0].targetPositionId).toBe('p2');
+        expect(controller.conflictPlan.rows[0].positionAllocations).toEqual([
+            { positionId: 'p2', normalHours: 7, overtimeHours: 1 }
+        ]);
         expect(controller.conflictPlan.rows[0].blockers)
             .not.toContain('target_position_required');
+    });
+
+    test('keeps Mini hours as evidence and distributes SA hours across positions', () => {
+        const { controller, host } = enterReview(
+            '002. <img src=x> Luis Garcia *12h*'
+        );
+        const unit = host.querySelector('[data-mini-review-unit]');
+        selectRadio(unit, '[data-mini-target-position-option]', 'p1');
+        selectRadio(unit, '[data-mini-target-position-option]', 'p2');
+        const official = unit.querySelector('[data-mini-position-allocation="p1"]');
+        const helper = unit.querySelector('[data-mini-position-allocation="p2"]');
+        official.querySelector('[data-mini-position-normal]').value = '5';
+        official.querySelector('[data-mini-position-overtime]').value = '1';
+        helper.querySelector('[data-mini-position-normal]').value = '3';
+        helper.querySelector('[data-mini-position-overtime]').value = '2';
+        helper.querySelector('[data-mini-position-overtime]')
+            .dispatchEvent(new Event('input', { bubbles: true }));
+
+        expect(unit.querySelector('[data-mini-hours-comparison]').textContent)
+            .toContain('Mini: 12 h · SA: 11 h · Diferencia: -1 h');
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        expect(controller.draft.rows[0].allocation)
+            .toEqual({ normalHours: 12, overtimeHours: 0 });
+        expect(controller.conflictPlan.rows[0].positionAllocations).toEqual([
+            { positionId: 'p1', normalHours: 5, overtimeHours: 1 },
+            { positionId: 'p2', normalHours: 3, overtimeHours: 2 }
+        ]);
+        expect(controller.conflictPlan.rows[0].blockers).toEqual([]);
     });
 
     test('shows full existing breakdown and accepts keeping SA in one action', () => {
@@ -356,7 +411,7 @@ describe('Mini attendance import review slice', () => {
         unit.querySelector('[data-mini-employee]').value = 'e1';
         unit.querySelector('[data-mini-employee]')
             .dispatchEvent(new Event('change', { bubbles: true }));
-        unit.querySelector('[data-mini-remember-match]').checked = true;
+        expect(unit.querySelector('[data-mini-remember-match]').checked).toBe(true);
         unit.querySelector('[data-mini-action="confirm-unit"]').click();
         await Promise.resolve();
         await Promise.resolve();
