@@ -733,7 +733,22 @@ function getFilteredEmployeesOrLeaders() {
     const subTab = state.employeeViewMode || 'employees';
     const isEmployees = subTab === 'employees';
 
-    const items = isEmployees ? state.employees : state.leaders;
+    // Live updates can briefly expose the same entity object more than once
+    // while the local and cloud snapshots converge. The persisted stores use
+    // the stable id as their key, so rendering that transient duplicate creates
+    // two indistinguishable rows for one employee even though only one record
+    // exists. Collapse only equal stable identities; employees that merely
+    // share a number or name remain visible for the conflict tools to resolve.
+    const sourceItems = isEmployees ? state.employees : state.leaders;
+    const seenStableIds = new Set();
+    const items = (Array.isArray(sourceItems) ? sourceItems : []).filter(item => {
+        const stableId = item?.id ?? item?.key;
+        if (stableId === undefined || stableId === null || stableId === '') return true;
+        const normalizedId = String(stableId);
+        if (seenStableIds.has(normalizedId)) return false;
+        seenStableIds.add(normalizedId);
+        return true;
+    });
     const employeeFilters = state.employeeFilters || {
         search: '',
         positionId: 'all',

@@ -165,6 +165,29 @@ describe('directorio visual de empleados', () => {
         expect(state.employees).toBe(employeesReference);
     });
 
+    test('renderiza una sola fila cuando la misma identidad aparece dos veces en memoria', () => {
+        state.employees.push({ ...state.employees[0] });
+
+        const host = document.createElement('div');
+        host.innerHTML = EmployeesUI.EmployeesTab();
+
+        expect(host.querySelectorAll('.employee-list-row[data-id="e1"]')).toHaveLength(1);
+        expect(state.employees).toHaveLength(3);
+    });
+
+    test('conserva empleados distintos aunque compartan número y nombre', () => {
+        state.employees.push({
+            ...state.employees[0],
+            id: 'e3',
+            key: 'e3'
+        });
+
+        const host = document.createElement('div');
+        host.innerHTML = EmployeesUI.EmployeesTab();
+
+        expect(host.querySelectorAll('.employee-list-row')).toHaveLength(3);
+    });
+
     test('en pantallas compactas mantiene el formulario como modal normal', () => {
         const originalMatchMedia = window.matchMedia;
         window.matchMedia = jest.fn().mockReturnValue({ matches: true });

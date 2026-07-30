@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0729.184224';
+const CACHE_VERSION = '2026.0730.115320';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -114,6 +114,9 @@ const APP_SHELL = [
     './js/modules/ui/modals/EmployeeModal.js',
     './js/modules/ui/modals/EmployeeProfileModal.js',
     './js/modules/ui/modals/LeaderModal.js',
+    './js/modules/ui/modals/MiniAttendanceImportModal.js',
+    './js/modules/ui/MiniAttendanceReviewViewModel.js',
+    './js/modules/services/MiniAttendanceAliasStore.js',
     './js/modules/ui/modals/PositionModal.js',
     './js/modules/ui/settings/SettingsTestsTab.js',
 
@@ -123,6 +126,9 @@ const APP_SHELL = [
     './js/modules/features/attendance/Attendance.js',
     './js/modules/features/attendance/AttendanceService.js',
     './js/modules/features/attendance/HolidayService.js',
+    './js/modules/features/attendance/MiniAttendanceDraft.js',
+    './js/modules/features/attendance/MiniAttendanceImportService.js',
+    './js/modules/features/attendance/MiniAttendanceParser.js',
     './js/modules/features/employees/Employee.js',
     './js/modules/features/employees/EmployeesUI.js',
     './js/modules/features/employees/Leader.js',
@@ -233,27 +239,23 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 5) JavaScript propio → Network First con fallback a cache.
-    // Un grafo ESM no puede mezclar módulos de builds distintos. Servir JS
-    // obsoleto mientras se revalida en segundo plano puede romper imports
-    // aunque el despliegue actual sea correcto.
-    if (
-        url.origin === self.location.origin
-        && event.request.destination === 'script'
-    ) {
-        event.respondWith(networkFirst(event.request));
-        return;
-    }
-
-    // 6) Navegación (HTML) → Network First con fallback a cache
+    // 5) Navegación (HTML) → Network First con fallback a cache
     //    Esto asegura que siempre se obtenga la versión más reciente
     if (event.request.mode === 'navigate') {
         event.respondWith(networkFirst(event.request));
         return;
     }
 
+    // 6) Módulos JavaScript propios → Network First con fallback a cache.
+    //    Un grafo ES module no puede mezclar archivos de builds distintos:
+    //    un import nuevo servido junto a un módulo viejo rompe toda la app.
+    if (url.origin === self.location.origin && url.pathname.endsWith('.js')) {
+        event.respondWith(networkFirstAsset(event.request));
+        return;
+    }
+
     // 7) Resto de assets propios (CSS, imágenes) → Stale While Revalidate
-    //    Sirve rápido desde cache, pero actualiza en background
+    //    Sirve rápido desde cache, pero actualiza en background.
     event.respondWith(staleWhileRevalidate(event.request));
 });
 
@@ -314,9 +316,33 @@ async function networkFirst(request) {
 }
 
 /**
+ * Network First para assets versionados entre sí (especialmente módulos JS).
+ * No usa index.html como fallback: responder HTML a un import produciría otro
+ * SyntaxError y ocultaría el verdadero problema de conectividad.
+ */
+async function networkFirstAsset(request) {
+    try {
+        const response = await fetch(request, { cache: 'no-cache' });
+        if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(request, response.clone());
+        }
+        return response;
+    } catch (error) {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+
+        return new Response('Recurso no disponible offline', {
+            status: 503,
+            statusText: 'Service Unavailable'
+        });
+    }
+}
+
+/**
  * Stale While Revalidate: Sirve desde cache inmediatamente,
  * y en background actualiza el cache con la versión de red.
- * Ideal para JS/CSS propios — velocidad + frescura.
+ * Ideal para CSS e imágenes propios — velocidad + frescura.
  */
 async function staleWhileRevalidate(request) {
     const cache = await caches.open(CACHE_NAME);

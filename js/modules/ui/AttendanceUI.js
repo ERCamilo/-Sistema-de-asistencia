@@ -48,7 +48,8 @@ const _ACTION_MAP = {
     'select-temp-position': (_, el, e) => { e?.stopPropagation(); window.selectTempPosition?.(el.dataset.empId, el.dataset.posId); },
     'handle-checkbox-click': (_, el, e) => window.handleCheckboxClick?.(e, el.dataset.empId),
     'mark-visible-present': () => window.markVisibleEmployeesPresent?.(),
-    'clear-visible-attendance': () => window.clearVisibleAttendance?.()
+    'clear-visible-attendance': () => window.clearVisibleAttendance?.(),
+    'open-mini-attendance-import': () => window.openMiniAttendanceImport?.()
 };
 
 function _handleAttendanceClick(e) {
@@ -736,6 +737,13 @@ export function AttendanceBulkActions(employees) {
                     ${icons.get('delete', { size: 17 })}
                     <span>Limpiar asistencias</span>
                     <span class="attendance-bulk-count">${presentCount}</span>
+                </button>
+                <button type="button"
+                        class="attendance-bulk-btn attendance-bulk-btn-mini"
+                        data-att-action="open-mini-attendance-import"
+                        aria-label="Importar asistencia desde Mini">
+                    ${icons.get('import', { size: 17 })}
+                    <span>Importar desde Mini</span>
                 </button>
             </div>
         </div>

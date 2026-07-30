@@ -30,7 +30,12 @@ import { SnapshotDiffModal } from './modules/ui/SnapshotDiffModal.js';
 import { loadAndMigrateEmployees } from './modules/services/EmployeeLoader.js';
 import { TARGET_SCHEMA_VERSION } from './modules/services/SchemaMigration.js';
 import { localStateIsEmpty, shouldAcceptRemote, mergeCloudWatermark, outgoingWatermarkCache, resetOutgoingWatermark } from './modules/services/SyncWatermark.js';
-import { checkLocalOwnership, claimLocalOwnership, clearLocalOwnership } from './modules/services/LocalDataOwner.js';
+import {
+    checkLocalOwnership,
+    claimLocalOwnership,
+    clearLocalOwnership,
+    getLocalOwnerUid
+} from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
@@ -72,6 +77,11 @@ import { debounce, renderInChunks, perfMonitor } from './modules/utils/Performan
 // ============================================
 import { Notification, NotificationSystem } from './modules/components/Notification.js';
 import { Modal } from './modules/components/Modal.js';
+import { MiniAttendanceImportModal } from './modules/ui/modals/MiniAttendanceImportModal.js';
+import {
+    buildDefaultMiniAttendanceAliasScope,
+    miniAttendanceAliasStore
+} from './modules/services/MiniAttendanceAliasStore.js';
 import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
@@ -3222,6 +3232,28 @@ window.openAdvancedModal = (empId) => {
 
 window.openAdvancedAttendance = (empId) => {
     modalManager.openAdvanced(empId, false);
+};
+
+window.openMiniAttendanceImport = async () => {
+    const actorUid = window.currentUser?.uid || getLocalOwnerUid() || 'local-device';
+    const aliasScope = buildDefaultMiniAttendanceAliasScope(actorUid);
+    let aliases = [];
+    try {
+        aliases = await miniAttendanceAliasStore.list(aliasScope);
+    } catch (error) {
+        console.warn('⚠️ No se pudieron cargar las coincidencias de Mini:', error);
+    }
+    return new MiniAttendanceImportModal({
+        employees: state.employees,
+        positions: state.positions,
+        attendance: state.attendance,
+        proposedDate: getDateKey(state.selectedDate),
+        regularLimit: getDayHours(state.selectedDate),
+        aliases,
+        aliasScope,
+        aliasStore: miniAttendanceAliasStore,
+        actorUid
+    }).open();
 };
 
 window.openAdvancedAttendanceForFraction = (empId) => {

@@ -7,11 +7,11 @@ const source = fs.readFileSync(serviceWorkerPath, 'utf8');
 describe('Service Worker — coherencia de módulos JavaScript', () => {
     test('los scripts propios usan red primero', () => {
         expect(source).toContain("url.origin === self.location.origin");
-        expect(source).toContain("event.request.destination === 'script'");
+        expect(source).toContain("url.pathname.endsWith('.js')");
 
-        const scriptRule = source.indexOf("event.request.destination === 'script'");
+        const scriptRule = source.indexOf("url.pathname.endsWith('.js')");
         const networkFirstAfterRule = source.indexOf(
-            'event.respondWith(networkFirst(event.request))',
+            'event.respondWith(networkFirstAsset(event.request))',
             scriptRule
         );
         expect(scriptRule).toBeGreaterThan(-1);
@@ -19,7 +19,7 @@ describe('Service Worker — coherencia de módulos JavaScript', () => {
     });
 
     test('la regla de scripts se evalúa antes del stale-while-revalidate genérico', () => {
-        const scriptRule = source.indexOf("event.request.destination === 'script'");
+        const scriptRule = source.indexOf("url.pathname.endsWith('.js')");
         const genericStale = source.indexOf(
             'event.respondWith(staleWhileRevalidate(event.request))'
         );
@@ -28,7 +28,7 @@ describe('Service Worker — coherencia de módulos JavaScript', () => {
     });
 
     test('la ruta offline conserva el fallback del caché', () => {
-        const networkFirstStart = source.indexOf('async function networkFirst(request)');
+        const networkFirstStart = source.indexOf('async function networkFirstAsset(request)');
         const networkFirstEnd = source.indexOf(
             'async function staleWhileRevalidate(request)',
             networkFirstStart

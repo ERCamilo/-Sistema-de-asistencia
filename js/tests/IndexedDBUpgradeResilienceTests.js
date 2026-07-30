@@ -44,11 +44,11 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
 
 });
 
-testRunner.addSuite("IndexedDB — schema v13: outboxes y syncLocks", {
+testRunner.addSuite("IndexedDB — schema v14: stores de sync e importación Mini", {
 
-    "la versión de la DB subió a 13"() {
-        testRunner.assert(/version\s*=\s*13/.test(IDB_SRC),
-            'IndexedDBService debe abrir la DB en versión 13 para crear pettyCashMirrorOutbox');
+    "la versión de la DB subió a 14"() {
+        testRunner.assert(/version\s*=\s*14/.test(IDB_SRC),
+            'IndexedDBService debe abrir la DB en versión 14 para crear pettyCashMirrorOutbox y los stores Mini');
     },
 
     "existe el store mainSyncOutbox con keyPath 'key' autoIncrement (NO reutiliza sync_queue)"() {
@@ -80,6 +80,26 @@ testRunner.addSuite("IndexedDB — schema v13: outboxes y syncLocks", {
         testRunner.assert(!!block, 'debe existir la lista ownStores');
         testRunner.assert(!/mainSyncOutbox/.test(block[0]),
             'mainSyncOutbox NO debe estar en ownStores — un restore/demo/cuenta-nueva no debe borrar escrituras cloud pendientes (mismo criterio que pettyCashOutbox)');
+    }
+
+    ,"los stores de alias y auditoría están aislados e indexados"() {
+        const aliasBlock = IDB_SRC.match(/miniAttendanceAliases['"][\s\S]{0,500}/)?.[0] || '';
+        const auditBlock = IDB_SRC.match(/miniAttendanceAliasAudit['"][\s\S]{0,500}/)?.[0] || '';
+        testRunner.assert(/keyPath\s*:\s*['"]aliasId['"]/.test(aliasBlock),
+            'aliases debe usar aliasId');
+        ['scopeKey', 'targetEmployeeId', 'active'].forEach(index =>
+            testRunner.assert(aliasBlock.includes(`createIndex('${index}'`), `falta índice ${index}`));
+        testRunner.assert(/keyPath\s*:\s*['"]auditId['"]/.test(auditBlock),
+            'audit debe usar auditId');
+        ['aliasId', 'scopeKey', 'eventType'].forEach(index =>
+            testRunner.assert(auditBlock.includes(`createIndex('${index}'`), `falta índice ${index}`));
+    }
+
+    ,"el inbox Mini usa eventId y los índices de revisión local"() {
+        const block = IDB_SRC.match(/miniAttendanceInbox['"][\s\S]{0,500}/)?.[0] || '';
+        testRunner.assert(/keyPath\s*:\s*['"]eventId['"]/.test(block), 'inbox debe usar eventId');
+        ['status', 'scopeKey', 'receivedAt'].forEach(index =>
+            testRunner.assert(block.includes(`createIndex('${index}'`), `falta índice ${index}`));
     }
 
 });
