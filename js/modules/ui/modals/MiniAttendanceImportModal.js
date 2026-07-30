@@ -509,7 +509,7 @@ export class MiniAttendanceImportModal {
             this.showAutomaticReview();
             return;
         }
-        this.advanceReviewPageAfter(this.reviewItemKey(item));
+        this.advanceReviewPageAfter(item.sourceIndexes);
         this.render();
         this.resetReviewViewport();
     }
@@ -700,8 +700,7 @@ export class MiniAttendanceImportModal {
     attentionReviewItems(view = this.buildReviewView()) {
         const automaticKeys = new Set(this.automaticReviewKeys);
         return view.items.filter(item =>
-            !automaticKeys.has(this.reviewItemKey(item)) &&
-            !item.confirmed
+            !automaticKeys.has(this.reviewItemKey(item))
         );
     }
 
@@ -715,8 +714,12 @@ export class MiniAttendanceImportModal {
     }
 
     visibleReviewItems(view = this.buildReviewView()) {
-        const keys = new Set(this.individualReviewKeys);
-        return view.items.filter(item => keys.has(this.reviewItemKey(item)));
+        const sourceIndexes = new Set(this.individualReviewKeys.flatMap(key =>
+            String(key).split('-').map(Number).filter(Number.isInteger)
+        ));
+        return view.items.filter(item =>
+            item.sourceIndexes.some(sourceIndex => sourceIndexes.has(sourceIndex))
+        );
     }
 
     clampReviewPage(view = this.buildReviewView()) {
@@ -748,9 +751,12 @@ export class MiniAttendanceImportModal {
         this.resetReviewViewport();
     }
 
-    advanceReviewPageAfter(reviewKey) {
+    advanceReviewPageAfter(reviewSourceIndexes) {
+        const reviewedIndexes = new Set(reviewSourceIndexes);
         const items = this.visibleReviewItems();
-        const retainedIndex = items.findIndex(item => this.reviewItemKey(item) === reviewKey);
+        const retainedIndex = items.findIndex(item =>
+            item.sourceIndexes.some(sourceIndex => reviewedIndexes.has(sourceIndex))
+        );
         if (retainedIndex >= 0 && retainedIndex < items.length - 1) {
             this.reviewPageIndex = retainedIndex + 1;
             return;
@@ -863,6 +869,8 @@ export class MiniAttendanceImportModal {
         });
         const automaticItems = this.automaticReviewItems(view);
         const attentionItems = this.attentionReviewItems(view);
+        const pendingAttentionItems = attentionItems.filter(item => !item.confirmed);
+        const resolvedAttentionCount = attentionItems.length - pendingAttentionItems.length;
         panel.append(
             element('h3', 'Conciliar asistencia de Mini'),
             element(
@@ -957,12 +965,20 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-reconciliation-heading'
         });
         attentionHeading.append(
-            element('h4', `Requieren atención (${attentionItems.length})`),
-            element('span', 'SA necesita una decisión')
+            element('h4', `Requieren atención (${pendingAttentionItems.length})`),
+            element(
+                'span',
+                resolvedAttentionCount
+                    ? `${resolvedAttentionCount} resuelto${resolvedAttentionCount === 1 ? '' : 's'}`
+                    : 'SA necesita una decisión'
+            )
         );
-        panel.append(attentionHeading, this.renderAttentionReviewTable(attentionItems));
+        panel.append(
+            attentionHeading,
+            this.renderAttentionReviewTable(attentionItems, pendingAttentionItems)
+        );
 
-        const attentionCount = attentionItems.length;
+        const attentionCount = pendingAttentionItems.length;
         const note = element(
             'p',
             attentionCount
@@ -989,7 +1005,7 @@ export class MiniAttendanceImportModal {
         return panel;
     }
 
-    renderAttentionReviewTable(items) {
+    renderAttentionReviewTable(items, pendingItems = items.filter(item => !item.confirmed)) {
         const wrapper = element('div', null, {
             className: 'mini-import-attention-table-wrap',
             dataset: { miniAttentionTable: '' }
@@ -1002,7 +1018,7 @@ export class MiniAttendanceImportModal {
             ));
             return wrapper;
         }
-        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Motivo', 'Acción'];
+        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Estado', 'Acción'];
         const table = element('table', null, {
             className: 'mini-import-rows mini-import-attention-table'
         });
@@ -1015,27 +1031,44 @@ export class MiniAttendanceImportModal {
             const occurrence = item.occurrences[0] || {};
             const key = this.reviewItemKey(item);
             const row = element('tr', null, {
-                dataset: { miniAttentionRow: key }
+                className: item.confirmed ? 'is-resolved' : '',
+                dataset: {
+                    miniAttentionRow: key,
+                    miniAttentionStatus: item.confirmed ? 'resolved' : 'pending'
+                }
             });
             const action = actionButton(
-                item.canIgnore ? 'Ignorar' : 'Resolver',
-                item.canIgnore ? 'ignore-attention' : 'edit-attention'
+                item.confirmed ? 'Modificar' : item.canIgnore ? 'Ignorar' : 'Resolver',
+                item.confirmed
+                    ? 'edit-resolved-attention'
+                    : item.canIgnore ? 'ignore-attention' : 'edit-attention'
             );
-            action.classList.add(item.canIgnore
+            action.classList.add(item.canIgnore && !item.confirmed
                 ? 'mini-import-action-secondary'
                 : 'mini-import-action-primary');
-            if (item.canIgnore) {
+            if (item.confirmed) {
+                action.addEventListener('click', () => this.openIndividualReview([key]));
+            } else if (item.canIgnore) {
                 action.addEventListener('click', () => this.requestIgnoreReviewUnit(item));
             } else {
                 action.addEventListener('click', () => this.openIndividualReview([key]));
             }
+            const status = element(
+                'span',
+                item.confirmed ? 'Resuelto' : item.nextAction,
+                {
+                    className: item.confirmed
+                        ? 'mini-import-status-badge is-resolved'
+                        : 'mini-import-status-badge is-pending'
+                }
+            );
             const values = [
                 `${occurrence.number} · ${occurrence.name}`,
                 item.employee
                     ? `${item.employee.number} · ${item.employee.name}`
                     : 'Sin coincidencia',
                 `${item.allocation.normalHours + item.allocation.overtimeHours} h`,
-                item.nextAction,
+                status,
                 action
             ];
             values.forEach((value, index) => {
@@ -1048,15 +1081,17 @@ export class MiniAttendanceImportModal {
         });
         table.append(head, body);
         wrapper.append(table);
-        const reviewAll = actionButton(
-            `Revisar todos los pendientes (${items.length})`,
-            'review-all-attention'
-        );
-        reviewAll.classList.add('mini-import-action-secondary');
-        reviewAll.addEventListener('click', () => this.openIndividualReview(
-            items.map(item => this.reviewItemKey(item))
-        ));
-        wrapper.append(reviewAll);
+        if (pendingItems.length) {
+            const reviewAll = actionButton(
+                `Revisar todos los pendientes (${pendingItems.length})`,
+                'review-all-attention'
+            );
+            reviewAll.classList.add('mini-import-action-secondary');
+            reviewAll.addEventListener('click', () => this.openIndividualReview(
+                pendingItems.map(item => this.reviewItemKey(item))
+            ));
+            wrapper.append(reviewAll);
+        }
         return wrapper;
     }
 
@@ -1080,6 +1115,9 @@ export class MiniAttendanceImportModal {
             summary
         );
         const visibleItems = this.clampReviewPage(view);
+        const unresolvedAllItems = view.items.filter(item => !item.confirmed);
+        const allReviewsComplete = unresolvedAllItems.length === 0 &&
+            !this.conflictPlan.hasBlockingIssues;
         if (visibleItems.length) {
             const currentIndex = this.reviewPageIndex;
             const currentItem = visibleItems[currentIndex];
@@ -1107,15 +1145,11 @@ export class MiniAttendanceImportModal {
             });
             const previous = actionButton('Anterior', 'previous-unit', currentIndex === 0);
             previous.addEventListener('click', () => this.setReviewPage(currentIndex - 1));
-            const unresolvedIndexes = visibleItems
-                .map((item, index) => item.confirmed ? -1 : index)
-                .filter(index => index >= 0);
             const isLast = currentIndex === visibleItems.length - 1;
-            const allComplete = unresolvedIndexes.length === 0;
             const nextLabel = isLast && currentItem.confirmed
-                ? allComplete
+                ? allReviewsComplete
                     ? 'Revisar resumen'
-                    : `Ir al pendiente (${unresolvedIndexes.length})`
+                    : `Ir al pendiente (${unresolvedAllItems.length})`
                 : 'Siguiente';
             const next = actionButton(
                 nextLabel,
@@ -1123,18 +1157,34 @@ export class MiniAttendanceImportModal {
                 !currentItem.confirmed
             );
             next.addEventListener('click', () => {
-                if (isLast && allComplete) {
+                if (isLast && allReviewsComplete) {
                     this.showFinalSummary();
                     return;
                 }
                 if (isLast) {
-                    this.setReviewPage(unresolvedIndexes[0]);
+                    this.openIndividualReview(
+                        unresolvedAllItems.map(item => this.reviewItemKey(item))
+                    );
                     return;
                 }
                 this.setReviewPage(currentIndex + 1);
             });
             navigation.append(previous, next);
-            section.append(navigation);
+            const queueStatus = element(
+                'p',
+                allReviewsComplete
+                    ? 'Todas las asistencias están resueltas.'
+                    : `${unresolvedAllItems.length} asistencia` +
+                        `${unresolvedAllItems.length === 1 ? '' : 's'} pendiente` +
+                        `${unresolvedAllItems.length === 1 ? '' : 's'} de revisión.`,
+                {
+                    className: allReviewsComplete
+                        ? 'mini-import-queue-status is-complete'
+                        : 'mini-import-queue-status',
+                    dataset: { miniQueueStatus: '' }
+                }
+            );
+            section.append(queueStatus, navigation);
         }
         if (!visibleItems.length) {
             const empty = element('div', null, {
@@ -1143,8 +1193,20 @@ export class MiniAttendanceImportModal {
             });
             empty.append(element(
                 'p',
-                'La revisión está completa. Comprueba el resumen y aplica la asistencia.'
+                allReviewsComplete
+                    ? 'La revisión está completa. Comprueba el resumen y aplica la asistencia.'
+                    : `Quedan ${unresolvedAllItems.length} asistencias pendientes.`
             ));
+            if (!allReviewsComplete) {
+                const resume = actionButton(
+                    'Continuar con pendientes',
+                    'resume-pending'
+                );
+                resume.addEventListener('click', () => this.openIndividualReview(
+                    unresolvedAllItems.map(item => this.reviewItemKey(item))
+                ));
+                empty.append(resume);
+            }
             section.append(empty);
         }
         const locked = this.applyStatus === 'pending' || this.applyStatus === 'success';
@@ -1153,8 +1215,7 @@ export class MiniAttendanceImportModal {
                 control.disabled = true;
             });
         }
-        const reviewComplete = visibleItems.length === 0 ||
-            visibleItems.every(item => item.confirmed);
+        const reviewComplete = allReviewsComplete;
         if (reviewComplete || this.applyStatus !== 'idle') {
             const apply = actionButton(
                 'Revisar resumen final',

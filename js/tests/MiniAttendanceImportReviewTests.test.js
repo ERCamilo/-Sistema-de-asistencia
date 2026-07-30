@@ -211,9 +211,15 @@ describe('Mini attendance import review slice', () => {
         host.querySelector('[data-mini-action="confirm-unit"]').click();
 
         expect(host.querySelector('[data-mini-automatic-review]')).not.toBeNull();
-        expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(1);
-        expect(host.querySelector('[data-mini-attention-row]').textContent)
+        expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(2);
+        expect(host.querySelectorAll('[data-mini-attention-status="resolved"]'))
+            .toHaveLength(1);
+        expect(host.querySelector('[data-mini-attention-status="resolved"]').textContent)
+            .toMatch(/002.*Resuelto.*Modificar/);
+        expect(host.querySelector('[data-mini-attention-status="pending"]').textContent)
             .toContain('777 · Persona inexistente');
+        expect(host.querySelector('[data-mini-action="review-all-attention"]').textContent)
+            .toBe('Revisar todos los pendientes (1)');
     });
 
     test('accepts safe rows and skips them while unresolved people continue individually', () => {
@@ -596,10 +602,13 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelector('[data-mini-action="show-summary"]').disabled).toBe(false);
     });
 
-    test('paginates employees and blocks continuation until the current page is complete', () => {
+    test('paginates every pending employee and reaches the summary when all are resolved', async () => {
         const { host } = enterReview(
             '001. Ana Perez *8h* 002. <img src=x> Luis Garcia *9h* ' +
-            '777. Persona inexistente *6h*'
+            '777. Persona inexistente *6h*',
+            {},
+            employees,
+            { confirmIgnore: async () => true }
         );
 
         expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(1);
@@ -627,6 +636,45 @@ describe('Mini attendance import review slice', () => {
             .toContain('Empleado 3 de 3');
         expect(current.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(true);
         expect(current.querySelector('[data-mini-action="ignore-unit"]').hidden).toBe(false);
+        current.querySelector('[data-mini-action="ignore-unit"]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(host.querySelector('[data-mini-queue-status]').textContent)
+            .toContain('Todas las asistencias están resueltas');
+        const finish = host.querySelector('[data-mini-action="next-unit"]');
+        expect(finish.textContent).toBe('Revisar resumen');
+        expect(finish.disabled).toBe(false);
+        finish.click();
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+    });
+
+    test('keeps dynamically merged source rows visible instead of losing a blocker', () => {
+        const { host } = enterReview(
+            '900. Primera persona *8h* 901. Segunda persona *6h*'
+        );
+        let unit = host.querySelector('[data-mini-review-unit]');
+        unit.querySelector('[data-mini-employee]').value = 'e1';
+        unit.querySelector('[data-mini-employee]')
+            .dispatchEvent(new Event('change', { bubbles: true }));
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        unit = host.querySelector('[data-mini-review-unit]');
+        const showAssigned = unit.querySelector('[data-mini-hide-assigned]');
+        showAssigned.checked = false;
+        showAssigned.dispatchEvent(new Event('change', { bubbles: true }));
+        unit = host.querySelector('[data-mini-review-unit]');
+        unit.querySelector('[data-mini-employee]').value = 'e1';
+        unit.querySelector('[data-mini-employee]')
+            .dispatchEvent(new Event('change', { bubbles: true }));
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        unit = host.querySelector('[data-mini-review-unit]');
+        expect(unit.textContent).toContain('900 · Primera persona');
+        expect(unit.textContent).toContain('901 · Segunda persona');
+        expect(host.querySelector('[data-mini-queue-status]').textContent)
+            .toContain('1 asistencia pendiente');
+        expect(host.querySelector('[data-mini-action="show-summary"]')).toBeNull();
     });
 
     test('keeps the review shell and scroll position stable when selecting Mini', () => {

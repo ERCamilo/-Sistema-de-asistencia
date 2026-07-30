@@ -1044,6 +1044,45 @@
     min-width: 104px;
 }
 
+.mini-import-attention-table tr.is-resolved {
+    border-color: rgba(34, 197, 94, 0.48);
+    background: rgba(20, 83, 45, 0.18);
+}
+
+.mini-import-status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 800;
+}
+
+.mini-import-status-badge.is-pending {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fde68a;
+}
+
+.mini-import-status-badge.is-resolved {
+    background: rgba(34, 197, 94, 0.18);
+    color: #bbf7d0;
+}
+
+.mini-import-queue-status {
+    margin: 0;
+    padding: 9px 12px;
+    border-left: 3px solid #f59e0b;
+    background: rgba(120, 53, 15, 0.2);
+    color: #fde68a;
+}
+
+.mini-import-queue-status.is-complete {
+    border-left-color: #22c55e;
+    background: rgba(20, 83, 45, 0.22);
+    color: #bbf7d0;
+}
+
 .mini-import-empty-table {
     margin: 0;
     padding: 12px;
