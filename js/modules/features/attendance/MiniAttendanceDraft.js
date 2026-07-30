@@ -408,17 +408,58 @@ function existingProjection(record) {
     return { record: snapshot, breakdown };
 }
 
+function clonePositionAllocations(allocations) {
+    if (!Array.isArray(allocations)) return [];
+    return allocations.map(allocation => ({
+        positionId: allocation?.positionId ?? null,
+        normalHours: Number(allocation?.normalHours),
+        overtimeHours: Number(allocation?.overtimeHours)
+    }));
+}
+
+function summarizePositionAllocations(allocations) {
+    return allocations.reduce((summary, allocation) => ({
+        normalHours: summary.normalHours + allocation.normalHours,
+        overtimeHours: summary.overtimeHours + allocation.overtimeHours,
+        totalHours: summary.totalHours + allocation.normalHours + allocation.overtimeHours
+    }), { normalHours: 0, overtimeHours: 0, totalHours: 0 });
+}
+
+function positionAllocationBlockers(row) {
+    const allocations = row.positionAllocations;
+    if (!allocations.length) return ['target_position_required'];
+
+    const blockers = [];
+    const positionIds = allocations.map(allocation => allocation.positionId);
+    if (new Set(positionIds).size !== positionIds.length) {
+        blockers.push('position_allocation_duplicate');
+    }
+    if (allocations.some(allocation =>
+        typeof allocation.positionId !== 'string' ||
+        !row.employeePositionIds.includes(allocation.positionId))) {
+        blockers.push('target_position_invalid');
+    }
+    if (allocations.some(allocation =>
+        !Number.isFinite(allocation.normalHours) ||
+        !Number.isFinite(allocation.overtimeHours) ||
+        allocation.normalHours < 0 ||
+        allocation.overtimeHours < 0)) {
+        blockers.push('position_allocation_invalid');
+    } else {
+        const { totalHours } = summarizePositionAllocations(allocations);
+        if (totalHours <= 0) blockers.push('position_allocation_required');
+        if (totalHours > 24) blockers.push('position_allocation_exceeds_day');
+    }
+    return blockers;
+}
+
 function conflictBlockers(row) {
     const blockers = [...row.draftBlockers];
     if (row.existing && !row.decision.acknowledged) blockers.push('decision_unacknowledged');
     if (row.decision.action === 'use_imported') {
         if (!row.allReviewed) blockers.push('row_review_required');
         if (!row.allApproved) blockers.push('row_not_approved');
-        if (!row.targetPositionId) {
-            blockers.push('target_position_required');
-        } else if (!row.employeePositionIds.includes(row.targetPositionId)) {
-            blockers.push('target_position_invalid');
-        }
+        blockers.push(...positionAllocationBlockers(row));
         if (row.existing?.breakdown.length > 1 && !row.decision.collapseAcknowledged) {
             blockers.push('collapse_acknowledgement_required');
         }
@@ -465,6 +506,12 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
                 allocations.size > 1)) {
             draftBlockers.push('conflicting_duplicate');
         }
+        const imported = { ...representative.allocation };
+        const positionAllocations = positionIds.length === 1 ? [{
+            positionId: positionIds[0],
+            normalHours: imported.normalHours,
+            overtimeHours: imported.overtimeHours
+        }] : [];
         return {
             key,
             employeeId,
@@ -473,9 +520,10 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
             sourceRows: group.map(item => item.row.sourceRow),
             allReviewed: group.every(item => item.row.reviewed),
             allApproved: group.every(item => item.row.approved),
-            imported: { ...representative.allocation },
+            imported,
             existing,
             targetPositionId: positionIds.length === 1 ? positionIds[0] : null,
+            positionAllocations,
             decision: existing
                 ? { action: 'keep_existing', acknowledged: false }
                 : { action: 'use_imported', acknowledged: true },
@@ -505,12 +553,24 @@ export function reviewMiniAttendanceConflict(plan, rowIndex, review) {
             ? { collapseAcknowledged: review.collapseAcknowledged === true }
             : {})
     };
+    let positionAllocations = current.positionAllocations;
+    if (Object.hasOwn(review, 'positionAllocations')) {
+        positionAllocations = clonePositionAllocations(review.positionAllocations);
+    } else if (review.targetPositionId) {
+        positionAllocations = [{
+            positionId: review.targetPositionId,
+            normalHours: current.imported.normalHours,
+            overtimeHours: current.imported.overtimeHours
+        }];
+    }
+    const targetPositionId = positionAllocations[0]?.positionId ?? null;
     return finalizeConflictPlan({
         ...plan,
         revision: plan.revision + 1,
         rows: plan.rows.map((row, index) => index === rowIndex ? {
             ...row,
-            targetPositionId: review.targetPositionId ?? row.targetPositionId,
+            targetPositionId,
+            positionAllocations,
             decision
         } : row)
     });
@@ -518,7 +578,12 @@ export function reviewMiniAttendanceConflict(plan, rowIndex, review) {
 
 function importedRecord(row, date) {
     const existing = row.existing?.record || {};
-    const { normalHours, overtimeHours } = row.imported;
+    const applied = summarizePositionAllocations(row.positionAllocations);
+    const positionHours = row.positionAllocations.map(allocation => ({
+        positionId: allocation.positionId,
+        hours: allocation.normalHours,
+        overtimeHours: allocation.overtimeHours
+    }));
     return {
         notes: '',
         isHoliday: false,
@@ -526,15 +591,23 @@ function importedRecord(row, date) {
         employeeId: row.employeeId,
         date,
         present: true,
-        hoursWorked: normalHours,
-        overtimeHours,
-        selectedPosition: row.targetPositionId,
-        multiPosition: false,
-        positionHours: [{
-            positionId: row.targetPositionId,
-            hours: normalHours,
-            overtimeHours
-        }]
+        hoursWorked: applied.normalHours,
+        overtimeHours: applied.overtimeHours,
+        selectedPosition: positionHours[0].positionId,
+        multiPosition: positionHours.length > 1,
+        positionHours,
+        miniImportAudit: {
+            source: 'mini',
+            original: {
+                normalHours: row.imported.normalHours,
+                overtimeHours: row.imported.overtimeHours,
+                totalHours: row.imported.normalHours + row.imported.overtimeHours
+            },
+            applied,
+            differenceHours: applied.totalHours -
+                row.imported.normalHours -
+                row.imported.overtimeHours
+        }
     };
 }
 

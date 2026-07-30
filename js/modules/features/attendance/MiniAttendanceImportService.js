@@ -23,20 +23,39 @@ function validateWrite(write, date) {
         throw new TypeError('Invalid attendance write key');
     }
     const record = write.record;
-    const position = record?.positionHours?.[0];
+    const positions = record?.positionHours;
+    const positionIds = Array.isArray(positions)
+        ? positions.map(position => position?.positionId)
+        : [];
+    const uniquePositionIds = new Set(positionIds);
+    const positionHoursValid = Array.isArray(positions) &&
+        positions.length > 0 &&
+        positions.every(position =>
+            typeof position?.positionId === 'string' &&
+            position.positionId &&
+            isNonNegativeHours(position.hours) &&
+            isNonNegativeHours(position.overtimeHours));
+    const positionTotals = positionHoursValid
+        ? positions.reduce((totals, position) => ({
+            normalHours: totals.normalHours + position.hours,
+            overtimeHours: totals.overtimeHours + position.overtimeHours
+        }), { normalHours: 0, overtimeHours: 0 })
+        : null;
     const malformed = !record ||
         typeof record.employeeId !== 'string' || !record.employeeId ||
         record.date !== date ||
         record.present !== true ||
         !isNonNegativeHours(record.hoursWorked) ||
         !isNonNegativeHours(record.overtimeHours) ||
+        record.hoursWorked + record.overtimeHours <= 0 ||
         record.hoursWorked + record.overtimeHours > 24 ||
         typeof record.selectedPosition !== 'string' || !record.selectedPosition ||
-        record.multiPosition !== false ||
-        record.positionHours?.length !== 1 ||
-        position?.positionId !== record.selectedPosition ||
-        position?.hours !== record.hoursWorked ||
-        position?.overtimeHours !== record.overtimeHours;
+        !positionHoursValid ||
+        uniquePositionIds.size !== positions?.length ||
+        positions?.[0]?.positionId !== record.selectedPosition ||
+        record.multiPosition !== (positions?.length > 1) ||
+        positionTotals?.normalHours !== record.hoursWorked ||
+        positionTotals?.overtimeHours !== record.overtimeHours;
     if (malformed) throw new TypeError(`Malformed attendance write: ${write.key}`);
     if (write.key !== `${record.employeeId}-${date}`) {
         throw new TypeError(`Attendance write key does not match record: ${write.key}`);

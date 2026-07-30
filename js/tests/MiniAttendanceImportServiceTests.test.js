@@ -48,6 +48,29 @@ function dependencies(state, overrides = {}) {
 }
 
 describe('MiniAttendanceImportService', () => {
+    test('accepts coherent multi-position writes and rejects inconsistent totals', () => {
+        const multiPosition = record('e1', 'p1', {
+            hoursWorked: 8,
+            overtimeHours: 3,
+            multiPosition: true,
+            positionHours: [
+                { positionId: 'p1', hours: 5, overtimeHours: 1 },
+                { positionId: 'p2', hours: 3, overtimeHours: 2 }
+            ]
+        });
+        expect(validateMiniAttendanceApplyPlan(
+            applyPlan([{ key: `e1-${DATE}`, record: multiPosition }])
+        )).toBe(true);
+
+        const inconsistent = {
+            ...multiPosition,
+            hoursWorked: 9
+        };
+        expect(() => validateMiniAttendanceApplyPlan(
+            applyPlan([{ key: `e1-${DATE}`, record: inconsistent }])
+        )).toThrow('Malformed attendance write');
+    });
+
     test('does not mutate before apply and commits all writes through one coherent batch/save', async () => {
         const untouched = record('other');
         const state = {

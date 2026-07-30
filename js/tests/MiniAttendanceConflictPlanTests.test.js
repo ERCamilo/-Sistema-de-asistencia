@@ -142,6 +142,88 @@ describe('Mini attendance conflict planning', () => {
         expect(multiPosition.rows[0].blockers).toContain('target_position_required');
     });
 
+    test('allocates normal and overtime hours across positions while keeping Mini as evidence', () => {
+        const plan = createMiniAttendanceConflictPlan(
+            confirmedDraft('002. Luis Garcia *12h*'),
+            {}
+        );
+        const reviewed = reviewMiniAttendanceConflict(plan, 0, {
+            action: 'use_imported',
+            acknowledged: true,
+            positionAllocations: [
+                { positionId: 'p1', normalHours: 5, overtimeHours: 1 },
+                { positionId: 'p2', normalHours: 3, overtimeHours: 2 }
+            ]
+        });
+        expect(reviewed.rows[0].blockers).toEqual([]);
+
+        const approved = buildMiniAttendanceApplyPlan(reviewed, {
+            expectedDraftRevision: reviewed.draftRevision
+        });
+        expect(approved.writes[0].record).toMatchObject({
+            hoursWorked: 8,
+            overtimeHours: 3,
+            selectedPosition: 'p1',
+            multiPosition: true,
+            positionHours: [
+                { positionId: 'p1', hours: 5, overtimeHours: 1 },
+                { positionId: 'p2', hours: 3, overtimeHours: 2 }
+            ],
+            miniImportAudit: {
+                source: 'mini',
+                original: { normalHours: 12, overtimeHours: 0, totalHours: 12 },
+                applied: { normalHours: 8, overtimeHours: 3, totalHours: 11 },
+                differenceHours: -1
+            }
+        });
+    });
+
+    test('blocks duplicate, invalid, empty, and over-day position allocations', () => {
+        const plan = createMiniAttendanceConflictPlan(
+            confirmedDraft('002. Luis Garcia *8h*'),
+            {}
+        );
+        const duplicate = reviewMiniAttendanceConflict(plan, 0, {
+            action: 'use_imported',
+            acknowledged: true,
+            positionAllocations: [
+                { positionId: 'p1', normalHours: 4, overtimeHours: 0 },
+                { positionId: 'p1', normalHours: 4, overtimeHours: 0 }
+            ]
+        });
+        expect(duplicate.rows[0].blockers).toContain('position_allocation_duplicate');
+
+        const invalid = reviewMiniAttendanceConflict(plan, 0, {
+            action: 'use_imported',
+            acknowledged: true,
+            positionAllocations: [
+                { positionId: 'not-owned', normalHours: -1, overtimeHours: 0 }
+            ]
+        });
+        expect(invalid.rows[0].blockers).toEqual(expect.arrayContaining([
+            'target_position_invalid',
+            'position_allocation_invalid'
+        ]));
+
+        const empty = reviewMiniAttendanceConflict(plan, 0, {
+            action: 'use_imported',
+            acknowledged: true,
+            positionAllocations: [
+                { positionId: 'p1', normalHours: 0, overtimeHours: 0 }
+            ]
+        });
+        expect(empty.rows[0].blockers).toContain('position_allocation_required');
+
+        const excessive = reviewMiniAttendanceConflict(plan, 0, {
+            action: 'use_imported',
+            acknowledged: true,
+            positionAllocations: [
+                { positionId: 'p1', normalHours: 20, overtimeHours: 5 }
+            ]
+        });
+        expect(excessive.rows[0].blockers).toContain('position_allocation_exceeds_day');
+    });
+
     test('consolidates probable duplicates into one write and blocks conflicting duplicates', () => {
         const probable = createMiniAttendanceConflictPlan(
             confirmedDraft('001. Ana Perez *8h* 1. Ána Pérez *8h*'),
