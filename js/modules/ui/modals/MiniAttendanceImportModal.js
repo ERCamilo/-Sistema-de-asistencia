@@ -208,10 +208,8 @@ export class MiniAttendanceImportModal {
         this.automaticReviewChoices = new Map(
             this.automaticReviewKeys.map(key => [key, 'accept'])
         );
-        this.reviewStep = automaticItems.length ? 'automatic' : 'individual';
-        this.individualReviewKeys = automaticItems.length
-            ? []
-            : view.items.map(item => this.reviewItemKey(item));
+        this.reviewStep = 'automatic';
+        this.individualReviewKeys = [];
         if (typeof this.onContinue === 'function') this.onContinue(this.draft);
         this.render();
     }
@@ -625,9 +623,8 @@ export class MiniAttendanceImportModal {
                 });
             });
         });
-        if (!automaticItems.length) return;
         this.resetApplyState();
-        this.rebuildConflictPlan();
+        if (automaticItems.length) this.rebuildConflictPlan();
         const nextView = this.buildReviewView();
         this.reviewStep = 'individual';
         this.individualReviewKeys = nextView.items
@@ -687,6 +684,22 @@ export class MiniAttendanceImportModal {
         return view.items.filter(item => keys.has(this.reviewItemKey(item)));
     }
 
+    attentionReviewItems(view = this.buildReviewView()) {
+        const automaticKeys = new Set(this.automaticReviewKeys);
+        return view.items.filter(item =>
+            !automaticKeys.has(this.reviewItemKey(item)) &&
+            !item.confirmed
+        );
+    }
+
+    openIndividualReview(keys) {
+        this.reviewStep = 'individual';
+        this.individualReviewKeys = [...new Set(keys)];
+        this.reviewPageIndex = 0;
+        this.render();
+        this.resetReviewViewport();
+    }
+
     visibleReviewItems(view = this.buildReviewView()) {
         const keys = new Set(this.individualReviewKeys);
         return view.items.filter(item => keys.has(this.reviewItemKey(item)));
@@ -707,11 +720,7 @@ export class MiniAttendanceImportModal {
     }
 
     showAutomaticReview() {
-        if (!this.automaticReviewKeys.length) {
-            this.stage = 'setup';
-        } else {
-            this.reviewStep = 'automatic';
-        }
+        this.reviewStep = 'automatic';
         this.reviewPageIndex = 0;
         this.render();
         this.resetReviewViewport();
@@ -783,7 +792,7 @@ export class MiniAttendanceImportModal {
             dataset: { miniCurrentMode: '' }
         }));
         const view = this.buildReviewView();
-        if (this.reviewStep === 'automatic' && this.automaticReviewKeys.length) {
+        if (this.reviewStep === 'automatic') {
             section.append(this.renderAutomaticReview(view));
             return section;
         }
@@ -797,16 +806,24 @@ export class MiniAttendanceImportModal {
             dataset: { miniAutomaticReview: '' }
         });
         const automaticItems = this.automaticReviewItems(view);
+        const attentionItems = this.attentionReviewItems(view);
         panel.append(
-            element('h3', 'Confirmaciones automáticas'),
+            element('h3', 'Conciliar asistencia de Mini'),
             element(
                 'p',
-                'Estas personas tienen una coincidencia clara o recordada, no poseen horas ' +
-                    'registradas en SA y solo tienen un cargo disponible. Puedes aceptarlas ' +
-                    'o marcar las que quieras modificar.',
+                'Primero confirma las coincidencias claras. Después resuelve únicamente ' +
+                    'las filas que tienen una advertencia.',
                 { className: 'mini-import-help' }
             )
         );
+        const readyHeading = element('div', null, {
+            className: 'mini-import-reconciliation-heading'
+        });
+        readyHeading.append(
+            element('h4', `Listos para aceptar (${automaticItems.length})`),
+            element('span', 'Sin conflictos detectados')
+        );
+        panel.append(readyHeading);
         const table = element('table', null, {
             className: 'mini-import-rows mini-import-auto-table',
             dataset: { miniAutomaticTable: '' }
@@ -872,17 +889,31 @@ export class MiniAttendanceImportModal {
         });
         table.append(head, body);
         panel.append(table);
-        const attentionCount = view.items
-            .filter(item => !this.automaticReviewKeys.includes(this.reviewItemKey(item)) &&
-                !item.confirmed)
-            .length;
+        if (!automaticItems.length) {
+            table.hidden = true;
+            panel.append(element(
+                'p',
+                'No hay filas que puedan confirmarse automáticamente.',
+                { className: 'mini-import-empty-table' }
+            ));
+        }
+        const attentionHeading = element('div', null, {
+            className: 'mini-import-reconciliation-heading'
+        });
+        attentionHeading.append(
+            element('h4', `Requieren atención (${attentionItems.length})`),
+            element('span', 'SA necesita una decisión')
+        );
+        panel.append(attentionHeading, this.renderAttentionReviewTable(attentionItems));
+
+        const attentionCount = attentionItems.length;
         const note = element(
             'p',
             attentionCount
                 ? `${attentionCount} empleado${attentionCount === 1 ? '' : 's'} ` +
                     `${attentionCount === 1 ? 'pasará' : 'pasarán'} a ` +
                     'revisión individual después de aceptar esta tabla.'
-                : 'Si aceptas todas las filas, las horas se aplicarán inmediatamente.',
+                : 'Todas las filas están listas para pasar al resumen final.',
             { className: 'mini-import-next-action', dataset: { miniAutomaticHint: '' } }
         );
         const accept = actionButton('', 'accept-automatic');
@@ -892,7 +923,7 @@ export class MiniAttendanceImportModal {
                 '[data-mini-auto-choice]:checked[value="modify"]'
             ).length;
             accept.textContent = !attentionCount && !modifyCount
-                ? 'Aceptar y aplicar horas'
+                ? 'Aceptar y revisar resumen'
                 : 'Aceptar selección y continuar';
         };
         panel.addEventListener('change', syncLabel);
@@ -900,6 +931,77 @@ export class MiniAttendanceImportModal {
         syncLabel();
         panel.append(note, accept);
         return panel;
+    }
+
+    renderAttentionReviewTable(items) {
+        const wrapper = element('div', null, {
+            className: 'mini-import-attention-table-wrap',
+            dataset: { miniAttentionTable: '' }
+        });
+        if (!items.length) {
+            wrapper.append(element(
+                'p',
+                'No hay advertencias pendientes.',
+                { className: 'mini-import-empty-table' }
+            ));
+            return wrapper;
+        }
+        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Motivo', 'Acción'];
+        const table = element('table', null, {
+            className: 'mini-import-rows mini-import-attention-table'
+        });
+        const head = element('thead');
+        const headingRow = element('tr');
+        labels.forEach(label => headingRow.append(element('th', label, { scope: 'col' })));
+        head.append(headingRow);
+        const body = element('tbody');
+        items.forEach(item => {
+            const occurrence = item.occurrences[0] || {};
+            const key = this.reviewItemKey(item);
+            const row = element('tr', null, {
+                dataset: { miniAttentionRow: key }
+            });
+            const action = actionButton(
+                item.canIgnore ? 'Ignorar' : 'Resolver',
+                item.canIgnore ? 'ignore-attention' : 'edit-attention'
+            );
+            action.classList.add(item.canIgnore
+                ? 'mini-import-action-secondary'
+                : 'mini-import-action-primary');
+            if (item.canIgnore) {
+                action.addEventListener('click', () => this.requestIgnoreReviewUnit(item));
+            } else {
+                action.addEventListener('click', () => this.openIndividualReview([key]));
+            }
+            const values = [
+                `${occurrence.number} · ${occurrence.name}`,
+                item.employee
+                    ? `${item.employee.number} · ${item.employee.name}`
+                    : 'Sin coincidencia',
+                `${item.allocation.normalHours + item.allocation.overtimeHours} h`,
+                item.nextAction,
+                action
+            ];
+            values.forEach((value, index) => {
+                const cell = element('td', null, { dataset: { label: labels[index] } });
+                if (value instanceof Node) cell.append(value);
+                else cell.textContent = value;
+                row.append(cell);
+            });
+            body.append(row);
+        });
+        table.append(head, body);
+        wrapper.append(table);
+        const reviewAll = actionButton(
+            `Revisar todos los pendientes (${items.length})`,
+            'review-all-attention'
+        );
+        reviewAll.classList.add('mini-import-action-secondary');
+        reviewAll.addEventListener('click', () => this.openIndividualReview(
+            items.map(item => this.reviewItemKey(item))
+        ));
+        wrapper.append(reviewAll);
+        return wrapper;
     }
 
     renderIndividualReview(view) {

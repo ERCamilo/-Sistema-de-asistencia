@@ -55,8 +55,17 @@ const ISSUE_GROUPS = {
     date: new Set(['invalid_iso_date', 'date_hint_mismatch', 'date_confirmation_required']),
     identity: new Set(['employee_ambiguous', 'employee_unmatched', 'employee_confirmation_required']),
     duplicate: new Set(['conflicting_duplicate']),
-    hours: new Set(['hours_invalid']),
-    position: new Set(['target_position_required', 'target_position_invalid']),
+    hours: new Set([
+        'hours_invalid',
+        'position_allocation_invalid',
+        'position_allocation_required',
+        'position_allocation_exceeds_day'
+    ]),
+    position: new Set([
+        'target_position_required',
+        'target_position_invalid',
+        'position_allocation_duplicate'
+    ]),
     decision: new Set(['decision_unacknowledged', 'collapse_acknowledgement_required']),
     confirmation: new Set(['row_review_required', 'row_not_approved'])
 };
@@ -191,6 +200,7 @@ export function buildMiniAttendanceReviewViewModel({
             canIgnore: matchStatuses.length > 0 &&
                 matchStatuses.every(status => status === 'unmatched'),
             probableDuplicate,
+            issue,
             confirmed,
             needsAttention: !confirmed && !safeBulk,
             nextAction,

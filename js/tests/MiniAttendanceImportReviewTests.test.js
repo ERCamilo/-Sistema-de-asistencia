@@ -148,7 +148,7 @@ describe('Mini attendance import review slice', () => {
             .toMatch(/001 · Ana Perez.*1 · Ana Pérez.*8 h.*Oficial/);
         expect(host.querySelector('[data-mini-review-unit]')).toBeNull();
         expect(host.querySelector('[data-mini-action="accept-automatic"]').textContent)
-            .toBe('Aceptar y aplicar horas');
+            .toBe('Aceptar y revisar resumen');
 
         selectRadio(host, '[data-mini-auto-choice]', 'modify');
         expect(host.querySelector('[data-mini-action="accept-automatic"]').textContent)
@@ -160,6 +160,37 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelector('[data-mini-review-unit]').textContent)
             .toContain('001 · Ana Perez · 8 h');
         expectEveryActionButtonToHaveText(host);
+    });
+
+    test('shows ready and attention groups with direct and queued review actions', () => {
+        const attendance = { [`e2-${DATE}`]: existingMulti() };
+        const { host } = enterReview(
+            '001. Ana Perez *8h* 002. <img src=x> Luis Garcia *9h* ' +
+            '777. Persona inexistente *6h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(2);
+        expect(host.textContent).toContain('SA necesita una decisión');
+        expect(host.querySelector('[data-mini-action="edit-attention"]').textContent)
+            .toBe('Resolver');
+        expect(host.querySelector('[data-mini-action="ignore-attention"]').textContent)
+            .toBe('Ignorar');
+        expect(host.querySelector('[data-mini-action="review-all-attention"]').textContent)
+            .toBe('Revisar todos los pendientes (2)');
+
+        host.querySelector('[data-mini-action="edit-attention"]').click();
+        expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-review-unit]').textContent).toContain('002 ·');
+        host.querySelector('[data-mini-action="back-review"]').click();
+        expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(2);
+
+        host.querySelector('[data-mini-action="review-all-attention"]').click();
+        expect(host.querySelector('[data-mini-review-progress]').textContent)
+            .toContain('Empleado 1 de 2');
     });
 
     test('accepts safe rows and skips them while unresolved people continue individually', () => {

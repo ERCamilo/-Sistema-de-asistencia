@@ -1012,6 +1012,46 @@
     min-width: 0;
 }
 
+.mini-import-reconciliation-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.mini-import-reconciliation-heading h4 {
+    margin: 0;
+    color: #e2e8f0;
+}
+
+.mini-import-reconciliation-heading span {
+    color: #94a3b8;
+    font-size: 0.75rem;
+}
+
+.mini-import-attention-table-wrap {
+    display: grid;
+    gap: 10px;
+}
+
+.mini-import-attention-table td:nth-child(4) {
+    min-width: 190px;
+    color: #fde68a;
+}
+
+.mini-import-attention-table .mini-import-action {
+    min-width: 104px;
+}
+
+.mini-import-empty-table {
+    margin: 0;
+    padding: 12px;
+    border: 1px dashed #475569;
+    border-radius: 9px;
+    color: #94a3b8;
+}
+
 .mini-import-review-summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
