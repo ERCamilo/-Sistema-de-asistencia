@@ -101,7 +101,11 @@ export class MiniAttendanceImportModal {
         this.applyStatus = 'idle';
         this.applyResult = null;
         this.applyError = null;
-        this.reviewFilter = 'needsAttention';
+        this.reviewStep = 'individual';
+        this.reviewPageIndex = 0;
+        this.automaticReviewKeys = [];
+        this.automaticReviewChoices = new Map();
+        this.individualReviewKeys = [];
         this.stage = 'paste';
         this.source = '';
         this.parsed = null;
@@ -192,7 +196,22 @@ export class MiniAttendanceImportModal {
         if (!this.canContinue()) return;
         this.resetApplyState();
         this.stage = 'review';
+        this.reviewPageIndex = 0;
         this.rebuildConflictPlan();
+        const view = this.buildReviewView();
+        const safeIndexes = new Set(view.safeBulkSourceIndexes);
+        const automaticItems = view.items.filter(item =>
+            item.sourceIndexes.length > 0 &&
+            item.sourceIndexes.every(sourceIndex => safeIndexes.has(sourceIndex))
+        );
+        this.automaticReviewKeys = automaticItems.map(item => this.reviewItemKey(item));
+        this.automaticReviewChoices = new Map(
+            this.automaticReviewKeys.map(key => [key, 'accept'])
+        );
+        this.reviewStep = automaticItems.length ? 'automatic' : 'individual';
+        this.individualReviewKeys = automaticItems.length
+            ? []
+            : view.items.map(item => this.reviewItemKey(item));
         if (typeof this.onContinue === 'function') this.onContinue(this.draft);
         this.render();
     }
@@ -204,8 +223,17 @@ export class MiniAttendanceImportModal {
             this.draft.rows.every(row => row.sourceRow.errors.length === 0);
     }
 
+    syncModalLayout() {
+        const shell = this.modal?.element?.querySelector('[data-modal-container]');
+        const reviewing = this.stage === 'review';
+        shell?.classList.toggle('mini-attendance-review-shell', reviewing);
+        this.modal?.element?.classList.toggle('mini-attendance-review-overlay', reviewing);
+        if (reviewing && this.modal?.element) this.modal.element.scrollTop = 0;
+    }
+
     render() {
         if (!this.host) return;
+        this.syncModalLayout();
         const root = element('section', null, {
             className: 'mini-attendance-import',
             dataset: { miniStage: this.stage },
@@ -480,7 +508,12 @@ export class MiniAttendanceImportModal {
         if (remember && employeeId) {
             this.rememberSelectedMatch(item, employeeId);
         }
+        if (this.automaticReviewKeys.includes(this.reviewItemKey(item))) {
+            this.automaticReviewChoices.set(this.reviewItemKey(item), 'accept');
+        }
+        this.advanceReviewPageAfter(item.id);
         this.render();
+        this.resetReviewViewport();
     }
 
     async rememberSelectedMatch(item, employeeId) {
@@ -524,7 +557,9 @@ export class MiniAttendanceImportModal {
             `${occurrence?.number} · ${occurrence?.name} fue excluido de esta importación.`,
             'info'
         );
+        this.clampReviewPage();
         this.render();
+        this.resetReviewViewport();
     }
 
     requestIgnoreReviewUnit(item) {
@@ -571,23 +606,39 @@ export class MiniAttendanceImportModal {
     }
 
     confirmReviewUnit(item, container) {
+        if (!this.isReviewUnitComplete(item, container)) return;
         this.acceptReviewUnit(item, container);
     }
 
-    confirmSafeMatches() {
-        const view = buildMiniAttendanceReviewViewModel({
-            draft: this.draft,
-            conflictPlan: this.conflictPlan,
-            employees: this.employees,
-            positions: this.positions
+    acceptAutomaticMatches(container) {
+        const view = this.buildReviewView();
+        const automaticItems = this.automaticReviewItems(view);
+        automaticItems.forEach(item => {
+            const key = this.reviewItemKey(item);
+            const choice = container.querySelector(
+                `[data-mini-auto-choice="${key}"]:checked`
+            )?.value || 'accept';
+            this.automaticReviewChoices.set(key, choice);
+            item.sourceIndexes.forEach(sourceIndex => {
+                this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, {
+                    approved: choice === 'accept'
+                });
+            });
         });
-        view.safeBulkSourceIndexes.forEach(sourceIndex => {
-            this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, { approved: true });
-        });
-        if (!view.safeBulkSourceIndexes.length) return;
+        if (!automaticItems.length) return;
         this.resetApplyState();
         this.rebuildConflictPlan();
+        const nextView = this.buildReviewView();
+        this.reviewStep = 'individual';
+        this.individualReviewKeys = nextView.items
+            .filter(item => !item.confirmed)
+            .map(item => this.reviewItemKey(item));
+        this.reviewPageIndex = 0;
         this.render();
+        this.resetReviewViewport();
+        if (!this.individualReviewKeys.length && !this.conflictPlan.hasBlockingIssues) {
+            void this.applyCurrentPlan();
+        }
     }
 
     async applyCurrentPlan() {
@@ -618,61 +669,285 @@ export class MiniAttendanceImportModal {
         return this.positions.find(position => position.id === positionId)?.name || positionId;
     }
 
-    renderReview() {
-        const section = element('div', null, { className: 'mini-import-review' });
-        const back = actionButton('Volver a fecha y horas', 'back-setup');
-        back.addEventListener('click', () => {
-            this.stage = 'setup';
-            this.render();
-        });
-        section.append(
-            back,
-            element('p', modeLabel(this.draft.allocationMode), {
-                dataset: { miniCurrentMode: '' }
-            }),
-            element('h3', 'Revisar asistencia')
-        );
-        const view = buildMiniAttendanceReviewViewModel({
+    buildReviewView() {
+        return buildMiniAttendanceReviewViewModel({
             draft: this.draft,
             conflictPlan: this.conflictPlan,
             employees: this.employees,
             positions: this.positions
         });
-        const summary = element('div', null, {
-            className: 'mini-import-review-summary',
+    }
+
+    reviewItemKey(item) {
+        return [...item.sourceIndexes].sort((left, right) => left - right).join('-');
+    }
+
+    automaticReviewItems(view = this.buildReviewView()) {
+        const keys = new Set(this.automaticReviewKeys);
+        return view.items.filter(item => keys.has(this.reviewItemKey(item)));
+    }
+
+    visibleReviewItems(view = this.buildReviewView()) {
+        const keys = new Set(this.individualReviewKeys);
+        return view.items.filter(item => keys.has(this.reviewItemKey(item)));
+    }
+
+    clampReviewPage(view = this.buildReviewView()) {
+        const items = this.visibleReviewItems(view);
+        this.reviewPageIndex = items.length
+            ? Math.min(Math.max(this.reviewPageIndex, 0), items.length - 1)
+            : 0;
+        return items;
+    }
+
+    resetReviewViewport() {
+        const modalBody = this.host?.closest('.modal-body');
+        if (modalBody) modalBody.scrollTop = 0;
+        if (this.modal?.element) this.modal.element.scrollTop = 0;
+    }
+
+    showAutomaticReview() {
+        if (!this.automaticReviewKeys.length) {
+            this.stage = 'setup';
+        } else {
+            this.reviewStep = 'automatic';
+        }
+        this.reviewPageIndex = 0;
+        this.render();
+        this.resetReviewViewport();
+    }
+
+    setReviewPage(index) {
+        const items = this.visibleReviewItems();
+        if (!items.length) return;
+        this.reviewPageIndex = Math.min(Math.max(index, 0), items.length - 1);
+        this.render();
+        this.resetReviewViewport();
+    }
+
+    advanceReviewPageAfter(reviewItemId) {
+        const items = this.visibleReviewItems();
+        const retainedIndex = items.findIndex(item => item.id === reviewItemId);
+        if (retainedIndex >= 0 && retainedIndex < items.length - 1) {
+            this.reviewPageIndex = retainedIndex + 1;
+            return;
+        }
+        this.reviewPageIndex = items.length
+            ? Math.min(this.reviewPageIndex, items.length - 1)
+            : 0;
+    }
+
+    isReviewUnitComplete(model, container) {
+        if (model.confirmed) return false;
+        const employeeId = container.querySelector('[data-mini-employee]')?.value || '';
+        const employee = this.employees.find(candidate => candidate.id === employeeId);
+        if (!employee) return false;
+        const normalHours = Number(container.querySelector('[data-mini-normal]')?.value);
+        const overtimeHours = Number(container.querySelector('[data-mini-overtime]')?.value);
+        const validHours = [normalHours, overtimeHours].every(value =>
+            Number.isFinite(value) && value >= 0
+        ) && normalHours + overtimeHours > 0 && normalHours + overtimeHours <= 24;
+        if (!validHours) return false;
+        const availablePositionIds = (employee.positions || [])
+            .filter(positionId => this.positions.some(position => position.id === positionId));
+        const selectedPosition = container
+            .querySelector('[data-mini-target-position-option]:checked')?.value;
+        const selectedDecision = container
+            .querySelector('[data-mini-attendance-source]:checked')?.value;
+        const requiresPosition = model.existingBreakdown.length === 0 ||
+            selectedDecision === 'use_imported';
+        if (requiresPosition && availablePositionIds.length > 0 &&
+            !availablePositionIds.includes(selectedPosition)) {
+            return false;
+        }
+        if (model.existingBreakdown.length > 0 &&
+            !selectedDecision) {
+            return false;
+        }
+        return true;
+    }
+
+    renderReview() {
+        const section = element('div', null, { className: 'mini-import-review' });
+        const back = actionButton('Volver', 'back-review');
+        back.classList.add('mini-import-action-secondary');
+        back.addEventListener('click', () => {
+            if (this.reviewStep === 'automatic') {
+                this.stage = 'setup';
+                this.render();
+                return;
+            }
+            this.showAutomaticReview();
+        });
+        section.append(back, element('p', modeLabel(this.draft.allocationMode), {
+            dataset: { miniCurrentMode: '' }
+        }));
+        const view = this.buildReviewView();
+        if (this.reviewStep === 'automatic' && this.automaticReviewKeys.length) {
+            section.append(this.renderAutomaticReview(view));
+            return section;
+        }
+        section.append(this.renderIndividualReview(view));
+        return section;
+    }
+
+    renderAutomaticReview(view) {
+        const panel = element('section', null, {
+            className: 'mini-import-automatic-review',
+            dataset: { miniAutomaticReview: '' }
+        });
+        const automaticItems = this.automaticReviewItems(view);
+        panel.append(
+            element('h3', 'Confirmaciones automáticas'),
+            element(
+                'p',
+                'Estas personas tienen una coincidencia clara o recordada, no poseen horas ' +
+                    'registradas en SA y solo tienen un cargo disponible. Puedes aceptarlas ' +
+                    'o marcar las que quieras modificar.',
+                { className: 'mini-import-help' }
+            )
+        );
+        const table = element('table', null, {
+            className: 'mini-import-rows mini-import-auto-table',
+            dataset: { miniAutomaticTable: '' }
+        });
+        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Cargo', 'Decisión'];
+        const head = element('thead');
+        const headingRow = element('tr');
+        labels.forEach(label => headingRow.append(element('th', label, { scope: 'col' })));
+        head.append(headingRow);
+        const body = element('tbody');
+        automaticItems.forEach(item => {
+            const occurrence = item.occurrences[0] || {};
+            const key = this.reviewItemKey(item);
+            const row = element('tr', null, {
+                dataset: { miniAutomaticRow: key }
+            });
+            const miniIdentity = `${occurrence.number} · ${occurrence.name}`;
+            const localIdentity = item.employee
+                ? `${item.employee.number} · ${item.employee.name}`
+                : 'Sin empleado';
+            const totalHours = item.allocation.normalHours + item.allocation.overtimeHours;
+            const position = item.targetPositionOptions.find(option =>
+                option.id === item.targetPositionId
+            ) || item.targetPositionOptions[0];
+            const decision = element('div', null, {
+                className: 'mini-import-segmented mini-import-auto-choice',
+                role: 'radiogroup',
+                'aria-label': `Decisión para ${miniIdentity}`
+            });
+            [
+                ['accept', 'Aceptar'],
+                ['modify', 'Modificar']
+            ].forEach(([value, labelText]) => {
+                const id = `mini-auto-${this.controlId}-${key}-${value}`;
+                const label = element('label', null, { htmlFor: id });
+                label.append(
+                    element('input', null, {
+                        id,
+                        type: 'radio',
+                        name: `mini-auto-${this.controlId}-${key}`,
+                        value,
+                        checked: (this.automaticReviewChoices.get(key) || 'accept') === value,
+                        dataset: { miniAutoChoice: key }
+                    }),
+                    element('span', labelText)
+                );
+                decision.append(label);
+            });
+            const values = [
+                miniIdentity,
+                localIdentity,
+                `${totalHours} h`,
+                position?.name || 'Sin cargo',
+                decision
+            ];
+            values.forEach((value, index) => {
+                const cell = element('td', null, { dataset: { label: labels[index] } });
+                if (value instanceof Node) cell.append(value);
+                else cell.textContent = value;
+                row.append(cell);
+            });
+            body.append(row);
+        });
+        table.append(head, body);
+        panel.append(table);
+        const attentionCount = view.items
+            .filter(item => !this.automaticReviewKeys.includes(this.reviewItemKey(item)) &&
+                !item.confirmed)
+            .length;
+        const note = element(
+            'p',
+            attentionCount
+                ? `${attentionCount} empleado${attentionCount === 1 ? '' : 's'} ` +
+                    `${attentionCount === 1 ? 'pasará' : 'pasarán'} a ` +
+                    'revisión individual después de aceptar esta tabla.'
+                : 'Si aceptas todas las filas, las horas se aplicarán inmediatamente.',
+            { className: 'mini-import-next-action', dataset: { miniAutomaticHint: '' } }
+        );
+        const accept = actionButton('', 'accept-automatic');
+        accept.classList.add('mini-import-action-primary');
+        const syncLabel = () => {
+            const modifyCount = panel.querySelectorAll(
+                '[data-mini-auto-choice]:checked[value="modify"]'
+            ).length;
+            accept.textContent = !attentionCount && !modifyCount
+                ? 'Aceptar y aplicar horas'
+                : 'Aceptar selección y continuar';
+        };
+        panel.addEventListener('change', syncLabel);
+        accept.addEventListener('click', () => this.acceptAutomaticMatches(panel));
+        syncLabel();
+        panel.append(note, accept);
+        return panel;
+    }
+
+    renderIndividualReview(view) {
+        const section = element('section', null, {
+            className: 'mini-import-individual-review',
+            dataset: { miniIndividualReview: '' }
+        });
+        const summary = element('p', null, {
+            className: 'mini-import-review-summary-line',
             dataset: { miniReviewSummary: '' }
         });
-        [
-            `Personas ${view.summary.total}`,
-            `Claras ${view.summary.ready}`,
-            `Atención ${view.summary.needsAttention}`,
-            `Confirmadas ${view.summary.confirmed}`,
-            `Ignoradas ${view.summary.ignored}`
-        ].forEach(value => summary.append(element('span', value)));
-        const filters = element('div', null, { className: 'mini-import-review-filters' });
-        [
-            ['needsAttention', 'Necesitan atención'],
-            ['all', 'Todos']
-        ].forEach(([filter, label]) => {
-            const button = actionButton(label, `filter-${filter}`);
-            button.dataset.miniReviewFilter = filter;
-            button.setAttribute('aria-pressed', String(this.reviewFilter === filter));
-            button.addEventListener('click', () => {
-                this.reviewFilter = filter;
-                this.render();
+        summary.textContent = `${view.summary.total} personas · ` +
+            `${view.summary.needsAttention} ` +
+            `${view.summary.needsAttention === 1 ? 'requiere' : 'requieren'} atención · ` +
+            `${view.summary.confirmed} confirmadas · ${view.summary.ignored} ignoradas`;
+        section.append(element('h3', 'Revisión individual'), summary);
+        const visibleItems = this.clampReviewPage(view);
+        if (visibleItems.length) {
+            const currentIndex = this.reviewPageIndex;
+            const currentItem = visibleItems[currentIndex];
+            const progress = element('div', null, {
+                className: 'mini-import-review-progress',
+                dataset: { miniReviewProgress: '' }
             });
-            filters.append(button);
-        });
-        const bulk = actionButton(
-            `Confirmar coincidencias claras (${view.safeBulkSourceIndexes.length})`,
-            'confirm-safe',
-            view.safeBulkSourceIndexes.length === 0
-        );
-        bulk.addEventListener('click', () => this.confirmSafeMatches());
-        section.append(summary, filters, bulk);
-        const visibleItems = this.reviewFilter === 'all'
-            ? view.items : view.items.filter(item => item.needsAttention);
-        visibleItems.forEach(item => section.append(this.renderReviewUnit(item)));
+            progress.append(
+                element('strong', `Empleado ${currentIndex + 1} de ${visibleItems.length}`),
+                element('span', currentItem.confirmed ? 'Completo' : 'Pendiente')
+            );
+            section.append(
+                progress,
+                this.renderReviewUnit(currentItem)
+            );
+            const navigation = element('nav', null, {
+                className: 'mini-import-review-navigation',
+                dataset: { miniReviewNavigation: '' },
+                'aria-label': 'Navegación entre empleados'
+            });
+            const previous = actionButton('Anterior', 'previous-unit', currentIndex === 0);
+            previous.addEventListener('click', () => this.setReviewPage(currentIndex - 1));
+            const next = actionButton(
+                'Siguiente',
+                'next-unit',
+                currentIndex === visibleItems.length - 1 || !currentItem.confirmed
+            );
+            next.addEventListener('click', () => this.setReviewPage(currentIndex + 1));
+            navigation.append(previous, next);
+            section.append(navigation);
+        }
         if (!visibleItems.length) {
             const empty = element('div', null, {
                 className: 'mini-import-review-empty',
@@ -680,16 +955,8 @@ export class MiniAttendanceImportModal {
             });
             empty.append(element(
                 'p',
-                'No hay elementos que necesiten atención. ' +
-                'Puedes confirmar las coincidencias claras o ver todos los registros.'
+                'La revisión está completa. Comprueba el resumen y aplica la asistencia.'
             ));
-            const showAll = actionButton('Ver todos', 'filter-all-empty');
-            showAll.dataset.miniReviewFilter = 'all';
-            showAll.addEventListener('click', () => {
-                this.reviewFilter = 'all';
-                this.render();
-            });
-            empty.append(showAll);
             section.append(empty);
         }
         const locked = this.applyStatus === 'pending' || this.applyStatus === 'success';
@@ -698,13 +965,19 @@ export class MiniAttendanceImportModal {
                 control.disabled = true;
             });
         }
-        const apply = actionButton(
-            this.applyStatus === 'error' ? 'Reintentar aplicación' : 'Aplicar asistencia revisada',
-            'apply',
-            this.conflictPlan.hasBlockingIssues || locked
-        );
-        apply.addEventListener('click', () => this.applyCurrentPlan());
-        section.append(apply);
+        const reviewComplete = visibleItems.length === 0 ||
+            visibleItems.every(item => item.confirmed);
+        if (reviewComplete || this.applyStatus !== 'idle') {
+            const apply = actionButton(
+                this.applyStatus === 'error'
+                    ? 'Reintentar aplicación'
+                    : 'Aplicar asistencia revisada',
+                'apply',
+                this.conflictPlan.hasBlockingIssues || locked
+            );
+            apply.addEventListener('click', () => this.applyCurrentPlan());
+            section.append(apply);
+        }
         const status = this.renderApplyStatus();
         if (status) section.append(status);
         return section;
@@ -738,9 +1011,11 @@ export class MiniAttendanceImportModal {
             className: `mini-import-review-unit${model.confirmed ? ' is-confirmed' : ''}`,
             dataset: { miniReviewUnit: model.id }
         });
-        const identity = element('div', null, { className: 'mini-import-unit-identity' });
+        const identity = element('div', null, {
+            className: 'mini-import-identity-card mini-import-identity-source'
+        });
         identity.append(element('strong', model.probableDuplicate
-            ? 'Apariciones detectadas en Mini' : 'Identidad en Mini'));
+            ? 'Apariciones en Mini' : 'Mini'));
         if (model.probableDuplicate) {
             identity.append(element(
                 'small',
@@ -762,6 +1037,34 @@ export class MiniAttendanceImportModal {
                 selected: model.employee?.id === employee.id
             }));
         });
+        const localPosition = element('small', '', {
+            dataset: { miniLocalPosition: '' }
+        });
+        const localHours = element(
+            'p',
+            `${model.allocation.normalHours + model.allocation.overtimeHours} h importadas`
+        );
+        const localIdentity = element('div', null, {
+            className: 'mini-import-identity-card mini-import-identity-local'
+        });
+        localIdentity.append(
+            element('strong', 'SA'),
+            employeeSelect,
+            localHours,
+            localPosition
+        );
+        const identityMap = element('div', null, {
+            className: 'mini-import-identity-map',
+            dataset: { miniIdentityMap: '' }
+        });
+        identityMap.append(
+            identity,
+            element('span', '→', {
+                className: 'mini-import-identity-arrow',
+                'aria-hidden': 'true'
+            }),
+            localIdentity
+        );
         const normal = element('input', null, {
             type: 'number',
             min: 0,
@@ -780,6 +1083,30 @@ export class MiniAttendanceImportModal {
             dataset: { miniOvertime: '' },
             'aria-label': 'Horas extra'
         });
+        const buildHourControl = (labelText, input, kind) => {
+            const controls = element('div', null, {
+                className: 'mini-import-hour-stepper',
+                dataset: { miniHourStepper: kind }
+            });
+            const decrease = element('button', '−', {
+                type: 'button',
+                className: 'mini-import-hour-step',
+                dataset: { miniHourAdjust: '-0.25' },
+                'aria-label': `Restar 15 minutos a ${labelText.toLowerCase()}`
+            });
+            const increase = element('button', '+', {
+                type: 'button',
+                className: 'mini-import-hour-step',
+                dataset: { miniHourAdjust: '0.25' },
+                'aria-label': `Agregar 15 minutos a ${labelText.toLowerCase()}`
+            });
+            controls.append(decrease, input, increase);
+            const field = element('div', null, { className: 'mini-import-hour-field' });
+            field.append(element('span', labelText), controls);
+            return field;
+        };
+        const normalControl = buildHourControl('Horas normales', normal, 'normal');
+        const overtimeControl = buildHourControl('Horas extra', overtime, 'overtime');
         const positionChoices = element('fieldset', null, {
             className: 'mini-import-segmented-field',
             dataset: { miniTargetPosition: '' },
@@ -791,6 +1118,7 @@ export class MiniAttendanceImportModal {
             role: 'radiogroup',
             'aria-label': 'Cargo desempeñado'
         });
+        let syncCompletion = () => {};
         const renderPositionSegments = (employeeId, preferredPositionId = null) => {
             const employee = this.employees.find(candidate => candidate.id === employeeId);
             const positionIds = Array.isArray(employee?.positions) ? employee.positions : [];
@@ -816,10 +1144,24 @@ export class MiniAttendanceImportModal {
                 positionSegments.append(label);
             });
             positionChoices.hidden = options.length === 0;
+            const selected = positionSegments
+                .querySelector('[data-mini-target-position-option]:checked')?.value;
+            localPosition.textContent = selected
+                ? this.positionName(selected)
+                : options.length ? 'Selecciona un cargo' : 'Sin cargo disponible';
+            syncCompletion();
         };
         renderPositionSegments(model.employee?.id, model.targetPositionId);
         employeeSelect.addEventListener('change', () => {
             renderPositionSegments(employeeSelect.value);
+        });
+        positionSegments.addEventListener('change', () => {
+            const selected = positionSegments
+                .querySelector('[data-mini-target-position-option]:checked')?.value;
+            localPosition.textContent = selected
+                ? this.positionName(selected)
+                : 'Selecciona un cargo';
+            syncCompletion();
         });
         positionChoices.append(positionSegments);
 
@@ -871,9 +1213,17 @@ export class MiniAttendanceImportModal {
             hidden: model.existingBreakdown.length < 2 || model.decision?.action !== 'use_imported'
         });
         decisionSegments.addEventListener('change', () => {
+            const modalBody = container.closest('.modal-body');
+            const overlay = container.closest('[data-modal-overlay]');
+            const previousScrollTop = modalBody?.scrollTop;
             const useMini = decisionSegments
                 .querySelector('[data-mini-attendance-source]:checked')?.value === 'use_imported';
             collapse.hidden = model.existingBreakdown.length < 2 || !useMini;
+            if (overlay) overlay.scrollTop = 0;
+            if (modalBody && Number.isFinite(previousScrollTop)) {
+                modalBody.scrollTop = previousScrollTop;
+            }
+            syncCompletion();
         });
         const remember = element('label', null, {
             className: 'mini-import-remember',
@@ -891,35 +1241,71 @@ export class MiniAttendanceImportModal {
             hidden: !model.rememberedMatch,
             dataset: { miniRememberedMatch: '' }
         });
-        const confirm = actionButton('Aceptar', 'confirm-unit',
-            model.confirmation.action === 'none');
+        const completionHint = element('p', model.nextAction, {
+            className: model.needsAttention ? 'mini-import-next-action attention'
+                : 'mini-import-next-action',
+            dataset: { miniNextAction: '', miniCompletionHint: '' }
+        });
+        const confirmLabel = model.confirmed
+            ? 'Confirmado'
+            : 'Guardar selección';
+        const confirm = actionButton(confirmLabel, 'confirm-unit', model.confirmed);
+        confirm.classList.add('mini-import-action-primary');
         confirm.addEventListener('click', () => this.confirmReviewUnit(model, container));
         const ignore = actionButton('Ignorar en esta importación', 'ignore-unit', false);
         ignore.classList.add('mini-import-action-secondary');
         ignore.hidden = !model.canIgnore;
         ignore.addEventListener('click', () => this.requestIgnoreReviewUnit(model));
+        const choiceControls = element('div', null, {
+            className: 'mini-import-review-choices'
+        });
+        choiceControls.append(positionChoices, decisionField);
+        const hourControls = element('div', null, {
+            className: 'mini-import-review-hours'
+        });
+        hourControls.append(normalControl, overtimeControl);
+        const reviewControls = element('div', null, {
+            className: 'mini-import-review-controls'
+        });
+        reviewControls.append(choiceControls, hourControls);
+        const actions = element('div', null, {
+            className: 'mini-import-unit-actions'
+        });
+        actions.append(confirm, ignore);
         container.append(
-            identity,
-            element('label', 'Empleado SA'),
-            employeeSelect,
-            element('label', 'Horas normales'),
-            normal,
-            element('label', 'Horas extra'),
-            overtime,
-            positionChoices,
+            identityMap,
             existing,
-            decisionField,
+            reviewControls,
             collapse,
             remember,
             remembered,
-            element('p', model.nextAction, {
-                className: model.needsAttention ? 'mini-import-next-action attention'
-                    : 'mini-import-next-action',
-                dataset: { miniNextAction: '' }
-            }),
-            confirm,
-            ignore
+            completionHint,
+            actions
         );
+        syncCompletion = () => {
+            const complete = this.isReviewUnitComplete(model, container);
+            confirm.disabled = model.confirmed || !complete;
+            localHours.textContent = `${Number(normal.value) + Number(overtime.value)} h importadas`;
+            completionHint.textContent = complete
+                ? model.nextAction
+                : 'Completa el empleado, las horas y el cargo antes de continuar.';
+            completionHint.classList.toggle('attention', !complete || model.needsAttention);
+        };
+        normal.addEventListener('input', syncCompletion);
+        overtime.addEventListener('input', syncCompletion);
+        container.querySelectorAll('[data-mini-hour-adjust]').forEach(button => {
+            button.addEventListener('click', () => {
+                const input = button.closest('[data-mini-hour-stepper]')?.querySelector('input');
+                if (!input) return;
+                const next = Math.min(
+                    24,
+                    Math.max(0, Number(input.value || 0) + Number(button.dataset.miniHourAdjust))
+                );
+                input.value = String(Math.round(next * 100) / 100);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+        });
+        syncCompletion();
         return container;
     }
 }

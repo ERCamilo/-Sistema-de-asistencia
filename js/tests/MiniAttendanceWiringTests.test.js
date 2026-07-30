@@ -9,6 +9,8 @@ const readSource = relativePath =>
 const appSource = readSource('app.js');
 const serviceWorkerSource = readSource('../sw.js');
 const attendanceStyles = readSource('../css/attendance_ui.css');
+const modalSource = readSource('modules/ui/modals/MiniAttendanceImportModal.js');
+const aliasStoreSource = readSource('modules/services/MiniAttendanceAliasStore.js');
 
 describe('Mini attendance day-view integration', () => {
     let originalEmployees;
@@ -73,6 +75,15 @@ describe('Mini attendance day-view integration', () => {
         });
     });
 
+    test('keeps the Mini review and remembered matches available without Google login', () => {
+        expect(appSource).toMatch(
+            /window\.currentUser\?\.uid\s*\|\|\s*getLocalOwnerUid\(\)\s*\|\|\s*['"]local-device['"]/
+        );
+        expect(aliasStoreSource).toContain("import indexedDBService from './IndexedDBService.js'");
+        expect(aliasStoreSource).toContain("const ALIASES = 'miniAttendanceAliases'");
+        expect(modalSource).not.toMatch(/firebase-auth|GoogleAuthProvider|signInWithPopup/);
+    });
+
     test('launcher and modal workflow have compact responsive styles', () => {
         expect(attendanceStyles).toMatch(/\.attendance-bulk-btn-mini\s*\{/);
         expect(attendanceStyles).toMatch(
@@ -85,6 +96,18 @@ describe('Mini attendance day-view integration', () => {
             /\.attendance-bulk-actions\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/
         );
         expect(attendanceStyles).toMatch(/\.mini-import-action\s*\{/);
+        expect(attendanceStyles).toMatch(
+            /\.modal-container\.mini-attendance-review-shell\s*\{[\s\S]*?height:\s*min\(90vh,\s*900px\);/
+        );
+        expect(attendanceStyles).toMatch(/\.mini-import-review-progress\s*\{/);
+        expect(attendanceStyles).toMatch(/\.mini-import-review-navigation\s*\{/);
+        expect(attendanceStyles).toMatch(/\.mini-import-automatic-review\s*,/);
+        expect(attendanceStyles).toMatch(/\.mini-import-identity-map\s*\{/);
+        expect(attendanceStyles).toMatch(/\.mini-import-review-controls\s*\{/);
+        expect(attendanceStyles).toMatch(/\.mini-import-hour-stepper\s*\{/);
+        expect(attendanceStyles).toMatch(
+            /\.mini-import-action\[hidden\]\s*\{[\s\S]*?display:\s*none;/
+        );
         expect(attendanceStyles).toMatch(/\.mini-import-review-row\s*,\s*\.mini-import-conflict-row/);
         expect(attendanceStyles).toContain('.mini-import-setup input[type="date"]');
         expect(attendanceStyles).toContain('.mini-import-review input[type="number"]');

@@ -801,6 +801,28 @@
     color: #e2e8f0;
 }
 
+.modal-container.mini-attendance-review-shell {
+    height: min(90vh, 900px);
+    max-height: min(90vh, 900px);
+}
+
+.modal-overlay.mini-attendance-review-overlay {
+    overflow: hidden;
+    overflow: clip;
+    overscroll-behavior: none;
+}
+
+.mini-attendance-review-shell > .modal-body {
+    overscroll-behavior: contain;
+}
+
+@supports (height: 100dvh) {
+    .modal-container.mini-attendance-review-shell {
+        height: min(90dvh, 900px);
+        max-height: min(90dvh, 900px);
+    }
+}
+
 .mini-import-paste textarea,
 .mini-import-setup input[type="date"],
 .mini-import-review input[type="number"],
@@ -970,9 +992,29 @@
     background: rgba(15, 23, 42, 0.65);
 }
 
+.mini-import-review-unit {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.mini-import-automatic-review,
+.mini-import-individual-review {
+    display: grid;
+    gap: 12px;
+}
+
+.mini-import-auto-table .mini-import-auto-choice {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+}
+
+.mini-import-auto-table .mini-import-auto-choice label {
+    min-width: 0;
+}
+
 .mini-import-review-summary {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
 }
 
@@ -984,6 +1026,47 @@
     text-align: center;
     font-size: 0.78rem;
     font-weight: 700;
+}
+
+.mini-import-review-summary-line {
+    margin: -4px 0 0;
+    color: #94a3b8;
+    font-size: 0.78rem;
+}
+
+.mini-import-review-progress {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 14px;
+    border: 1px solid rgba(34, 211, 238, 0.34);
+    border-radius: 10px;
+    background: rgba(8, 47, 73, 0.32);
+}
+
+.mini-import-review-progress strong {
+    color: #ecfeff;
+}
+
+.mini-import-review-progress span {
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.72);
+    color: #a5f3fc;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.mini-import-review-navigation {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.mini-import-review-navigation .mini-import-action {
+    width: 100%;
+    justify-self: stretch;
 }
 
 .mini-import-review-filters {
@@ -1001,6 +1084,128 @@
 .mini-import-review-unit.is-confirmed {
     border-color: rgba(34, 197, 94, 0.42);
     opacity: 0.82;
+}
+
+.mini-import-identity-map {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: 12px;
+}
+
+.mini-import-identity-card {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: rgba(2, 6, 23, 0.48);
+}
+
+.mini-import-identity-card > strong {
+    display: block;
+    margin-bottom: 7px;
+    color: #a5f3fc;
+}
+
+.mini-import-identity-card p,
+.mini-import-identity-card small {
+    display: block;
+    margin: 6px 0 0;
+    color: #cbd5e1;
+}
+
+.mini-import-identity-local select {
+    width: 100%;
+}
+
+.mini-import-identity-arrow {
+    align-self: center;
+    color: #22d3ee;
+    font-size: 1.7rem;
+    font-weight: 700;
+}
+
+.mini-import-review-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(210px, 0.75fr);
+    align-items: start;
+    gap: 14px;
+}
+
+.mini-import-review-choices,
+.mini-import-review-hours {
+    display: grid;
+    gap: 12px;
+}
+
+.mini-import-review-choices .mini-import-segmented-field {
+    grid-column: auto;
+}
+
+.mini-import-hour-field {
+    display: grid;
+    grid-template-columns: minmax(105px, 1fr) minmax(150px, 0.9fr);
+    align-items: center;
+    gap: 10px;
+}
+
+.mini-import-hour-field > span {
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.mini-import-hour-stepper {
+    display: grid;
+    grid-template-columns: 40px minmax(62px, 1fr) 40px;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid #334155;
+    border-radius: 9px;
+    background: #0f172a;
+}
+
+.mini-import-hour-stepper input[type="number"] {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #2dd4bf;
+    text-align: center;
+    font-weight: 800;
+    appearance: textfield;
+}
+
+.mini-import-hour-stepper input[type="number"]::-webkit-inner-spin-button,
+.mini-import-hour-stepper input[type="number"]::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
+}
+
+.mini-import-hour-step {
+    min-height: 42px;
+    border: 0;
+    background: rgba(30, 41, 59, 0.82);
+    color: #94a3b8;
+    font: inherit;
+    font-size: 1.05rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.mini-import-hour-step:hover,
+.mini-import-hour-step:focus-visible {
+    background: #164e63;
+    color: #ecfeff;
+    outline: 2px solid #67e8f9;
+    outline-offset: -2px;
+}
+
+.mini-import-unit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
 .mini-import-review-empty {
@@ -1151,6 +1356,10 @@
     transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
 }
 
+.mini-import-action[hidden] {
+    display: none;
+}
+
 .mini-import-action:hover:not(:disabled),
 .mini-import-action:focus-visible {
     border-color: #22d3ee;
@@ -1260,6 +1469,20 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .mini-import-review-navigation {
+        grid-template-columns: 1fr;
+    }
+
+    .mini-import-identity-map,
+    .mini-import-review-controls {
+        grid-template-columns: 1fr;
+    }
+
+    .mini-import-identity-arrow {
+        justify-self: center;
+        transform: rotate(90deg);
+    }
+
     .mini-import-segmented {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1325,8 +1548,19 @@
         justify-self: stretch;
     }
 
+    .mini-import-unit-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
     .mini-import-paste textarea {
         min-height: 140px;
+    }
+}
+
+@media (max-width: 480px) {
+    .mini-import-hour-field {
+        grid-template-columns: 1fr;
     }
 }
 

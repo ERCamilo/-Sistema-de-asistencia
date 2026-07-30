@@ -22,11 +22,12 @@ function enterReview(applyPlan) {
     host.querySelector('[data-mini-action="analyze"]').click();
     host.querySelector('[data-mini-action="confirm-date"]').click();
     host.querySelector('[data-mini-action="continue"]').click();
+    host.querySelector('[data-mini-auto-choice][value="modify"]').click();
+    host.querySelector('[data-mini-action="accept-automatic"]').click();
     return { controller, host };
 }
 
 function approveRow(host) {
-    host.querySelector('[data-mini-review-filter="all"]').click();
     const unit = host.querySelector('[data-mini-review-unit]');
     unit.querySelector('[data-mini-action="confirm-unit"]').click();
 }
@@ -79,8 +80,8 @@ describe('Mini attendance import async apply UI', () => {
         expect(host.querySelector('[data-mini-apply-status]').textContent)
             .toContain('Aplicando');
         expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(true);
-        expect(host.querySelector('[data-mini-action="confirm-safe"]').disabled).toBe(true);
-        expect([...host.querySelectorAll('[data-mini-review-filter]')])
+        expect(host.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(true);
+        expect([...host.querySelectorAll('[data-mini-hour-adjust]')])
             .toEqual(expect.arrayContaining([
                 expect.objectContaining({ disabled: true }),
                 expect.objectContaining({ disabled: true })
@@ -122,8 +123,7 @@ describe('Mini attendance import async apply UI', () => {
     test('blocks unresolved plans and rejects a stale draft at click time', async () => {
         const applyPlan = jest.fn();
         const blocked = enterReview(applyPlan);
-        expect(blocked.host.querySelector('[data-mini-action="apply"]').disabled).toBe(true);
-        blocked.host.querySelector('[data-mini-action="apply"]').click();
+        expect(blocked.host.querySelector('[data-mini-action="apply"]')).toBeNull();
         expect(applyPlan).not.toHaveBeenCalled();
 
         const ready = enterReview(applyPlan);

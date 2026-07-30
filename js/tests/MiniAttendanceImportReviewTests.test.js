@@ -28,6 +28,7 @@ function existingMulti() {
 }
 
 function enterReview(report, attendance = {}, roster = employees, options = {}) {
+    const { stayOnAutomatic = false, ...modalOptions } = options;
     const host = document.createElement('div');
     document.body.replaceChildren(host);
     const controller = new MiniAttendanceImportModal({
@@ -36,7 +37,7 @@ function enterReview(report, attendance = {}, roster = employees, options = {}) 
         attendance,
         proposedDate: DATE,
         regularLimit: 8,
-        ...options
+        ...modalOptions
     }).mount(host);
     const source = host.querySelector('[data-mini-source]');
     source.value = report;
@@ -44,6 +45,13 @@ function enterReview(report, attendance = {}, roster = employees, options = {}) 
     host.querySelector('[data-mini-action="analyze"]').click();
     host.querySelector('[data-mini-action="confirm-date"]').click();
     host.querySelector('[data-mini-action="continue"]').click();
+    if (!stayOnAutomatic && host.querySelector('[data-mini-automatic-review]')) {
+        host.querySelectorAll('[data-mini-auto-choice][value="modify"]').forEach(input => {
+            input.checked = true;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+    }
     return { controller, host };
 }
 
@@ -62,9 +70,6 @@ function reviewUnit(host, {
     position = '',
     source = ''
 } = {}) {
-    if (!host.querySelector('[data-mini-review-unit]')) {
-        host.querySelector('[data-mini-review-filter="all"]').click();
-    }
     const row = host.querySelector('[data-mini-review-unit]');
     if (employeeId) {
         row.querySelector('[data-mini-employee]').value = employeeId;
@@ -92,14 +97,16 @@ function expectEveryActionButtonToHaveText(host) {
 }
 
 describe('Mini attendance import review slice', () => {
-    test('renders one unified safe review unit with one human next action', () => {
+    test('renders one employee page with one human next action', () => {
         const { controller, host } = enterReview('001. Ana Perez *8h*');
 
         expect(controller.stage).toBe('review');
         expect(controller.conflictPlan).toBeDefined();
-        host.querySelector('[data-mini-review-filter="all"]').click();
         const unit = host.querySelector('[data-mini-review-unit]');
         expect(unit.textContent).toContain('001 · Ana Perez · 8 h');
+        expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-review-progress]').textContent)
+            .toContain('Empleado 1 de 1');
         expect(host.querySelector('[data-mini-current-mode]').textContent)
             .toContain('Todas las horas como normales');
         expect(host.querySelector('[data-mini-employee]').options).toHaveLength(3);
@@ -108,45 +115,54 @@ describe('Mini attendance import review slice', () => {
         expect(unit.querySelector('img')).toBeNull();
         expect(unit.querySelectorAll('[data-mini-next-action]')).toHaveLength(1);
         expect(unit.querySelector('[data-mini-action="confirm-unit"]').textContent)
-            .toBe('Aceptar');
+            .toBe('Guardar selección');
+        expect(unit.querySelector('[data-mini-identity-map]')).not.toBeNull();
+        expect(unit.querySelector('[data-mini-hour-stepper="normal"]')).not.toBeNull();
+        expect(unit.querySelector('[data-mini-hour-stepper="overtime"]')).not.toBeNull();
+        unit.querySelector(
+            '[data-mini-hour-stepper="normal"] [data-mini-hour-adjust="0.25"]'
+        ).click();
+        expect(unit.querySelector('[data-mini-normal]').value).toBe('8.25');
+        expect(unit.querySelector('.mini-import-identity-local').textContent)
+            .toContain('8.25 h importadas');
         expect(unit.querySelector('[data-mini-target-position-option]:checked').value)
             .toBe('p1');
         expect(host.querySelector('[data-mini-conflict-row]')).toBeNull();
         expect(host.textContent).not.toMatch(
             /employee_ambiguous|row_review_required|decision_unacknowledged/
         );
-        expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(true);
+        expect(host.querySelector('[data-mini-action="apply"]')).toBeNull();
     });
 
-    test('starts with only attention items and exposes safe rows through Todos', () => {
-        const { host } = enterReview('001. Ana Perez *8h*');
-        const summary = host.querySelector('[data-mini-review-summary]');
+    test('shows safe matches in a table before individual review and allows modification', () => {
+        const { host } = enterReview(
+            '001. Ana Perez *8h*',
+            {},
+            employees,
+            { stayOnAutomatic: true }
+        );
 
-        expect(host.querySelector('[data-mini-review-filter="needsAttention"]')
-            .getAttribute('aria-pressed')).toBe('true');
-        expect(summary.textContent)
-            .toMatch(/Personas 1.*Claras 1.*Atención 0.*Confirmadas 0/);
-        expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(0);
-        expect(host.querySelector('[data-mini-review-empty]').textContent)
-            .toContain('No hay elementos que necesiten atención');
-        expect(host.querySelector('[data-mini-action="confirm-safe"]').disabled).toBe(false);
-        expectEveryActionButtonToHaveText(host);
+        expect(host.querySelector('[data-mini-automatic-review]')).not.toBeNull();
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-automatic-row]').textContent)
+            .toMatch(/001 · Ana Perez.*1 · Ana Pérez.*8 h.*Oficial/);
+        expect(host.querySelector('[data-mini-review-unit]')).toBeNull();
+        expect(host.querySelector('[data-mini-action="accept-automatic"]').textContent)
+            .toBe('Aceptar y aplicar horas');
 
-        host.querySelector('[data-mini-review-filter="all"]').click();
+        selectRadio(host, '[data-mini-auto-choice]', 'modify');
+        expect(host.querySelector('[data-mini-action="accept-automatic"]').textContent)
+            .toBe('Aceptar selección y continuar');
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+
+        expect(host.querySelector('[data-mini-automatic-review]')).toBeNull();
         expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(1);
-        reviewUnit(host);
-        host.querySelector('[data-mini-review-filter="needsAttention"]').click();
-        expect(host.querySelector('[data-mini-review-empty]').textContent)
-            .toContain('No hay elementos que necesiten atención');
+        expect(host.querySelector('[data-mini-review-unit]').textContent)
+            .toContain('001 · Ana Perez · 8 h');
         expectEveryActionButtonToHaveText(host);
-
-        host.querySelector('[data-mini-review-filter="all"]').click();
-        expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(1);
-        expect(host.querySelector('[data-mini-review-unit]').classList)
-            .toContain('is-confirmed');
     });
 
-    test('bulk confirms only fresh safe indexes and rebuilds once without bypassing blockers', () => {
+    test('accepts safe rows and skips them while unresolved people continue individually', () => {
         const roster = [
             ...employees,
             { id: 'e501a', number: '501', name: 'Héctor Excavadora', positions: ['p1'] },
@@ -157,20 +173,41 @@ describe('Mini attendance import review slice', () => {
             '001. Ana Perez *8h* 501. Hector Excavadora *4h* ' +
             '0501. Héctor excavadora *4h* 002. <img src=x> Luis Garcia *9h*',
             attendance,
-            roster
+            roster,
+            { stayOnAutomatic: true }
         );
         const rebuild = jest.spyOn(controller, 'rebuildConflictPlan');
-        const bulk = host.querySelector('[data-mini-action="confirm-safe"]');
 
-        expect(bulk.textContent).toBe('Confirmar coincidencias claras (1)');
-        bulk.click();
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
 
         expect(controller.draft.rows.map(row => row.approved))
             .toEqual([true, false, false, false]);
         expect(rebuild).toHaveBeenCalledTimes(1);
         expect(controller.conflictPlan.hasBlockingIssues).toBe(true);
-        expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(true);
+        expect(host.querySelector('[data-mini-review-unit]').textContent)
+            .not.toContain('001 · Ana Perez');
+        expect(host.querySelector('[data-mini-action="apply"]')).toBeNull();
         expectEveryActionButtonToHaveText(host);
+    });
+
+    test('applies immediately when every detected person is an accepted safe match', async () => {
+        const applyPlan = jest.fn(async () => ({ appliedCount: 1, keptCount: 0 }));
+        const { controller, host } = enterReview(
+            '001. Ana Perez *8h*',
+            {},
+            employees,
+            { stayOnAutomatic: true, applyPlan }
+        );
+
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(applyPlan).toHaveBeenCalledTimes(1);
+        expect(controller.applyStatus).toBe('success');
+        expect(host.querySelector('[data-mini-apply-status]').textContent)
+            .toContain('1 aplicadas');
     });
 
     test('resolves an ambiguous 501 duplicate group across all occurrences before confirmation', () => {
@@ -184,8 +221,8 @@ describe('Mini attendance import review slice', () => {
             roster
         );
         let unit = host.querySelector('[data-mini-review-unit]');
-        expect(unit.querySelectorAll('.mini-import-unit-identity p')).toHaveLength(2);
-        expect(unit.textContent).toContain('Apariciones detectadas en Mini');
+        expect(unit.querySelectorAll('.mini-import-identity-source p')).toHaveLength(2);
+        expect(unit.textContent).toContain('Apariciones en Mini');
         expect(unit.textContent).toContain(
             'Se detectaron filas iguales. No se combinarán hasta que confirmes el empleado.'
         );
@@ -209,7 +246,12 @@ describe('Mini attendance import review slice', () => {
     test('employee/hour approval uses draft transitions and rebuilds conflicts', () => {
         const { controller, host } = enterReview('001. Ana Perez *8h*');
         const previousPlan = controller.conflictPlan;
-        reviewUnit(host, { employeeId: 'e2', normal: 7, overtime: 1 });
+        reviewUnit(host, {
+            employeeId: 'e2',
+            normal: 7,
+            overtime: 1,
+            position: 'p2'
+        });
 
         expect(controller.draft.rows[0]).toMatchObject({
             reviewed: true,
@@ -219,8 +261,9 @@ describe('Mini attendance import review slice', () => {
         expect(controller.draft.rows[0].match.employeeId).toBe('e2');
         expect(controller.conflictPlan).not.toBe(previousPlan);
         expect(controller.conflictPlan.rows[0].employeeId).toBe('e2');
+        expect(controller.conflictPlan.rows[0].targetPositionId).toBe('p2');
         expect(controller.conflictPlan.rows[0].blockers)
-            .toContain('target_position_required');
+            .not.toContain('target_position_required');
     });
 
     test('shows full existing breakdown and accepts keeping SA in one action', () => {
@@ -244,7 +287,7 @@ describe('Mini attendance import review slice', () => {
         const { controller, host } = enterReview('002. <img src=x> Luis Garcia *9h*', attendance);
 
         expect(host.querySelector('[data-mini-action="confirm-unit"]').textContent)
-            .toBe('Aceptar');
+            .toBe('Guardar selección');
         expect(host.querySelectorAll('[data-mini-attendance-source]')).toHaveLength(2);
         expect(host.querySelectorAll('[data-mini-target-position-option]')).toHaveLength(2);
         selectRadio(host, '[data-mini-attendance-source]', 'use_imported');
@@ -325,7 +368,7 @@ describe('Mini attendance import review slice', () => {
         });
         expect(controller.conflictPlan.rows).toEqual([]);
         expect(host.querySelector('[data-mini-review-summary]').textContent)
-            .toContain('Ignoradas 1');
+            .toContain('1 ignoradas');
         expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(false);
     });
 
@@ -338,19 +381,18 @@ describe('Mini attendance import review slice', () => {
             employees,
             { confirmIgnore: async () => true }
         );
-        let first = [...host.querySelectorAll('[data-mini-review-unit]')]
-            .find(card => card.textContent.includes('002 ·'));
+        let first = host.querySelector('[data-mini-review-unit]');
+        expect(first.textContent).toContain('002 ·');
         selectRadio(first, '[data-mini-attendance-source]', 'use_imported');
         selectRadio(first, '[data-mini-target-position-option]', 'p2');
         first.querySelector('[data-mini-action="confirm-unit"]').click();
 
-        host.querySelector('[data-mini-review-filter="all"]').click();
-        let second = [...host.querySelectorAll('[data-mini-review-unit]')]
-            .find(card => card.textContent.includes('001 ·'));
+        let second = host.querySelector('[data-mini-review-unit]');
+        expect(second.textContent).toContain('001 ·');
         second.querySelector('[data-mini-action="confirm-unit"]').click();
 
-        const missing = [...host.querySelectorAll('[data-mini-review-unit]')]
-            .find(card => card.textContent.includes('777 ·'));
+        const missing = host.querySelector('[data-mini-review-unit]');
+        expect(missing.textContent).toContain('777 ·');
         missing.querySelector('[data-mini-action="ignore-unit"]').click();
         await Promise.resolve();
         await Promise.resolve();
@@ -367,5 +409,79 @@ describe('Mini attendance import review slice', () => {
         });
         expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
         expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(false);
+    });
+
+    test('paginates employees and blocks continuation until the current page is complete', () => {
+        const { host } = enterReview(
+            '001. Ana Perez *8h* 002. <img src=x> Luis Garcia *9h* ' +
+            '777. Persona inexistente *6h*'
+        );
+
+        expect(host.querySelectorAll('[data-mini-review-unit]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-review-progress]').textContent)
+            .toContain('Empleado 1 de 3');
+        expect(host.querySelector('[data-mini-action="next-unit"]').disabled).toBe(true);
+        expect(host.querySelector('[data-mini-action="confirm-unit"]').textContent)
+            .toBe('Guardar selección');
+        expect(host.querySelector('[data-mini-action="ignore-unit"]').hidden).toBe(true);
+
+        host.querySelector('[data-mini-action="confirm-unit"]').click();
+        let current = host.querySelector('[data-mini-review-unit]');
+        expect(current.textContent).toContain('002 ·');
+        expect(host.querySelector('[data-mini-review-progress]').textContent)
+            .toContain('Empleado 2 de 3');
+        expect(current.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(true);
+
+        selectRadio(current, '[data-mini-target-position-option]', 'p2');
+        expect(current.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(false);
+        current.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        current = host.querySelector('[data-mini-review-unit]');
+        expect(current.textContent).toContain('777 ·');
+        expect(host.querySelector('[data-mini-review-progress]').textContent)
+            .toContain('Empleado 3 de 3');
+        expect(current.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(true);
+        expect(current.querySelector('[data-mini-action="ignore-unit"]').hidden).toBe(false);
+    });
+
+    test('keeps the review shell and scroll position stable when selecting Mini', () => {
+        const attendance = { [`e2-${DATE}`]: existingMulti() };
+        const { controller, host } = enterReview(
+            '002. <img src=x> Luis Garcia *9h*',
+            attendance
+        );
+        const modalElement = document.createElement('div');
+        modalElement.innerHTML = '<div data-modal-container></div>';
+        controller.modal = { element: modalElement };
+        controller.syncModalLayout();
+        const shell = modalElement.querySelector('[data-modal-container]');
+        expect(shell.classList.contains('mini-attendance-review-shell')).toBe(true);
+
+        const overlay = document.createElement('div');
+        overlay.dataset.modalOverlay = '';
+        const body = document.createElement('div');
+        body.className = 'modal-body';
+        const unit = host.querySelector('[data-mini-review-unit]');
+        body.append(unit);
+        overlay.append(body);
+        Object.defineProperty(body, 'scrollTop', {
+            value: 180,
+            writable: true,
+            configurable: true
+        });
+        Object.defineProperty(overlay, 'scrollTop', {
+            value: 120,
+            writable: true,
+            configurable: true
+        });
+        const mini = unit.querySelector(
+            '[data-mini-attendance-source][value="use_imported"]'
+        );
+        mini.checked = true;
+        mini.dispatchEvent(new Event('change', { bubbles: true }));
+
+        expect(body.scrollTop).toBe(180);
+        expect(overlay.scrollTop).toBe(0);
+        expect(unit.querySelector('[data-mini-collapse-warning]').hidden).toBe(false);
     });
 });
