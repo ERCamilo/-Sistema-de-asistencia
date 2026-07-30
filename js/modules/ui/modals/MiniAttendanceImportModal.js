@@ -634,8 +634,16 @@ export class MiniAttendanceImportModal {
         this.render();
         this.resetReviewViewport();
         if (!this.individualReviewKeys.length && !this.conflictPlan.hasBlockingIssues) {
-            void this.applyCurrentPlan();
+            this.showFinalSummary();
         }
+    }
+
+    showFinalSummary() {
+        if (this.conflictPlan?.hasBlockingIssues) return;
+        this.reviewStep = 'summary';
+        this.reviewPageIndex = 0;
+        this.render();
+        this.resetReviewViewport();
     }
 
     async applyCurrentPlan() {
@@ -797,6 +805,7 @@ export class MiniAttendanceImportModal {
         const section = element('div', null, { className: 'mini-import-review' });
         const back = actionButton('Volver', 'back-review');
         back.classList.add('mini-import-action-secondary');
+        back.disabled = this.applyStatus === 'pending' || this.applyStatus === 'success';
         back.addEventListener('click', () => {
             if (this.reviewStep === 'automatic') {
                 this.stage = 'setup';
@@ -809,6 +818,10 @@ export class MiniAttendanceImportModal {
             dataset: { miniCurrentMode: '' }
         }));
         const view = this.buildReviewView();
+        if (this.reviewStep === 'summary') {
+            section.append(this.renderFinalSummary(view));
+            return section;
+        }
         if (this.reviewStep === 'automatic') {
             section.append(this.renderAutomaticReview(view));
             return section;
@@ -1098,15 +1111,131 @@ export class MiniAttendanceImportModal {
             visibleItems.every(item => item.confirmed);
         if (reviewComplete || this.applyStatus !== 'idle') {
             const apply = actionButton(
-                this.applyStatus === 'error'
-                    ? 'Reintentar aplicación'
-                    : 'Aplicar asistencia revisada',
-                'apply',
+                'Revisar resumen final',
+                'show-summary',
                 this.conflictPlan.hasBlockingIssues || locked
             );
-            apply.addEventListener('click', () => this.applyCurrentPlan());
+            apply.addEventListener('click', () => this.showFinalSummary());
             section.append(apply);
         }
+        const status = this.renderApplyStatus();
+        if (status) section.append(status);
+        return section;
+    }
+
+    renderFinalSummary(view) {
+        const section = element('section', null, {
+            className: 'mini-import-final-summary',
+            dataset: { miniFinalSummary: '' }
+        });
+        const ignoredCount = this.draft.rows.filter(row => row.excluded).length;
+        const automaticKeys = new Set(
+            [...this.automaticReviewChoices.entries()]
+                .filter(([, choice]) => choice === 'accept')
+                .map(([key]) => key)
+        );
+        const resolvedItems = view.items.filter(item => item.confirmed);
+        const automaticCount = resolvedItems.filter(item =>
+            automaticKeys.has(this.reviewItemKey(item))
+        ).length;
+        const manualCount = resolvedItems.length - automaticCount;
+        const rowSummaries = this.conflictPlan.rows.map(row => {
+            const miniTotal = row.imported.normalHours + row.imported.overtimeHours;
+            const usingMini = row.decision.action === 'use_imported';
+            const saTotal = usingMini
+                ? row.positionAllocations.reduce((total, allocation) =>
+                    total + allocation.normalHours + allocation.overtimeHours, 0)
+                : (row.existing?.breakdown || []).reduce((total, allocation) =>
+                    total + (allocation.hours || 0) + (allocation.overtimeHours || 0), 0);
+            const employee = this.employees.find(candidate => candidate.id === row.employeeId);
+            const source = row.sourceRows[0] || {};
+            return {
+                mini: `${source.rawNumber ?? ''} · ${source.rawName ?? ''}`,
+                employee: employee
+                    ? `${employee.number ?? ''} · ${employee.name ?? ''}`
+                    : row.employeeId,
+                decision: usingMini ? 'Usar decisión de SA' : 'Conservar registro de SA',
+                miniTotal,
+                saTotal,
+                difference: Math.round((saTotal - miniTotal) * 100) / 100
+            };
+        });
+        const miniTotal = rowSummaries.reduce((total, row) => total + row.miniTotal, 0);
+        const saTotal = rowSummaries.reduce((total, row) => total + row.saTotal, 0);
+        section.append(
+            element('h3', 'Resumen final'),
+            element(
+                'p',
+                'Esta es la única pantalla que escribe la asistencia en SA. ' +
+                    'Revisa los totales antes de aplicar.',
+                { className: 'mini-import-help' }
+            )
+        );
+        const cards = element('div', null, { className: 'mini-import-summary-cards' });
+        [
+            ['Fecha', displayDate(this.conflictPlan.date)],
+            ['Personas', String(view.summary.total + ignoredCount)],
+            ['Automáticas', String(automaticCount)],
+            ['Revisadas', String(manualCount)],
+            ['Ignoradas', String(ignoredCount)],
+            ['Pendientes', String(view.summary.needsAttention)]
+        ].forEach(([label, value]) => {
+            const card = element('div');
+            card.append(element('span', label), element('strong', value));
+            cards.append(card);
+        });
+        const totals = element('div', null, {
+            className: 'mini-import-total-comparison',
+            dataset: { miniFinalTotals: '' }
+        });
+        const difference = Math.round((saTotal - miniTotal) * 100) / 100;
+        totals.append(
+            element('span', `Mini reportó ${miniTotal} h`),
+            element('span', `SA aplicará ${saTotal} h`),
+            element(
+                'strong',
+                `Diferencia ${difference > 0 ? '+' : ''}${difference} h`
+            )
+        );
+        section.append(cards, totals);
+
+        const labels = ['Mini', 'Empleado en SA', 'Decisión', 'Mini', 'SA', 'Diferencia'];
+        const table = element('table', null, {
+            className: 'mini-import-rows mini-import-final-table'
+        });
+        const head = element('thead');
+        const headingRow = element('tr');
+        labels.forEach(label => headingRow.append(element('th', label, { scope: 'col' })));
+        head.append(headingRow);
+        const body = element('tbody');
+        rowSummaries.forEach(summary => {
+            const row = element('tr');
+            [
+                summary.mini,
+                summary.employee,
+                summary.decision,
+                `${summary.miniTotal} h`,
+                `${summary.saTotal} h`,
+                `${summary.difference > 0 ? '+' : ''}${summary.difference} h`
+            ].forEach((value, index) => {
+                row.append(element('td', value, { dataset: { label: labels[index] } }));
+            });
+            body.append(row);
+        });
+        table.append(head, body);
+        section.append(table);
+
+        const locked = this.applyStatus === 'pending' || this.applyStatus === 'success';
+        const apply = actionButton(
+            this.applyStatus === 'error'
+                ? 'Reintentar aplicación'
+                : 'Aplicar asistencia en SA',
+            'apply',
+            this.conflictPlan.hasBlockingIssues || locked
+        );
+        apply.classList.add('mini-import-action-primary');
+        apply.addEventListener('click', () => this.applyCurrentPlan());
+        section.append(apply);
         const status = this.renderApplyStatus();
         if (status) section.append(status);
         return section;

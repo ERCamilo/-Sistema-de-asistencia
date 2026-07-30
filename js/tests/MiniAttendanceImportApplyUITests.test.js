@@ -30,6 +30,7 @@ function enterReview(applyPlan) {
 function approveRow(host) {
     const unit = host.querySelector('[data-mini-review-unit]');
     unit.querySelector('[data-mini-action="confirm-unit"]').click();
+    host.querySelector('[data-mini-action="show-summary"]').click();
 }
 
 async function flushAsyncUi() {
@@ -80,12 +81,7 @@ describe('Mini attendance import async apply UI', () => {
         expect(host.querySelector('[data-mini-apply-status]').textContent)
             .toContain('Aplicando');
         expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(true);
-        expect(host.querySelector('[data-mini-action="confirm-unit"]').disabled).toBe(true);
-        expect([...host.querySelectorAll('[data-mini-hour-adjust]')])
-            .toEqual(expect.arrayContaining([
-                expect.objectContaining({ disabled: true }),
-                expect.objectContaining({ disabled: true })
-            ]));
+        expect(host.querySelector('[data-mini-action="back-review"]').disabled).toBe(true);
 
         resolveApply({ appliedCount: 1, keptCount: 0, writtenKeys: [], keptKeys: [] });
         await flushAsyncUi();

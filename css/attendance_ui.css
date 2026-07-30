@@ -1052,6 +1052,53 @@
     color: #94a3b8;
 }
 
+.mini-import-final-summary {
+    display: grid;
+    gap: 14px;
+}
+
+.mini-import-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.mini-import-summary-cards div {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.62);
+}
+
+.mini-import-summary-cards span {
+    color: #94a3b8;
+    font-size: 0.74rem;
+}
+
+.mini-import-summary-cards strong {
+    color: #ecfeff;
+    font-size: 1.05rem;
+}
+
+.mini-import-total-comparison {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid rgba(34, 211, 238, 0.38);
+    border-radius: 10px;
+    background: rgba(8, 47, 73, 0.34);
+    color: #cffafe;
+    text-align: center;
+}
+
+.mini-import-final-table td:last-child {
+    color: #fde68a;
+    font-weight: 800;
+}
+
 .mini-import-review-summary {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1615,6 +1662,15 @@
 
     .mini-import-review-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .mini-import-summary-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .mini-import-total-comparison {
+        grid-template-columns: 1fr;
+        text-align: left;
     }
 
     .mini-import-review-navigation {

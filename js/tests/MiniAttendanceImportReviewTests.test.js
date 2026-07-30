@@ -245,7 +245,7 @@ describe('Mini attendance import review slice', () => {
         expectEveryActionButtonToHaveText(host);
     });
 
-    test('applies immediately when every detected person is an accepted safe match', async () => {
+    test('requires the final summary before applying accepted safe matches', async () => {
         const applyPlan = jest.fn(async () => ({ appliedCount: 1, keptCount: 0 }));
         const { controller, host } = enterReview(
             '001. Ana Perez *8h*',
@@ -255,6 +255,14 @@ describe('Mini attendance import review slice', () => {
         );
 
         host.querySelector('[data-mini-action="accept-automatic"]').click();
+        expect(applyPlan).not.toHaveBeenCalled();
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-final-totals]').textContent)
+            .toContain('Mini reportó 8 h');
+        expect(host.querySelector('[data-mini-final-totals]').textContent)
+            .toContain('SA aplicará 8 h');
+
+        host.querySelector('[data-mini-action="apply"]').click();
         await Promise.resolve();
         await Promise.resolve();
 
@@ -350,6 +358,11 @@ describe('Mini attendance import review slice', () => {
             { positionId: 'p2', normalHours: 3, overtimeHours: 2 }
         ]);
         expect(controller.conflictPlan.rows[0].blockers).toEqual([]);
+        host.querySelector('[data-mini-action="show-summary"]').click();
+        expect(host.querySelector('[data-mini-final-totals]').textContent)
+            .toMatch(/Mini reportó 12 h.*SA aplicará 11 h.*Diferencia -1 h/);
+        expect(host.querySelector('[data-mini-action="apply"]').textContent)
+            .toBe('Aplicar asistencia en SA');
     });
 
     test('shows full existing breakdown and accepts keeping SA in one action', () => {
@@ -363,7 +376,7 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelector('[data-mini-existing-breakdown] img')).toBeNull();
         decide(host, { action: 'keep_existing' });
         expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
-        expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(false);
+        expect(host.querySelector('[data-mini-action="show-summary"]').disabled).toBe(false);
         expect(controller.conflictPlan.rows[0].decision)
             .toEqual({ action: 'keep_existing', acknowledged: true });
     });
@@ -388,7 +401,7 @@ describe('Mini attendance import review slice', () => {
             }
         });
         expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
-        expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(false);
+        expect(host.querySelector('[data-mini-action="show-summary"]').disabled).toBe(false);
     });
 
     test('records a manually selected Mini-to-SA identity when requested', async () => {
@@ -455,7 +468,7 @@ describe('Mini attendance import review slice', () => {
         expect(controller.conflictPlan.rows).toEqual([]);
         expect(host.querySelector('[data-mini-review-summary]').textContent)
             .toContain('1 ignoradas');
-        expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(false);
+        expect(host.querySelector('[data-mini-action="show-summary"]').disabled).toBe(false);
     });
 
     test('keeps earlier accepted SA/Mini decisions while reviewing later people', async () => {
@@ -494,7 +507,7 @@ describe('Mini attendance import review slice', () => {
             }
         });
         expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
-        expect(host.querySelector('[data-mini-action="apply"]').disabled).toBe(false);
+        expect(host.querySelector('[data-mini-action="show-summary"]').disabled).toBe(false);
     });
 
     test('paginates employees and blocks continuation until the current page is complete', () => {
