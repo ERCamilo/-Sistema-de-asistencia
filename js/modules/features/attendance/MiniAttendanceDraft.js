@@ -235,7 +235,14 @@ function rowBlockers(row) {
     if (row.match.status === 'ambiguous') blockers.push('employee_ambiguous');
     if (row.match.status === 'unmatched') blockers.push('employee_unmatched');
     if (row.match.requiresConfirmation) blockers.push('employee_confirmation_required');
-    if (row.duplicateStatus === 'conflicting_duplicate') blockers.push('conflicting_duplicate');
+    const conflictingDuplicateResolved = row.duplicateStatus === 'conflicting_duplicate' &&
+        row.reviewed === true &&
+        row.approved === true &&
+        row.match.status === 'confirmed' &&
+        Boolean(row.match.employeeId);
+    if (row.duplicateStatus === 'conflicting_duplicate' && !conflictingDuplicateResolved) {
+        blockers.push('conflicting_duplicate');
+    }
     const { normalHours, overtimeHours } = row.allocation;
     if (![normalHours, overtimeHours].every(Number.isFinite) ||
         normalHours < 0 || overtimeHours < 0 || normalHours + overtimeHours > 24) {

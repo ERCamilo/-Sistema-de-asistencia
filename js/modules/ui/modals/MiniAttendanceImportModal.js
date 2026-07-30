@@ -1731,9 +1731,13 @@ export class MiniAttendanceImportModal {
                 : 'mini-import-next-action',
             dataset: { miniNextAction: '', miniCompletionHint: '' }
         });
+        const requiresIdentityConfirmation =
+            ['identity', 'duplicate'].includes(model.issue);
         const confirmLabel = model.confirmed
             ? 'Confirmado'
-            : 'Guardar selección';
+            : requiresIdentityConfirmation
+                ? 'Confirmar coincidencia'
+                : 'Guardar selección';
         const confirm = actionButton(confirmLabel, 'confirm-unit', model.confirmed);
         confirm.classList.add('mini-import-action-primary');
         confirm.addEventListener('click', () => this.confirmReviewUnit(model, container));
@@ -1800,7 +1804,7 @@ export class MiniAttendanceImportModal {
             const missing = [];
             if (!validation.employeeValid) missing.push('seleccionar el empleado');
             else if (validation.employeeNeedsConfirmation) {
-                missing.push('confirmar la coincidencia del empleado');
+                missing.push('confirmar la coincidencia con el botón de abajo');
             }
             if (!validation.allocationValid) missing.push('asignar horas y cargo');
             if (!validation.decisionValid) missing.push('elegir SA o Mini');

@@ -260,6 +260,42 @@ describe('Mini attendance conflict planning', () => {
         expect(allocationConflict.rows[0].blockers).toContain('conflicting_duplicate');
     });
 
+    test('resolves conflicting source numbers when each row is explicitly assigned', () => {
+        let draft = createMiniAttendanceDraft({
+            parsed: parseMiniAttendanceReport(
+                '501. Ana de campo *8h* 501. Luis de campo *12h*'
+            ),
+            employees,
+            proposedDate: DATE
+        });
+        draft = confirmMiniAttendanceDraftDate(draft, DATE);
+        draft = reviewMiniAttendanceDraftRow(draft, 0, {
+            employeeId: 'e1',
+            approved: true
+        });
+        draft = reviewMiniAttendanceDraftRow(draft, 1, {
+            employeeId: 'e2',
+            approved: true
+        });
+
+        const plan = createMiniAttendanceConflictPlan(draft, {});
+        expect(draft.rows.map(row => row.blockers)).toEqual([[], []]);
+        expect(plan.rows).toHaveLength(2);
+        expect(plan.hasBlockingIssues).toBe(true);
+
+        const reviewed = reviewMiniAttendanceConflict(plan, 1, {
+            action: 'use_imported',
+            acknowledged: true,
+            targetPositionId: 'p1'
+        });
+        expect(reviewed.hasBlockingIssues).toBe(false);
+        const applyPlan = buildMiniAttendanceApplyPlan(reviewed, {
+            expectedDraftRevision: reviewed.draftRevision
+        });
+        expect(applyPlan.writes.map(write => write.record.employeeId))
+            .toEqual(['e1', 'e2']);
+    });
+
     test('requires explicit draft review and approval before importing a row', () => {
         const draft = createMiniAttendanceDraft({
             parsed: parseMiniAttendanceReport('001. Ana Perez *8h*'),

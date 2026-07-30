@@ -381,6 +381,36 @@ describe('Mini attendance import review slice', () => {
         expect(controller.conflictPlan.rows).toHaveLength(1);
     });
 
+    test('confirms same-number conflicting rows after assigning their correct employees', () => {
+        const { controller, host } = enterReview(
+            '501. Ana de campo *8h* 501. Luis de campo *12h*'
+        );
+        let unit = host.querySelector('[data-mini-review-unit]');
+        expect(unit.querySelector('[data-mini-action="confirm-unit"]').textContent)
+            .toBe('Confirmar coincidencia');
+        unit.querySelector('[data-mini-employee]').value = 'e1';
+        unit.querySelector('[data-mini-employee]')
+            .dispatchEvent(new Event('change', { bubbles: true }));
+        expect(unit.querySelector('[data-mini-completion-hint]').textContent)
+            .toContain('confirmar la coincidencia con el botón de abajo');
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        unit = host.querySelector('[data-mini-review-unit]');
+        expect(unit.textContent).toContain('501 · Luis de campo');
+        unit.querySelector('[data-mini-employee]').value = 'e2';
+        unit.querySelector('[data-mini-employee]')
+            .dispatchEvent(new Event('change', { bubbles: true }));
+        selectRadio(unit, '[data-mini-target-position-option]', 'p1');
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+
+        expect(controller.draft.rows.map(row => row.blockers)).toEqual([[], []]);
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+        expect(host.querySelector('[data-mini-queue-status]').textContent)
+            .toContain('Todas las asistencias están resueltas');
+        expect(host.querySelector('[data-mini-action="next-unit"]').textContent)
+            .toBe('Revisar resumen');
+    });
+
     test('employee/hour approval uses draft transitions and rebuilds conflicts', () => {
         const { controller, host } = enterReview('001. Ana Perez *8h*');
         const previousPlan = controller.conflictPlan;
