@@ -184,7 +184,7 @@ describe('Mini attendance import review slice', () => {
     test('shows ready and attention groups with direct and queued review actions', () => {
         const attendance = { [`e2-${DATE}`]: existingMulti() };
         const { host } = enterReview(
-            '001. Ana Perez *8h* 002. <img src=x> Luis Garcia *9h* ' +
+            '001. Ana Perez *8h* 002. <img src=x> Luis Garcia *10h* ' +
             '777. Persona inexistente *6h*',
             attendance,
             employees,
@@ -212,10 +212,130 @@ describe('Mini attendance import review slice', () => {
             .toContain('Empleado 1 de 2');
     });
 
+    test('places equal Mini and SA hours in ready and accepts them without extra review', () => {
+        const attendance = {
+            [`e1-${DATE}`]: {
+                ...existingSingle(),
+                hoursWorked: 8,
+                positionHours: [
+                    { positionId: 'p1', hours: 8, overtimeHours: 0 }
+                ]
+            }
+        };
+        const { controller, host } = enterReview(
+            '001. Ana Perez *8h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(0);
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+
+        expect(controller.conflictPlan.rows[0].decision).toEqual({
+            action: 'keep_existing',
+            acknowledged: true
+        });
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+    });
+
+    test('places Mini hours with an empty SA record in ready and imports Mini', () => {
+        const attendance = {
+            [`e1-${DATE}`]: {
+                ...existingSingle(),
+                hoursWorked: 0,
+                positionHours: [
+                    { positionId: 'p1', hours: 0, overtimeHours: 0 }
+                ]
+            }
+        };
+        const { controller, host } = enterReview(
+            '001. Ana Perez *8h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+
+        expect(controller.conflictPlan.rows[0].decision).toMatchObject({
+            action: 'use_imported',
+            acknowledged: true
+        });
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+    });
+
+    test('shows red, orange, or yellow error summaries by highest severity', () => {
+        const attendance = {
+            [`e1-${DATE}`]: existingSingle(),
+            [`e2-${DATE}`]: existingMulti()
+        };
+        const { host } = enterReview(
+            '001. Ana Perez *9h* 002. <img src=x> Luis Garcia *10h* ' +
+            '777. Persona inexistente *6h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        const rows = [...host.querySelectorAll('[data-mini-attention-row]')];
+        expect(rows).toHaveLength(3);
+        expect(rows[0].dataset.miniProblemSeverity).toBe('caution');
+        expect(rows[0].querySelector('.mini-import-status-badge').textContent)
+            .toBe('1 error');
+        expect(rows[1].dataset.miniProblemSeverity).toBe('warning');
+        expect(rows[1].querySelector('.mini-import-status-badge').textContent)
+            .toBe('2 errores');
+        expect(rows[2].dataset.miniProblemSeverity).toBe('critical');
+        expect(rows[2].querySelector('.mini-import-status-badge').textContent)
+            .toBe('1 error');
+    });
+
+    test('changes every eligible attention row to Mini or SA from the table', () => {
+        const attendance = {
+            [`e1-${DATE}`]: existingSingle(),
+            [`e2-${DATE}`]: existingMulti()
+        };
+        const { controller, host } = enterReview(
+            '001. Ana Perez *9h* 002. <img src=x> Luis Garcia *10h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+        const panel = host.querySelector('[data-mini-automatic-review]');
+        const buttons = [...host.querySelectorAll('[data-mini-attention-bulk] button')];
+
+        expect(buttons.map(button => button.textContent))
+            .toEqual(['Usar Mini en todos', 'Usar SA en todos']);
+        host.querySelector('[data-mini-action="use-sa-all"]').click();
+
+        expect(host.querySelector('[data-mini-automatic-review]')).toBe(panel);
+        expect(controller.conflictPlan.rows.map(row => row.decision)).toEqual([
+            { action: 'keep_existing', acknowledged: true },
+            { action: 'keep_existing', acknowledged: true }
+        ]);
+        expect(host.querySelectorAll('[data-mini-attention-status="resolved"]'))
+            .toHaveLength(2);
+
+        host.querySelector('[data-mini-action="use-mini-all"]').click();
+
+        expect(host.querySelector('[data-mini-automatic-review]')).toBe(panel);
+        expect(controller.conflictPlan.rows.map(row => row.decision.action))
+            .toEqual(['use_imported', 'use_imported']);
+        expect(host.querySelectorAll('[data-mini-attention-status="resolved"]'))
+            .toHaveLength(1);
+        expect(host.querySelectorAll('[data-mini-attention-status="pending"]'))
+            .toHaveLength(1);
+    });
+
     test('returns to reconciliation after saving one punctual correction', () => {
         const attendance = { [`e2-${DATE}`]: existingMulti() };
         const { host } = enterReview(
-            '002. <img src=x> Luis Garcia *9h* 777. Persona inexistente *6h*',
+            '002. <img src=x> Luis Garcia *10h* 777. Persona inexistente *6h*',
             attendance,
             employees,
             { stayOnAutomatic: true }
@@ -281,7 +401,7 @@ describe('Mini attendance import review slice', () => {
     test('keeps an inline Mini choice pending when position distribution is still required', () => {
         const attendance = { [`e2-${DATE}`]: existingMulti() };
         const { controller, host } = enterReview(
-            '002. <img src=x> Luis Garcia *9h*',
+            '002. <img src=x> Luis Garcia *10h*',
             attendance,
             employees,
             { stayOnAutomatic: true }
@@ -309,7 +429,7 @@ describe('Mini attendance import review slice', () => {
         const attendance = { [`e2-${DATE}`]: existingMulti() };
         const { controller, host } = enterReview(
             '001. Ana Perez *8h* 501. Hector Excavadora *4h* ' +
-            '0501. Héctor excavadora *4h* 002. <img src=x> Luis Garcia *9h*',
+            '0501. Héctor excavadora *4h* 002. <img src=x> Luis Garcia *10h*',
             attendance,
             roster,
             { stayOnAutomatic: true }

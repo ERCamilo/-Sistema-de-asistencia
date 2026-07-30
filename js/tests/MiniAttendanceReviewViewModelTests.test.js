@@ -163,7 +163,7 @@ describe('Mini attendance review projection', () => {
         expect(view.safeBulkSourceIndexes).toEqual([]);
         expect(JSON.stringify({ draft, conflictPlan })).toBe(before);
     });
-    test('allows safe bulk only for pristine single rows without identity, position or data risk', () => {
+    test('includes equal Mini/SA hours in ready rows without relaxing other risks', () => {
         const current = {
             employeeId: 'e4',
             date: DATE,
@@ -177,15 +177,75 @@ describe('Mini attendance review projection', () => {
             { [`e4-${DATE}`]: current }
         );
         const view = project(state);
-        expect(view.safeBulkSourceIndexes).toEqual([0]);
+        expect(view.safeBulkSourceIndexes).toEqual([0, 3]);
         expect(view.summary).toEqual({
             total: 5,
-            ready: 1,
-            needsAttention: 4,
+            ready: 2,
+            needsAttention: 3,
             confirmed: 0,
             ignored: 0
         });
-        expect(project(state, 'ready').items).toHaveLength(1);
-        expect(project(state, 'ready').items[0].employee.id).toBe('e1');
+        expect(project(state, 'ready').items.map(item => item.employee.id))
+            .toEqual(['e1', 'e4']);
+    });
+
+    test('includes Mini hours with an empty SA record in ready rows', () => {
+        const emptyCurrent = {
+            employeeId: 'e1',
+            date: DATE,
+            hoursWorked: 0,
+            overtimeHours: 0,
+            selectedPosition: 'p1'
+        };
+        const state = prepare('001. Ana Perez *8h*', {
+            [`e1-${DATE}`]: emptyCurrent
+        });
+
+        const view = project(state);
+
+        expect(view.summary).toMatchObject({ ready: 1, needsAttention: 0 });
+        expect(view.safeBulkSourceIndexes).toEqual([0]);
+    });
+
+    test('summarizes problems by count and highest visual severity', () => {
+        const attendance = {
+            [`e1-${DATE}`]: {
+                employeeId: 'e1',
+                date: DATE,
+                hoursWorked: 6,
+                overtimeHours: 0,
+                selectedPosition: 'p1'
+            },
+            [`e2-${DATE}`]: {
+                employeeId: 'e2',
+                date: DATE,
+                hoursWorked: 7,
+                overtimeHours: 0,
+                selectedPosition: 'p1',
+                positionHours: [
+                    { positionId: 'p1', hours: 4, overtimeHours: 0 },
+                    { positionId: 'p2', hours: 3, overtimeHours: 0 }
+                ]
+            }
+        };
+        const state = prepare(
+            '001. Ana Perez *9h* 002. Luis Garcia *9h* 999. Persona desconocida *8h*',
+            attendance
+        );
+
+        const view = project(state);
+        const [hoursOnly, positionAndHours, missingEmployee] = view.items;
+
+        expect(hoursOnly.problemSummary).toEqual({
+            count: 1, severity: 'caution', label: '1 error'
+        });
+        expect(positionAndHours.problemSummary).toEqual({
+            count: 2, severity: 'warning', label: '2 errores'
+        });
+        expect(missingEmployee.problemSummary).toEqual({
+            count: 1, severity: 'critical', label: '1 error'
+        });
+        expect(positionAndHours.problems.map(problem => problem.kind))
+            .toEqual(['position', 'decision']);
     });
 });

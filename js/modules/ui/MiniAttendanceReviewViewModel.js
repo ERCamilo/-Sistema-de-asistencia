@@ -103,6 +103,16 @@ const ACTIONS = {
     unknown: ['Revisa esta asistencia antes de continuar.', 'review_row', 'Revisar asistencia', false],
     complete: ['Lista para importar.', 'none', 'Confirmada', false]
 };
+const PROBLEM_SEVERITY = {
+    caution: 1,
+    warning: 2,
+    critical: 3
+};
+const SAFE_BULK_BLOCKERS = new Set([
+    'row_review_required',
+    'row_not_approved',
+    'decision_unacknowledged'
+]);
 function hasAny(blockers, group) {
     return blockers.some(blocker => group.has(blocker));
 }
@@ -139,9 +149,47 @@ function occurrenceView(draft, sourceIndex) {
         totalHours: source.totalHours ?? null
     };
 }
-function isSafeBulkItem({ issue, row, draftRows, probableDuplicate, stale }) {
-    if (issue !== 'confirmation' || stale || probableDuplicate || row.existing) return false;
-    if (row.sourceIndexes.length !== 1 || row.employeePositionIds.length !== 1) return false;
+function importedTotal(row) {
+    return (row.imported?.normalHours ?? 0) + (row.imported?.overtimeHours ?? 0);
+}
+function existingTotal(row) {
+    const breakdown = row.existing?.breakdown || [];
+    if (breakdown.length) {
+        return breakdown.reduce((total, allocation) =>
+            total + (allocation.hours ?? 0) + (allocation.overtimeHours ?? 0), 0);
+    }
+    return (row.existing?.record?.hoursWorked ?? 0) +
+        (row.existing?.record?.overtimeHours ?? 0);
+}
+function hoursAreEqual(left, right) {
+    return Math.abs(left - right) < 0.001;
+}
+function hasValidImportedPosition(row) {
+    if (row.employeePositionIds.length !== 1 ||
+        row.targetPositionId !== row.employeePositionIds[0] ||
+        row.positionAllocations.length !== 1) {
+        return false;
+    }
+    const allocation = row.positionAllocations[0];
+    return allocation.positionId === row.targetPositionId &&
+        Number.isFinite(allocation.normalHours) &&
+        Number.isFinite(allocation.overtimeHours) &&
+        allocation.normalHours >= 0 &&
+        allocation.overtimeHours >= 0 &&
+        allocation.normalHours + allocation.overtimeHours > 0 &&
+        allocation.normalHours + allocation.overtimeHours <= 24;
+}
+function hasValidExistingPosition(row) {
+    const breakdown = row.existing?.breakdown || [];
+    return breakdown.length > 0 && breakdown.every(allocation =>
+        typeof allocation.positionId === 'string' &&
+        row.employeePositionIds.includes(allocation.positionId)
+    );
+}
+function isSafeBulkItem({ row, draftRows, probableDuplicate, stale, employee, confirmed }) {
+    if (confirmed || stale || probableDuplicate || !employee || row.sourceIndexes.length !== 1) {
+        return false;
+    }
     const draftRow = draftRows[0];
     if (!draftRow ||
         !['number_match', 'number_name_match', 'remembered_match']
@@ -149,10 +197,83 @@ function isSafeBulkItem({ issue, row, draftRows, probableDuplicate, stale }) {
         return false;
     }
     if (draftRow.match.requiresConfirmation || draftRow.sourceRow.errors?.length) return false;
-    const { normalHours, overtimeHours } = row.imported || {};
-    return [normalHours, overtimeHours].every(Number.isFinite) &&
-        normalHours >= 0 && overtimeHours >= 0 && normalHours + overtimeHours <= 24 &&
-        row.employeePositionIds.includes(row.targetPositionId);
+    if ((row.blockers || []).some(blocker => !SAFE_BULK_BLOCKERS.has(blocker))) return false;
+    const miniHours = importedTotal(row);
+    if (!Number.isFinite(miniHours) || miniHours <= 0 || miniHours > 24) return false;
+    const saHours = existingTotal(row);
+    if (row.existing && saHours > 0) {
+        return hoursAreEqual(miniHours, saHours) && hasValidExistingPosition(row);
+    }
+    return hasValidImportedPosition(row);
+}
+function addProblem(problems, kind, severity, message) {
+    if (problems.some(problem => problem.kind === kind)) return;
+    problems.push({ kind, severity, message });
+}
+function buildProblems({
+    row, blockers, globalBlockers, employee, probableDuplicate, stale, safeBulk
+}) {
+    if (safeBulk) return [];
+    const problems = [];
+    if (hasAny(blockers, ISSUE_GROUPS.source) ||
+        hasAny(globalBlockers, ISSUE_GROUPS.source)) {
+        addProblem(problems, 'source', 'critical', 'Los datos de origen no son válidos.');
+    }
+    if (hasAny(blockers, ISSUE_GROUPS.date) ||
+        hasAny(globalBlockers, ISSUE_GROUPS.date)) {
+        addProblem(problems, 'date', 'critical', 'La fecha de la importación no es válida.');
+    }
+    if (stale) {
+        addProblem(problems, 'stale', 'critical', 'La revisión quedó desactualizada.');
+    }
+    if (!employee || hasAny(blockers, ISSUE_GROUPS.identity)) {
+        addProblem(problems, 'employee', 'critical', 'Falta asignar o confirmar el empleado.');
+    }
+    if (hasAny(blockers, ISSUE_GROUPS.duplicate) || probableDuplicate) {
+        addProblem(problems, 'duplicate', 'critical', 'Hay una coincidencia duplicada por revisar.');
+    }
+    if (employee && (!row.existing ||
+        !hoursAreEqual(importedTotal(row), existingTotal(row))) &&
+        !hasValidImportedPosition(row)) {
+        addProblem(problems, 'position', 'warning', 'Falta asignar una posición válida.');
+    }
+    if (employee && row.existing && existingTotal(row) > 0 &&
+        !hasValidExistingPosition(row)) {
+        addProblem(problems, 'position', 'warning', 'Falta asignar una posición válida.');
+    }
+    if (hasAny(blockers, ISSUE_GROUPS.hours)) {
+        addProblem(problems, 'hours', 'warning', 'La distribución de horas no es válida.');
+    }
+    if (employee && hasAny(blockers, ISSUE_GROUPS.position)) {
+        addProblem(problems, 'position', 'warning', 'Falta asignar una posición válida.');
+    }
+    if (blockers.includes('decision_unacknowledged')) {
+        addProblem(problems, 'decision', 'caution', 'Falta elegir las horas de Mini o SA.');
+    }
+    if (blockers.includes('collapse_acknowledgement_required')) {
+        addProblem(
+            problems,
+            'collapse',
+            'caution',
+            'Falta confirmar el reemplazo de la distribución actual.'
+        );
+    }
+    if (!problems.length && hasAny(blockers, ISSUE_GROUPS.confirmation)) {
+        addProblem(problems, 'confirmation', 'caution', 'Falta confirmar la asistencia.');
+    }
+    return problems;
+}
+function summarizeProblems(problems) {
+    if (!problems.length) return { count: 0, severity: 'none', label: 'Sin errores' };
+    const severity = problems.reduce((highest, problem) =>
+        PROBLEM_SEVERITY[problem.severity] > PROBLEM_SEVERITY[highest]
+            ? problem.severity
+            : highest, 'caution');
+    return {
+        count: problems.length,
+        severity,
+        label: `${problems.length} ${problems.length === 1 ? 'error' : 'errores'}`
+    };
 }
 export function buildMiniAttendanceReviewViewModel({
     draft, conflictPlan, employees = [], positions = [], filter = 'all'
@@ -183,7 +304,6 @@ export function buildMiniAttendanceReviewViewModel({
             reviewed: row.allReviewed,
             approved: row.allApproved, stale
         });
-        const safeBulk = isSafeBulkItem({ issue, row, draftRows, probableDuplicate, stale });
         const confirmed = issue === 'complete';
         const employee = employeeById.get(row.employeeId);
         const matchStatuses = draftRows.map(draftRow => draftRow.match?.status);
@@ -197,6 +317,18 @@ export function buildMiniAttendanceReviewViewModel({
             normalHours: summary.normalHours + allocation.normalHours,
             overtimeHours: summary.overtimeHours + allocation.overtimeHours
         }), { normalHours: 0, overtimeHours: 0 });
+        const safeBulk = isSafeBulkItem({
+            row, draftRows, probableDuplicate, stale, employee, confirmed
+        });
+        const problems = buildProblems({
+            row,
+            blockers,
+            globalBlockers,
+            employee,
+            probableDuplicate,
+            stale,
+            safeBulk
+        });
         return {
             id: row.key || `mini-review-${sourceIndexes.join('-') || index}`,
             sourceIndexes,
@@ -230,6 +362,8 @@ export function buildMiniAttendanceReviewViewModel({
             issue,
             confirmed,
             needsAttention: !confirmed && !safeBulk,
+            problems,
+            problemSummary: summarizeProblems(problems),
             nextAction,
             confirmation,
             safeBulk
