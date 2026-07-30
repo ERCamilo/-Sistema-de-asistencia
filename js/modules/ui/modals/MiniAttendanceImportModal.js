@@ -662,7 +662,41 @@ export class MiniAttendanceImportModal {
             });
         });
         this.resetApplyState();
-        if (automaticItems.length) this.rebuildConflictPlan();
+        if (automaticItems.length) {
+            this.rebuildConflictPlan();
+            automaticItems
+                .filter(item =>
+                    (this.automaticReviewChoices.get(this.reviewItemKey(item)) || 'accept') ===
+                    'accept'
+                )
+                .forEach(item => {
+                    const rowIndex = this.conflictPlan.rows.findIndex(row =>
+                        row.sourceIndexes.some(sourceIndex =>
+                            item.sourceIndexes.includes(sourceIndex)
+                        )
+                    );
+                    if (rowIndex < 0) return;
+                    const row = this.conflictPlan.rows[rowIndex];
+                    const existingBreakdown = row.existing?.breakdown || [];
+                    const positionAllocations = row.positionAllocations.length
+                        ? row.positionAllocations
+                        : existingBreakdown.map(allocation => ({
+                            positionId: allocation.positionId,
+                            normalHours: allocation.hours || 0,
+                            overtimeHours: allocation.overtimeHours || 0
+                        }));
+                    this.conflictPlan = reviewMiniAttendanceConflict(
+                        this.conflictPlan,
+                        rowIndex,
+                        {
+                            action: 'use_imported',
+                            acknowledged: true,
+                            positionAllocations,
+                            collapseAcknowledged: existingBreakdown.length > 1
+                        }
+                    );
+                });
+        }
         const nextView = this.buildReviewView();
         this.reviewStep = 'individual';
         this.individualReviewKeys = nextView.items
@@ -675,6 +709,15 @@ export class MiniAttendanceImportModal {
         if (!this.individualReviewKeys.length && !this.conflictPlan.hasBlockingIssues) {
             this.showFinalSummary();
         }
+    }
+
+    acceptAllReadyMatches(container) {
+        container.querySelectorAll('[data-mini-auto-choice][value="accept"]')
+            .forEach(input => {
+                input.checked = true;
+                this.automaticReviewChoices.set(input.dataset.miniAutoChoice, 'accept');
+            });
+        this.acceptAutomaticMatches(container);
     }
 
     showFinalSummary() {
@@ -925,16 +968,29 @@ export class MiniAttendanceImportModal {
         const readyHeading = element('div', null, {
             className: 'mini-import-reconciliation-heading'
         });
-        readyHeading.append(
+        const readyHeadingCopy = element('div', null, {
+            className: 'mini-import-reconciliation-copy'
+        });
+        readyHeadingCopy.append(
             element('h4', `Listos para aceptar (${automaticItems.length})`),
-            element('span', 'Sin conflictos detectados')
+            element('span', 'Se aplicarán las horas importadas desde Mini')
         );
+        const acceptAllReady = actionButton(
+            'Aceptar todos con Mini',
+            'accept-all-ready',
+            automaticItems.length === 0
+        );
+        acceptAllReady.classList.add('mini-import-action-primary');
+        acceptAllReady.addEventListener('click', () =>
+            this.acceptAllReadyMatches(panel)
+        );
+        readyHeading.append(readyHeadingCopy, acceptAllReady);
         panel.append(readyHeading);
         const table = element('table', null, {
             className: 'mini-import-rows mini-import-auto-table',
             dataset: { miniAutomaticTable: '' }
         });
-        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Cargo', 'Decisión'];
+        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Cargo', 'Estado', 'Decisión'];
         const head = element('thead');
         const headingRow = element('tr');
         labels.forEach(label => headingRow.append(element('th', label, { scope: 'col' })));
@@ -954,6 +1010,10 @@ export class MiniAttendanceImportModal {
             const position = item.targetPositionOptions.find(option =>
                 option.id === item.targetPositionId
             ) || item.targetPositionOptions[0];
+            const readyReason = element('span', item.readyReason.label, {
+                className: `mini-import-ready-reason is-${item.readyReason.type}`,
+                dataset: { miniReadyReason: item.readyReason.type }
+            });
             const decision = element('div', null, {
                 className: 'mini-import-segmented mini-import-auto-choice',
                 role: 'radiogroup',
@@ -983,6 +1043,7 @@ export class MiniAttendanceImportModal {
                 localIdentity,
                 `${totalHours} h`,
                 position?.name || 'Sin cargo',
+                readyReason,
                 decision
             ];
             values.forEach((value, index) => {
@@ -1113,10 +1174,13 @@ export class MiniAttendanceImportModal {
             const occurrence = item.occurrences[0] || {};
             const key = this.reviewItemKey(item);
             const row = element('tr', null, {
-                className: item.confirmed ? 'is-resolved' : '',
+                className: item.confirmed
+                    ? 'is-resolved'
+                    : `has-${item.problemSummary.severity}-problems`,
                 dataset: {
                     miniAttentionRow: key,
-                    miniAttentionStatus: item.confirmed ? 'resolved' : 'pending'
+                    miniAttentionStatus: item.confirmed ? 'resolved' : 'pending',
+                    miniProblemSeverity: item.problemSummary.severity
                 }
             });
             const action = actionButton(
@@ -1135,15 +1199,24 @@ export class MiniAttendanceImportModal {
             } else {
                 action.addEventListener('click', () => this.openIndividualReview([key]));
             }
-            const status = element(
+            const status = element('div', null, {
+                className: 'mini-import-problem-status'
+            });
+            status.append(element(
                 'span',
-                item.confirmed ? 'Resuelto' : item.nextAction,
+                item.confirmed ? 'Resuelto' : item.problemSummary.label,
                 {
                     className: item.confirmed
                         ? 'mini-import-status-badge is-resolved'
-                        : 'mini-import-status-badge is-pending'
+                        : `mini-import-status-badge is-${item.problemSummary.severity}`,
+                    title: item.confirmed
+                        ? 'Asistencia resuelta'
+                        : item.problems.map(problem => problem.message).join(' ')
                 }
-            );
+            ));
+            if (!item.confirmed) {
+                status.append(element('small', item.nextAction));
+            }
             const hours = this.renderAttentionHoursChoice(item);
             const values = [
                 `${occurrence.number} · ${occurrence.name}`,
@@ -1163,6 +1236,30 @@ export class MiniAttendanceImportModal {
             body.append(row);
         });
         table.append(head, body);
+        const bulkItems = items.filter(item => item.existingBreakdown.length > 0);
+        if (bulkItems.length) {
+            const bulkActions = element('div', null, {
+                className: 'mini-import-attention-bulk',
+                dataset: { miniAttentionBulk: '' }
+            });
+            bulkActions.append(element(
+                'span',
+                `Cambiar las horas de ${bulkItems.length} ` +
+                    `${bulkItems.length === 1 ? 'fila' : 'filas'} con datos en SA`
+            ));
+            const useMini = actionButton('Usar Mini en todos', 'use-mini-all');
+            const useSa = actionButton('Usar SA en todos', 'use-sa-all');
+            useMini.classList.add('mini-import-action-primary');
+            useSa.classList.add('mini-import-action-secondary');
+            useMini.addEventListener('click', () =>
+                this.chooseAllAttentionSources(bulkItems, 'use_imported')
+            );
+            useSa.addEventListener('click', () =>
+                this.chooseAllAttentionSources(bulkItems, 'keep_existing')
+            );
+            bulkActions.append(useMini, useSa);
+            wrapper.append(bulkActions);
+        }
         wrapper.append(table);
         if (pendingItems.length) {
             const reviewAll = actionButton(
@@ -1216,25 +1313,33 @@ export class MiniAttendanceImportModal {
     }
 
     chooseAttentionSource(item, action) {
+        this.chooseAllAttentionSources([item], action);
+    }
+
+    chooseAllAttentionSources(items, action) {
+        const candidates = items.filter(item => item.existingBreakdown.length > 0);
+        if (!candidates.length) return;
         if (action === 'use_imported') {
-            item.sourceIndexes.forEach(sourceIndex => {
+            candidates.forEach(item => item.sourceIndexes.forEach(sourceIndex => {
                 this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, {
                     approved: true
                 });
-            });
+            }));
             this.rebuildConflictPlan();
         }
-        const rowIndex = this.conflictPlan.rows.findIndex(row =>
-            row.sourceIndexes.some(sourceIndex => item.sourceIndexes.includes(sourceIndex))
-        );
-        if (rowIndex < 0) return;
-        const row = this.conflictPlan.rows[rowIndex];
-        this.conflictPlan = reviewMiniAttendanceConflict(this.conflictPlan, rowIndex, {
-            action,
-            acknowledged: true,
-            positionAllocations: row.positionAllocations,
-            collapseAcknowledged: action === 'use_imported' &&
-                (row.existing?.breakdown.length || 0) > 1
+        candidates.forEach(item => {
+            const rowIndex = this.conflictPlan.rows.findIndex(row =>
+                row.sourceIndexes.some(sourceIndex => item.sourceIndexes.includes(sourceIndex))
+            );
+            if (rowIndex < 0) return;
+            const row = this.conflictPlan.rows[rowIndex];
+            this.conflictPlan = reviewMiniAttendanceConflict(this.conflictPlan, rowIndex, {
+                action,
+                acknowledged: true,
+                positionAllocations: row.positionAllocations,
+                collapseAcknowledged: action === 'use_imported' &&
+                    (row.existing?.breakdown.length || 0) > 1
+            });
         });
         this.resetApplyState();
         this.refreshAttentionReviewTable();
@@ -1406,7 +1511,7 @@ export class MiniAttendanceImportModal {
                 employee: employee
                     ? `${employee.number ?? ''} · ${employee.name ?? ''}`
                     : row.employeeId,
-                decision: usingMini ? 'Usar decisión de SA' : 'Conservar registro de SA',
+                decision: usingMini ? 'Usar asistencia de Mini' : 'Conservar registro de SA',
                 miniTotal,
                 saTotal,
                 difference: Math.round((saTotal - miniTotal) * 100) / 100
