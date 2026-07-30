@@ -1205,6 +1205,22 @@
     width: 100%;
 }
 
+.mini-import-assigned-filter {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 7px;
+    color: #cbd5e1;
+    font-size: 0.76rem;
+    cursor: pointer;
+}
+
+.mini-import-assigned-filter input {
+    width: 17px;
+    height: 17px;
+    accent-color: #06b6d4;
+}
+
 .mini-import-identity-arrow {
     align-self: center;
     color: #22d3ee;

@@ -16,6 +16,17 @@ function employeeView(employee) {
 function positionView(position) {
     return position ? { id: position.id, name: position.name ?? '' } : null;
 }
+function compareEmployeeOrder(left, right) {
+    const leftNumber = String(left.number ?? '').trim();
+    const rightNumber = String(right.number ?? '').trim();
+    const leftNumeric = /^\d+$/u.test(leftNumber) ? Number(leftNumber) : Number.POSITIVE_INFINITY;
+    const rightNumeric = /^\d+$/u.test(rightNumber) ? Number(rightNumber) : Number.POSITIVE_INFINITY;
+    return leftNumeric - rightNumeric ||
+        leftNumber.localeCompare(rightNumber, 'es', { numeric: true, sensitivity: 'base' }) ||
+        String(left.name ?? '').localeCompare(String(right.name ?? ''), 'es', {
+            sensitivity: 'base'
+        });
+}
 function normalizeName(value) {
     return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/gu, '')
         .toLocaleLowerCase('es').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/gu, ' ');
@@ -144,7 +155,7 @@ export function buildMiniAttendanceReviewViewModel({
 }) {
     const employeeById = new Map(employees.map(employee => [employee.id, employee]));
     const positionById = new Map(positions.map(position => [position.id, position]));
-    const employeeOptions = employees.map(employeeView);
+    const employeeOptions = employees.map(employeeView).sort(compareEmployeeOrder);
     const globalBlockers = [
         ...(draft?.dateBlockers || []),
         ...(draft?.sourceBlockers || []),

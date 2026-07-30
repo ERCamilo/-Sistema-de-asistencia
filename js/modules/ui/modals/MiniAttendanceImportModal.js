@@ -107,6 +107,7 @@ export class MiniAttendanceImportModal {
         this.automaticReviewChoices = new Map();
         this.individualReviewKeys = [];
         this.individualReviewMode = 'queue';
+        this.hideAssignedEmployees = true;
         this.stage = 'paste';
         this.source = '';
         this.parsed = null;
@@ -554,6 +555,10 @@ export class MiniAttendanceImportModal {
             `${occurrence?.number} · ${occurrence?.name} fue excluido de esta importación.`,
             'info'
         );
+        if (this.individualReviewMode === 'single') {
+            this.showAutomaticReview();
+            return;
+        }
         this.clampReviewPage();
         this.render();
         this.resetReviewViewport();
@@ -561,8 +566,8 @@ export class MiniAttendanceImportModal {
 
     requestIgnoreReviewUnit(item) {
         const occurrence = item.occurrences[0] || {};
-        const message = `${occurrence.number} · ${occurrence.name} no existe en el registro ` +
-            'actual de SA. ¿Deseas ignorarlo y continuar?';
+        const message = `${occurrence.number} · ${occurrence.name} se excluirá únicamente ` +
+            'de esta importación y no modificará la asistencia de SA. ¿Deseas continuar?';
         const proceed = () => this.ignoreReviewUnit(item);
         if (typeof this.confirmIgnore === 'function') {
             Promise.resolve(this.confirmIgnore({ item, message })).then(confirmed => {
@@ -799,6 +804,18 @@ export class MiniAttendanceImportModal {
                 allocation.overtimeHours > 0
             )
             .map(({ active: _active, ...allocation }) => allocation);
+    }
+
+    assignedEmployeeIds(currentItem) {
+        const currentIndexes = new Set(currentItem.sourceIndexes);
+        return new Set(this.draft.rows
+            .filter((row, sourceIndex) =>
+                row.approved === true &&
+                row.excluded !== true &&
+                !currentIndexes.has(sourceIndex) &&
+                row.match?.employeeId
+            )
+            .map(row => row.match.employeeId));
     }
 
     renderReview() {
@@ -1288,12 +1305,34 @@ export class MiniAttendanceImportModal {
             dataset: { miniEmployee: '' },
             'aria-label': 'Empleado SA'
         });
+        const assignedEmployeeIds = this.assignedEmployeeIds(model);
         employeeSelect.append(element('option', 'Selecciona un empleado', { value: '' }));
-        model.employeeOptions.forEach(employee => {
+        model.employeeOptions
+            .filter(employee =>
+                !this.hideAssignedEmployees ||
+                !assignedEmployeeIds.has(employee.id) ||
+                employee.id === model.employee?.id
+            )
+            .forEach(employee => {
             employeeSelect.append(element('option', `${employee.number} · ${employee.name}`, {
                 value: employee.id,
                 selected: model.employee?.id === employee.id
             }));
+        });
+        const assignedFilter = element('label', null, {
+            className: 'mini-import-assigned-filter'
+        });
+        assignedFilter.append(
+            element('input', null, {
+                type: 'checkbox',
+                checked: this.hideAssignedEmployees,
+                dataset: { miniHideAssigned: '' }
+            }),
+            document.createTextNode(' Ocultar empleados ya asignados')
+        );
+        assignedFilter.querySelector('input').addEventListener('change', event => {
+            this.hideAssignedEmployees = event.currentTarget.checked;
+            this.render();
         });
         const localPosition = element('small', '', {
             dataset: { miniLocalPosition: '' }
@@ -1308,6 +1347,7 @@ export class MiniAttendanceImportModal {
         localIdentity.append(
             element('strong', 'SA'),
             employeeSelect,
+            assignedFilter,
             localHours,
             localPosition
         );
@@ -1545,7 +1585,6 @@ export class MiniAttendanceImportModal {
         confirm.addEventListener('click', () => this.confirmReviewUnit(model, container));
         const ignore = actionButton('Ignorar en esta importación', 'ignore-unit', false);
         ignore.classList.add('mini-import-action-secondary');
-        ignore.hidden = !model.canIgnore;
         ignore.addEventListener('click', () => this.requestIgnoreReviewUnit(model));
         const choiceControls = element('div', null, {
             className: 'mini-import-review-choices'

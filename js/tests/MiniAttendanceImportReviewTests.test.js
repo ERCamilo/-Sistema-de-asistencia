@@ -443,6 +443,41 @@ describe('Mini attendance import review slice', () => {
         }, { allowReplace: true, actorUid: 'owner-a' });
     });
 
+    test('sorts SA employees by order and can reveal already assigned employees', () => {
+        const roster = [
+            { id: 'e10', number: '10', name: 'Diez', positions: ['p1'] },
+            { id: 'e2', number: '2', name: 'Dos', positions: ['p1'] },
+            { id: 'e1', number: '001', name: 'Uno', positions: ['p1'] }
+        ];
+        const { host } = enterReview(
+            '900. Primera persona *8h* 901. Segunda persona *8h*',
+            {},
+            roster
+        );
+        let unit = host.querySelector('[data-mini-review-unit]');
+        expect([...unit.querySelector('[data-mini-employee]').options]
+            .slice(1)
+            .map(option => option.textContent))
+            .toEqual(['001 · Uno', '2 · Dos', '10 · Diez']);
+
+        unit.querySelector('[data-mini-employee]').value = 'e1';
+        unit.querySelector('[data-mini-employee]')
+            .dispatchEvent(new Event('change', { bubbles: true }));
+        unit.querySelector('[data-mini-action="confirm-unit"]').click();
+        host.querySelector('[data-mini-action="next-unit"]').click();
+
+        unit = host.querySelector('[data-mini-review-unit]');
+        expect([...unit.querySelector('[data-mini-employee]').options]
+            .map(option => option.value)).not.toContain('e1');
+        const filter = unit.querySelector('[data-mini-hide-assigned]');
+        expect(filter.checked).toBe(true);
+        filter.checked = false;
+        filter.dispatchEvent(new Event('change', { bubbles: true }));
+        unit = host.querySelector('[data-mini-review-unit]');
+        expect([...unit.querySelector('[data-mini-employee]').options]
+            .map(option => option.value)).toContain('e1');
+    });
+
     test('confirms and excludes a person that does not exist in SA', async () => {
         const confirmIgnore = jest.fn(async () => true);
         const { controller, host } = enterReview(
@@ -458,7 +493,7 @@ describe('Mini attendance import review slice', () => {
         await Promise.resolve();
 
         expect(confirmIgnore).toHaveBeenCalledWith(expect.objectContaining({
-            message: expect.stringContaining('no existe en el registro actual de SA')
+            message: expect.stringContaining('se excluirá únicamente')
         }));
         expect(controller.draft.rows[0]).toMatchObject({
             excluded: true,
@@ -469,6 +504,25 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelector('[data-mini-review-summary]').textContent)
             .toContain('1 ignoradas');
         expect(host.querySelector('[data-mini-action="show-summary"]').disabled).toBe(false);
+    });
+
+    test('can ignore a matched entry with an existing SA record', async () => {
+        const confirmIgnore = jest.fn(async () => true);
+        const attendance = { [`e2-${DATE}`]: existingMulti() };
+        const { controller, host } = enterReview(
+            '002. <img src=x> Luis Garcia *9h*',
+            attendance,
+            employees,
+            { confirmIgnore }
+        );
+
+        expect(host.querySelector('[data-mini-action="ignore-unit"]').hidden).toBe(false);
+        host.querySelector('[data-mini-action="ignore-unit"]').click();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(controller.draft.rows[0].excluded).toBe(true);
+        expect(controller.conflictPlan.rows).toEqual([]);
     });
 
     test('keeps earlier accepted SA/Mini decisions while reviewing later people', async () => {
@@ -522,7 +576,7 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelector('[data-mini-action="next-unit"]').disabled).toBe(true);
         expect(host.querySelector('[data-mini-action="confirm-unit"]').textContent)
             .toBe('Guardar selección');
-        expect(host.querySelector('[data-mini-action="ignore-unit"]').hidden).toBe(true);
+        expect(host.querySelector('[data-mini-action="ignore-unit"]').hidden).toBe(false);
 
         host.querySelector('[data-mini-action="confirm-unit"]').click();
         let current = host.querySelector('[data-mini-review-unit]');
