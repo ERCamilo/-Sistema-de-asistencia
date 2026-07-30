@@ -212,7 +212,7 @@ describe('Mini attendance import review slice', () => {
             .toContain('Empleado 1 de 2');
     });
 
-    test('places equal Mini and SA hours in ready and accepts them without extra review', () => {
+    test('places equal Mini and SA hours in ready and imports Mini without extra review', () => {
         const attendance = {
             [`e1-${DATE}`]: {
                 ...existingSingle(),
@@ -230,15 +230,47 @@ describe('Mini attendance import review slice', () => {
         );
 
         expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-ready-reason]').textContent)
+            .toBe('Mismas horas');
         expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(0);
         host.querySelector('[data-mini-action="accept-automatic"]').click();
 
         expect(controller.conflictPlan.rows[0].decision).toEqual({
-            action: 'keep_existing',
-            acknowledged: true
+            action: 'use_imported',
+            acknowledged: true,
+            collapseAcknowledged: false
         });
         expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
         expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+    });
+
+    test('imports equal Mini hours while preserving the existing SA position split', () => {
+        const attendance = { [`e2-${DATE}`]: existingMulti() };
+        const { controller, host } = enterReview(
+            '002. <img src=x> Luis Garcia *9h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-ready-reason]').textContent)
+            .toBe('Mismas horas');
+        host.querySelector('[data-mini-action="accept-automatic"]').click();
+
+        expect(controller.conflictPlan.rows[0].decision).toEqual({
+            action: 'use_imported',
+            acknowledged: true,
+            collapseAcknowledged: true
+        });
+        expect(controller.conflictPlan.rows[0].positionAllocations).toEqual([
+            { positionId: 'p1', normalHours: 4, overtimeHours: 0 },
+            { positionId: 'p2', normalHours: 3, overtimeHours: 2 }
+        ]);
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+        expect(host.querySelector('[data-mini-final-summary]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-final-summary]').textContent)
+            .toContain('Usar asistencia de Mini');
     });
 
     test('places Mini hours with an empty SA record in ready and imports Mini', () => {
@@ -259,6 +291,10 @@ describe('Mini attendance import review slice', () => {
         );
 
         expect(host.querySelectorAll('[data-mini-automatic-row]')).toHaveLength(1);
+        expect(host.querySelector('[data-mini-ready-reason]').textContent)
+            .toBe('SA sin asistencia');
+        expect(host.querySelector('[data-mini-automatic-row]').textContent)
+            .not.toContain('Mismas horas');
         host.querySelector('[data-mini-action="accept-automatic"]').click();
 
         expect(controller.conflictPlan.rows[0].decision).toMatchObject({

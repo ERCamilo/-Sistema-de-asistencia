@@ -187,6 +187,11 @@ describe('Mini attendance review projection', () => {
         });
         expect(project(state, 'ready').items.map(item => item.employee.id))
             .toEqual(['e1', 'e4']);
+        expect(project(state, 'ready').items.map(item => item.readyReason))
+            .toEqual([
+                { type: 'sa_empty', label: 'SA sin asistencia' },
+                { type: 'hours_equal', label: 'Mismas horas' }
+            ]);
     });
 
     test('includes Mini hours with an empty SA record in ready rows', () => {
@@ -205,6 +210,10 @@ describe('Mini attendance review projection', () => {
 
         expect(view.summary).toMatchObject({ ready: 1, needsAttention: 0 });
         expect(view.safeBulkSourceIndexes).toEqual([0]);
+        expect(view.items[0].readyReason).toEqual({
+            type: 'sa_empty',
+            label: 'SA sin asistencia'
+        });
     });
 
     test('summarizes problems by count and highest visual severity', () => {

@@ -329,6 +329,11 @@ export function buildMiniAttendanceReviewViewModel({
             stale,
             safeBulk
         });
+        const readyReason = safeBulk
+            ? row.existing && existingTotal(row) > 0
+                ? { type: 'hours_equal', label: 'Mismas horas' }
+                : { type: 'sa_empty', label: 'SA sin asistencia' }
+            : null;
         return {
             id: row.key || `mini-review-${sourceIndexes.join('-') || index}`,
             sourceIndexes,
@@ -364,6 +369,7 @@ export function buildMiniAttendanceReviewViewModel({
             needsAttention: !confirmed && !safeBulk,
             problems,
             problemSummary: summarizeProblems(problems),
+            readyReason,
             nextAction,
             confirmation,
             safeBulk

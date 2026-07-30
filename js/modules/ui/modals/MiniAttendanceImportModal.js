@@ -677,30 +677,22 @@ export class MiniAttendanceImportModal {
                     );
                     if (rowIndex < 0) return;
                     const row = this.conflictPlan.rows[rowIndex];
-                    const miniTotal = row.imported.normalHours + row.imported.overtimeHours;
                     const existingBreakdown = row.existing?.breakdown || [];
-                    const saTotal = existingBreakdown.length
-                        ? existingBreakdown.reduce(
-                            (total, allocation) =>
-                                total + (allocation.hours || 0) +
-                                (allocation.overtimeHours || 0),
-                            0
-                        )
-                        : (row.existing?.record?.hoursWorked || 0) +
-                            (row.existing?.record?.overtimeHours || 0);
-                    const keepEqualExisting = row.existing &&
-                        saTotal > 0 &&
-                        Math.abs(miniTotal - saTotal) < 0.001;
-                    const action = keepEqualExisting ? 'keep_existing' : 'use_imported';
+                    const positionAllocations = row.positionAllocations.length
+                        ? row.positionAllocations
+                        : existingBreakdown.map(allocation => ({
+                            positionId: allocation.positionId,
+                            normalHours: allocation.hours || 0,
+                            overtimeHours: allocation.overtimeHours || 0
+                        }));
                     this.conflictPlan = reviewMiniAttendanceConflict(
                         this.conflictPlan,
                         rowIndex,
                         {
-                            action,
+                            action: 'use_imported',
                             acknowledged: true,
-                            positionAllocations: row.positionAllocations,
-                            collapseAcknowledged: action === 'use_imported' &&
-                                (row.existing?.breakdown.length || 0) > 1
+                            positionAllocations,
+                            collapseAcknowledged: existingBreakdown.length > 1
                         }
                     );
                 });
@@ -976,7 +968,7 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-rows mini-import-auto-table',
             dataset: { miniAutomaticTable: '' }
         });
-        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Cargo', 'Decisión'];
+        const labels = ['Mini', 'Empleado en SA', 'Horas', 'Cargo', 'Estado', 'Decisión'];
         const head = element('thead');
         const headingRow = element('tr');
         labels.forEach(label => headingRow.append(element('th', label, { scope: 'col' })));
@@ -996,6 +988,10 @@ export class MiniAttendanceImportModal {
             const position = item.targetPositionOptions.find(option =>
                 option.id === item.targetPositionId
             ) || item.targetPositionOptions[0];
+            const readyReason = element('span', item.readyReason.label, {
+                className: `mini-import-ready-reason is-${item.readyReason.type}`,
+                dataset: { miniReadyReason: item.readyReason.type }
+            });
             const decision = element('div', null, {
                 className: 'mini-import-segmented mini-import-auto-choice',
                 role: 'radiogroup',
@@ -1025,6 +1021,7 @@ export class MiniAttendanceImportModal {
                 localIdentity,
                 `${totalHours} h`,
                 position?.name || 'Sin cargo',
+                readyReason,
                 decision
             ];
             values.forEach((value, index) => {
@@ -1492,7 +1489,7 @@ export class MiniAttendanceImportModal {
                 employee: employee
                     ? `${employee.number ?? ''} · ${employee.name ?? ''}`
                     : row.employeeId,
-                decision: usingMini ? 'Usar decisión de SA' : 'Conservar registro de SA',
+                decision: usingMini ? 'Usar asistencia de Mini' : 'Conservar registro de SA',
                 miniTotal,
                 saTotal,
                 difference: Math.round((saTotal - miniTotal) * 100) / 100
