@@ -1062,12 +1062,13 @@ export class MiniAttendanceImportModal {
                         : 'mini-import-status-badge is-pending'
                 }
             );
+            const hours = this.renderAttentionHoursChoice(item);
             const values = [
                 `${occurrence.number} · ${occurrence.name}`,
                 item.employee
                     ? `${item.employee.number} · ${item.employee.name}`
                     : 'Sin coincidencia',
-                `${item.allocation.normalHours + item.allocation.overtimeHours} h`,
+                hours,
                 status,
                 action
             ];
@@ -1093,6 +1094,69 @@ export class MiniAttendanceImportModal {
             wrapper.append(reviewAll);
         }
         return wrapper;
+    }
+
+    renderAttentionHoursChoice(item) {
+        const miniTotal = item.allocation.normalHours + item.allocation.overtimeHours;
+        if (!item.existingBreakdown.length) {
+            return element('span', `${miniTotal} h de Mini`);
+        }
+        const saTotal = item.existingBreakdown.reduce((total, allocation) =>
+            total + allocation.hours + allocation.overtimeHours, 0);
+        const key = this.reviewItemKey(item);
+        const field = element('fieldset', null, {
+            className: 'mini-import-inline-source',
+            dataset: { miniInlineSource: key }
+        });
+        field.append(element('legend', 'Horas a usar'));
+        [
+            ['keep_existing', `SA ${saTotal} h`],
+            ['use_imported', `Mini ${miniTotal} h`]
+        ].forEach(([value, labelText]) => {
+            const id = `mini-inline-source-${this.controlId}-${key}-${value}`;
+            const label = element('label', null, { htmlFor: id });
+            const input = element('input', null, {
+                id,
+                type: 'radio',
+                name: `mini-inline-source-${this.controlId}-${key}`,
+                value,
+                checked: item.decision?.acknowledged === true &&
+                    item.decision.action === value,
+                dataset: { miniAttentionSource: value }
+            });
+            input.addEventListener('change', () => {
+                if (input.checked) this.chooseAttentionSource(item, value);
+            });
+            label.append(input, element('span', labelText));
+            field.append(label);
+        });
+        return field;
+    }
+
+    chooseAttentionSource(item, action) {
+        if (action === 'use_imported') {
+            item.sourceIndexes.forEach(sourceIndex => {
+                this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, {
+                    approved: true
+                });
+            });
+            this.rebuildConflictPlan();
+        }
+        const rowIndex = this.conflictPlan.rows.findIndex(row =>
+            row.sourceIndexes.some(sourceIndex => item.sourceIndexes.includes(sourceIndex))
+        );
+        if (rowIndex < 0) return;
+        const row = this.conflictPlan.rows[rowIndex];
+        this.conflictPlan = reviewMiniAttendanceConflict(this.conflictPlan, rowIndex, {
+            action,
+            acknowledged: true,
+            positionAllocations: row.positionAllocations,
+            collapseAcknowledged: action === 'use_imported' &&
+                (row.existing?.breakdown.length || 0) > 1
+        });
+        this.resetApplyState();
+        this.render();
+        this.resetReviewViewport();
     }
 
     renderIndividualReview(view) {

@@ -1040,6 +1040,60 @@
     color: #fde68a;
 }
 
+.mini-import-inline-source {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(78px, 1fr));
+    gap: 5px;
+    min-width: 174px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.mini-import-inline-source legend {
+    grid-column: 1 / -1;
+    margin-bottom: 2px;
+    color: #94a3b8;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.mini-import-inline-source label {
+    min-width: 0;
+    cursor: pointer;
+}
+
+.mini-import-inline-source input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.mini-import-inline-source span {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.mini-import-inline-source input:checked + span {
+    border-color: #22d3ee;
+    background: #0e7490;
+    color: #ecfeff;
+}
+
+.mini-import-inline-source input:focus-visible + span {
+    outline: 2px solid #67e8f9;
+    outline-offset: 2px;
+}
+
 .mini-import-attention-table .mini-import-action {
     min-width: 104px;
 }

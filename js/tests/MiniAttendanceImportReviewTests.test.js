@@ -63,6 +63,21 @@ function selectRadio(row, selector, value) {
     return true;
 }
 
+function existingSingle() {
+    return {
+        employeeId: 'e1',
+        date: DATE,
+        present: true,
+        hoursWorked: 6,
+        overtimeHours: 0,
+        selectedPosition: 'p1',
+        multiPosition: false,
+        positionHours: [
+            { positionId: 'p1', hours: 6, overtimeHours: 0 }
+        ]
+    };
+}
+
 function reviewUnit(host, {
     employeeId,
     normal = 8,
@@ -220,6 +235,61 @@ describe('Mini attendance import review slice', () => {
             .toContain('777 · Persona inexistente');
         expect(host.querySelector('[data-mini-action="review-all-attention"]').textContent)
             .toBe('Revisar todos los pendientes (1)');
+    });
+
+    test('chooses SA or Mini hours inline without opening the individual editor', () => {
+        const attendance = { [`e1-${DATE}`]: existingSingle() };
+        const { controller, host } = enterReview(
+            '001. Ana Perez *9h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        expect(host.querySelector('[data-mini-inline-source]').textContent)
+            .toMatch(/SA 6 h.*Mini 9 h/);
+        expect(host.querySelector('[data-mini-attention-source]:checked')).toBeNull();
+        host.querySelector('[data-mini-attention-source="use_imported"]').click();
+
+        expect(host.querySelector('[data-mini-review-unit]')).toBeNull();
+        expect(host.querySelector('[data-mini-attention-status="resolved"]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-attention-source="use_imported"]').checked)
+            .toBe(true);
+        expect(controller.draft.rows[0].approved).toBe(true);
+        expect(controller.conflictPlan.rows[0].decision).toMatchObject({
+            action: 'use_imported',
+            acknowledged: true
+        });
+
+        host.querySelector('[data-mini-attention-source="keep_existing"]').click();
+        expect(host.querySelector('[data-mini-attention-source="keep_existing"]').checked)
+            .toBe(true);
+        expect(controller.conflictPlan.rows[0].decision).toEqual({
+            action: 'keep_existing',
+            acknowledged: true
+        });
+    });
+
+    test('keeps an inline Mini choice pending when position distribution is still required', () => {
+        const attendance = { [`e2-${DATE}`]: existingMulti() };
+        const { controller, host } = enterReview(
+            '002. <img src=x> Luis Garcia *9h*',
+            attendance,
+            employees,
+            { stayOnAutomatic: true }
+        );
+
+        host.querySelector('[data-mini-attention-source="use_imported"]').click();
+
+        expect(host.querySelector('[data-mini-attention-status="pending"]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-attention-source="use_imported"]').checked)
+            .toBe(true);
+        expect(host.querySelector('[data-mini-attention-status="pending"]').textContent)
+            .toContain('Selecciona un puesto válido');
+        expect(host.querySelector('[data-mini-action="edit-attention"]').textContent)
+            .toBe('Resolver');
+        expect(controller.conflictPlan.rows[0].blockers)
+            .toContain('target_position_required');
     });
 
     test('accepts safe rows and skips them while unresolved people continue individually', () => {
