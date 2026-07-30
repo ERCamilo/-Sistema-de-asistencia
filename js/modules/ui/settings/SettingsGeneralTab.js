@@ -267,6 +267,15 @@ export function SettingsGeneralTab(context) {
                             Exportar log de errores
                         </button>
                     </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+                        <span style="font-size: 0.8rem; color: #94a3b8; flex: 1; min-width: 200px; line-height: 1.5;">
+                            Olvida las relaciones guardadas entre nombres o números de Mini y empleados de SA.
+                            <strong style="color: #cbd5e1;">No se borran empleados ni asistencias.</strong>
+                        </span>
+                        <button type="button" data-settings-action="clear-mini-attendance-aliases" class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.8rem; white-space: nowrap;">
+                            Borrar coincidencias de Mini
+                        </button>
+                    </div>
                 </div>
     `;
 }

@@ -8,7 +8,7 @@ import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 13) {
+    constructor(dbName = 'attendance-app-db', version = 14) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -177,6 +177,26 @@ export class IndexedDBService {
                 if (!db.objectStoreNames.contains('syncLocks')) {
                     db.createObjectStore('syncLocks', { keyPath: 'name' });
                 }
+
+                // Stores locales y aislados del importador Mini (v14).
+                if (!db.objectStoreNames.contains('miniAttendanceAliases')) {
+                    const aliasStore = db.createObjectStore('miniAttendanceAliases', { keyPath: 'aliasId' });
+                    aliasStore.createIndex('scopeKey', 'scopeKey', { unique: false });
+                    aliasStore.createIndex('targetEmployeeId', 'targetEmployeeId', { unique: false });
+                    aliasStore.createIndex('active', 'active', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('miniAttendanceAliasAudit')) {
+                    const auditStore = db.createObjectStore('miniAttendanceAliasAudit', { keyPath: 'auditId' });
+                    auditStore.createIndex('aliasId', 'aliasId', { unique: false });
+                    auditStore.createIndex('scopeKey', 'scopeKey', { unique: false });
+                    auditStore.createIndex('eventType', 'eventType', { unique: false });
+                }
+                if (!db.objectStoreNames.contains('miniAttendanceInbox')) {
+                    const inboxStore = db.createObjectStore('miniAttendanceInbox', { keyPath: 'eventId' });
+                    inboxStore.createIndex('status', 'status', { unique: false });
+                    inboxStore.createIndex('scopeKey', 'scopeKey', { unique: false });
+                    inboxStore.createIndex('receivedAt', 'receivedAt', { unique: false });
+                }
             };
         });
     }
@@ -192,6 +212,22 @@ export class IndexedDBService {
                 console.error(`❌ Error en put (${storeName}):`, request.error);
                 reject(request.error || new Error('Error en solicitud IndexedDB (request.error es null)'));
             };
+        });
+    }
+
+    async atomicUpdate(entries) {
+        if (!Array.isArray(entries) || entries.length === 0) return true;
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const storeNames = [...new Set(entries.map(entry => entry.storeName))];
+            const transaction = this.db.transaction(storeNames, 'readwrite');
+            transaction.oncomplete = () => resolve(true);
+            transaction.onerror = () => reject(
+                transaction.error || new Error('Atomic IndexedDB update failed')
+            );
+            transaction.onabort = transaction.onerror;
+            entries.forEach(entry => transaction.objectStore(entry.storeName)
+                .put(this._serializeForIDB(entry.data)));
         });
     }
 

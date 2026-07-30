@@ -115,6 +115,12 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
             'El botón debe tener su etiqueta');
         testRunner.assert(html.includes('No se borran tus datos'),
             'Debe aclarar que NO se borran los datos del usuario');
+        testRunner.assert(html.includes('data-settings-action="clear-mini-attendance-aliases"'),
+            'La pestaña General debe permitir borrar coincidencias recordadas de Mini');
+        testRunner.assert(html.includes('Borrar coincidencias de Mini'),
+            'El control de coincidencias debe tener una etiqueta comprensible');
+        testRunner.assert(html.includes('No se borran empleados ni asistencias'),
+            'Debe aclarar el alcance seguro del borrado');
     },
 
     "SettingsTab: permite activar o desactivar la marca del puesto trabajado"() {

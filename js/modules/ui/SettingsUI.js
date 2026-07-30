@@ -16,6 +16,11 @@ import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
 import { clearAppCaches } from '../services/CacheManager.js';
 import { translateError } from '../services/ErrorTranslator.js';
 import { logError } from '../services/ErrorLog.js';
+import {
+    buildDefaultMiniAttendanceAliasScope,
+    miniAttendanceAliasStore
+} from '../services/MiniAttendanceAliasStore.js';
+import { getLocalOwnerUid } from '../services/LocalDataOwner.js';
 
 // ============================================
 // EVENT DELEGATION (data-settings-action)
@@ -88,6 +93,44 @@ const _SETTINGS_ACTION_MAP = {
                 title: 'Limpiar cache y recargar',
                 message: 'Se borrarán los archivos cacheados del navegador para forzar la última versión de la app. Tus datos (empleados, asistencia, configuración) NO se borran. La app se va a recargar. ¿Continuar?',
                 confirmText: 'Sí, limpiar y recargar',
+                cancelText: 'Cancelar',
+                type: 'warning',
+                onConfirm: doClear
+            });
+        } else {
+            doClear();
+        }
+    },
+    'clear-mini-attendance-aliases': () => {
+        const doClear = async () => {
+            try {
+                const ownerUid = window.currentUser?.uid || getLocalOwnerUid() || 'local-device';
+                const scope = buildDefaultMiniAttendanceAliasScope(ownerUid);
+                const { forgottenCount } = await miniAttendanceAliasStore.forgetAll(scope, {
+                    actorUid: ownerUid
+                });
+                window.showNotification?.(
+                    forgottenCount
+                        ? `${forgottenCount} coincidencia(s) de Mini eliminada(s).`
+                        : 'No había coincidencias de Mini guardadas.',
+                    'success'
+                );
+            } catch (err) {
+                console.error('❌ Error borrando coincidencias de Mini:', err);
+                logError(err, 'borrar coincidencias de Mini');
+                window.showNotification?.(
+                    `No se pudieron borrar las coincidencias: ` +
+                    `${translateError(err, { fallbackContext: 'borrar coincidencias de Mini' })}`,
+                    'error'
+                );
+            }
+        };
+        if (window.showConfirm) {
+            window.showConfirm({
+                title: 'Borrar coincidencias de Mini',
+                message: 'Se olvidarán todas las relaciones guardadas entre personal de Mini y SA. ' +
+                    'No se borrarán empleados ni asistencias.',
+                confirmText: 'Sí, borrar coincidencias',
                 cancelText: 'Cancelar',
                 type: 'warning',
                 onConfirm: doClear
