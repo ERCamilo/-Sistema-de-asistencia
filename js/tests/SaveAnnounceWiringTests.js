@@ -112,8 +112,8 @@ testRunner.addSuite("Caja chica — announce honesto vía PettyCashStore", {
     "PettyCashUI anuncia las acciones principales del usuario"() {
         testRunner.assert(/saveProject\(p,\s*'Proyecto creado'\)/.test(PC_UI_SRC), 'crear proyecto');
         testRunner.assert(/savePeriod\(per,\s*'Periodo creado'\)/.test(PC_UI_SRC), 'crear periodo');
-        testRunner.assert(/saveMovement\(mov,\s*(mov\.type === 'gasto' \? )?'(Gasto|Movimiento) guardado'/.test(PC_UI_SRC), 'guardar movimiento');
-        testRunner.assert(/saveMovement\(mov,\s*'Movimiento actualizado'\)/.test(PC_UI_SRC), 'editar movimiento');
+        testRunner.assert(/saveMovement\(\s*mov,\s*(mov\.type === 'gasto' \? )?'(Gasto|Movimiento) guardado'/.test(PC_UI_SRC), 'guardar movimiento');
+        testRunner.assert(/saveMovement\(\s*mov,\s*'Movimiento actualizado'/.test(PC_UI_SRC), 'editar movimiento');
         testRunner.assert(/removeMovementDoc\(movId,\s*'Movimiento eliminado'\)/.test(PC_UI_SRC), 'eliminar movimiento');
         testRunner.assert(/savePeriod\(period,\s*'Periodo cerrado'\)/.test(PC_UI_SRC), 'cerrar periodo');
     }

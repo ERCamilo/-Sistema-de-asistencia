@@ -82,6 +82,35 @@ describe('Caja Chica — instrumentación de persistencia', () => {
         });
     });
 
+    test('saveLocal conserva un borrador sin encolarlo para Firebase ni Supabase', async () => {
+        auth.currentUser = null;
+
+        await PettyCashStore.saveLocal(
+            'movements',
+            { id: 'draft-1', amount: 0, reviewPending: true },
+            { source: 'receipt-ocr' }
+        );
+
+        expect(indexedDBService.update).toHaveBeenCalledWith(
+            'pettyCashMovements',
+            expect.objectContaining({ id: 'draft-1' })
+        );
+        expect(indexedDBService.update).not.toHaveBeenCalledWith(
+            'pettyCashOutbox',
+            expect.anything()
+        );
+        expect(indexedDBService.update).not.toHaveBeenCalledWith(
+            'pettyCashMirrorOutbox',
+            expect.anything()
+        );
+        expect(recordSpy).toHaveBeenCalledWith(expect.objectContaining({
+            operation: 'save',
+            collection: 'movements',
+            stage: 'local-success',
+            source: 'receipt-ocr'
+        }));
+    });
+
     test('mide cada snapshot recibido por el listener', () => {
         let snapshotCallback;
         onSnapshot.mockImplementation((_ref, callback) => {

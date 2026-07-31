@@ -70,6 +70,37 @@ export const PettyCashStore = {
     },
 
     /**
+     * Persiste un borrador exclusivamente en IndexedDB.
+     *
+     * Se usa mientras una factura está en OCR/revisión: todavía no es un
+     * movimiento contable confirmado y por eso no debe consumir escrituras de
+     * Firebase ni publicarse en el espejo de Supabase.
+     */
+    async saveLocal(col, item, opts = {}) {
+        if (!STORE[col] || !item || !item.id) return false;
+        const source = opts.source || 'unspecified';
+        PettyCashPersistenceMetrics.record({
+            operation: 'save', collection: col, stage: 'requested', source
+        });
+        const startedAt = Date.now();
+        try {
+            await indexedDBService.update(STORE[col], item);
+            PettyCashPersistenceMetrics.record({
+                operation: 'save', collection: col, stage: 'local-success', source,
+                durationMs: Date.now() - startedAt
+            });
+            return true;
+        } catch (e) {
+            PettyCashPersistenceMetrics.record({
+                operation: 'save', collection: col, stage: 'local-failure', source,
+                status: 'error', durationMs: Date.now() - startedAt
+            });
+            console.warn('pc save local-only:', e);
+            return false;
+        }
+    },
+
+    /**
      * Guarda un item: local (durable) + encola para la nube + intenta flush.
      * opts.announce (string opcional): anuncia el resultado REAL vía el toast
      * honesto — local OK al instante; el color final (verde nube / amarillo
@@ -250,14 +281,71 @@ export const PettyCashStore = {
         }
     },
 
-    /** Aplica una lista que viene de la nube (LiveSync/loadAll): reemplaza el
-     *  store local SIN encolar (no es un cambio nuestro). */
+    /**
+     * Aplica un snapshot remoto sin pisar trabajo local todavía no confirmado.
+     *
+     * Las entradas finales del outbox prevalecen sobre el snapshot; un delete
+     * pendiente tampoco puede resucitar. Los borradores OCR marcados
+     * `localDraft` se conservan aunque, por diseño, aún no existan en Firebase.
+     */
     async applyRemote(col, list) {
-        if (!STORE[col]) return;
+        if (!STORE[col]) return [];
+        const remote = Array.isArray(list) ? list.filter((item) => item?.id) : [];
+        let local = [];
+        let queued = [];
+        try {
+            [local, queued] = await Promise.all([
+                indexedDBService.getAll(STORE[col]),
+                indexedDBService.getAll(OUTBOX)
+            ]);
+        } catch {
+            local = [];
+            queued = [];
+        }
+
+        const merged = new Map(remote.map((item) => [String(item.id), item]));
+        const localById = new Map((local || []).filter((item) => item?.id).map(
+            (item) => [String(item.id), item]
+        ));
+
+        if (col === 'projects') {
+            localById.forEach((localProject, id) => {
+                const remoteProject = merged.get(id);
+                if (!remoteProject) return;
+                const localCounter = Number(localProject.nextRecordNumber) || 0;
+                const remoteCounter = Number(remoteProject.nextRecordNumber) || 0;
+                if (localCounter > remoteCounter) {
+                    merged.set(id, { ...remoteProject, nextRecordNumber: localCounter });
+                }
+            });
+        }
+
+        if (col === 'movements') {
+            localById.forEach((item, id) => {
+                if (item.localDraft === true) merged.set(id, item);
+            });
+        }
+
+        const latestQueued = new Map();
+        (queued || [])
+            .filter((entry) => entry?.col === col && ['pending', 'dead'].includes(entry.status))
+            .sort((left, right) => (left.key || 0) - (right.key || 0))
+            .forEach((entry) => latestQueued.set(String(entry.id), entry));
+        latestQueued.forEach((entry, id) => {
+            if (entry.op === 'delete') {
+                merged.delete(id);
+                return;
+            }
+            const localItem = entry.data || localById.get(id);
+            if (localItem) merged.set(id, localItem);
+        });
+
+        const mergedList = [...merged.values()];
         try {
             await indexedDBService.clear(STORE[col]);
-            if (Array.isArray(list) && list.length) await indexedDBService.batchUpdate(STORE[col], list);
+            if (mergedList.length) await indexedDBService.batchUpdate(STORE[col], mergedList);
         } catch (e) { console.warn('pc applyRemote:', e); }
+        return mergedList;
     },
 
     /**
