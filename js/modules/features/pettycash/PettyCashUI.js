@@ -1919,7 +1919,17 @@ export function registerPettyCashGlobals() {
             }
         } catch (e) {
             console.warn('getReceipt', e);
-            Modal.alert({ title: 'Comprobante', message: 'No se pudo cargar el archivo.' });
+            if (e?.code === 'RECEIPT_NOT_FOUND') {
+                Modal.alert({
+                    title: 'Comprobante no respaldado',
+                    message: 'Este comprobante no está guardado en este dispositivo ni existe todavía en el respaldo de la nube. Si el archivo original sigue en otro dispositivo, abre Caja Chica desde allí para completar su respaldo.'
+                });
+                return;
+            }
+            Modal.alert({
+                title: 'Comprobante',
+                message: 'No se pudo cargar el archivo. Verifica la conexión e inténtalo nuevamente.'
+            });
         }
     };
 

@@ -31,8 +31,11 @@ async function postReceiptAction({
     });
     const result = await response.json().catch(() => null);
     if (!response.ok || !result?.ok) {
-        const reason = result?.error || `HTTP ${response.status || 0}`;
-        throw new Error(`No se pudo ${action === 'lookup' ? 'recuperar' : 'respaldar'} el comprobante (${reason}).`);
+        const code = result?.error || `HTTP_${response.status || 0}`;
+        const error = new Error(`No se pudo ${action === 'lookup' ? 'recuperar' : 'respaldar'} el comprobante (${code}).`);
+        error.code = code;
+        error.status = Number(response.status) || 0;
+        throw error;
     }
     return result;
 }
