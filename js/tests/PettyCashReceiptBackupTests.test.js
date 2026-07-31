@@ -1,7 +1,8 @@
 import {
     isReceiptReadyForBackup,
     uploadReceiptBackup,
-    lookupReceiptBackup
+    lookupReceiptBackup,
+    isReceiptBackupVerified
 } from '../modules/features/pettycash/PettyCashReceiptBackup.js';
 
 describe('PettyCashReceiptBackup', () => {
@@ -109,5 +110,17 @@ describe('PettyCashReceiptBackup', () => {
             status: 404,
             message: expect.stringContaining('RECEIPT_NOT_FOUND')
         });
+    });
+
+    test('solo verifica el respaldo cuando la URL firmada corresponde al movimiento', () => {
+        expect(isReceiptBackupVerified({
+            signedUrl: 'https://signed.test/receipt',
+            receipt: { transaction_id: 'mov-1' }
+        }, 'mov-1')).toBe(true);
+        expect(isReceiptBackupVerified({
+            signedUrl: 'https://signed.test/receipt',
+            receipt: { transaction_id: 'mov-2' }
+        }, 'mov-1')).toBe(false);
+        expect(isReceiptBackupVerified({ receipt: { transaction_id: 'mov-1' } }, 'mov-1')).toBe(false);
     });
 });

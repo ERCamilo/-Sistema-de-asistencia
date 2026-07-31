@@ -44,6 +44,7 @@ testRunner.addSuite("IndexedDBService — store de comprobantes (v9+)", {
         testRunner.assert(/saveReceipt\s*\(/.test(SRC), 'saveReceipt');
         testRunner.assert(/saveReceiptOriginal\s*\(/.test(SRC), 'saveReceiptOriginal');
         testRunner.assert(/updateReceiptJob\s*\(/.test(SRC), 'updateReceiptJob');
+        testRunner.assert(/finalizeReceiptBackup\s*\(/.test(SRC), 'finalizeReceiptBackup');
         testRunner.assert(/listReceiptJobs\s*\(/.test(SRC), 'listReceiptJobs');
         testRunner.assert(/getReceipt\s*\(/.test(SRC), 'getReceipt');
         testRunner.assert(/deleteReceipt\s*\(/.test(SRC), 'deleteReceipt');
@@ -57,6 +58,17 @@ testRunner.addSuite("IndexedDBService — store de comprobantes (v9+)", {
         testRunner.assert(/status:\s*['"]local-only['"]/.test(block[0]), 'status debe ser local-only');
         testRunner.assert(/uploadStatus:\s*['"]deferred['"]/.test(block[0]), 'la subida debe quedar diferida');
         testRunner.assert(/previewDataUrl/.test(block[0]), 'la miniatura debe guardarse por separado');
+    },
+
+    "sólo libera el original después de verificar ruta remota y conservar miniatura"() {
+        const block = SRC.match(/async finalizeReceiptBackup[\s\S]{0,2600}?\n    \}/);
+        testRunner.assert(!!block, 'finalizeReceiptBackup debe existir');
+        testRunner.assert(/previewDataUrl[\s\S]*remotePath[\s\S]*remoteVerifiedAt/.test(block[0]),
+            'la poda debe exigir miniatura, ruta remota y verificación');
+        testRunner.assert(/delete record\.originalBlob/.test(block[0]),
+            'debe liberar únicamente el Blob original del registro verificado');
+        testRunner.assert(/localOriginalPrunedAt/.test(block[0]),
+            'debe dejar evidencia de cuándo se liberó el original local');
     }
 
 });

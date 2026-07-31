@@ -43,7 +43,8 @@ import { createReceiptQueueProcessor } from './PettyCashReceiptProcessor.js';
 import {
     isReceiptReadyForBackup,
     uploadReceiptBackup,
-    lookupReceiptBackup
+    lookupReceiptBackup,
+    isReceiptBackupVerified
 } from './PettyCashReceiptBackup.js';
 import {
     formatPettyCashDate,
@@ -623,20 +624,29 @@ export async function uploadPendingReceipts() {
                     ocr: receiptOcrMetadata(movement),
                     movement: movement || {}
                 });
-                await indexedDBService.updateReceiptJob(rec.txId, {
-                    status: 'uploaded',
-                    uploadStatus: 'uploaded',
-                    remotePath: data.path || data.receipt?.storage_path || null,
-                    remoteUploadedAt: Date.now(),
-                    uploadLastError: null
+                const remote = await lookupReceiptBackup({
+                    url,
+                    idToken,
+                    txId: rec.txId
                 });
+                if (!isReceiptBackupVerified(remote, rec.txId)) {
+                    throw new Error('El respaldo remoto no pudo verificarse.');
+                }
+                const remotePath = data.path || data.receipt?.storage_path || remote.receipt?.storage_path || null;
+                const verifiedAt = Date.now();
                 if (movement) {
                     movement.receiptStatus = 'uploaded';
                     movement.receiptStorage = 'supabase';
-                    movement.receiptUrl = data.path || data.receipt?.storage_path || null;
-                    movement.updatedAt = Date.now();
-                    saveMovement(movement, null, 'receipt-backup');
+                    movement.receiptUrl = remotePath;
+                    movement.updatedAt = verifiedAt;
+                    await saveMovement(movement, null, 'receipt-backup');
                 }
+                await indexedDBService.finalizeReceiptBackup(rec.txId, {
+                    remotePath,
+                    remoteUploadedAt: verifiedAt,
+                    remoteVerifiedAt: verifiedAt,
+                    uploadLastError: null
+                });
             } catch (e) {
                 console.warn('⚠️ uploadPendingReceipts(' + rec.txId + '):', e);
                 const attempts = (Number(rec.uploadAttempts) || 0) + 1;
@@ -1928,6 +1938,8 @@ export function registerPettyCashGlobals() {
         try {
             const rec = await indexedDBService.getReceipt(movId);
             let source = null;
+            let sourceIsPreview = false;
+            let remoteError = null;
             let mimeType = rec?.originalType || rec?.originalBlob?.type || null;
             let objectUrl = null;
             if (rec?.originalBlob) {
@@ -1938,24 +1950,33 @@ export function registerPettyCashGlobals() {
                     source = await blobToDataUrl(rec.originalBlob);
                 }
             }
-            if (!source) source = rec?.dataUrl || rec?.previewDataUrl || null;
             if (!source && auth?.currentUser && APP_CONFIG?.RECEIPT_UPLOAD_URL) {
-                const idToken = await auth.currentUser.getIdToken();
-                const remote = await lookupReceiptBackup({
-                    url: APP_CONFIG.RECEIPT_UPLOAD_URL,
-                    idToken,
-                    txId: movId
-                });
-                source = remote.signedUrl || null;
-                mimeType = remote.receipt?.mime_type || mimeType;
+                try {
+                    const idToken = await auth.currentUser.getIdToken();
+                    const remote = await lookupReceiptBackup({
+                        url: APP_CONFIG.RECEIPT_UPLOAD_URL,
+                        idToken,
+                        txId: movId
+                    });
+                    source = remote.signedUrl || null;
+                    mimeType = remote.receipt?.mime_type || mimeType;
+                } catch (error) {
+                    remoteError = error;
+                }
             }
-            if (!source) throw new Error('Comprobante no disponible');
+            if (!source) {
+                source = rec?.dataUrl || rec?.previewDataUrl || null;
+                sourceIsPreview = !!source && source === rec?.previewDataUrl;
+            }
+            if (!source) throw remoteError || new Error('Comprobante no disponible');
             if (mimeType === 'application/pdf') {
                 Modal.alert({
                     title: '🧾 Comprobante PDF',
                     message: `<div style="display:grid;gap:12px;text-align:center;">
                         ${rec?.previewDataUrl ? `<img src="${esc(rec.previewDataUrl)}" alt="Vista previa del PDF" style="max-width:100%;max-height:260px;margin:auto;border-radius:8px;">` : ''}
-                        <a href="${esc(source)}" target="_blank" rel="noopener" style="display:inline-flex;justify-content:center;background:#06b6d4;color:#06202a;border-radius:8px;padding:10px 14px;font-weight:800;text-decoration:none;">Abrir PDF original</a>
+                        ${sourceIsPreview
+                            ? '<div style="color:#f59e0b;font-size:.82rem;">Vista previa local. Conéctate para abrir el PDF original.</div>'
+                            : `<a href="${esc(source)}" target="_blank" rel="noopener" style="display:inline-flex;justify-content:center;background:#06b6d4;color:#06202a;border-radius:8px;padding:10px 14px;font-weight:800;text-decoration:none;">Abrir PDF original</a>`}
                     </div>`
                 });
                 if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl), 300000);

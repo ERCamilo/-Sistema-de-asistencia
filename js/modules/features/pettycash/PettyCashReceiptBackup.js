@@ -102,3 +102,9 @@ export async function lookupReceiptBackup({
         fetchImpl
     });
 }
+
+export function isReceiptBackupVerified(result, txId) {
+    if (!result?.signedUrl) return false;
+    const remoteTxId = result?.receipt?.transaction_id;
+    return !remoteTxId || String(remoteTxId) === String(txId || '');
+}

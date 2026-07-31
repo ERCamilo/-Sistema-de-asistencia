@@ -1,14 +1,14 @@
 /**
  * 🧪 ReceiptRetentionTests (Auditoría 2026-06-09, hallazgo M4)
  *
- * Política vigente: el original local NO se poda mientras la recuperación
- * remota no esté disponible y el usuario no haya confirmado el movimiento.
- * La miniatura vive en un campo separado y nunca reemplaza el único original.
+ * Política vigente: el original local sólo se poda después de confirmar el
+ * movimiento, subirlo y recuperar una URL firmada. La miniatura vive en un
+ * campo separado y nunca reemplaza el único original sin verificación remota.
  *
  * Contratos / comportamiento:
  *   - receiptThumbnailScale capa imágenes grandes a maxDim y deja las pequeñas
  *     en escala 1 (función pura, testeable sin canvas).
- *   - uploadPendingReceipts no llama downscaleDataUrl en el camino de éxito.
+ *   - uploadPendingReceipts verifica la recuperación antes de podar.
  *   - las capturas nuevas usan saveReceiptOriginal y quedan local-only.
  *   - eliminar un movimiento borra su comprobante (cascade) en los 3 sitios.
  */
@@ -56,13 +56,16 @@ testRunner.addSuite("Comprobantes — conservación del original + cascada al bo
             'debe existir downscaleDataUrl(dataUrl, maxDim, quality) para generar la miniatura');
     },
 
-    "uploadPendingReceipts conserva la copia completa hasta habilitar recuperación remota"() {
+    "uploadPendingReceipts verifica la recuperación antes de liberar el original"() {
         const block = UI_SRC.match(/export async function uploadPendingReceipts[\s\S]{0,6000}?\n\}/);
         testRunner.assert(!!block, 'uploadPendingReceipts debe existir');
-        testRunner.assert(!/downscaleDataUrl\s*\(\s*rec\./.test(block[0]),
-            'la subida no debe reemplazar el original por una miniatura');
-        testRunner.assert(/updateReceiptJob/.test(block[0]),
-            'debe actualizar únicamente el estado del registro existente');
+        const uploadAt = block[0].indexOf('uploadReceiptBackup');
+        const lookupAt = block[0].indexOf('lookupReceiptBackup', uploadAt);
+        const finalizeAt = block[0].indexOf('finalizeReceiptBackup', lookupAt);
+        testRunner.assert(uploadAt >= 0 && lookupAt > uploadAt && finalizeAt > lookupAt,
+            'el orden debe ser subir, verificar recuperación y recién entonces podar');
+        testRunner.assert(/isReceiptBackupVerified/.test(block[0]),
+            'la respuesta de recuperación debe validarse antes de podar');
     },
 
     "las capturas nuevas persisten original y miniatura como recursos separados"() {
@@ -78,6 +81,15 @@ testRunner.addSuite("Comprobantes — conservación del original + cascada al bo
         const cascades = UI_SRC.match(/if\s*\(\s*m?o?v?\.?receiptStatus\s*\)\s*(?:await\s+)?indexedDBService\.deleteReceipt/g) || [];
         testRunner.assert(cascades.length >= 3,
             'los handlers de borrado deben hacer cascade deleteReceipt (esperados 3)');
+    },
+
+    "ver comprobante prefiere el original remoto antes que la miniatura local"() {
+        const block = UI_SRC.match(/window\.pcViewReceipt\s*=\s*async[\s\S]{0,5200}?\n    \};/);
+        testRunner.assert(!!block, 'pcViewReceipt debe existir');
+        const lookupAt = block[0].indexOf('lookupReceiptBackup');
+        const previewAt = block[0].indexOf('rec?.dataUrl || rec?.previewDataUrl');
+        testRunner.assert(lookupAt >= 0 && previewAt > lookupAt,
+            'debe intentar la copia remota y usar la miniatura sólo como fallback offline');
     }
 
 });

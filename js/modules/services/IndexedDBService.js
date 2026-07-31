@@ -303,6 +303,42 @@ export class IndexedDBService {
         });
     }
 
+    /**
+     * Marca el respaldo remoto como verificado y libera el original local sólo
+     * cuando existe una miniatura y una ruta recuperable en Supabase.
+     */
+    async finalizeReceiptBackup(txId, patch = {}) {
+        if (!txId) return null;
+        await this.init();
+        const existing = await this.getReceipt(txId);
+        if (!existing) return null;
+        const now = Date.now();
+        const record = {
+            ...existing,
+            ...patch,
+            txId,
+            status: 'uploaded',
+            storage: 'supabase',
+            uploadStatus: 'uploaded',
+            updatedAt: now
+        };
+        const canPruneOriginal = !!(
+            record.previewDataUrl &&
+            record.remotePath &&
+            Number(record.remoteVerifiedAt) > 0
+        );
+        if (canPruneOriginal) {
+            delete record.originalBlob;
+            record.localOriginalPrunedAt = now;
+        }
+        return new Promise((resolve, reject) => {
+            const tx = this.db.transaction(['pettyCashReceipts'], 'readwrite');
+            const req = tx.objectStore('pettyCashReceipts').put(record);
+            req.onsuccess = () => resolve(record);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
     /** Lista la cola durable de originales locales, opcionalmente por estado. */
     async listReceiptJobs(queueStatuses = null) {
         await this.init();
