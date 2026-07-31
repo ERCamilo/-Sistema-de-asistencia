@@ -24,16 +24,22 @@ const COLLECTIONS = ['projects', 'periods', 'movements'];
 const ECHO_GUARD_MS = 500;
 
 let _subs = new Map();
+let _applyGeneration = 0;
 
-function guardedApply(onApply, items) {
+async function guardedApply(onApply, items) {
+    const generation = ++_applyGeneration;
     try {
         if (typeof window !== 'undefined') window._isApplyingRemoteData = true;
-        onApply(items);
+        await onApply(items);
     } catch (e) {
         console.error('❌ PettyCashLiveSync.onApply error:', e);
     } finally {
         if (typeof window !== 'undefined') {
-            setTimeout(() => { window._isApplyingRemoteData = false; }, ECHO_GUARD_MS);
+            setTimeout(() => {
+                if (_applyGeneration === generation) {
+                    window._isApplyingRemoteData = false;
+                }
+            }, ECHO_GUARD_MS);
         }
     }
 }
@@ -90,6 +96,8 @@ export const PettyCashLiveSync = {
             try { unsub(); } catch (e) { console.warn('Error al desuscribir:', e); }
         }
         _subs = new Map();
+        _applyGeneration += 1;
+        if (typeof window !== 'undefined') window._isApplyingRemoteData = false;
     },
 
     /** True si hay al menos una suscripción activa. */

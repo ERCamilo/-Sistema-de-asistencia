@@ -65,6 +65,10 @@ import { detectPettyCashDuplicates } from './PettyCashDuplicateDetection.js';
 import {
     filterPettyCashMovements
 } from './PettyCashMovementSearch.js';
+import {
+    DEFAULT_PETTY_CASH_PAGE_SIZE,
+    paginatePettyCashMovements
+} from './PettyCashMovementPagination.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
@@ -86,6 +90,7 @@ function _base() {
         movementSortBy: 'recordNumber',
         movementSortDirection: 'desc',
         movementSearchQuery: '',
+        movementVisibleCount: DEFAULT_PETTY_CASH_PAGE_SIZE,
         form: null,
         periodForm: null,
         editMov: null
@@ -425,6 +430,70 @@ function currentPeriod() {
 
 // ══ carga local (IndexedDB) — corre al arrancar, con o sin sesión ═════════
 let _pcLocalLoadPromise = null;
+let _liveMovementPeriodIds = [];
+const _remoteLoadedMovementPeriods = new Set();
+
+function openMovementPeriodIds(periods = pc().periods) {
+    return [...new Set((periods || [])
+        .filter((period) => period?.id && period.status !== 'cerrada')
+        .map((period) => String(period.id))
+    )].sort();
+}
+
+function sameIds(left, right) {
+    return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function movementSyncConfig(periodIds) {
+    const scopeIds = [...periodIds];
+    return {
+        scopeKey: scopeIds.join('|'),
+        subscribe: (cb) => PettyCashRepository.movements.subscribeForPeriods(scopeIds, cb),
+        onApply: async (list) => {
+            const merged = await PettyCashStore.applyRemote(
+                'movements',
+                dedupById(list),
+                { periodIds: scopeIds }
+            );
+            pc().movements = dedupById(merged);
+            scopeIds.forEach((id) => _remoteLoadedMovementPeriods.add(id));
+            await normalizeMovementIdentity(pc());
+            window.render?.();
+        }
+    };
+}
+
+function refreshLiveMovementScope() {
+    const nextIds = openMovementPeriodIds();
+    if (sameIds(nextIds, _liveMovementPeriodIds)) return false;
+    _liveMovementPeriodIds = nextIds;
+    return PettyCashLiveSyncCoordinator.replaceCollection(
+        'movements',
+        movementSyncConfig(nextIds)
+    );
+}
+
+async function loadHistoricalPeriodMovements(periodId, { force = false } = {}) {
+    const cleanId = String(periodId || '').trim();
+    if (
+        !cleanId ||
+        (!force && _remoteLoadedMovementPeriods.has(cleanId)) ||
+        !auth?.currentUser
+    ) return;
+    const period = pc().periods.find((item) => String(item.id) === cleanId);
+    if (!period || period.status !== 'cerrada') return;
+    const list = await PettyCashRepository.movements.loadForPeriod(cleanId);
+    const merged = await PettyCashStore.applyRemote(
+        'movements',
+        dedupById(list),
+        { periodIds: [cleanId] }
+    );
+    pc().movements = dedupById(merged);
+    _remoteLoadedMovementPeriods.add(cleanId);
+    await normalizeMovementIdentity(pc());
+    window.render?.();
+}
+
 export async function loadPettyCashLocal() {
     if (_pcLocalLoadPromise) return _pcLocalLoadPromise;
     _pcLocalLoadPromise = (async () => {
@@ -455,6 +524,7 @@ export async function startPettyCashSync() {
     // onSnapshot entrega el estado inicial de cada colección. Usarlo como
     // carga remota evita pagar primero getDocs() y volver a leer exactamente
     // los mismos documentos al abrir los listeners.
+    _liveMovementPeriodIds = openMovementPeriodIds();
     await PettyCashLiveSyncCoordinator.start({
         uid: auth?.currentUser?.uid,
         config: {
@@ -471,20 +541,15 @@ export async function startPettyCashSync() {
                 onApply: async (list) => {
                     const merged = await PettyCashStore.applyRemote('periods', dedupById(list));
                     pc().periods = dedupById(merged);
+                    refreshLiveMovementScope();
                     window.render?.();
                 }
             },
-            movements: {
-                subscribe: (cb) => PettyCashRepository.movements.subscribe(cb),
-                onApply: async (list) => {
-                    const merged = await PettyCashStore.applyRemote('movements', dedupById(list));
-                    pc().movements = dedupById(merged);
-                    await normalizeMovementIdentity(pc());
-                    window.render?.();
-                }
-            }
+            movements: movementSyncConfig(_liveMovementPeriodIds)
         }
     });
+    loadHistoricalPeriodMovements(pc().selectedPeriodId, { force: true })
+        .catch((error) => console.warn('petty cash history load', error));
 
     // Reanudar OCR local después de tener movimientos y sesión disponibles.
     processPendingReceiptJobs().catch((e) => console.warn('receipt queue startup', e));
@@ -734,6 +799,11 @@ function _periodPanel(period) {
     );
     const movementSearchQuery = String(d.movementSearchQuery || '').slice(0, 120);
     const searchedMovs = filterPettyCashMovements(visibleMovs, movementSearchQuery);
+    const sortedMovs = sortPettyCashMovements(searchedMovs, {
+        field: d.movementSortBy,
+        direction: d.movementSortDirection
+    }, { activeBatchIds: activeMovementBatchIds });
+    const page = paginatePettyCashMovements(sortedMovs, d.movementVisibleCount);
     const r = resumenPeriodo(movs);
     const cerrada = period.status === 'cerrada';
     const form = d.form;
@@ -784,10 +854,16 @@ function _periodPanel(period) {
         ${_movementSearchControl(movementSearchQuery)}
         ${_duplicateSummary(searchedMovs, duplicatesByMovement)}
         ${_movementSortControls(d, searchedMovs.length, visibleMovs.length)}
-        ${_movementsList(searchedMovs, cerrada, {
+        ${_movementsList(page.items, cerrada, {
             field: d.movementSortBy,
             direction: d.movementSortDirection
         }, duplicatesByMovement, activeMovementBatchIds, movementSearchQuery)}
+        ${page.hasMore ? `<div style="display:flex;justify-content:center;margin-top:10px;">
+            <button type="button" data-app-fn="pcLoadMoreMovements"
+                style="min-height:38px;background:#263244;color:#f8fafc;border:1px solid #475569;border-radius:8px;padding:8px 16px;font-size:.78rem;font-weight:750;cursor:pointer;">
+                Mostrar 50 más · ${page.visible} de ${page.total}
+            </button>
+        </div>` : ''}
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -1051,7 +1127,11 @@ function _movementsList(
 // ══ handlers (window.*) ════════════════════════════════════════════════
 export function registerPettyCashGlobals() {
     window.startPettyCashSync = startPettyCashSync;
-    window.stopPettyCashSync = () => PettyCashLiveSyncCoordinator.stop();
+    window.stopPettyCashSync = () => {
+        _liveMovementPeriodIds = [];
+        _remoteLoadedMovementPeriods.clear();
+        return PettyCashLiveSyncCoordinator.stop();
+    };
     window.getPettyCashSyncRole = () => PettyCashLiveSyncCoordinator.role();
 
     // Cargar datos locales (IndexedDB) al arrancar, aun sin sesión (offline-safe).
@@ -1077,6 +1157,7 @@ export function registerPettyCashGlobals() {
         });
         d.movementSortBy = sort.field;
         d.movementSortDirection = sort.direction;
+        d.movementVisibleCount = DEFAULT_PETTY_CASH_PAGE_SIZE;
         persist();
         window.render?.();
     };
@@ -1084,15 +1165,24 @@ export function registerPettyCashGlobals() {
     window.pcToggleMovementSortDirection = () => {
         const d = pc();
         d.movementSortDirection = d.movementSortDirection === 'asc' ? 'desc' : 'asc';
+        d.movementVisibleCount = DEFAULT_PETTY_CASH_PAGE_SIZE;
         persist();
         window.render?.();
     };
     window.pcSetMovementSearch = (query) => {
         pc().movementSearchQuery = String(query || '').slice(0, 120);
+        pc().movementVisibleCount = DEFAULT_PETTY_CASH_PAGE_SIZE;
         window.render?.();
     };
     window.pcClearMovementSearch = () => {
         pc().movementSearchQuery = '';
+        pc().movementVisibleCount = DEFAULT_PETTY_CASH_PAGE_SIZE;
+        window.render?.();
+    };
+    window.pcLoadMoreMovements = () => {
+        const d = pc();
+        d.movementVisibleCount = (Number(d.movementVisibleCount) || DEFAULT_PETTY_CASH_PAGE_SIZE)
+            + DEFAULT_PETTY_CASH_PAGE_SIZE;
         window.render?.();
     };
 
@@ -1144,7 +1234,7 @@ export function registerPettyCashGlobals() {
         d.periods = d.periods.filter(p => p.projectId !== proj.id);
         d.projects = d.projects.filter(p => p.id !== proj.id);
         d.selectedProjectId = null; d.selectedPeriodId = null; d.form = null; d.periodForm = null; d.editMov = null;
-        persist(); window.render?.();
+        persist(); refreshLiveMovementScope(); window.render?.();
     };
 
     window.pcNewPeriod = async () => {
@@ -1157,16 +1247,20 @@ export function registerPettyCashGlobals() {
         d.periods.push(per);
         d.selectedPeriodId = per.id;
         d.movementSearchQuery = '';
+        d.movementVisibleCount = DEFAULT_PETTY_CASH_PAGE_SIZE;
         d.form = null; d.periodForm = null; d.editMov = null;
-        persist(); savePeriod(per, 'Periodo creado'); window.render?.();
+        persist(); savePeriod(per, 'Periodo creado'); refreshLiveMovementScope(); window.render?.();
     };
 
     window.pcSelectPeriod = (id) => {
         const d = pc();
         d.selectedPeriodId = id;
         d.movementSearchQuery = '';
+        d.movementVisibleCount = DEFAULT_PETTY_CASH_PAGE_SIZE;
         d.form = null; d.periodForm = null; d.editMov = null;
         persist(); window.render?.();
+        loadHistoricalPeriodMovements(id, { force: true })
+            .catch((error) => console.warn('petty cash history load', error));
     };
 
     window.pcEditPeriod = () => {
@@ -1203,7 +1297,7 @@ export function registerPettyCashGlobals() {
         d.movements = d.movements.filter(m => m.periodId !== period.id);
         d.periods = d.periods.filter(p => p.id !== period.id);
         d.selectedPeriodId = null; d.periodForm = null; d.form = null; d.editMov = null;
-        persist(); window.render?.();
+        persist(); refreshLiveMovementScope(); window.render?.();
     };
 
     window.pcOpenForm = (type) => {
@@ -1847,7 +1941,7 @@ export function registerPettyCashGlobals() {
         period.diferencia = diferencia;
         period.closingDate = today();
         period.updatedAt = Date.now();
-        persist(); savePeriod(period, 'Periodo cerrado'); window.render?.();
+        persist(); savePeriod(period, 'Periodo cerrado'); refreshLiveMovementScope(); window.render?.();
         const estado = diferencia === 0 ? 'Cuadra perfecto ✓' : diferencia > 0 ? `Sobra ${rd(diferencia)}` : `Falta ${rd(-diferencia)}`;
         Modal.alert({ title: 'Periodo cerrado', message: `Saldo calculado: ${rd(r.saldo)}<br>Efectivo contado: ${rd(contado)}<br><b>Diferencia: ${estado}</b>` });
     };

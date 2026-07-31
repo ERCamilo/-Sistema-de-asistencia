@@ -295,7 +295,7 @@ export const PettyCashStore = {
      * pendiente tampoco puede resucitar. Los borradores OCR marcados
      * `localDraft` se conservan aunque, por diseño, aún no existan en Firebase.
      */
-    async applyRemote(col, list) {
+    async applyRemote(col, list, scope = {}) {
         if (!STORE[col]) return [];
         const remote = Array.isArray(list) ? list.filter((item) => item?.id) : [];
         let local = [];
@@ -310,10 +310,19 @@ export const PettyCashStore = {
             queued = [];
         }
 
-        const merged = new Map(remote.map((item) => [String(item.id), item]));
         const localById = new Map((local || []).filter((item) => item?.id).map(
             (item) => [String(item.id), item]
         ));
+        const scopedPeriodIds = col === 'movements' && Array.isArray(scope.periodIds)
+            ? new Set(scope.periodIds.map((id) => String(id || '').trim()).filter(Boolean))
+            : null;
+        const retainedLocal = scopedPeriodIds
+            ? (local || []).filter((item) => !scopedPeriodIds.has(String(item?.periodId || '')))
+            : [];
+        const merged = new Map([
+            ...retainedLocal.map((item) => [String(item.id), item]),
+            ...remote.map((item) => [String(item.id), item])
+        ]);
 
         if (col === 'projects') {
             localById.forEach((localProject, id) => {
