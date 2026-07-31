@@ -127,12 +127,18 @@ function persist() {
 // ── persistencia durable: IndexedDB local + outbox + Firestore ────────
 // `announce` (opcional): etiqueta para el toast HONESTO del resultado —
 // verde si llegó a la nube, amarillo si quedó solo local, rojo si ni local.
-const saveProject  = (p, announce) => PettyCashStore.save('projects', p, { announce });
-const savePeriod   = (p, announce) => PettyCashStore.save('periods', p, { announce });
-const saveMovement = (m, announce) => PettyCashStore.save('movements', m, { announce });
-const removeProjectDoc  = (id, announce) => PettyCashStore.remove('projects', id, { announce });
-const removePeriodDoc   = (id, announce) => PettyCashStore.remove('periods', id, { announce });
-const removeMovementDoc = (id, announce) => PettyCashStore.remove('movements', id, { announce });
+const saveProject = (p, announce, source = 'manual') =>
+    PettyCashStore.save('projects', p, { announce, source });
+const savePeriod = (p, announce, source = 'manual') =>
+    PettyCashStore.save('periods', p, { announce, source });
+const saveMovement = (m, announce, source = 'manual') =>
+    PettyCashStore.save('movements', m, { announce, source });
+const removeProjectDoc = (id, announce, source = 'manual') =>
+    PettyCashStore.remove('projects', id, { announce, source });
+const removePeriodDoc = (id, announce, source = 'manual') =>
+    PettyCashStore.remove('periods', id, { announce, source });
+const removeMovementDoc = (id, announce, source = 'manual') =>
+    PettyCashStore.remove('movements', id, { announce, source });
 
 async function assignNewMovementIdentity(movement, period, createdAt = Date.now()) {
     const d = pc();
@@ -229,7 +235,7 @@ async function enqueueReceiptFile(file, period) {
         ocrStatus: 'pending'
     });
     pc().movements.push(movement);
-    await saveMovement(movement);
+    await saveMovement(movement, null, 'receipt-queue');
     return { movement, capture };
 }
 
@@ -294,7 +300,7 @@ function getReceiptQueueProcessor() {
     _receiptQueueProcessor = createReceiptQueueProcessor({
         receiptStore: indexedDBService,
         getMovement: (id) => pc().movements.find((movement) => movement.id === id),
-        saveMovement,
+        saveMovement: (movement) => saveMovement(movement, null, 'receipt-ocr'),
         getIdToken: async () => auth?.currentUser?.getIdToken(),
         getOcrUrl: () => APP_CONFIG?.OCR_WEBHOOK_URL,
         allowedCategories: CATEGORIAS,
@@ -371,7 +377,7 @@ async function recoverLocalReceiptDrafts() {
         };
         await assignNewMovementIdentity(movement, period, Number(job.createdAt) || now);
         d.movements.push(movement);
-        await saveMovement(movement);
+        await saveMovement(movement, null, 'receipt-queue');
         await indexedDBService.updateReceiptJob(job.txId, {
             queueStatus: 'queued',
             ocrStatus: 'pending',
@@ -426,34 +432,13 @@ export async function loadPettyCashLocal() {
 
 // ══ carga inicial + live sync (llamado desde app.js tras login) ════════
 export async function startPettyCashSync() {
-    const d = pc();
     await loadPettyCashLocal();          // primero lo local (offline-safe)
     PettyCashStore.flush();              // empujar cambios pendientes (offline → nube)
     PettyCashStore.flushMirror();        // espejo secundario; nunca bloquea Firebase
 
-    try {
-        const [projects, periods, movements] = await Promise.all([
-            PettyCashRepository.projects.loadAll(),
-            PettyCashRepository.periods.loadAll(),
-            PettyCashRepository.movements.loadAll()
-        ]);
-        if (projects.length || periods.length || movements.length) {
-            d.projects = dedupById(projects);
-            d.periods = dedupById(periods);
-            d.movements = dedupById(movements);
-            // Espejar lo de la nube al IndexedDB local (caché offline).
-            await Promise.all([
-                PettyCashStore.applyRemote('projects', d.projects),
-                PettyCashStore.applyRemote('periods', d.periods),
-                PettyCashStore.applyRemote('movements', d.movements)
-            ]);
-            await normalizeMovementIdentity(d);
-            window.render?.();
-        }
-    } catch (e) {
-        console.warn('⚠️ startPettyCashSync loadAll:', e);
-    }
-
+    // onSnapshot entrega el estado inicial de cada colección. Usarlo como
+    // carga remota evita pagar primero getDocs() y volver a leer exactamente
+    // los mismos documentos al abrir los listeners.
     PettyCashLiveSync.start({
         projects: {
             subscribe: (cb) => PettyCashRepository.projects.subscribe(cb),
@@ -547,7 +532,7 @@ export async function uploadPendingReceipts() {
                     movement.receiptStorage = 'supabase';
                     movement.receiptUrl = data.path || data.receipt?.storage_path || null;
                     movement.updatedAt = Date.now();
-                    saveMovement(movement);
+                    saveMovement(movement, null, 'receipt-backup');
                 }
             } catch (e) {
                 console.warn('⚠️ uploadPendingReceipts(' + rec.txId + '):', e);
@@ -1332,7 +1317,7 @@ export function registerPettyCashGlobals() {
         if (!mov) return;
         mov.reviewPending = false;
         mov.updatedAt = Date.now();
-        persist(); saveMovement(mov, 'Movimiento confirmado'); window.render?.();
+        persist(); saveMovement(mov, 'Movimiento confirmado', 'receipt-confirm'); window.render?.();
         if (mov.receiptStatus) {
             try {
                 await indexedDBService.updateReceiptJob(movId, {
@@ -1444,7 +1429,7 @@ export function registerPettyCashGlobals() {
                 lastError: null
             });
             await refreshReceiptQueueSummary();
-            persist(); saveMovement(mov, 'Movimiento actualizado'); window.render?.();
+            persist(); saveMovement(mov, 'Movimiento actualizado', 'receipt-ocr'); window.render?.();
         } catch (e) {
             console.warn('rescan OCR:', e);
             const rec = await indexedDBService.getReceipt(movId).catch(() => null);

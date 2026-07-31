@@ -16,6 +16,7 @@ import { auth } from '../../data/firebase.js';
 import { saveOutcomeNotifier } from '../../services/SaveOutcomeNotifier.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { sendMovementMirror } from './PettyCashMovementMirror.js';
+import { PettyCashPersistenceMetrics } from './PettyCashPersistenceMetrics.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
@@ -56,9 +57,41 @@ export const PettyCashStore = {
      */
     async save(col, item, opts = {}) {
         if (!STORE[col] || !item || !item.id) return;
+        const source = opts.source || 'unspecified';
+        PettyCashPersistenceMetrics.record({
+            operation: 'save', collection: col, stage: 'requested', source
+        });
         let localOk = true;
-        try { await indexedDBService.update(STORE[col], item); } catch (e) { localOk = false; console.warn('pc save local:', e); }
-        try { await indexedDBService.update(OUTBOX, { op: 'save', col, id: item.id, data: item, ts: Date.now(), status: 'pending' }); } catch (e) { console.warn('pc enqueue:', e); }
+        const localStartedAt = Date.now();
+        try {
+            await indexedDBService.update(STORE[col], item);
+            PettyCashPersistenceMetrics.record({
+                operation: 'save', collection: col, stage: 'local-success', source,
+                durationMs: Date.now() - localStartedAt
+            });
+        } catch (e) {
+            localOk = false;
+            PettyCashPersistenceMetrics.record({
+                operation: 'save', collection: col, stage: 'local-failure', source,
+                status: 'error', durationMs: Date.now() - localStartedAt
+            });
+            console.warn('pc save local:', e);
+        }
+        try {
+            await indexedDBService.update(OUTBOX, {
+                op: 'save', col, id: item.id, data: item, source,
+                ts: Date.now(), status: 'pending'
+            });
+            PettyCashPersistenceMetrics.record({
+                operation: 'queue', collection: 'outbox', stage: 'queue-success', source
+            });
+        } catch (e) {
+            PettyCashPersistenceMetrics.record({
+                operation: 'queue', collection: 'outbox', stage: 'queue-failure', source,
+                status: 'error'
+            });
+            console.warn('pc enqueue:', e);
+        }
         if (col === 'movements') {
             await this.enqueueMovementMirror('save', item).catch((e) => console.warn('pc mirror enqueue:', e));
         }
@@ -77,13 +110,44 @@ export const PettyCashStore = {
      *  opts.announce: igual que en save(). */
     async remove(col, id, opts = {}) {
         if (!STORE[col] || !id) return;
+        const source = opts.source || 'unspecified';
+        PettyCashPersistenceMetrics.record({
+            operation: 'delete', collection: col, stage: 'requested', source
+        });
         let removedSnapshot = null;
         if (col === 'movements') {
             try { removedSnapshot = await indexedDBService.get(STORE[col], id); } catch { /* noop */ }
         }
         let localOk = true;
-        try { await indexedDBService.delete(STORE[col], id); } catch (e) { localOk = false; console.warn('pc del local:', e); }
-        try { await indexedDBService.update(OUTBOX, { op: 'delete', col, id, ts: Date.now(), status: 'pending' }); } catch (e) { console.warn('pc enqueue del:', e); }
+        const localStartedAt = Date.now();
+        try {
+            await indexedDBService.delete(STORE[col], id);
+            PettyCashPersistenceMetrics.record({
+                operation: 'delete', collection: col, stage: 'local-success', source,
+                durationMs: Date.now() - localStartedAt
+            });
+        } catch (e) {
+            localOk = false;
+            PettyCashPersistenceMetrics.record({
+                operation: 'delete', collection: col, stage: 'local-failure', source,
+                status: 'error', durationMs: Date.now() - localStartedAt
+            });
+            console.warn('pc del local:', e);
+        }
+        try {
+            await indexedDBService.update(OUTBOX, {
+                op: 'delete', col, id, source, ts: Date.now(), status: 'pending'
+            });
+            PettyCashPersistenceMetrics.record({
+                operation: 'queue', collection: 'outbox', stage: 'queue-success', source
+            });
+        } catch (e) {
+            PettyCashPersistenceMetrics.record({
+                operation: 'queue', collection: 'outbox', stage: 'queue-failure', source,
+                status: 'error'
+            });
+            console.warn('pc enqueue del:', e);
+        }
         if (col === 'movements') {
             await this.enqueueMovementMirror('delete', removedSnapshot || { id }).catch((e) => console.warn('pc mirror delete enqueue:', e));
         }
@@ -198,9 +262,9 @@ export const PettyCashStore = {
                 if (!repo) { try { await indexedDBService.delete(OUTBOX, entry.key); } catch { /* noop */ } continue; }
                 try {
                     if (entry.op === 'delete') {
-                        await repo.deleteOne(entry.id);
+                        await repo.deleteOne(entry.id, { source: entry.source });
                     } else if (entry.data) {
-                        await repo.saveOne(entry.data);
+                        await repo.saveOne(entry.data, { source: entry.source });
                     }
                     await indexedDBService.delete(OUTBOX, entry.key);
                     // 💬 Toast honesto: si hay un guardado anunciado esperando,
