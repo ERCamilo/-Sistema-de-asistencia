@@ -92,6 +92,7 @@ function _base() {
         movementSortDirection: 'desc',
         movementSearchQuery: '',
         movementVisibleCount: DEFAULT_PETTY_CASH_PAGE_SIZE,
+        receiptSourcePickerOpen: false,
         form: null,
         periodForm: null,
         editMov: null
@@ -735,6 +736,38 @@ function _cameraBatchModal(session) {
     </div>`;
 }
 
+function _receiptSourcePickerModal(open) {
+    if (!open) return '';
+    return `
+    <div role="dialog" aria-modal="true" aria-labelledby="pc-receipt-source-title"
+        style="position:fixed;inset:0;z-index:1200;background:rgba(2,6,23,.82);display:flex;align-items:center;justify-content:center;padding:18px;">
+        <div style="width:min(420px,100%);background:#111827;border:1px solid #334155;border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid #273449;">
+                <div>
+                    <div id="pc-receipt-source-title" style="font-size:1rem;font-weight:800;color:#f8fafc;">Agregar comprobantes</div>
+                    <div style="font-size:.76rem;color:#94a3b8;margin-top:4px;">Selecciona imágenes de la galería o documentos guardados en el dispositivo.</div>
+                </div>
+                <button type="button" data-app-fn="pcCloseReceiptSourcePicker" aria-label="Cerrar selector de comprobantes"
+                    style="width:36px;height:36px;flex:0 0 36px;background:#263244;border:1px solid #475569;border-radius:9px;color:#f8fafc;font-size:1.1rem;cursor:pointer;">×</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px;">
+                <label style="min-height:112px;background:#06b6d4;border:1px solid #22d3ee;border-radius:12px;color:#06202a;font-weight:850;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;padding:14px;">
+                    ${icons.get('image', { size: 28 })}
+                    <span>Galería</span>
+                    <small style="font-size:.68rem;font-weight:650;opacity:.8;">Fotos e imágenes</small>
+                    <input type="file" accept="image/*" multiple onchange="window.pcBatchPhotos(this)" style="display:none;">
+                </label>
+                <label style="min-height:112px;background:#263244;border:1px solid #475569;border-radius:12px;color:#f8fafc;font-weight:850;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;padding:14px;">
+                    ${icons.get('folder-open', { size: 28 })}
+                    <span>Archivos / PDF</span>
+                    <small style="font-size:.68rem;font-weight:650;color:#94a3b8;">Imágenes y documentos</small>
+                    <input type="file" accept="image/*,application/pdf" multiple onchange="window.pcBatchPhotos(this)" style="display:none;">
+                </label>
+            </div>
+        </div>
+    </div>`;
+}
+
 function _projectBar(d) {
     const options = d.projects.map(p =>
         `<option value="${p.id}" ${p.id === d.selectedProjectId ? 'selected' : ''}>${esc(p.name)}</option>`
@@ -842,14 +875,15 @@ function _periodPanel(period) {
                     ${icons.get('camera', { size: 16 })} Cámara
                     <input type="file" accept="image/*" capture="environment" onchange="window.pcCameraBatchPhoto(this)" style="display:none;">
                 </label>
-                <label style="background:#263244;color:#fff;border:1px solid #475569;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;" title="Elegir varias facturas de la galería">
-                    ${icons.get('image', { size: 16 })} Archivos
-                    <input type="file" accept="image/*,application/pdf" multiple onchange="window.pcBatchPhotos(this)" style="display:none;">
-                </label>
+                <button type="button" data-app-fn="pcOpenReceiptSourcePicker"
+                    style="background:#263244;color:#fff;border:1px solid #475569;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                    ${icons.get('folder-open', { size: 16 })} Archivos
+                </button>
             </div>`}
         </div>
 
         ${d.batchStatus ? `<div style="margin:10px 0;font-size:.85rem;color:#a78bfa;display:flex;align-items:center;gap:8px;">⏳ ${esc(d.batchStatus)}</div>` : ''}
+        ${_receiptSourcePickerModal(d.receiptSourcePickerOpen)}
         ${_cameraBatchModal(d.cameraBatchSession)}
 
         ${periodForm ? _periodEditForm(period) : ''}
@@ -1682,9 +1716,20 @@ export function registerPettyCashGlobals() {
     };
 
     // Lote: varios comprobantes → un gasto por archivo, OCR automático y revisión.
+    window.pcOpenReceiptSourcePicker = () => {
+        pc().receiptSourcePickerOpen = true;
+        window.render?.();
+    };
+
+    window.pcCloseReceiptSourcePicker = () => {
+        pc().receiptSourcePickerOpen = false;
+        window.render?.();
+    };
+
     window.pcBatchPhotos = async (input) => {
         const files = input && input.files ? Array.from(input.files) : [];
         if (input) input.value = '';
+        pc().receiptSourcePickerOpen = false;
         const period = currentPeriod();
         if (!files.length || !period) return;
         const d = pc();

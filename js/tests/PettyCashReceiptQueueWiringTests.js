@@ -42,11 +42,17 @@ testRunner.addSuite('Caja chica — conexión de la cola OCR', {
             'el lote no debe duplicar llamadas directas al webhook');
     },
 
-    'la cámara permite capturas consecutivas sin mezclar la galería'() {
+    'la cámara permite capturas consecutivas y separa galería de archivos'() {
         testRunner.assert(/capture="environment"[\s\S]*?pcCameraBatchPhoto/.test(SOURCE),
             'la cámara debe abrir la captura trasera');
-        testRunner.assert(/multiple[\s\S]*?pcBatchPhotos/.test(SOURCE),
-            'la galería debe conservar la selección múltiple');
+        testRunner.assert(/function _receiptSourcePickerModal/.test(SOURCE),
+            'debe existir un selector explícito de origen');
+        testRunner.assert(/<span>Galería<\/span>[\s\S]*?accept="image\/\*"[\s\S]*?multiple[\s\S]*?pcBatchPhotos/.test(SOURCE),
+            'la galería debe aceptar varias imágenes sin mezclar PDF');
+        testRunner.assert(/<span>Archivos \/ PDF<\/span>[\s\S]*?accept="image\/\*,application\/pdf"[\s\S]*?multiple[\s\S]*?pcBatchPhotos/.test(SOURCE),
+            'el administrador de archivos debe aceptar imágenes y PDF');
+        testRunner.assert(/pcOpenReceiptSourcePicker/.test(SOURCE) && /pcCloseReceiptSourcePicker/.test(SOURCE),
+            'el selector debe poder abrirse y cerrarse explícitamente');
         testRunner.assert(/accept="image\/\*,application\/pdf"[\s\S]*?multiple[\s\S]*?pcBatchPhotos/.test(SOURCE),
             'el selector por lote debe aceptar imágenes y PDF');
         testRunner.assert(/function _cameraBatchModal/.test(SOURCE),
