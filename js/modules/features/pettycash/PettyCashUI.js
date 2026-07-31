@@ -432,34 +432,13 @@ export async function loadPettyCashLocal() {
 
 // ══ carga inicial + live sync (llamado desde app.js tras login) ════════
 export async function startPettyCashSync() {
-    const d = pc();
     await loadPettyCashLocal();          // primero lo local (offline-safe)
     PettyCashStore.flush();              // empujar cambios pendientes (offline → nube)
     PettyCashStore.flushMirror();        // espejo secundario; nunca bloquea Firebase
 
-    try {
-        const [projects, periods, movements] = await Promise.all([
-            PettyCashRepository.projects.loadAll(),
-            PettyCashRepository.periods.loadAll(),
-            PettyCashRepository.movements.loadAll()
-        ]);
-        if (projects.length || periods.length || movements.length) {
-            d.projects = dedupById(projects);
-            d.periods = dedupById(periods);
-            d.movements = dedupById(movements);
-            // Espejar lo de la nube al IndexedDB local (caché offline).
-            await Promise.all([
-                PettyCashStore.applyRemote('projects', d.projects),
-                PettyCashStore.applyRemote('periods', d.periods),
-                PettyCashStore.applyRemote('movements', d.movements)
-            ]);
-            await normalizeMovementIdentity(d);
-            window.render?.();
-        }
-    } catch (e) {
-        console.warn('⚠️ startPettyCashSync loadAll:', e);
-    }
-
+    // onSnapshot entrega el estado inicial de cada colección. Usarlo como
+    // carga remota evita pagar primero getDocs() y volver a leer exactamente
+    // los mismos documentos al abrir los listeners.
     PettyCashLiveSync.start({
         projects: {
             subscribe: (cb) => PettyCashRepository.projects.subscribe(cb),
