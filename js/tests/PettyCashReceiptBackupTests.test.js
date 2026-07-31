@@ -1,7 +1,8 @@
 import {
     isReceiptReadyForBackup,
     uploadReceiptBackup,
-    lookupReceiptBackup
+    lookupReceiptBackup,
+    isReceiptBackupVerified
 } from '../modules/features/pettycash/PettyCashReceiptBackup.js';
 
 describe('PettyCashReceiptBackup', () => {
@@ -92,8 +93,8 @@ describe('PettyCashReceiptBackup', () => {
         expect(body.pageCount).toBe(3);
     });
 
-    test('propaga un error legible del servidor', async () => {
-        await expect(lookupReceiptBackup({
+    test('propaga el código y estado del servidor', async () => {
+        const lookup = lookupReceiptBackup({
             url: 'https://example.test/upload',
             idToken: 'firebase-token',
             txId: 'mov-1',
@@ -102,6 +103,24 @@ describe('PettyCashReceiptBackup', () => {
                 status: 404,
                 json: async () => ({ ok: false, error: 'RECEIPT_NOT_FOUND' })
             })
-        })).rejects.toThrow('RECEIPT_NOT_FOUND');
+        });
+
+        await expect(lookup).rejects.toMatchObject({
+            code: 'RECEIPT_NOT_FOUND',
+            status: 404,
+            message: expect.stringContaining('RECEIPT_NOT_FOUND')
+        });
+    });
+
+    test('solo verifica el respaldo cuando la URL firmada corresponde al movimiento', () => {
+        expect(isReceiptBackupVerified({
+            signedUrl: 'https://signed.test/receipt',
+            receipt: { transaction_id: 'mov-1' }
+        }, 'mov-1')).toBe(true);
+        expect(isReceiptBackupVerified({
+            signedUrl: 'https://signed.test/receipt',
+            receipt: { transaction_id: 'mov-2' }
+        }, 'mov-1')).toBe(false);
+        expect(isReceiptBackupVerified({ receipt: { transaction_id: 'mov-1' } }, 'mov-1')).toBe(false);
     });
 });
