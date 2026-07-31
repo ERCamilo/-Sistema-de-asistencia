@@ -75,6 +75,21 @@ testRunner.addSuite("PettyCashLiveSync — start / stop", {
         const cfg2 = makeConfig();
         testRunner.assertEquals(PettyCashLiveSync.start(cfg2), true);
         PettyCashLiveSync.stop();
+    },
+
+    "replace cambia solo la suscripción solicitada"() {
+        PettyCashLiveSync.stop();
+        const cfg = makeConfig();
+        PettyCashLiveSync.start(cfg);
+        const nextMovements = makePair();
+
+        const ok = PettyCashLiveSync.replace('movements', nextMovements);
+
+        testRunner.assertEquals(ok, true);
+        testRunner.assertEquals(cfg.movements.unsub.mock.calls.length, 1);
+        testRunner.assertEquals(cfg.projects.unsub.mock.calls.length, 0);
+        testRunner.assertEquals(nextMovements.subscribe.mock.calls.length, 1);
+        PettyCashLiveSync.stop();
     }
 
 });

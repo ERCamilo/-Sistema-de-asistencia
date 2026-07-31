@@ -14,7 +14,7 @@
 
 import {
     auth, db,
-    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot
+    doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, query, where
 } from '../data/firebase.js';
 import { SyncStatus } from './SyncStatus.js';
 import { PettyCashPersistenceMetrics } from '../features/pettycash/PettyCashPersistenceMetrics.js';
@@ -36,6 +36,61 @@ function makeRepo(COLLECTION, metricCollection) {
         return doc(db, 'users', auth.currentUser.uid, COLLECTION, String(id));
     }
 
+    function snapshotToList(snap) {
+        const list = [];
+        if (snap && typeof snap.forEach === 'function') {
+            snap.forEach(d => {
+                const data = typeof d.data === 'function' ? d.data() : d;
+                if (data) list.push(data);
+            });
+        }
+        return list;
+    }
+
+    async function loadRef(ref, source) {
+        if (!ref) return [];
+        const startedAt = Date.now();
+        PettyCashPersistenceMetrics.record({
+            operation: 'read', collection: metricCollection, stage: 'cloud-attempt', source
+        });
+        try {
+            const snap = await getDocs(ref);
+            const result = snapshotToList(snap);
+            PettyCashPersistenceMetrics.record({
+                operation: 'read', collection: metricCollection, stage: 'cloud-success',
+                source, count: Math.max(1, result.length), durationMs: Date.now() - startedAt
+            });
+            return result;
+        } catch (e) {
+            PettyCashPersistenceMetrics.record({
+                operation: 'read', collection: metricCollection, stage: 'cloud-failure',
+                source, status: 'error', durationMs: Date.now() - startedAt
+            });
+            console.error(`❌ PettyCashRepository[${COLLECTION}] read error:`, e);
+            return [];
+        }
+    }
+
+    function subscribeRef(ref, onChange, source = 'live-sync') {
+        if (!ref) return () => {};
+        PettyCashPersistenceMetrics.record({
+            operation: 'subscribe', collection: metricCollection, stage: 'requested', source
+        });
+        try {
+            return onSnapshot(ref, (snap) => {
+                const list = snapshotToList(snap);
+                PettyCashPersistenceMetrics.record({
+                    operation: 'read', collection: metricCollection, stage: 'snapshot',
+                    source, count: Math.max(1, list.length)
+                });
+                try { onChange(list); } catch (e) { console.error('subscribe callback error:', e); }
+            });
+        } catch (e) {
+            console.error(`❌ PettyCashRepository[${COLLECTION}].subscribe error:`, e);
+            return () => {};
+        }
+    }
+
     return {
         /** Carga todos los docs de la colección. [] si no hay sesión. */
         async loadAll() {
@@ -47,32 +102,7 @@ function makeRepo(COLLECTION, metricCollection) {
                 });
                 return [];
             }
-            const startedAt = Date.now();
-            PettyCashPersistenceMetrics.record({
-                operation: 'read', collection: metricCollection, stage: 'cloud-attempt',
-                source: 'startup'
-            });
-            try {
-                const snap = await getDocs(ref);
-                const result = [];
-                snap.forEach(d => {
-                    const data = typeof d.data === 'function' ? d.data() : d;
-                    if (data) result.push(data);
-                });
-                PettyCashPersistenceMetrics.record({
-                    operation: 'read', collection: metricCollection, stage: 'cloud-success',
-                    source: 'startup', count: Math.max(1, result.length),
-                    durationMs: Date.now() - startedAt
-                });
-                return result;
-            } catch (e) {
-                PettyCashPersistenceMetrics.record({
-                    operation: 'read', collection: metricCollection, stage: 'cloud-failure',
-                    source: 'startup', status: 'error', durationMs: Date.now() - startedAt
-                });
-                console.error(`❌ PettyCashRepository[${COLLECTION}].loadAll error:`, e);
-                return [];
-            }
+            return loadRef(ref, 'startup');
         },
 
         /** Upsert de un doc en su propio documento. No-op sin sesión o sin id. */
@@ -148,37 +178,64 @@ function makeRepo(COLLECTION, metricCollection) {
         subscribe(onChange) {
             const ref = colRef();
             if (!ref) return () => {};
-            PettyCashPersistenceMetrics.record({
-                operation: 'subscribe', collection: metricCollection, stage: 'requested',
-                source: 'live-sync'
-            });
-            try {
-                return onSnapshot(ref, (snap) => {
-                    const list = [];
-                    if (snap && typeof snap.forEach === 'function') {
-                        snap.forEach(d => {
-                            const data = typeof d.data === 'function' ? d.data() : d;
-                            if (data) list.push(data);
-                        });
-                    }
-                    PettyCashPersistenceMetrics.record({
-                        operation: 'read', collection: metricCollection, stage: 'snapshot',
-                        source: 'live-sync', count: Math.max(1, list.length)
-                    });
-                    try { onChange(list); } catch (e) { console.error('subscribe callback error:', e); }
-                });
-            } catch (e) {
-                console.error(`❌ PettyCashRepository[${COLLECTION}].subscribe error:`, e);
-                return () => {};
+            return subscribeRef(ref, onChange);
+        },
+
+        async loadWhere(field, value, source = 'history') {
+            const ref = colRef();
+            if (!ref) return [];
+            return loadRef(query(ref, where(field, '==', value)), source);
+        },
+
+        subscribeWhere(field, values, onChange) {
+            const ref = colRef();
+            const uniqueValues = [...new Set(
+                (Array.isArray(values) ? values : [values])
+                    .map((value) => String(value || '').trim())
+                    .filter(Boolean)
+            )];
+            if (!ref || uniqueValues.length === 0) return () => {};
+
+            const chunks = [];
+            for (let index = 0; index < uniqueValues.length; index += 30) {
+                chunks.push(uniqueValues.slice(index, index + 30));
             }
+            const results = new Map();
+            const initialized = new Set();
+            const unsubscribers = chunks.map((chunk, index) => {
+                const constraint = chunk.length === 1
+                    ? where(field, '==', chunk[0])
+                    : where(field, 'in', chunk);
+                return subscribeRef(query(ref, constraint), (items) => {
+                    results.set(index, items);
+                    initialized.add(index);
+                    if (initialized.size !== chunks.length) return;
+                    const combined = new Map();
+                    results.forEach((chunkItems) => {
+                        chunkItems.forEach((item) => {
+                            if (item?.id) combined.set(String(item.id), item);
+                        });
+                    });
+                    onChange([...combined.values()]);
+                });
+            });
+            return () => unsubscribers.forEach((unsubscribe) => {
+                try { unsubscribe(); } catch { /* noop */ }
+            });
         }
     };
 }
 
+const movements = makeRepo('pettyCash', 'movements');
+movements.loadForPeriod = (periodId) =>
+    movements.loadWhere('periodId', String(periodId || '').trim(), 'history');
+movements.subscribeForPeriods = (periodIds, onChange) =>
+    movements.subscribeWhere('periodId', periodIds, onChange);
+
 export const PettyCashRepository = {
     projects: makeRepo('projects', 'projects'),
     periods: makeRepo('cashPeriods', 'periods'),
-    movements: makeRepo('pettyCash', 'movements')
+    movements
 };
 
 export default PettyCashRepository;

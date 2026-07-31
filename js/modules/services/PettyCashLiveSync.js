@@ -23,7 +23,7 @@
 const COLLECTIONS = ['projects', 'periods', 'movements'];
 const ECHO_GUARD_MS = 500;
 
-let _subs = [];
+let _subs = new Map();
 
 function guardedApply(onApply, items) {
     try {
@@ -53,31 +53,48 @@ export const PettyCashLiveSync = {
             typeof config[k].onApply === 'function'
         );
         if (valid.length === 0) return false;
-        if (_subs.length > 0) return true; // ya activo — idempotente
+        if (_subs.size > 0) return true; // ya activo — idempotente
 
         for (const k of valid) {
             const { subscribe, onApply } = config[k];
             try {
                 const unsub = subscribe((items) => guardedApply(onApply, items));
-                if (typeof unsub === 'function') _subs.push(unsub);
+                if (typeof unsub === 'function') _subs.set(k, unsub);
             } catch (e) {
                 console.error(`❌ PettyCashLiveSync.start(${k}) error:`, e);
             }
         }
-        return _subs.length > 0;
+        return _subs.size > 0;
+    },
+
+    replace(collectionName, item) {
+        if (!COLLECTIONS.includes(collectionName)) return false;
+        if (typeof item?.subscribe !== 'function' || typeof item?.onApply !== 'function') {
+            return false;
+        }
+        const previous = _subs.get(collectionName);
+        try { previous?.(); } catch (e) { console.warn('Error al desuscribir:', e); }
+        _subs.delete(collectionName);
+        try {
+            const unsubscribe = item.subscribe((items) => guardedApply(item.onApply, items));
+            if (typeof unsubscribe === 'function') _subs.set(collectionName, unsubscribe);
+        } catch (e) {
+            console.error(`❌ PettyCashLiveSync.replace(${collectionName}) error:`, e);
+        }
+        return _subs.has(collectionName);
     },
 
     /** Cancela todas las suscripciones activas. */
     stop() {
-        for (const unsub of _subs) {
+        for (const unsub of _subs.values()) {
             try { unsub(); } catch (e) { console.warn('Error al desuscribir:', e); }
         }
-        _subs = [];
+        _subs = new Map();
     },
 
     /** True si hay al menos una suscripción activa. */
     isActive() {
-        return _subs.length > 0;
+        return _subs.size > 0;
     }
 };
 

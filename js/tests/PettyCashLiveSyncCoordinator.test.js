@@ -154,4 +154,71 @@ describe('PettyCashLiveSyncCoordinator', () => {
         expect(liveSync.start).toHaveBeenCalledTimes(1);
         await coordinator.stop();
     });
+
+    test('el líder puede reemplazar solo el listener de movimientos', async () => {
+        const liveSync = {
+            start: jest.fn(() => true),
+            replace: jest.fn(() => true),
+            stop: jest.fn()
+        };
+        const coordinator = createPettyCashLiveSyncCoordinator({
+            liveSync,
+            leaseStore: {
+                acquireLease: jest.fn().mockResolvedValue(true),
+                renewLease: jest.fn().mockResolvedValue(true),
+                releaseLease: jest.fn().mockResolvedValue(true)
+            },
+            channelFactory: () => createChannel(),
+            ownerId: 'tab-a',
+            setIntervalFn: jest.fn(() => 1),
+            clearIntervalFn: jest.fn()
+        });
+        await coordinator.start({ uid: 'user-1', config: createConfig() });
+        const replacement = { subscribe: jest.fn(), onApply: jest.fn() };
+
+        const changed = coordinator.replaceCollection('movements', replacement);
+
+        expect(changed).toBe(true);
+        expect(liveSync.replace).toHaveBeenCalledWith(
+            'movements',
+            expect.objectContaining({ subscribe: replacement.subscribe })
+        );
+        await coordinator.stop();
+    });
+
+    test('una seguidora espera la configuración correcta antes de aplicar un snapshot acotado', async () => {
+        const channel = createChannel();
+        const config = createConfig();
+        config.movements.scopeKey = 'period-old';
+        const coordinator = createPettyCashLiveSyncCoordinator({
+            liveSync: { start: jest.fn(() => true), stop: jest.fn() },
+            leaseStore: { acquireLease: jest.fn().mockResolvedValue(false) },
+            channelFactory: () => channel,
+            ownerId: 'tab-b',
+            setIntervalFn: jest.fn(() => 1),
+            clearIntervalFn: jest.fn()
+        });
+        await coordinator.start({ uid: 'user-1', config });
+
+        await channel.onmessage({
+            data: {
+                type: 'snapshot',
+                collection: 'movements',
+                scopeKey: 'period-new',
+                items: [{ id: 'new-movement' }]
+            }
+        });
+        expect(config.movements.onApply).not.toHaveBeenCalled();
+
+        const replacement = {
+            scopeKey: 'period-new',
+            subscribe: jest.fn(),
+            onApply: jest.fn()
+        };
+        coordinator.replaceCollection('movements', replacement);
+        await Promise.resolve();
+
+        expect(replacement.onApply).toHaveBeenCalledWith([{ id: 'new-movement' }]);
+        await coordinator.stop();
+    });
 });
