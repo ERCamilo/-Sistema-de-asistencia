@@ -75,6 +75,26 @@ describe('PettyCashPersistenceMetrics', () => {
         expect(keys).toEqual(['other|other|other|other|other']);
     });
 
+    test('separa la normalización histórica de los guardados manuales', () => {
+        const storage = createMemoryStorage();
+        const metrics = createPettyCashPersistenceMetrics({
+            storage,
+            now: () => new Date('2026-07-30T12:00:00.000Z').getTime()
+        });
+
+        metrics.record({
+            operation: 'save',
+            collection: 'movements',
+            stage: 'cloud-success',
+            source: 'identity-normalization',
+            count: 30
+        });
+
+        expect(metrics.snapshot().days['2026-07-30'].counters[
+            'save|movements|cloud-success|identity-normalization|ok'
+        ]).toBe(30);
+    });
+
     test('reset elimina el diagnóstico persistido', () => {
         const storage = createMemoryStorage();
         const metrics = createPettyCashPersistenceMetrics({ storage, now: () => Date.now() });

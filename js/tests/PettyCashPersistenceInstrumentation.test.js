@@ -15,6 +15,10 @@ describe('Caja Chica — instrumentación de persistencia', () => {
         onSnapshot.mockReset().mockReturnValue(() => {});
         indexedDBService.update.mockReset().mockResolvedValue(1);
         indexedDBService.getAll.mockReset().mockResolvedValue([]);
+        indexedDBService.get.mockReset().mockResolvedValue(null);
+        indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+        indexedDBService.acquireLease.mockReset().mockResolvedValue(true);
+        indexedDBService.releaseLease.mockReset().mockResolvedValue(true);
     });
 
     afterEach(() => {
@@ -130,5 +134,55 @@ describe('Caja Chica — instrumentación de persistencia', () => {
             source: 'live-sync',
             count: 1
         }));
+    });
+
+    test('mide el espejo de Supabase con el mismo origen del guardado', async () => {
+        const entry = {
+            id: 'm-normalized',
+            op: 'save',
+            data: {
+                id: 'm-normalized',
+                projectId: 'project-1',
+                periodId: 'period-1',
+                recordNumber: 30,
+                type: 'gasto',
+                amount: 100,
+                createdAt: 100,
+                updatedAt: 200
+            },
+            ownerUid: 'metrics-user',
+            source: 'identity-normalization',
+            ts: 300,
+            status: 'pending'
+        };
+        auth.currentUser = {
+            uid: 'metrics-user',
+            getIdToken: jest.fn().mockResolvedValue('firebase-token')
+        };
+        indexedDBService.getAll.mockResolvedValue([entry]);
+        indexedDBService.get.mockResolvedValue(entry);
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ ok: true })
+        });
+
+        try {
+            await PettyCashStore.flushMirror();
+
+            expect(recordSpy).toHaveBeenCalledWith(expect.objectContaining({
+                operation: 'mirror',
+                collection: 'mirror',
+                stage: 'cloud-success',
+                source: 'identity-normalization'
+            }));
+            expect(indexedDBService.delete).toHaveBeenCalledWith(
+                'pettyCashMirrorOutbox',
+                entry.id
+            );
+        } finally {
+            if (originalFetch) globalThis.fetch = originalFetch;
+            else delete globalThis.fetch;
+        }
     });
 });

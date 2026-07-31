@@ -75,6 +75,7 @@ import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
 
 const SEL_KEY = '_pettycash_sel_v1'; // solo la selección de UI (los datos van a IndexedDB)
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
+export const PETTY_CASH_IDENTITY_NORMALIZATION_SOURCE = 'identity-normalization';
 
 // ── state ─────────────────────────────────────────────────────────────
 // Los DATOS (projects/periods/movements) viven en IndexedDB (vía PettyCashStore)
@@ -163,14 +164,24 @@ async function assignNewMovementIdentity(movement, period, createdAt = Date.now(
     return movement;
 }
 
-async function normalizeMovementIdentity(d = pc()) {
+export async function normalizeMovementIdentity(d = pc(), persistence = {}) {
+    const persistProject = persistence.saveProject || saveProject;
+    const persistMovement = persistence.saveMovement || saveMovement;
     const { changedProjects, changedMovements } = normalizePettyCashRecordNumbers(
         d.projects,
         d.movements
     );
     await Promise.all([
-        ...changedProjects.map((project) => saveProject(project)),
-        ...changedMovements.map((movement) => saveMovement(movement))
+        ...changedProjects.map((project) => persistProject(
+            project,
+            null,
+            PETTY_CASH_IDENTITY_NORMALIZATION_SOURCE
+        )),
+        ...changedMovements.map((movement) => persistMovement(
+            movement,
+            null,
+            PETTY_CASH_IDENTITY_NORMALIZATION_SOURCE
+        ))
     ]);
     return { changedProjects, changedMovements };
 }
