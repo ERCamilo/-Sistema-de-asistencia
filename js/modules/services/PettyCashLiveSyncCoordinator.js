@@ -45,6 +45,7 @@ export function createPettyCashLiveSyncCoordinator({
     let timer = null;
     let leader = false;
     let legacy = false;
+    const pendingSnapshots = new Map();
 
     const leaseName = () => `attendance-app-petty-cash-listeners:${activeUid}`;
     const channelName = () => `attendance-app-petty-cash:${activeUid}`;
@@ -57,23 +58,28 @@ export function createPettyCashLiveSyncCoordinator({
     }
 
     function leaderConfig() {
-        return Object.fromEntries(COLLECTIONS.map((collectionName) => {
-            const item = activeConfig?.[collectionName];
-            if (!item) return [collectionName, item];
-            return [collectionName, {
-                subscribe: item.subscribe,
-                onApply: async (items) => {
-                    await item.onApply(items);
-                    if (leader) {
+        return Object.fromEntries(COLLECTIONS.map(
+            (collectionName) => [collectionName, wrappedCollection(collectionName)]
+        ));
+    }
+
+    function wrappedCollection(collectionName) {
+        const item = activeConfig?.[collectionName];
+        if (!item) return item;
+        return {
+            subscribe: item.subscribe,
+            onApply: async (items) => {
+                await item.onApply(items);
+                if (leader) {
                         channel?.postMessage({
                             type: 'snapshot',
                             collection: collectionName,
+                            scopeKey: item.scopeKey,
                             items
                         });
-                    }
                 }
-            }];
-        }));
+            }
+        };
     }
 
     async function becomeLeader() {
@@ -141,6 +147,10 @@ export function createPettyCashLiveSyncCoordinator({
                 if (leader || message?.type !== 'snapshot') return;
                 const item = activeConfig?.[message.collection];
                 if (!item || typeof item.onApply !== 'function' || !Array.isArray(message.items)) return;
+                if ((item.scopeKey || '') !== (message.scopeKey || '')) {
+                    pendingSnapshots.set(message.collection, message);
+                    return;
+                }
                 await item.onApply(message.items);
             };
 
@@ -162,6 +172,28 @@ export function createPettyCashLiveSyncCoordinator({
             legacy = false;
             activeConfig = null;
             activeUid = null;
+            pendingSnapshots.clear();
+        },
+
+        replaceCollection(collectionName, item) {
+            if (!activeConfig || !COLLECTIONS.includes(collectionName)) return false;
+            if (typeof item?.subscribe !== 'function' || typeof item?.onApply !== 'function') {
+                return false;
+            }
+            activeConfig[collectionName] = item;
+            if (!leader && !legacy) {
+                const pending = pendingSnapshots.get(collectionName);
+                if (pending && (pending.scopeKey || '') === (item.scopeKey || '')) {
+                    pendingSnapshots.delete(collectionName);
+                    Promise.resolve(item.onApply(pending.items)).catch(() => undefined);
+                }
+                return true;
+            }
+            if (typeof liveSync.replace === 'function') {
+                return liveSync.replace(collectionName, wrappedCollection(collectionName));
+            }
+            liveSync.stop();
+            return liveSync.start(legacy ? activeConfig : leaderConfig());
         },
 
         isLeader() {
