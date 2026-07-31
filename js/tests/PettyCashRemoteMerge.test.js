@@ -99,4 +99,30 @@ describe('PettyCashStore — mezcla segura de snapshots remotos', () => {
             expect.objectContaining({ id: 'p1', nextRecordNumber: 15 })
         ]);
     });
+
+    test('un snapshot acotado reemplaza solo los movimientos de sus períodos', async () => {
+        indexedDBService.getAll.mockImplementation(async (store) => {
+            if (store === 'pettyCashMovements') {
+                return [
+                    { id: 'old-open', periodId: 'open-1', amount: 10 },
+                    { id: 'closed-history', periodId: 'closed-1', amount: 20 }
+                ];
+            }
+            return [];
+        });
+
+        const merged = await PettyCashStore.applyRemote(
+            'movements',
+            [{ id: 'new-open', periodId: 'open-1', amount: 30 }],
+            { periodIds: ['open-1'] }
+        );
+
+        expect(merged).toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: 'new-open' }),
+            expect.objectContaining({ id: 'closed-history' })
+        ]));
+        expect(merged).not.toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: 'old-open' })
+        ]));
+    });
 });
