@@ -5076,3 +5076,92 @@
             background: #f59e0b;
             color: #000;
         }
+
+/* Caja Chica: tabla prioritaria de comprobantes pendientes. */
+.pc-review-table-shell {
+    overflow-x: auto;
+}
+
+.pc-review-table {
+    min-width: 610px;
+}
+
+.pc-review-action-icon {
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .pc-review-table-shell {
+        overflow-x: visible;
+    }
+
+    .pc-review-table {
+        min-width: 0;
+        display: block;
+    }
+
+    .pc-review-table thead {
+        display: none;
+    }
+
+    .pc-review-table tbody {
+        display: block;
+    }
+
+    .pc-review-table tbody tr {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) 74px;
+        grid-template-areas:
+            "record invoice actions"
+            "record amount actions";
+        align-items: center;
+        min-height: 62px;
+    }
+
+    .pc-review-table tbody .pc-review-record {
+        grid-area: record;
+        width: auto;
+        padding: 8px 4px 8px 7px !important;
+    }
+
+    .pc-review-table tbody .pc-review-invoice {
+        grid-area: invoice;
+        width: auto;
+        min-width: 0;
+        padding: 8px 4px 1px !important;
+    }
+
+    .pc-review-table .pc-review-date {
+        display: none;
+    }
+
+    .pc-review-table tbody .pc-review-amount {
+        grid-area: amount;
+        width: auto;
+        min-width: 0;
+        padding: 1px 4px 8px !important;
+        text-align: left !important;
+        font-size: 0.68rem;
+    }
+
+    .pc-review-table tbody .pc-review-actions {
+        grid-area: actions;
+        width: auto;
+        padding: 8px 4px 8px 0 !important;
+    }
+
+    .pc-review-open {
+        width: 34px;
+        padding: 0 !important;
+        display: inline-grid;
+        place-items: center;
+    }
+
+    .pc-review-action-label {
+        display: none;
+    }
+
+    .pc-review-action-icon {
+        display: inline-flex;
+    }
+}

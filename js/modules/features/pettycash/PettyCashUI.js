@@ -797,8 +797,10 @@ function _periodPanel(period) {
     const visibleMovs = movs.filter((movement) =>
         !hiddenReceiptIds.has(movement.id) || !isEmptyReceiptPlaceholder(movement)
     );
+    const reviewMovs = visibleMovs.filter((movement) => movement.reviewPending === true);
+    const historyMovs = visibleMovs.filter((movement) => movement.reviewPending !== true);
     const movementSearchQuery = String(d.movementSearchQuery || '').slice(0, 120);
-    const searchedMovs = filterPettyCashMovements(visibleMovs, movementSearchQuery);
+    const searchedMovs = filterPettyCashMovements(historyMovs, movementSearchQuery);
     const sortedMovs = sortPettyCashMovements(searchedMovs, {
         field: d.movementSortBy,
         direction: d.movementSortDirection
@@ -851,9 +853,12 @@ function _periodPanel(period) {
         ${cerrada && period.efectivoContado !== undefined && period.efectivoContado !== null ? _conciliacionBlock(period) : ''}
         ${form && !cerrada ? _movementForm(form) : ''}
         ${editMov ? _movementEditForm(editMov, cerrada) : ''}
+        ${_reviewPendingMovementsTable(reviewMovs, cerrada, duplicatesByMovement)}
+        <section data-petty-cash-history style="margin-top:${reviewMovs.length ? '16px' : '0'};">
+        <div style="font-size:.72rem;font-weight:850;letter-spacing:.06em;color:#94a3b8;margin:0 0 8px;text-transform:uppercase;">Historial del período</div>
         ${_movementSearchControl(movementSearchQuery)}
         ${_duplicateSummary(searchedMovs, duplicatesByMovement)}
-        ${_movementSortControls(d, searchedMovs.length, visibleMovs.length)}
+        ${_movementSortControls(d, searchedMovs.length, historyMovs.length)}
         ${_movementsList(page.items, cerrada, {
             field: d.movementSortBy,
             direction: d.movementSortDirection
@@ -864,6 +869,7 @@ function _periodPanel(period) {
                 Mostrar 50 más · ${page.visible} de ${page.total}
             </button>
         </div>` : ''}
+        </section>
 
         <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
             <button type="button" data-app-fn="pcExportExcel" style="background:#1e293b;border:1px solid #334155;color:#cbd5e1;border-radius:8px;padding:7px 12px;cursor:pointer;font-size:.85rem;">⬇️ Excel</button>
@@ -1075,6 +1081,78 @@ function _duplicateSummary(movements, duplicatesByMovement) {
         <strong>${count} registro${count === 1 ? '' : 's'} requiere${count === 1 ? '' : 'n'} revisión por posible duplicado.</strong>
         La app no elimina datos automáticamente.
     </div>`;
+}
+
+function _reviewPendingMovementsTable(
+    movements,
+    cerrada,
+    duplicatesByMovement = new Map()
+) {
+    if (!movements.length) return '';
+    const list = sortPettyCashMovements(movements, {
+        field: 'recordNumber',
+        direction: 'desc'
+    });
+    return `<section data-petty-cash-review-queue
+        style="background:#172033;border:1px solid #f59e0b;border-radius:11px;overflow:hidden;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;background:#263244;border-bottom:1px solid #475569;">
+            <div>
+                <div style="font-size:.82rem;font-weight:850;color:#f8fafc;">Pendientes de revisión</div>
+                <div style="font-size:.68rem;color:#cbd5e1;margin-top:2px;">Confirma los datos extraídos antes de enviarlos al historial.</div>
+            </div>
+            <span style="min-width:28px;height:28px;padding:0 8px;display:inline-grid;place-items:center;background:#f59e0b;color:#111827;border-radius:999px;font-size:.74rem;font-weight:900;">${list.length}</span>
+        </div>
+        <div class="pc-review-table-shell">
+            <table aria-label="Registros pendientes de revisión"
+                class="pc-review-table"
+                style="width:100%;border-collapse:collapse;font-size:.76rem;">
+                <thead>
+                    <tr style="color:#94a3b8;background:#0f172a;text-align:left;">
+                        <th class="pc-review-record" style="padding:8px 10px;font-size:.62rem;letter-spacing:.05em;">REGISTRO</th>
+                        <th class="pc-review-invoice" style="padding:8px 10px;font-size:.62rem;letter-spacing:.05em;">FACTURA</th>
+                        <th class="pc-review-date" style="padding:8px 10px;font-size:.62rem;letter-spacing:.05em;">FECHA</th>
+                        <th class="pc-review-amount" style="padding:8px 10px;font-size:.62rem;letter-spacing:.05em;text-align:right;">MONTO</th>
+                        <th class="pc-review-actions" style="padding:8px 10px;font-size:.62rem;letter-spacing:.05em;text-align:right;">ACCIÓN</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${list.map((movement) => {
+                        const isExpense = movement.type === 'gasto';
+                        const title = isExpense
+                            ? (movement.paidTo || movement.description || 'Gasto por revisar')
+                            : (movement.description || 'Reposición por revisar');
+                        const duplicate = duplicatesByMovement.get(movement.id);
+                        return `<tr data-app-fn="pcOpenMovement" data-arg="${movement.id}"
+                            tabindex="0" role="button" title="Abrir registro para revisar"
+                            style="border-top:1px solid #334155;color:#e2e8f0;cursor:pointer;">
+                            <td class="pc-review-record" style="padding:10px;font-weight:850;color:#38bdf8;font-variant-numeric:tabular-nums;">${formatPettyCashRecordNumber(movement.recordNumber)}</td>
+                            <td class="pc-review-invoice" style="padding:10px;max-width:300px;">
+                                <div style="font-weight:750;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(title)}</div>
+                                <div style="font-size:.66rem;color:#94a3b8;margin-top:2px;">${movement.ncf ? `NCF: ${esc(movement.ncf)}` : esc(movement.category || 'Datos pendientes de confirmar')}</div>
+                                ${duplicate ? '<div style="font-size:.64rem;color:#fdba74;margin-top:3px;">⚠ Posible duplicado</div>' : ''}
+                            </td>
+                            <td class="pc-review-date" style="padding:10px;color:#cbd5e1;white-space:nowrap;">${esc(formatPettyCashDate(movement.fechaEmision || movement.date))}</td>
+                            <td class="pc-review-amount" style="padding:10px;text-align:right;font-weight:850;color:${isExpense ? '#f87171' : '#34d399'};white-space:nowrap;">${isExpense ? '−' : '+'} ${rd(movement.amount)}</td>
+                            <td class="pc-review-actions" style="padding:8px 10px;">
+                                <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px;">
+                                    <button type="button" data-app-fn="pcOpenMovement" data-arg="${movement.id}" data-app-stop="1"
+                                        aria-label="${cerrada ? 'Ver' : 'Revisar'} registro ${formatPettyCashRecordNumber(movement.recordNumber)}"
+                                        class="pc-review-open"
+                                        style="min-height:34px;background:#06b6d4;color:#06202a;border:none;border-radius:7px;padding:7px 11px;font-size:.72rem;font-weight:850;cursor:pointer;">
+                                        <span class="pc-review-action-icon">${icons.get('edit', { size: 15 })}</span>
+                                        <span class="pc-review-action-label">${cerrada ? 'Ver' : 'Revisar'}</span>
+                                    </button>
+                                    ${cerrada ? '' : `<button type="button" data-app-fn="pcDeleteMovement" data-arg="${movement.id}" data-app-stop="1"
+                                        aria-label="Eliminar registro pendiente" title="Eliminar"
+                                        style="width:34px;height:34px;background:#334155;color:#cbd5e1;border:1px solid #475569;border-radius:7px;display:grid;place-items:center;cursor:pointer;">✕</button>`}
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    </section>`;
 }
 
 function _movementsList(
