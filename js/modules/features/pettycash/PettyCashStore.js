@@ -30,7 +30,27 @@ const LS_KEY = '_pettycash_local_v2'; // caché viejo (a migrar una sola vez)
 export const MAX_FLUSH_ATTEMPTS = 5;
 
 let _flushing = false;
+let _flushRequested = false;
 let _flushingMirror = false;
+
+function compactPendingEntries(entries) {
+    const groups = new Map();
+    entries.forEach((entry) => {
+        const groupKey = `${entry.col || ''}\u0000${entry.id || ''}`;
+        const current = groups.get(groupKey) || { entry, keys: [] };
+        current.entry = entry;
+        current.keys.push(entry.key);
+        groups.set(groupKey, current);
+    });
+    return [...groups.values()];
+}
+
+async function deleteOutboxKeys(keys, except = null) {
+    for (const key of keys) {
+        if (key === except) continue;
+        try { await indexedDBService.delete(OUTBOX, key); } catch { /* noop */ }
+    }
+}
 
 export const PettyCashStore = {
 
@@ -250,46 +270,90 @@ export const PettyCashStore = {
      * p. ej. sin red) sigue cortando el ciclo para no martillar.
      */
     async flush() {
-        if (_flushing) return;
+        if (_flushing) {
+            _flushRequested = true;
+            return;
+        }
         if (!auth || !auth.currentUser) return; // sin sesión → reintentar luego
         _flushing = true;
         try {
-            let pending = [];
-            try { pending = (await indexedDBService.getAll(OUTBOX)) || []; } catch { pending = []; }
-            pending = pending.filter(e => e && e.status === 'pending').sort((a, b) => (a.key || 0) - (b.key || 0));
-            for (const entry of pending) {
-                const repo = REPO[entry.col];
-                if (!repo) { try { await indexedDBService.delete(OUTBOX, entry.key); } catch { /* noop */ } continue; }
-                try {
-                    if (entry.op === 'delete') {
-                        await repo.deleteOne(entry.id, { source: entry.source });
-                    } else if (entry.data) {
-                        await repo.saveOne(entry.data, { source: entry.source });
+            do {
+                _flushRequested = false;
+                let pending = [];
+                try { pending = (await indexedDBService.getAll(OUTBOX)) || []; } catch { pending = []; }
+                pending = pending
+                    .filter(e => e && e.status === 'pending')
+                    .sort((a, b) => (a.key || 0) - (b.key || 0));
+                const compacted = compactPendingEntries(pending);
+                let transientFailure = false;
+
+                for (const group of compacted) {
+                    const entry = group.entry;
+                    const superseded = group.keys.length - 1;
+                    if (superseded > 0) {
+                        PettyCashPersistenceMetrics.record({
+                            operation: 'queue',
+                            collection: 'outbox',
+                            stage: 'compacted',
+                            source: entry.source,
+                            count: superseded
+                        });
                     }
-                    await indexedDBService.delete(OUTBOX, entry.key);
-                    // 💬 Toast honesto: si hay un guardado anunciado esperando,
-                    // confirmar que la nube ya lo tiene (el notifier ignora el
-                    // reporte si no hay nada pendiente).
-                    saveOutcomeNotifier.recordCloudResult(true);
-                } catch (e) {
-                    // 💬 Toast honesto: la nube falló → amarillo "solo en este
-                    // equipo" para el guardado anunciado pendiente (si lo hay).
-                    saveOutcomeNotifier.recordCloudResult(false);
-                    const attempts = (Number(entry.attempts) || 0) + 1;
-                    const updated = { ...entry, attempts, lastError: String(e?.message || e) };
-                    if (attempts >= MAX_FLUSH_ATTEMPTS) {
-                        updated.status = 'dead';
-                        console.error(`☠️ PettyCashStore.flush — entrada ${entry.key} marcada DEAD tras ${attempts} intentos (ya no bloquea la cola):`, e);
+                    const repo = REPO[entry.col];
+                    if (!repo) {
+                        await deleteOutboxKeys(group.keys);
+                        continue;
+                    }
+                    try {
+                        if (entry.op === 'delete') {
+                            await repo.deleteOne(entry.id, { source: entry.source });
+                        } else if (entry.data) {
+                            await repo.saveOne(entry.data, { source: entry.source });
+                        }
+                        await deleteOutboxKeys(group.keys);
+                        // 💬 Toast honesto: si hay un guardado anunciado esperando,
+                        // confirmar que la nube ya lo tiene (el notifier ignora el
+                        // reporte si no hay nada pendiente).
+                        saveOutcomeNotifier.recordCloudResult(true);
+                    } catch (e) {
+                        // Las operaciones anteriores del mismo documento ya están
+                        // representadas por la última. Quitarlas evita que vuelvan
+                        // a generar escrituras cuando se reintente.
+                        await deleteOutboxKeys(group.keys, entry.key);
+                        saveOutcomeNotifier.recordCloudResult(false);
+                        const attempts = (Number(entry.attempts) || 0) + 1;
+                        const updated = { ...entry, attempts, lastError: String(e?.message || e) };
+                        if (attempts >= MAX_FLUSH_ATTEMPTS) {
+                            updated.status = 'dead';
+                            PettyCashPersistenceMetrics.record({
+                                operation: 'flush', collection: 'outbox', stage: 'dead',
+                                source: entry.source, status: 'error'
+                            });
+                            console.error(`☠️ PettyCashStore.flush — entrada ${entry.key} marcada DEAD tras ${attempts} intentos (ya no bloquea la cola):`, e);
+                            try { await indexedDBService.update(OUTBOX, updated); } catch { /* noop */ }
+                            continue; // la cola sigue con la próxima entrada
+                        }
+                        PettyCashPersistenceMetrics.record({
+                            operation: 'flush', collection: 'outbox', stage: 'retry',
+                            source: entry.source, status: 'error'
+                        });
+                        console.warn(`⚠️ PettyCashStore.flush — entrada ${entry.key} falló (intento ${attempts}/${MAX_FLUSH_ATTEMPTS}), se reintentará:`, e);
                         try { await indexedDBService.update(OUTBOX, updated); } catch { /* noop */ }
-                        continue; // la cola sigue con la próxima entrada
+                        transientFailure = true;
+                        break; // fallo transitorio: cortar y reintentar en el próximo flush
                     }
-                    console.warn(`⚠️ PettyCashStore.flush — entrada ${entry.key} falló (intento ${attempts}/${MAX_FLUSH_ATTEMPTS}), se reintentará:`, e);
-                    try { await indexedDBService.update(OUTBOX, updated); } catch { /* noop */ }
-                    break; // fallo transitorio: cortar y reintentar en el próximo flush
                 }
-            }
+                if (transientFailure) break;
+            } while (_flushRequested);
         } finally {
             _flushing = false;
+            // Una petición puede llegar entre la última comprobación del bucle
+            // y este finally. Programarla evita dejar la entrada dormida hasta
+            // otro evento de red/guardado.
+            if (_flushRequested) {
+                _flushRequested = false;
+                queueMicrotask(() => this.flush());
+            }
         }
     },
 
