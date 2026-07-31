@@ -37,7 +37,8 @@ const ALLOWED = {
         'startup',
         'online',
         'retry',
-        'migration'
+        'migration',
+        'identity-normalization'
     ]),
     status: new Set(['ok', 'error', 'offline', 'skipped'])
 };

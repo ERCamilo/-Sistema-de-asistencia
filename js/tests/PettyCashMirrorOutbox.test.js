@@ -23,7 +23,9 @@ beforeEach(() => {
 
 describe('PettyCashStore mirror outbox', () => {
     test('guardar un movimiento encola un upsert independiente', async () => {
-        await PettyCashStore.save('movements', movement);
+        await PettyCashStore.save('movements', movement, {
+            source: 'identity-normalization'
+        });
 
         expect(indexedDBService.update).toHaveBeenCalledWith(
             'pettyCashMirrorOutbox',
@@ -32,6 +34,7 @@ describe('PettyCashStore mirror outbox', () => {
                 op: 'save',
                 ownerUid: 'firebase-user',
                 status: 'pending',
+                source: 'identity-normalization',
                 data: expect.objectContaining({ recordNumber: 14 })
             })
         );

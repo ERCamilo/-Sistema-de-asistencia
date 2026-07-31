@@ -148,7 +148,8 @@ export const PettyCashStore = {
             console.warn('pc enqueue:', e);
         }
         if (col === 'movements') {
-            await this.enqueueMovementMirror('save', item).catch((e) => console.warn('pc mirror enqueue:', e));
+            await this.enqueueMovementMirror('save', item, { source })
+                .catch((e) => console.warn('pc mirror enqueue:', e));
         }
         if (opts.announce) {
             saveOutcomeNotifier.recordLocalResult({
@@ -204,7 +205,8 @@ export const PettyCashStore = {
             console.warn('pc enqueue del:', e);
         }
         if (col === 'movements') {
-            await this.enqueueMovementMirror('delete', removedSnapshot || { id }).catch((e) => console.warn('pc mirror delete enqueue:', e));
+            await this.enqueueMovementMirror('delete', removedSnapshot || { id }, { source })
+                .catch((e) => console.warn('pc mirror delete enqueue:', e));
         }
         if (opts.announce) {
             saveOutcomeNotifier.recordLocalResult({
@@ -218,19 +220,38 @@ export const PettyCashStore = {
     },
 
     /** Compacta por id la última operación que falta reflejar en Supabase. */
-    async enqueueMovementMirror(op, movement) {
+    async enqueueMovementMirror(op, movement, opts = {}) {
         if (!movement?.id) return;
+        const source = opts.source || 'unspecified';
         const now = Date.now();
-        await indexedDBService.update(MIRROR_OUTBOX, {
-            id: movement.id,
-            op: op === 'delete' ? 'delete' : 'save',
-            data: { ...movement },
-            ownerUid: auth?.currentUser?.uid || null,
-            ts: now,
-            status: 'pending',
-            attempts: 0,
-            lastError: null
-        });
+        try {
+            await indexedDBService.update(MIRROR_OUTBOX, {
+                id: movement.id,
+                op: op === 'delete' ? 'delete' : 'save',
+                data: { ...movement },
+                ownerUid: auth?.currentUser?.uid || null,
+                source,
+                ts: now,
+                status: 'pending',
+                attempts: 0,
+                lastError: null
+            });
+            PettyCashPersistenceMetrics.record({
+                operation: 'queue',
+                collection: 'mirror',
+                stage: 'queue-success',
+                source
+            });
+        } catch (error) {
+            PettyCashPersistenceMetrics.record({
+                operation: 'queue',
+                collection: 'mirror',
+                stage: 'queue-failure',
+                source,
+                status: 'error'
+            });
+            throw error;
+        }
     },
 
     /**
@@ -255,8 +276,23 @@ export const PettyCashStore = {
 
                 for (const entry of pending) {
                     if (entry.ownerUid && entry.ownerUid !== user.uid) continue;
+                    const source = entry.source || 'unspecified';
+                    const startedAt = Date.now();
                     try {
+                        PettyCashPersistenceMetrics.record({
+                            operation: 'mirror',
+                            collection: 'mirror',
+                            stage: 'cloud-attempt',
+                            source
+                        });
                         await sendMovementMirror({ url, entry, idToken });
+                        PettyCashPersistenceMetrics.record({
+                            operation: 'mirror',
+                            collection: 'mirror',
+                            stage: 'cloud-success',
+                            source,
+                            durationMs: Date.now() - startedAt
+                        });
                         // No borrar una edición más nueva que haya reemplazado esta
                         // entrada mientras la petición estaba en vuelo.
                         const current = await indexedDBService.get(MIRROR_OUTBOX, entry.id).catch(() => null);
@@ -264,6 +300,14 @@ export const PettyCashStore = {
                             await indexedDBService.delete(MIRROR_OUTBOX, entry.id);
                         }
                     } catch (error) {
+                        PettyCashPersistenceMetrics.record({
+                            operation: 'mirror',
+                            collection: 'mirror',
+                            stage: 'cloud-failure',
+                            source,
+                            status: 'error',
+                            durationMs: Date.now() - startedAt
+                        });
                         const attempts = (Number(entry.attempts) || 0) + 1;
                         const updated = {
                             ...entry,
