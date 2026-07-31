@@ -17,12 +17,13 @@ import {
     doc, setDoc, deleteDoc, collection, getDocs, onSnapshot
 } from '../data/firebase.js';
 import { SyncStatus } from './SyncStatus.js';
+import { PettyCashPersistenceMetrics } from '../features/pettycash/PettyCashPersistenceMetrics.js';
 
 /**
  * Crea un sub-repositorio per-doc para una colección dada.
  * @param {string} COLLECTION nombre de la subcolección bajo users/{uid}
  */
-function makeRepo(COLLECTION) {
+function makeRepo(COLLECTION, metricCollection) {
 
     function colRef() {
         if (!auth.currentUser) return null;
@@ -39,7 +40,18 @@ function makeRepo(COLLECTION) {
         /** Carga todos los docs de la colección. [] si no hay sesión. */
         async loadAll() {
             const ref = colRef();
-            if (!ref) return [];
+            if (!ref) {
+                PettyCashPersistenceMetrics.record({
+                    operation: 'read', collection: metricCollection, stage: 'skipped',
+                    source: 'startup', status: 'skipped'
+                });
+                return [];
+            }
+            const startedAt = Date.now();
+            PettyCashPersistenceMetrics.record({
+                operation: 'read', collection: metricCollection, stage: 'cloud-attempt',
+                source: 'startup'
+            });
             try {
                 const snap = await getDocs(ref);
                 const result = [];
@@ -47,15 +59,24 @@ function makeRepo(COLLECTION) {
                     const data = typeof d.data === 'function' ? d.data() : d;
                     if (data) result.push(data);
                 });
+                PettyCashPersistenceMetrics.record({
+                    operation: 'read', collection: metricCollection, stage: 'cloud-success',
+                    source: 'startup', count: Math.max(1, result.length),
+                    durationMs: Date.now() - startedAt
+                });
                 return result;
             } catch (e) {
+                PettyCashPersistenceMetrics.record({
+                    operation: 'read', collection: metricCollection, stage: 'cloud-failure',
+                    source: 'startup', status: 'error', durationMs: Date.now() - startedAt
+                });
                 console.error(`❌ PettyCashRepository[${COLLECTION}].loadAll error:`, e);
                 return [];
             }
         },
 
         /** Upsert de un doc en su propio documento. No-op sin sesión o sin id. */
-        async saveOne(item) {
+        async saveOne(item, context = {}) {
             if (!item || typeof item !== 'object') return;
             const id = String(item.id || '').trim();
             if (!id) return;
@@ -66,10 +87,23 @@ function makeRepo(COLLECTION) {
             if (typeof payload.updatedAt !== 'number') {
                 payload.updatedAt = Date.now();
             }
+            const source = context.source || 'unspecified';
+            const startedAt = Date.now();
+            PettyCashPersistenceMetrics.record({
+                operation: 'save', collection: metricCollection, stage: 'cloud-attempt', source
+            });
             try {
                 await setDoc(ref, payload, { merge: true });
+                PettyCashPersistenceMetrics.record({
+                    operation: 'save', collection: metricCollection, stage: 'cloud-success', source,
+                    durationMs: Date.now() - startedAt
+                });
                 SyncStatus.markSynced();
             } catch (e) {
+                PettyCashPersistenceMetrics.record({
+                    operation: 'save', collection: metricCollection, stage: 'cloud-failure', source,
+                    status: 'error', durationMs: Date.now() - startedAt
+                });
                 console.error(`❌ PettyCashRepository[${COLLECTION}].saveOne(${id}) error:`, e);
                 throw e;
             }
@@ -85,13 +119,26 @@ function makeRepo(COLLECTION) {
         },
 
         /** Borra el doc por id. No-op sin sesión o sin id. */
-        async deleteOne(id) {
+        async deleteOne(id, context = {}) {
             const clean = String(id || '').trim();
             const ref = docRef(clean);
             if (!ref) return;
+            const source = context.source || 'unspecified';
+            const startedAt = Date.now();
+            PettyCashPersistenceMetrics.record({
+                operation: 'delete', collection: metricCollection, stage: 'cloud-attempt', source
+            });
             try {
                 await deleteDoc(ref);
+                PettyCashPersistenceMetrics.record({
+                    operation: 'delete', collection: metricCollection, stage: 'cloud-success', source,
+                    durationMs: Date.now() - startedAt
+                });
             } catch (e) {
+                PettyCashPersistenceMetrics.record({
+                    operation: 'delete', collection: metricCollection, stage: 'cloud-failure', source,
+                    status: 'error', durationMs: Date.now() - startedAt
+                });
                 console.error(`❌ PettyCashRepository[${COLLECTION}].deleteOne(${clean}) error:`, e);
                 throw e;
             }
@@ -101,6 +148,10 @@ function makeRepo(COLLECTION) {
         subscribe(onChange) {
             const ref = colRef();
             if (!ref) return () => {};
+            PettyCashPersistenceMetrics.record({
+                operation: 'subscribe', collection: metricCollection, stage: 'requested',
+                source: 'live-sync'
+            });
             try {
                 return onSnapshot(ref, (snap) => {
                     const list = [];
@@ -110,6 +161,10 @@ function makeRepo(COLLECTION) {
                             if (data) list.push(data);
                         });
                     }
+                    PettyCashPersistenceMetrics.record({
+                        operation: 'read', collection: metricCollection, stage: 'snapshot',
+                        source: 'live-sync', count: Math.max(1, list.length)
+                    });
                     try { onChange(list); } catch (e) { console.error('subscribe callback error:', e); }
                 });
             } catch (e) {
@@ -121,9 +176,9 @@ function makeRepo(COLLECTION) {
 }
 
 export const PettyCashRepository = {
-    projects: makeRepo('projects'),
-    periods: makeRepo('cashPeriods'),
-    movements: makeRepo('pettyCash')
+    projects: makeRepo('projects', 'projects'),
+    periods: makeRepo('cashPeriods', 'periods'),
+    movements: makeRepo('pettyCash', 'movements')
 };
 
 export default PettyCashRepository;
