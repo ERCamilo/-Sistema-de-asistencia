@@ -20,7 +20,7 @@ import {
     periodsOfProject, movementsOfPeriod, saldoProyectoFlat
 } from './PettyCashCalc.js';
 import { PettyCashRepository } from '../../services/PettyCashRepository.js';
-import { PettyCashLiveSync } from '../../services/PettyCashLiveSync.js';
+import { PettyCashLiveSyncCoordinator } from '../../services/PettyCashLiveSyncCoordinator.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { PettyCashStore } from './PettyCashStore.js';
 import {
@@ -455,30 +455,33 @@ export async function startPettyCashSync() {
     // onSnapshot entrega el estado inicial de cada colección. Usarlo como
     // carga remota evita pagar primero getDocs() y volver a leer exactamente
     // los mismos documentos al abrir los listeners.
-    PettyCashLiveSync.start({
-        projects: {
-            subscribe: (cb) => PettyCashRepository.projects.subscribe(cb),
-            onApply: async (list) => {
-                const merged = await PettyCashStore.applyRemote('projects', dedupById(list));
-                pc().projects = dedupById(merged);
-                window.render?.();
-            }
-        },
-        periods: {
-            subscribe: (cb) => PettyCashRepository.periods.subscribe(cb),
-            onApply: async (list) => {
-                const merged = await PettyCashStore.applyRemote('periods', dedupById(list));
-                pc().periods = dedupById(merged);
-                window.render?.();
-            }
-        },
-        movements: {
-            subscribe: (cb) => PettyCashRepository.movements.subscribe(cb),
-            onApply: async (list) => {
-                const merged = await PettyCashStore.applyRemote('movements', dedupById(list));
-                pc().movements = dedupById(merged);
-                await normalizeMovementIdentity(pc());
-                window.render?.();
+    await PettyCashLiveSyncCoordinator.start({
+        uid: auth?.currentUser?.uid,
+        config: {
+            projects: {
+                subscribe: (cb) => PettyCashRepository.projects.subscribe(cb),
+                onApply: async (list) => {
+                    const merged = await PettyCashStore.applyRemote('projects', dedupById(list));
+                    pc().projects = dedupById(merged);
+                    window.render?.();
+                }
+            },
+            periods: {
+                subscribe: (cb) => PettyCashRepository.periods.subscribe(cb),
+                onApply: async (list) => {
+                    const merged = await PettyCashStore.applyRemote('periods', dedupById(list));
+                    pc().periods = dedupById(merged);
+                    window.render?.();
+                }
+            },
+            movements: {
+                subscribe: (cb) => PettyCashRepository.movements.subscribe(cb),
+                onApply: async (list) => {
+                    const merged = await PettyCashStore.applyRemote('movements', dedupById(list));
+                    pc().movements = dedupById(merged);
+                    await normalizeMovementIdentity(pc());
+                    window.render?.();
+                }
             }
         }
     });
@@ -1048,6 +1051,8 @@ function _movementsList(
 // ══ handlers (window.*) ════════════════════════════════════════════════
 export function registerPettyCashGlobals() {
     window.startPettyCashSync = startPettyCashSync;
+    window.stopPettyCashSync = () => PettyCashLiveSyncCoordinator.stop();
+    window.getPettyCashSyncRole = () => PettyCashLiveSyncCoordinator.role();
 
     // Cargar datos locales (IndexedDB) al arrancar, aun sin sesión (offline-safe).
     loadPettyCashLocal();

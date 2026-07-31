@@ -32,6 +32,9 @@ describe('PettyCashStore — compactación y drenado continuo', () => {
         indexedDBService.getAll.mockReset().mockResolvedValue([]);
         indexedDBService.update.mockReset().mockResolvedValue(1);
         indexedDBService.delete.mockReset().mockResolvedValue(undefined);
+        indexedDBService.acquireLease.mockReset().mockResolvedValue(true);
+        indexedDBService.renewLease.mockReset().mockResolvedValue(true);
+        indexedDBService.releaseLease.mockReset().mockResolvedValue(true);
         saveSpy = jest.spyOn(PettyCashRepository.movements, 'saveOne').mockResolvedValue(undefined);
         deleteSpy = jest.spyOn(PettyCashRepository.movements, 'deleteOne').mockResolvedValue(undefined);
     });
@@ -55,6 +58,31 @@ describe('PettyCashStore — compactación y drenado continuo', () => {
             .filter(([store]) => store === 'pettyCashOutbox')
             .map(([, key]) => key);
         expect(deletedKeys).toEqual(expect.arrayContaining([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+    });
+
+    test('protege el drenado con un lease compartido entre pestañas', async () => {
+        indexedDBService.getAll.mockResolvedValueOnce([entry(1)]);
+
+        await PettyCashStore.flush();
+
+        expect(indexedDBService.acquireLease).toHaveBeenCalledWith(
+            'attendance-app-petty-cash-outbox',
+            expect.any(String),
+            expect.any(Number)
+        );
+        expect(indexedDBService.releaseLease).toHaveBeenCalled();
+    });
+
+    test('no sube datos si la sesión cambia mientras espera el lease', async () => {
+        indexedDBService.acquireLease.mockImplementationOnce(async () => {
+            auth.currentUser = { uid: 'other-user' };
+            return true;
+        });
+        indexedDBService.getAll.mockResolvedValueOnce([entry(1)]);
+
+        await PettyCashStore.flush();
+
+        expect(saveSpy).not.toHaveBeenCalled();
     });
 
     test('la última operación gana cuando guardar termina en borrar', async () => {
