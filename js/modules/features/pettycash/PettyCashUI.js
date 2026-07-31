@@ -133,6 +133,10 @@ const savePeriod = (p, announce, source = 'manual') =>
     PettyCashStore.save('periods', p, { announce, source });
 const saveMovement = (m, announce, source = 'manual') =>
     PettyCashStore.save('movements', m, { announce, source });
+const saveProjectLocal = (p, source = 'unspecified') =>
+    PettyCashStore.saveLocal('projects', p, { source });
+const saveMovementLocal = (m, source = 'unspecified') =>
+    PettyCashStore.saveLocal('movements', m, { source });
 const removeProjectDoc = (id, announce, source = 'manual') =>
     PettyCashStore.remove('projects', id, { announce, source });
 const removePeriodDoc = (id, announce, source = 'manual') =>
@@ -140,13 +144,17 @@ const removePeriodDoc = (id, announce, source = 'manual') =>
 const removeMovementDoc = (id, announce, source = 'manual') =>
     PettyCashStore.remove('movements', id, { announce, source });
 
-async function assignNewMovementIdentity(movement, period, createdAt = Date.now()) {
+async function assignNewMovementIdentity(movement, period, createdAt = Date.now(), options = {}) {
     const d = pc();
     const project = d.projects.find((item) => item.id === period?.projectId);
     if (!project) throw new Error('No se encontró el proyecto del movimiento.');
     movement.createdAt = Number(createdAt) || Date.now();
     movement.recordNumber = allocatePettyCashRecordNumber(project, d.movements, movement.createdAt);
-    await saveProject(project);
+    if (options.localOnly) {
+        await saveProjectLocal(project, options.source);
+    } else {
+        await saveProject(project, null, options.source || 'manual');
+    }
     return movement;
 }
 
@@ -224,10 +232,14 @@ async function enqueueReceiptFile(file, period) {
         receiptMimeType: capture.originalType,
         receiptPageCount: capture.pageCount,
         reviewPending: true,
+        localDraft: true,
         createdBy: 'app',
         updatedAt: now
     };
-    await assignNewMovementIdentity(movement, period, now);
+    await assignNewMovementIdentity(movement, period, now, {
+        localOnly: true,
+        source: 'receipt-queue'
+    });
     await saveLocalReceiptCapture(movement.id, capture, {
         periodId: period.id,
         projectId: period.projectId,
@@ -235,7 +247,7 @@ async function enqueueReceiptFile(file, period) {
         ocrStatus: 'pending'
     });
     pc().movements.push(movement);
-    await saveMovement(movement, null, 'receipt-queue');
+    await saveMovementLocal(movement, 'receipt-queue');
     return { movement, capture };
 }
 
@@ -300,7 +312,7 @@ function getReceiptQueueProcessor() {
     _receiptQueueProcessor = createReceiptQueueProcessor({
         receiptStore: indexedDBService,
         getMovement: (id) => pc().movements.find((movement) => movement.id === id),
-        saveMovement: (movement) => saveMovement(movement, null, 'receipt-ocr'),
+        saveMovement: (movement) => saveMovementLocal(movement, 'receipt-ocr'),
         getIdToken: async () => auth?.currentUser?.getIdToken(),
         getOcrUrl: () => APP_CONFIG?.OCR_WEBHOOK_URL,
         allowedCategories: CATEGORIAS,
@@ -371,13 +383,17 @@ async function recoverLocalReceiptDrafts() {
             receiptStatus: 'local',
             receiptStorage: 'local-only',
             reviewPending: true,
+            localDraft: true,
             recoveredFromReceipt: true,
             createdBy: 'app',
             updatedAt: now
         };
-        await assignNewMovementIdentity(movement, period, Number(job.createdAt) || now);
+        await assignNewMovementIdentity(movement, period, Number(job.createdAt) || now, {
+            localOnly: true,
+            source: 'receipt-queue'
+        });
         d.movements.push(movement);
-        await saveMovement(movement, null, 'receipt-queue');
+        await saveMovementLocal(movement, 'receipt-queue');
         await indexedDBService.updateReceiptJob(job.txId, {
             queueStatus: 'queued',
             ocrStatus: 'pending',
@@ -442,18 +458,25 @@ export async function startPettyCashSync() {
     PettyCashLiveSync.start({
         projects: {
             subscribe: (cb) => PettyCashRepository.projects.subscribe(cb),
-            onApply: (list) => { const l = dedupById(list); pc().projects = l; PettyCashStore.applyRemote('projects', l); window.render?.(); }
+            onApply: async (list) => {
+                const merged = await PettyCashStore.applyRemote('projects', dedupById(list));
+                pc().projects = dedupById(merged);
+                window.render?.();
+            }
         },
         periods: {
             subscribe: (cb) => PettyCashRepository.periods.subscribe(cb),
-            onApply: (list) => { const l = dedupById(list); pc().periods = l; PettyCashStore.applyRemote('periods', l); window.render?.(); }
+            onApply: async (list) => {
+                const merged = await PettyCashStore.applyRemote('periods', dedupById(list));
+                pc().periods = dedupById(merged);
+                window.render?.();
+            }
         },
         movements: {
             subscribe: (cb) => PettyCashRepository.movements.subscribe(cb),
             onApply: async (list) => {
-                const l = dedupById(list);
-                pc().movements = l;
-                await PettyCashStore.applyRemote('movements', l);
+                const merged = await PettyCashStore.applyRemote('movements', dedupById(list));
+                pc().movements = dedupById(merged);
                 await normalizeMovementIdentity(pc());
                 window.render?.();
             }
@@ -1217,7 +1240,9 @@ export function registerPettyCashGlobals() {
             description: document.getElementById('pc-desc')?.value?.trim() || '',
             createdBy: 'app', updatedAt: now
         };
-        await assignNewMovementIdentity(mov, period, now);
+        await assignNewMovementIdentity(mov, period, now, {
+            source: photo ? 'receipt-confirm' : 'manual'
+        });
         if (form.type === 'gasto') {
             mov.paidTo = document.getElementById('pc-tienda')?.value?.trim() || '';
             mov.category = document.getElementById('pc-cat')?.value || '';
@@ -1243,11 +1268,9 @@ export function registerPettyCashGlobals() {
                 if (Array.isArray(form.ocr.items) && form.ocr.items.length) mov.items = form.ocr.items;
             }
         }
-        d.movements.push(mov);
-        d.form = null;
-        persist(); saveMovement(mov, mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado'); window.render?.();
         // La captura se guarda al seleccionarla. Aquí se confirma el borrador,
         // se conserva el Blob original y se inicia el respaldo remoto.
+        let receiptReadyForBackup = false;
         if (photo && mov.type === 'gasto') {
             try {
                 if (!hasLocalOriginal && form.photoCapture) {
@@ -1271,12 +1294,23 @@ export function registerPettyCashGlobals() {
                 mov.receiptStorage = 'local-only';
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
-                persist(); saveMovement(mov); window.render?.();
-                uploadPendingReceipts().catch((error) => console.warn('receipt backup after save', error));
+                receiptReadyForBackup = true;
             } catch (e) {
                 console.warn('⚠️ saveReceipt local:', e);
                 Modal.alert({ title: 'Comprobante', message: 'El gasto se guardó, pero el comprobante no se pudo guardar localmente.' });
             }
+        }
+        d.movements.push(mov);
+        d.form = null;
+        persist();
+        await saveMovement(
+            mov,
+            mov.type === 'gasto' ? 'Gasto guardado' : 'Movimiento guardado',
+            photo ? 'receipt-confirm' : 'manual'
+        );
+        window.render?.();
+        if (receiptReadyForBackup) {
+            uploadPendingReceipts().catch((error) => console.warn('receipt backup after save', error));
         }
     };
 
@@ -1313,11 +1347,18 @@ export function registerPettyCashGlobals() {
     };
 
     window.pcConfirmMovement = async (movId) => {
-        const mov = pc().movements.find(m => m.id === movId);
+        const d = pc();
+        const mov = d.movements.find(m => m.id === movId);
         if (!mov) return;
+        const period = d.periods.find((item) => item.id === mov.periodId);
+        const project = d.projects.find((item) => item.id === (mov.projectId || period?.projectId));
         mov.reviewPending = false;
+        delete mov.localDraft;
         mov.updatedAt = Date.now();
-        persist(); saveMovement(mov, 'Movimiento confirmado', 'receipt-confirm'); window.render?.();
+        persist();
+        if (project) await saveProject(project, null, 'receipt-confirm');
+        await saveMovement(mov, 'Movimiento confirmado', 'receipt-confirm');
+        window.render?.();
         if (mov.receiptStatus) {
             try {
                 await indexedDBService.updateReceiptJob(movId, {
@@ -1419,6 +1460,7 @@ export function registerPettyCashGlobals() {
             const normalized = normalizeReceiptOcr(data, CATEGORIAS);
             applyReceiptOcrToMovement(mov, normalized);
             mov.reviewPending = true;
+            mov.localDraft = true;
             mov.updatedAt = Date.now();
             d._rescanStatus = null;
             await indexedDBService.updateReceiptJob(movId, {
@@ -1429,7 +1471,9 @@ export function registerPettyCashGlobals() {
                 lastError: null
             });
             await refreshReceiptQueueSummary();
-            persist(); saveMovement(mov, 'Movimiento actualizado', 'receipt-ocr'); window.render?.();
+            persist();
+            await saveMovementLocal(mov, 'receipt-ocr');
+            window.render?.();
         } catch (e) {
             console.warn('rescan OCR:', e);
             const rec = await indexedDBService.getReceipt(movId).catch(() => null);
@@ -1718,11 +1762,11 @@ export function registerPettyCashGlobals() {
             mov.notas = document.getElementById('pce-notas')?.value?.trim() || '';
         }
         mov.reviewPending = false; // guardar el detalle = revisado/confirmado
+        delete mov.localDraft;
         mov.updatedAt = Date.now();
         const pendingPhoto = d._editPhoto;
         const pendingCapture = d._editPhotoCapture;
-        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null;
-        persist(); saveMovement(mov, 'Movimiento actualizado'); window.render?.();
+        let receiptReadyForBackup = false;
         // Sustituir la copia local únicamente después de que el usuario guarde.
         if (pendingPhoto && pendingCapture && mov.type === 'gasto') {
             try {
@@ -1740,8 +1784,7 @@ export function registerPettyCashGlobals() {
                 mov.receiptPageCount = pendingCapture.pageCount;
                 mov.hasReceipt = true;
                 mov.updatedAt = Date.now();
-                persist(); saveMovement(mov); window.render?.();
-                uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
+                receiptReadyForBackup = true;
             } catch (e) {
                 console.warn('⚠️ saveReceipt local (edit):', e);
                 Modal.alert({ title: 'Comprobante', message: 'Los cambios se guardaron, pero el comprobante no se pudo guardar localmente.' });
@@ -1752,10 +1795,21 @@ export function registerPettyCashGlobals() {
                     queueStatus: 'confirmed',
                     userConfirmedAt: Date.now()
                 });
-                uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
+                receiptReadyForBackup = true;
             } catch (e) {
                 console.warn('confirm existing receipt after edit', e);
             }
+        }
+        d.editMov = null; d._editPhoto = null; d._editPhotoCapture = null;
+        persist();
+        await saveMovement(
+            mov,
+            'Movimiento actualizado',
+            mov.receiptStatus ? 'receipt-confirm' : 'manual'
+        );
+        window.render?.();
+        if (receiptReadyForBackup) {
+            uploadPendingReceipts().catch((error) => console.warn('receipt backup after edit', error));
         }
     };
 
