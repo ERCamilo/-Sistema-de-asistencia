@@ -17,12 +17,16 @@ import { saveOutcomeNotifier } from '../../services/SaveOutcomeNotifier.js';
 import { APP_CONFIG } from '../../config/Config.js';
 import { sendMovementMirror } from './PettyCashMovementMirror.js';
 import { PettyCashPersistenceMetrics } from './PettyCashPersistenceMetrics.js';
+import { createCrossTabLock } from '../../services/CrossTabLock.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
 const OUTBOX = 'pettyCashOutbox';
 const MIRROR_OUTBOX = 'pettyCashMirrorOutbox';
 const LS_KEY = '_pettycash_local_v2'; // caché viejo (a migrar una sola vez)
+const OUTBOX_LOCK = 'attendance-app-petty-cash-outbox';
+const MIRROR_LOCK = 'attendance-app-petty-cash-mirror-outbox';
+const _crossTabLock = createCrossTabLock({ leaseStore: indexedDBService });
 
 // ☠️ M2: tras este número de intentos fallidos, la entrada pasa a 'dead' y
 // deja de bloquear la cola (una entrada envenenada — rechazada por reglas,
@@ -240,40 +244,43 @@ export const PettyCashStore = {
         if (!user || typeof user.getIdToken !== 'function' || !url) return;
         _flushingMirror = true;
         try {
-            const idToken = await user.getIdToken();
-            let pending = [];
-            try { pending = (await indexedDBService.getAll(MIRROR_OUTBOX)) || []; } catch { pending = []; }
-            pending = pending
-                .filter((entry) => entry?.status === 'pending')
-                .sort((left, right) => (Number(left.ts) || 0) - (Number(right.ts) || 0));
+            await _crossTabLock.run(MIRROR_LOCK, async () => {
+                if (auth?.currentUser?.uid !== user.uid) return;
+                const idToken = await user.getIdToken();
+                let pending = [];
+                try { pending = (await indexedDBService.getAll(MIRROR_OUTBOX)) || []; } catch { pending = []; }
+                pending = pending
+                    .filter((entry) => entry?.status === 'pending')
+                    .sort((left, right) => (Number(left.ts) || 0) - (Number(right.ts) || 0));
 
-            for (const entry of pending) {
-                if (entry.ownerUid && entry.ownerUid !== user.uid) continue;
-                try {
-                    await sendMovementMirror({ url, entry, idToken });
-                    // No borrar una edición más nueva que haya reemplazado esta
-                    // entrada mientras la petición estaba en vuelo.
-                    const current = await indexedDBService.get(MIRROR_OUTBOX, entry.id).catch(() => null);
-                    if (current && current.ts === entry.ts && current.op === entry.op) {
-                        await indexedDBService.delete(MIRROR_OUTBOX, entry.id);
+                for (const entry of pending) {
+                    if (entry.ownerUid && entry.ownerUid !== user.uid) continue;
+                    try {
+                        await sendMovementMirror({ url, entry, idToken });
+                        // No borrar una edición más nueva que haya reemplazado esta
+                        // entrada mientras la petición estaba en vuelo.
+                        const current = await indexedDBService.get(MIRROR_OUTBOX, entry.id).catch(() => null);
+                        if (current && current.ts === entry.ts && current.op === entry.op) {
+                            await indexedDBService.delete(MIRROR_OUTBOX, entry.id);
+                        }
+                    } catch (error) {
+                        const attempts = (Number(entry.attempts) || 0) + 1;
+                        const updated = {
+                            ...entry,
+                            attempts,
+                            lastError: String(error?.message || error),
+                            status: attempts >= MAX_FLUSH_ATTEMPTS ? 'dead' : 'pending'
+                        };
+                        await indexedDBService.update(MIRROR_OUTBOX, updated).catch(() => null);
+                        if (updated.status === 'dead') {
+                            console.error(`☠️ Espejo de Caja Chica: ${entry.id} agotó sus reintentos.`, error);
+                            continue;
+                        }
+                        console.warn(`⚠️ Espejo de Caja Chica: ${entry.id} se reintentará.`, error);
+                        break;
                     }
-                } catch (error) {
-                    const attempts = (Number(entry.attempts) || 0) + 1;
-                    const updated = {
-                        ...entry,
-                        attempts,
-                        lastError: String(error?.message || error),
-                        status: attempts >= MAX_FLUSH_ATTEMPTS ? 'dead' : 'pending'
-                    };
-                    await indexedDBService.update(MIRROR_OUTBOX, updated).catch(() => null);
-                    if (updated.status === 'dead') {
-                        console.error(`☠️ Espejo de Caja Chica: ${entry.id} agotó sus reintentos.`, error);
-                        continue;
-                    }
-                    console.warn(`⚠️ Espejo de Caja Chica: ${entry.id} se reintentará.`, error);
-                    break;
                 }
-            }
+            });
         } catch (error) {
             console.warn('⚠️ No se pudo iniciar el espejo de Caja Chica:', error);
         } finally {
@@ -363,76 +370,80 @@ export const PettyCashStore = {
             return;
         }
         if (!auth || !auth.currentUser) return; // sin sesión → reintentar luego
+        const expectedUid = auth.currentUser.uid;
         _flushing = true;
         try {
-            do {
-                _flushRequested = false;
-                let pending = [];
-                try { pending = (await indexedDBService.getAll(OUTBOX)) || []; } catch { pending = []; }
-                pending = pending
-                    .filter(e => e && e.status === 'pending')
-                    .sort((a, b) => (a.key || 0) - (b.key || 0));
-                const compacted = compactPendingEntries(pending);
-                let transientFailure = false;
+            await _crossTabLock.run(OUTBOX_LOCK, async () => {
+                if (!auth?.currentUser || auth.currentUser.uid !== expectedUid) return;
+                do {
+                    _flushRequested = false;
+                    let pending = [];
+                    try { pending = (await indexedDBService.getAll(OUTBOX)) || []; } catch { pending = []; }
+                    pending = pending
+                        .filter(e => e && e.status === 'pending')
+                        .sort((a, b) => (a.key || 0) - (b.key || 0));
+                    const compacted = compactPendingEntries(pending);
+                    let transientFailure = false;
 
-                for (const group of compacted) {
-                    const entry = group.entry;
-                    const superseded = group.keys.length - 1;
-                    if (superseded > 0) {
-                        PettyCashPersistenceMetrics.record({
-                            operation: 'queue',
-                            collection: 'outbox',
-                            stage: 'compacted',
-                            source: entry.source,
-                            count: superseded
-                        });
-                    }
-                    const repo = REPO[entry.col];
-                    if (!repo) {
-                        await deleteOutboxKeys(group.keys);
-                        continue;
-                    }
-                    try {
-                        if (entry.op === 'delete') {
-                            await repo.deleteOne(entry.id, { source: entry.source });
-                        } else if (entry.data) {
-                            await repo.saveOne(entry.data, { source: entry.source });
-                        }
-                        await deleteOutboxKeys(group.keys);
-                        // 💬 Toast honesto: si hay un guardado anunciado esperando,
-                        // confirmar que la nube ya lo tiene (el notifier ignora el
-                        // reporte si no hay nada pendiente).
-                        saveOutcomeNotifier.recordCloudResult(true);
-                    } catch (e) {
-                        // Las operaciones anteriores del mismo documento ya están
-                        // representadas por la última. Quitarlas evita que vuelvan
-                        // a generar escrituras cuando se reintente.
-                        await deleteOutboxKeys(group.keys, entry.key);
-                        saveOutcomeNotifier.recordCloudResult(false);
-                        const attempts = (Number(entry.attempts) || 0) + 1;
-                        const updated = { ...entry, attempts, lastError: String(e?.message || e) };
-                        if (attempts >= MAX_FLUSH_ATTEMPTS) {
-                            updated.status = 'dead';
+                    for (const group of compacted) {
+                        const entry = group.entry;
+                        const superseded = group.keys.length - 1;
+                        if (superseded > 0) {
                             PettyCashPersistenceMetrics.record({
-                                operation: 'flush', collection: 'outbox', stage: 'dead',
+                                operation: 'queue',
+                                collection: 'outbox',
+                                stage: 'compacted',
+                                source: entry.source,
+                                count: superseded
+                            });
+                        }
+                        const repo = REPO[entry.col];
+                        if (!repo) {
+                            await deleteOutboxKeys(group.keys);
+                            continue;
+                        }
+                        try {
+                            if (entry.op === 'delete') {
+                                await repo.deleteOne(entry.id, { source: entry.source });
+                            } else if (entry.data) {
+                                await repo.saveOne(entry.data, { source: entry.source });
+                            }
+                            await deleteOutboxKeys(group.keys);
+                            // 💬 Toast honesto: si hay un guardado anunciado esperando,
+                            // confirmar que la nube ya lo tiene (el notifier ignora el
+                            // reporte si no hay nada pendiente).
+                            saveOutcomeNotifier.recordCloudResult(true);
+                        } catch (e) {
+                            // Las operaciones anteriores del mismo documento ya están
+                            // representadas por la última. Quitarlas evita que vuelvan
+                            // a generar escrituras cuando se reintente.
+                            await deleteOutboxKeys(group.keys, entry.key);
+                            saveOutcomeNotifier.recordCloudResult(false);
+                            const attempts = (Number(entry.attempts) || 0) + 1;
+                            const updated = { ...entry, attempts, lastError: String(e?.message || e) };
+                            if (attempts >= MAX_FLUSH_ATTEMPTS) {
+                                updated.status = 'dead';
+                                PettyCashPersistenceMetrics.record({
+                                    operation: 'flush', collection: 'outbox', stage: 'dead',
+                                    source: entry.source, status: 'error'
+                                });
+                                console.error(`☠️ PettyCashStore.flush — entrada ${entry.key} marcada DEAD tras ${attempts} intentos (ya no bloquea la cola):`, e);
+                                try { await indexedDBService.update(OUTBOX, updated); } catch { /* noop */ }
+                                continue; // la cola sigue con la próxima entrada
+                            }
+                            PettyCashPersistenceMetrics.record({
+                                operation: 'flush', collection: 'outbox', stage: 'retry',
                                 source: entry.source, status: 'error'
                             });
-                            console.error(`☠️ PettyCashStore.flush — entrada ${entry.key} marcada DEAD tras ${attempts} intentos (ya no bloquea la cola):`, e);
+                            console.warn(`⚠️ PettyCashStore.flush — entrada ${entry.key} falló (intento ${attempts}/${MAX_FLUSH_ATTEMPTS}), se reintentará:`, e);
                             try { await indexedDBService.update(OUTBOX, updated); } catch { /* noop */ }
-                            continue; // la cola sigue con la próxima entrada
+                            transientFailure = true;
+                            break; // fallo transitorio: cortar y reintentar en el próximo flush
                         }
-                        PettyCashPersistenceMetrics.record({
-                            operation: 'flush', collection: 'outbox', stage: 'retry',
-                            source: entry.source, status: 'error'
-                        });
-                        console.warn(`⚠️ PettyCashStore.flush — entrada ${entry.key} falló (intento ${attempts}/${MAX_FLUSH_ATTEMPTS}), se reintentará:`, e);
-                        try { await indexedDBService.update(OUTBOX, updated); } catch { /* noop */ }
-                        transientFailure = true;
-                        break; // fallo transitorio: cortar y reintentar en el próximo flush
                     }
-                }
-                if (transientFailure) break;
-            } while (_flushRequested);
+                    if (transientFailure) break;
+                } while (_flushRequested);
+            });
         } finally {
             _flushing = false;
             // Una petición puede llegar entre la última comprobación del bucle

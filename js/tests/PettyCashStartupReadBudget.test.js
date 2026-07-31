@@ -13,12 +13,12 @@ describe('Caja Chica — presupuesto de lecturas al iniciar', () => {
     test('usa el primer snapshot de los listeners y no carga las colecciones por duplicado', () => {
         expect(startIndex).toBeGreaterThanOrEqual(0);
         expect(startSyncSource).toContain('loadPettyCashLocal()');
-        expect(startSyncSource).toContain('PettyCashLiveSync.start(');
+        expect(startSyncSource).toContain('PettyCashLiveSyncCoordinator.start(');
         expect(startSyncSource).not.toContain('.loadAll(');
     });
 
     test('conserva el arranque local-first antes de abrir listeners', () => {
         expect(startSyncSource.indexOf('loadPettyCashLocal()'))
-            .toBeLessThan(startSyncSource.indexOf('PettyCashLiveSync.start('));
+            .toBeLessThan(startSyncSource.indexOf('PettyCashLiveSyncCoordinator.start('));
     });
 });

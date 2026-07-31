@@ -7681,6 +7681,7 @@ function _initOutgoingConflictGuard() {
                 // Iniciar primera suscripción
                 window.updateAttendanceSubscription();
             } else {
+                await window.stopPettyCashSync?.();
                 // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
                 // Ronda 3: resetear TANTO el cache compartido de watermarks
                 // como state._lastKnownCloudUpdatedAt (vía
