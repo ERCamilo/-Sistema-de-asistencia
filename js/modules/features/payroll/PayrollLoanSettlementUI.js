@@ -47,6 +47,12 @@ export function renderPayrollLoanSettlementPanel({ gate, activeBatch = null, now
                     ` : (activeBatch.incomplete
                         ? '<small>Deshacer estará disponible cuando llegue el lote completo.</small>'
                         : '<small>La ventana para deshacer finalizó.</small>')}
+                    <button type="button"
+                            class="payroll-loan-settlement__button"
+                            data-payroll-action="open-payroll-loan-settlement"
+                            disabled aria-disabled="true">
+                        ${activeBatch.incomplete ? 'Cierre bloqueado' : 'Pagos registrados'}
+                    </button>
                 </div>
             ` : `
                 <label class="payroll-loan-settlement__paid-check ${canConfirmPayroll ? '' : 'is-disabled'}">

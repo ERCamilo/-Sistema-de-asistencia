@@ -105,6 +105,7 @@ describe('Payroll loan settlement UI', () => {
         });
         expect(document.body.textContent).toMatch(/Pagos registrados/i);
         expect(document.body.textContent).toMatch(/750/);
+        expect(document.querySelector('[data-payroll-action="open-payroll-loan-settlement"]').disabled).toBe(true);
         expect(document.querySelector('[data-payroll-action="undo-payroll-loan-settlement"]')).not.toBeNull();
 
         document.body.innerHTML = renderPayrollLoanSettlementPanel({
@@ -151,6 +152,34 @@ describe('Payroll loan settlement UI', () => {
     test('modal cancellation resolves false and never invokes settlement itself', async () => {
         const promise = openPayrollLoanSettlementModal(batch());
         document.querySelector('.modal-footer button').click();
+        await expect(promise).resolves.toBe(false);
+    });
+
+    test('escapes employee names and loan concepts in the settlement summary', async () => {
+        const unsafe = batch({
+            employeeCount: 1,
+            employees: [{
+                employeeId: 'emp-x',
+                employeeNumber: '9',
+                employeeName: '<img src=x onerror=alert(1)>',
+                paymentAmount: 250,
+                remainingBalance: 0,
+                hasFuturePayment: false,
+                loans: [{
+                    concept: '<svg onload=alert(1)>',
+                    amount: 250,
+                    chargeCount: 1,
+                    remainingBalance: 0
+                }]
+            }]
+        });
+        const promise = openPayrollLoanSettlementModal(unsafe);
+
+        expect(document.querySelector('.payroll-settlement-modal img')).toBeNull();
+        expect(document.querySelector('.payroll-settlement-modal svg')).toBeNull();
+        expect(document.querySelector('.payroll-settlement-modal').textContent)
+            .toContain('<img src=x onerror=alert(1)>');
+        document.querySelector('[data-button-index="0"]').click();
         await expect(promise).resolves.toBe(false);
     });
 

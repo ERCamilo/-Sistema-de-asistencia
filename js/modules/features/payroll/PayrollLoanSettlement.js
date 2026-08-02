@@ -93,7 +93,45 @@ function compactPreviewRow(row = {}) {
         _employeePosition: text(row._employeePosition),
         _number: text(row._number ?? row.id),
         _invalidLoanNet: Boolean(row._invalidLoanNet),
-        _loanDetails: clone(row._loanDetails || [])
+        _loanDetails: (row._loanDetails || []).map(detail => ({
+            loanId: text(detail.loanId),
+            selectedAmount: money(detail.selectedAmount),
+            selectedCharges: (detail.selectedCharges || []).map(canonicalCharge)
+        }))
+    };
+}
+
+function compactBatchSnapshot(batch) {
+    return {
+        id: batch.id,
+        source: batch.source,
+        periodStart: batch.periodStart,
+        periodEnd: batch.periodEnd,
+        paymentDate: batch.paymentDate,
+        previewFingerprint: batch.previewFingerprint,
+        createdAt: batch.createdAt,
+        recordedBy: batch.recordedBy,
+        undoUntil: batch.undoUntil,
+        voided: false,
+        total: batch.total,
+        employeeCount: batch.employeeCount,
+        employees: (batch.employees || []).map(employee => ({
+            employeeId: employee.employeeId,
+            employeeName: employee.employeeName,
+            employeeNumber: employee.employeeNumber,
+            paymentAmount: employee.paymentAmount,
+            remainingBalance: employee.remainingBalance,
+            hasFuturePayment: employee.hasFuturePayment,
+            loans: (employee.loans || []).map(loan => ({
+                concept: loan.concept,
+                amount: loan.amount,
+                chargeCount: loan.chargeCount,
+                remainingBalance: loan.remainingBalance,
+                hasFuturePayment: loan.hasFuturePayment
+            }))
+        })),
+        paymentRefs: clone(batch.paymentRefs || []),
+        previewRows: clone(batch.previewRows || [])
     };
 }
 
@@ -292,6 +330,21 @@ export function buildPayrollLoanSettlementBatch({
     };
 }
 
+export function activatePayrollLoanSettlementBatch(batch, activatedAt = Date.now()) {
+    if (!batch?.id) throw new Error('El lote de préstamos no es válido');
+    const now = Number(activatedAt) || Date.now();
+    const configuredWindow = Math.max(
+        0,
+        Number(batch.undoUntil || 0) - Number(batch.createdAt || 0)
+    ) || PAYROLL_LOAN_UNDO_WINDOW_MS;
+    return {
+        ...clone(batch),
+        createdAt: now,
+        paymentDate: new Date(now).toISOString().slice(0, 10),
+        undoUntil: now + configuredWindow
+    };
+}
+
 function preflightPayrollBatch(employees, batch) {
     if (!batch?.id || !Array.isArray(batch.items) || batch.items.length === 0) {
         throw new Error('El lote de préstamos no es válido');
@@ -310,6 +363,10 @@ function preflightPayrollBatch(employees, batch) {
             if (text(existing.payrollIdempotencyKey) !== text(item.idempotencyKey) ||
                 money(existing.amount) !== money(item.amount)) {
                 throw new Error(`Conflicto de identidad en el pago de ${item.concept}`);
+            }
+            if (text(existing.payrollBatchId) !== text(batch.id) ||
+                existing.payrollPreviewFingerprint !== batch.previewFingerprint) {
+                throw new Error(`El cargo de ${item.concept} ya pertenece a otra Nómina o vista previa`);
             }
             if (!existing.voided) {
                 operations.push({ kind: 'existing', employee, loan, item, payment: existing });
@@ -380,7 +437,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             payment.payrollBatchEmployeeCount = batch.employeeCount;
             payment.payrollExpectedPaymentCount = batch.paymentRefs.length;
             if (operation.item.paymentId === firstPaymentId) {
-                payment.payrollBatchSnapshot = clone(batch);
+                payment.payrollBatchSnapshot = compactBatchSnapshot(batch);
             }
             payment.updatedAt = Number(now) || Date.now();
             operation.loan.updatedAt = payment.updatedAt;
@@ -408,7 +465,9 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             payrollBatchTotal: batch.total,
             payrollBatchEmployeeCount: batch.employeeCount,
             payrollExpectedPaymentCount: batch.paymentRefs.length,
-            payrollBatchSnapshot: operation.item.paymentId === firstPaymentId ? clone(batch) : null
+            payrollBatchSnapshot: operation.item.paymentId === firstPaymentId
+                ? compactBatchSnapshot(batch)
+                : null
         });
         createdCount++;
         payments.push(payment);
@@ -522,6 +581,7 @@ export default {
     confirmPayrollPaid,
     getPayrollLoanSettlementGate,
     buildPayrollLoanSettlementBatch,
+    activatePayrollLoanSettlementBatch,
     applyPayrollLoanSettlementBatch,
     findPayrollLoanSettlementBatch,
     getClosedPayrollPreviewRows,

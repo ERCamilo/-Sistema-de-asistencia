@@ -1,5 +1,6 @@
 import {
     buildPayrollLoanSettlementBatch,
+    activatePayrollLoanSettlementBatch,
     applyPayrollLoanSettlementBatch,
     findPayrollLoanSettlementBatch,
     getClosedPayrollPreviewRows,
@@ -87,6 +88,19 @@ describe('Payroll loan settlement batches', () => {
         expect(batch.previewRows[0]).not.toHaveProperty('_positionBreakdown');
     });
 
+    test('starts the undo window when the verified batch is activated, not when the modal opened', () => {
+        const emp = employee('emp-7', 'Ana Pérez');
+        const loan = installmentLoan(emp);
+        const draft = buildBatch([emp], [payrollRow(emp, loan)], 100_000);
+
+        const activated = activatePayrollLoanSettlementBatch(draft, 200_000);
+
+        expect(activated.createdAt).toBe(200_000);
+        expect(activated.undoUntil).toBe(200_000 + PAYROLL_LOAN_UNDO_WINDOW_MS);
+        expect(activated.paymentDate).toBe(new Date(200_000).toISOString().slice(0, 10));
+        expect(draft.createdAt).toBe(100_000);
+    });
+
     test('records one deterministic payment per loan and replay does not duplicate it', () => {
         const emp = employee('emp-7', 'Ana Pérez');
         const loan = installmentLoan(emp);
@@ -109,7 +123,37 @@ describe('Payroll loan settlement batches', () => {
         });
         expect(loan.payments[0].id).toMatch(/^PAYROLL-/);
         expect(loan.payments[0].payrollChargeKeys).toHaveLength(2);
+        expect(loan.payments[0].payrollBatchSnapshot).not.toHaveProperty('items');
+        expect(loan.payments[0].payrollBatchSnapshot.employees[0].loans[0])
+            .toEqual({
+                concept: 'Equipo personal',
+                amount: 500,
+                chargeCount: 2,
+                remainingBalance: 500,
+                hasFuturePayment: true
+            });
         expect(getBalance(loan)).toBe(500);
+    });
+
+    test('does not adopt an existing charge payment into a different payroll preview', () => {
+        const emp = employee('emp-7', 'Ana Pérez');
+        const loan = installmentLoan(emp);
+        const firstBatch = buildBatch([emp], [payrollRow(emp, loan)]);
+        applyPayrollLoanSettlementBatch([emp], firstBatch, { now: 100_100 });
+        const changedRow = payrollRow(emp, loan, 1, {
+            _bonuses: 50,
+            monto: 1300
+        });
+        // Preserve the already-paid charge identity to exercise the accounting
+        // collision guard rather than the current-schedule guard.
+        changedRow._loanDetails[0] = firstBatch.previewRows[0]._loanDetails[0];
+        changedRow._loans = 250;
+        const changedBatch = buildBatch([emp], [changedRow], 200_000);
+
+        expect(changedBatch.previewFingerprint).not.toBe(firstBatch.previewFingerprint);
+        expect(() => applyPayrollLoanSettlementBatch([emp], changedBatch, { now: 200_100 }))
+            .toThrow(/otra nómina|vista previa/i);
+        expect(loan.payments).toHaveLength(1);
     });
 
     test('revalidates every loan before mutation and leaves the whole batch untouched on conflict', () => {

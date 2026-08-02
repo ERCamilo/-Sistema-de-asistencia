@@ -22,6 +22,7 @@ import {
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import {
     applyPayrollLoanSettlementBatch,
+    activatePayrollLoanSettlementBatch,
     buildPayrollLoanSettlementBatch,
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid,
@@ -52,6 +53,8 @@ let context = null;
 let payrollService = null;
 let latestPayrollPreviewRows = [];
 let payrollLoanSettlementInProgress = false;
+let payrollLoanUndoExpiryTimer = null;
+let payrollLoanUndoExpiryBatchId = null;
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -171,6 +174,24 @@ function getState() {
 
 function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
+}
+
+function schedulePayrollLoanUndoExpiry(batch) {
+    const remaining = Number(batch?.undoUntil || 0) - Date.now();
+    if (!batch || batch.incomplete || remaining <= 0) {
+        if (payrollLoanUndoExpiryTimer) clearTimeout(payrollLoanUndoExpiryTimer);
+        payrollLoanUndoExpiryTimer = null;
+        payrollLoanUndoExpiryBatchId = null;
+        return;
+    }
+    if (payrollLoanUndoExpiryBatchId === batch.id && payrollLoanUndoExpiryTimer) return;
+    if (payrollLoanUndoExpiryTimer) clearTimeout(payrollLoanUndoExpiryTimer);
+    payrollLoanUndoExpiryBatchId = batch.id;
+    payrollLoanUndoExpiryTimer = setTimeout(() => {
+        payrollLoanUndoExpiryTimer = null;
+        payrollLoanUndoExpiryBatchId = null;
+        context?.render?.();
+    }, remaining + 25);
 }
 
 function getEmployeesWithDeductions() {
@@ -293,6 +314,7 @@ function PayrollGeneratorTab() {
         periodEnd: state.exportConfig.periodEnd
     });
     const activeSettlementBatch = storedSettlementBatch?.voided ? null : storedSettlementBatch;
+    schedulePayrollLoanUndoExpiry(activeSettlementBatch);
     const loanSettlementGate = getPayrollLoanSettlementGate({
         rows: exportData,
         fingerprint: previewFingerprint,
@@ -1765,7 +1787,7 @@ export async function openPayrollLoanSettlement() {
             }
             return;
         }
-        const batch = buildPayrollLoanSettlementBatch({
+        const draftBatch = buildPayrollLoanSettlementBatch({
             employees: current.state.employees,
             rows: current.rows,
             periodStart: current.state.exportConfig.periodStart,
@@ -1773,15 +1795,16 @@ export async function openPayrollLoanSettlement() {
             createdAt: Date.now(),
             recordedBy: settlementOperatorId()
         });
-        const verified = await openPayrollLoanSettlementModal(batch);
+        const verified = await openPayrollLoanSettlementModal(draftBatch);
         if (!verified) return;
 
         const latest = currentPayrollLoanSettlementState();
-        if (latest.fingerprint !== batch.previewFingerprint ||
-            latest.state.exportConfig.payrollPaidConfirmation?.fingerprint !== batch.previewFingerprint ||
+        if (latest.fingerprint !== draftBatch.previewFingerprint ||
+            latest.state.exportConfig.payrollPaidConfirmation?.fingerprint !== draftBatch.previewFingerprint ||
             latest.activeBatch) {
             throw new Error('La vista previa cambió mientras se verificaban los pagos. Revísala y confirma la Nómina nuevamente.');
         }
+        const batch = activatePayrollLoanSettlementBatch(draftBatch, Date.now());
         applyPayrollLoanSettlementBatch(latest.state.employees, batch, {
             now: Date.now(),
             recordedBy: settlementOperatorId()
