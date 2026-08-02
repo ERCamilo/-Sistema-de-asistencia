@@ -175,6 +175,24 @@ testRunner.addSuite("LoansController — new loan submission", {
         testRunner.assertEquals(state.loansLedger.showAddForm, false, "Form auto-closed after submit");
     },
 
+    "submitNewLoan allows a loan for an inactive employee"() {
+        resetState();
+        seedEmployee({ id: 'inactive-1', active: false });
+        selectLoansEmployee('inactive-1');
+        toggleAddLoanForm();
+        setLoanDraftField('principal', 300);
+        setLoanDraftField('startDate', '2026-07-01');
+        setLoanDraftField('concept', 'Guantes personales');
+
+        const restore = silenceNotifications();
+        try { submitNewLoan(); } finally { restore(); }
+
+        const emp = liveEmployee('inactive-1');
+        testRunner.assertEquals(emp.loans.length, 1, "Inactive employee receives the loan");
+        testRunner.assertEquals(emp.loans[0].concept, 'Guantes personales', "Loan concept is preserved");
+        testRunner.assertEquals(emp.active, false, "Creating the loan does not reactivate the employee");
+    },
+
     "submitNewLoan with invalid draft does not append anything"() {
         resetState();
         seedEmployee();

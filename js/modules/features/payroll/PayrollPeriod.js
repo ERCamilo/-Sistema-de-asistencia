@@ -68,13 +68,13 @@ export function getPayrollEmployeesForPeriod(state, periodStart, periodEnd) {
     );
 
     return (state?.employees || []).filter(employee => {
+        if (employee.active === false) return false;
         const presentRecords = getPresentAttendanceInPeriod(
             employee,
             periodStart,
             periodEnd,
             state?.attendance || {}
         );
-        if (employee.active === false && presentRecords.length === 0) return false;
         if (leaderFilter === 'all') return true;
 
         const currentPositions = normalizeIds([

@@ -372,7 +372,7 @@ testRunner.addSuite("LoansService — aggregations", {
                 { id: 'e1', name: 'Ada',   number: '001', loans: [
                     { id: 'L1', principal: 100, interestRate: 0, status: LOAN_STATUS.ACTIVE, interestIncluded: false, payments: [] }
                 ]},
-                { id: 'e2', name: 'Grace', number: '002', loans: [
+                { id: 'e2', name: 'Grace', number: '002', active: false, loans: [
                     { id: 'L2', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, interestIncluded: false, payments: [] }
                 ]},
                 { id: 'e3', name: 'Linus', number: '003', loans: [
@@ -385,6 +385,7 @@ testRunner.addSuite("LoansService — aggregations", {
         testRunner.assertEquals(out.length, 2, "Only employees with active loans");
         testRunner.assertEquals(out[0].name, 'Grace', "Highest balance first");
         testRunner.assertEquals(out[0].totalBalance, 1000, "Grace balance is 1000");
+        testRunner.assertEquals(out[0].active, false, "Employee status is exposed for the ledger");
         testRunner.assertEquals(out[1].name, 'Ada', "Ada second");
     },
 

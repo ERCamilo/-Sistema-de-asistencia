@@ -5,7 +5,7 @@
  * the new "Agregar nuevo" flow is wired correctly:
  *   1. Button appears on the overview
  *   2. Clicking the handler opens the picker overlay
- *   3. The overlay lists active employees and filters by search
+ *   3. The overlay lists all employees, labels inactive ones and filters by search
  *   4. Selecting an employee opens the profile on the Nómina tab
  *
  * No real DOM dispatch — we call the controller handlers directly to
@@ -54,6 +54,22 @@ testRunner.addSuite("LoansLedger UI — overview button", {
         resetState();
         const html = LoansLedger();
         testRunner.assert(!html.includes('role="dialog"'), "No dialog rendered when picker is closed");
+    },
+
+    "warns when inactive employees keep active loan balances"() {
+        resetState();
+        state.employees[2].loans = [{
+            id: 'L-INACTIVE', principal: 450, interestRate: 0, interestIncluded: false,
+            startDate: '2026-07-01', concept: 'Botas', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+
+        const html = LoansLedger();
+
+        testRunner.assert(html.includes('loans-inactive-debt-alert'), "Inactive debt has a visible alert");
+        testRunner.assert(html.includes('1 empleado inactivo mantiene préstamos activos'), "Alert includes the affected count");
+        testRunner.assert(html.includes('No se incluye en Nómina'), "Alert explains payroll exclusion");
+        testRunner.assert(html.includes('loan-employee-status--inactive'), "Inactive employee is labeled in the debt list");
     }
 });
 
@@ -80,6 +96,29 @@ testRunner.addSuite("LoansLedger UI — recuperar saldados", {
 });
 
 testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
+
+    "diferencia pago único de cuotas y muestra la próxima cuota"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 600, interestRate: 0, interestIncluded: false,
+            startDate: '2026-07-01', concept: 'Botas', status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'installments', installmentFrequencyWeeks: 2,
+            installments: [
+                { id: 'I1', seq: 1, dueDate: '2026-07-15', scheduledAmount: 300 },
+                { id: 'I2', seq: 2, dueDate: '2026-07-29', scheduledAmount: 300 }
+            ],
+            refinancings: [], payments: []
+        }];
+        state.loansLedger = { selectedEmployeeId: 'e1' };
+
+        const html = LoansLedger();
+
+        testRunner.assert(html.includes('loan-card__repayment-badge--installments'), "Installment loan has a prominent mode badge");
+        testRunner.assert(html.includes('En cuotas · 2'), "Badge states the installment count");
+        testRunner.assert(html.includes('Próxima: cuota 1'), "Card identifies the next installment");
+        testRunner.assert(html.includes('$300.00'), "Card displays the next installment amount");
+        testRunner.assert(html.includes('15 jul 2026'), "Card displays the next installment date");
+    },
 
     "prioriza Realizar pago y agrupa las acciones secundarias"() {
         resetState();
@@ -256,13 +295,14 @@ testRunner.addSuite("LoansLedger UI — picker overlay", {
         testRunner.assert(html.includes('Selecciona un empleado'), "Dialog header is shown");
     },
 
-    "lists only active employees"() {
+    "lists active and inactive employees with a clear status label"() {
         resetState();
         openLoansEmployeePicker();
         const html = LoansLedger();
         testRunner.assert(html.includes('Ada Lovelace'), "Active employee e1 listed");
         testRunner.assert(html.includes('Grace Hopper'), "Active employee e2 listed");
-        testRunner.assert(!html.includes('Margaret Hamilton'), "Inactive employee e3 NOT listed");
+        testRunner.assert(html.includes('Margaret Hamilton'), "Inactive employee e3 is available for new loans");
+        testRunner.assert(html.includes('loan-employee-status--inactive'), "Inactive employee has a visible label");
     },
 
     "each row binds to pickEmployeeForNewLoan with the employee id"() {

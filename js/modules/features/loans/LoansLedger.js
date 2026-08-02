@@ -30,6 +30,7 @@ import {
     getBalance,
     getTotalDue,
     getPaidAmount,
+    getPayrollDeductionOptions,
     getRefinanceCount,
     getTotalInterestAccrued,
     LOAN_STATUS,
@@ -56,6 +57,7 @@ function LedgerOverview() {
     const search = (ledger.search || '').toLowerCase().trim();
 
     const allWithDebt = getEmployeesWithDebt(state);
+    const inactiveWithDebt = allWithDebt.filter(employee => employee.active === false);
     const filtered = search
         ? allWithDebt.filter(e =>
             (e.name || '').toLowerCase().includes(search) ||
@@ -86,9 +88,19 @@ function LedgerOverview() {
                     ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
                     ${kpiCard('Total pagado', formatCurrency(totalPaid), 'rgb(16, 185, 115)', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
                     ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
-                    ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Saldados', allInactive.length.toString())}
+                    ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Inactivos', inactiveWithDebt.length.toString())}
                     ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
                 </div>
+
+                ${inactiveWithDebt.length > 0 ? `
+                    <div class="loans-inactive-debt-alert" role="status">
+                        <span aria-hidden="true">${icons.get('alert', { size: 18 })}</span>
+                        <div>
+                            <strong>${inactiveWithDebt.length} empleado${inactiveWithDebt.length === 1 ? '' : 's'} inactivo${inactiveWithDebt.length === 1 ? '' : 's'} mantiene${inactiveWithDebt.length === 1 ? '' : 'n'} préstamos activos.</strong>
+                            <span>${inactiveWithDebt.length === 1 ? 'No se incluye' : 'No se incluyen'} en Nómina, pero podés gestionar ${inactiveWithDebt.length === 1 ? 'su deuda' : 'sus deudas'} desde este libro.</span>
+                        </div>
+                    </div>
+                ` : ''}
 
                 <!-- Search + actions -->
                 <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
@@ -128,7 +140,10 @@ function LedgerOverview() {
                     </div>
                     <!-- Name + sub-line, takes whatever space is left -->
                     <div style="flex: 1; min-width: 0;">
-                        <div style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</div>
+                        <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                            <span style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</span>
+                            ${emp.active === false ? '<span class="loan-employee-status loan-employee-status--inactive">Inactivo</span>' : ''}
+                        </div>
                         <div style="color: #94a3b8; font-size: 0.7rem; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             ${emp.loanCount} préstamo${emp.loanCount === 1 ? '' : 's'} · Pagado ${formatCurrency(emp.totalPaid)}
                         </div>
@@ -213,7 +228,7 @@ function LedgerOverview() {
                             <td>${formatCurrency(totalActiveInterest)}</td>
                         </tr>
                         <tr>
-                            <th scope="row">Empleados con deuda<small>${allInactive.length} cuentas saldadas</small></th>
+                            <th scope="row">Empleados con deuda<small>${inactiveWithDebt.length} inactivos · ${allInactive.length} cuentas saldadas</small></th>
                             <td>${allWithDebt.length}</td>
                         </tr>
                         <tr>
@@ -404,6 +419,19 @@ function LoanCard(loan) {
     const refinancings = (loan.refinancings || []).filter(r => !r.voided);
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
+    const isInstallmentLoan = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const installmentCount = (loan.installments || []).length;
+    const repaymentOptions = getPayrollDeductionOptions(loan);
+    const nextCharge = repaymentOptions[0] || null;
+    const repaymentLabel = isInstallmentLoan ? `En cuotas · ${installmentCount}` : 'Pago único';
+    const repaymentBadge = `<span class="loan-card__repayment-badge loan-card__repayment-badge--${isInstallmentLoan ? 'installments' : 'lump'}">${repaymentLabel}</span>`;
+    const nextChargeLabel = nextCharge
+        ? nextCharge.kind === 'installment'
+            ? `Próxima: cuota ${nextCharge.installmentSeq} · ${formatCurrency(nextCharge.amount)} · ${formatDateShort(nextCharge.dueDate)}`
+            : nextCharge.kind === 'balance-adjustment'
+                ? `Próximo cargo: saldo adicional · ${formatCurrency(nextCharge.amount)}`
+                : `Próximo cargo: saldo completo · ${formatCurrency(nextCharge.amount)}`
+        : '';
     const activityEntries = [
         ...visiblePayments.map(item => ({ type: 'payment', date: item.date, item })),
         ...refinancings.map(item => ({ type: 'refinancing', date: item.date, item }))
@@ -434,10 +462,11 @@ function LoanCard(loan) {
             <div class="loan-card__desktop-header" style="display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
                 <div style="flex: 1; min-width: 200px;">
                     <div style="font-size: 0.95rem; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">${escapeHTML(loan.concept || 'Préstamo')}</div>
-                    <div style="font-size: 0.75rem; color: #94a3b8;">
-                        ${formatDateShort(loan.startDate)} ·
-                        ${loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `${(loan.installments || []).length} cuotas` : 'Pago único'}
+                    <div class="loan-card__repayment-line">
+                        <span>${formatDateShort(loan.startDate)}</span>
+                        ${repaymentBadge}
                     </div>
+                    ${isActive && nextChargeLabel ? `<div class="loan-card__next-charge">${nextChargeLabel}</div>` : ''}
                     ${loan.updatedAt ? `
                         <div style="font-size: 0.68rem; color: #64748b; margin-top: 2px;">
                             ⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}
@@ -487,9 +516,10 @@ function LoanCard(loan) {
                             ${Number.isFinite(Number(loan.seq)) ? `<b>#${Number(loan.seq)}</b>` : ''}
                         </strong>
                         <span>
-                            ${formatDateShort(loan.startDate)} ·
-                            ${loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS ? `${(loan.installments || []).length} cuotas` : 'Pago único'}
+                            ${formatDateShort(loan.startDate)}
                         </span>
+                        ${repaymentBadge}
+                        ${isActive && nextChargeLabel ? `<small class="loan-card__next-charge">${nextChargeLabel}</small>` : ''}
                         ${loan.updatedAt ? `<small>⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}</small>` : ''}
                     </span>
                     <span class="loan-card__pending">
@@ -781,14 +811,17 @@ function RefinanceForm(loan, balance) {
 // ─── EMPLOYEE PICKER OVERLAY ─────────────────────────────────────────────────
 //
 // Shown when the user taps "+ Agregar nuevo" on the overview. Lists every
-// active employee with a quick filter; tapping a row closes the picker and
-// opens that employee's profile on the Nómina tab so the loan can be
-// registered through the in-profile editor.
+// employee with a quick filter; tapping a row closes the picker and opens the
+// ledger's loan form for that employee.
 
 function EmployeePickerOverlay() {
     const ledger = state.loansLedger || {};
     const search = (ledger.pickerSearch || '').toLowerCase().trim();
-    const all = (state.employees || []).filter(e => e.active !== false);
+    const all = [...(state.employees || [])].sort((a, b) => {
+        const statusOrder = Number(a.active === false) - Number(b.active === false);
+        if (statusOrder !== 0) return statusOrder;
+        return String(a.number || a.name || '').localeCompare(String(b.number || b.name || ''), 'es', { numeric: true });
+    });
     const filtered = search
         ? all.filter(e =>
             (e.name || '').toLowerCase().includes(search) ||
@@ -803,7 +836,7 @@ function EmployeePickerOverlay() {
                 <div style="padding: 16px 18px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
                     <div>
                         <div style="color: #f1f5f9; font-weight: 800; font-size: 1rem;">Selecciona un empleado</div>
-                        <div style="color: #94a3b8; font-size: 0.78rem; margin-top: 2px;">Te llevaremos a su perfil para registrar el préstamo</div>
+                        <div style="color: #94a3b8; font-size: 0.78rem; margin-top: 2px;">Elige a quién registrarás el préstamo</div>
                     </div>
                     <button type="button" data-app-fn="closeLoansEmployeePicker" aria-label="Cerrar"
                             style="width: 32px; height: 32px; background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 8px; cursor: pointer; font-size: 1rem;">✕</button>
@@ -818,7 +851,7 @@ function EmployeePickerOverlay() {
                 <div style="overflow-y: auto; padding: 8px;">
                     ${filtered.length === 0 ? `
                         <div style="text-align: center; padding: 40px 20px; color: #64748b; font-size: 0.9rem;">
-                            ${search ? 'No se encontraron empleados' : 'No hay empleados activos'}
+                            ${search ? 'No se encontraron empleados' : 'No hay empleados registrados'}
                         </div>
                     ` : filtered.map(emp => `
                         <div role="button" tabindex="0"
@@ -830,7 +863,10 @@ function EmployeePickerOverlay() {
                                 ${emp.number || '?'}
                             </div>
                             <div style="flex: 1; min-width: 0;">
-                                <div style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</div>
+                                <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                                    <span style="color: #f1f5f9; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHTML(emp.name)}</span>
+                                    ${emp.active === false ? '<span class="loan-employee-status loan-employee-status--inactive">Inactivo</span>' : ''}
+                                </div>
                                 <div style="color: #94a3b8; font-size: 0.72rem;">${(emp.loans || []).filter(l => l.status === LOAN_STATUS.ACTIVE).length} préstamo(s) activo(s)</div>
                             </div>
                             <div style="color: #64748b; font-size: 1.1rem;">›</div>

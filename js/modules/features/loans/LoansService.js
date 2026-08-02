@@ -661,6 +661,7 @@ export function getEmployeesWithDebt(state) {
             employeeId: emp.id,
             name: emp.name,
             number: emp.number,
+            active: emp.active !== false,
             loanCount: loans.length,
             totalBalance,
             totalDue,

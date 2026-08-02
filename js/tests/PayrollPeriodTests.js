@@ -13,7 +13,7 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
         testRunner.assertEquals(result.periodEnd, '2026-07-20', 'Fin en hoy');
     },
 
-    'incluye inactivos solo con asistencia presente y vigente dentro del rango'() {
+    'excluye empleados inactivos aunque tengan asistencia presente dentro del rango'() {
         const employees = [
             { id: 1, number: 1, active: true },
             { id: 2, number: 2, active: false },
@@ -29,7 +29,7 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
             }
         };
         const result = getPayrollEmployeesForPeriod(state, '2026-07-01', '2026-07-15');
-        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1, 2]), 'Solo activo e inactivo con presencia válida');
+        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1]), 'Nómina solo debe incluir empleados activos');
     },
 
     'acepta líder por posición actual o histórica normalizando ids'() {
@@ -37,13 +37,17 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
             employees: [
                 { id: 1, number: 1, active: true, position: 10 },
                 { id: 2, number: 2, active: false },
-                { id: 3, number: 3, active: true, position: 99 }
+                { id: 3, number: 3, active: true, position: 99 },
+                { id: 4, number: 4, active: true, position: 99 }
             ],
             positions: [{ id: '10', leaderId: 7 }],
             exportConfig: { leaderFilter: '7' },
-            attendance: { '2-2026-07-05': { present: true, selectedPosition: 10 } }
+            attendance: {
+                '2-2026-07-05': { present: true, selectedPosition: 10 },
+                '4-2026-07-05': { present: true, selectedPosition: 10 }
+            }
         };
         const result = getPayrollEmployeesForPeriod(state, '2026-07-01', '2026-07-15');
-        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1, 2]), 'Posición actual e histórica deben coincidir');
+        testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1, 4]), 'Posición actual e histórica deben coincidir solo para empleados activos');
     }
 });

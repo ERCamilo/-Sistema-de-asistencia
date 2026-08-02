@@ -1200,6 +1200,59 @@
     min-width: 0;
 }
 
+.loans-inactive-debt-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(245, 158, 11, 0.52);
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.1);
+    color: #fcd34d;
+}
+
+.loans-inactive-debt-alert > span {
+    display: inline-flex;
+    flex: 0 0 auto;
+    margin-top: 1px;
+}
+
+.loans-inactive-debt-alert strong,
+.loans-inactive-debt-alert div > span {
+    display: block;
+}
+
+.loans-inactive-debt-alert strong {
+    font-size: 0.78rem;
+}
+
+.loans-inactive-debt-alert div > span {
+    margin-top: 3px;
+    color: #cbd5e1;
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+.loan-employee-status {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    line-height: 1.3;
+    text-transform: uppercase;
+}
+
+.loan-employee-status--inactive {
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+}
+
 .loans-detail-back {
     display: inline-flex;
     width: 46px;
@@ -1275,6 +1328,49 @@
     padding: 12px;
     border-radius: 8px;
     background: #0f172a;
+}
+
+.loan-card__repayment-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    color: #94a3b8;
+    font-size: 0.75rem;
+}
+
+.loan-card__repayment-badge {
+    display: inline-flex;
+    width: fit-content;
+    align-items: center;
+    padding: 3px 8px;
+    border: 1px solid;
+    border-radius: 999px;
+    font-size: 0.64rem;
+    font-weight: 800;
+    line-height: 1.25;
+    white-space: nowrap;
+}
+
+.loan-card__repayment-badge--installments {
+    border-color: rgba(168, 85, 247, 0.52);
+    background: rgba(168, 85, 247, 0.12);
+    color: #d8b4fe;
+}
+
+.loan-card__repayment-badge--lump {
+    border-color: rgba(6, 182, 212, 0.45);
+    background: rgba(6, 182, 212, 0.1);
+    color: #67e8f9;
+}
+
+.loan-card__next-charge {
+    display: block;
+    margin-top: 6px;
+    color: #fbbf24;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.4;
 }
 
 .loan-card__metrics--desktop {
