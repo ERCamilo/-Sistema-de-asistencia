@@ -316,9 +316,15 @@ export function recordPayment(emp, loanId, params) {
     const { valid, errors } = validatePaymentInput(loan, params);
     if (!valid) throw new Error(errors.join('. '));
 
-    const now = Date.now();
+    const now = Number.isFinite(Number(params.recordedAt))
+        ? Number(params.recordedAt)
+        : Date.now();
+    const paymentId = params.id || genId('PAY');
+    if ((loan.payments || []).some(item => String(item.id) === String(paymentId))) {
+        throw new Error(`Ya existe un abono con el identificador ${paymentId}`);
+    }
     const payment = {
-        id: genId('PAY'),
+        id: paymentId,
         date: params.date,
         amount: round2(params.amount),
         note: (params.note || '').trim(),
@@ -331,6 +337,20 @@ export function recordPayment(emp, loanId, params) {
         voided: false,
         voidedAt: null
     };
+    if (params.source) payment.source = String(params.source);
+    if (params.payrollBatchId) payment.payrollBatchId = String(params.payrollBatchId);
+    if (params.payrollPreviewFingerprint) {
+        payment.payrollPreviewFingerprint = String(params.payrollPreviewFingerprint);
+    }
+    if (params.payrollIdempotencyKey) {
+        payment.payrollIdempotencyKey = String(params.payrollIdempotencyKey);
+    }
+    if (Array.isArray(params.payrollChargeKeys)) {
+        payment.payrollChargeKeys = [...new Set(params.payrollChargeKeys.map(String))];
+    }
+    if (params.payrollBatchSnapshot && typeof params.payrollBatchSnapshot === 'object') {
+        payment.payrollBatchSnapshot = params.payrollBatchSnapshot;
+    }
     loan.payments.push(payment);
     loan.updatedAt = Date.now();
     emp.updatedAt = Date.now();
@@ -343,6 +363,42 @@ export function recordPayment(emp, loanId, params) {
         loan.closedBy = params.recordedBy || null;
     }
 
+    return payment;
+}
+
+/** Restore a soft-voided payment without creating a duplicate merge identity. */
+export function restorePayment(emp, loanId, paymentId, restoredBy = null, restoredAt = Date.now()) {
+    const loan = (emp.loans || []).find(l => l.id === loanId);
+    if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
+    const payment = (loan.payments || []).find(p => String(p.id) === String(paymentId));
+    if (!payment) throw new Error(`Abono no encontrado: ${paymentId}`);
+    if (!payment.voided) return payment;
+    if (loan.status === LOAN_STATUS.WRITTEN_OFF) {
+        throw new Error('No se puede restaurar un abono de un préstamo anulado');
+    }
+
+    const { valid, errors } = validatePaymentInput(loan, payment);
+    if (!valid) throw new Error(errors.join('. '));
+
+    const now = Number.isFinite(Number(restoredAt)) ? Number(restoredAt) : Date.now();
+    payment.voided = false;
+    payment.voidedAt = null;
+    payment.voidedBy = null;
+    payment.restoredAt = now;
+    payment.restoredBy = restoredBy;
+    payment.updatedAt = now;
+    loan.updatedAt = now;
+    emp.updatedAt = now;
+
+    if (getBalance(loan) <= 0.01) {
+        loan.status = LOAN_STATUS.PAID;
+        loan.closedAt = now;
+        loan.closedBy = restoredBy;
+    } else if (loan.status === LOAN_STATUS.PAID) {
+        loan.status = LOAN_STATUS.ACTIVE;
+        loan.closedAt = null;
+        loan.closedBy = null;
+    }
     return payment;
 }
 
