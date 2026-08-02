@@ -1,10 +1,19 @@
-import { getBalance, getTotalDue, getTotalInterestAccrued, LOAN_STATUS, round2 } from '../loans/LoansService.js';
+import {
+    getBalance,
+    getPayrollDeductionOptions,
+    getTotalDue,
+    getTotalInterestAccrued,
+    INSTALLMENT_MODE,
+    LOAN_STATUS,
+    round2
+} from '../loans/LoansService.js';
 
 /**
  * Pure helpers for the temporary payroll-loan selection.
  *
- * The selection stores IDs only. Loan balances remain the source of truth and
- * copying/downloading payroll never records payments or mutates employee data.
+ * The selection stores loan IDs plus a consecutive charge count. Loan balances
+ * remain the source of truth and copying/downloading payroll never records
+ * payments or mutates employee data.
  */
 
 export function calculatePayrollBeforeLoans(payrollService, employeeId, periodStart, periodEnd, deductions, bonuses) {
@@ -18,23 +27,43 @@ export function calculatePayrollBeforeLoans(payrollService, employeeId, periodSt
     );
 }
 
-export function getEligiblePayrollLoans(employee) {
+export function getEligiblePayrollLoans(employee, periodEnd = null) {
     return (employee?.loans || [])
         .filter(loan => loan.status === LOAN_STATUS.ACTIVE && getBalance(loan) > 0)
-        .map(loan => ({
-            loanId: loan.id,
-            concept: loan.concept || 'Préstamo',
-            totalDue: getTotalDue(loan),
-            interest: getTotalInterestAccrued(loan),
-            balance: getBalance(loan)
-        }));
+        .map(loan => {
+            const chargeOptions = getPayrollDeductionOptions(loan, periodEnd);
+            const isInstallments = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+            return {
+                loanId: loan.id,
+                concept: loan.concept || 'Préstamo',
+                installmentMode: isInstallments ? INSTALLMENT_MODE.INSTALLMENTS : INSTALLMENT_MODE.LUMP,
+                totalDue: getTotalDue(loan),
+                interest: getTotalInterestAccrued(loan),
+                balance: getBalance(loan),
+                chargeOptions,
+                maxChargeCount: chargeOptions.length,
+                defaultChargeCount: isInstallments
+                    ? (chargeOptions[0]?.isDue ? 1 : 0)
+                    : (chargeOptions.length > 0 ? 1 : 0)
+            };
+        })
+        .filter(loan => loan.maxChargeCount > 0);
 }
 
-export function buildPayrollLoanSelection(employees) {
-    return (employees || []).map(employee => ({
-        employeeId: employee.id,
-        loanIds: getEligiblePayrollLoans(employee).map(loan => loan.loanId)
-    })).filter(item => item.loanIds.length > 0);
+export function buildPayrollLoanSelection(employees, periodEnd = null) {
+    return (employees || []).map(employee => {
+        const loans = getEligiblePayrollLoans(employee, periodEnd)
+            .filter(loan => loan.defaultChargeCount > 0)
+            .map(loan => ({
+                loanId: loan.loanId,
+                chargeCount: loan.defaultChargeCount
+            }));
+        return {
+            employeeId: employee.id,
+            loans,
+            loanIds: loans.map(loan => loan.loanId)
+        };
+    }).filter(item => item.loans.length > 0);
 }
 
 export function removeEmployeePayrollLoans(selection, employeeId) {
@@ -42,35 +71,95 @@ export function removeEmployeePayrollLoans(selection, employeeId) {
     return (selection || []).filter(item => String(item.employeeId) !== normalizedEmployeeId);
 }
 
-export function setEmployeePayrollLoans(selection, employeeId, loanIds = []) {
+function getRequestedLoanSelections(item) {
+    const source = Array.isArray(item?.loans)
+        ? item.loans
+        : (item?.loanIds || []).map(loanId => ({ loanId, chargeCount: 1 }));
+    const byId = new Map();
+    for (const entry of source) {
+        const loanId = typeof entry === 'object' ? entry?.loanId : entry;
+        if (loanId === null || loanId === undefined || String(loanId) === '') continue;
+        const chargeCount = Math.max(0, Math.trunc(Number(
+            typeof entry === 'object' ? entry?.chargeCount : 1
+        ) || 0));
+        if (chargeCount <= 0) continue;
+        const key = String(loanId);
+        const previous = byId.get(key);
+        if (!previous || chargeCount > previous.chargeCount) {
+            byId.set(key, { loanId, chargeCount });
+        }
+    }
+    return [...byId.values()];
+}
+
+export function setEmployeePayrollLoans(selection, employeeId, loans = []) {
     const normalizedEmployeeId = String(employeeId);
-    const uniqueLoanIds = [...new Map(
-        (loanIds || [])
-            .filter(id => id !== null && id !== undefined && String(id) !== '')
-            .map(id => [String(id), id])
-    ).values()];
+    const normalizedLoans = getRequestedLoanSelections({ loans });
     const next = removeEmployeePayrollLoans(selection, normalizedEmployeeId);
-    if (uniqueLoanIds.length === 0) return next;
-    return [...next, { employeeId, loanIds: uniqueLoanIds }];
+    if (normalizedLoans.length === 0) return next;
+    return [...next, {
+        employeeId,
+        loans: normalizedLoans,
+        loanIds: normalizedLoans.map(loan => loan.loanId)
+    }];
 }
 
 export function togglePayrollLoan(selection, employeeId, loanId, selected) {
     const current = (selection || []).find(item => String(item.employeeId) === String(employeeId));
-    const loanIds = new Map((current?.loanIds || []).map(id => [String(id), id]));
-    if (selected) loanIds.set(String(loanId), loanId);
-    else loanIds.delete(String(loanId));
-    return setEmployeePayrollLoans(selection, employeeId, [...loanIds.values()]);
+    const loans = new Map(getRequestedLoanSelections(current).map(item => [String(item.loanId), item]));
+    if (selected) loans.set(String(loanId), { loanId, chargeCount: 1 });
+    else loans.delete(String(loanId));
+    return setEmployeePayrollLoans(selection, employeeId, [...loans.values()]);
 }
 
-export function resolvePayrollLoanSelection(employees, selection) {
-    const employeesById = new Map((employees || []).map(employee => [String(employee.id), employee]));
+export function setPayrollLoanChargeCount(selection, employeeId, loanId, chargeCount) {
+    const current = (selection || []).find(item => String(item.employeeId) === String(employeeId));
+    const loans = new Map(getRequestedLoanSelections(current).map(item => [String(item.loanId), item]));
+    const normalizedCount = Math.max(0, Math.trunc(Number(chargeCount) || 0));
+    if (normalizedCount > 0) {
+        loans.set(String(loanId), { loanId, chargeCount: normalizedCount });
+    } else {
+        loans.delete(String(loanId));
+    }
+    return setEmployeePayrollLoans(selection, employeeId, [...loans.values()]);
+}
 
-    return (selection || []).map(item => {
-        const employee = employeesById.get(String(item.employeeId));
+export function resolvePayrollLoanSelection(employees, selection, periodEnd = null) {
+    const employeesById = new Map((employees || []).map(employee => [String(employee.id), employee]));
+    const requestedByEmployee = new Map();
+
+    for (const item of (selection || [])) {
+        const employeeKey = String(item.employeeId);
+        const current = requestedByEmployee.get(employeeKey) || new Map();
+        for (const requested of getRequestedLoanSelections(item)) {
+            const loanKey = String(requested.loanId);
+            const previous = current.get(loanKey);
+            if (!previous || requested.chargeCount > previous.chargeCount) {
+                current.set(loanKey, requested);
+            }
+        }
+        requestedByEmployee.set(employeeKey, current);
+    }
+
+    return [...requestedByEmployee.entries()].map(([employeeKey, requestedLoans]) => {
+        const employee = employeesById.get(employeeKey);
         if (!employee) return null;
 
-        const selectedIds = new Set((item.loanIds || []).map(String));
-        const loans = getEligiblePayrollLoans(employee).filter(loan => selectedIds.has(String(loan.loanId)));
+        const loans = getEligiblePayrollLoans(employee, periodEnd).map(loan => {
+            const requested = requestedLoans.get(String(loan.loanId));
+            if (!requested) return null;
+            const selectedChargeCount = Math.min(requested.chargeCount, loan.maxChargeCount);
+            const selectedCharges = loan.chargeOptions.slice(0, selectedChargeCount);
+            if (selectedCharges.length === 0) return null;
+            return {
+                ...loan,
+                selectedChargeCount: selectedCharges.length,
+                selectedCharges,
+                selectedAmount: round2(selectedCharges.reduce((sum, charge) => sum + charge.amount, 0)),
+                firstInstallmentSeq: selectedCharges[0].installmentSeq,
+                lastInstallmentSeq: selectedCharges[selectedCharges.length - 1].installmentSeq
+            };
+        }).filter(Boolean);
         if (loans.length === 0) return null;
 
         return {
@@ -78,7 +167,7 @@ export function resolvePayrollLoanSelection(employees, selection) {
             employeeName: employee.name,
             employeeNumber: employee.number,
             loans,
-            total: round2(loans.reduce((sum, loan) => sum + loan.balance, 0))
+            total: round2(loans.reduce((sum, loan) => sum + loan.selectedAmount, 0))
         };
     }).filter(Boolean);
 }
@@ -87,14 +176,15 @@ export function resolvePayrollLoanSelection(employees, selection) {
  * Apply the temporary selection exactly once to preview rows.
  * `_montoBeforeLoans` makes this idempotent even if a derived row is passed in.
  */
-export function applyPayrollLoanDeductions(rows, employees, selection) {
+export function applyPayrollLoanDeductions(rows, employees, selection, periodEnd = null) {
     const resolvedByEmployee = new Map(
-        resolvePayrollLoanSelection(employees, selection).map(item => [item.employeeId, item])
+        resolvePayrollLoanSelection(employees, selection, periodEnd)
+            .map(item => [String(item.employeeId), item])
     );
 
     return (rows || []).map(row => {
         const baseAmount = Number(row._montoBeforeLoans ?? row.monto) || 0;
-        const selected = resolvedByEmployee.get(row._employeeId);
+        const selected = resolvedByEmployee.get(String(row._employeeId));
         const loanAmount = selected?.total || 0;
         const finalAmount = loanAmount > 0 ? baseAmount - loanAmount : baseAmount;
 
@@ -109,28 +199,24 @@ export function applyPayrollLoanDeductions(rows, employees, selection) {
     });
 }
 
-export function summarizePayrollLoans(employees, selection) {
+export function summarizePayrollLoans(employees, selection, periodEnd = null) {
     const eligibleByKey = new Map();
     for (const employee of (employees || [])) {
-        for (const loan of getEligiblePayrollLoans(employee)) {
+        for (const loan of getEligiblePayrollLoans(employee, periodEnd)) {
             const key = `${String(employee.id)}:${String(loan.loanId)}`;
             if (!eligibleByKey.has(key)) eligibleByKey.set(key, loan);
         }
     }
-    const selectedKeys = new Set();
-    for (const item of (selection || [])) {
-        for (const loanId of (item.loanIds || [])) {
-            const key = `${String(item.employeeId)}:${String(loanId)}`;
-            if (eligibleByKey.has(key)) selectedKeys.add(key);
-        }
-    }
     const eligible = [...eligibleByKey.values()];
-    const selected = [...selectedKeys].map(key => eligibleByKey.get(key));
+    const selected = resolvePayrollLoanSelection(employees, selection, periodEnd)
+        .flatMap(item => item.loans);
     return {
         eligibleCount: eligible.length,
         selectedCount: selected.length,
+        eligibleChargeCount: eligible.reduce((sum, loan) => sum + loan.maxChargeCount, 0),
+        selectedChargeCount: selected.reduce((sum, loan) => sum + loan.selectedChargeCount, 0),
         selectedInterest: round2(selected.reduce((sum, loan) => sum + loan.interest, 0)),
-        selectedBalance: round2(selected.reduce((sum, loan) => sum + loan.balance, 0)),
+        selectedBalance: round2(selected.reduce((sum, loan) => sum + loan.selectedAmount, 0)),
         eligibleInterest: round2(eligible.reduce((sum, loan) => sum + loan.interest, 0)),
         eligibleTotalDue: round2(eligible.reduce((sum, loan) => sum + loan.totalDue, 0)),
         eligibleBalance: round2(eligible.reduce((sum, loan) => sum + loan.balance, 0))

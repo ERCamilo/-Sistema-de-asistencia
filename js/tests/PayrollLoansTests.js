@@ -9,6 +9,7 @@ import {
     removeEmployeePayrollLoans,
     resolvePayrollLoanSelection,
     setEmployeePayrollLoans,
+    setPayrollLoanChargeCount,
     summarizePayrollLoans,
     togglePayrollLoan,
     toSplitXRows
@@ -62,6 +63,33 @@ function baseRow(amount = 200) {
     };
 }
 
+function buildInstallmentEmployee() {
+    return {
+        id: 'e-installments',
+        number: '8',
+        name: 'Grace',
+        active: true,
+        loans: [{
+            id: 'loan-installments',
+            principal: 1200,
+            interestRate: 0,
+            interestIncluded: false,
+            startDate: '2026-05-01',
+            status: 'active',
+            installmentMode: 'installments',
+            installments: [
+                { id: 'i1', seq: 1, dueDate: '2026-05-15', scheduledAmount: 300 },
+                { id: 'i2', seq: 2, dueDate: '2026-05-29', scheduledAmount: 300 },
+                { id: 'i3', seq: 3, dueDate: '2026-06-12', scheduledAmount: 300 },
+                { id: 'i4', seq: 4, dueDate: '2026-06-26', scheduledAmount: 300 }
+            ],
+            payments: [],
+            refinancings: [],
+            concept: 'Botas'
+        }]
+    };
+}
+
 testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
     'la nómina base excluye avances legacy para evitar doble descuento'() {
         let capturedArgs = null;
@@ -86,6 +114,70 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
         testRunner.assertEquals(first[0]._loans, 75, 'Debe usar el saldo, no el capital original');
         testRunner.assertEquals(first[0].monto, 125, 'Debe descontar el saldo una vez');
         testRunner.assertEquals(second[0].monto, 125, 'Reaplicar no debe duplicar el descuento');
+    },
+
+    'selecciona por defecto una sola cuota exigible al cierre del período'() {
+        const employee = buildInstallmentEmployee();
+        const selection = buildPayrollLoanSelection([employee], '2026-05-20');
+        const rows = applyPayrollLoanDeductions(
+            [{ ...baseRow(1500), _employeeId: employee.id }],
+            [employee],
+            selection,
+            '2026-05-20'
+        );
+
+        testRunner.assertEquals(selection[0].loans[0].chargeCount, 1, 'La selección inicial contiene una cuota');
+        testRunner.assertEquals(rows[0]._loans, 300, 'Nómina descuenta una cuota, no el saldo completo');
+        testRunner.assertEquals(rows[0]._loanDetails[0].selectedChargeCount, 1, 'El detalle conserva cuántas cuotas se aplicaron');
+        testRunner.assertEquals(rows[0]._loanDetails[0].firstInstallmentSeq, 1, 'El cargo comienza por la cuota más antigua impaga');
+    },
+
+    'no selecciona automáticamente una cuota posterior al cierre del período'() {
+        const employee = buildInstallmentEmployee();
+        const selection = buildPayrollLoanSelection([employee], '2026-05-10');
+
+        testRunner.assertEquals(selection.length, 0, 'Una cuota futura no entra automáticamente en Nómina');
+        testRunner.assertEquals(getEligiblePayrollLoans(employee, '2026-05-10').length, 1, 'El préstamo sigue visible para adelantar cuotas manualmente');
+    },
+
+    'permite aplicar varias cuotas consecutivas o todas las restantes'() {
+        const employee = buildInstallmentEmployee();
+        const initial = buildPayrollLoanSelection([employee], '2026-05-20');
+        const three = setPayrollLoanChargeCount(initial, employee.id, 'loan-installments', 3);
+        const all = setPayrollLoanChargeCount(three, employee.id, 'loan-installments', 99);
+
+        const threeRows = applyPayrollLoanDeductions(
+            [{ ...baseRow(1500), _employeeId: employee.id }],
+            [employee],
+            three,
+            '2026-05-20'
+        );
+        const allRows = applyPayrollLoanDeductions(
+            [{ ...baseRow(1500), _employeeId: employee.id }],
+            [employee],
+            all,
+            '2026-05-20'
+        );
+
+        testRunner.assertEquals(threeRows[0]._loans, 900, 'Tres cuotas descuentan tres importes consecutivos');
+        testRunner.assertEquals(allRows[0]._loans, 1200, 'La selección se limita a todas las cuotas realmente pendientes');
+        testRunner.assertEquals(allRows[0]._loanDetails[0].selectedChargeCount, 4, 'El detalle reporta el límite normalizado');
+    },
+
+    'varias cuotas comienzan por el remanente de una cuota parcialmente pagada'() {
+        const employee = buildInstallmentEmployee();
+        employee.loans[0].payments.push({ id: 'p1', amount: 350, voided: false });
+        const selection = setPayrollLoanChargeCount([], employee.id, 'loan-installments', 2);
+        const rows = applyPayrollLoanDeductions(
+            [{ ...baseRow(1500), _employeeId: employee.id }],
+            [employee],
+            selection,
+            '2026-06-01'
+        );
+
+        testRunner.assertEquals(rows[0]._loans, 550, 'Aplica 250 pendientes más la cuota siguiente de 300');
+        testRunner.assertEquals(rows[0]._loanDetails[0].firstInstallmentSeq, 2, 'Comienza por la cuota parcialmente pagada');
+        testRunner.assertEquals(rows[0]._loanDetails[0].lastInstallmentSeq, 3, 'Continúa sin saltar cuotas');
     },
 
     'marca como inválido y conserva el trabajador cuando el neto queda en cero o negativo'() {

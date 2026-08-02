@@ -300,6 +300,24 @@ testRunner.addSuite("LoansService — installments and deductions", {
         testRunner.assertEquals(options.some(option => option.isDue), false, "No installment is selected by date yet");
     },
 
+    "exposes refinance interest left beyond the original schedule"() {
+        const emp = buildEmployee();
+        const loan = createLoan(emp, {
+            principal: 1200, interestRate: 0, startDate: '2026-05-01',
+            installmentMode: INSTALLMENT_MODE.INSTALLMENTS,
+            installmentCount: 4, installmentFrequencyWeeks: 2
+        });
+        loan.refinancings = [{ id: 'r1', interestAmount: 120, voided: false }];
+        recordPayment(emp, loan.id, { amount: 1200, date: '2026-06-26' });
+
+        const options = getPayrollDeductionOptions(loan, '2026-06-30');
+
+        testRunner.assertEquals(options.length, 1, "Refinance balance remains collectible after scheduled installments");
+        testRunner.assertEquals(options[0].kind, 'balance-adjustment', "Residual balance is explicit, not a fake installment");
+        testRunner.assertEquals(options[0].amount, 120, "Residual charge equals refinance interest still owed");
+        testRunner.assertEquals(options[0].isDue, true, "Residual is due after the original schedule ends");
+    },
+
     "generateInstallmentSchedule handles non-divisible totals"() {
         const out = generateInstallmentSchedule({
             principal: 100, interestRate: 0, interestIncluded: false,

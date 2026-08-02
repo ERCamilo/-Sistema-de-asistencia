@@ -562,12 +562,13 @@ export function getBalance(loan) {
 export function getPayrollDeductionOptions(loan, asOfDate = null) {
     if (loan.status !== LOAN_STATUS.ACTIVE) return [];
     const balance = getBalance(loan);
-    if (balance <= 0.01) return [];
+    if (balance <= 0) return [];
 
     const today = asOfDate || new Date().toISOString().slice(0, 10);
 
     if (loan.installmentMode !== INSTALLMENT_MODE.INSTALLMENTS) {
         return [{
+            kind: 'lump',
             amount: balance,
             dueDate: loan.startDate,
             isInstallment: false,
@@ -592,6 +593,7 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
 
         const amount = round2(Math.min(remainingOfInstallment, selectableBalance));
         options.push({
+            kind: 'installment',
             amount,
             dueDate: inst.dueDate,
             isInstallment: true,
@@ -599,6 +601,19 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
             isDue: inst.dueDate <= today
         });
         selectableBalance = round2(selectableBalance - amount);
+    }
+
+    if (selectableBalance > 0) {
+        const lastScheduledDate = loan.installments?.[loan.installments.length - 1]?.dueDate;
+        const dueDate = lastScheduledDate || loan.startDate;
+        options.push({
+            kind: 'balance-adjustment',
+            amount: selectableBalance,
+            dueDate,
+            isInstallment: false,
+            installmentSeq: null,
+            isDue: !dueDate || dueDate <= today
+        });
     }
 
     return options;
