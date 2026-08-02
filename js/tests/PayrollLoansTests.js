@@ -14,6 +14,10 @@ import {
     togglePayrollLoan,
     toSplitXRows
 } from '../modules/features/payroll/PayrollLoans.js';
+import {
+    buildPayrollLoansDesktopModel,
+    renderPayrollLoansDesktop
+} from '../modules/features/payroll/PayrollLoansDesktop.js';
 
 const PAYROLL_UI_SRC = fs.readFileSync(
     path.resolve(__dirname, '../modules/features/payroll/PayrollUI.js'), 'utf8'
@@ -330,6 +334,37 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
 
 testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
 
+    'muestra una cuota seleccionada y su monto en lugar del saldo completo'() {
+        const employee = buildInstallmentEmployee();
+        const selection = buildPayrollLoanSelection([employee], '2026-05-20');
+        const model = buildPayrollLoansDesktopModel(
+            [employee],
+            selection,
+            [{ _employeeId: employee.id, monto: 1200, _loans: 300 }],
+            '2026-05-20'
+        );
+
+        testRunner.assertEquals(model.groups[0].loans[0].selectedChargeCount, 1, 'El modelo visual conserva una cuota');
+        testRunner.assertEquals(model.groups[0].loans[0].selectedAmount, 300, 'La UI usa el cargo seleccionado');
+        testRunner.assertEquals(model.groups[0].selectedBalance, 300, 'El resumen del empleado no usa el saldo de 1200');
+    },
+
+    'renderiza controles para aumentar, disminuir o elegir todas las cuotas'() {
+        const employee = buildInstallmentEmployee();
+        const selection = buildPayrollLoanSelection([employee], '2026-05-20');
+        const html = renderPayrollLoansDesktop({
+            employees: [employee],
+            selection,
+            payrollRows: [{ _employeeId: employee.id, monto: 1200, _loans: 300 }],
+            periodEnd: '2026-05-20'
+        });
+
+        testRunner.assert(html.includes('Cuota 1 de 4'), 'Debe identificar la cuota inicial');
+        testRunner.assert(html.includes('data-payroll-action="adjust-payroll-loan-charge-count"'), 'Debe exponer controles de cantidad');
+        testRunner.assert(html.includes('data-payroll-action="select-all-payroll-loan-charges"'), 'Debe permitir seleccionar todas');
+        testRunner.assert(html.includes('1 de 4 seleccionadas'), 'Debe explicar la selección consecutiva');
+    },
+
     'usa un único componente y elimina el bloque móvil legado'() {
         testRunner.assert(
             PAYROLL_UI_SRC.includes('${renderPayrollLoansDesktop({'),
@@ -348,9 +383,9 @@ testRunner.addSuite('Paso 4 — workspace responsive de préstamos', {
     'mantiene el contador compacto y habilita la composición móvil'() {
         testRunner.assert(
             PAYROLL_LOANS_RESPONSIVE_SRC.includes(
-                '${summary.selectedCount}/${summary.eligibleCount}'
+                '${summary.selectedChargeCount}/${summary.eligibleChargeCount}'
             ),
-            'el contador general debe usar el formato compacto N/N'
+            'el contador general debe mostrar cargos seleccionados sobre cargos disponibles'
         );
         testRunner.assert(
             PAYROLL_LOANS_RESPONSIVE_SRC.includes('data-label="A descontar"')

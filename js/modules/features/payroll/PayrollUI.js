@@ -13,6 +13,7 @@ import {
     getInvalidPayrollLoanRows,
     removeEmployeePayrollLoans as removeEmployeePayrollLoansFromSelection,
     setEmployeePayrollLoans,
+    setPayrollLoanChargeCount,
     summarizePayrollLoans,
     togglePayrollLoan,
     toSplitXRows
@@ -64,6 +65,18 @@ const _ACTION_MAP = {
     'toggle-payroll-loan': (employeeId, target, event) => {
         event.stopPropagation();
         window.PayrollUI?.togglePayrollLoanSelection?.(employeeId, target.dataset.loanId);
+    },
+    'adjust-payroll-loan-charge-count': (employeeId, target, event) => {
+        event.stopPropagation();
+        window.PayrollUI?.adjustPayrollLoanChargeCount?.(
+            employeeId,
+            target.dataset.loanId,
+            Number(target.dataset.delta) || 0
+        );
+    },
+    'select-all-payroll-loan-charges': (employeeId, target, event) => {
+        event.stopPropagation();
+        window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
         event.preventDefault();
@@ -255,7 +268,8 @@ function PayrollGeneratorTab() {
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
         filteredPayrollEmployees,
-        state.exportConfig.payrollLoanSelection || []
+        state.exportConfig.payrollLoanSelection || [],
+        state.exportConfig.periodEnd
     );
     const deductionSummary = summarizeGlobalAdjustments(state.exportConfig.deductions, '-', formatCurrency);
     const bonusSummary = summarizeGlobalAdjustments(state.exportConfig.bonuses, '+', formatCurrency);
@@ -545,7 +559,8 @@ function PayrollGeneratorTab() {
                             employees: filteredPayrollEmployees,
                             selection: state.exportConfig.payrollLoanSelection || [],
                             payrollRows: exportData,
-                            expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || []
+                            expandedEmployeeIds: state.exportConfig.payrollLoanExpandedEmployees || [],
+                            periodEnd: state.exportConfig.periodEnd
                         })}
                     </section>
 
@@ -833,7 +848,8 @@ function generateExportData() {
     return applyPayrollLoanDeductions(
         baseRows,
         state.employees,
-        state.exportConfig.payrollLoanSelection || []
+        state.exportConfig.payrollLoanSelection || [],
+        periodEnd
     )
         // Keep selected-loan rows even when their resulting payment is invalid,
         // so the UI can show the error instead of silently omitting the employee.
@@ -1386,7 +1402,7 @@ export function addEmployeeBonusFromForm() {
 export function addPayrollLoansToExport() {
     const state = getState();
     const eligibleEmployees = getLeaderFilteredEmployees(state);
-    const selection = buildPayrollLoanSelection(eligibleEmployees);
+    const selection = buildPayrollLoanSelection(eligibleEmployees, state.exportConfig.periodEnd);
     stateManager.batchSetState(() => {
         state.exportConfig.payrollLoanSelection = selection;
     });
@@ -1424,9 +1440,13 @@ export function removeEmployeePayrollLoans(employeeId) {
 
 export function updateExportPeriod(type, value) {
     const state = getState();
-    if (type === 'start') state.exportConfig.periodStart = value;
-    if (type === 'end') state.exportConfig.periodEnd = value;
-    state.exportConfig.activePreset = null;
+    stateManager.batchSetState(() => {
+        if (type === 'start') state.exportConfig.periodStart = value;
+        if (type === 'end') state.exportConfig.periodEnd = value;
+        state.exportConfig.activePreset = null;
+        state.exportConfig.payrollLoanSelection = [];
+        state.exportConfig.payrollLoanExpandedEmployees = [];
+    });
     context.render();
 }
 
@@ -1464,6 +1484,8 @@ export function setExportPreset(preset) {
             state.exportConfig.periodEnd = period.periodEnd;
             state.exportConfig.activePreset = preset;
             state.exportConfig.periodSource = period.source;
+            state.exportConfig.payrollLoanSelection = [];
+            state.exportConfig.payrollLoanExpandedEmployees = [];
         });
         if (period.source === 'month-fallback' && window.showNotification) {
             window.showNotification('⚠️ El período configurado no es válido; se usó el mes actual.', 'warning');
@@ -1476,6 +1498,8 @@ export function setExportPreset(preset) {
         state.exportConfig.periodStart = getDateKey(start);
         state.exportConfig.periodEnd = getDateKey(end);
         state.exportConfig.activePreset = preset;
+        state.exportConfig.payrollLoanSelection = [];
+        state.exportConfig.payrollLoanExpandedEmployees = [];
     });
     context.render();
 }
@@ -1556,16 +1580,22 @@ export function toggleEmployeePayrollLoans(employeeId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     if (!employee) return;
-    const eligibleLoanIds = getEligiblePayrollLoans(employee).map(loan => loan.loanId);
+    const eligibleLoans = getEligiblePayrollLoans(employee, state.exportConfig.periodEnd);
     const current = (state.exportConfig.payrollLoanSelection || [])
         .find(item => String(item.employeeId) === String(employee.id));
-    const selectedIds = new Set((current?.loanIds || []).map(String));
-    const allSelected = eligibleLoanIds.length > 0 &&
-        eligibleLoanIds.every(loanId => selectedIds.has(String(loanId)));
+    const selectedCounts = new Map(
+        (current?.loans || (current?.loanIds || []).map(loanId => ({ loanId, chargeCount: 1 })))
+            .map(item => [String(item.loanId), Number(item.chargeCount) || 0])
+    );
+    const allSelected = eligibleLoans.length > 0 &&
+        eligibleLoans.every(loan => (selectedCounts.get(String(loan.loanId)) || 0) > 0);
     updatePayrollLoanSelection(setEmployeePayrollLoans(
         state.exportConfig.payrollLoanSelection || [],
         employee.id,
-        allSelected ? [] : eligibleLoanIds
+        allSelected ? [] : eligibleLoans.map(loan => ({
+            loanId: loan.loanId,
+            chargeCount: Math.max(1, loan.defaultChargeCount)
+        }))
     ));
 }
 
@@ -1573,17 +1603,60 @@ export function togglePayrollLoanSelection(employeeId, loanId) {
     const state = getState();
     const employee = state.employees.find(item => String(item.id) === String(employeeId));
     const loan = employee
-        ? getEligiblePayrollLoans(employee).find(item => String(item.loanId) === String(loanId))
+        ? getEligiblePayrollLoans(employee, state.exportConfig.periodEnd)
+            .find(item => String(item.loanId) === String(loanId))
         : null;
     if (!employee || !loan) return;
     const current = (state.exportConfig.payrollLoanSelection || [])
         .find(item => String(item.employeeId) === String(employee.id));
-    const selected = (current?.loanIds || []).some(id => String(id) === String(loan.loanId));
+    const selected = (current?.loans || (current?.loanIds || []).map(id => ({ loanId: id, chargeCount: 1 })))
+        .some(item => String(item.loanId) === String(loan.loanId) && Number(item.chargeCount) > 0);
     updatePayrollLoanSelection(togglePayrollLoan(
         state.exportConfig.payrollLoanSelection || [],
         employee.id,
         loan.loanId,
         !selected
+    ));
+}
+
+export function adjustPayrollLoanChargeCount(employeeId, loanId, delta) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const loan = employee
+        ? getEligiblePayrollLoans(employee, state.exportConfig.periodEnd)
+            .find(item => String(item.loanId) === String(loanId))
+        : null;
+    if (!employee || !loan) return;
+
+    const current = (state.exportConfig.payrollLoanSelection || [])
+        .find(item => String(item.employeeId) === String(employee.id));
+    const currentLoan = (current?.loans || (current?.loanIds || []).map(id => ({ loanId: id, chargeCount: 1 })))
+        .find(item => String(item.loanId) === String(loan.loanId));
+    const currentCount = Number(currentLoan?.chargeCount) || 0;
+    const nextCount = Math.max(0, Math.min(loan.maxChargeCount, currentCount + Number(delta || 0)));
+
+    updatePayrollLoanSelection(setPayrollLoanChargeCount(
+        state.exportConfig.payrollLoanSelection || [],
+        employee.id,
+        loan.loanId,
+        nextCount
+    ));
+}
+
+export function selectAllPayrollLoanCharges(employeeId, loanId) {
+    const state = getState();
+    const employee = state.employees.find(item => String(item.id) === String(employeeId));
+    const loan = employee
+        ? getEligiblePayrollLoans(employee, state.exportConfig.periodEnd)
+            .find(item => String(item.loanId) === String(loanId))
+        : null;
+    if (!employee || !loan) return;
+
+    updatePayrollLoanSelection(setPayrollLoanChargeCount(
+        state.exportConfig.payrollLoanSelection || [],
+        employee.id,
+        loan.loanId,
+        loan.maxChargeCount
     ));
 }
 

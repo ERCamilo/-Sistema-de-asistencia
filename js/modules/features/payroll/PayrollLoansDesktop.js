@@ -1,6 +1,11 @@
 import { formatCurrency } from '../../utils/Formatters.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
-import { getEligiblePayrollLoans, summarizePayrollLoans } from './PayrollLoans.js';
+import { formatDateShort } from '../../utils/DateUtils.js';
+import {
+    getEligiblePayrollLoans,
+    resolvePayrollLoanSelection,
+    summarizePayrollLoans
+} from './PayrollLoans.js';
 
 function safe(value) {
     return escapeHTML(String(value ?? ''));
@@ -52,11 +57,11 @@ function renderSelectionControl({ checked, mixed = false, employeeId, loanId = n
     `;
 }
 
-export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = []) {
-    const selectionByEmployee = new Map(
-        (selection || []).map(item => [
+export function buildPayrollLoansDesktopModel(employees = [], selection = [], payrollRows = [], periodEnd = null) {
+    const resolvedByEmployee = new Map(
+        resolvePayrollLoanSelection(employees, selection, periodEnd).map(item => [
             String(item.employeeId),
-            new Set((item.loanIds || []).map(String))
+            new Map(item.loans.map(loan => [String(loan.loanId), loan]))
         ])
     );
     const payrollByEmployee = new Map(
@@ -65,16 +70,24 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
     const groups = [];
 
     for (const employee of (employees || [])) {
-        const eligibleLoans = getEligiblePayrollLoans(employee);
+        const eligibleLoans = getEligiblePayrollLoans(employee, periodEnd);
         if (eligibleLoans.length === 0) continue;
-        const selectedIds = selectionByEmployee.get(String(employee.id)) || new Set();
-        const loans = eligibleLoans.map(loan => ({
-            ...loan,
-            selected: selectedIds.has(String(loan.loanId))
-        }));
+        const selectedLoansById = resolvedByEmployee.get(String(employee.id)) || new Map();
+        const loans = eligibleLoans.map(loan => {
+            const selectedLoan = selectedLoansById.get(String(loan.loanId));
+            return {
+                ...loan,
+                selected: !!selectedLoan,
+                selectedChargeCount: selectedLoan?.selectedChargeCount || 0,
+                selectedCharges: selectedLoan?.selectedCharges || [],
+                selectedAmount: selectedLoan?.selectedAmount || 0,
+                firstInstallmentSeq: selectedLoan?.firstInstallmentSeq ?? loan.chargeOptions[0]?.installmentSeq ?? null,
+                lastInstallmentSeq: selectedLoan?.lastInstallmentSeq ?? null
+            };
+        });
         const selectedLoans = loans.filter(loan => loan.selected);
         const payrollRow = payrollByEmployee.get(String(employee.id));
-        const selectedBalance = selectedLoans.reduce((sum, loan) => sum + loan.balance, 0);
+        const selectedBalance = selectedLoans.reduce((sum, loan) => sum + loan.selectedAmount, 0);
         const warningState = getLoanWarningState(payrollRow);
 
         groups.push({
@@ -84,6 +97,8 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
             loans,
             selectedCount: selectedLoans.length,
             eligibleCount: loans.length,
+            selectedChargeCount: selectedLoans.reduce((sum, loan) => sum + loan.selectedChargeCount, 0),
+            eligibleChargeCount: loans.reduce((sum, loan) => sum + loan.maxChargeCount, 0),
             selectionState: selectedLoans.length === 0
                 ? 'none'
                 : selectedLoans.length === loans.length ? 'all' : 'mixed',
@@ -98,7 +113,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
 
     return {
         groups,
-        summary: summarizePayrollLoans(employees, selection),
+        summary: summarizePayrollLoans(employees, selection, periodEnd),
         invalidCount: groups.filter(group => group.invalid).length,
         negativeCount: groups.filter(group => group.warningState === 'negative').length,
         zeroCount: groups.filter(group => group.warningState === 'zero').length
@@ -111,15 +126,54 @@ function renderLoanRow(group, loan) {
     const conceptLabel = migrated
         ? concept.replace(/\s*\(migrado\)\s*$/i, '').trim() || 'Préstamo'
         : concept;
+    const isInstallments = loan.installmentMode === 'installments';
+    const installmentSeqs = loan.chargeOptions
+        .map(option => Number(option.installmentSeq))
+        .filter(Number.isFinite);
+    const totalInstallments = installmentSeqs.length > 0 ? Math.max(...installmentSeqs) : 0;
+    const firstOption = loan.chargeOptions[0];
+    const modeLabel = isInstallments && firstOption?.installmentSeq
+        ? `Cuota ${firstOption.installmentSeq} de ${totalInstallments}`
+        : firstOption?.kind === 'balance-adjustment' ? 'Ajuste de saldo' : 'Pago único';
+    const dueLabel = firstOption?.dueDate ? ` · ${formatDateShort(firstOption.dueDate)}` : '';
+    const selectedLabel = isInstallments
+        ? `${loan.selectedChargeCount} de ${loan.maxChargeCount} seleccionadas`
+        : (loan.selected ? 'Pago incluido' : 'Pago no incluido');
+    const chargeControls = isInstallments ? `
+        <span class="payroll-loan-charge-controls" aria-label="Cuotas seleccionadas para ${safe(conceptLabel)}">
+            <button type="button"
+                    data-payroll-action="adjust-payroll-loan-charge-count"
+                    data-id="${safe(group.employeeId)}"
+                    data-loan-id="${safe(loan.loanId)}"
+                    data-delta="-1"
+                    aria-label="Quitar una cuota"
+                    ${loan.selectedChargeCount <= 0 ? 'disabled' : ''}>−</button>
+            <output>${safe(selectedLabel)}</output>
+            <button type="button"
+                    data-payroll-action="adjust-payroll-loan-charge-count"
+                    data-id="${safe(group.employeeId)}"
+                    data-loan-id="${safe(loan.loanId)}"
+                    data-delta="1"
+                    aria-label="Agregar una cuota"
+                    ${loan.selectedChargeCount >= loan.maxChargeCount ? 'disabled' : ''}>+</button>
+            <button type="button"
+                    class="payroll-loan-charge-controls__all"
+                    data-payroll-action="select-all-payroll-loan-charges"
+                    data-id="${safe(group.employeeId)}"
+                    data-loan-id="${safe(loan.loanId)}"
+                    ${loan.selectedChargeCount >= loan.maxChargeCount ? 'disabled' : ''}>Todas</button>
+        </span>
+    ` : '<span class="payroll-loan-child__spacer" aria-hidden="true"></span>';
     return `
         <div class="payroll-loan-child" role="row">
             <span class="payroll-loan-child__concept">
                 <strong>${safe(conceptLabel)}</strong>
                 ${migrated ? '<small>(migrado)</small>' : ''}
+                <small>${safe(modeLabel)}${safe(dueLabel)}</small>
             </span>
             <span class="payroll-loan-child__interest">${formatCurrency(loan.interest)}</span>
-            <strong class="payroll-loan-child__balance">${formatCurrency(loan.balance)}</strong>
-            <span class="payroll-loan-child__spacer" aria-hidden="true"></span>
+            <strong class="payroll-loan-child__balance">${formatCurrency(loan.selectedAmount)}</strong>
+            ${chargeControls}
             ${renderSelectionControl({
                 checked: loan.selected,
                 employeeId: group.employeeId,
@@ -157,7 +211,7 @@ function renderEmployeeGroup(group, expandedIds) {
                     </span>
                 </span>
                 <span class="payroll-loan-group__metrics">
-                    <span class="payroll-loan-group__count" data-label="Préstamos">${group.selectedCount}/${group.eligibleCount}</span>
+                    <span class="payroll-loan-group__count" data-label="Cargos">${group.selectedChargeCount}/${group.eligibleChargeCount}</span>
                     <span class="payroll-loan-group__interest" data-label="Interés">${formatCurrency(group.selectedInterest)}</span>
                     <span class="payroll-loan-group__discount" data-label="A descontar">
                         <strong>${formatCurrency(group.selectedBalance)}</strong>
@@ -183,8 +237,8 @@ function renderEmployeeGroup(group, expandedIds) {
             </summary>
             <div class="payroll-loan-group__body">
                 <div class="payroll-loan-child-columns" aria-hidden="true">
-                    <span>Préstamo</span><span>Interés</span><span>Saldo</span>
-                    <span></span><span></span>
+                    <span>Préstamo</span><span>Interés</span><span>A descontar</span>
+                    <span>Cuotas</span><span></span>
                 </div>
                 ${group.loans.map(loan => renderLoanRow(group, loan)).join('')}
             </div>
@@ -196,9 +250,10 @@ export function renderPayrollLoansDesktop({
     employees = [],
     selection = [],
     payrollRows = [],
-    expandedEmployeeIds = []
+    expandedEmployeeIds = [],
+    periodEnd = null
 } = {}) {
-    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows);
+    const model = buildPayrollLoansDesktopModel(employees, selection, payrollRows, periodEnd);
     const expandedIds = new Set((expandedEmployeeIds || []).map(String));
     const summary = model.summary;
 
@@ -207,13 +262,13 @@ export function renderPayrollLoansDesktop({
             <header class="payroll-loans-desktop__header">
                 <div>
                     <span>Préstamos del período</span>
-                    <h3>Seleccionar préstamos activos</h3>
+                    <h3>Seleccionar pagos y cuotas</h3>
                     <p>Esta selección sólo afecta la nómina actual y no registra pagos.</p>
                 </div>
-                <span class="payroll-loans-desktop__badge">${summary.selectedCount}/${summary.eligibleCount}</span>
+                <span class="payroll-loans-desktop__badge">${summary.selectedChargeCount}/${summary.eligibleChargeCount}</span>
             </header>
             <div class="payroll-loans-metrics">
-                <span><small>Seleccionados</small><strong>${summary.selectedCount}/${summary.eligibleCount}</strong></span>
+                <span><small>Cargos</small><strong>${summary.selectedChargeCount}/${summary.eligibleChargeCount}</strong></span>
                 <span><small>Intereses</small><strong>${formatCurrency(summary.selectedInterest)}</strong></span>
                 <span><small>A descontar</small><strong>${formatCurrency(summary.selectedBalance)}</strong></span>
                 <span class="payroll-loans-warning-summary ${model.invalidCount ? 'has-warnings' : ''}">
@@ -221,7 +276,7 @@ export function renderPayrollLoansDesktop({
                 </span>
             </div>
             <div class="payroll-loans-toolbar">
-                <button type="button" data-payroll-action="add-payroll-loans">Agregar todos</button>
+                <button type="button" data-payroll-action="add-payroll-loans">Aplicar próximos cargos</button>
                 <button type="button"
                         class="is-secondary"
                         data-payroll-action="clear-payroll-loans"
