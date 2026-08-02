@@ -5,6 +5,22 @@ const serviceWorkerPath = path.resolve(__dirname, '../../sw.js');
 const source = fs.readFileSync(serviceWorkerPath, 'utf8');
 
 describe('Service Worker — coherencia de módulos JavaScript', () => {
+    test('las hojas de estilo propias usan la misma estrategia de red que los módulos', () => {
+        const styleRule = source.indexOf("url.pathname.endsWith('.css')");
+        const networkFirstAfterRule = source.indexOf(
+            'event.respondWith(networkFirstAsset(event.request))',
+            styleRule
+        );
+        const genericStale = source.indexOf(
+            'event.respondWith(staleWhileRevalidate(event.request))',
+            styleRule
+        );
+
+        expect(styleRule).toBeGreaterThan(-1);
+        expect(networkFirstAfterRule).toBeGreaterThan(styleRule);
+        expect(genericStale).toBeGreaterThan(networkFirstAfterRule);
+    });
+
     test('los scripts propios usan red primero', () => {
         expect(source).toContain("url.origin === self.location.origin");
         expect(source).toContain("url.pathname.endsWith('.js')");

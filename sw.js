@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0802.010051';
+const CACHE_VERSION = '2026.0802.012857';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -246,15 +246,16 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 6) Módulos JavaScript propios → Network First con fallback a cache.
-    //    Un grafo ES module no puede mezclar archivos de builds distintos:
-    //    un import nuevo servido junto a un módulo viejo rompe toda la app.
-    if (url.origin === self.location.origin && url.pathname.endsWith('.js')) {
+    // 6) Recursos versionados propios → Network First con fallback a cache.
+    //    JavaScript y CSS deben pertenecer al mismo build: mezclar estructura
+    //    nueva con estilos viejos rompe la interfaz aunque el código cargue.
+    if (url.origin === self.location.origin &&
+        (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
         event.respondWith(networkFirstAsset(event.request));
         return;
     }
 
-    // 7) Resto de assets propios (CSS, imágenes) → Stale While Revalidate
+    // 7) Resto de assets propios (imágenes, fuentes) → Stale While Revalidate
     //    Sirve rápido desde cache, pero actualiza en background.
     event.respondWith(staleWhileRevalidate(event.request));
 });
@@ -316,7 +317,7 @@ async function networkFirst(request) {
 }
 
 /**
- * Network First para assets versionados entre sí (especialmente módulos JS).
+ * Network First para assets versionados entre sí (módulos JS y estilos CSS).
  * No usa index.html como fallback: responder HTML a un import produciría otro
  * SyntaxError y ocultaría el verdadero problema de conectividad.
  */
@@ -342,7 +343,7 @@ async function networkFirstAsset(request) {
 /**
  * Stale While Revalidate: Sirve desde cache inmediatamente,
  * y en background actualiza el cache con la versión de red.
- * Ideal para CSS e imágenes propios — velocidad + frescura.
+ * Ideal para imágenes y fuentes propias — velocidad + frescura.
  */
 async function staleWhileRevalidate(request) {
     const cache = await caches.open(CACHE_NAME);
