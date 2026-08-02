@@ -1,5 +1,6 @@
 import icons from '../../ui/IconSystem.js';
 import { stateManager } from '../../core/AppState.js';
+import { Modal } from '../../components/Modal.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
@@ -19,6 +20,20 @@ import {
     toSplitXRows
 } from './PayrollLoans.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
+import {
+    applyPayrollLoanSettlementBatch,
+    buildPayrollLoanSettlementBatch,
+    buildPayrollPreviewFingerprint,
+    confirmPayrollPaid,
+    findPayrollLoanSettlementBatch,
+    getClosedPayrollPreviewRows,
+    getPayrollLoanSettlementGate,
+    undoPayrollLoanSettlementBatch
+} from './PayrollLoanSettlement.js';
+import {
+    openPayrollLoanSettlementModal,
+    renderPayrollLoanSettlementPanel
+} from './PayrollLoanSettlementUI.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
@@ -36,6 +51,7 @@ import {
 let context = null;
 let payrollService = null;
 let latestPayrollPreviewRows = [];
+let payrollLoanSettlementInProgress = false;
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -78,6 +94,9 @@ const _ACTION_MAP = {
         event.stopPropagation();
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
+    'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
+    'open-payroll-loan-settlement': () => window.PayrollUI?.openPayrollLoanSettlement?.(),
+    'undo-payroll-loan-settlement': (batchId) => window.PayrollUI?.undoPayrollLoanSettlement?.(batchId),
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -264,6 +283,22 @@ function PayrollGeneratorTab() {
     latestPayrollPreviewRows = exportData;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
     const hasInvalidLoanRows = invalidLoanRows.length > 0;
+    const previewFingerprint = buildPayrollPreviewFingerprint({
+        periodStart: state.exportConfig.periodStart,
+        periodEnd: state.exportConfig.periodEnd,
+        rows: exportData
+    });
+    const storedSettlementBatch = findPayrollLoanSettlementBatch(state.employees, {
+        periodStart: state.exportConfig.periodStart,
+        periodEnd: state.exportConfig.periodEnd
+    });
+    const activeSettlementBatch = storedSettlementBatch?.voided ? null : storedSettlementBatch;
+    const loanSettlementGate = getPayrollLoanSettlementGate({
+        rows: exportData,
+        fingerprint: previewFingerprint,
+        paidConfirmation: state.exportConfig.payrollPaidConfirmation,
+        settledBatch: activeSettlementBatch
+    });
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
@@ -640,6 +675,12 @@ function PayrollGeneratorTab() {
                         </tfoot>
                     </table>
                 </div>
+
+                ${renderPayrollLoanSettlementPanel({
+                    gate: loanSettlementGate,
+                    activeBatch: activeSettlementBatch,
+                    now: Date.now()
+                })}
             </div>
             </div>
             
@@ -802,6 +843,12 @@ function generateExportData() {
     const state = getState();
     const { periodStart, periodEnd, deductions } = state.exportConfig;
     if (!periodStart || !periodEnd) return [];
+    const closedPreviewRows = getClosedPayrollPreviewRows(state.employees, periodStart, periodEnd);
+    if (closedPreviewRows) {
+        return closedPreviewRows.sort((a, b) =>
+            String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true })
+        );
+    }
 
     const filteredEmployees = getLeaderFilteredEmployees(state);
 
@@ -1658,6 +1705,143 @@ export function selectAllPayrollLoanCharges(employeeId, loanId) {
         loan.loanId,
         loan.maxChargeCount
     ));
+}
+
+function currentPayrollLoanSettlementState() {
+    const state = getState();
+    const rows = generateExportData();
+    const fingerprint = buildPayrollPreviewFingerprint({
+        periodStart: state.exportConfig.periodStart,
+        periodEnd: state.exportConfig.periodEnd,
+        rows
+    });
+    const storedBatch = findPayrollLoanSettlementBatch(state.employees, {
+        periodStart: state.exportConfig.periodStart,
+        periodEnd: state.exportConfig.periodEnd
+    });
+    const activeBatch = storedBatch?.voided ? null : storedBatch;
+    const gate = getPayrollLoanSettlementGate({
+        rows,
+        fingerprint,
+        paidConfirmation: state.exportConfig.payrollPaidConfirmation,
+        settledBatch: activeBatch
+    });
+    return { state, rows, fingerprint, activeBatch, gate };
+}
+
+export function togglePayrollPaidConfirmation(checked) {
+    const current = currentPayrollLoanSettlementState();
+    if (!checked) {
+        current.state.exportConfig.payrollPaidConfirmation = null;
+        context.render();
+        return;
+    }
+    if (!current.gate.hasLoans || current.gate.invalidCount > 0 || current.activeBatch) {
+        if (window.showNotification) {
+            window.showNotification('⚠️ Resuelve los préstamos y saldos de la vista previa antes de confirmar el pago.', 'warning');
+        }
+        context.render();
+        return;
+    }
+    current.state.exportConfig.payrollPaidConfirmation = confirmPayrollPaid(current.fingerprint);
+    if (window.showNotification) {
+        window.showNotification('✅ Nómina marcada como pagada para esta vista previa', 'success');
+    }
+    context.render();
+}
+
+function settlementOperatorId() {
+    return globalThis.currentUser?.uid || globalThis.currentUser?.email || null;
+}
+
+export async function openPayrollLoanSettlement() {
+    if (payrollLoanSettlementInProgress) return;
+    payrollLoanSettlementInProgress = true;
+    try {
+        const current = currentPayrollLoanSettlementState();
+        if (!current.gate.enabled) {
+            if (window.showNotification) {
+                window.showNotification('⚠️ El cierre de préstamos todavía no está habilitado.', 'warning');
+            }
+            return;
+        }
+        const batch = buildPayrollLoanSettlementBatch({
+            employees: current.state.employees,
+            rows: current.rows,
+            periodStart: current.state.exportConfig.periodStart,
+            periodEnd: current.state.exportConfig.periodEnd,
+            createdAt: Date.now(),
+            recordedBy: settlementOperatorId()
+        });
+        const verified = await openPayrollLoanSettlementModal(batch);
+        if (!verified) return;
+
+        const latest = currentPayrollLoanSettlementState();
+        if (latest.fingerprint !== batch.previewFingerprint ||
+            latest.state.exportConfig.payrollPaidConfirmation?.fingerprint !== batch.previewFingerprint ||
+            latest.activeBatch) {
+            throw new Error('La vista previa cambió mientras se verificaban los pagos. Revísala y confirma la Nómina nuevamente.');
+        }
+        applyPayrollLoanSettlementBatch(latest.state.employees, batch, {
+            now: Date.now(),
+            recordedBy: settlementOperatorId()
+        });
+        await Promise.resolve(context.saveToLocalStorage({
+            immediate: true,
+            announce: `Pagos de préstamos registrados: ${batch.total.toFixed(2)}`
+        }));
+        context.render();
+
+        const remainingUndoMs = Math.max(0, batch.undoUntil - Date.now());
+        if (remainingUndoMs > 0 && window.UndoManager?.push) {
+            window.UndoManager.push(
+                null,
+                'pagos de préstamos de la Nómina',
+                () => {
+                    undoPayrollLoanSettlementBatch(latest.state.employees, batch.id, {
+                        now: Date.now(),
+                        voidedBy: settlementOperatorId()
+                    });
+                    latest.state.exportConfig.payrollPaidConfirmation = null;
+                },
+                {
+                    timeoutMs: remainingUndoMs,
+                    saveOptions: { immediate: true, announce: 'Pagos de préstamos deshechos' }
+                }
+            );
+        }
+    } catch (error) {
+        await Modal.alert({
+            title: 'No se registraron los pagos',
+            message: escapeHTML(error?.message || 'La información cambió. Revisa la Nómina antes de intentarlo nuevamente.')
+        });
+    } finally {
+        payrollLoanSettlementInProgress = false;
+    }
+}
+
+export async function undoPayrollLoanSettlement(batchId) {
+    const state = getState();
+    try {
+        const result = undoPayrollLoanSettlementBatch(state.employees, batchId, {
+            now: Date.now(),
+            voidedBy: settlementOperatorId()
+        });
+        state.exportConfig.payrollPaidConfirmation = null;
+        await Promise.resolve(context.saveToLocalStorage({
+            immediate: true,
+            announce: 'Pagos de préstamos deshechos'
+        }));
+        if (window.showNotification) {
+            window.showNotification(`↩️ ${result.voidedCount} pago(s) de préstamos fueron anulados`, 'info');
+        }
+        context.render();
+    } catch (error) {
+        await Modal.alert({
+            title: 'No se puede deshacer',
+            message: escapeHTML(error?.message || 'La ventana para deshacer ya no está disponible.')
+        });
+    }
 }
 
 export function setPayrollGuideStep(stepId) {

@@ -1726,6 +1726,212 @@
     color: #a78bfa;
 }
 
+/* Payroll loan settlement -------------------------------------------------- */
+.payroll-loan-settlement {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto;
+    gap: 14px 20px;
+    align-items: center;
+    margin-top: 18px;
+    padding: 16px;
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    border-radius: 12px;
+    background: rgba(245, 158, 11, 0.07);
+}
+
+.payroll-loan-settlement__copy {
+    min-width: 0;
+}
+
+.payroll-loan-settlement__eyebrow {
+    display: block;
+    margin-bottom: 3px;
+    color: #fbbf24;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.payroll-loan-settlement__copy strong {
+    color: #f8fafc;
+    font-size: 0.95rem;
+}
+
+.payroll-loan-settlement__copy p {
+    margin: 4px 0 0;
+    color: #94a3b8;
+    font-size: 0.78rem;
+}
+
+.payroll-loan-settlement__paid-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.payroll-loan-settlement__paid-check input,
+.payroll-settlement-modal__verify input {
+    width: 17px;
+    height: 17px;
+    accent-color: #f59e0b;
+}
+
+.payroll-loan-settlement__paid-check.is-disabled {
+    color: #64748b;
+    cursor: not-allowed;
+}
+
+.payroll-loan-settlement__button,
+.payroll-loan-settlement__undo {
+    min-height: 42px;
+    padding: 10px 16px;
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    background: #f59e0b;
+    color: #17120a;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.payroll-loan-settlement__button:disabled {
+    border-color: #475569;
+    background: #334155;
+    color: #94a3b8;
+    cursor: not-allowed;
+    opacity: 0.75;
+}
+
+.payroll-loan-settlement.is-settled {
+    border-color: rgba(16, 185, 129, 0.45);
+    background: rgba(16, 185, 129, 0.07);
+}
+
+.payroll-loan-settlement.is-settled .payroll-loan-settlement__eyebrow {
+    color: #34d399;
+}
+
+.payroll-loan-settlement__completed {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    color: #a7f3d0;
+    font-size: 0.76rem;
+}
+
+.payroll-loan-settlement__undo {
+    border-color: #34d399;
+    background: transparent;
+    color: #6ee7b7;
+}
+
+.payroll-settlement-modal__intro {
+    margin: 0 0 14px;
+    color: #94a3b8;
+    line-height: 1.55;
+}
+
+.payroll-settlement-modal__employees {
+    display: grid;
+    gap: 10px;
+    max-height: min(52vh, 520px);
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.payroll-settlement-modal__employee {
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: #0f172a;
+}
+
+.payroll-settlement-modal__employee header,
+.payroll-settlement-modal__loan,
+.payroll-settlement-modal__employee footer,
+.payroll-settlement-modal__total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.payroll-settlement-modal__employee header div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.payroll-settlement-modal__employee header small,
+.payroll-settlement-modal__loan span,
+.payroll-settlement-modal__employee footer span {
+    color: #94a3b8;
+    font-size: 0.75rem;
+}
+
+.payroll-settlement-modal__employee header strong,
+.payroll-settlement-modal__employee header b {
+    color: #f8fafc;
+}
+
+.payroll-settlement-modal__loan {
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(51, 65, 85, 0.7);
+}
+
+.payroll-settlement-modal__loan strong {
+    color: #fbbf24;
+    font-size: 0.8rem;
+}
+
+.payroll-settlement-modal__employee footer {
+    margin-top: 9px;
+    color: #cbd5e1;
+    font-size: 0.76rem;
+}
+
+.payroll-settlement-modal__total {
+    margin-top: 14px;
+    padding: 13px 14px;
+    border-radius: 9px;
+    background: rgba(245, 158, 11, 0.1);
+    color: #fde68a;
+    font-weight: 800;
+}
+
+.payroll-settlement-modal__verify {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 14px;
+    color: #e2e8f0;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+@media (max-width: 720px) {
+    .payroll-loan-settlement {
+        grid-template-columns: 1fr;
+    }
+
+    .payroll-loan-settlement__button,
+    .payroll-loan-settlement__undo {
+        width: 100%;
+    }
+
+    .payroll-loan-settlement__completed {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
 .loan-payment-plan {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
