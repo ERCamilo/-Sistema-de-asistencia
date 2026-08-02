@@ -282,8 +282,11 @@ export function setLoanDraftField(field, value) {
     } else {
         draft[field] = value;
     }
-    // Re-render so the installment preview updates if any field changes
-    if (draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) render();
+    // Re-render the mode transition in both directions. Other fields only
+    // need a live refresh while the installment preview is visible.
+    if (field === 'installmentMode' || draft.installmentMode === INSTALLMENT_MODE.INSTALLMENTS) {
+        render();
+    }
 }
 
 function _doCreateLoan(emp) {

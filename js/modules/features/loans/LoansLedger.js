@@ -950,11 +950,11 @@ function NewLoanForm() {
 
             <!-- Mode toggle -->
             <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                <button type="button" onclick="setLoanDraftField('installmentMode', 'lump'); document.dispatchEvent(new Event('click'))"
+                <button type="button" data-app-fn="setLoanDraftField" data-arg="installmentMode" data-arg2="lump"
                         style="flex: 1; padding: 8px; background: ${!isInstallments ? '#06b6d4' : '#0f172a'}; color: ${!isInstallments ? '#000' : '#94a3b8'}; border: 1px solid ${!isInstallments ? '#06b6d4' : '#334155'}; border-radius: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer;">
                     Pago único
                 </button>
-                <button type="button" onclick="setLoanDraftField('installmentMode', 'installments'); document.dispatchEvent(new Event('click'))"
+                <button type="button" data-app-fn="setLoanDraftField" data-arg="installmentMode" data-arg2="installments"
                         style="flex: 1; padding: 8px; background: ${isInstallments ? '#06b6d4' : '#0f172a'}; color: ${isInstallments ? '#000' : '#94a3b8'}; border: 1px solid ${isInstallments ? '#06b6d4' : '#334155'}; border-radius: 6px; font-weight: 700; font-size: 0.8rem; cursor: pointer;">
                     Cuotas
                 </button>

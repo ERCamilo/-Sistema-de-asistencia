@@ -97,6 +97,36 @@ testRunner.addSuite("LoansLedger UI — recuperar saldados", {
 
 testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
 
+    "el selector de modalidad usa delegación sin emitir clics sintéticos"() {
+        resetState();
+        state.loansLedger = {
+            selectedEmployeeId: 'e1',
+            showAddForm: true,
+            newLoanDraft: {
+                principal: 0,
+                interestRate: 0,
+                startDate: '2026-08-02',
+                concept: '',
+                installmentMode: 'lump',
+                installmentCount: 4,
+                installmentFrequencyWeeks: 2
+            }
+        };
+
+        const html = LoansLedger();
+
+        testRunner.assert(
+            html.includes('data-app-fn="setLoanDraftField" data-arg="installmentMode" data-arg2="lump"'),
+            "Pago único uses the shared app delegation"
+        );
+        testRunner.assert(
+            html.includes('data-app-fn="setLoanDraftField" data-arg="installmentMode" data-arg2="installments"'),
+            "Installments uses the shared app delegation"
+        );
+        testRunner.assert(!html.includes("document.dispatchEvent(new Event('click'))"),
+            "Mode buttons never dispatch a document-level click without an element target");
+    },
+
     "diferencia pago único de cuotas y muestra la próxima cuota"() {
         resetState();
         state.employees[0].loans = [{
