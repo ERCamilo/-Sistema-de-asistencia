@@ -38,6 +38,12 @@ import {
 import { findSimilarExistingLoan } from './LoanDuplicateDetector.js';
 import { resolveDuplicateAsDistinct, resolveDuplicateByDeleting } from './LoanDuplicateResolver.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
+import {
+    createLoanPaymentDraft,
+    updateLoanPaymentDraft,
+    resolveLoanPaymentDraft,
+    PAYMENT_PLAN_MODE
+} from './LoanPaymentPlan.js';
 
 // ─── State scaffolding ───────────────────────────────────────────────────────
 
@@ -49,7 +55,13 @@ function ensureLedgerState() {
             showAddForm: false,
             newLoanDraft: createEmptyLoanDraft(),
             showPaymentFormForLoan: null,
-            paymentDraft: { amount: 0, date: getDateKey(new Date()), note: '' },
+            paymentDraft: {
+                amount: 0,
+                date: getDateKey(new Date()),
+                note: '',
+                mode: PAYMENT_PLAN_MODE.CUSTOM,
+                installmentCount: 1
+            },
             showEmployeePicker: false,
             pickerSearch: '',
             showInactiveHistory: false,
@@ -349,14 +361,22 @@ export function togglePaymentForm(loanId) {
     const open = state.loansLedger.showPaymentFormForLoan === loanId
         ? null
         : loanId;
+    const employee = state.employees.find(item =>
+        String(item.id) === String(state.loansLedger.selectedEmployeeId)
+    );
+    const loan = (employee?.loans || []).find(item => String(item.id) === String(loanId));
     stateManager.batchSetState(() => {
         state.loansLedger.showPaymentFormForLoan = open;
         if (open) state.loansLedger.showRefinanceFormForLoan = null;
-        state.loansLedger.paymentDraft = {
-            amount: 0,
-            date: getDateKey(new Date()),
-            note: ''
-        };
+        state.loansLedger.paymentDraft = open && loan
+            ? createLoanPaymentDraft(loan, getDateKey(new Date()))
+            : {
+                amount: 0,
+                date: getDateKey(new Date()),
+                note: '',
+                mode: PAYMENT_PLAN_MODE.CUSTOM,
+                installmentCount: 1
+            };
     });
     render();
 }
@@ -365,11 +385,18 @@ export function setPaymentDraftField(field, value) {
     ensureLedgerState();
     const draft = state.loansLedger.paymentDraft;
     if (!draft) return;
-    if (field === 'amount') {
-        draft.amount = Number(value) || 0;
-    } else {
-        draft[field] = value;
-    }
+    const employee = state.employees.find(item =>
+        String(item.id) === String(state.loansLedger.selectedEmployeeId)
+    );
+    const loan = (employee?.loans || []).find(item =>
+        String(item.id) === String(state.loansLedger.showPaymentFormForLoan)
+    );
+    if (!loan) return;
+
+    stateManager.batchSetState(() => {
+        state.loansLedger.paymentDraft = updateLoanPaymentDraft(loan, draft, field, value);
+    });
+    if (field === 'mode' || field === 'installmentCount') render();
 }
 
 export function submitPayment(loanId) {
@@ -380,8 +407,14 @@ export function submitPayment(loanId) {
         alertMsg('Empleado no encontrado');
         return;
     }
+    const loan = (emp.loans || []).find(item => String(item.id) === String(loanId));
+    if (!loan) {
+        alertMsg('Préstamo no encontrado');
+        return;
+    }
     try {
-        const payment = recordPayment(emp, loanId, state.loansLedger.paymentDraft);
+        const resolvedDraft = resolveLoanPaymentDraft(loan, state.loansLedger.paymentDraft);
+        const payment = recordPayment(emp, loanId, resolvedDraft);
         state.loansLedger.showPaymentFormForLoan = null;
         saveApplicationData({ immediate: true, announce: `Abono registrado: ${payment.amount.toFixed(2)}` });
         render();

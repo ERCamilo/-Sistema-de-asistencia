@@ -40,6 +40,11 @@ import {
 } from './LoansService.js';
 import { detectLoanDuplicateCandidates } from './LoanDuplicateDetector.js';
 import { isPendingUpload } from '../../services/EntitiesSyncStamp.js';
+import {
+    getInstallmentPaymentChoices,
+    resolveLoanPaymentDraft,
+    PAYMENT_PLAN_MODE
+} from './LoanPaymentPlan.js';
 
 export function LoansLedger() {
     const ledger = state.loansLedger || {};
@@ -695,48 +700,125 @@ function LoanCard(loan) {
 
 function PaymentForm(loan, balance) {
     const draft = (state.loansLedger || {}).paymentDraft || { amount: 0, date: '', note: '' };
+    const isInstallmentLoan = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const resolvedDraft = resolveLoanPaymentDraft(loan, draft);
+    const choices = getInstallmentPaymentChoices(loan);
+    const firstCharge = choices[0]?.firstCharge || null;
+    const selectedChoice = choices[Math.max(0, resolvedDraft.installmentCount - 1)] || choices[0] || null;
+    const installmentActionLabel = resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL
+        ? 'Pagar préstamo completo'
+        : resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE
+            ? `Pagar ${resolvedDraft.installmentCount} cuotas`
+            : 'Pagar una cuota';
+    const selectionDetail = resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL
+        ? `Saldo completo · ${formatCurrency(resolvedDraft.amount)}`
+        : resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE
+            ? `Cuotas ${firstCharge?.installmentSeq || 1}–${selectedChoice?.lastCharge?.installmentSeq || resolvedDraft.installmentCount} · ${formatCurrency(resolvedDraft.amount)}`
+            : firstCharge?.kind === 'installment'
+                ? `Cuota ${firstCharge.installmentSeq} · ${formatCurrency(resolvedDraft.amount)} · ${formatDateShort(firstCharge.dueDate)}`
+                : `Próximo cargo · ${formatCurrency(resolvedDraft.amount)}`;
+    const installmentHelp = resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL
+        ? 'El préstamo quedará saldado al registrar este pago.'
+        : resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE
+            ? 'Se pagarán cuotas consecutivas empezando por la más próxima pendiente.'
+            : 'Se pagará únicamente la próxima cuota pendiente.';
+
     return `
         <div class="loan-operation-form loan-operation-form--payment">
             <div class="loan-operation-form__title">Realizar pago</div>
+            ${isInstallmentLoan ? `
+                <div class="loan-payment-plan" role="group" aria-label="Forma de pago">
+                    <button type="button"
+                            class="loan-payment-plan__option ${resolvedDraft.mode === PAYMENT_PLAN_MODE.SINGLE ? 'is-active' : ''}"
+                            aria-pressed="${resolvedDraft.mode === PAYMENT_PLAN_MODE.SINGLE}"
+                            data-app-fn="setPaymentDraftField"
+                            data-arg="mode"
+                            data-arg2="${PAYMENT_PLAN_MODE.SINGLE}">
+                        <span>Pagar una cuota</span>
+                        <strong>${formatCurrency(choices[0]?.amount || 0)}</strong>
+                        <small>${firstCharge?.kind === 'installment' ? `Cuota ${firstCharge.installmentSeq}` : 'Próximo cargo'}</small>
+                    </button>
+                    <button type="button"
+                            class="loan-payment-plan__option ${resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE ? 'is-active' : ''}"
+                            aria-pressed="${resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE}"
+                            data-app-fn="setPaymentDraftField"
+                            data-arg="mode"
+                            data-arg2="${PAYMENT_PLAN_MODE.MULTIPLE}"
+                            ${choices.length < 2 ? 'disabled' : ''}>
+                        <span>Pagar varias cuotas</span>
+                        <strong>${choices.length > 1 ? `2–${choices.length}` : '—'}</strong>
+                        <small>Consecutivas</small>
+                    </button>
+                    <button type="button"
+                            class="loan-payment-plan__option ${resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL ? 'is-active' : ''}"
+                            aria-pressed="${resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL}"
+                            data-app-fn="setPaymentDraftField"
+                            data-arg="mode"
+                            data-arg2="${PAYMENT_PLAN_MODE.TOTAL}">
+                        <span>Pagar completo</span>
+                        <strong>${formatCurrency(balance)}</strong>
+                        <small>Saldar préstamo</small>
+                    </button>
+                </div>
+                ${resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE ? `
+                    <label class="loan-payment-plan__count">
+                        <span>Cuotas a pagar</span>
+                        <select onchange="setPaymentDraftField('installmentCount', this.value)">
+                            ${choices.slice(1).map(choice => `
+                                <option value="${choice.count}" ${choice.count === resolvedDraft.installmentCount ? 'selected' : ''}>
+                                    ${choice.count} cuotas · ${formatCurrency(choice.amount)}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </label>
+                ` : ''}
+                <div class="loan-payment-plan__summary">
+                    <span>Pago seleccionado</span>
+                    <strong>${selectionDetail}</strong>
+                </div>
+            ` : ''}
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto a pagar</label>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">${isInstallmentLoan ? 'Monto calculado' : 'Monto a pagar'}</label>
                     <input type="number" inputmode="decimal" autocomplete="off"
-                           value="${draft.amount || ''}" max="${balance}" min="0" step="0.01"
-                           oninput="setPaymentDraftField('amount', this.value)"
+                           value="${resolvedDraft.amount || ''}" max="${balance}" min="0" step="0.01"
+                           ${isInstallmentLoan ? 'readonly' : `oninput="setPaymentDraftField('amount', this.value)"`}
                            placeholder="0.00"
+                           class="${isInstallmentLoan ? 'loan-payment-plan__amount' : ''}"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
                 <div>
                     <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Fecha</label>
-                    <input type="date" value="${draft.date}"
+                    <input type="date" value="${resolvedDraft.date}"
                            onchange="setPaymentDraftField('date', this.value)"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
                 <div>
                     <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Concepto</label>
-                    <input type="text" value="${escapeAttr(draft.note || '')}"
+                    <input type="text" value="${escapeAttr(resolvedDraft.note || '')}"
                            oninput="setPaymentDraftField('note', this.value)"
                            placeholder="opcional"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
             </div>
             <div style="margin: -2px 0 10px; color: #7f8b98; font-size: 0.68rem;">
-                Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.
+                ${isInstallmentLoan
+                    ? installmentHelp
+                    : 'Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.'}
             </div>
             <div class="loan-payment-form__actions">
                 <button type="button"
                         class="loan-payment-form__action loan-payment-form__action--save"
                         data-app-fn="submitPayment"
                         data-arg="${loan.id}">
-                    Guardar pago
+                    ${isInstallmentLoan ? installmentActionLabel : 'Guardar pago'}
                 </button>
-                <button type="button"
+                ${isInstallmentLoan ? '' : `<button type="button"
                         class="loan-payment-form__action loan-payment-form__action--total"
                         data-app-fn="settleLoanByFullPayment"
                         data-arg="${loan.id}">
                     Pago total
-                </button>
+                </button>`}
                 <button type="button"
                         class="loan-payment-form__action loan-payment-form__action--cancel"
                         data-app-fn="togglePaymentForm"
