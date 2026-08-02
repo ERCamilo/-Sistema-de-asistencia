@@ -786,6 +786,10 @@
     text-align: right;
 }
 
+.payroll-review-table thead th.is-loan {
+    color: #f59e0b;
+}
+
 .payroll-review-table__row {
     --payroll-row-bg: #151c22;
 }
@@ -853,9 +857,13 @@
     color: #68d5ae;
 }
 
-.payroll-review-table__amount.is-deduction,
-.payroll-review-table__amount.is-loan {
+.payroll-review-table__amount.is-deduction {
     color: #ef7d89;
+}
+
+.payroll-review-table__amount.is-loan {
+    color: #f59e0b;
+    font-weight: 800;
 }
 
 .payroll-review-table__amount.is-empty {

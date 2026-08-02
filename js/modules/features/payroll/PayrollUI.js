@@ -356,6 +356,11 @@ function PayrollGeneratorTab() {
     const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
+    const isVisibleReviewAmount = value => Math.abs(Number(value) || 0) >= 0.005;
+    const hasReviewAmount = key => exportData.some(item => isVisibleReviewAmount(item[key]));
+    const showBonusColumn = hasReviewAmount('_bonuses');
+    const showDeductionColumn = hasReviewAmount('_deductions');
+    const showLoanColumn = hasReviewAmount('_loans');
     const deductionDetails = summarizeAdjustmentDetails(
         state.exportConfig.deductions,
         exportData,
@@ -663,9 +668,9 @@ function PayrollGeneratorTab() {
                                 <th class="payroll-review-table__number">#</th>
                                 <th class="payroll-review-table__employee">EMPLEADO</th>
                                 <th>BRUTO</th>
-                                <th>BONIFIC.</th>
-                                <th>DEDUCCIONES</th>
-                                <th>PRÉSTAMOS</th>
+                                ${showBonusColumn ? '<th class="is-bonus">BONIFIC.</th>' : ''}
+                                ${showDeductionColumn ? '<th class="is-deduction">DEDUCCIONES</th>' : ''}
+                                ${showLoanColumn ? '<th class="is-loan">PRÉSTAMOS</th>' : ''}
                                 <th>NETO</th>
                             </tr>
                         </thead>
@@ -678,9 +683,9 @@ function PayrollGeneratorTab() {
                                         ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
                                     </td>
                                     <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
-                                    <td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>
-                                    <td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>
-                                    <td class="payroll-review-table__amount ${Number(emp._loans) > 0 ? 'is-loan' : 'is-empty'}">${Number(emp._loans) > 0 ? `−${formatCurrency(emp._loans)}` : '—'}</td>
+                                    ${showBonusColumn ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
+                                    ${showDeductionColumn ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
+                                    ${showLoanColumn ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
                                     <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
@@ -689,9 +694,9 @@ function PayrollGeneratorTab() {
                             <tr>
                                 <td colspan="2">Totales</td>
                                 <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
-                                <td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>
-                                <td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>
-                                <td class="payroll-review-table__amount ${loanAmount > 0 ? 'is-loan' : 'is-empty'}">${loanAmount > 0 ? `−${formatCurrency(loanAmount)}` : '—'}</td>
+                                ${showBonusColumn ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>` : ''}
+                                ${showDeductionColumn ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>` : ''}
+                                ${showLoanColumn ? `<td class="payroll-review-table__amount is-loan">−${formatCurrency(loanAmount)}</td>` : ''}
                                 <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
