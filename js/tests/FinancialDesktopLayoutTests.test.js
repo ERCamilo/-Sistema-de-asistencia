@@ -230,6 +230,34 @@ describe('Financial desktop layouts', () => {
         expect(JSON.stringify(state.employees[0].loans)).toBe(before);
     });
 
+    test('manual bulk actions activate one upcoming installment before its due date', () => {
+        state.exportConfig.periodEnd = '2026-05-10';
+        state.employees = [{
+            id: 'e1',
+            number: '001',
+            name: 'Juan Pérez',
+            active: true,
+            loans: [{
+                id: 'loan-installments', principal: 400, interestRate: 0,
+                interestIncluded: false, startDate: '2026-05-01', status: 'active',
+                installmentMode: 'installments', payments: [], refinancings: [],
+                installments: [
+                    { id: 'i1', seq: 1, dueDate: '2026-05-15', scheduledAmount: 100 },
+                    { id: 'i2', seq: 2, dueDate: '2026-05-29', scheduledAmount: 100 },
+                    { id: 'i3', seq: 3, dueDate: '2026-06-12', scheduledAmount: 100 },
+                    { id: 'i4', seq: 4, dueDate: '2026-06-26', scheduledAmount: 100 }
+                ]
+            }]
+        }];
+
+        PayrollUI.addPayrollLoansToExport();
+        expect(state.exportConfig.payrollLoanSelection[0].loans[0].chargeCount).toBe(1);
+
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.toggleEmployeePayrollLoans('e1');
+        expect(state.exportConfig.payrollLoanSelection[0].loans[0].chargeCount).toBe(1);
+    });
+
     test('installment controls select consecutive charges without exceeding the schedule', () => {
         state.exportConfig.periodEnd = '2026-05-20';
         state.employees = [{

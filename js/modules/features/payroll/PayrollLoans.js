@@ -42,9 +42,7 @@ export function getEligiblePayrollLoans(employee, periodEnd = null) {
                 balance: getBalance(loan),
                 chargeOptions,
                 maxChargeCount: chargeOptions.length,
-                defaultChargeCount: isInstallments
-                    ? (chargeOptions[0]?.isDue ? 1 : 0)
-                    : (chargeOptions.length > 0 ? 1 : 0)
+                defaultChargeCount: chargeOptions.length > 0 ? 1 : 0
             };
         })
         .filter(loan => loan.maxChargeCount > 0);

@@ -136,11 +136,11 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
         testRunner.assertEquals(rows[0]._loanDetails[0].firstInstallmentSeq, 1, 'El cargo comienza por la cuota más antigua impaga');
     },
 
-    'no selecciona automáticamente una cuota posterior al cierre del período'() {
+    'la acción manual de próximos cargos selecciona una cuota posterior al cierre del período'() {
         const employee = buildInstallmentEmployee();
         const selection = buildPayrollLoanSelection([employee], '2026-05-10');
 
-        testRunner.assertEquals(selection.length, 0, 'Una cuota futura no entra automáticamente en Nómina');
+        testRunner.assertEquals(selection[0].loans[0].chargeCount, 1, 'La acción manual activa la próxima cuota futura');
         testRunner.assertEquals(getEligiblePayrollLoans(employee, '2026-05-10').length, 1, 'El préstamo sigue visible para adelantar cuotas manualmente');
     },
 

@@ -556,8 +556,8 @@ export function getBalance(loan) {
  * all later installments. This lets payroll select the next installment by
  * default while still allowing an employee to advance several consecutive
  * installments. `isDue` is evaluated against the payroll period end supplied
- * by the caller; future installments remain selectable but are never selected
- * automatically.
+ * by the caller. The payroll UI may still select the first future option when
+ * the user explicitly applies upcoming charges.
  */
 export function getPayrollDeductionOptions(loan, asOfDate = null) {
     if (loan.status !== LOAN_STATUS.ACTIVE) return [];
