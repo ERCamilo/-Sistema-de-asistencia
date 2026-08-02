@@ -22,6 +22,7 @@ import {
     getTotalDue,
     getPaidAmount,
     getNextPayrollDeduction,
+    getPayrollDeductionOptions,
     generateInstallmentSchedule,
     migrateAdvancesToLoans,
     validateLoanInput,
@@ -248,6 +249,55 @@ testRunner.addSuite("LoansService — installments and deductions", {
         });
         const next = getNextPayrollDeduction(loan, '2026-05-10');
         testRunner.assertEquals(next, null, "Nothing due before first installment date");
+    },
+
+    "exposes every remaining installment while marking only due installments"() {
+        const emp = buildEmployee();
+        const loan = createLoan(emp, {
+            principal: 1200, interestRate: 0, startDate: '2026-05-01',
+            installmentMode: INSTALLMENT_MODE.INSTALLMENTS,
+            installmentCount: 4, installmentFrequencyWeeks: 2
+        });
+
+        const options = getPayrollDeductionOptions(loan, '2026-05-16');
+
+        testRunner.assertEquals(options.length, 4, "All remaining installments are selectable");
+        testRunner.assertEquals(options[0].installmentSeq, 1, "Selection starts with the oldest unpaid installment");
+        testRunner.assertEquals(options[0].amount, 300, "First installment keeps its scheduled amount");
+        testRunner.assertEquals(options[0].isDue, true, "First installment is due by period end");
+        testRunner.assertEquals(options[1].isDue, false, "Future installments remain optional");
+    },
+
+    "starts options at the partially unpaid installment"() {
+        const emp = buildEmployee();
+        const loan = createLoan(emp, {
+            principal: 1200, interestRate: 0, startDate: '2026-05-01',
+            installmentMode: INSTALLMENT_MODE.INSTALLMENTS,
+            installmentCount: 4, installmentFrequencyWeeks: 2
+        });
+        recordPayment(emp, loan.id, { amount: 350, date: '2026-05-20' });
+
+        const options = getPayrollDeductionOptions(loan, '2026-06-01');
+
+        testRunner.assertEquals(options.length, 3, "Paid installments are removed from selectable options");
+        testRunner.assertEquals(options[0].installmentSeq, 2, "The partially paid installment stays first");
+        testRunner.assertEquals(options[0].amount, 250, "Only the unpaid portion of the installment is charged");
+        testRunner.assertEquals(options[1].installmentSeq, 3, "Later installments preserve their sequence");
+        testRunner.assertEquals(options[1].amount, 300, "Later installments keep their full amount");
+    },
+
+    "keeps future installments selectable without making them due"() {
+        const emp = buildEmployee();
+        const loan = createLoan(emp, {
+            principal: 1200, interestRate: 0, startDate: '2026-05-01',
+            installmentMode: INSTALLMENT_MODE.INSTALLMENTS,
+            installmentCount: 4, installmentFrequencyWeeks: 2
+        });
+
+        const options = getPayrollDeductionOptions(loan, '2026-05-10');
+
+        testRunner.assertEquals(options.length, 4, "Employees may choose to advance future installments");
+        testRunner.assertEquals(options.some(option => option.isDue), false, "No installment is selected by date yet");
     },
 
     "generateInstallmentSchedule handles non-divisible totals"() {

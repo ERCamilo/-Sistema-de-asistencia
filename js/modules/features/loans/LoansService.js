@@ -550,48 +550,69 @@ export function getBalance(loan) {
 }
 
 /**
- * Returns the next scheduled installment that is due AND unpaid as of
- * `asOfDate` (default: today). For lump-mode loans, returns the remaining
- * balance as a single virtual installment.
+ * Returns every remaining payroll charge in payment order.
  *
- * @returns {{amount: number, dueDate: string, isInstallment: boolean} | null}
+ * Installment loans expose the unpaid portion of the current installment plus
+ * all later installments. This lets payroll select the next installment by
+ * default while still allowing an employee to advance several consecutive
+ * installments. `isDue` is evaluated against the payroll period end supplied
+ * by the caller; future installments remain selectable but are never selected
+ * automatically.
  */
-export function getNextPayrollDeduction(loan, asOfDate = null) {
-    if (loan.status !== LOAN_STATUS.ACTIVE) return null;
+export function getPayrollDeductionOptions(loan, asOfDate = null) {
+    if (loan.status !== LOAN_STATUS.ACTIVE) return [];
     const balance = getBalance(loan);
-    if (balance <= 0.01) return null;
+    if (balance <= 0.01) return [];
 
     const today = asOfDate || new Date().toISOString().slice(0, 10);
 
     if (loan.installmentMode !== INSTALLMENT_MODE.INSTALLMENTS) {
-        // Lump: deduct the full balance
-        return { amount: balance, dueDate: loan.startDate, isInstallment: false };
+        return [{
+            amount: balance,
+            dueDate: loan.startDate,
+            isInstallment: false,
+            installmentSeq: null,
+            isDue: true
+        }];
     }
 
-    // Installments: find the next unpaid installment whose dueDate <= today
-    const paid = getPaidAmount(loan);
-    let allocated = 0;
+    let paidToAllocate = getPaidAmount(loan);
+    let selectableBalance = balance;
+    const options = [];
 
     for (const inst of (loan.installments || [])) {
-        const instUpperBound = round2(allocated + inst.scheduledAmount);
-        // This installment is "paid" if `paid >= instUpperBound`.
-        if (paid >= instUpperBound) {
-            allocated = instUpperBound;
+        const scheduledAmount = round2(inst.scheduledAmount);
+        const appliedToInstallment = Math.min(paidToAllocate, scheduledAmount);
+        paidToAllocate = round2(Math.max(0, paidToAllocate - appliedToInstallment));
+        const remainingOfInstallment = round2(scheduledAmount - appliedToInstallment);
+
+        if (remainingOfInstallment <= 0 || selectableBalance <= 0) {
             continue;
         }
-        // It's partially paid or unpaid. If it's due, that's our target.
-        if (inst.dueDate <= today) {
-            const remainingOfThisInst = round2(instUpperBound - paid);
-            return {
-                amount: Math.min(remainingOfThisInst, balance),
-                dueDate: inst.dueDate,
-                isInstallment: true,
-                installmentSeq: inst.seq
-            };
-        }
-        break; // future installment, not due yet
+
+        const amount = round2(Math.min(remainingOfInstallment, selectableBalance));
+        options.push({
+            amount,
+            dueDate: inst.dueDate,
+            isInstallment: true,
+            installmentSeq: inst.seq,
+            isDue: inst.dueDate <= today
+        });
+        selectableBalance = round2(selectableBalance - amount);
     }
-    return null;
+
+    return options;
+}
+
+/**
+ * Returns the oldest due and unpaid payroll charge as of `asOfDate`.
+ * Lump-mode loans preserve their historical behavior and return the complete
+ * balance as one virtual charge.
+ */
+export function getNextPayrollDeduction(loan, asOfDate = null) {
+    const options = getPayrollDeductionOptions(loan, asOfDate);
+    if (!Array.isArray(options)) return null;
+    return options.find(option => option.isDue) || null;
 }
 
 // ─── Aggregations across the whole employee set ──────────────────────────────
