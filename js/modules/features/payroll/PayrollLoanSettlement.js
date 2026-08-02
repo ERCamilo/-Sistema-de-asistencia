@@ -368,6 +368,23 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
                 recordedBy ?? batch.recordedBy ?? null,
                 now
             );
+            payment.payrollBatchId = batch.id;
+            payment.payrollPreviewFingerprint = batch.previewFingerprint;
+            payment.payrollIdempotencyKey = operation.item.idempotencyKey;
+            payment.payrollChargeKeys = [...operation.item.chargeKeys];
+            payment.payrollPeriodStart = batch.periodStart;
+            payment.payrollPeriodEnd = batch.periodEnd;
+            payment.payrollBatchCreatedAt = batch.createdAt;
+            payment.payrollBatchUndoUntil = batch.undoUntil;
+            payment.payrollBatchTotal = batch.total;
+            payment.payrollBatchEmployeeCount = batch.employeeCount;
+            payment.payrollExpectedPaymentCount = batch.paymentRefs.length;
+            if (operation.item.paymentId === firstPaymentId) {
+                payment.payrollBatchSnapshot = clone(batch);
+            }
+            payment.updatedAt = Number(now) || Date.now();
+            operation.loan.updatedAt = payment.updatedAt;
+            operation.employee.updatedAt = payment.updatedAt;
             restoredCount++;
             payments.push(payment);
             continue;
@@ -384,6 +401,13 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             payrollPreviewFingerprint: batch.previewFingerprint,
             payrollIdempotencyKey: operation.item.idempotencyKey,
             payrollChargeKeys: operation.item.chargeKeys,
+            payrollPeriodStart: batch.periodStart,
+            payrollPeriodEnd: batch.periodEnd,
+            payrollBatchCreatedAt: batch.createdAt,
+            payrollBatchUndoUntil: batch.undoUntil,
+            payrollBatchTotal: batch.total,
+            payrollBatchEmployeeCount: batch.employeeCount,
+            payrollExpectedPaymentCount: batch.paymentRefs.length,
             payrollBatchSnapshot: operation.item.paymentId === firstPaymentId ? clone(batch) : null
         });
         createdCount++;
@@ -400,22 +424,60 @@ export function findPayrollLoanSettlementBatch(employees, {
     batchId = null
 } = {}) {
     const entries = paymentEntries(employees);
-    const candidates = entries
-        .filter(({ payment }) => payment.source === 'payroll' && payment.payrollBatchSnapshot)
-        .map(({ payment }) => payment.payrollBatchSnapshot)
+    const grouped = new Map();
+    for (const entry of entries) {
+        if (entry.payment.source !== 'payroll' || !entry.payment.payrollBatchId) continue;
+        const key = text(entry.payment.payrollBatchId);
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(entry);
+    }
+
+    const candidates = [...grouped.entries()].map(([id, linked]) => {
+        const snapshotEntry = linked.find(({ payment }) => payment.payrollBatchSnapshot);
+        const header = snapshotEntry?.payment.payrollBatchSnapshot;
+        const metadata = linked[0].payment;
+        const snapshot = header ? clone(header) : {
+            id,
+            source: 'payroll',
+            periodStart: text(metadata.payrollPeriodStart),
+            periodEnd: text(metadata.payrollPeriodEnd),
+            previewFingerprint: text(metadata.payrollPreviewFingerprint),
+            createdAt: Number(metadata.payrollBatchCreatedAt || metadata.recordedAt || 0),
+            undoUntil: Number(metadata.payrollBatchUndoUntil || 0),
+            total: money(metadata.payrollBatchTotal),
+            employeeCount: Number(metadata.payrollBatchEmployeeCount || 0),
+            employees: [],
+            items: [],
+            paymentRefs: [],
+            previewRows: null
+        };
+        const linkedById = new Map(linked.map(entry => [text(entry.payment.id), entry]));
+        const expectedIds = new Set((snapshot.paymentRefs || []).map(ref => text(ref.paymentId)));
+        const expectedCount = Math.max(
+            expectedIds.size,
+            ...linked.map(({ payment }) => Number(payment.payrollExpectedPaymentCount || 0))
+        );
+        const foundExpected = expectedIds.size > 0
+            ? [...expectedIds].map(idKey => linkedById.get(idKey)).filter(Boolean)
+            : [...linkedById.values()];
+        const missingPaymentCount = Math.max(0, expectedCount - foundExpected.length);
+        const incomplete = expectedCount === 0 || missingPaymentCount > 0;
+        const voided = !incomplete && foundExpected.length > 0 &&
+            foundExpected.every(({ payment }) => payment.voided === true);
+        return {
+            ...snapshot,
+            id,
+            incomplete,
+            missingPaymentCount,
+            voided
+        };
+    })
         .filter(batch => !batchId || text(batch.id) === text(batchId))
         .filter(batch => !periodStart || text(batch.periodStart) === text(periodStart))
         .filter(batch => !periodEnd || text(batch.periodEnd) === text(periodEnd))
         .filter(batch => !previewFingerprint || batch.previewFingerprint === previewFingerprint)
         .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-    const snapshot = candidates[0];
-    if (!snapshot) return null;
-    const linked = entries.filter(({ payment }) => text(payment.payrollBatchId) === text(snapshot.id));
-    const expectedIds = new Set((snapshot.paymentRefs || []).map(ref => text(ref.paymentId)));
-    const foundExpected = linked.filter(({ payment }) => expectedIds.has(text(payment.id)));
-    const voided = expectedIds.size > 0 && foundExpected.length === expectedIds.size &&
-        foundExpected.every(({ payment }) => payment.voided === true);
-    return { ...clone(snapshot), voided };
+    return candidates[0] || null;
 }
 
 export function getClosedPayrollPreviewRows(employees, periodStart, periodEnd) {
@@ -430,6 +492,9 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
 } = {}) {
     const batch = findPayrollLoanSettlementBatch(employees, { batchId });
     if (!batch) throw new Error('No se encontró el lote de pagos');
+    if (batch.incomplete) {
+        throw new Error('El lote está incompleto y todavía se está sincronizando');
+    }
     if (Number(now) > Number(batch.undoUntil || 0)) {
         throw new Error('El período para deshacer este lote expiró');
     }

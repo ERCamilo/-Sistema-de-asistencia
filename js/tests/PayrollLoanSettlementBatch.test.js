@@ -151,6 +151,38 @@ describe('Payroll loan settlement batches', () => {
         expect(frozenRows).not.toBe(batch.previewRows);
     });
 
+    test('detects an incomplete cross-device batch even when only a non-snapshot payment arrived', () => {
+        const firstEmp = employee('emp-1', 'Primera');
+        const secondEmp = employee('emp-2', 'Segunda');
+        const firstLoan = installmentLoan(firstEmp);
+        const secondLoan = installmentLoan(secondEmp);
+        const batch = buildBatch(
+            [firstEmp, secondEmp],
+            [payrollRow(firstEmp, firstLoan), payrollRow(secondEmp, secondLoan)]
+        );
+        applyPayrollLoanSettlementBatch([firstEmp, secondEmp], batch, { now: 100_100 });
+
+        firstLoan.payments = [];
+        const partial = findPayrollLoanSettlementBatch([firstEmp, secondEmp], {
+            periodStart: batch.periodStart,
+            periodEnd: batch.periodEnd
+        });
+
+        expect(partial).toMatchObject({
+            id: batch.id,
+            incomplete: true,
+            missingPaymentCount: 1,
+            voided: false
+        });
+        expect(partial.previewRows).toBeNull();
+        expect(() => undoPayrollLoanSettlementBatch(
+            [firstEmp, secondEmp],
+            batch.id,
+            { now: 100_200 }
+        )).toThrow(/incompleto/i);
+        expect(secondLoan.payments[0].voided).toBe(false);
+    });
+
     test('undo soft-voids the complete batch and the same settlement restores its stable payments', () => {
         const emp = employee('emp-7', 'Ana Pérez');
         const loan = installmentLoan(emp);
@@ -173,6 +205,12 @@ describe('Payroll loan settlement batches', () => {
         expect(loan.payments).toHaveLength(1);
         expect(loan.payments[0].voided).toBe(false);
         expect(getBalance(loan)).toBe(750);
+
+        undoPayrollLoanSettlementBatch([emp], batch.id, { now: 100_400 });
+        const renewedBatch = buildBatch([emp], [payrollRow(emp, loan)], 200_000);
+        applyPayrollLoanSettlementBatch([emp], renewedBatch, { now: 200_100 });
+        expect(findPayrollLoanSettlementBatch([emp], { batchId: batch.id }).undoUntil)
+            .toBe(200_000 + PAYROLL_LOAN_UNDO_WINDOW_MS);
     });
 
     test('rejects undo after the configured window without changing payments', () => {

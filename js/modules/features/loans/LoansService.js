@@ -348,6 +348,17 @@ export function recordPayment(emp, loanId, params) {
     if (Array.isArray(params.payrollChargeKeys)) {
         payment.payrollChargeKeys = [...new Set(params.payrollChargeKeys.map(String))];
     }
+    if (params.payrollPeriodStart) payment.payrollPeriodStart = String(params.payrollPeriodStart);
+    if (params.payrollPeriodEnd) payment.payrollPeriodEnd = String(params.payrollPeriodEnd);
+    for (const field of [
+        'payrollBatchCreatedAt',
+        'payrollBatchUndoUntil',
+        'payrollBatchTotal',
+        'payrollBatchEmployeeCount',
+        'payrollExpectedPaymentCount'
+    ]) {
+        if (Number.isFinite(Number(params[field]))) payment[field] = Number(params[field]);
+    }
     if (params.payrollBatchSnapshot && typeof params.payrollBatchSnapshot === 'object') {
         payment.payrollBatchSnapshot = params.payrollBatchSnapshot;
     }
