@@ -10,6 +10,7 @@
  */
 
 export * from './LoansService.js';
+export * from './LoanPaymentPlan.js';
 export { LoansLedger } from './LoansLedger.js';
 export {
     migrateAllAdvances,
