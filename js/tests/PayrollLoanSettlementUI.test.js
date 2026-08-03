@@ -4,10 +4,6 @@ import {
     openPayrollLoanSettlementModal,
     renderPayrollLoanSettlementPanel
 } from '../modules/features/payroll/PayrollLoanSettlementUI.js';
-import {
-    persistPayrollLoanSettlementMutation,
-    renderPersistedPayrollLoanSettlement
-} from '../modules/features/payroll/PayrollUI.js';
 
 const PAYROLL_UI_SOURCE = fs.readFileSync(
     path.resolve(__dirname, '../modules/features/payroll/PayrollUI.js'),
@@ -187,57 +183,13 @@ describe('Payroll loan settlement UI', () => {
         await expect(promise).resolves.toBe(false);
     });
 
-    test('PayrollUI wires paid confirmation, settlement, frozen preview and undo actions', () => {
+    test('PayrollUI wires paid confirmation into the general closure and linked loan payments', () => {
         expect(PAYROLL_UI_SOURCE).toContain("'toggle-payroll-paid'");
-        expect(PAYROLL_UI_SOURCE).toContain("'open-payroll-loan-settlement'");
-        expect(PAYROLL_UI_SOURCE).toContain("'undo-payroll-loan-settlement'");
-        expect(PAYROLL_UI_SOURCE).toContain('getClosedPayrollPreviewRows');
+        expect(PAYROLL_UI_SOURCE).toContain("'open-payroll-closure'");
+        expect(PAYROLL_UI_SOURCE).toContain("'undo-payroll-closure'");
+        expect(PAYROLL_UI_SOURCE).toContain('buildPayrollClosureDraft');
         expect(PAYROLL_UI_SOURCE).toContain('applyPayrollLoanSettlementBatch');
-        expect(PAYROLL_UI_SOURCE).toContain('openPayrollLoanSettlementModal');
-        expect(PAYROLL_UI_SOURCE).toContain('renderPayrollLoanSettlementPanel');
-    });
-});
-
-describe('Payroll settlement persistence boundary', () => {
-    const persistedBatch = {
-        id: 'batch-1', periodStart: '2026-08-01', periodEnd: '2026-08-15',
-        previewFingerprint: 'fp', createdAt: 100, undoUntil: 200,
-        employeeCount: 1, total: 25, paymentDate: '2026-08-15',
-        paymentRefs: [{ employeeId: 'e1', loanId: 'l1', paymentId: 'p1' }],
-        items: [{
-            employeeId: 'e1', loanId: 'l1', paymentId: 'p1', concept: 'Equipo',
-            amount: 25, balanceBefore: 100, idempotencyKey: 'c1', chargeKeys: ['c1'],
-            selectedCharges: [{ kind: 'installment', amount: 25, dueDate: '2026-08-15', isInstallment: true, installmentSeq: 1, isDue: true }]
-        }]
-    };
-    const settlementEmployees = () => [{
-        id: 'e1', updatedAt: 1,
-        loans: [{
-            id: 'l1', principal: 100, interestRate: 0, status: 'active', payments: [],
-            installmentMode: 'installments',
-            installments: [1, 2, 3, 4].map(seq => ({ id: `i${seq}`, seq, dueDate: '2026-08-15', scheduledAmount: 25 }))
-        }]
-    }];
-
-    test('rolls back the complete employee snapshot when persistence fails', async () => {
-        const employees = settlementEmployees();
-        const before = JSON.parse(JSON.stringify(employees));
-        await expect(persistPayrollLoanSettlementMutation({
-            employees, batch: persistedBatch,
-            saveFn: jest.fn().mockRejectedValue(new Error('disk full')), now: 110
-        })).rejects.toThrow('disk full');
-        expect(employees).toEqual(before);
-    });
-
-    test('keeps a persisted settlement when rendering fails', async () => {
-        const employees = settlementEmployees();
-        await persistPayrollLoanSettlementMutation({
-            employees, batch: persistedBatch,
-            saveFn: jest.fn().mockResolvedValue(undefined), now: 110
-        });
-        expect(() => renderPersistedPayrollLoanSettlement(
-            () => { throw new Error('render failed'); }, jest.fn()
-        )).not.toThrow();
-        expect(employees[0].loans[0].payments).toHaveLength(1);
+        expect(PAYROLL_UI_SOURCE).toContain('openPayrollClosureModal');
+        expect(PAYROLL_UI_SOURCE).toContain('renderPayrollClosurePanel');
     });
 });

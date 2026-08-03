@@ -22,19 +22,20 @@ import {
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import {
     applyPayrollLoanSettlementBatch,
-    activatePayrollLoanSettlementBatch,
-    buildPayrollLoanSettlementBatch,
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid,
-    findPayrollLoanSettlementBatch,
-    getClosedPayrollPreviewRows,
-    getPayrollLoanSettlementGate,
-    undoPayrollLoanSettlementBatch
+    getClosedPayrollPreviewRows
 } from './PayrollLoanSettlement.js';
 import {
-    openPayrollLoanSettlementModal,
-    renderPayrollLoanSettlementPanel
-} from './PayrollLoanSettlementUI.js';
+    openPayrollClosureModal,
+    renderPayrollClosurePanel
+} from './PayrollClosureUI.js';
+import {
+    buildPayrollClosureDraft,
+    getPayrollClosureGate,
+    undoPayrollClosureEffects
+} from './PayrollClosureWorkflow.js';
+import payrollClosureStore from './PayrollClosureStore.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
@@ -52,9 +53,16 @@ import {
 let context = null;
 let payrollService = null;
 let latestPayrollPreviewRows = [];
-let payrollLoanSettlementInProgress = false;
-let payrollLoanUndoExpiryTimer = null;
-let payrollLoanUndoExpiryBatchId = null;
+let payrollClosureInProgress = false;
+let payrollClosureUndoExpiryTimer = null;
+let payrollClosureUndoExpiryId = null;
+let payrollPeriodClosureCache = {
+    key: null,
+    items: [],
+    ready: false,
+    loading: false,
+    error: null
+};
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -98,8 +106,9 @@ const _ACTION_MAP = {
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
-    'open-payroll-loan-settlement': () => window.PayrollUI?.openPayrollLoanSettlement?.(),
-    'undo-payroll-loan-settlement': (batchId) => window.PayrollUI?.undoPayrollLoanSettlement?.(batchId),
+    'open-payroll-closure': () => window.PayrollUI?.openPayrollClosure?.(),
+    'undo-payroll-closure': (closureId) => window.PayrollUI?.undoPayrollClosure?.(closureId),
+    'prepare-payroll-correction': (closureId) => window.PayrollUI?.preparePayrollCorrection?.(closureId),
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -176,22 +185,79 @@ function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
 }
 
-function schedulePayrollLoanUndoExpiry(batch) {
-    const remaining = Number(batch?.undoUntil || 0) - Date.now();
-    if (!batch || batch.incomplete || remaining <= 0) {
-        if (payrollLoanUndoExpiryTimer) clearTimeout(payrollLoanUndoExpiryTimer);
-        payrollLoanUndoExpiryTimer = null;
-        payrollLoanUndoExpiryBatchId = null;
+function schedulePayrollClosureUndoExpiry(closure) {
+    const remaining = Number(closure?.undoUntil || 0) - Date.now();
+    if (!closure || remaining <= 0) {
+        if (payrollClosureUndoExpiryTimer) clearTimeout(payrollClosureUndoExpiryTimer);
+        payrollClosureUndoExpiryTimer = null;
+        payrollClosureUndoExpiryId = null;
         return;
     }
-    if (payrollLoanUndoExpiryBatchId === batch.id && payrollLoanUndoExpiryTimer) return;
-    if (payrollLoanUndoExpiryTimer) clearTimeout(payrollLoanUndoExpiryTimer);
-    payrollLoanUndoExpiryBatchId = batch.id;
-    payrollLoanUndoExpiryTimer = setTimeout(() => {
-        payrollLoanUndoExpiryTimer = null;
-        payrollLoanUndoExpiryBatchId = null;
+    if (payrollClosureUndoExpiryId === closure.id && payrollClosureUndoExpiryTimer) return;
+    if (payrollClosureUndoExpiryTimer) clearTimeout(payrollClosureUndoExpiryTimer);
+    payrollClosureUndoExpiryId = closure.id;
+    payrollClosureUndoExpiryTimer = setTimeout(() => {
+        payrollClosureUndoExpiryTimer = null;
+        payrollClosureUndoExpiryId = null;
         context?.render?.();
     }, remaining + 25);
+}
+
+function payrollPeriodKey(periodStart, periodEnd) {
+    return `${String(periodStart || '')}:${String(periodEnd || '')}`;
+}
+
+function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false } = {}) {
+    const key = payrollPeriodKey(periodStart, periodEnd);
+    if (payrollPeriodClosureCache.key !== key) {
+        payrollPeriodClosureCache = {
+            key,
+            items: [],
+            ready: false,
+            loading: false,
+            error: null
+        };
+    }
+    if ((payrollPeriodClosureCache.ready && !force) || payrollPeriodClosureCache.loading) {
+        return payrollPeriodClosureCache;
+    }
+    payrollPeriodClosureCache.loading = true;
+    payrollPeriodClosureCache.error = null;
+    payrollClosureStore.getByPeriod(periodStart, periodEnd)
+        .then(items => {
+            if (payrollPeriodClosureCache.key !== key) return;
+            payrollPeriodClosureCache = {
+                key,
+                items,
+                ready: true,
+                loading: false,
+                error: null
+            };
+            context?.render?.();
+        })
+        .catch(error => {
+            if (payrollPeriodClosureCache.key !== key) return;
+            payrollPeriodClosureCache.loading = false;
+            payrollPeriodClosureCache.ready = false;
+            payrollPeriodClosureCache.error = error;
+            console.warn('No se pudo cargar el historial de nómina:', error);
+            context?.render?.();
+        });
+    return payrollPeriodClosureCache;
+}
+
+function updatePayrollPeriodClosureCache(closure) {
+    const key = payrollPeriodKey(closure.periodStart, closure.periodEnd);
+    if (payrollPeriodClosureCache.key !== key) return;
+    const byId = new Map(payrollPeriodClosureCache.items.map(item => [item.id, item]));
+    byId.set(closure.id, closure);
+    payrollPeriodClosureCache = {
+        key,
+        items: [...byId.values()],
+        ready: true,
+        loading: false,
+        error: null
+    };
 }
 
 function getEmployeesWithDeductions() {
@@ -309,18 +375,23 @@ function PayrollGeneratorTab() {
         periodEnd: state.exportConfig.periodEnd,
         rows: exportData
     });
-    const storedSettlementBatch = findPayrollLoanSettlementBatch(state.employees, {
-        periodStart: state.exportConfig.periodStart,
-        periodEnd: state.exportConfig.periodEnd
-    });
-    const activeSettlementBatch = storedSettlementBatch?.voided ? null : storedSettlementBatch;
-    schedulePayrollLoanUndoExpiry(activeSettlementBatch);
-    const loanSettlementGate = getPayrollLoanSettlementGate({
+    const closureCache = requestPayrollPeriodClosures(
+        state.exportConfig.periodStart,
+        state.exportConfig.periodEnd
+    );
+    let payrollClosureGate = getPayrollClosureGate({
         rows: exportData,
         fingerprint: previewFingerprint,
         paidConfirmation: state.exportConfig.payrollPaidConfirmation,
-        settledBatch: activeSettlementBatch
+        activeClosures: closureCache.items,
+        correctionSupersedesId: state.exportConfig.payrollCorrectionSupersedesId,
+        historyReady: closureCache.ready,
+        inProgress: payrollClosureInProgress
     });
+    if (closureCache.error) {
+        payrollClosureGate = { ...payrollClosureGate, enabled: false, reason: 'history-error' };
+    }
+    schedulePayrollClosureUndoExpiry(payrollClosureGate.exactClosure);
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
@@ -703,9 +774,8 @@ function PayrollGeneratorTab() {
                     </table>
                 </div>
 
-                ${renderPayrollLoanSettlementPanel({
-                    gate: loanSettlementGate,
-                    activeBatch: activeSettlementBatch,
+                ${renderPayrollClosurePanel({
+                    gate: payrollClosureGate,
                     now: Date.now()
                 })}
             </div>
@@ -1734,7 +1804,7 @@ export function selectAllPayrollLoanCharges(employeeId, loanId) {
     ));
 }
 
-function currentPayrollLoanSettlementState() {
+function currentPayrollClosureState({ activeClosures = null, historyReady = null, ignoreInProgress = false } = {}) {
     const state = getState();
     const rows = generateExportData();
     const fingerprint = buildPayrollPreviewFingerprint({
@@ -1742,35 +1812,74 @@ function currentPayrollLoanSettlementState() {
         periodEnd: state.exportConfig.periodEnd,
         rows
     });
-    const storedBatch = findPayrollLoanSettlementBatch(state.employees, {
-        periodStart: state.exportConfig.periodStart,
-        periodEnd: state.exportConfig.periodEnd
-    });
-    const activeBatch = storedBatch?.voided ? null : storedBatch;
-    const gate = getPayrollLoanSettlementGate({
+    const cache = activeClosures === null
+        ? requestPayrollPeriodClosures(
+            state.exportConfig.periodStart,
+            state.exportConfig.periodEnd
+        )
+        : { items: activeClosures, ready: historyReady !== false, error: null };
+    let gate = getPayrollClosureGate({
         rows,
         fingerprint,
         paidConfirmation: state.exportConfig.payrollPaidConfirmation,
-        settledBatch: activeBatch
+        activeClosures: cache.items,
+        correctionSupersedesId: state.exportConfig.payrollCorrectionSupersedesId,
+        historyReady: historyReady ?? cache.ready,
+        inProgress: ignoreInProgress ? false : payrollClosureInProgress
     });
-    return { state, rows, fingerprint, activeBatch, gate };
+    if (cache.error) gate = { ...gate, enabled: false, reason: 'history-error' };
+    return { state, rows, fingerprint, activeClosures: cache.items, gate };
+}
+
+async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {}) {
+    const state = getState();
+    const periodStart = state.exportConfig.periodStart;
+    const periodEnd = state.exportConfig.periodEnd;
+    const activeClosures = await payrollClosureStore.getByPeriod(
+        periodStart,
+        periodEnd
+    );
+    payrollPeriodClosureCache = {
+        key: payrollPeriodKey(periodStart, periodEnd),
+        items: activeClosures,
+        ready: true,
+        loading: false,
+        error: null
+    };
+    return currentPayrollClosureState({
+        activeClosures,
+        historyReady: true,
+        ignoreInProgress
+    });
 }
 
 export function togglePayrollPaidConfirmation(checked) {
-    const current = currentPayrollLoanSettlementState();
+    const current = currentPayrollClosureState();
     if (!checked) {
-        current.state.exportConfig.payrollPaidConfirmation = null;
+        stateManager.setState({
+            exportConfig: {
+                ...current.state.exportConfig,
+                payrollPaidConfirmation: null
+            }
+        });
         context.render();
         return;
     }
-    if (!current.gate.hasLoans || current.gate.invalidCount > 0 || current.activeBatch) {
+    if (!current.gate.hasRows || current.gate.invalidCount > 0 ||
+        !current.gate.payrollPaid && ['history-loading', 'history-error', 'in-progress', 'already-closed']
+            .includes(current.gate.reason)) {
         if (window.showNotification) {
-            window.showNotification('⚠️ Resuelve los préstamos y saldos de la vista previa antes de confirmar el pago.', 'warning');
+            window.showNotification('⚠️ Resolvé los saldos y verificá el historial antes de confirmar el pago.', 'warning');
         }
         context.render();
         return;
     }
-    current.state.exportConfig.payrollPaidConfirmation = confirmPayrollPaid(current.fingerprint);
+    stateManager.setState({
+        exportConfig: {
+            ...current.state.exportConfig,
+            payrollPaidConfirmation: confirmPayrollPaid(current.fingerprint)
+        }
+    });
     if (window.showNotification) {
         window.showNotification('✅ Nómina marcada como pagada para esta vista previa', 'success');
     }
@@ -1781,112 +1890,141 @@ function settlementOperatorId() {
     return globalThis.currentUser?.uid || globalThis.currentUser?.email || null;
 }
 
-export async function persistPayrollLoanSettlementMutation({ employees, batch, saveFn, now, recordedBy }) {
-    const snapshot = JSON.parse(JSON.stringify(employees));
-    try {
-        applyPayrollLoanSettlementBatch(employees, batch, { now, recordedBy });
-        await Promise.resolve(saveFn());
-    } catch (error) {
-        employees.splice(0, employees.length, ...snapshot);
-        throw error;
-    }
+export function preparePayrollCorrection(closureId) {
+    const current = currentPayrollClosureState();
+    const active = current.gate.activeClosure;
+    if (!active || String(active.id) !== String(closureId)) return;
+    stateManager.setState({
+        exportConfig: {
+            ...current.state.exportConfig,
+            payrollCorrectionSupersedesId: active.id
+        }
+    });
+    window.showNotification?.('Corrección preparada. El cierre anterior conservará su auditoría.', 'info');
+    context.render();
 }
 
-export function renderPersistedPayrollLoanSettlement(renderFn, onError = console.error) {
+export async function openPayrollClosure() {
+    if (payrollClosureInProgress) return;
+    payrollClosureInProgress = true;
     try {
-        renderFn();
-    } catch (error) {
-        onError('Los pagos se guardaron, pero la vista no pudo actualizarse.', error);
-    }
-}
-
-export async function openPayrollLoanSettlement() {
-    if (payrollLoanSettlementInProgress) return;
-    payrollLoanSettlementInProgress = true;
-    try {
-        const current = currentPayrollLoanSettlementState();
+        const current = await loadCurrentPayrollClosureState({ ignoreInProgress: true });
         if (!current.gate.enabled) {
-            if (window.showNotification) {
-                window.showNotification('⚠️ El cierre de préstamos todavía no está habilitado.', 'warning');
-            }
+            window.showNotification?.('⚠️ El cierre de nómina todavía no está habilitado.', 'warning');
             return;
         }
-        const draftBatch = buildPayrollLoanSettlementBatch({
+        const draft = buildPayrollClosureDraft({
             employees: current.state.employees,
             rows: current.rows,
             periodStart: current.state.exportConfig.periodStart,
             periodEnd: current.state.exportConfig.periodEnd,
-            createdAt: Date.now(),
-            recordedBy: settlementOperatorId()
+            periodSource: current.state.exportConfig.periodSource,
+            closedAt: Date.now(),
+            closedBy: settlementOperatorId(),
+            supersedesId: current.gate.nextSupersedesId
         });
-        const verified = await openPayrollLoanSettlementModal(draftBatch);
+        const verified = await openPayrollClosureModal(draft);
         if (!verified) return;
 
-        const latest = currentPayrollLoanSettlementState();
-        if (latest.fingerprint !== draftBatch.previewFingerprint ||
-            latest.state.exportConfig.payrollPaidConfirmation?.fingerprint !== draftBatch.previewFingerprint ||
-            latest.activeBatch) {
-            throw new Error('La vista previa cambió mientras se verificaban los pagos. Revísala y confirma la Nómina nuevamente.');
+        const latest = await loadCurrentPayrollClosureState({ ignoreInProgress: true });
+        if (!latest.gate.enabled || latest.fingerprint !== draft.closure.fingerprint) {
+            throw new Error('La vista previa cambió mientras se verificaba el cierre. Revisala y confirmá la Nómina nuevamente.');
         }
-        const batch = activatePayrollLoanSettlementBatch(draftBatch, Date.now());
-        await persistPayrollLoanSettlementMutation({
-            employees: latest.state.employees,
-            batch,
-            now: Date.now(),
-            recordedBy: settlementOperatorId(),
-            saveFn: () => context.saveToLocalStorage({
-                immediate: true,
-                announce: `Pagos de préstamos registrados: ${batch.total.toFixed(2)}`
-            })
-        });
 
-        const remainingUndoMs = Math.max(0, batch.undoUntil - Date.now());
-        if (remainingUndoMs > 0 && window.UndoManager?.push) {
-            try {
-                window.UndoManager.push(
-                    null,
-                    'pagos de préstamos de la Nómina',
-                    () => {
-                        undoPayrollLoanSettlementBatch(latest.state.employees, batch.id, {
-                            now: Date.now(), voidedBy: settlementOperatorId()
-                        });
-                        latest.state.exportConfig.payrollPaidConfirmation = null;
-                    },
-                    {
-                        timeoutMs: remainingUndoMs,
-                        saveOptions: { immediate: true, announce: 'Pagos de préstamos deshechos' }
-                    }
-                );
-            } catch (error) {
-                console.error('Los pagos se guardaron, pero no se pudo ofrecer deshacer.', error);
-            }
+        const closedAt = Date.now();
+        const employeeCopies = JSON.parse(JSON.stringify(latest.state.employees || []));
+        const finalized = buildPayrollClosureDraft({
+            employees: employeeCopies,
+            rows: latest.rows,
+            periodStart: latest.state.exportConfig.periodStart,
+            periodEnd: latest.state.exportConfig.periodEnd,
+            periodSource: latest.state.exportConfig.periodSource,
+            closedAt,
+            closedBy: settlementOperatorId(),
+            supersedesId: latest.gate.nextSupersedesId
+        });
+        if (finalized.batch) {
+            applyPayrollLoanSettlementBatch(employeeCopies, finalized.batch, {
+                now: closedAt,
+                recordedBy: settlementOperatorId()
+            });
         }
-        renderPersistedPayrollLoanSettlement(() => context.render());
+        const affectedIds = new Set(
+            (finalized.batch?.employees || []).map(item => String(item.employeeId))
+        );
+        const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
+        const savedClosure = await payrollClosureStore.saveWithEmployees(
+            finalized.closure,
+            affectedEmployees,
+            { enqueueCloud: true, queuedAt: closedAt }
+        );
+
+        const nextExportConfig = {
+            ...latest.state.exportConfig,
+            payrollPaidConfirmation: null,
+            payrollCorrectionSupersedesId: null,
+            payrollLoanSelection: []
+        };
+        stateManager.setState(finalized.batch
+            ? { employees: employeeCopies, exportConfig: nextExportConfig }
+            : { exportConfig: nextExportConfig });
+        updatePayrollPeriodClosureCache(savedClosure);
+
+        try {
+            await Promise.resolve(context.saveToLocalStorage({
+                immediate: true,
+                announce: `Nómina cerrada: ${savedClosure.totals.net.toFixed(2)}`
+            }));
+        } catch (error) {
+            console.warn('El cierre quedó guardado, pero el guardado general debe reintentarse:', error);
+            window.showNotification?.('⚠️ El cierre quedó local; la sincronización general se reintentará.', 'warning');
+        }
+        context.render();
     } catch (error) {
         await Modal.alert({
-            title: 'No se registraron los pagos',
-            message: escapeHTML(error?.message || 'La información cambió. Revisa la Nómina antes de intentarlo nuevamente.')
+            title: 'No se cerró la nómina',
+            message: escapeHTML(error?.message || 'La información cambió. Revisá la Nómina antes de intentarlo nuevamente.')
         });
     } finally {
-        payrollLoanSettlementInProgress = false;
+        payrollClosureInProgress = false;
+        context?.render?.();
     }
 }
 
-export async function undoPayrollLoanSettlement(batchId) {
+export async function undoPayrollClosure(closureId) {
     const state = getState();
     try {
-        const result = undoPayrollLoanSettlementBatch(state.employees, batchId, {
+        const closure = await payrollClosureStore.getById(closureId);
+        if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        const employeeCopies = JSON.parse(JSON.stringify(state.employees || []));
+        const result = undoPayrollClosureEffects(employeeCopies, closure, {
             now: Date.now(),
             voidedBy: settlementOperatorId()
         });
-        state.exportConfig.payrollPaidConfirmation = null;
+        const affectedIds = new Set((closure.paymentRefs || []).map(ref => String(ref.employeeId)));
+        const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
+        const savedClosure = await payrollClosureStore.saveWithEmployees(
+            result.closure,
+            affectedEmployees,
+            { enqueueCloud: true }
+        );
+        stateManager.setState({
+            employees: employeeCopies,
+            exportConfig: {
+                ...state.exportConfig,
+                payrollPaidConfirmation: null,
+                payrollCorrectionSupersedesId: null
+            }
+        });
+        updatePayrollPeriodClosureCache(savedClosure);
         await Promise.resolve(context.saveToLocalStorage({
             immediate: true,
-            announce: 'Pagos de préstamos deshechos'
+            announce: 'Cierre de nómina deshecho'
         }));
-        if (window.showNotification) {
-            window.showNotification(`↩️ ${result.voidedCount} pago(s) de préstamos fueron anulados`, 'info');
-        }
+        window.showNotification?.(
+            `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}`,
+            'info'
+        );
         context.render();
     } catch (error) {
         await Modal.alert({
@@ -1895,6 +2033,10 @@ export async function undoPayrollLoanSettlement(batchId) {
         });
     }
 }
+
+// Compatibility aliases for extensions that still call the previous loan-only API.
+export const openPayrollLoanSettlement = openPayrollClosure;
+export const undoPayrollLoanSettlement = undoPayrollClosure;
 
 export function setPayrollGuideStep(stepId) {
     const stepMap = {

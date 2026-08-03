@@ -544,6 +544,58 @@ export class IndexedDBService {
         });
     }
 
+    /**
+     * Atomically mutates one primary record and writes related record batches
+     * in other stores. Used by payroll closure so its loan balances and audit
+     * snapshot cannot diverge after a crash between local writes.
+     */
+    async atomicMutateWithBatches(storeName, key, mutator, batches = []) {
+        if (typeof mutator !== 'function') {
+            throw new TypeError('atomicMutateWithBatches requires a synchronous mutator');
+        }
+        const validBatches = (batches || []).filter(batch =>
+            batch?.storeName && Array.isArray(batch.records)
+        );
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const storeNames = [...new Set([storeName, ...validBatches.map(batch => batch.storeName)])];
+            const transaction = this.db.transaction(storeNames, 'readwrite');
+            const primaryStore = transaction.objectStore(storeName);
+            const request = primaryStore.get(key);
+            let result;
+            let mutationError = null;
+
+            request.onsuccess = () => {
+                try {
+                    result = mutator(request.result);
+                    if (!result || typeof result.write !== 'boolean' || !('value' in result)) {
+                        throw new TypeError('atomicMutateWithBatches mutator must return { write, value }');
+                    }
+                    if (result.write) primaryStore.put(this._serializeForIDB(result.value));
+                    for (const batch of validBatches) {
+                        const relatedStore = transaction.objectStore(batch.storeName);
+                        for (const record of batch.records) {
+                            relatedStore.put(this._serializeForIDB(record));
+                        }
+                    }
+                } catch (error) {
+                    mutationError = error;
+                    transaction.abort();
+                }
+            };
+            request.onerror = () => {
+                mutationError = request.error;
+            };
+            transaction.oncomplete = () => resolve(result.value);
+            transaction.onerror = () => reject(
+                mutationError || transaction.error || new Error(`Atomic batch mutation failed for ${storeName}`)
+            );
+            transaction.onabort = () => reject(
+                mutationError || transaction.error || new Error(`Atomic batch mutation aborted for ${storeName}`)
+            );
+        });
+    }
+
     async getAll(storeName) {
         await this.init();
         return new Promise((resolve, reject) => {

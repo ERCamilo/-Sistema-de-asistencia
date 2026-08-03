@@ -35,6 +35,7 @@ function closure(fingerprint, overrides = {}) {
 class MemoryDB {
     constructor() {
         this.records = new Map();
+        this.employeeRecords = new Map();
         this.mutationQueue = Promise.resolve();
     }
 
@@ -53,6 +54,23 @@ class MemoryDB {
             const existing = await this.get(_storeName, id);
             const result = mutator(existing);
             if (result.write) await this.update(_storeName, result.value);
+            return JSON.parse(JSON.stringify(result.value));
+        });
+        this.mutationQueue = operation.catch(() => {});
+        return operation;
+    }
+
+    async atomicMutateWithBatches(_storeName, id, mutator, batches = []) {
+        const operation = this.mutationQueue.then(async () => {
+            const existing = await this.get(_storeName, id);
+            const result = mutator(existing);
+            if (result.write) await this.update(_storeName, result.value);
+            for (const batch of batches) {
+                if (batch.storeName !== 'employees') continue;
+                for (const value of batch.records || []) {
+                    this.employeeRecords.set(value.id, JSON.parse(JSON.stringify(value)));
+                }
+            }
             return JSON.parse(JSON.stringify(result.value));
         });
         this.mutationQueue = operation.catch(() => {});
@@ -90,6 +108,7 @@ describe('PayrollClosureStore', () => {
         expect(IDB_SOURCE).toMatch(/payrollClosures:\s*await this\.getAll\(['"]payrollClosures['"]\)/);
         expect(IDB_SOURCE).toMatch(/batchUpdate\(['"]payrollClosures['"],\s*data\.payrollClosures\)/);
         expect(IDB_SOURCE).toMatch(/async atomicMutate\(/);
+        expect(IDB_SOURCE).toMatch(/async atomicMutateWithBatches\(/);
     });
 
     test('idempotently preserves the first audit metadata for the same closure', async () => {
@@ -133,6 +152,18 @@ describe('PayrollClosureStore', () => {
         });
     });
 
+    test('commits the closure and affected employees in the same local operation', async () => {
+        const db = new MemoryDB();
+        const store = new PayrollClosureStore({ db });
+        const original = closure('with-employees');
+        const employees = [{ id: 'employee-1', name: 'Ada', loans: [] }];
+
+        await store.saveWithEmployees(original, employees);
+
+        expect(db.records.get(original.id)).toMatchObject({ id: original.id });
+        expect(db.employeeRecords.get('employee-1')).toEqual(employees[0]);
+    });
+
     test('serializes concurrent voids and preserves the first audit actor', async () => {
         const db = new MemoryDB();
         const store = new PayrollClosureStore({ db });
@@ -171,6 +202,12 @@ describe('PayrollClosureStore', () => {
             .resolves.toEqual(expect.arrayContaining([
                 expect.objectContaining({ id: first.id }),
                 expect.objectContaining({ id: second.id })
+            ]));
+        await expect(store.getByPeriod('2026-08-01', '2026-08-15'))
+            .resolves.toEqual(expect.arrayContaining([
+                expect.objectContaining({ id: first.id }),
+                expect.objectContaining({ id: second.id }),
+                expect.objectContaining({ id: third.id, status: 'voided' })
             ]));
     });
 });

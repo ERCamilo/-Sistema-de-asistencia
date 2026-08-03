@@ -50,6 +50,34 @@ export class PayrollClosureStore {
         return clone(saved);
     }
 
+    async saveWithEmployees(closure, employees = [], { enqueueCloud = false, queuedAt = Date.now() } = {}) {
+        assertClosure(closure);
+        const incoming = {
+            ...clone(closure),
+            periodKey: periodKey(closure.periodStart, closure.periodEnd)
+        };
+        const batches = [{ storeName: 'employees', records: clone(employees || []) }];
+        if (enqueueCloud) {
+            batches.push({
+                storeName: 'mainSyncOutbox',
+                records: [{
+                    kind: 'payrollClosure',
+                    closureId: incoming.id,
+                    closure: incoming,
+                    ts: Number(queuedAt) || Date.now(),
+                    status: 'pending'
+                }]
+            });
+        }
+        const saved = await this.db.atomicMutateWithBatches(
+            PAYROLL_CLOSURE_STORE,
+            incoming.id,
+            existing => resolvePayrollClosureMutation(existing, incoming),
+            batches
+        );
+        return clone(saved);
+    }
+
     async getById(id) {
         return clone(await this.db.get(PAYROLL_CLOSURE_STORE, String(id || '')) || null);
     }
@@ -60,16 +88,20 @@ export class PayrollClosureStore {
         return this.save(voidPayrollClosure(existing, audit));
     }
 
-    async getActiveByPeriod(periodStart, periodEnd) {
+    async getByPeriod(periodStart, periodEnd) {
         const records = await this.db.query(
             PAYROLL_CLOSURE_STORE,
             'periodKey',
             periodKey(periodStart, periodEnd)
         );
         return (records || [])
-            .filter(item => item.status === PAYROLL_CLOSURE_STATUS.CLOSED)
             .sort((left, right) => Number(right.closedAt || 0) - Number(left.closedAt || 0))
             .map(clone);
+    }
+
+    async getActiveByPeriod(periodStart, periodEnd) {
+        const records = await this.getByPeriod(periodStart, periodEnd);
+        return records.filter(item => item.status === PAYROLL_CLOSURE_STATUS.CLOSED);
     }
 
     async listPage({ limit = 20, status = null, cursor = null } = {}) {
