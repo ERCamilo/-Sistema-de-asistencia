@@ -103,6 +103,34 @@ describe('Unified payroll closure workflow', () => {
         expect(current.closure.paymentRefs).toEqual(current.batch.paymentRefs);
     });
 
+    test('freezes applied adjustment rules and reports their reversal with the closure', () => {
+        const adjustedRow = {
+            ...row(),
+            _bonuses: 50,
+            _deductions: 20,
+            _brutoOriginal: 1000,
+            monto: 1030,
+            _bonusDetails: [{ id: 'BON-1', name: 'Premio', amount: 50 }],
+            _deductionDetails: [{ id: 'DED-1', name: 'Equipo', amount: 20 }]
+        };
+        const current = buildPayrollClosureDraft({
+            employees: [employee()],
+            rows: [adjustedRow],
+            bonuses: [{ id: 'BON-1', name: 'Premio', type: 'fixed', value: 50 }],
+            deductions: [{ id: 'DED-1', name: 'Equipo', type: 'fixed', value: 20 }],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 100
+        });
+
+        expect(current.closure.adjustments).toMatchObject({
+            bonuses: [{ id: 'BON-1', remembered: false }],
+            deductions: [{ id: 'DED-1', remembered: false }]
+        });
+        expect(undoPayrollClosureEffects([employee()], current.closure, { now: 110 }))
+            .toMatchObject({ voidedBonusCount: 1, voidedDeductionCount: 1 });
+    });
+
     test('uses one canonical snapshot for confirmation identity and immutable closure rows', () => {
         const base = row({ withLoan: true });
         base._bonusDetails = [{ name: 'Productividad', amount: 25 }];

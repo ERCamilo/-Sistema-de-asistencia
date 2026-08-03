@@ -37,6 +37,10 @@ import {
 } from './PayrollClosureWorkflow.js';
 import payrollClosureStore from './PayrollClosureStore.js';
 import payrollClosureSync from './PayrollClosureSync.js';
+import {
+    consumePayrollClosureAdjustments,
+    restorePayrollClosureAdjustments
+} from './PayrollClosureAdjustments.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
@@ -2166,6 +2170,8 @@ export async function openPayrollClosure() {
             periodSource: current.state.exportConfig.periodSource,
             closedAt: Date.now(),
             closedBy: settlementOperatorId(),
+            bonuses: current.state.exportConfig.bonuses,
+            deductions: current.state.exportConfig.deductions,
             supersedesId: current.gate.nextSupersedesId
         });
         const verified = await openPayrollClosureModal(draft);
@@ -2186,6 +2192,8 @@ export async function openPayrollClosure() {
             periodSource: latest.state.exportConfig.periodSource,
             closedAt,
             closedBy: settlementOperatorId(),
+            bonuses: latest.state.exportConfig.bonuses,
+            deductions: latest.state.exportConfig.deductions,
             supersedesId: latest.gate.nextSupersedesId
         });
         if (finalized.batch) {
@@ -2209,7 +2217,7 @@ export async function openPayrollClosure() {
         );
 
         const nextExportConfig = {
-            ...latest.state.exportConfig,
+            ...consumePayrollClosureAdjustments(latest.state.exportConfig, savedClosure),
             payrollPaidConfirmation: null,
             payrollCorrectionSupersedesId: null,
             payrollLoanSelection: []
@@ -2246,6 +2254,7 @@ export async function undoPayrollClosure(closureId) {
     try {
         const closure = await payrollClosureStore.getById(closureId);
         if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        const restoredExportConfig = restorePayrollClosureAdjustments(state.exportConfig, closure);
         const employeeCopies = JSON.parse(JSON.stringify(state.employees || []));
         const result = undoPayrollClosureEffects(employeeCopies, closure, {
             now: Date.now(),
@@ -2261,7 +2270,7 @@ export async function undoPayrollClosure(closureId) {
         stateManager.setState({
             employees: employeeCopies,
             exportConfig: {
-                ...state.exportConfig,
+                ...restoredExportConfig,
                 payrollPaidConfirmation: null,
                 payrollCorrectionSupersedesId: null
             }
@@ -2273,7 +2282,7 @@ export async function undoPayrollClosure(closureId) {
             announce: 'Cierre de nómina deshecho'
         }));
         window.showNotification?.(
-            `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}`,
+            `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}${result.voidedBonusCount || result.voidedDeductionCount ? ' · ajustes restaurados' : ''}`,
             'info'
         );
         context.render();

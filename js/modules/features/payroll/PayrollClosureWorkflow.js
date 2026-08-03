@@ -5,6 +5,7 @@ import {
     undoPayrollLoanSettlementBatch
 } from './PayrollLoanSettlement.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
+import { buildPayrollAdjustmentSnapshot } from './PayrollClosureAdjustments.js';
 
 function money(value) {
     return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
@@ -76,6 +77,8 @@ export function buildPayrollClosureDraft({
     periodSource = 'custom',
     closedAt = Date.now(),
     closedBy = null,
+    bonuses = [],
+    deductions = [],
     supersedesId = null
 } = {}) {
     const fingerprint = buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
@@ -98,6 +101,7 @@ export function buildPayrollClosureDraft({
         closedBy,
         loanSettlementBatchId: loanBatch?.id || null,
         paymentRefs: loanBatch?.paymentRefs || [],
+        adjustments: buildPayrollAdjustmentSnapshot({ rows, bonuses, deductions }),
         supersedesId
     });
     assertPayrollClosureSize(closure);
@@ -127,7 +131,15 @@ export function undoPayrollClosureEffects(employees, closure, {
     }
     return {
         closure: voidPayrollClosure(closure, { voidedAt: now, voidedBy, voidReason }),
-        voidedPaymentCount
+        voidedPaymentCount,
+        voidedBonusCount: (closure.rows || []).reduce(
+            (count, row) => count + (row.bonusDetails || []).length,
+            0
+        ),
+        voidedDeductionCount: (closure.rows || []).reduce(
+            (count, row) => count + (row.deductionDetails || []).length,
+            0
+        )
     };
 }
 
