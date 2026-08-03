@@ -36,6 +36,7 @@ import {
     undoPayrollClosureEffects
 } from './PayrollClosureWorkflow.js';
 import payrollClosureStore from './PayrollClosureStore.js';
+import payrollClosureSync from './PayrollClosureSync.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
 import {
@@ -65,6 +66,10 @@ let payrollPeriodClosureCache = {
 };
 let payrollHistoryState = {
     items: [],
+    pages: [],
+    pageIndex: 0,
+    page: 1,
+    hasPrevious: false,
     filters: { status: '', periodStart: '', periodEnd: '' },
     nextCursor: null,
     selectedClosure: null,
@@ -121,7 +126,8 @@ const _ACTION_MAP = {
     'prepare-payroll-correction': (closureId) => window.PayrollUI?.preparePayrollCorrection?.(closureId),
     'open-payroll-history-detail': (closureId) => window.PayrollUI?.openPayrollHistoryDetail?.(closureId),
     'close-payroll-history-detail': () => window.PayrollUI?.closePayrollHistoryDetail?.(),
-    'load-more-payroll-history': () => window.PayrollUI?.loadPayrollHistory?.({ append: true }),
+    'previous-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'previous' }),
+    'next-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'next' }),
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -225,6 +231,10 @@ function payrollPeriodKey(periodStart, periodEnd) {
     return `${String(periodStart || '')}:${String(periodEnd || '')}`;
 }
 
+function canUsePayrollRemote() {
+    return Boolean(globalThis.currentUser) && globalThis.navigator?.onLine !== false;
+}
+
 function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false } = {}) {
     const key = payrollPeriodKey(periodStart, periodEnd);
     if (payrollPeriodClosureCache.key !== key) {
@@ -241,7 +251,14 @@ function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false } 
     }
     payrollPeriodClosureCache.loading = true;
     payrollPeriodClosureCache.error = null;
-    payrollClosureStore.getByPeriod(periodStart, periodEnd)
+    Promise.resolve()
+        .then(async () => {
+            if (!canUsePayrollRemote()) {
+                throw new Error('No se puede verificar el historial remoto sin conexión.');
+            }
+            await payrollClosureSync.pullPeriod(periodStart, periodEnd);
+            return payrollClosureStore.getByPeriod(periodStart, periodEnd);
+        })
         .then(items => {
             if (payrollPeriodClosureCache.key !== key) return;
             payrollPeriodClosureCache = {
@@ -1856,6 +1873,10 @@ async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {})
     const state = getState();
     const periodStart = state.exportConfig.periodStart;
     const periodEnd = state.exportConfig.periodEnd;
+    if (!canUsePayrollRemote()) {
+        throw new Error('Conectate para verificar que este período no tenga un cierre remoto.');
+    }
+    await payrollClosureSync.pullPeriod(periodStart, periodEnd);
     const activeClosures = await payrollClosureStore.getByPeriod(
         periodStart,
         periodEnd
@@ -1914,35 +1935,107 @@ function PayrollHistoryTab() {
     return renderPayrollHistoryView(payrollHistoryState);
 }
 
-export async function loadPayrollHistory({ append = false, force = false } = {}) {
+function payrollHistorySummary(item = {}) {
+    const summary = { ...item };
+    delete summary.rows;
+    delete summary.paymentRefs;
+    delete summary.loanSettlementBatchId;
+    return summary;
+}
+
+export async function loadPayrollHistory({ direction = 'current', force = false } = {}) {
     if (payrollHistoryState.loading && !force) return;
+    if (direction === 'previous') {
+        const previousIndex = payrollHistoryState.pageIndex - 1;
+        const previous = payrollHistoryState.pages[previousIndex];
+        if (!previous) return;
+        payrollHistoryState = {
+            ...payrollHistoryState,
+            ...previous,
+            pageIndex: previousIndex,
+            page: previousIndex + 1,
+            hasPrevious: previousIndex > 0,
+            selectedClosure: null
+        };
+        context?.render?.();
+        return;
+    }
+    if (direction === 'next') {
+        const cachedIndex = payrollHistoryState.pageIndex + 1;
+        const cached = payrollHistoryState.pages[cachedIndex];
+        if (cached) {
+            payrollHistoryState = {
+                ...payrollHistoryState,
+                ...cached,
+                pageIndex: cachedIndex,
+                page: cachedIndex + 1,
+                hasPrevious: true,
+                selectedClosure: null
+            };
+            context?.render?.();
+            return;
+        }
+        if (!payrollHistoryState.nextCursor) return;
+    }
     const token = ++payrollHistoryLoadToken;
-    const cursor = append ? payrollHistoryState.nextCursor : null;
+    const cursor = direction === 'next' ? payrollHistoryState.nextCursor : null;
+    const targetIndex = direction === 'next' ? payrollHistoryState.pageIndex + 1 : 0;
     payrollHistoryState = {
         ...payrollHistoryState,
-        items: append ? payrollHistoryState.items : [],
-        nextCursor: append ? payrollHistoryState.nextCursor : null,
+        items: [],
+        pages: force ? [] : payrollHistoryState.pages,
+        nextCursor: null,
+        selectedClosure: null,
         loading: true,
         error: null
     };
     context?.render?.();
     try {
-        const page = await payrollClosureStore.listPage({
-            limit: 20,
-            status: payrollHistoryState.filters.status || null,
-            periodStart: payrollHistoryState.filters.periodStart || null,
-            periodEnd: payrollHistoryState.filters.periodEnd || null,
-            cursor
-        });
+        const page = canUsePayrollRemote()
+            ? await payrollClosureSync.pullPage({
+                limit: 10,
+                status: payrollHistoryState.filters.status || null,
+                cursor
+            })
+            : await payrollClosureStore.listPage({
+                limit: 10,
+                status: payrollHistoryState.filters.status || null,
+                periodStart: payrollHistoryState.filters.periodStart || null,
+                periodEnd: payrollHistoryState.filters.periodEnd || null,
+                cursor
+            });
         const syncStates = await payrollClosureStore.getSyncStates(page.items.map(item => item.id));
         if (token !== payrollHistoryLoadToken) return;
-        const items = page.items.map(item => ({
-            ...item,
+        const items = page.items.slice(0, 10).map(item => ({
+            ...payrollHistorySummary(item),
             syncStatus: syncStates[item.id] || 'synced'
         }));
+        if (direction === 'next' && items.length === 0) {
+            const currentIndex = payrollHistoryState.pageIndex;
+            const currentPage = payrollHistoryState.pages[currentIndex] || { items: [] };
+            const pages = [...payrollHistoryState.pages];
+            pages[currentIndex] = { ...currentPage, nextCursor: null };
+            payrollHistoryState = {
+                ...payrollHistoryState,
+                ...pages[currentIndex],
+                pages,
+                loading: false,
+                ready: true,
+                error: null
+            };
+            context?.render?.();
+            return;
+        }
+        const pageState = { items, nextCursor: page.nextCursor };
+        const pages = payrollHistoryState.pages.slice(0, targetIndex);
+        pages[targetIndex] = pageState;
         payrollHistoryState = {
             ...payrollHistoryState,
-            items: append ? [...payrollHistoryState.items, ...items] : items,
+            ...pageState,
+            pages,
+            pageIndex: targetIndex,
+            page: targetIndex + 1,
+            hasPrevious: targetIndex > 0,
             nextCursor: page.nextCursor,
             loading: false,
             ready: true,
@@ -1966,6 +2059,10 @@ export function setPayrollHistoryFilter(name, value) {
         ...payrollHistoryState,
         filters: { ...payrollHistoryState.filters, [name]: String(value || '') },
         selectedClosure: null,
+        pages: [],
+        pageIndex: 0,
+        page: 1,
+        hasPrevious: false,
         nextCursor: null,
         ready: false
     };
@@ -1987,16 +2084,12 @@ export async function openPayrollHistoryDetail(closureId) {
     if (!id) return;
     stateManager.setState({ payrollViewMode: 'history' });
     const loaded = payrollHistoryState.items.find(item => String(item.id) === id);
-    if (loaded) {
-        payrollHistoryState = { ...payrollHistoryState, selectedClosure: loaded };
-        context?.render?.();
-        focusPayrollHistoryControl('close-payroll-history-detail');
-        return;
-    }
     payrollHistoryState = { ...payrollHistoryState, loading: true, error: null };
     context?.render?.();
     try {
-        const closure = await payrollClosureStore.getById(id);
+        const closure = canUsePayrollRemote() && loaded?.syncStatus === 'synced'
+            ? await payrollClosureSync.pullDetail(id)
+            : await payrollClosureStore.getById(id);
         if (!closure) throw new Error('No se encontró el cierre en el historial local.');
         const syncStates = await payrollClosureStore.getSyncStates([id]);
         payrollHistoryState = {

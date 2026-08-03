@@ -24,8 +24,18 @@ export class PayrollClosureSync {
     }
 
     async pullPage(options = {}) {
-        const page = await this.remoteRepository.loadPage(options);
-        return { ...page, ...await this.importClosures(page.items) };
+        return this.remoteRepository.loadPage(options);
+    }
+
+    async pullDetail(id) {
+        const closure = await this.remoteRepository.loadById(id);
+        if (!closure) return null;
+        return this.localStore.save(closure);
+    }
+
+    async pullPeriod(periodStart, periodEnd) {
+        const closures = await this.remoteRepository.loadByPeriod(periodStart, periodEnd);
+        return { closures, ...await this.importClosures(closures) };
     }
 
     async importClosures(closures = []) {

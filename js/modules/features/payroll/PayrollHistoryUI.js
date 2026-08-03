@@ -67,11 +67,13 @@ export function renderPayrollHistoryView({
     loading = false,
     error = null,
     nextCursor = null,
+    page = 1,
+    hasPrevious = false,
     selectedClosure = null,
     now = Date.now()
 } = {}) {
     if (selectedClosure) return renderPayrollHistoryDetail(selectedClosure, { now });
-    const visible = filterPayrollClosureHistory(items, filters);
+    const visible = filterPayrollClosureHistory(items, filters).slice(0, 10);
     return `
         <section class="payroll-history" aria-labelledby="payroll-history-title">
             <header class="payroll-history__header">
@@ -109,12 +111,19 @@ export function renderPayrollHistoryView({
                     : ''}
                 ${loading ? '<div class="payroll-history__message">Cargando historial…</div>' : ''}
             </div>
-            ${nextCursor && !loading ? `
+            <nav class="payroll-history__pagination" aria-label="Páginas del historial">
                 <button type="button" class="payroll-history__more"
-                        data-payroll-action="load-more-payroll-history">
-                    Cargar más
+                        data-payroll-action="previous-payroll-history-page"
+                        ${hasPrevious && !loading ? '' : 'disabled'}>
+                    Anterior
                 </button>
-            ` : ''}
+                <span aria-live="polite">Página ${Math.max(1, Number(page) || 1)}</span>
+                <button type="button" class="payroll-history__more"
+                        data-payroll-action="next-payroll-history-page"
+                        ${nextCursor && !loading ? '' : 'disabled'}>
+                    Siguiente
+                </button>
+            </nav>
         </section>
     `;
 }

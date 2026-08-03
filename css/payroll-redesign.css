@@ -954,6 +954,19 @@
     cursor: pointer;
 }
 
+.payroll-history__pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #94a3b8;
+}
+
+.payroll-history__pagination .payroll-history__more:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .payroll-history-detail__back {
     margin: 0 0 16px;
 }
