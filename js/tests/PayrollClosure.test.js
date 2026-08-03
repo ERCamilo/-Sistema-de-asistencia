@@ -38,7 +38,7 @@ describe('PayrollClosure', () => {
         });
 
         expect(closure).toMatchObject({
-            schemaVersion: 1,
+            schemaVersion: 2,
             id: buildPayrollClosureId('preview-fingerprint'),
             fingerprint: 'preview-fingerprint',
             periodStart: '2026-08-01',

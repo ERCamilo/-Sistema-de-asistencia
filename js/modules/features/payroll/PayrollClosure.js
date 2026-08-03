@@ -1,4 +1,4 @@
-export const PAYROLL_CLOSURE_SCHEMA_VERSION = 1;
+export const PAYROLL_CLOSURE_SCHEMA_VERSION = 2;
 export const PAYROLL_CLOSURE_STATUS = Object.freeze({
     CLOSED: 'closed',
     VOIDED: 'voided'
@@ -86,6 +86,7 @@ function closureContent(closure = {}) {
         totals: clone(closure.totals || {}),
         employeeCount: Number(closure.employeeCount) || 0,
         rows: clone(closure.rows || []),
+        adjustments: clone(closure.adjustments || { bonuses: [], deductions: [] }),
         loanSettlementBatchId: closure.loanSettlementBatchId || null,
         paymentRefs: clone(closure.paymentRefs || []),
         supersedesId: closure.supersedesId || null
@@ -111,6 +112,7 @@ export function buildPayrollClosure({
     undoWindowMs = PAYROLL_CLOSURE_UNDO_WINDOW_MS,
     loanSettlementBatchId = null,
     paymentRefs = [],
+    adjustments = { bonuses: [], deductions: [] },
     supersedesId = null
 } = {}) {
     if (!text(periodStart) || !text(periodEnd)) {
@@ -159,6 +161,7 @@ export function buildPayrollClosure({
         totals,
         employeeCount: compactRows.length,
         rows: compactRows,
+        adjustments: clone(adjustments || { bonuses: [], deductions: [] }),
         loanSettlementBatchId: loanSettlementBatchId == null ? null : text(loanSettlementBatchId),
         paymentRefs: clone(paymentRefs || []),
         undoUntil: normalizedClosedAt + Math.max(0, Number(undoWindowMs) || 0),
