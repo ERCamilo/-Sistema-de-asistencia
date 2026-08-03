@@ -23,8 +23,7 @@ import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import {
     applyPayrollLoanSettlementBatch,
     buildPayrollPreviewFingerprint,
-    confirmPayrollPaid,
-    getClosedPayrollPreviewRows
+    confirmPayrollPaid
 } from './PayrollLoanSettlement.js';
 import {
     openPayrollClosureModal,
@@ -391,7 +390,7 @@ function PayrollGeneratorTab() {
     if (closureCache.error) {
         payrollClosureGate = { ...payrollClosureGate, enabled: false, reason: 'history-error' };
     }
-    schedulePayrollClosureUndoExpiry(payrollClosureGate.exactClosure);
+    schedulePayrollClosureUndoExpiry(payrollClosureGate.activeClosure || payrollClosureGate.exactClosure);
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
@@ -940,12 +939,6 @@ function generateExportData() {
     const state = getState();
     const { periodStart, periodEnd, deductions } = state.exportConfig;
     if (!periodStart || !periodEnd) return [];
-    const closedPreviewRows = getClosedPayrollPreviewRows(state.employees, periodStart, periodEnd);
-    if (closedPreviewRows) {
-        return closedPreviewRows.sort((a, b) =>
-            String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true })
-        );
-    }
 
     const filteredEmployees = getLeaderFilteredEmployees(state);
 

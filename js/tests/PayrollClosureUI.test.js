@@ -42,15 +42,20 @@ describe('Payroll closure UI', () => {
     });
 
     test('offers an explicit correction instead of overwriting an active period', () => {
+        const activeClosure = closure();
         document.body.innerHTML = renderPayrollClosurePanel({
             gate: gate({
                 payrollPaid: true,
                 reason: 'correction-required',
-                activeClosure: closure()
-            })
+                activeClosure
+            }),
+            now: Date.now()
         });
+        expect(document.body.textContent).toContain('Período cerrado');
         expect(document.querySelector('[data-payroll-action="prepare-payroll-correction"]'))
             .not.toBeNull();
+        expect(document.querySelector('[data-payroll-action="undo-payroll-closure"]')?.dataset.id)
+            .toBe(activeClosure.id);
         expect(document.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
     });
 
