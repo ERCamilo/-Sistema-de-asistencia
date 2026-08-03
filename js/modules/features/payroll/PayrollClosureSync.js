@@ -3,6 +3,25 @@ import payrollClosureStore from './PayrollClosureStore.js';
 import { PayrollClosureConflictError } from './PayrollClosureMerge.js';
 import { PayrollClosureRepository } from './PayrollClosureRepository.js';
 
+function normalizedPageSize(value) {
+    return Math.max(1, Math.min(10, Math.trunc(Number(value) || 10)));
+}
+
+function overlapsPeriod(closure, periodStart, periodEnd) {
+    const overlapsStart = !periodStart || String(closure?.periodEnd || '') >= String(periodStart);
+    const overlapsEnd = !periodEnd || String(closure?.periodStart || '') <= String(periodEnd);
+    return overlapsStart && overlapsEnd;
+}
+
+function cursorFor(closure) {
+    if (!closure?.id) return null;
+    return { closedAt: Number(closure.closedAt) || 0, id: String(closure.id) };
+}
+
+function cursorToken(cursor) {
+    return cursor ? `${Number(cursor.closedAt) || 0}:${String(cursor.id || '')}` : '';
+}
+
 export class PayrollClosureSync {
     constructor({
         localStore = payrollClosureStore,
@@ -24,7 +43,51 @@ export class PayrollClosureSync {
     }
 
     async pullPage(options = {}) {
-        return this.remoteRepository.loadPage(options);
+        const pageSize = normalizedPageSize(options.limit);
+        const periodStart = String(options.periodStart || '');
+        const periodEnd = String(options.periodEnd || '');
+        if (!periodStart && !periodEnd) {
+            return this.remoteRepository.loadPage({ ...options, limit: pageSize });
+        }
+
+        const items = [];
+        let cursor = options.cursor || null;
+        const visited = new Set();
+        while (items.length < pageSize) {
+            const token = cursorToken(cursor);
+            if (token && visited.has(token)) {
+                throw new Error('La paginación remota del historial no avanzó.');
+            }
+            if (token) visited.add(token);
+
+            const page = await this.remoteRepository.loadPage({
+                ...options,
+                limit: pageSize,
+                cursor
+            });
+            const remoteItems = Array.isArray(page?.items) ? page.items : [];
+            if (remoteItems.length === 0) return { items, nextCursor: null };
+
+            for (let index = 0; index < remoteItems.length; index++) {
+                const item = remoteItems[index];
+                const itemCursor = cursorFor(item);
+                if (!itemCursor) continue;
+                cursor = itemCursor;
+                if (!overlapsPeriod(item, periodStart, periodEnd)) continue;
+                items.push(item);
+                if (items.length === pageSize) {
+                    const hasUnscannedItems = index < remoteItems.length - 1;
+                    return {
+                        items,
+                        nextCursor: hasUnscannedItems || page.nextCursor ? itemCursor : null
+                    };
+                }
+            }
+
+            if (!page.nextCursor) return { items, nextCursor: null };
+            cursor = page.nextCursor;
+        }
+        return { items, nextCursor: cursor };
     }
 
     async pullDetail(id) {

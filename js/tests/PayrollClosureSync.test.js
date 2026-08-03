@@ -303,6 +303,41 @@ describe('Payroll closure outbox and pull sync', () => {
         });
     });
 
+    test('scans remote cursor pages until a date-filtered history page is filled', async () => {
+        const outside = closure('outside-period', {
+            periodStart: '2026-06-01',
+            periodEnd: '2026-06-15',
+            closedAt: 300
+        });
+        const matching = closure('matching-period', {
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 200
+        });
+        const remoteRepository = {
+            loadPage: jest.fn()
+                .mockResolvedValueOnce({
+                    items: [outside],
+                    nextCursor: { closedAt: outside.closedAt, id: outside.id }
+                })
+                .mockResolvedValueOnce({ items: [matching], nextCursor: null })
+        };
+        const sync = new PayrollClosureSync({
+            localStore: { save: jest.fn(async value => value) },
+            remoteRepository,
+            outbox: MainSyncStore
+        });
+
+        await expect(sync.pullPage({
+            limit: 10,
+            periodStart: '2026-08-10',
+            periodEnd: '2026-08-31'
+        })).resolves.toEqual({ items: [matching], nextCursor: null });
+        expect(remoteRepository.loadPage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            cursor: { closedAt: outside.closedAt, id: outside.id }
+        }));
+    });
+
     test('does not hydrate closure history or start a broad listener at login', () => {
         expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.start(');
         expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.stop(');
