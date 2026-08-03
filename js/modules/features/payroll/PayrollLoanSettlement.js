@@ -7,6 +7,7 @@ import {
     round2,
     voidPayment
 } from '../loans/LoansService.js';
+import { buildPayrollClosureSnapshot } from './PayrollClosure.js';
 
 export const PAYROLL_LOAN_UNDO_WINDOW_MS = 30_000;
 
@@ -29,35 +30,6 @@ function canonicalCharge(charge = {}) {
         amount: money(charge.amount),
         installmentSeq: installmentSequence(charge.installmentSeq),
         dueDate: text(charge.dueDate)
-    };
-}
-
-function canonicalLoan(loan = {}) {
-    return {
-        loanId: text(loan.loanId),
-        selectedAmount: money(loan.selectedAmount),
-        charges: (loan.selectedCharges || [])
-            .map(canonicalCharge)
-            .sort((a, b) => {
-                const seqA = a.installmentSeq ?? Number.MAX_SAFE_INTEGER;
-                const seqB = b.installmentSeq ?? Number.MAX_SAFE_INTEGER;
-                return seqA - seqB || a.dueDate.localeCompare(b.dueDate) || a.amount - b.amount;
-            })
-    };
-}
-
-function canonicalRow(row = {}) {
-    return {
-        employeeId: text(row._employeeId),
-        number: text(row._number ?? row.id),
-        gross: money(row._brutoOriginal),
-        bonuses: money(row._bonuses),
-        deductions: money(row._deductions),
-        loans: money(row._loans),
-        net: money(row.monto),
-        loanDetails: (row._loanDetails || [])
-            .map(canonicalLoan)
-            .sort((a, b) => a.loanId.localeCompare(b.loanId))
     };
 }
 
@@ -174,14 +146,7 @@ function sameCharge(expected, actual) {
  * probabilistic collision boundary.
  */
 export function buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows } = {}) {
-    const canonicalRows = (rows || [])
-        .map(canonicalRow)
-        .sort((a, b) => a.employeeId.localeCompare(b.employeeId) || a.number.localeCompare(b.number));
-    return JSON.stringify({
-        periodStart: text(periodStart),
-        periodEnd: text(periodEnd),
-        rows: canonicalRows
-    });
+    return JSON.stringify(buildPayrollClosureSnapshot({ periodStart, periodEnd, rows }));
 }
 
 export function confirmPayrollPaid(fingerprint, confirmedAt = Date.now()) {
