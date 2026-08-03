@@ -34,6 +34,19 @@ function stableToken(value) {
     return `${(first >>> 0).toString(36)}${(second >>> 0).toString(36)}`;
 }
 
+function canonicalValue(value) {
+    if (Array.isArray(value)) return value.map(canonicalValue);
+    if (value && typeof value === 'object') {
+        return Object.keys(value)
+            .sort()
+            .reduce((result, key) => {
+                if (value[key] !== undefined) result[key] = canonicalValue(value[key]);
+                return result;
+            }, {});
+    }
+    return value;
+}
+
 function compactRow(row = {}) {
     return {
         employeeId: text(row._employeeId),
@@ -45,9 +58,20 @@ function compactRow(row = {}) {
         deductions: money(row._deductions),
         loans: money(row._loans),
         net: money(row.monto),
-        bonusDetails: clone(row._bonusDetails || []),
-        deductionDetails: clone(row._deductionDetails || []),
-        loanDetails: clone(row._loanDetails || [])
+        bonusDetails: canonicalValue(row._bonusDetails || []),
+        deductionDetails: canonicalValue(row._deductionDetails || []),
+        loanDetails: canonicalValue(row._loanDetails || [])
+    };
+}
+
+export function buildPayrollClosureSnapshot({ periodStart, periodEnd, rows = [] } = {}) {
+    return {
+        periodStart: text(periodStart),
+        periodEnd: text(periodEnd),
+        rows: (rows || [])
+            .map(compactRow)
+            .sort((a, b) => a.employeeId.localeCompare(b.employeeId) ||
+                a.employeeNumber.localeCompare(b.employeeNumber, 'es', { numeric: true }))
     };
 }
 
@@ -103,10 +127,7 @@ export function buildPayrollClosure({
         throw new Error('Todos los empleados deben conservar un pago neto mayor que cero');
     }
 
-    const compactRows = rows
-        .map(compactRow)
-        .sort((a, b) => a.employeeId.localeCompare(b.employeeId) ||
-            a.employeeNumber.localeCompare(b.employeeNumber, 'es', { numeric: true }));
+    const compactRows = buildPayrollClosureSnapshot({ periodStart, periodEnd, rows }).rows;
     const employeeKeys = new Set();
     for (const row of compactRows) {
         const key = row.employeeId || `number:${row.employeeNumber}`;
@@ -176,6 +197,7 @@ export function voidPayrollClosure(closure, {
 export default {
     buildPayrollClosure,
     buildPayrollClosureId,
+    buildPayrollClosureSnapshot,
     isSamePayrollClosureContent,
     voidPayrollClosure
 };

@@ -4,7 +4,10 @@ import {
     getPayrollClosureGate,
     undoPayrollClosureEffects
 } from '../modules/features/payroll/PayrollClosureWorkflow.js';
-import { confirmPayrollPaid } from '../modules/features/payroll/PayrollLoanSettlement.js';
+import {
+    buildPayrollPreviewFingerprint,
+    confirmPayrollPaid
+} from '../modules/features/payroll/PayrollLoanSettlement.js';
 import { applyPayrollLoanSettlementBatch } from '../modules/features/payroll/PayrollLoanSettlement.js';
 
 function employee({ withLoan = false } = {}) {
@@ -98,6 +101,59 @@ describe('Unified payroll closure workflow', () => {
         expect(current.batch.closureId).toBe(current.closure.id);
         expect(current.closure.loanSettlementBatchId).toBe(current.batch.id);
         expect(current.closure.paymentRefs).toEqual(current.batch.paymentRefs);
+    });
+
+    test('uses one canonical snapshot for confirmation identity and immutable closure rows', () => {
+        const base = row({ withLoan: true });
+        base._bonusDetails = [{ name: 'Productividad', amount: 25 }];
+        base._deductionDetails = [{ name: 'Uniforme', amount: 10 }];
+        const fingerprint = buildPayrollPreviewFingerprint({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [base]
+        });
+        const current = buildPayrollClosureDraft({
+            employees: [employee({ withLoan: true })],
+            rows: [base],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15'
+        });
+
+        expect(JSON.parse(fingerprint).rows).toEqual(current.closure.rows);
+
+        const mutations = [
+            changed => { changed._employeeName = 'Ada Lovelace'; },
+            changed => { changed._number = '99'; },
+            changed => { changed._employeePosition = 'Supervisora'; },
+            changed => { changed._bonusDetails[0].name = 'Asistencia'; },
+            changed => { changed._deductionDetails[0].amount = 11; },
+            changed => { changed._loanDetails[0].concept = 'Equipo'; },
+            changed => { changed._loanDetails[0].installmentMode = 'installments'; },
+            changed => { changed._loanDetails[0].balance = 90; },
+            changed => { changed._loanDetails[0].selectedCharges[0].amount = 90; }
+        ];
+        for (const mutate of mutations) {
+            const changed = JSON.parse(JSON.stringify(base));
+            mutate(changed);
+            expect(buildPayrollPreviewFingerprint({
+                periodStart: '2026-08-01',
+                periodEnd: '2026-08-15',
+                rows: [changed]
+            })).not.toBe(fingerprint);
+        }
+
+        const second = {
+            ...JSON.parse(JSON.stringify(base)),
+            _employeeId: 'employee-2',
+            _number: '2'
+        };
+        const ordered = buildPayrollPreviewFingerprint({
+            periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [base, second]
+        });
+        const reversed = buildPayrollPreviewFingerprint({
+            periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [second, base]
+        });
+        expect(reversed).toBe(ordered);
     });
 
     test('blocks an exact duplicate and requires explicit correction for changed content', () => {
