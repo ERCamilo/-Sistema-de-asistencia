@@ -104,37 +104,61 @@ export class PayrollClosureStore {
         return records.filter(item => item.status === PAYROLL_CLOSURE_STATUS.CLOSED);
     }
 
-    async listPage({ limit = 20, status = null, cursor = null } = {}) {
+    async listPage({
+        limit = 20,
+        status = null,
+        cursor = null,
+        periodStart = null,
+        periodEnd = null
+    } = {}) {
         const normalizedLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 20)));
         const indexName = status ? 'statusClosedAtId' : 'closedAtId';
-        const options = {
-            limit: normalizedLimit + 1,
-            direction: 'prev',
-            cursor: cursor ? {
+        const normalizedCursor = cursor ? {
                 closedAt: Number(cursor.closedAt) || 0,
                 id: String(cursor.id || '')
-            } : null
+            } : null;
+        const fetchPage = async (pageLimit, pageCursor) => {
+            const options = {
+                limit: pageLimit,
+                direction: 'prev',
+                cursor: pageCursor
+            };
+            if (status) {
+                options.prefix = String(status);
+                options.lowerBound = [options.prefix, Number.MIN_SAFE_INTEGER, ''];
+                options.upperBound = [
+                    options.prefix,
+                    pageCursor?.closedAt ?? Number.MAX_SAFE_INTEGER,
+                    pageCursor?.id || '\uffff'
+                ];
+                options.upperOpen = Boolean(pageCursor);
+            } else if (pageCursor) {
+                options.upperBound = [pageCursor.closedAt, pageCursor.id];
+                options.upperOpen = true;
+            }
+            return this.db.getPageByIndex(PAYROLL_CLOSURE_STORE, indexName, options);
         };
-
-        if (status) {
-            options.prefix = String(status);
-            options.lowerBound = [options.prefix, Number.MIN_SAFE_INTEGER, ''];
-            options.upperBound = [
-                options.prefix,
-                options.cursor?.closedAt ?? Number.MAX_SAFE_INTEGER,
-                options.cursor?.id || '\uffff'
-            ];
-            options.upperOpen = Boolean(options.cursor);
-        } else if (options.cursor) {
-            options.upperBound = [options.cursor.closedAt, options.cursor.id];
-            options.upperOpen = true;
+        const hasPeriodFilter = Boolean(periodStart || periodEnd);
+        let records;
+        if (!hasPeriodFilter) {
+            records = await fetchPage(normalizedLimit + 1, normalizedCursor);
+        } else {
+            records = [];
+            let scanCursor = normalizedCursor;
+            const scanLimit = 100;
+            while (records.length <= normalizedLimit) {
+                const page = await fetchPage(scanLimit, scanCursor);
+                if (page.length === 0) break;
+                for (const item of page) {
+                    scanCursor = { closedAt: Number(item.closedAt) || 0, id: String(item.id) };
+                    const overlapsStart = !periodStart || String(item.periodEnd || '') >= String(periodStart);
+                    const overlapsEnd = !periodEnd || String(item.periodStart || '') <= String(periodEnd);
+                    if (overlapsStart && overlapsEnd) records.push(item);
+                    if (records.length > normalizedLimit) break;
+                }
+                if (records.length > normalizedLimit || page.length < scanLimit) break;
+            }
         }
-
-        const records = await this.db.getPageByIndex(
-            PAYROLL_CLOSURE_STORE,
-            indexName,
-            options
-        );
         const hasMore = records.length > normalizedLimit;
         const items = records.slice(0, normalizedLimit).map(clone);
         const last = items.at(-1);
@@ -144,6 +168,21 @@ export class PayrollClosureStore {
                 ? { closedAt: Number(last.closedAt) || 0, id: String(last.id) }
                 : null
         };
+    }
+
+    async getSyncStates(closureIds = []) {
+        const ids = [...new Set((closureIds || []).map(String).filter(Boolean))];
+        const states = Object.fromEntries(ids.map(id => [id, 'synced']));
+        if (ids.length === 0) return states;
+        const wanted = new Set(ids);
+        const entries = await this.db.getAll('mainSyncOutbox').catch(() => []);
+        for (const entry of entries || []) {
+            const id = String(entry?.closureId || '');
+            if (entry?.kind !== 'payrollClosure' || !wanted.has(id)) continue;
+            if (entry.status === 'dead') states[id] = 'dead';
+            else if (entry.status === 'pending' && states[id] !== 'dead') states[id] = 'pending';
+        }
+        return states;
     }
 }
 

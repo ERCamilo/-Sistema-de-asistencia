@@ -95,6 +95,14 @@ class MemoryDB {
         }
         return values.slice(0, options.limit).map(item => JSON.parse(JSON.stringify(item)));
     }
+
+    async getAll(storeName) {
+        if (storeName !== 'mainSyncOutbox') return [];
+        return [
+            { kind: 'payrollClosure', closureId: 'pending-id', status: 'pending' },
+            { kind: 'payrollClosure', closureId: 'dead-id', status: 'dead' }
+        ];
+    }
 }
 
 describe('PayrollClosureStore', () => {
@@ -209,5 +217,30 @@ describe('PayrollClosureStore', () => {
                 expect.objectContaining({ id: second.id }),
                 expect.objectContaining({ id: third.id, status: 'voided' })
             ]));
+    });
+
+    test('filters pages by overlapping payroll period and exposes local sync state', async () => {
+        const db = new MemoryDB();
+        const store = new PayrollClosureStore({ db });
+        const july = closure('july', {
+            periodStart: '2026-07-01', periodEnd: '2026-07-15', closedAt: 100
+        });
+        const august = closure('august', {
+            periodStart: '2026-08-01', periodEnd: '2026-08-15', closedAt: 200
+        });
+        await store.save(july);
+        await store.save(august);
+
+        await expect(store.listPage({
+            limit: 20,
+            periodStart: '2026-08-10',
+            periodEnd: '2026-08-31'
+        })).resolves.toMatchObject({ items: [{ id: august.id }], nextCursor: null });
+        await expect(store.getSyncStates(['pending-id', 'dead-id', 'synced-id']))
+            .resolves.toEqual({
+                'pending-id': 'pending',
+                'dead-id': 'dead',
+                'synced-id': 'synced'
+            });
     });
 });
