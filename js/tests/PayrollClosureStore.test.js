@@ -64,11 +64,13 @@ class MemoryDB {
         const operation = this.mutationQueue.then(async () => {
             const existing = await this.get(_storeName, id);
             const result = mutator(existing);
-            if (result.write) await this.update(_storeName, result.value);
-            for (const batch of batches) {
-                if (batch.storeName !== 'employees') continue;
-                for (const value of batch.records || []) {
-                    this.employeeRecords.set(value.id, JSON.parse(JSON.stringify(value)));
+            if (result.write) {
+                await this.update(_storeName, result.value);
+                for (const batch of batches) {
+                    if (batch.storeName !== 'employees') continue;
+                    for (const value of batch.records || []) {
+                        this.employeeRecords.set(value.id, JSON.parse(JSON.stringify(value)));
+                    }
                 }
             }
             return JSON.parse(JSON.stringify(result.value));
@@ -170,6 +172,16 @@ describe('PayrollClosureStore', () => {
 
         expect(db.records.get(original.id)).toMatchObject({ id: original.id });
         expect(db.employeeRecords.get('employee-1')).toEqual(employees[0]);
+    });
+
+    test('an idempotent closure retry does not rewrite related employees', async () => {
+        const db = new MemoryDB();
+        const store = new PayrollClosureStore({ db });
+        const original = closure('stable-related-records');
+        await store.saveWithEmployees(original, [{ id: 'employee-1', name: 'Ada' }]);
+        await store.saveWithEmployees(original, [{ id: 'employee-1', name: 'Stale copy' }]);
+
+        expect(db.employeeRecords.get('employee-1')).toEqual({ id: 'employee-1', name: 'Ada' });
     });
 
     test('serializes concurrent voids and preserves the first audit actor', async () => {

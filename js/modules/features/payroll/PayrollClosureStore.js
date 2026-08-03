@@ -6,6 +6,7 @@ import {
 import {
     resolvePayrollClosureMutation
 } from './PayrollClosureMerge.js';
+import { assertPayrollClosureSize } from './PayrollClosureSize.js';
 
 export { PayrollClosureConflictError } from './PayrollClosureMerge.js';
 
@@ -38,6 +39,7 @@ export class PayrollClosureStore {
 
     async save(closure) {
         assertClosure(closure);
+        assertPayrollClosureSize(closure);
         const incoming = {
             ...clone(closure),
             periodKey: periodKey(closure.periodStart, closure.periodEnd)
@@ -52,6 +54,7 @@ export class PayrollClosureStore {
 
     async saveWithEmployees(closure, employees = [], { enqueueCloud = false, queuedAt = Date.now() } = {}) {
         assertClosure(closure);
+        assertPayrollClosureSize(closure);
         const incoming = {
             ...clone(closure),
             periodKey: periodKey(closure.periodStart, closure.periodEnd)

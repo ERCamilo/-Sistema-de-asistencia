@@ -479,7 +479,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
     return { batch, payments, createdCount, restoredCount };
 }
 
-export function findPayrollLoanSettlementBatch(employees, {
+export function listPayrollLoanSettlementBatches(employees, {
     periodStart = null,
     periodEnd = null,
     previewFingerprint = null,
@@ -526,12 +526,18 @@ export function findPayrollLoanSettlementBatch(employees, {
         const incomplete = expectedCount === 0 || missingPaymentCount > 0;
         const voided = !incomplete && foundExpected.length > 0 &&
             foundExpected.every(({ payment }) => payment.voided === true);
+        const voidedPayment = voided
+            ? foundExpected.map(entry => entry.payment)
+                .sort((left, right) => Number(right.voidedAt || 0) - Number(left.voidedAt || 0))[0]
+            : null;
         return {
             ...snapshot,
             id,
             incomplete,
             missingPaymentCount,
-            voided
+            voided,
+            voidedAt: voidedPayment ? Number(voidedPayment.voidedAt || voidedPayment.updatedAt || 0) : null,
+            voidedBy: voidedPayment?.voidedBy ?? null
         };
     })
         .filter(batch => !batchId || text(batch.id) === text(batchId))
@@ -539,7 +545,11 @@ export function findPayrollLoanSettlementBatch(employees, {
         .filter(batch => !periodEnd || text(batch.periodEnd) === text(periodEnd))
         .filter(batch => !previewFingerprint || batch.previewFingerprint === previewFingerprint)
         .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
-    return candidates[0] || null;
+    return candidates;
+}
+
+export function findPayrollLoanSettlementBatch(employees, filters = {}) {
+    return listPayrollLoanSettlementBatches(employees, filters)[0] || null;
 }
 
 export function getClosedPayrollPreviewRows(employees, periodStart, periodEnd) {
@@ -586,6 +596,7 @@ export default {
     buildPayrollLoanSettlementBatch,
     activatePayrollLoanSettlementBatch,
     applyPayrollLoanSettlementBatch,
+    listPayrollLoanSettlementBatches,
     findPayrollLoanSettlementBatch,
     getClosedPayrollPreviewRows,
     undoPayrollLoanSettlementBatch

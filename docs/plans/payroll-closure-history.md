@@ -96,7 +96,7 @@ El cierre será una entidad independiente de los empleados y de los lotes de pr�
 
 ### Invariantes
 
-- `id` se deriva del `fingerprint`; reintentar el mismo cierre es idempotente.
+- `id` se deriva del `fingerprint` y, para correcciones o recierres anulados, del cierre predecesor; reintentar el mismo cierre es idempotente sin revivir auditorías anuladas.
 - Las filas y los totales no cambian después de crear el cierre.
 - Los nombres, números y posiciones se guardan como texto histórico; cambios posteriores en empleados no alteran el cierre.
 - `status = voided` conserva el registro y exige fecha, usuario y motivo.
@@ -344,16 +344,16 @@ Cada commit debe registrar:
 
 ## Criterios de aceptación
 
-- [ ] La vista previa nunca se reemplaza por una instantánea cerrada.
-- [ ] Toda nómina válida puede cerrarse, con o sin préstamos.
-- [ ] Los pagos de préstamos quedan vinculados a un cierre y no se duplican.
-- [ ] El Historial muestra la instantánea exacta aunque cambien empleados, préstamos o asistencia.
-- [ ] Un cierre no puede editarse ni eliminarse físicamente desde la aplicación.
-- [ ] Una corrección conserva el cierre anterior y registra la relación entre ambos.
-- [ ] La información funciona offline y se sincroniza posteriormente.
-- [ ] Los cierres existentes con préstamos se migran sin duplicados.
-- [ ] Las nóminas antiguas sin evidencia persistida no se inventan ni se reconstruyen parcialmente.
-- [ ] Las pruebas automáticas, el control de estado y la revisión responsive terminan sin errores.
+- [x] La vista previa nunca se reemplaza por una instantánea cerrada.
+- [x] Toda nómina válida puede cerrarse, con o sin préstamos.
+- [x] Los pagos de préstamos quedan vinculados a un cierre y no se duplican.
+- [x] El Historial muestra la instantánea exacta aunque cambien empleados, préstamos o asistencia.
+- [x] Un cierre no puede editarse ni eliminarse físicamente desde la aplicación.
+- [x] Una corrección conserva el cierre anterior y registra la relación entre ambos.
+- [x] La información funciona offline y se sincroniza posteriormente.
+- [x] Los cierres existentes con préstamos se migran sin duplicados.
+- [x] Las nóminas antiguas sin evidencia persistida no se inventan ni se reconstruyen parcialmente.
+- [x] Las pruebas automáticas, el control de estado y la revisión responsive terminan sin errores.
 
 ## Fuera de alcance inicial
 

@@ -4,6 +4,7 @@ import {
     buildPayrollPreviewFingerprint,
     undoPayrollLoanSettlementBatch
 } from './PayrollLoanSettlement.js';
+import { assertPayrollClosureSize } from './PayrollClosureSize.js';
 
 function money(value) {
     return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
@@ -99,6 +100,7 @@ export function buildPayrollClosureDraft({
         paymentRefs: loanBatch?.paymentRefs || [],
         supersedesId
     });
+    assertPayrollClosureSize(closure);
     return {
         closure,
         batch: loanBatch ? { ...loanBatch, closureId: closure.id } : null

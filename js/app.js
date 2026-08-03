@@ -62,6 +62,7 @@ import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusB
 import { SyncStatus } from './modules/services/SyncStatus.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
 import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
+import { migrateLegacyPayrollClosures } from './modules/features/payroll/PayrollClosureMigration.js';
 
 // ... (Resto de importaciones existentes)
 import * as EmployeesUI from './modules/features/employees/EmployeesUI.js';
@@ -7021,6 +7022,11 @@ function _initOutgoingConflictGuard() {
         // 1.2 Migrar emp.advances[] (legacy) → emp.loans[] (Sprint loans, 2026-05-20).
         // Idempotent. Only writes back to DB if at least one record was migrated.
         migrateAllAdvances();
+        try {
+            await migrateLegacyPayrollClosures(state.employees);
+        } catch (error) {
+            console.warn('No se pudo completar la migración local del historial de nómina:', error?.name || 'Error');
+        }
 
         // 2. Aplicar configuraciones de interfaz
         state.settings.iconSet = applyIconSet(state.settings.iconSet);

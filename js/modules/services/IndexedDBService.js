@@ -571,11 +571,13 @@ export class IndexedDBService {
                     if (!result || typeof result.write !== 'boolean' || !('value' in result)) {
                         throw new TypeError('atomicMutateWithBatches mutator must return { write, value }');
                     }
-                    if (result.write) primaryStore.put(this._serializeForIDB(result.value));
-                    for (const batch of validBatches) {
-                        const relatedStore = transaction.objectStore(batch.storeName);
-                        for (const record of batch.records) {
-                            relatedStore.put(this._serializeForIDB(record));
+                    if (result.write) {
+                        primaryStore.put(this._serializeForIDB(result.value));
+                        for (const batch of validBatches) {
+                            const relatedStore = transaction.objectStore(batch.storeName);
+                            for (const record of batch.records) {
+                                relatedStore.put(this._serializeForIDB(record));
+                            }
                         }
                     }
                 } catch (error) {
