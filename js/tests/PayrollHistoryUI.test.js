@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import {
+    calculatePayrollHistoryNet,
     filterPayrollClosureHistory,
     renderPayrollHistoryDetail,
     renderPayrollHistoryView
@@ -101,6 +102,62 @@ describe('Payroll history UI', () => {
         expect(document.body.textContent).toContain('<svg onload=alert(1)>');
     });
 
+    test('uses frozen organization data, number order and current-number references', () => {
+        const first = closure().rows[0];
+        document.body.innerHTML = renderPayrollHistoryDetail(closure({
+            employeeCount: 2,
+            rows: [
+                { ...first, employeeId: 'employee-10', employeeNumber: '10', employeeName: 'Zoe' },
+                {
+                    ...first,
+                    employeeId: 'employee-1',
+                    employeeNumber: '2',
+                    employeeName: 'Ada',
+                    employeePosition: 'Ayudante histórica',
+                    leaderRefs: [{ id: 'leader-1', number: '7', name: 'Marta histórica' }]
+                }
+            ]
+        }), {
+            currentEmployees: [{ id: 'employee-1', number: '99', name: 'Ada actual' }]
+        });
+
+        const employeeCells = [...document.querySelectorAll('tbody th')];
+        expect(employeeCells[0].textContent).toContain('#2');
+        expect(employeeCells[0].textContent).toContain('Actual #99');
+        expect(document.body.textContent).toContain('Ayudante histórica');
+        expect(document.body.textContent).toContain('Marta histórica');
+    });
+
+    test('filters historical employees by frozen leader and simulates net components', () => {
+        const base = closure().rows[0];
+        const detail = closure({
+            employeeCount: 2,
+            rows: [
+                { ...base, employeeId: 'one', employeeNumber: '1', leaderRefs: [{ id: 'leader-1', name: 'Marta' }] },
+                { ...base, employeeId: 'two', employeeNumber: '2', employeeName: 'Grace', leaderRefs: [{ id: 'leader-2', name: 'Linus' }] }
+            ]
+        });
+        document.body.innerHTML = renderPayrollHistoryDetail(detail, {
+            detailFilters: {
+                leaderId: 'leader-1',
+                includeBonuses: false,
+                includeDeductions: false,
+                includeLoans: false
+            }
+        });
+
+        expect(document.querySelectorAll('tbody tr')).toHaveLength(1);
+        expect(document.body.textContent).not.toContain('Grace');
+        expect(document.body.textContent).toContain('Neto simulado');
+        expect(calculatePayrollHistoryNet(base, {
+            includeBonuses: false,
+            includeDeductions: false,
+            includeLoans: false
+        })).toBe(1200);
+        expect(document.querySelector('[data-payroll-history-detail-filter="leaderId"]').value)
+            .toBe('leader-1');
+    });
+
     test('wires a third top-level mode, delegated controls and mobile layout', () => {
         expect(PAYROLL_UI_SOURCE).toContain("data-value=\"history\"");
         expect(PAYROLL_UI_SOURCE).toContain("mode === 'history'");
@@ -114,6 +171,7 @@ describe('Payroll history UI', () => {
         expect(PAYROLL_UI_SOURCE).toContain('payrollClosureSync.pullDetail(id)');
         expect(PAYROLL_UI_SOURCE).toContain('payrollClosureSync.pullPeriod(');
         expect(PAYROLL_UI_SOURCE).toContain('focusPayrollHistoryControl');
+        expect(PAYROLL_UI_SOURCE).toContain('setPayrollHistoryDetailFilter');
         expect(PAYROLL_CSS_SOURCE).toMatch(/@media[^}]*max-width:\s*700px[\s\S]*\.payroll-history/m);
     });
 });

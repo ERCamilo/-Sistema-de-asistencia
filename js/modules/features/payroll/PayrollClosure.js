@@ -48,11 +48,21 @@ function canonicalValue(value) {
 }
 
 function compactRow(row = {}) {
+    const leaderRefs = (row._leaderRefs || [])
+        .filter(leader => leader?.id)
+        .map(leader => ({
+            id: text(leader.id),
+            name: text(leader.name),
+            number: text(leader.number)
+        }))
+        .sort((left, right) => left.number.localeCompare(right.number, 'es', { numeric: true }) ||
+            left.name.localeCompare(right.name, 'es') || left.id.localeCompare(right.id));
     return {
         employeeId: text(row._employeeId),
         employeeNumber: text(row._number ?? row.id),
         employeeName: text(row._employeeName),
         employeePosition: text(row._employeePosition),
+        leaderRefs,
         gross: money(row._brutoOriginal),
         bonuses: money(row._bonuses),
         deductions: money(row._deductions),
@@ -70,8 +80,8 @@ export function buildPayrollClosureSnapshot({ periodStart, periodEnd, rows = [] 
         periodEnd: text(periodEnd),
         rows: (rows || [])
             .map(compactRow)
-            .sort((a, b) => a.employeeId.localeCompare(b.employeeId) ||
-                a.employeeNumber.localeCompare(b.employeeNumber, 'es', { numeric: true }))
+            .sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber, 'es', { numeric: true }) ||
+                a.employeeId.localeCompare(b.employeeId))
     };
 }
 

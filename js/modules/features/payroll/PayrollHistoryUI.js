@@ -9,6 +9,52 @@ function hasAmount(rows, key) {
     return (rows || []).some(row => Math.abs(Number(row?.[key]) || 0) >= 0.005);
 }
 
+function money(value) {
+    return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function normalizeDetailFilters(filters = {}) {
+    return {
+        leaderId: String(filters.leaderId || ''),
+        includeBonuses: filters.includeBonuses !== false,
+        includeDeductions: filters.includeDeductions !== false,
+        includeLoans: filters.includeLoans !== false
+    };
+}
+
+export function calculatePayrollHistoryNet(row = {}, filters = {}) {
+    const normalized = normalizeDetailFilters(filters);
+    return money(
+        (Number(row.gross) || 0) +
+        (normalized.includeBonuses ? Number(row.bonuses) || 0 : 0) -
+        (normalized.includeDeductions ? Number(row.deductions) || 0 : 0) -
+        (normalized.includeLoans ? Number(row.loans) || 0 : 0)
+    );
+}
+
+function sortHistoryRows(rows = []) {
+    return [...rows].sort((left, right) =>
+        String(left.employeeNumber || '').localeCompare(
+            String(right.employeeNumber || ''),
+            'es',
+            { numeric: true }
+        ) || String(left.employeeId || '').localeCompare(String(right.employeeId || ''))
+    );
+}
+
+function historyLeaders(rows = []) {
+    const leaders = new Map();
+    for (const row of rows) {
+        for (const leader of row.leaderRefs || []) {
+            if (leader?.id && !leaders.has(String(leader.id))) leaders.set(String(leader.id), leader);
+        }
+    }
+    return [...leaders.values()].sort((left, right) =>
+        String(left.number || '').localeCompare(String(right.number || ''), 'es', { numeric: true }) ||
+        String(left.name || '').localeCompare(String(right.name || ''), 'es')
+    );
+}
+
 function formatDateTime(value) {
     const date = new Date(Number(value));
     if (!Number.isFinite(date.getTime())) return 'Sin fecha';
@@ -70,9 +116,15 @@ export function renderPayrollHistoryView({
     page = 1,
     hasPrevious = false,
     selectedClosure = null,
+    currentEmployees = [],
+    detailFilters = {},
     now = Date.now()
 } = {}) {
-    if (selectedClosure) return renderPayrollHistoryDetail(selectedClosure, { now });
+    if (selectedClosure) return renderPayrollHistoryDetail(selectedClosure, {
+        now,
+        currentEmployees,
+        detailFilters
+    });
     const visible = filterPayrollClosureHistory(items, filters).slice(0, 10);
     return `
         <section class="payroll-history" aria-labelledby="payroll-history-title">
@@ -128,12 +180,31 @@ export function renderPayrollHistoryView({
     `;
 }
 
-export function renderPayrollHistoryDetail(closure, { now = Date.now() } = {}) {
+export function renderPayrollHistoryDetail(closure, {
+    now = Date.now(),
+    currentEmployees = [],
+    detailFilters = {}
+} = {}) {
     if (!closure) return '<div class="payroll-history__message">No se encontró el cierre.</div>';
-    const rows = closure.rows || [];
+    const filters = normalizeDetailFilters(detailFilters);
+    const allRows = sortHistoryRows(closure.rows || []);
+    const leaders = historyLeaders(allRows);
+    const rows = filters.leaderId
+        ? allRows.filter(row => (row.leaderRefs || []).some(leader => String(leader.id) === filters.leaderId))
+        : allRows;
     const showBonuses = hasAmount(rows, 'bonuses');
     const showDeductions = hasAmount(rows, 'deductions');
     const showLoans = hasAmount(rows, 'loans');
+    const isSimulation = !filters.includeBonuses || !filters.includeDeductions || !filters.includeLoans;
+    const visibleTotals = rows.reduce((totals, row) => ({
+        gross: money(totals.gross + (Number(row.gross) || 0)),
+        bonuses: money(totals.bonuses + (Number(row.bonuses) || 0)),
+        deductions: money(totals.deductions + (Number(row.deductions) || 0)),
+        loans: money(totals.loans + (Number(row.loans) || 0)),
+        net: money(totals.net + (Number(row.net) || 0)),
+        simulatedNet: money(totals.simulatedNet + calculatePayrollHistoryNet(row, filters))
+    }), { gross: 0, bonuses: 0, deductions: 0, loans: 0, net: 0, simulatedNet: 0 });
+    const currentById = new Map((currentEmployees || []).map(employee => [String(employee.id), employee]));
     const canUndo = closure.status === 'closed' && Number(now) <= Number(closure.undoUntil || 0);
     return `
         <section class="payroll-history payroll-history-detail" aria-labelledby="payroll-history-detail-title">
@@ -161,12 +232,32 @@ export function renderPayrollHistoryDetail(closure, { now = Date.now() } = {}) {
             <div class="payroll-history-detail__notice" role="note">
                 Este es un registro histórico inmutable. Los datos actuales del empleado no lo modifican.
             </div>
+            <div class="payroll-history-detail__controls" aria-label="Filtros y simulación del detalle">
+                <label>
+                    <span>Líder histórico</span>
+                    <select class="form-input" data-payroll-history-detail-filter="leaderId">
+                        <option value="" ${filters.leaderId ? '' : 'selected'}>Todos</option>
+                        ${leaders.map(leader => `
+                            <option value="${text(leader.id)}" ${filters.leaderId === String(leader.id) ? 'selected' : ''}>
+                                ${leader.number ? `#${text(leader.number)} · ` : ''}${text(leader.name || 'Sin nombre')}
+                            </option>
+                        `).join('')}
+                    </select>
+                </label>
+                <fieldset>
+                    <legend>Calcular neto incluyendo</legend>
+                    <label><input type="checkbox" data-payroll-history-detail-filter="includeBonuses" ${filters.includeBonuses ? 'checked' : ''}> Bonificaciones</label>
+                    <label><input type="checkbox" data-payroll-history-detail-filter="includeDeductions" ${filters.includeDeductions ? 'checked' : ''}> Deducciones</label>
+                    <label><input type="checkbox" data-payroll-history-detail-filter="includeLoans" ${filters.includeLoans ? 'checked' : ''}> Préstamos</label>
+                </fieldset>
+            </div>
             <div class="payroll-history-detail__totals">
-                <span><small>Bruto</small><strong>${formatCurrency(closure.totals?.gross)}</strong></span>
-                ${showBonuses ? `<span><small>Bonificaciones</small><strong>${formatCurrency(closure.totals?.bonuses)}</strong></span>` : ''}
-                ${showDeductions ? `<span><small>Deducciones</small><strong>${formatCurrency(closure.totals?.deductions)}</strong></span>` : ''}
-                ${showLoans ? `<span class="is-loan"><small>Préstamos</small><strong>${formatCurrency(closure.totals?.loans)}</strong></span>` : ''}
-                <span class="is-net"><small>Neto</small><strong>${formatCurrency(closure.totals?.net)}</strong></span>
+                <span><small>Bruto</small><strong>${formatCurrency(visibleTotals.gross)}</strong></span>
+                ${showBonuses ? `<span><small>Bonificaciones</small><strong>${formatCurrency(visibleTotals.bonuses)}</strong></span>` : ''}
+                ${showDeductions ? `<span><small>Deducciones</small><strong>${formatCurrency(visibleTotals.deductions)}</strong></span>` : ''}
+                ${showLoans ? `<span class="is-loan"><small>Préstamos</small><strong>${formatCurrency(visibleTotals.loans)}</strong></span>` : ''}
+                <span class="is-net"><small>Neto pagado</small><strong>${formatCurrency(visibleTotals.net)}</strong></span>
+                ${isSimulation ? `<span class="is-simulated"><small>Neto simulado</small><strong>${formatCurrency(visibleTotals.simulatedNet)}</strong></span>` : ''}
             </div>
             <div class="payroll-history-detail__table-wrap" tabindex="0" aria-label="Detalle de empleados; desplazamiento horizontal disponible">
                 <table class="payroll-history-detail__table">
@@ -177,23 +268,42 @@ export function renderPayrollHistoryDetail(closure, { now = Date.now() } = {}) {
                         ${showBonuses ? '<th scope="col">Bonificaciones</th>' : ''}
                         ${showDeductions ? '<th scope="col">Deducciones</th>' : ''}
                         ${showLoans ? '<th scope="col" class="is-loan">Préstamos</th>' : ''}
-                        <th scope="col">Neto</th>
+                        <th scope="col">${isSimulation ? 'Neto simulado' : 'Neto pagado'}</th>
                     </tr></thead>
-                    <tbody>${rows.map(row => `
+                    <tbody>${rows.map(row => {
+        const current = currentById.get(String(row.employeeId));
+        const currentNumber = current?.number == null ? '' : String(current.number);
+        const changedNumber = currentNumber && currentNumber !== String(row.employeeNumber || '');
+        const leaderCopy = (row.leaderRefs || []).map(leader =>
+            `${leader.number ? `#${text(leader.number)} · ` : ''}${text(leader.name || 'Sin nombre')}`
+        ).join(', ');
+        return `
                         <tr>
-                            <th scope="row"><small>#${text(row.employeeNumber)}</small>${text(row.employeeName)}</th>
-                            <td>${text(row.employeePosition || 'Sin posición')}</td>
+                            <th scope="row">
+                                <small>#${text(row.employeeNumber)}${changedNumber ? ` · Actual #${text(currentNumber)}` : ''}</small>
+                                ${text(row.employeeName)}
+                            </th>
+                            <td>
+                                ${text(row.employeePosition || 'Sin posición')}
+                                ${leaderCopy ? `<small>${leaderCopy}</small>` : ''}
+                            </td>
                             <td>${formatCurrency(row.gross)}</td>
                             ${showBonuses ? `<td>${formatCurrency(row.bonuses)}</td>` : ''}
                             ${showDeductions ? `<td>${formatCurrency(row.deductions)}</td>` : ''}
                             ${showLoans ? `<td class="is-loan">${formatCurrency(row.loans)}</td>` : ''}
-                            <td class="is-net">${formatCurrency(row.net)}</td>
+                            <td class="is-net">${formatCurrency(isSimulation ? calculatePayrollHistoryNet(row, filters) : row.net)}</td>
                         </tr>
-                    `).join('')}</tbody>
+                    `;
+    }).join('')}${rows.length === 0 ? '<tr><td colspan="7">No hay empleados para este líder.</td></tr>' : ''}</tbody>
                 </table>
             </div>
         </section>
     `;
 }
 
-export default { filterPayrollClosureHistory, renderPayrollHistoryDetail, renderPayrollHistoryView };
+export default {
+    calculatePayrollHistoryNet,
+    filterPayrollClosureHistory,
+    renderPayrollHistoryDetail,
+    renderPayrollHistoryView
+};

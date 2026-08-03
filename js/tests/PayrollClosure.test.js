@@ -77,6 +77,27 @@ describe('PayrollClosure', () => {
         expect(closure.rows[0].bonusDetails[0].name).toBe('Productividad');
     });
 
+    test('freezes historical leaders and orders employees by historical number', () => {
+        const closure = buildPayrollClosure({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [
+                payrollRow({ _employeeId: 'emp-10', _number: '10' }),
+                payrollRow({
+                    _employeeId: 'emp-2',
+                    _number: '2',
+                    _leaderRefs: [{ id: 'leader-7', number: '7', name: 'Marta' }]
+                })
+            ],
+            fingerprint: 'number-order'
+        });
+
+        expect(closure.rows.map(row => row.employeeNumber)).toEqual(['2', '10']);
+        expect(closure.rows[0].leaderRefs).toEqual([
+            { id: 'leader-7', name: 'Marta', number: '7' }
+        ]);
+    });
+
     test('uses a deterministic identity and canonical row ordering', () => {
         const first = buildPayrollClosure({
             periodStart: '2026-08-01',

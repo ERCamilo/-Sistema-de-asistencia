@@ -43,6 +43,7 @@ import {
 } from './PayrollClosureAdjustments.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
+import { buildPayrollHistoricalOrganization } from './PayrollHistoricalIdentity.js';
 import {
     hydrateRememberedAdjustments,
     resolveAdjustmentScope,
@@ -79,7 +80,13 @@ let payrollHistoryState = {
     selectedClosure: null,
     loading: false,
     ready: false,
-    error: null
+    error: null,
+    detailFilters: {
+        leaderId: '',
+        includeBonuses: true,
+        includeDeductions: true,
+        includeLoans: true
+    }
 };
 let payrollHistoryLoadToken = 0;
 
@@ -180,6 +187,12 @@ function _handlePayrollAdjustmentInput(e) {
     const historyFilter = e.target.dataset.payrollHistoryFilter;
     if (historyFilter && e.type === 'change') {
         window.PayrollUI?.setPayrollHistoryFilter?.(historyFilter, e.target.value);
+        return;
+    }
+    const historyDetailFilter = e.target.dataset.payrollHistoryDetailFilter;
+    if (historyDetailFilter && e.type === 'change') {
+        const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+        window.PayrollUI?.setPayrollHistoryDetailFilter?.(historyDetailFilter, value);
         return;
     }
     const form = e.target.closest('.payroll-adjustment-form');
@@ -1005,13 +1018,12 @@ function generateExportData() {
             state.exportConfig.bonuses || []
         );
         
-        const positionIds = (emp.positions && emp.positions.length > 0)
-            ? emp.positions
-            : (emp.position ? [emp.position] : []);
-            
-        const positionNames = positionIds
-            .map(posId => state.positions.find(p => p.id === posId)?.name)
-            .filter(Boolean);
+        const organization = buildPayrollHistoricalOrganization({
+            employee: emp,
+            breakdown: payroll.breakdown || [],
+            positions: state.positions,
+            leaders: state.leaders
+        });
             
         return {
             id: parseInt(emp.number) || 0,
@@ -1026,7 +1038,8 @@ function generateExportData() {
             _positionBreakdown: payroll.breakdown || [],
             _employeeId: emp.id,
             _employeeName: emp.name,
-            _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion',
+            _employeePosition: organization.positionName,
+            _leaderRefs: organization.leaderRefs,
             _number: emp.number
         };
     });
@@ -1936,7 +1949,10 @@ function PayrollHistoryTab() {
     if (!payrollHistoryState.ready && !payrollHistoryState.loading) {
         queueMicrotask(() => loadPayrollHistory());
     }
-    return renderPayrollHistoryView(payrollHistoryState);
+    return renderPayrollHistoryView({
+        ...payrollHistoryState,
+        currentEmployees: getState().employees || []
+    });
 }
 
 function payrollHistorySummary(item = {}) {
@@ -2075,6 +2091,19 @@ export function setPayrollHistoryFilter(name, value) {
     loadPayrollHistory({ force: true });
 }
 
+export function setPayrollHistoryDetailFilter(name, value) {
+    const booleanFilters = ['includeBonuses', 'includeDeductions', 'includeLoans'];
+    if (name !== 'leaderId' && !booleanFilters.includes(name)) return;
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        detailFilters: {
+            ...payrollHistoryState.detailFilters,
+            [name]: booleanFilters.includes(name) ? Boolean(value) : String(value || '')
+        }
+    };
+    context?.render?.();
+}
+
 function focusPayrollHistoryControl(action, id = null) {
     queueMicrotask(() => {
         const controls = document.querySelectorAll(`[data-payroll-action="${action}"]`);
@@ -2090,7 +2119,17 @@ export async function openPayrollHistoryDetail(closureId) {
     if (!id) return;
     stateManager.setState({ payrollViewMode: 'history' });
     const loaded = payrollHistoryState.items.find(item => String(item.id) === id);
-    payrollHistoryState = { ...payrollHistoryState, loading: true, error: null };
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        loading: true,
+        error: null,
+        detailFilters: {
+            leaderId: '',
+            includeBonuses: true,
+            includeDeductions: true,
+            includeLoans: true
+        }
+    };
     context?.render?.();
     try {
         const closure = canUsePayrollRemote() && loaded?.syncStatus === 'synced'
