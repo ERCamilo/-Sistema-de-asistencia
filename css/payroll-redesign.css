@@ -786,6 +786,303 @@
     text-align: right;
 }
 
+/* Closed payroll history */
+.payroll-history {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto 100px;
+    color: #edf2f7;
+}
+
+.payroll-history__header,
+.payroll-history-detail__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+}
+
+.payroll-history__eyebrow {
+    color: #fbbf24;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.payroll-history__header h2,
+.payroll-history-detail__header h2 {
+    margin: 5px 0;
+    font-size: clamp(1.35rem, 3vw, 2rem);
+}
+
+.payroll-history__header p,
+.payroll-history-detail__header p,
+.payroll-history-detail__header small {
+    display: block;
+    margin: 4px 0 0;
+    color: #94a3b8;
+}
+
+.payroll-history__filters {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(160px, 0.7fr));
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #111827;
+}
+
+.payroll-history__filters label {
+    display: grid;
+    gap: 6px;
+    color: #94a3b8;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.payroll-history__list {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.payroll-history-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(200px, 1fr) minmax(330px, auto) auto;
+    gap: 16px;
+    align-items: center;
+    width: 100%;
+    padding: 16px 42px 16px 16px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #172033;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.payroll-history-card:hover,
+.payroll-history-card:focus-visible {
+    border-color: #f59e0b;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
+.payroll-history-card__status {
+    display: inline-flex;
+    width: fit-content;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.14);
+    color: #6ee7b7;
+    font-size: 0.66rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.payroll-history-card__status.is-voided {
+    background: rgba(148, 163, 184, 0.13);
+    color: #cbd5e1;
+}
+
+.payroll-history-card__period,
+.payroll-history-card__facts span {
+    display: grid;
+    gap: 4px;
+}
+
+.payroll-history-card__period small,
+.payroll-history-card__facts small {
+    color: #94a3b8;
+    font-size: 0.68rem;
+}
+
+.payroll-history-card__facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(85px, 1fr));
+    gap: 14px;
+}
+
+.payroll-history .is-loan {
+    color: #fbbf24;
+}
+
+.payroll-history-card__arrow {
+    position: absolute;
+    right: 16px;
+    font-size: 1.8rem;
+    color: #64748b;
+}
+
+.payroll-history-sync {
+    width: fit-content;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: #fcd34d;
+    background: rgba(245, 158, 11, 0.13);
+    font-size: 0.65rem;
+    font-weight: 700;
+}
+
+.payroll-history-sync.is-error,
+.payroll-history__message.is-error {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.payroll-history__message {
+    padding: 24px;
+    border: 1px dashed #475569;
+    border-radius: 12px;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.payroll-history__more,
+.payroll-history-detail__back {
+    min-height: 42px;
+    margin-top: 14px;
+    padding: 9px 15px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.payroll-history-detail__back {
+    margin: 0 0 16px;
+}
+
+.payroll-history-detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.payroll-history-detail__notice {
+    margin-bottom: 14px;
+    padding: 11px 13px;
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 9px;
+    background: rgba(14, 165, 233, 0.08);
+    color: #bae6fd;
+    font-size: 0.78rem;
+}
+
+.payroll-history-detail__totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.payroll-history-detail__totals > span {
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    border: 1px solid #334155;
+    border-radius: 9px;
+    background: #111827;
+}
+
+.payroll-history-detail__totals small {
+    color: #94a3b8;
+}
+
+.payroll-history-detail__totals .is-net {
+    color: #34d399;
+}
+
+.payroll-history-detail__table-wrap {
+    overflow-x: auto;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #111827;
+}
+
+.payroll-history-detail__table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+}
+
+.payroll-history-detail__table th,
+.payroll-history-detail__table td {
+    padding: 12px;
+    border-bottom: 1px solid #273449;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.payroll-history-detail__table th:first-child,
+.payroll-history-detail__table td:first-child,
+.payroll-history-detail__table th:nth-child(2),
+.payroll-history-detail__table td:nth-child(2) {
+    text-align: left;
+}
+
+.payroll-history-detail__table tbody th {
+    display: grid;
+    gap: 2px;
+}
+
+.payroll-history-detail__table tbody th small {
+    color: #64748b;
+}
+
+.payroll-history-detail__table .is-net {
+    color: #34d399;
+    font-weight: 800;
+}
+
+@media (max-width: 700px) {
+    .payroll-history {
+        width: min(calc(100% - 20px), 1180px);
+        margin-bottom: 80px;
+    }
+
+    .payroll-view-switcher .view-controls {
+        overflow-x: auto;
+    }
+
+    .payroll-view-switcher .view-btn {
+        flex: 0 0 auto;
+    }
+
+    .payroll-history__filters {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .payroll-history__filters label:first-child {
+        grid-column: 1 / -1;
+    }
+
+    .payroll-history-card {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        padding-right: 38px;
+    }
+
+    .payroll-history-card__facts {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+
+    .payroll-history-detail__header {
+        display: grid;
+    }
+
+    .payroll-history-detail__actions {
+        justify-content: flex-start;
+    }
+}
+
 .payroll-review-table thead th.is-loan {
     color: #f59e0b;
 }

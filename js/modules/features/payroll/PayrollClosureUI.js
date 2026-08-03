@@ -61,6 +61,11 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
                             Preparar corrección
                         </button>
                     ` : ''}
+                    <button type="button" class="payroll-loan-settlement__undo"
+                            data-payroll-action="open-payroll-history-detail"
+                            data-id="${escapeHTML(periodClosure.id)}">
+                        Ver en historial
+                    </button>
                     <button type="button" class="payroll-loan-settlement__button"
                             data-payroll-action="open-payroll-closure" disabled aria-disabled="true">
                         Período cerrado
