@@ -20,8 +20,10 @@ function blockerMessage(gate) {
 
 export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
     const exactClosure = gate?.exactClosure || null;
+    const periodClosure = gate?.activeClosure || exactClosure;
+    const showClosedState = Boolean(periodClosure && !gate?.correctionReady);
     const canUndo = Boolean(
-        exactClosure && Number(now) <= Number(exactClosure.undoUntil || 0)
+        periodClosure && Number(now) <= Number(periodClosure.undoUntil || 0)
     );
     const canConfirm = Boolean(
         gate?.hasRows && gate?.invalidCount === 0 &&
@@ -29,29 +31,39 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
     );
 
     return `
-        <section class="payroll-loan-settlement ${exactClosure ? 'is-settled' : ''}"
+        <section class="payroll-loan-settlement ${showClosedState ? 'is-settled' : ''}"
                  aria-label="Cierre de nómina">
             <div class="payroll-loan-settlement__copy">
                 <span class="payroll-loan-settlement__eyebrow">Cierre de nómina</span>
-                <strong>${exactClosure ? 'Nómina cerrada' : 'Guardar esta vista previa en el historial'}</strong>
-                <p>${exactClosure
-                    ? `${exactClosure.employeeCount} empleado${exactClosure.employeeCount === 1 ? '' : 's'} · ${formatCurrency(exactClosure.totals?.net)}`
+                <strong>${showClosedState
+                    ? (exactClosure ? 'Nómina cerrada' : 'Período cerrado')
+                    : (gate?.correctionReady ? 'Corrección preparada' : 'Guardar esta vista previa en el historial')}</strong>
+                <p>${showClosedState
+                    ? `${periodClosure.employeeCount} empleado${periodClosure.employeeCount === 1 ? '' : 's'} · ${formatCurrency(periodClosure.totals?.net)}`
                     : blockerMessage(gate)}</p>
             </div>
-            ${exactClosure ? `
+            ${showClosedState ? `
                 <div class="payroll-loan-settlement__completed">
                     <span>El generador continúa disponible para nuevos cálculos.</span>
                     ${canUndo ? `
                         <button type="button"
                                 class="payroll-loan-settlement__undo"
                                 data-payroll-action="undo-payroll-closure"
-                                data-id="${escapeHTML(exactClosure.id)}">
+                                data-id="${escapeHTML(periodClosure.id)}">
                             Deshacer cierre
                         </button>
                     ` : '<small>La ventana para deshacer finalizó.</small>'}
+                    ${gate?.reason === 'correction-required' ? `
+                        <button type="button"
+                                class="payroll-loan-settlement__undo"
+                                data-payroll-action="prepare-payroll-correction"
+                                data-id="${escapeHTML(periodClosure.id)}">
+                            Preparar corrección
+                        </button>
+                    ` : ''}
                     <button type="button" class="payroll-loan-settlement__button"
                             data-payroll-action="open-payroll-closure" disabled aria-disabled="true">
-                        Nómina cerrada
+                        Período cerrado
                     </button>
                 </div>
             ` : `
@@ -62,14 +74,6 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
                            ${canConfirm ? '' : 'disabled aria-disabled="true"'}>
                     <span>Confirmo que la nómina mostrada fue pagada</span>
                 </label>
-                ${gate?.reason === 'correction-required' && gate.activeClosure ? `
-                    <button type="button"
-                            class="payroll-loan-settlement__undo"
-                            data-payroll-action="prepare-payroll-correction"
-                            data-id="${escapeHTML(gate.activeClosure.id)}">
-                        Preparar corrección
-                    </button>
-                ` : ''}
                 <button type="button"
                         class="payroll-loan-settlement__button"
                         data-payroll-action="open-payroll-closure"
