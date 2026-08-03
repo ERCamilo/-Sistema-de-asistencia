@@ -339,6 +339,7 @@ export function recordPayment(emp, loanId, params) {
     };
     if (params.source) payment.source = String(params.source);
     if (params.payrollBatchId) payment.payrollBatchId = String(params.payrollBatchId);
+    if (params.payrollClosureId) payment.payrollClosureId = String(params.payrollClosureId);
     if (params.payrollPreviewFingerprint) {
         payment.payrollPreviewFingerprint = String(params.payrollPreviewFingerprint);
     }

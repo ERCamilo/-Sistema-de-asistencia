@@ -18,13 +18,16 @@ function money(value) {
     return round2(Number(value) || 0);
 }
 
+function installmentSequence(value) {
+    if (value === null || value === undefined || value === '') return null;
+    return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
 function canonicalCharge(charge = {}) {
     return {
         kind: text(charge.kind),
         amount: money(charge.amount),
-        installmentSeq: Number.isFinite(Number(charge.installmentSeq))
-            ? Number(charge.installmentSeq)
-            : null,
+        installmentSeq: installmentSequence(charge.installmentSeq),
         dueDate: text(charge.dueDate)
     };
 }
@@ -104,6 +107,7 @@ function compactPreviewRow(row = {}) {
 function compactBatchSnapshot(batch) {
     return {
         id: batch.id,
+        closureId: batch.closureId || null,
         source: batch.source,
         periodStart: batch.periodStart,
         periodEnd: batch.periodEnd,
@@ -158,11 +162,8 @@ function paymentEntries(employees) {
 function sameCharge(expected, actual) {
     return text(expected?.kind) === text(actual?.kind) &&
         money(expected?.amount) === money(actual?.amount) &&
-        (Number.isFinite(Number(expected?.installmentSeq))
-            ? Number(expected.installmentSeq)
-            : null) === (Number.isFinite(Number(actual?.installmentSeq))
-            ? Number(actual.installmentSeq)
-            : null) &&
+        installmentSequence(expected?.installmentSeq) ===
+            installmentSequence(actual?.installmentSeq) &&
         text(expected?.dueDate) === text(actual?.dueDate);
 }
 
@@ -426,6 +427,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
                 now
             );
             payment.payrollBatchId = batch.id;
+            payment.payrollClosureId = batch.closureId || null;
             payment.payrollPreviewFingerprint = batch.previewFingerprint;
             payment.payrollIdempotencyKey = operation.item.idempotencyKey;
             payment.payrollChargeKeys = [...operation.item.chargeKeys];
@@ -455,6 +457,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             recordedAt: now,
             source: 'payroll',
             payrollBatchId: batch.id,
+            payrollClosureId: batch.closureId || null,
             payrollPreviewFingerprint: batch.previewFingerprint,
             payrollIdempotencyKey: operation.item.idempotencyKey,
             payrollChargeKeys: operation.item.chargeKeys,

@@ -68,10 +68,12 @@ function closureContent(closure = {}) {
     };
 }
 
-export function buildPayrollClosureId(fingerprint) {
+export function buildPayrollClosureId(fingerprint, supersedesId = null) {
     const normalized = text(fingerprint);
     if (!normalized) throw new Error('La identidad de la Nómina es obligatoria');
-    return `PAYROLL-CLOSURE-${stableToken(normalized)}`;
+    const predecessor = text(supersedesId);
+    const identity = predecessor ? `${normalized}|after:${predecessor}` : normalized;
+    return `PAYROLL-CLOSURE-${stableToken(identity)}`;
 }
 
 export function buildPayrollClosure({
@@ -124,7 +126,7 @@ export function buildPayrollClosure({
 
     return {
         schemaVersion: PAYROLL_CLOSURE_SCHEMA_VERSION,
-        id: buildPayrollClosureId(fingerprint),
+        id: buildPayrollClosureId(fingerprint, supersedesId),
         fingerprint: text(fingerprint),
         periodStart: text(periodStart),
         periodEnd: text(periodEnd),
