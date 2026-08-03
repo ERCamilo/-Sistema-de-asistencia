@@ -2,6 +2,8 @@
 
 La generación de Nómina permanecerá siempre interactiva y calculada desde el estado actual. Al cerrar una nómina se creará un registro histórico inmutable, independiente de los pagos de préstamos, que podrá consultarse desde una nueva vista de Historial. El cierre registrará todas las nóminas, tengan o no préstamos.
 
+**Estado:** implementado y verificado. El historial se carga sólo al abrirlo, muestra hasta 10 cierres por página y permite analizar el neto sin modificar la instantánea cerrada.
+
 ## Resultado esperado
 
 ```text
@@ -43,7 +45,7 @@ La instantánea histórica es necesaria para auditoría, pero no debe reemplazar
 | Inmutabilidad | Los importes y filas de un cierre no se editan. Sólo se permiten transiciones auditables de estado, como anular o reemplazar mediante una corrección. |
 | Generador | Siempre recalcula desde asistencia, ajustes y préstamos activos. Nunca vuelve a cargar una nómina cerrada como borrador. |
 | Mismo período | Un cierre posterior requiere un flujo explícito de corrección y referencia al cierre reemplazado. No se sobrescribe el registro anterior. |
-| Deshacer | Mantener inicialmente la ventana actual de 30 segundos. Deshacer anula el cierre y sus pagos vinculados; no elimina el historial. |
+| Deshacer | Mantener inicialmente la ventana actual de 30 segundos. Deshacer anula el cierre y sus pagos de préstamos, bonos y deducciones vinculados; no elimina el historial. |
 | PDF | Fuera de alcance. El modelo conservará los datos necesarios para generarlo posteriormente. |
 
 ## Contrato de datos
@@ -52,7 +54,7 @@ El cierre será una entidad independiente de los empleados y de los lotes de pr�
 
 ```js
 {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: 'PAYROLL-CLOSURE-<fingerprint>',
     fingerprint: '<identidad canónica de la vista previa>',
     periodStart: '2026-08-01',
@@ -75,6 +77,7 @@ El cierre será una entidad independiente de los empleados y de los lotes de pr�
         employeeNumber: '',
         employeeName: '',
         employeePosition: '',
+        leaderRefs: [{ id: '', number: '', name: '' }],
         gross: 0,
         bonuses: 0,
         deductions: 0,
@@ -84,6 +87,10 @@ El cierre será una entidad independiente de los empleados y de los lotes de pr�
         deductionDetails: [],
         loanDetails: []
     }],
+    adjustments: {
+        bonuses: [],
+        deductions: []
+    },
     loanSettlementBatchId: null,
     paymentRefs: [],
     undoUntil: 1786800030000,
@@ -99,6 +106,8 @@ El cierre será una entidad independiente de los empleados y de los lotes de pr�
 - `id` se deriva del `fingerprint` y, para correcciones o recierres anulados, del cierre predecesor; reintentar el mismo cierre es idempotente sin revivir auditorías anuladas.
 - Las filas y los totales no cambian después de crear el cierre.
 - Los nombres, números y posiciones se guardan como texto histórico; cambios posteriores en empleados no alteran el cierre.
+- Los líderes usados por las posiciones trabajadas también se congelan; el filtro histórico nunca depende de la asignación actual.
+- El número actual del empleado se muestra sólo como referencia cuando difiere del número congelado.
 - `status = voided` conserva el registro y exige fecha, usuario y motivo.
 - `loanSettlementBatchId` es opcional porque una nómina puede no tener préstamos.
 - Los pagos de préstamos enlazan al cierre mediante `closureId` y mantienen sus claves idempotentes actuales.
@@ -108,7 +117,7 @@ El cierre será una entidad independiente de los empleados y de los lotes de pr�
 
 ### Local
 
-Subir IndexedDB de la versión 14 a la siguiente versión libre y agregar un store `payrollClosures` con:
+IndexedDB versión 15 agrega un store `payrollClosures` con:
 
 - `keyPath: id`;
 - índice `periodEnd`;
@@ -126,7 +135,7 @@ Usar documentos independientes en:
 users/{uid}/payrollClosures/{closureId}
 ```
 
-Extender la cola durable `MainSyncStore` con un tipo `payrollClosure`, compactado por `closureId`, y agregar operaciones de lectura, escritura y suscripción en Firebase. Las reglas actuales ya aíslan las rutas bajo el usuario autenticado, pero las pruebas deben verificar acceso por propietario y ausencia de datos financieros en rutas públicas.
+La cola durable `MainSyncStore` usa `payrollClosureBundle`, compactado por `closureId`, para sincronizar primero los empleados afectados y después el cierre con las mismas identidades. Las reglas aíslan las rutas bajo el usuario autenticado y las pruebas verifican acceso por propietario y ausencia de datos financieros en rutas públicas.
 
 El guardado remoto será idempotente. Si ya existe el mismo `fingerprint`, se acepta como el mismo cierre; si el contenido canónico no coincide, se registra un conflicto y no se sobrescribe silenciosamente.
 
@@ -187,6 +196,10 @@ La primera versión tendrá:
 - indicador de sincronización pendiente o fallida;
 - acción de deshacer sólo durante la ventana permitida;
 - enlace desde el generador al cierre del período.
+- carga diferida al entrar al Historial y paginación de hasta 10 cierres;
+- filas ordenadas por número histórico y filtro por líder histórico;
+- referencia al número actual cuando haya cambiado;
+- cálculo interactivo del neto incluyendo o excluyendo bonificaciones, deducciones y préstamos, sin mutar el cierre.
 
 No se permitirán ediciones directas, borrado definitivo ni regeneración automática de pagos desde el historial.
 
@@ -284,6 +297,21 @@ Commit previsto: `feat(payroll): add closed payroll history`
 
 Commit previsto: `fix(payroll): migrate legacy closed payroll snapshots`
 
+### Fase 8 — Correcciones de consistencia
+
+1. Unificar la huella confirmada con la instantánea persistida.
+2. Guardar en una sola transacción el cierre, empleados afectados e intención durable.
+3. Consultar todo el historial mediante páginas de hasta 10 cierres sin carga inicial.
+4. Conservar filtros de período durante el recorrido remoto paginado.
+
+### Fase 9 — Anulación integral e historial interactivo
+
+1. Congelar las reglas de bonos y deducciones realmente aplicadas.
+2. Consumir ajustes puntuales al cerrar y restaurarlos una sola vez al deshacer.
+3. Congelar número, posición y líderes correspondientes al período cerrado.
+4. Ordenar empleados por número histórico y mostrar el número actual sólo como referencia.
+5. Filtrar por líder histórico y simular el neto sin préstamos, bonificaciones o deducciones.
+
 ## Estrategia de pruebas
 
 ### Dominio
@@ -354,6 +382,10 @@ Cada commit debe registrar:
 - [x] Los cierres existentes con préstamos se migran sin duplicados.
 - [x] Las nóminas antiguas sin evidencia persistida no se inventan ni se reconstruyen parcialmente.
 - [x] Las pruebas automáticas, el control de estado y la revisión responsive terminan sin errores.
+- [x] El historial no se carga al iniciar y muestra como máximo 10 cierres por página.
+- [x] Deshacer restaura pagos de préstamos y ajustes puntuales sin duplicarlos.
+- [x] El detalle conserva posición y líderes históricos, y referencia cambios de número.
+- [x] El neto puede simularse sin préstamos, bonificaciones o deducciones sin alterar el cierre.
 
 ## Fuera de alcance inicial
 

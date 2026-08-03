@@ -12,7 +12,7 @@ La revisión de Nómina calcula préstamos de pago único y en cuotas sin regist
 6. Confirmar que esa versión exacta de la Nómina fue pagada.
 7. Abrir el resumen de cierre, verificar la Nómina y los pagos opcionales y aceptar.
 8. Consultar el cierre desde `Nómina > Historial`.
-9. Si hubo un error, deshacer el cierre durante los 30 segundos siguientes.
+9. Si hubo un error, deshacer el cierre durante los 30 segundos siguientes; también se restauran los bonos y deducciones puntuales aplicados.
 
 > Seleccionar, revisar o exportar nunca crea abonos. Los pagos sólo se registran al aceptar el cierre verificado del paso 5.
 
@@ -43,7 +43,7 @@ La revisión de Nómina calcula préstamos de pago único y en cuotas sin regist
 - Un lote parcial recibido por sincronización queda bloqueado hasta recibir todos sus pagos.
 - La vista previa siempre se recalcula desde el estado actual; nunca se reemplaza por una Nómina cerrada.
 - Cada cierre conserva filas, totales, operador y pagos vinculados en un registro histórico inmutable.
-- Deshacer anula lógicamente el cierre y todos sus pagos vinculados sin borrar la auditoría.
+- Deshacer anula lógicamente el cierre, los pagos vinculados y los ajustes puntuales sin borrar la auditoría.
 - Un cierre corregido referencia al anterior en lugar de sobrescribirlo.
 - Los lotes legacy incompletos no se migran hasta que estén presentes todos sus pagos e instantánea.
 - El tamaño se valida antes de mutar préstamos o escribir localmente y conserva margen bajo el límite remoto.
@@ -75,11 +75,13 @@ También muestra los totales del lote. El operador debe marcar la verificación 
 
 Antes de guardar se revalidan todos los saldos y cuotas. Cada lote tiene una identidad estable y cada cargo usa una clave idempotente por período, empleado, préstamo y cuota; un doble clic, reintento o sincronización repetida no puede duplicar pagos.
 
-El cierre y los empleados afectados se escriben en una única transacción de IndexedDB junto con la intención de sincronización. Un reintento idéntico no reescribe empleados ni duplica la cola. Durante 30 segundos se puede deshacer desde el panel del paso 5 o desde el detalle histórico. Deshacer anula lógicamente los pagos vinculados y restaura los saldos; no elimina el cierre.
+El cierre y los empleados afectados se escriben en una única transacción de IndexedDB junto con la intención de sincronización. Un reintento idéntico no reescribe empleados ni duplica la cola. Durante 30 segundos se puede deshacer desde el panel del paso 5 o desde el detalle histórico. Deshacer anula lógicamente los pagos vinculados, restaura los saldos y recupera una sola vez los bonos y deducciones puntuales; no elimina el cierre.
 
 ## Historial de Nómina
 
 `Nómina > Historial` lista cierres locales en orden descendente y permite filtrar por estado y período. Cada detalle conserva los nombres, puestos e importes vigentes al cerrar, aunque después cambien empleados, asistencia o préstamos.
+
+El historial se carga únicamente al abrir esa vista y muestra hasta 10 cierres por página. Dentro de cada cierre, los empleados se ordenan por su número histórico y pueden filtrarse por el líder congelado al cerrar. Si el número del empleado cambió, se conserva el anterior y se muestra el actual como referencia; la posición histórica nunca se sustituye por un ascenso posterior.
 
 - `Cerrada` y `Anulada` son estados auditables; no existe borrado físico desde la interfaz.
 - Bonificaciones, deducciones y préstamos sólo aparecen como columnas cuando tienen importes.
@@ -87,6 +89,9 @@ El cierre y los empleados afectados se escriben en una única transacción de In
 - `Pendiente de sincronizar` y `Error de sincronización` reflejan la cola local, no el estado financiero.
 - La tabla es navegable por teclado y desplaza sus columnas dentro del contenedor en móvil.
 - Un enlace desde el generador abre directamente el cierre vigente del período.
+- Los controles de simulación permiten recalcular el neto visible sin préstamos, bonificaciones o deducciones; el resultado es sólo de consulta y no modifica el cierre.
+
+Los cierres creados antes de guardar líderes históricos siguen siendo consultables, pero su selector de líder muestra únicamente `Todos` porque esa relación no puede reconstruirse con exactitud.
 
 Al iniciar, los lotes históricos antiguos con `previewRows` completos se convierten de forma idempotente. Los lotes parciales se omiten y se vuelven a evaluar en otro arranque; un lote corrupto o demasiado grande se aísla para no bloquear los demás. Las nóminas antiguas sin evidencia persistida no se reconstruyen.
 
@@ -123,3 +128,7 @@ Los avisos de mocks duplicados provienen de carpetas de trabajo `.codex-*` preex
 | Sincronización parcial | `618728d` | Bloquea lotes incompletos recibidos desde otro dispositivo. |
 | Botón, modal y deshacer | `bd197e5` | Implementa el cierre guiado en el paso 5 y la ventana de 30 segundos. |
 | Endurecimiento final | `d3c0ed8` | Compacta la instantánea, renueva la ventana al registrar y evita reutilizar pagos. |
+| Cierre general e historial | `99fea49` … `88b0e2d` | Persiste cierres inmutables, los sincroniza, migra evidencia legacy y separa el cálculo vivo. |
+| Consistencia y paginación | `830a9e5` … `d84e745` | Unifica la huella, sincroniza empleados antes del cierre y pagina de forma diferida con filtros. |
+| Anulación integral | `e571ecd` | Restaura ajustes puntuales y anula sus efectos junto con pagos de préstamos. |
+| Historial interactivo | `e3f1755` | Congela organización histórica, ordena por número y agrega filtro y neto configurable. |
