@@ -1995,6 +1995,8 @@ export async function loadPayrollHistory({ direction = 'current', force = false 
             ? await payrollClosureSync.pullPage({
                 limit: 10,
                 status: payrollHistoryState.filters.status || null,
+                periodStart: payrollHistoryState.filters.periodStart || null,
+                periodEnd: payrollHistoryState.filters.periodEnd || null,
                 cursor
             })
             : await payrollClosureStore.listPage({

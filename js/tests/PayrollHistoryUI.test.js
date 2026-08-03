@@ -106,6 +106,7 @@ describe('Payroll history UI', () => {
         expect(PAYROLL_UI_SOURCE).toContain("mode === 'history'");
         expect(PAYROLL_UI_SOURCE).toContain("'open-payroll-history-detail'");
         expect(PAYROLL_UI_SOURCE).toContain('loadPayrollHistory');
+        expect(PAYROLL_UI_SOURCE).toMatch(/payrollClosureSync\.pullPage\(\{[\s\S]*periodStart:[\s\S]*periodEnd:/);
         expect(PAYROLL_UI_SOURCE).toContain('loadPayrollHistory({ force: true })');
         expect(PAYROLL_UI_SOURCE).toContain('queueMicrotask(() => loadPayrollHistory())');
         expect(PAYROLL_UI_SOURCE).toContain('payrollClosureSync.pullPage({');
