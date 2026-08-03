@@ -14,6 +14,7 @@ import {
 } from '../../data/firebase.js';
 import { PAYROLL_CLOSURE_STATUS } from './PayrollClosure.js';
 import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
+import { assertPayrollClosureSize } from './PayrollClosureSize.js';
 
 const COLLECTION = 'payrollClosures';
 
@@ -75,6 +76,7 @@ function pageQuery({ limit = 50, cursor = null, includeLookahead = false } = {})
 export const PayrollClosureRepository = {
     async saveOne(closure) {
         assertClosure(closure);
+        assertPayrollClosureSize(closure);
         const incoming = clone(closure);
         const ref = requireSessionRef(currentDocument(incoming.id));
         return runTransaction(db, async transaction => {
