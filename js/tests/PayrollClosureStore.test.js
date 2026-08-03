@@ -36,6 +36,7 @@ class MemoryDB {
     constructor() {
         this.records = new Map();
         this.employeeRecords = new Map();
+        this.outboxRecords = new Map();
         this.mutationQueue = Promise.resolve();
     }
 
@@ -67,9 +68,13 @@ class MemoryDB {
             if (result.write) {
                 await this.update(_storeName, result.value);
                 for (const batch of batches) {
-                    if (batch.storeName !== 'employees') continue;
                     for (const value of batch.records || []) {
-                        this.employeeRecords.set(value.id, JSON.parse(JSON.stringify(value)));
+                        if (batch.storeName === 'employees') {
+                            this.employeeRecords.set(value.id, JSON.parse(JSON.stringify(value)));
+                        }
+                        if (batch.storeName === 'mainSyncOutbox') {
+                            this.outboxRecords.set(value.key, JSON.parse(JSON.stringify(value)));
+                        }
                     }
                 }
             }
@@ -172,6 +177,46 @@ describe('PayrollClosureStore', () => {
 
         expect(db.records.get(original.id)).toMatchObject({ id: original.id });
         expect(db.employeeRecords.get('employee-1')).toEqual(employees[0]);
+    });
+
+    test('atomically persists a deterministic payroll bundle and coalesces close to undo', async () => {
+        const db = new MemoryDB();
+        const store = new PayrollClosureStore({ db });
+        const original = closure('durable-bundle');
+        const employee = { id: 'employee-1', name: 'Ada', loans: [{ payments: [] }] };
+
+        await store.saveWithEmployees(original, [employee], {
+            enqueueCloud: true,
+            queuedAt: 100,
+            schemaVersion: 3
+        });
+        const voided = voidPayrollClosure(original, { voidedAt: 200, voidedBy: 'operator' });
+        const restored = { ...employee, loans: [{ payments: [{ id: 'payment-1', voided: true }] }] };
+        await store.saveWithEmployees(voided, [restored], {
+            enqueueCloud: true,
+            queuedAt: 200,
+            schemaVersion: 3
+        });
+
+        expect(db.outboxRecords.size).toBe(1);
+        expect([...db.outboxRecords.values()][0]).toMatchObject({
+            key: `payroll:${original.id}`,
+            kind: 'payrollClosureBundle',
+            closureId: original.id,
+            schemaVersion: 3,
+            closure: { status: 'voided' },
+            employees: [restored],
+            status: 'pending'
+        });
+        expect(db.employeeRecords.get('employee-1')).toEqual(restored);
+    });
+
+    test('rejects cloud bundling without an explicitly supported employee schema', async () => {
+        const store = new PayrollClosureStore({ db: new MemoryDB() });
+        await expect(store.saveWithEmployees(closure('legacy-schema'), [], {
+            enqueueCloud: true,
+            schemaVersion: 1
+        })).rejects.toThrow(/schema/i);
     });
 
     test('an idempotent closure retry does not rewrite related employees', async () => {

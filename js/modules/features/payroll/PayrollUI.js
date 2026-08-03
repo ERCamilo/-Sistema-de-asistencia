@@ -2106,7 +2106,11 @@ export async function openPayrollClosure() {
         const savedClosure = await payrollClosureStore.saveWithEmployees(
             finalized.closure,
             affectedEmployees,
-            { enqueueCloud: true, queuedAt: closedAt }
+            {
+                enqueueCloud: true,
+                queuedAt: closedAt,
+                schemaVersion: latest.state.settings?.schemaVersion
+            }
         );
 
         const nextExportConfig = {
@@ -2157,7 +2161,7 @@ export async function undoPayrollClosure(closureId) {
         const savedClosure = await payrollClosureStore.saveWithEmployees(
             result.closure,
             affectedEmployees,
-            { enqueueCloud: true }
+            { enqueueCloud: true, schemaVersion: state.settings?.schemaVersion }
         );
         stateManager.setState({
             employees: employeeCopies,

@@ -11,6 +11,7 @@ import { assertPayrollClosureSize } from './PayrollClosureSize.js';
 export { PayrollClosureConflictError } from './PayrollClosureMerge.js';
 
 export const PAYROLL_CLOSURE_STORE = 'payrollClosures';
+export const PAYROLL_EMPLOYEE_SCHEMA_MIN = 2;
 
 function clone(value) {
     return value === null || value === undefined
@@ -52,9 +53,18 @@ export class PayrollClosureStore {
         return clone(saved);
     }
 
-    async saveWithEmployees(closure, employees = [], { enqueueCloud = false, queuedAt = Date.now() } = {}) {
+    async saveWithEmployees(closure, employees = [], {
+        enqueueCloud = false,
+        queuedAt = Date.now(),
+        schemaVersion = null
+    } = {}) {
         assertClosure(closure);
         assertPayrollClosureSize(closure);
+        if (enqueueCloud && Number(schemaVersion) < PAYROLL_EMPLOYEE_SCHEMA_MIN) {
+            throw new TypeError(
+                `Payroll closure cloud bundle requires employee schema ${PAYROLL_EMPLOYEE_SCHEMA_MIN} or newer`
+            );
+        }
         const incoming = {
             ...clone(closure),
             periodKey: periodKey(closure.periodStart, closure.periodEnd)
@@ -64,9 +74,12 @@ export class PayrollClosureStore {
             batches.push({
                 storeName: 'mainSyncOutbox',
                 records: [{
-                    kind: 'payrollClosure',
+                    key: `payroll:${incoming.id}`,
+                    kind: 'payrollClosureBundle',
                     closureId: incoming.id,
                     closure: incoming,
+                    employees: clone(employees || []),
+                    schemaVersion: Number(schemaVersion),
                     ts: Number(queuedAt) || Date.now(),
                     status: 'pending'
                 }]
@@ -181,7 +194,7 @@ export class PayrollClosureStore {
         const entries = await this.db.getAll('mainSyncOutbox').catch(() => []);
         for (const entry of entries || []) {
             const id = String(entry?.closureId || '');
-            if (entry?.kind !== 'payrollClosure' || !wanted.has(id)) continue;
+            if (!['payrollClosure', 'payrollClosureBundle'].includes(entry?.kind) || !wanted.has(id)) continue;
             if (entry.status === 'dead') states[id] = 'dead';
             else if (entry.status === 'pending' && states[id] !== 'dead') states[id] = 'pending';
         }

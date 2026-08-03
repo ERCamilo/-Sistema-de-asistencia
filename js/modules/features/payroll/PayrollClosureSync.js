@@ -14,11 +14,13 @@ export class PayrollClosureSync {
         this.outbox = outbox;
     }
 
-    /** The durable local write always completes before its cloud intent is queued. */
-    async record(closure) {
-        const saved = await this.localStore.save(closure);
-        await this.outbox.enqueuePayrollClosure(saved);
-        return saved;
+    /** Closure, affected employees, and cloud intent share one local transaction. */
+    async record(closure, { employees = [], schemaVersion = null, queuedAt = Date.now() } = {}) {
+        return this.localStore.saveWithEmployees(closure, employees, {
+            enqueueCloud: true,
+            schemaVersion,
+            queuedAt
+        });
     }
 
     async pullPage(options = {}) {
