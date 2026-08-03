@@ -101,13 +101,13 @@ describe('Legacy payroll closure migration', () => {
                 return closure;
             })
         };
-        await expect(migrateLegacyPayrollClosures(legacyFixture(), { store }))
+        await expect(migrateLegacyPayrollClosures(legacyFixture(), { store, schemaVersion: 3 }))
             .resolves.toMatchObject({ migrated: 1, existing: 0 });
-        await expect(migrateLegacyPayrollClosures(legacyFixture(), { store }))
+        await expect(migrateLegacyPayrollClosures(legacyFixture(), { store, schemaVersion: 3 }))
             .resolves.toMatchObject({ migrated: 0, existing: 1 });
         expect(store.saveWithEmployees).toHaveBeenCalledTimes(1);
         expect(store.saveWithEmployees).toHaveBeenCalledWith(
-            expect.any(Object), [], { enqueueCloud: true }
+            expect.any(Object), [], { enqueueCloud: true, schemaVersion: 3 }
         );
     });
 });

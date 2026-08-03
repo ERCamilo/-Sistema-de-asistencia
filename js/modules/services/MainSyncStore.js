@@ -96,6 +96,19 @@ function _resolveCloudCall(entry, guards) {
     if (entry.kind === 'payrollClosure') {
         return () => guards.savePayrollClosure(entry.closure);
     }
+    if (entry.kind === 'payrollClosureBundle') {
+        return async () => {
+            const schemaVersion = Number(entry.schemaVersion) || 0;
+            if (schemaVersion < 2) {
+                throw new TypeError('Unsupported payroll employee schema in sync bundle');
+            }
+            if (typeof guards.savePayrollEmployees !== 'function') {
+                throw new TypeError('Payroll employee sync guard is required');
+            }
+            await guards.savePayrollEmployees(entry.employees || [], schemaVersion);
+            await guards.savePayrollClosure(entry.closure);
+        };
+    }
     if (entry.kind === 'delete') {
         const minSchema = DELETE_SCHEMA_MIN[entry.entity];
         // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
@@ -258,6 +271,7 @@ export const MainSyncStore = {
      *   saveDaily: (dateKey, records) => Promise,
      *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
      *   saveSettings: (settingsMap) => Promise,
+     *   savePayrollEmployees: (employees, schemaVersion) => Promise,
      *   savePayrollClosure: (closure) => Promise,
      *   deleteEntity: (entity, id) => Promise,
      *   onCloudResult: (ok) => void

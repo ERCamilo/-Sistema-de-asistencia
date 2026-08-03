@@ -392,6 +392,20 @@ function _mainSyncGuards() {
         // FirebaseService.saveSettings ya es un full-replace LWW por
         // dispositivo.
         saveSettings: (settingsMap) => FirebaseService.saveSettings(settingsMap),
+        savePayrollEmployees: async (employees, schemaVersion) => {
+            if (Number(schemaVersion) < 2) {
+                throw new TypeError('Unsupported payroll employee schema');
+            }
+            const expectedIds = [...new Set(
+                (employees || []).map(employee => String(employee?.id || '')).filter(Boolean)
+            )];
+            if (expectedIds.length === 0) return;
+            const result = await EmployeeRepository.saveMany(employees, { mergeRemote: true });
+            const savedIds = new Set((result?.saved || []).map(employee => String(employee?.id || '')));
+            if (expectedIds.some(id => !savedIds.has(id))) {
+                throw new Error('No se pudo sincronizar el estado de pagos de la nómina');
+            }
+        },
         savePayrollClosure: (closure) => PayrollClosureRepository.saveOne(closure),
         deleteEntity: (entity, id, deletedAt) => {
             const repo = REPO_BY_ENTITY[entity];

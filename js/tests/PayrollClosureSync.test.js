@@ -178,21 +178,81 @@ describe('Payroll closure outbox and pull sync', () => {
         expect(outbox).toHaveLength(0);
     });
 
-    test('persists locally before enqueueing and imports a remote page idempotently', async () => {
+    test('uploads bundle employee payment state before publishing its closure', async () => {
+        const original = closure('bundle-order');
+        outbox.push({
+            key: `payroll:${original.id}`,
+            kind: 'payrollClosureBundle',
+            closureId: original.id,
+            closure: original,
+            employees: [{ id: 'employee-1', loans: [{ payments: [{ id: 'payment-1' }] }] }],
+            schemaVersion: 3,
+            status: 'pending'
+        });
+        const calls = [];
+        await MainSyncStore.flush({
+            hasSession: () => true,
+            isApplyingRemote: () => false,
+            isPaused: () => false,
+            cloudWatermark: () => 0,
+            savePayrollEmployees: jest.fn(async () => { calls.push('employees'); }),
+            savePayrollClosure: jest.fn(async () => { calls.push('closure'); }),
+            onCloudResult: jest.fn()
+        });
+
+        expect(calls).toEqual(['employees', 'closure']);
+        expect(outbox).toHaveLength(0);
+    });
+
+    test('retains a payroll bundle and never publishes the closure when employee upload fails', async () => {
+        const original = closure('bundle-retry');
+        outbox.push({
+            key: `payroll:${original.id}`,
+            kind: 'payrollClosureBundle',
+            closureId: original.id,
+            closure: original,
+            employees: [{ id: 'employee-1' }],
+            schemaVersion: 3,
+            status: 'pending'
+        });
+        const savePayrollClosure = jest.fn();
+        await MainSyncStore.flush({
+            hasSession: () => true,
+            isApplyingRemote: () => false,
+            isPaused: () => false,
+            cloudWatermark: () => 0,
+            savePayrollEmployees: jest.fn().mockRejectedValue(new Error('offline')),
+            savePayrollClosure,
+            onCloudResult: jest.fn()
+        });
+
+        expect(savePayrollClosure).not.toHaveBeenCalled();
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0]).toMatchObject({ status: 'pending', attempts: 1 });
+    });
+
+    test('records through the atomic payroll bundle and imports a remote page idempotently', async () => {
         const first = closure('sync-first');
         const second = closure('sync-second', { closedAt: 200 });
         const localStore = {
-            save: jest.fn(async value => value)
+            save: jest.fn(async value => value),
+            saveWithEmployees: jest.fn(async value => value)
         };
         const remoteRepository = {
             loadPage: jest.fn().mockResolvedValue({ items: [second], nextCursor: null })
         };
-        const enqueue = jest.spyOn(MainSyncStore, 'enqueuePayrollClosure').mockResolvedValue(undefined);
         const sync = new PayrollClosureSync({ localStore, remoteRepository, outbox: MainSyncStore });
 
-        await sync.record(first);
-        expect(localStore.save.mock.invocationCallOrder[0])
-            .toBeLessThan(enqueue.mock.invocationCallOrder[0]);
+        await sync.record(first, {
+            employees: [{ id: 'employee-1' }],
+            schemaVersion: 3,
+            queuedAt: 123
+        });
+        expect(localStore.saveWithEmployees).toHaveBeenCalledWith(
+            first,
+            [{ id: 'employee-1' }],
+            { enqueueCloud: true, schemaVersion: 3, queuedAt: 123 }
+        );
         await expect(sync.pullPage({ limit: 10 })).resolves.toMatchObject({
             imported: 1,
             conflicts: []

@@ -58,7 +58,8 @@ export function buildLegacyPayrollClosures(employees = []) {
 }
 
 export async function migrateLegacyPayrollClosures(employees = [], {
-    store = payrollClosureStore
+    store = payrollClosureStore,
+    schemaVersion = null
 } = {}) {
     const { closures, skipped } = buildLegacyPayrollClosures(employees);
     let migrated = 0;
@@ -68,7 +69,7 @@ export async function migrateLegacyPayrollClosures(employees = [], {
             existing++;
             continue;
         }
-        await store.saveWithEmployees(closure, [], { enqueueCloud: true });
+        await store.saveWithEmployees(closure, [], { enqueueCloud: true, schemaVersion });
         migrated++;
     }
     return { migrated, existing, skipped };

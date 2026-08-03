@@ -7023,7 +7023,9 @@ function _initOutgoingConflictGuard() {
         // Idempotent. Only writes back to DB if at least one record was migrated.
         migrateAllAdvances();
         try {
-            await migrateLegacyPayrollClosures(state.employees);
+            await migrateLegacyPayrollClosures(state.employees, {
+                schemaVersion: state.settings?.schemaVersion
+            });
         } catch (error) {
             console.warn('No se pudo completar la migración local del historial de nómina:', error?.name || 'Error');
         }
