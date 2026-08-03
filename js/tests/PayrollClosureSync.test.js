@@ -1,10 +1,12 @@
 import {
     auth,
     getDocs,
+    getDoc,
     limit as firestoreLimit,
     onSnapshot,
     runTransaction,
-    startAfter
+    startAfter,
+    where
 } from '../modules/data/firebase.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
@@ -16,6 +18,10 @@ import fs from 'fs';
 import path from 'path';
 
 const APP_SOURCE = fs.readFileSync(path.resolve(__dirname, '../app.js'), 'utf8');
+const FIRESTORE_INDEXES = JSON.parse(fs.readFileSync(
+    path.resolve(__dirname, '../../firestore.indexes.json'),
+    'utf8'
+));
 
 function closure(fingerprint, overrides = {}) {
     return buildPayrollClosure({
@@ -48,9 +54,11 @@ describe('PayrollClosureRepository', () => {
         auth.currentUser = { uid: 'user-1' };
         runTransaction.mockReset();
         getDocs.mockReset();
+        getDoc.mockReset();
         firestoreLimit.mockClear();
         onSnapshot.mockReset();
         startAfter.mockClear();
+        where.mockClear();
     });
 
     afterEach(() => {
@@ -106,19 +114,46 @@ describe('PayrollClosureRepository', () => {
         expect(runTransaction).not.toHaveBeenCalled();
     });
 
-    test('paginates deterministically without exposing a false extra item', async () => {
+    test('paginates at ten summaries without eagerly returning closure detail', async () => {
         const first = closure('remote-page-1', { closedAt: 300 });
         const second = closure('remote-page-2', { closedAt: 200 });
-        const extra = closure('remote-page-3', { closedAt: 100 });
         getDocs.mockResolvedValue({
-            docs: [first, second, extra].map(value => docSnapshot(value))
+            docs: [first, second].map(value => docSnapshot(value))
         });
 
         await expect(PayrollClosureRepository.loadPage({ limit: 2 })).resolves.toEqual({
-            items: [first, second],
+            items: [
+                expect.not.objectContaining({ rows: expect.anything() }),
+                expect.not.objectContaining({ rows: expect.anything() })
+            ],
             nextCursor: { closedAt: 200, id: second.id }
         });
-        expect(firestoreLimit).toHaveBeenCalledWith(3);
+        expect(firestoreLimit).toHaveBeenCalledWith(2);
+    });
+
+    test('fetches detail and exact-period records only on targeted requests', async () => {
+        const original = closure('targeted-detail');
+        getDoc.mockResolvedValue(docSnapshot(original));
+        getDocs.mockResolvedValue({ docs: [docSnapshot(original)] });
+
+        await expect(PayrollClosureRepository.loadById(original.id)).resolves.toEqual(original);
+        await expect(PayrollClosureRepository.loadByPeriod(
+            original.periodStart,
+            original.periodEnd
+        )).resolves.toEqual([original]);
+        expect(where).toHaveBeenCalledWith('periodStart', '==', original.periodStart);
+        expect(where).toHaveBeenCalledWith('periodEnd', '==', original.periodEnd);
+    });
+
+    test('declares the composite index used by filtered cursor pages', () => {
+        expect(FIRESTORE_INDEXES.indexes).toContainEqual(expect.objectContaining({
+            collectionGroup: 'payrollClosures',
+            fields: expect.arrayContaining([
+                { fieldPath: 'status', order: 'ASCENDING' },
+                { fieldPath: 'closedAt', order: 'DESCENDING' },
+                { fieldPath: '__name__', order: 'DESCENDING' }
+            ])
+        }));
     });
 });
 
@@ -231,7 +266,7 @@ describe('Payroll closure outbox and pull sync', () => {
         expect(outbox[0]).toMatchObject({ status: 'pending', attempts: 1 });
     });
 
-    test('records through the atomic payroll bundle and imports a remote page idempotently', async () => {
+    test('records atomically, pages summaries, and imports only targeted detail or periods', async () => {
         const first = closure('sync-first');
         const second = closure('sync-second', { closedAt: 200 });
         const localStore = {
@@ -239,7 +274,9 @@ describe('Payroll closure outbox and pull sync', () => {
             saveWithEmployees: jest.fn(async value => value)
         };
         const remoteRepository = {
-            loadPage: jest.fn().mockResolvedValue({ items: [second], nextCursor: null })
+            loadPage: jest.fn().mockResolvedValue({ items: [{ id: second.id }], nextCursor: null }),
+            loadById: jest.fn().mockResolvedValue(second),
+            loadByPeriod: jest.fn().mockResolvedValue([second])
         };
         const sync = new PayrollClosureSync({ localStore, remoteRepository, outbox: MainSyncStore });
 
@@ -253,15 +290,21 @@ describe('Payroll closure outbox and pull sync', () => {
             [{ id: 'employee-1' }],
             { enqueueCloud: true, schemaVersion: 3, queuedAt: 123 }
         );
-        await expect(sync.pullPage({ limit: 10 })).resolves.toMatchObject({
+        await expect(sync.pullPage({ limit: 10 })).resolves.toEqual({
+            items: [{ id: second.id }],
+            nextCursor: null
+        });
+        expect(localStore.save).not.toHaveBeenCalled();
+        await expect(sync.pullDetail(second.id)).resolves.toEqual(second);
+        expect(localStore.save).toHaveBeenLastCalledWith(second);
+        await expect(sync.pullPeriod(second.periodStart, second.periodEnd)).resolves.toMatchObject({
             imported: 1,
             conflicts: []
         });
-        expect(localStore.save).toHaveBeenLastCalledWith(second);
     });
 
-    test('restarts the live listener on every authentication transition', () => {
-        expect(APP_SOURCE).toMatch(/onAuthStateChanged[\s\S]*PayrollClosureLiveSync\.stop\(\)/);
-        expect(APP_SOURCE).toMatch(/if \(user\)[\s\S]*PayrollClosureLiveSync\.start\(/);
+    test('does not hydrate closure history or start a broad listener at login', () => {
+        expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.start(');
+        expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.stop(');
     });
 });

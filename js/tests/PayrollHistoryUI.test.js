@@ -57,18 +57,24 @@ describe('Payroll history UI', () => {
         }).map(item => item.id)).toEqual(['closure-1']);
     });
 
-    test('renders paginated status, sync and accessible detail actions', () => {
+    test('renders at most ten summaries with cursor page navigation', () => {
+        const items = Array.from({ length: 12 }, (_, index) => closure({ id: `closure-${index}` }));
         document.body.innerHTML = renderPayrollHistoryView({
-            items: [closure({ syncStatus: 'pending' })],
+            items,
             nextCursor: { closedAt: 1, id: 'next' },
+            page: 2,
+            hasPrevious: true,
             filters: { status: 'closed', periodStart: '', periodEnd: '' }
         });
         expect(document.querySelector('[data-payroll-history-filter="status"]').value).toBe('closed');
-        expect(document.body.textContent).toContain('Pendiente de sincronizar');
+        expect(document.querySelectorAll('.payroll-history-card')).toHaveLength(10);
         expect(document.querySelector('[data-payroll-action="open-payroll-history-detail"]')?.tagName)
             .toBe('BUTTON');
-        expect(document.querySelector('[data-payroll-action="load-more-payroll-history"]'))
+        expect(document.querySelector('[data-payroll-action="previous-payroll-history-page"]'))
             .not.toBeNull();
+        expect(document.querySelector('[data-payroll-action="next-payroll-history-page"]'))
+            .not.toBeNull();
+        expect(document.body.textContent).toContain('Página 2');
     });
 
     test('renders an immutable responsive detail and hides empty financial columns', () => {
@@ -102,6 +108,10 @@ describe('Payroll history UI', () => {
         expect(PAYROLL_UI_SOURCE).toContain('loadPayrollHistory');
         expect(PAYROLL_UI_SOURCE).toContain('loadPayrollHistory({ force: true })');
         expect(PAYROLL_UI_SOURCE).toContain('queueMicrotask(() => loadPayrollHistory())');
+        expect(PAYROLL_UI_SOURCE).toContain('payrollClosureSync.pullPage({');
+        expect(PAYROLL_UI_SOURCE).toContain('limit: 10');
+        expect(PAYROLL_UI_SOURCE).toContain('payrollClosureSync.pullDetail(id)');
+        expect(PAYROLL_UI_SOURCE).toContain('payrollClosureSync.pullPeriod(');
         expect(PAYROLL_UI_SOURCE).toContain('focusPayrollHistoryControl');
         expect(PAYROLL_CSS_SOURCE).toMatch(/@media[^}]*max-width:\s*700px[\s\S]*\.payroll-history/m);
     });

@@ -61,7 +61,6 @@ import { generateLoansReadonlySection } from './modules/features/profile/LoansRe
 import { renderSyncStatusBadge, attachLiveBadge } from './modules/ui/SyncStatusBadge.js';
 import { SyncStatus } from './modules/services/SyncStatus.js';
 import { LegacyMigrator } from './modules/utils/LegacyMigrator.js';
-import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
 import { migrateLegacyPayrollClosures } from './modules/features/payroll/PayrollClosureMigration.js';
 
 // ... (Resto de importaciones existentes)
@@ -7090,9 +7089,6 @@ function _initOutgoingConflictGuard() {
             // Estandarización de Scope Global
             window.currentUser = user;
             if (window.App) window.App.currentUser = user;
-            // El listener pertenece a la sesión actual. Cortarlo antes de
-            // procesar cada transición evita mezclar historiales entre cuentas.
-            PayrollClosureLiveSync.stop();
 
             // Al loguearse con el modal de login abierto: cerralo y volvé a la
             // app (el login con Google es un popup async, así que el cierre se
@@ -7150,15 +7146,6 @@ function _initOutgoingConflictGuard() {
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que
                 // el usuario haga otro cambio cualquiera para disparar la sync.
                 drainMainSyncOutbox().catch(e => console.warn('⚠️ Error drenando outbox al iniciar sesión:', e));
-
-                PayrollClosureLiveSync.start({
-                    onApply: result => {
-                        if (result.imported > 0) {
-                            eventBus.emit('payroll:history-updated', result);
-                        }
-                    },
-                    onError: error => console.warn('⚠️ Error sincronizando historial de nómina:', error)
-                });
 
                 // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                 window.startPettyCashSync?.();
