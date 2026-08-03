@@ -6,6 +6,7 @@
 import { state, stateManager } from '../core/AppState.js';
 import { buildAttendanceIndex, invalidateEmployeeStats, invalidateAllStats } from '../core/AppState.js';
 import FirebaseService from './FirebaseService.js';
+import { PayrollClosureRepository } from '../features/payroll/PayrollClosureRepository.js';
 import indexedDBService from './IndexedDBService.js';
 import dataService from './DataService.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
@@ -391,6 +392,7 @@ function _mainSyncGuards() {
         // FirebaseService.saveSettings ya es un full-replace LWW por
         // dispositivo.
         saveSettings: (settingsMap) => FirebaseService.saveSettings(settingsMap),
+        savePayrollClosure: (closure) => PayrollClosureRepository.saveOne(closure),
         deleteEntity: (entity, id, deletedAt) => {
             const repo = REPO_BY_ENTITY[entity];
             if (!repo) return Promise.resolve();

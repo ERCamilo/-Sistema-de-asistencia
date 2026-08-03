@@ -1,9 +1,13 @@
 import indexedDBService from '../../services/IndexedDBService.js';
 import {
-    isSamePayrollClosureContent,
     PAYROLL_CLOSURE_STATUS,
     voidPayrollClosure
 } from './PayrollClosure.js';
+import {
+    resolvePayrollClosureMutation
+} from './PayrollClosureMerge.js';
+
+export { PayrollClosureConflictError } from './PayrollClosureMerge.js';
 
 export const PAYROLL_CLOSURE_STORE = 'payrollClosures';
 
@@ -27,15 +31,6 @@ function assertClosure(closure) {
     }
 }
 
-export class PayrollClosureConflictError extends Error {
-    constructor(existing, incoming) {
-        super(`Payroll closure content conflict: ${incoming?.id || existing?.id || 'unknown'}`);
-        this.name = 'PayrollClosureConflictError';
-        this.existing = clone(existing);
-        this.incoming = clone(incoming);
-    }
-}
-
 export class PayrollClosureStore {
     constructor({ db = indexedDBService } = {}) {
         this.db = db;
@@ -50,20 +45,7 @@ export class PayrollClosureStore {
         const saved = await this.db.atomicMutate(
             PAYROLL_CLOSURE_STORE,
             incoming.id,
-            existing => {
-                if (existing) {
-                    if (!isSamePayrollClosureContent(existing, incoming)) {
-                        throw new PayrollClosureConflictError(existing, incoming);
-                    }
-                    // Business audit is monotonic: a stale device cannot revive a voided
-                    // closure, and a repeated void cannot replace the original audit actor.
-                    if (existing.status === PAYROLL_CLOSURE_STATUS.VOIDED ||
-                        incoming.status === existing.status) {
-                        return { write: false, value: clone(existing) };
-                    }
-                }
-                return { write: true, value: incoming };
-            }
+            existing => resolvePayrollClosureMutation(existing, incoming)
         );
         return clone(saved);
     }

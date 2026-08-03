@@ -5,7 +5,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebas
 // - Bloqueado por Tracking Prevention en Edge/Brave (logs "ERR_BLOCKED_BY_CLIENT")
 // Para reactivarlo: descomentar el import y la línea `getAnalytics(app)` abajo.
 // import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, query, orderBy, limit, getDocs, Timestamp, onSnapshot, where, documentId, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, query, orderBy, limit, getDocs, Timestamp, onSnapshot, where, documentId, writeBatch, runTransaction, startAfter } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getStorage, ref, uploadString, getDownloadURL, deleteObject, getBlob } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
@@ -24,7 +24,7 @@ export {
     // Auth functions
     signInWithPopup, signOut, onAuthStateChanged,
     // Firestore functions
-    doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, query, orderBy, limit, getDocs, Timestamp, onSnapshot, where, documentId, writeBatch,
+    doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, query, orderBy, limit, getDocs, Timestamp, onSnapshot, where, documentId, writeBatch, runTransaction, startAfter,
     // Storage functions
     ref, uploadString, getDownloadURL, deleteObject, getBlob
 };

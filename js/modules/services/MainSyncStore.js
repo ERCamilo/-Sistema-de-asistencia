@@ -93,6 +93,9 @@ function _resolveCloudCall(entry, guards) {
         // vive dentro del propio writer.
         return () => guards.saveSettings(entry.settings);
     }
+    if (entry.kind === 'payrollClosure') {
+        return () => guards.savePayrollClosure(entry.closure);
+    }
     if (entry.kind === 'delete') {
         const minSchema = DELETE_SCHEMA_MIN[entry.entity];
         // Cuenta legacy: el doc per-entidad no existe todavía. Dejar
@@ -194,6 +197,29 @@ export const MainSyncStore = {
     },
 
     /**
+     * Encola un cierre histórico en su documento independiente. La identidad
+     * determinista vuelve cada reintento idempotente; el estado más reciente
+     * reemplaza cualquier intento pendiente o muerto del mismo cierre.
+     */
+    async enqueuePayrollClosure(closure) {
+        const closureId = String(closure?.id || '').trim();
+        if (!closureId) throw new TypeError('Payroll closure id is required');
+        const all = await _getAll();
+        const stale = all.filter(entry => entry &&
+            entry.kind === 'payrollClosure' &&
+            entry.closureId === closureId &&
+            (entry.status === 'pending' || entry.status === 'dead'));
+        for (const entry of stale) await _deleteQuiet(entry.key);
+        await indexedDBService.update(OUTBOX, {
+            kind: 'payrollClosure',
+            closureId,
+            closure,
+            ts: Date.now(),
+            status: 'pending'
+        });
+    },
+
+    /**
      * Encola el borrado de una entidad en la nube. Dedup: si ya hay un
      * borrado pendiente para la MISMA entidad+id, no duplica.
      *
@@ -232,6 +258,7 @@ export const MainSyncStore = {
      *   saveDaily: (dateKey, records) => Promise,
      *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
      *   saveSettings: (settingsMap) => Promise,
+     *   savePayrollClosure: (closure) => Promise,
      *   deleteEntity: (entity, id) => Promise,
      *   onCloudResult: (ok) => void
      * }} guards - inyectado por el caller (PersistenceService), evaluado en
