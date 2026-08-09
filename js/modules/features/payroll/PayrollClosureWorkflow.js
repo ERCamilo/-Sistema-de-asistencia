@@ -103,7 +103,11 @@ export function buildPayrollClosureDraft({
     assertPayrollClosureSize(closure);
     return {
         closure,
-        batch: loanBatch ? { ...loanBatch, closureId: closure.id } : null
+        batch: loanBatch ? {
+            ...loanBatch,
+            closureId: closure.id,
+            supersedesClosureId: supersedesId || null
+        } : null
     };
 }
 
