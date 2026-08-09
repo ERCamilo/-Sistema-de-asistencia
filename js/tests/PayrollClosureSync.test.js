@@ -107,6 +107,31 @@ describe('PayrollClosureRepository', () => {
         expect(set).not.toHaveBeenCalled();
     });
 
+    test('does not conflict when Firestore-shaped detail keys arrive in a different order', async () => {
+        const original = closure('cloud-canonical-details', {
+            adjustments: {
+                bonuses: [{ employeeId: 'employee-1', detail: { concept: 'Attendance', amount: 50 } }],
+                deductions: []
+            }
+        });
+        let remote = JSON.parse(JSON.stringify(original));
+        remote.adjustments = {
+            deductions: [],
+            bonuses: [{ detail: { amount: 50, concept: 'Attendance' }, employeeId: 'employee-1' }]
+        };
+        const set = jest.fn((_ref, value) => { remote = value; });
+        runTransaction.mockImplementation(async (_db, operation) => operation({
+            get: jest.fn(async () => docSnapshot(remote)),
+            set
+        }));
+
+        await expect(PayrollClosureRepository.saveOne(original)).resolves.toMatchObject({
+            written: false,
+            closure: { id: original.id }
+        });
+        expect(set).not.toHaveBeenCalled();
+    });
+
     test('fails instead of silently dropping a write when the session disappears', async () => {
         delete auth.currentUser;
         await expect(PayrollClosureRepository.saveOne(closure('no-session')))

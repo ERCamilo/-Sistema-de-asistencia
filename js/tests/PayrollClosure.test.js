@@ -119,6 +119,26 @@ describe('PayrollClosure', () => {
         expect(isSamePayrollClosureContent(first, retry)).toBe(true);
     });
 
+    test('treats nested closure details with different object key order as the same content', () => {
+        const first = buildPayrollClosure({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()],
+            fingerprint: 'canonical-details',
+            adjustments: {
+                bonuses: [{ employeeId: 'employee-1', detail: { concept: 'Attendance', amount: 50 } }],
+                deductions: []
+            }
+        });
+        const firestoreShapedRetry = JSON.parse(JSON.stringify(first));
+        firestoreShapedRetry.adjustments = {
+            deductions: [],
+            bonuses: [{ detail: { amount: 50, concept: 'Attendance' }, employeeId: 'employee-1' }]
+        };
+
+        expect(isSamePayrollClosureContent(first, firestoreShapedRetry)).toBe(true);
+    });
+
     test('voids by audit metadata without mutating the financial snapshot', () => {
         const closure = buildPayrollClosure({
             periodStart: '2026-08-01',
