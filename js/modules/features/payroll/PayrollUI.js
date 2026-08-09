@@ -2274,6 +2274,16 @@ export async function undoPayrollClosure(closureId) {
         const state = getState();
         const closure = await payrollClosureStore.getById(closureId);
         if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        if (!canUsePayrollRemote()) {
+            throw new Error('Conectate para verificar que este período no tenga una corrección remota.');
+        }
+        const refresh = await payrollClosureSync.pullPeriod(
+            closure.periodStart,
+            closure.periodEnd
+        );
+        if (refresh.conflicts?.length) {
+            throw new Error('No se pudo verificar el estado remoto de este cierre de Nómina.');
+        }
         const activeClosures = await payrollClosureStore.getByPeriod(
             closure.periodStart,
             closure.periodEnd
