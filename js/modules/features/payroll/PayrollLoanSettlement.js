@@ -568,6 +568,9 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
             text(payment.id) === text(ref.paymentId)
         );
         if (!target) throw new Error('El lote está incompleto y no se puede deshacer de forma segura');
+        if (text(target.payment.payrollClosureId) !== text(batch.closureId)) {
+            throw new Error('El pago vinculado pertenece a otro cierre de Nómina');
+        }
         return target;
     });
     let voidedCount = 0;

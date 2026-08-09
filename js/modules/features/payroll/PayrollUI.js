@@ -2268,8 +2268,10 @@ export async function openPayrollClosure() {
 }
 
 export async function undoPayrollClosure(closureId) {
-    const state = getState();
+    if (payrollClosureInProgress) return;
+    payrollClosureInProgress = true;
     try {
+        const state = getState();
         const closure = await payrollClosureStore.getById(closureId);
         if (!closure) throw new Error('No se encontró el cierre de Nómina');
         const activeClosures = await payrollClosureStore.getByPeriod(
@@ -2314,6 +2316,9 @@ export async function undoPayrollClosure(closureId) {
             title: 'No se puede deshacer',
             message: escapeHTML(error?.message || 'El cierre no se puede deshacer de forma segura.')
         });
+    } finally {
+        payrollClosureInProgress = false;
+        context?.render?.();
     }
 }
 
