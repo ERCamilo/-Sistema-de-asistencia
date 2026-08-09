@@ -2,7 +2,7 @@ import {
     getActiveLoanTerms,
     getBalance,
     getPayrollDeductionOptions,
-    getTotalDue,
+    getTotalDue, refinanceLoan,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
 
@@ -34,5 +34,20 @@ describe('LoansService active refinancing terms', () => {
         const voided = { ...loan, refinancings: [{ ...loan.refinancings[0], voided: true }] };
         expect(getActiveLoanTerms(voided).principal).toBe(1000);
         expect(getTotalDue(voided)).toBe(1100);
+    });
+
+    it('creates a versioned replacement contract through the production refinance function', () => {
+        const employee = { id: 'emp', loans: [{ id: 'loan', principal: 1000, interestRate: 0, startDate: '2026-01-01', installmentMode: 'lump', payments: [{ amount: 200 }], status: 'active' }] };
+        const event = refinanceLoan(employee, 'loan', { basis: 'balance', interestRate: 10, installmentCount: 3, date: '2026-02-01', effectiveAt: 100 });
+        expect(event).toMatchObject({ kind: 'replacement', effectiveAt: 100, replacementTerms: { version: 2, principal: 800, interestRate: 10, installmentCount: 3, totalDue: 880 } });
+        expect(event.replacementTerms.installments).toHaveLength(3);
+        expect(getBalance(employee.loans[0])).toBe(880);
+    });
+
+    it('selects the newest replacement independent of merged array order and uses the id tie-breaker', () => {
+        const first = { ...loan.refinancings[0], id: 'A', effectiveAt: 10 };
+        const second = { ...loan.refinancings[0], id: 'B', effectiveAt: 10, replacementTerms: { ...loan.refinancings[0].replacementTerms, principal: 700 } };
+        expect(getActiveLoanTerms({ ...loan, refinancings: [second, first] }).principal).toBe(700);
+        expect(getActiveLoanTerms({ ...loan, refinancings: [first, second] }).principal).toBe(700);
     });
 });

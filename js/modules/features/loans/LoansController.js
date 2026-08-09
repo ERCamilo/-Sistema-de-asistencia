@@ -89,7 +89,7 @@ function ensureLedgerState() {
 }
 
 function createEmptyRefinanceDraft() {
-    return { basis: 'balance', interestRate: 0, note: '' };
+    return { basis: 'balance', interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
 }
 
 function createEmptyLoanDraft() {
@@ -573,7 +573,7 @@ export function toggleRefinanceForm(loanId) {
     stateManager.batchSetState(() => {
         state.loansLedger.showRefinanceFormForLoan = open;
         if (open) state.loansLedger.showPaymentFormForLoan = null;
-        state.loansLedger.refinanceDraft = { basis: 'balance', interestRate: rate, note: '' };
+        state.loansLedger.refinanceDraft = { basis: 'balance', interestRate: rate, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
     });
     render();
 }
@@ -582,7 +582,7 @@ export function setRefinanceDraftField(field, value) {
     ensureLedgerState();
     const draft = state.loansLedger.refinanceDraft;
     if (!draft) return;
-    if (field === 'interestRate') {
+    if (field === 'interestRate' || field === 'installmentCount' || field === 'installmentFrequencyWeeks') {
         draft.interestRate = Number(value) || 0;
     } else {
         draft[field] = value;

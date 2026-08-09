@@ -444,6 +444,7 @@ export function refinanceLoan(emp, loanId, params = {}) {
     const rate = Number(params.interestRate);
     const interestAmount = round2(baseAmount * rate / 100);
 
+    const now = Date.now();
     const event = {
         id: genId('REFIN'),
         date: params.date || new Date().toISOString().slice(0, 10),
@@ -455,14 +456,34 @@ export function refinanceLoan(emp, loanId, params = {}) {
             ? round2(Number(params.unpaidAmount)) : null,
         note: (params.note || '').trim(),
         createdBy: params.createdBy || null,
-        createdAt: Date.now(),
+        createdAt: now,
         // 🕒 updatedAt por-evento (espejo de payments): sin esto, una
         // anulación hecha en un dispositivo perdía el merge contra una copia
         // vieja no-anulada con el mismo id en otro dispositivo.
-        updatedAt: Date.now(),
+        updatedAt: now,
         voided: false,
         voidedAt: null
     };
+
+    if (params.replacement !== false && params.installmentCount != null) {
+        const count = Number(params.installmentCount);
+        const frequencyWeeks = Number(params.installmentFrequencyWeeks || 2);
+        if (!Number.isInteger(count) || count < 1 || count > VALIDATION.MAX_INSTALLMENTS) throw new Error(`La cantidad de cuotas debe estar entre 1 y ${VALIDATION.MAX_INSTALLMENTS}`);
+        if (!VALIDATION.ALLOWED_FREQUENCY_WEEKS.includes(frequencyWeeks)) throw new Error(`La frecuencia debe ser una de: ${VALIDATION.ALLOWED_FREQUENCY_WEEKS.join(', ')} semanas`);
+        const effectiveAt = Number.isFinite(Number(params.effectiveAt)) ? Number(params.effectiveAt) : now;
+        const principal = balance;
+        const startDate = params.date || new Date(effectiveAt).toISOString().slice(0, 10);
+        const replacementInterest = round2(principal * rate / 100);
+        event.kind = 'replacement';
+        event.effectiveAt = effectiveAt;
+        event.replacementTerms = {
+            version: 2, principal, interestRate: rate, interestIncluded: false, startDate,
+            installmentMode: INSTALLMENT_MODE.INSTALLMENTS, installmentFrequencyWeeks: frequencyWeeks, installmentCount: count,
+            installments: generateInstallmentSchedule({ principal, interestRate: rate, interestIncluded: false, startDate, count, frequencyWeeks }),
+            interestAmount: replacementInterest, totalDue: round2(principal + replacementInterest),
+            paidAmountAtReplacement: getPaidAmount(loan), effectiveAt
+        };
+    }
 
     if (!Array.isArray(loan.refinancings)) loan.refinancings = [];
     loan.refinancings.push(event);
@@ -594,10 +615,15 @@ export function getActiveLoanTerms(loan = {}) {
         installmentFrequencyWeeks: Number(loan.installmentFrequencyWeeks || 2),
         installments: Array.isArray(loan.installments) ? loan.installments : []
     };
-    const replacement = [...(loan.refinancings || [])]
-        .reverse()
-        .map(event => event?.voided ? null : (event.replacementTerms || event.replacement || event.terms))
-        .find(terms => terms && typeof terms === 'object');
+
+    const replacement = (loan.refinancings || [])
+        .filter(event => !event?.voided && event.replacementTerms && typeof event.replacementTerms === 'object')
+        .sort((left, right) => {
+            const leftTime = Number(left.effectiveAt ?? left.createdAt) || Date.parse(left.date || '') || 0;
+            const rightTime = Number(right.effectiveAt ?? right.createdAt) || Date.parse(right.date || '') || 0;
+            return leftTime - rightTime || String(left.id || '').localeCompare(String(right.id || ''));
+        })
+        .at(-1)?.replacementTerms;
     if (!replacement) return base;
     return {
         ...base,
@@ -651,7 +677,11 @@ export function getPaidAmount(loan) {
 /** Remaining balance: totalDue - paidAmount (clamped to >= 0). */
 export function getBalance(loan) {
     const due = getTotalDue(loan);
-    const paid = getPaidAmount(loan);
+    const replacement = (loan.refinancings || [])
+        .filter(event => !event?.voided && event.replacementTerms && typeof event.replacementTerms === 'object')
+        .sort((left, right) => (Number(left.effectiveAt ?? left.createdAt) || 0) - (Number(right.effectiveAt ?? right.createdAt) || 0) || String(left.id || '').localeCompare(String(right.id || '')))
+        .at(-1)?.replacementTerms;
+    const paid = Math.max(0, getPaidAmount(loan) - Number(replacement?.paidAmountAtReplacement || 0));
     return Math.max(0, round2(due - paid));
 }
 
@@ -684,7 +714,11 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
         }];
     }
 
-    let paidToAllocate = getPaidAmount(loan);
+    const replacement = (loan.refinancings || [])
+        .filter(event => !event?.voided && event.replacementTerms && typeof event.replacementTerms === 'object')
+        .sort((left, right) => (Number(left.effectiveAt ?? left.createdAt) || 0) - (Number(right.effectiveAt ?? right.createdAt) || 0) || String(left.id || '').localeCompare(String(right.id || '')))
+        .at(-1)?.replacementTerms;
+    let paidToAllocate = Math.max(0, getPaidAmount(loan) - Number(replacement?.paidAmountAtReplacement || 0));
     let selectableBalance = balance;
     const options = [];
 

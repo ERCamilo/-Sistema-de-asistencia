@@ -835,7 +835,7 @@ function PaymentForm(loan, balance) {
 // ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
 
 function RefinanceForm(loan, balance) {
-    const draft = (state.loansLedger || {}).refinanceDraft || { basis: 'balance', interestRate: 0, note: '' };
+    const draft = (state.loansLedger || {}).refinanceDraft || { basis: 'balance', interestRate: 0, installmentCount: 2, note: '' };
     const base = draft.basis === 'balance' ? balance : Number(loan.principal || 0);
     const rate = Number(draft.interestRate || 0);
     const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -863,6 +863,12 @@ function RefinanceForm(loan, balance) {
                     <input type="number" inputmode="decimal" autocomplete="off" value="${draft.interestRate || ''}"
                            min="0" max="${VALIDATION.MAX_INTEREST_PERCENT}" step="0.1"
                            oninput="setRefinanceDraftField('interestRate', this.value)" placeholder="0"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+                <div>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Nuevas cuotas</label>
+                    <input type="number" inputmode="numeric" value="${draft.installmentCount || 2}" min="1" max="${VALIDATION.MAX_INSTALLMENTS}" step="1"
+                           oninput="setRefinanceDraftField('installmentCount', this.value)"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
                 <div>
