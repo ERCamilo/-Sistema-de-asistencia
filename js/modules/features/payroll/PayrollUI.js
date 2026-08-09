@@ -26,6 +26,12 @@ import {
     confirmPayrollPaid
 } from './PayrollLoanSettlement.js';
 import {
+    applyPayrollPreviewInclusion,
+    filterPayablePayrollPreviewRows,
+    getPayrollPreviewCategoryCounts,
+    getPayrollPreviewInclusion
+} from './PayrollPreview.js';
+import {
     openPayrollClosureModal,
     renderPayrollClosurePanel
 } from './PayrollClosureUI.js';
@@ -130,6 +136,10 @@ const _ACTION_MAP = {
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
     'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
+    'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
+        category,
+        target.checked
+    ),
     'open-payroll-closure': () => window.PayrollUI?.openPayrollClosure?.(),
     'undo-payroll-closure': (closureId) => window.PayrollUI?.undoPayrollClosure?.(closureId),
     'prepare-payroll-correction': (closureId) => window.PayrollUI?.preparePayrollCorrection?.(closureId),
@@ -403,6 +413,9 @@ function PayrollGeneratorTab() {
                 state.exportConfig.activePreset = period.source === 'configured' ? 'payPeriod' : 'thisMonth';
             }
             if (!state.exportConfig.leaderFilter) state.exportConfig.leaderFilter = 'all';
+            state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion(
+                state.exportConfig.payrollPreviewInclusion
+            );
         });
     }
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
@@ -472,6 +485,8 @@ function PayrollGeneratorTab() {
     const showBonusColumn = hasReviewAmount('_bonuses');
     const showDeductionColumn = hasReviewAmount('_deductions');
     const showLoanColumn = hasReviewAmount('_loans');
+    const previewInclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
+    const previewCategoryCounts = getPayrollPreviewCategoryCounts(exportData, previewInclusion);
     const deductionDetails = summarizeAdjustmentDetails(
         state.exportConfig.deductions,
         exportData,
@@ -779,9 +794,9 @@ function PayrollGeneratorTab() {
                                 <th class="payroll-review-table__number">#</th>
                                 <th class="payroll-review-table__employee">EMPLEADO</th>
                                 <th>BRUTO</th>
-                                ${showBonusColumn ? '<th class="is-bonus">BONIFIC.</th>' : ''}
-                                ${showDeductionColumn ? '<th class="is-deduction">DEDUCCIONES</th>' : ''}
-                                ${showLoanColumn ? '<th class="is-loan">PRÉSTAMOS</th>' : ''}
+                                ${showBonusColumn || !previewInclusion.bonuses ? `<th class="is-bonus payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="bonuses" ${previewInclusion.bonuses ? 'checked' : ''} aria-label="Incluir bonificaciones en la vista previa"> <span>BONIFIC.</span><small>${previewCategoryCounts.bonuses.active}/${previewCategoryCounts.bonuses.total}</small></label></th>` : ''}
+                                ${showDeductionColumn || !previewInclusion.deductions ? `<th class="is-deduction payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="deductions" ${previewInclusion.deductions ? 'checked' : ''} aria-label="Incluir deducciones en la vista previa"> <span>DEDUCCIONES</span><small>${previewCategoryCounts.deductions.active}/${previewCategoryCounts.deductions.total}</small></label></th>` : ''}
+                                ${showLoanColumn || !previewInclusion.loans ? `<th class="is-loan payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="loans" ${previewInclusion.loans ? 'checked' : ''} aria-label="Incluir préstamos en la vista previa"> <span>PRÉSTAMOS</span><small>${previewCategoryCounts.loans.active}/${previewCategoryCounts.loans.total}</small></label></th>` : ''}
                                 <th>NETO</th>
                             </tr>
                         </thead>
@@ -794,9 +809,9 @@ function PayrollGeneratorTab() {
                                         ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
                                     </td>
                                     <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
-                                    ${showBonusColumn ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
-                                    ${showDeductionColumn ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
-                                    ${showLoanColumn ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
+                                    ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
+                                    ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
+                                    ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
                                     <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
@@ -805,9 +820,9 @@ function PayrollGeneratorTab() {
                             <tr>
                                 <td colspan="2">Totales</td>
                                 <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
-                                ${showBonusColumn ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>` : ''}
-                                ${showDeductionColumn ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>` : ''}
-                                ${showLoanColumn ? `<td class="payroll-review-table__amount is-loan">−${formatCurrency(loanAmount)}</td>` : ''}
+                                ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>` : ''}
+                                ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>` : ''}
+                                ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount is-loan">−${formatCurrency(loanAmount)}</td>` : ''}
                                 <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
@@ -1023,12 +1038,17 @@ function generateExportData() {
         };
     });
 
-    return applyPayrollLoanDeductions(
+    const sourceRows = applyPayrollLoanDeductions(
         baseRows,
         state.employees,
         state.exportConfig.payrollLoanSelection || [],
         periodEnd
-    )
+    );
+    const previewRows = applyPayrollPreviewInclusion(
+        sourceRows,
+        state.exportConfig.payrollPreviewInclusion
+    );
+    return filterPayablePayrollPreviewRows(previewRows)
         // Keep selected-loan rows even when their resulting payment is invalid,
         // so the UI can show the error instead of silently omitting the employee.
         .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
@@ -1624,6 +1644,7 @@ export function updateExportPeriod(type, value) {
         state.exportConfig.activePreset = null;
         state.exportConfig.payrollLoanSelection = [];
         state.exportConfig.payrollLoanExpandedEmployees = [];
+        state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
     });
     context.render();
 }
@@ -1632,6 +1653,25 @@ export function setLeaderFilter(leaderId) {
     const state = getState();
     state.exportConfig.leaderFilter = leaderId;
     context.render();
+}
+
+export function togglePayrollPreviewCategory(category, checked) {
+    if (!['bonuses', 'deductions', 'loans'].includes(category)) return;
+    const state = getState();
+    const inclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
+    stateManager.setState({
+        exportConfig: {
+            ...state.exportConfig,
+            payrollPreviewInclusion: { ...inclusion, [category]: Boolean(checked) },
+            payrollPaidConfirmation: null
+        }
+    });
+    context.render();
+    queueMicrotask(() => {
+        document.querySelector(`[data-payroll-action="toggle-payroll-preview-category"][data-value="${category}"]`)?.focus?.();
+        const net = generateExportData().reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+        window.showNotification?.(`Vista previa actualizada: neto ${formatCurrency(net)}`, 'info');
+    });
 }
 
 export function setExportPreset(preset) {
@@ -1664,6 +1704,7 @@ export function setExportPreset(preset) {
             state.exportConfig.periodSource = period.source;
             state.exportConfig.payrollLoanSelection = [];
             state.exportConfig.payrollLoanExpandedEmployees = [];
+            state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
         });
         if (period.source === 'month-fallback' && window.showNotification) {
             window.showNotification('⚠️ El período configurado no es válido; se usó el mes actual.', 'warning');
@@ -1678,6 +1719,7 @@ export function setExportPreset(preset) {
         state.exportConfig.activePreset = preset;
         state.exportConfig.payrollLoanSelection = [];
         state.exportConfig.payrollLoanExpandedEmployees = [];
+        state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
     });
     context.render();
 }
@@ -2238,7 +2280,8 @@ export async function openPayrollClosure() {
             ...consumePayrollClosureAdjustments(latest.state.exportConfig, savedClosure),
             payrollPaidConfirmation: null,
             payrollCorrectionSupersedesId: null,
-            payrollLoanSelection: []
+            payrollLoanSelection: [],
+            payrollPreviewInclusion: getPayrollPreviewInclusion()
         };
         stateManager.setState(finalized.batch
             ? { employees: employeeCopies, exportConfig: nextExportConfig }
