@@ -578,17 +578,55 @@ export function deleteLoan(emp, loanId) {
 
 // ─── Derived calculations ────────────────────────────────────────────────────
 
+/**
+ * The effective contract for a loan. A refinancing may persist a full
+ * replacementTerms snapshot; the latest non-voided snapshot becomes the one
+ * source of truth for current KPIs, cards, schedules and payroll deductions.
+ * Older loans and interest-only refinancing events retain their stored terms.
+ */
+export function getActiveLoanTerms(loan = {}) {
+    const base = {
+        principal: Number(loan.principal || 0),
+        interestRate: Number(loan.interestRate || 0),
+        interestIncluded: !!loan.interestIncluded,
+        startDate: loan.startDate,
+        installmentMode: loan.installmentMode || INSTALLMENT_MODE.LUMP,
+        installmentFrequencyWeeks: Number(loan.installmentFrequencyWeeks || 2),
+        installments: Array.isArray(loan.installments) ? loan.installments : []
+    };
+    const replacement = [...(loan.refinancings || [])]
+        .reverse()
+        .map(event => event?.voided ? null : (event.replacementTerms || event.replacement || event.terms))
+        .find(terms => terms && typeof terms === 'object');
+    if (!replacement) return base;
+    return {
+        ...base,
+        ...replacement,
+        principal: Number(replacement.principal ?? base.principal),
+        interestRate: Number(replacement.interestRate ?? base.interestRate),
+        interestIncluded: replacement.interestIncluded ?? base.interestIncluded,
+        installments: Array.isArray(replacement.installments) ? replacement.installments : base.installments
+    };
+}
+
 /** Total amount the loan should collect (principal + interest + refinancing interest). */
 export function getTotalDue(loan) {
-    const principal = Number(loan.principal || 0);
-    const rate = Number(loan.interestRate || 0);
-    const interest = loan.interestIncluded ? 0 : (principal * rate / 100);
+    const terms = getActiveLoanTerms(loan);
+    const principal = terms.principal;
+    const rate = terms.interestRate;
+    const interest = terms.interestIncluded ? 0 : (principal * rate / 100);
     return round2(principal + interest + getRefinanceInterest(loan));
 }
 
 /** Total interest added by all NON-VOIDED refinancing events on this loan. */
 export function getRefinanceInterest(loan) {
-    return round2((loan.refinancings || [])
+    const refinancings = loan.refinancings || [];
+    const replacementIndex = refinancings.reduce((latest, event, index) => {
+        const terms = event?.replacementTerms || event?.replacement || event?.terms;
+        return !event?.voided && terms && typeof terms === 'object' ? index : latest;
+    }, -1);
+    return round2(refinancings
+        .slice(replacementIndex + 1)
         .filter(r => !r.voided)
         .reduce((sum, r) => sum + Number(r.interestAmount || 0), 0));
 }
@@ -634,11 +672,12 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
 
     const today = asOfDate || new Date().toISOString().slice(0, 10);
 
-    if (loan.installmentMode !== INSTALLMENT_MODE.INSTALLMENTS) {
+    const terms = getActiveLoanTerms(loan);
+    if (terms.installmentMode !== INSTALLMENT_MODE.INSTALLMENTS) {
         return [{
             kind: 'lump',
             amount: balance,
-            dueDate: loan.startDate,
+            dueDate: terms.startDate,
             isInstallment: false,
             installmentSeq: null,
             isDue: true
@@ -649,7 +688,7 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
     let selectableBalance = balance;
     const options = [];
 
-    for (const inst of (loan.installments || [])) {
+    for (const inst of terms.installments) {
         const scheduledAmount = round2(inst.scheduledAmount);
         const appliedToInstallment = Math.min(paidToAllocate, scheduledAmount);
         paidToAllocate = round2(Math.max(0, paidToAllocate - appliedToInstallment));
@@ -672,8 +711,8 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
     }
 
     if (selectableBalance > 0) {
-        const lastScheduledDate = loan.installments?.[loan.installments.length - 1]?.dueDate;
-        const dueDate = lastScheduledDate || loan.startDate;
+        const lastScheduledDate = terms.installments[terms.installments.length - 1]?.dueDate;
+        const dueDate = lastScheduledDate || terms.startDate;
         options.push({
             kind: 'balance-adjustment',
             amount: selectableBalance,
@@ -794,9 +833,8 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
 
 /** Get the interest amount of a single loan. */
 export function getInterestAmount(loan) {
-    const principal = Number(loan.principal || 0);
-    const rate = Number(loan.interestRate || 0);
-    return loan.interestIncluded ? 0 : round2(principal * rate / 100);
+    const terms = getActiveLoanTerms(loan);
+    return terms.interestIncluded ? 0 : round2(terms.principal * terms.interestRate / 100);
 }
 
 /** Sum of interest for all currently active loans. */

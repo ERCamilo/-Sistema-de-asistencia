@@ -32,6 +32,7 @@ import {
     getPaidAmount,
     getPayrollDeductionOptions,
     getRefinanceCount,
+    getActiveLoanTerms,
     getTotalInterestAccrued,
     LOAN_STATUS,
     INSTALLMENT_MODE,
@@ -411,6 +412,7 @@ function DisclosureControl() {
 }
 
 function LoanCard(loan) {
+    const terms = getActiveLoanTerms(loan);
     const balance = getBalance(loan);
     const totalDue = getTotalDue(loan);
     const paid = getPaidAmount(loan);
@@ -424,8 +426,8 @@ function LoanCard(loan) {
     const refinancings = (loan.refinancings || []).filter(r => !r.voided);
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
-    const isInstallmentLoan = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
-    const installmentCount = (loan.installments || []).length;
+    const isInstallmentLoan = terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const installmentCount = terms.installments.length;
     const repaymentOptions = getPayrollDeductionOptions(loan);
     const nextCharge = repaymentOptions[0] || null;
     const repaymentLabel = isInstallmentLoan ? `En cuotas · ${installmentCount}` : 'Pago único';
@@ -468,7 +470,7 @@ function LoanCard(loan) {
                 <div style="flex: 1; min-width: 200px;">
                     <div style="font-size: 0.95rem; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">${escapeHTML(loan.concept || 'Préstamo')}</div>
                     <div class="loan-card__repayment-line">
-                        <span>${formatDateShort(loan.startDate)}</span>
+                        <span>${formatDateShort(terms.startDate)}</span>
                         ${repaymentBadge}
                     </div>
                     ${isActive && nextChargeLabel ? `<div class="loan-card__next-charge">${nextChargeLabel}</div>` : ''}
@@ -488,11 +490,11 @@ function LoanCard(loan) {
             <div class="loan-card__metrics loan-card__metrics--desktop">
                 <div>
                     <div class="loan-card__metric-label">Capital</div>
-                    <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
+                    <div class="loan-card__metric-value">${formatCurrency(terms.principal)}</div>
                 </div>
                 <div>
                     <div class="loan-card__metric-label">Interés</div>
-                    <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                    <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                 </div>
                 <div>
                     <div class="loan-card__metric-label">Int. acumulado</div>
@@ -521,7 +523,7 @@ function LoanCard(loan) {
                             ${Number.isFinite(Number(loan.seq)) ? `<b>#${Number(loan.seq)}</b>` : ''}
                         </strong>
                         <span>
-                            ${formatDateShort(loan.startDate)}
+                            ${formatDateShort(terms.startDate)}
                         </span>
                         ${repaymentBadge}
                         ${isActive && nextChargeLabel ? `<small class="loan-card__next-charge">${nextChargeLabel}</small>` : ''}
@@ -541,11 +543,11 @@ function LoanCard(loan) {
                     <div class="loan-card__metrics loan-card__metrics--breakdown">
                         <div>
                             <div class="loan-card__metric-label">Capital</div>
-                            <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
+                            <div class="loan-card__metric-value">${formatCurrency(terms.principal)}</div>
                         </div>
                         <div>
                             <div class="loan-card__metric-label">Interés</div>
-                            <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                            <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                         </div>
                         <div>
                             <div class="loan-card__metric-label">Int. acumulado</div>
@@ -700,7 +702,7 @@ function LoanCard(loan) {
 
 function PaymentForm(loan, balance) {
     const draft = (state.loansLedger || {}).paymentDraft || { amount: 0, date: '', note: '' };
-    const isInstallmentLoan = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const isInstallmentLoan = getActiveLoanTerms(loan).installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
     const resolvedDraft = resolveLoanPaymentDraft(loan, draft);
     const choices = getInstallmentPaymentChoices(loan);
     const firstCharge = choices[0]?.firstCharge || null;
