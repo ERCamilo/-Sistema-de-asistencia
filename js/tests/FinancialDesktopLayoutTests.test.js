@@ -456,7 +456,7 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.1/1', 'DEDUCCIONES1/1', 'PRÉSTAMOS1/1', 'NETO']);
         expect(row.querySelector('.payroll-review-table__number').textContent.trim()).toBe('12');
         expect(row.querySelector('.payroll-review-table__employee').textContent.trim()).toBe('Ada Lovelace');
         expect(row.querySelector('.is-bonus').textContent.trim()).toBe('+$100.00');
