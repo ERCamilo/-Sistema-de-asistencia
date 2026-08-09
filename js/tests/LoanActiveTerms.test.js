@@ -2,7 +2,7 @@ import {
     getActiveLoanTerms,
     getBalance,
     getPayrollDeductionOptions,
-    getTotalDue, refinanceLoan,
+    getTotalDue, getRefinanceInterest, refinanceLoan,
     INSTALLMENT_MODE
 } from '../modules/features/loans/LoansService.js';
 
@@ -49,5 +49,12 @@ describe('LoansService active refinancing terms', () => {
         const second = { ...loan.refinancings[0], id: 'B', effectiveAt: 10, replacementTerms: { ...loan.refinancings[0].replacementTerms, principal: 700 } };
         expect(getActiveLoanTerms({ ...loan, refinancings: [second, first] }).principal).toBe(700);
         expect(getActiveLoanTerms({ ...loan, refinancings: [first, second] }).principal).toBe(700);
+    });
+
+    it('uses chronological additive interest after a replacement regardless of array order', () => {
+        const replacement = { id: 'R', effectiveAt: 10, replacementTerms: { principal: 500, interestRate: 0, installments: [] } };
+        const additive = { id: 'A', createdAt: 20, interestAmount: 25 };
+        expect(getRefinanceInterest({ refinancings: [additive, replacement] })).toBe(25);
+        expect(getRefinanceInterest({ refinancings: [replacement, additive] })).toBe(25);
     });
 });
