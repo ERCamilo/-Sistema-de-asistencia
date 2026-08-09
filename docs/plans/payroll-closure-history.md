@@ -13,7 +13,7 @@ Nómina interactiva
   -> cerrar nómina
        -> guardar instantánea histórica
        -> registrar pagos de préstamos seleccionados, si existen
-       -> permitir deshacer durante la ventana configurada
+       -> permitir deshacer sin vencimiento temporal mientras se mantengan los resguardos de integridad
 
 Historial
   -> listar cierres
@@ -45,7 +45,7 @@ La instantánea histórica es necesaria para auditoría, pero no debe reemplazar
 | Inmutabilidad | Los importes y filas de un cierre no se editan. Sólo se permiten transiciones auditables de estado, como anular o reemplazar mediante una corrección. |
 | Generador | Siempre recalcula desde asistencia, ajustes y préstamos activos. Nunca vuelve a cargar una nómina cerrada como borrador. |
 | Mismo período | Un cierre posterior requiere un flujo explícito de corrección y referencia al cierre reemplazado. No se sobrescribe el registro anterior. |
-| Deshacer | Mantener inicialmente la ventana actual de 30 segundos. Deshacer anula el cierre y sus pagos de préstamos, bonos y deducciones vinculados; no elimina el historial. |
+| Deshacer | No tiene vencimiento temporal. Deshacer anula el cierre y sus pagos de préstamos, bonos y deducciones vinculados; no elimina el historial y exige que el cierre siga vigente y que el lote vinculado esté completo. |
 | PDF | Fuera de alcance. El modelo conservará los datos necesarios para generarlo posteriormente. |
 
 ## Contrato de datos
@@ -194,7 +194,7 @@ La primera versión tendrá:
 - columnas opcionales para bonos, deducciones y préstamos;
 - préstamos en amarillo;
 - indicador de sincronización pendiente o fallida;
-- acción de deshacer sólo durante la ventana permitida;
+- acción de deshacer para cierres vigentes; se bloquea ante lotes incompletos, registros anulados o referencias inconsistentes;
 - enlace desde el generador al cierre del período.
 - carga diferida al entrar al Historial y paginación de hasta 10 cierres;
 - filas ordenadas por número histórico y filtro por líder histórico;
@@ -281,7 +281,7 @@ Commit previsto: `fix(payroll): keep closed payrolls out of the live preview`
 1. Agregar el modo superior `history` sin acoplarlo al libro de préstamos.
 2. Implementar lista paginada, filtros y estados.
 3. Implementar detalle inmutable y responsive.
-4. Exponer deshacer dentro de la ventana y navegación desde el generador.
+4. Exponer deshacer sin vencimiento temporal y navegación desde el generador, conservando los resguardos de integridad.
 5. Verificar accesibilidad por teclado, foco, lectores de pantalla y móvil.
 
 Commit previsto: `feat(payroll): add closed payroll history`

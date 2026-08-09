@@ -232,6 +232,28 @@ describe('Unified payroll closure workflow', () => {
         });
     });
 
+    test('permits undo after a legacy undo deadline but rejects an already voided closure', () => {
+        const original = draft().closure;
+        const undone = undoPayrollClosureEffects([employee()], original, {
+            now: original.undoUntil + 1,
+            voidedBy: 'operator'
+        });
+
+        expect(undone.closure.status).toBe('voided');
+        expect(() => undoPayrollClosureEffects([employee()], undone.closure, {
+            now: undone.closure.undoUntil + 1
+        })).toThrow(/anulado/i);
+    });
+
+    test('rejects undo when a closed successor preserves the active correction lineage', () => {
+        const original = draft().closure;
+        const successor = draft({ closedAt: 200, supersedesId: original.id }).closure;
+
+        expect(() => undoPayrollClosureEffects([employee()], original, {
+            activeClosures: [original, successor]
+        })).toThrow(/corrección vigente/i);
+    });
+
     test('reclosing an undone payroll creates a successor instead of reviving its audit record', () => {
         const original = draft().closure;
         const voided = undoPayrollClosureEffects([employee()], original, {

@@ -21,6 +21,19 @@ export function getEffectivePayrollClosures(closures = []) {
         .sort((left, right) => Number(right.closedAt || 0) - Number(left.closedAt || 0));
 }
 
+function hasClosedPayrollClosureSuccessor(closures, closureId) {
+    const byId = new Map((closures || []).filter(item => item?.id).map(item => [item.id, item]));
+    return (closures || []).some(candidate => {
+        if (candidate?.status !== PAYROLL_CLOSURE_STATUS.CLOSED) return false;
+        let ancestor = candidate;
+        while (ancestor?.supersedesId) {
+            if (ancestor.supersedesId === closureId) return true;
+            ancestor = byId.get(ancestor.supersedesId);
+        }
+        return false;
+    });
+}
+
 export function getPayrollClosureGate({
     rows = [],
     fingerprint = '',
@@ -114,11 +127,15 @@ export function buildPayrollClosureDraft({
 export function undoPayrollClosureEffects(employees, closure, {
     now = Date.now(),
     voidedBy = null,
-    voidReason = 'Cierre anulado'
+    voidReason = 'Cierre anulado',
+    activeClosures = []
 } = {}) {
     if (!closure?.id) throw new Error('El cierre de Nómina no es válido');
-    if (Number(now) > Number(closure.undoUntil || 0)) {
-        throw new Error('El período para deshacer este cierre expiró');
+    if (closure.status !== PAYROLL_CLOSURE_STATUS.CLOSED) {
+        throw new Error('El cierre ya fue anulado y no se puede deshacer nuevamente');
+    }
+    if (hasClosedPayrollClosureSuccessor(activeClosures, closure.id)) {
+        throw new Error('El cierre tiene una corrección vigente y no se puede deshacer');
     }
     let voidedPaymentCount = 0;
     if (closure.loanSettlementBatchId) {

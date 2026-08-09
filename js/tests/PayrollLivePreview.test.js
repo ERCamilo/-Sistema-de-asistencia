@@ -11,9 +11,8 @@ describe('Live payroll preview', () => {
         expect(PAYROLL_UI_SOURCE).not.toMatch(/\bgetClosedPayrollPreviewRows\b/);
     });
 
-    test('keeps the undo deadline attached to the active period closure', () => {
-        expect(PAYROLL_UI_SOURCE).toContain(
-            'schedulePayrollClosureUndoExpiry(payrollClosureGate.activeClosure || payrollClosureGate.exactClosure)'
-        );
+    test('does not schedule an expiry rerender for a legacy undo deadline', () => {
+        expect(PAYROLL_UI_SOURCE).not.toContain('schedulePayrollClosureUndoExpiry');
+        expect(PAYROLL_UI_SOURCE).not.toContain('payrollClosureUndoExpiryTimer');
     });
 });

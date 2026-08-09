@@ -15,9 +15,7 @@ function blockerMessage(gate) {
 export function renderPayrollLoanSettlementPanel({ gate, activeBatch = null, now = Date.now() } = {}) {
     const canConfirmPayroll = Boolean(gate?.hasLoans && gate?.invalidCount === 0 && !activeBatch);
     const payrollPaid = Boolean(gate?.payrollPaid || activeBatch);
-    const canUndo = Boolean(
-        activeBatch && !activeBatch.incomplete && Number(now) <= Number(activeBatch.undoUntil || 0)
-    );
+    const canUndo = Boolean(activeBatch && !activeBatch.incomplete && !activeBatch.voided);
 
     return `
         <section class="payroll-loan-settlement ${activeBatch ? 'is-settled' : ''}" aria-label="Cierre de préstamos de nómina">
@@ -46,7 +44,7 @@ export function renderPayrollLoanSettlementPanel({ gate, activeBatch = null, now
                         </button>
                     ` : (activeBatch.incomplete
                         ? '<small>Deshacer estará disponible cuando llegue el lote completo.</small>'
-                        : '<small>La ventana para deshacer finalizó.</small>')}
+                        : '')}
                     <button type="button"
                             class="payroll-loan-settlement__button"
                             data-payroll-action="open-payroll-loan-settlement"

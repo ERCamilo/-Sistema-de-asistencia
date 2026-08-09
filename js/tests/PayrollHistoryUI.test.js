@@ -89,6 +89,12 @@ describe('Payroll history UI', () => {
         expect(document.querySelector('[data-payroll-action="undo-payroll-closure"]')).not.toBeNull();
     });
 
+    test('offers undo for a closed historical detail after its legacy deadline', () => {
+        document.body.innerHTML = renderPayrollHistoryDetail(closure({ undoUntil: 1 }), { now: 2 });
+
+        expect(document.querySelector('[data-payroll-action="undo-payroll-closure"]')).not.toBeNull();
+    });
+
     test('escapes frozen employee and operator labels', () => {
         document.body.innerHTML = renderPayrollHistoryDetail(closure({
             closedBy: '<img src=x onerror=alert(1)>',

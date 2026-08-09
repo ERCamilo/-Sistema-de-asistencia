@@ -257,16 +257,19 @@ describe('Payroll loan settlement batches', () => {
             .toBe(200_000 + PAYROLL_LOAN_UNDO_WINDOW_MS);
     });
 
-    test('rejects undo after the configured window without changing payments', () => {
+    test('voids a complete batch after its legacy undo deadline and rejects a repeated undo', () => {
         const emp = employee('emp-7', 'Ana Pérez');
         const loan = installmentLoan(emp);
         const batch = buildBatch([emp], [payrollRow(emp, loan)]);
         applyPayrollLoanSettlementBatch([emp], batch, { now: 100_100 });
 
-        expect(() => undoPayrollLoanSettlementBatch([emp], batch.id, {
+        expect(undoPayrollLoanSettlementBatch([emp], batch.id, {
             now: batch.undoUntil + 1
-        })).toThrow(/expiró/i);
-        expect(loan.payments[0].voided).toBe(false);
-        expect(getBalance(loan)).toBe(750);
+        })).toMatchObject({ batch: { voided: true }, voidedCount: 1 });
+        expect(loan.payments[0].voided).toBe(true);
+        expect(getBalance(loan)).toBe(1000);
+        expect(() => undoPayrollLoanSettlementBatch([emp], batch.id, {
+            now: batch.undoUntil + 2
+        })).toThrow(/anulado/i);
     });
 });

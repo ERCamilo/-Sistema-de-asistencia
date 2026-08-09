@@ -21,6 +21,7 @@ function gate(overrides = {}) {
 function closure(overrides = {}) {
     return {
         id: 'closure-1',
+        status: 'closed',
         periodStart: '2026-08-01',
         periodEnd: '2026-08-15',
         employeeCount: 2,
@@ -59,10 +60,10 @@ describe('Payroll closure UI', () => {
         expect(document.querySelector('[data-payroll-action="open-payroll-closure"]').disabled).toBe(true);
     });
 
-    test('shows a logical undo only while the closure window is open', () => {
+    test('shows undo for a closed payroll regardless of its legacy undo deadline', () => {
         document.body.innerHTML = renderPayrollClosurePanel({
-            gate: gate({ reason: 'already-closed', exactClosure: closure() }),
-            now: Date.now()
+            gate: gate({ reason: 'already-closed', exactClosure: closure({ undoUntil: 1 }) }),
+            now: 2
         });
         expect(document.querySelector('[data-payroll-action="undo-payroll-closure"]')).not.toBeNull();
     });

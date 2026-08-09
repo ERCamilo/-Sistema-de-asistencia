@@ -205,7 +205,7 @@ export function renderPayrollHistoryDetail(closure, {
         simulatedNet: money(totals.simulatedNet + calculatePayrollHistoryNet(row, filters))
     }), { gross: 0, bonuses: 0, deductions: 0, loans: 0, net: 0, simulatedNet: 0 });
     const currentById = new Map((currentEmployees || []).map(employee => [String(employee.id), employee]));
-    const canUndo = closure.status === 'closed' && Number(now) <= Number(closure.undoUntil || 0);
+    const canUndo = closure.status === 'closed';
     return `
         <section class="payroll-history payroll-history-detail" aria-labelledby="payroll-history-detail-title">
             <button type="button" class="payroll-history-detail__back"
