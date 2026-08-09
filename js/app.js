@@ -114,6 +114,7 @@ import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
 import { HolidayService } from './modules/features/attendance/HolidayService.js';
 import { PayrollService } from './modules/features/payroll/PayrollService.js';
+import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
 import { initSettingsUI, SettingsTab as SettingsTabUI, SyncCard as SyncCardUI } from './modules/ui/SettingsUI.js';
@@ -4169,8 +4170,7 @@ function _AttendanceDetailPanelInner() {
     const hourlyRate = (firstPos && firstPos.hourlyRate) || 0;
     const salaryEstimate = periodHours * hourlyRate;
 
-    // Pending loan balance — sum across the employee's ACTIVE loans.
-    // Inlined to avoid an import cycle; mirrors LoansService.getBalance().
+    // Pending loan balance — use the canonical active refinance contract.
     let pendingLoanBalance = 0;
     let activeLoanCount = 0;
     let nextLoanDueDate = null;
@@ -4178,27 +4178,10 @@ function _AttendanceDetailPanelInner() {
         (emp.loans || []).forEach(loan => {
             if (loan.status !== 'active') return;
             activeLoanCount++;
-            const principal = Number(loan.principal || 0);
-            const rate = Number(loan.interestRate || 0);
-            const interest = loan.interestIncluded ? 0 : (principal * rate / 100);
-            const due = principal + interest;
-            const paid = (loan.payments || [])
-                .filter(p => !p.voided)
-                .reduce((s, p) => s + Number(p.amount || 0), 0);
-            pendingLoanBalance += Math.max(0, due - paid);
-
-            let allocated = 0;
-            for (const inst of (loan.installments || [])) {
-                const scheduled = Number(inst.scheduledAmount || 0);
-                const upperBound = allocated + scheduled;
-                if (paid >= upperBound) {
-                    allocated = upperBound;
-                    continue;
-                }
-                if (inst.dueDate && (!nextLoanDueDate || inst.dueDate < nextLoanDueDate)) {
-                    nextLoanDueDate = inst.dueDate;
-                }
-                break;
+            pendingLoanBalance += getBalance(loan);
+            const nextCharge = getPayrollDeductionOptions(loan)[0];
+            if (nextCharge?.dueDate && (!nextLoanDueDate || nextCharge.dueDate < nextLoanDueDate)) {
+                nextLoanDueDate = nextCharge.dueDate;
             }
         });
         pendingLoanBalance = Math.round(pendingLoanBalance * 100) / 100;
