@@ -439,7 +439,8 @@ export function refinanceLoan(emp, loanId, params = {}) {
     const { valid, errors } = validateRefinanceInput(loan, params);
     if (!valid) throw new Error(errors.join('. '));
 
-    const basis = params.basis === 'balance' ? 'balance' : 'principal';
+    const createsReplacement = params.replacement !== false && params.installmentCount != null;
+    const basis = createsReplacement ? 'balance' : (params.basis === 'balance' ? 'balance' : 'principal');
     const baseAmount = basis === 'balance' ? balance : round2(Number(loan.principal || 0));
     const rate = Number(params.interestRate);
     const interestAmount = round2(baseAmount * rate / 100);
@@ -465,7 +466,7 @@ export function refinanceLoan(emp, loanId, params = {}) {
         voidedAt: null
     };
 
-    if (params.replacement !== false && params.installmentCount != null) {
+    if (createsReplacement) {
         const count = Number(params.installmentCount);
         const frequencyWeeks = Number(params.installmentFrequencyWeeks || 2);
         if (!Number.isInteger(count) || count < 1 || count > VALIDATION.MAX_INSTALLMENTS) throw new Error(`La cantidad de cuotas debe estar entre 1 y ${VALIDATION.MAX_INSTALLMENTS}`);
@@ -646,15 +647,19 @@ export function getTotalDue(loan) {
 
 /** Total interest added by all NON-VOIDED refinancing events on this loan. */
 export function getRefinanceInterest(loan) {
-    const refinancings = loan.refinancings || [];
-    const replacementIndex = refinancings.reduce((latest, event, index) => {
-        const terms = event?.replacementTerms || event?.replacement || event?.terms;
-        return !event?.voided && terms && typeof terms === 'object' ? index : latest;
-    }, -1);
-    return round2(refinancings
-        .slice(replacementIndex + 1)
-        .filter(r => !r.voided)
-        .reduce((sum, r) => sum + Number(r.interestAmount || 0), 0));
+    const events = [...(loan.refinancings || [])]
+        .filter(event => !event?.voided)
+        .sort((left, right) => refinancingOrder(left, right));
+    const latestReplacement = events.filter(event => event.replacementTerms && typeof event.replacementTerms === 'object').at(-1);
+    const applicable = latestReplacement
+        ? events.filter(event => refinancingOrder(event, latestReplacement) > 0 && !event.replacementTerms)
+        : events.filter(event => !event.replacementTerms);
+    return round2(applicable.reduce((sum, event) => sum + Number(event.interestAmount || 0), 0));
+}
+
+function refinancingOrder(left, right) {
+    const timestamp = event => Number(event?.effectiveAt ?? event?.createdAt) || Date.parse(event?.date || '') || 0;
+    return timestamp(left) - timestamp(right) || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
 /** Number of times this loan has been refinanced (excludes voided events). */
