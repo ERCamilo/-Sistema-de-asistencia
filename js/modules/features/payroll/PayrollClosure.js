@@ -184,7 +184,8 @@ export function buildPayrollClosure({
 
 export function isSamePayrollClosureContent(first, second) {
     if (!first || !second) return false;
-    return JSON.stringify(closureContent(first)) === JSON.stringify(closureContent(second));
+    return JSON.stringify(canonicalValue(closureContent(first))) ===
+        JSON.stringify(canonicalValue(closureContent(second)));
 }
 
 export function voidPayrollClosure(closure, {
