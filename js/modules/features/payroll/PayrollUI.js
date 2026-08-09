@@ -1781,6 +1781,25 @@ function settlementOperatorId() {
     return globalThis.currentUser?.uid || globalThis.currentUser?.email || null;
 }
 
+export async function persistPayrollLoanSettlementMutation({ employees, batch, saveFn, now, recordedBy }) {
+    const snapshot = JSON.parse(JSON.stringify(employees));
+    try {
+        applyPayrollLoanSettlementBatch(employees, batch, { now, recordedBy });
+        await Promise.resolve(saveFn());
+    } catch (error) {
+        employees.splice(0, employees.length, ...snapshot);
+        throw error;
+    }
+}
+
+export function renderPersistedPayrollLoanSettlement(renderFn, onError = console.error) {
+    try {
+        renderFn();
+    } catch (error) {
+        onError('Los pagos se guardaron, pero la vista no pudo actualizarse.', error);
+    }
+}
+
 export async function openPayrollLoanSettlement() {
     if (payrollLoanSettlementInProgress) return;
     payrollLoanSettlementInProgress = true;
@@ -1810,34 +1829,39 @@ export async function openPayrollLoanSettlement() {
             throw new Error('La vista previa cambió mientras se verificaban los pagos. Revísala y confirma la Nómina nuevamente.');
         }
         const batch = activatePayrollLoanSettlementBatch(draftBatch, Date.now());
-        applyPayrollLoanSettlementBatch(latest.state.employees, batch, {
+        await persistPayrollLoanSettlementMutation({
+            employees: latest.state.employees,
+            batch,
             now: Date.now(),
-            recordedBy: settlementOperatorId()
+            recordedBy: settlementOperatorId(),
+            saveFn: () => context.saveToLocalStorage({
+                immediate: true,
+                announce: `Pagos de préstamos registrados: ${batch.total.toFixed(2)}`
+            })
         });
-        await Promise.resolve(context.saveToLocalStorage({
-            immediate: true,
-            announce: `Pagos de préstamos registrados: ${batch.total.toFixed(2)}`
-        }));
-        context.render();
 
         const remainingUndoMs = Math.max(0, batch.undoUntil - Date.now());
         if (remainingUndoMs > 0 && window.UndoManager?.push) {
-            window.UndoManager.push(
-                null,
-                'pagos de préstamos de la Nómina',
-                () => {
-                    undoPayrollLoanSettlementBatch(latest.state.employees, batch.id, {
-                        now: Date.now(),
-                        voidedBy: settlementOperatorId()
-                    });
-                    latest.state.exportConfig.payrollPaidConfirmation = null;
-                },
-                {
-                    timeoutMs: remainingUndoMs,
-                    saveOptions: { immediate: true, announce: 'Pagos de préstamos deshechos' }
-                }
-            );
+            try {
+                window.UndoManager.push(
+                    null,
+                    'pagos de préstamos de la Nómina',
+                    () => {
+                        undoPayrollLoanSettlementBatch(latest.state.employees, batch.id, {
+                            now: Date.now(), voidedBy: settlementOperatorId()
+                        });
+                        latest.state.exportConfig.payrollPaidConfirmation = null;
+                    },
+                    {
+                        timeoutMs: remainingUndoMs,
+                        saveOptions: { immediate: true, announce: 'Pagos de préstamos deshechos' }
+                    }
+                );
+            } catch (error) {
+                console.error('Los pagos se guardaron, pero no se pudo ofrecer deshacer.', error);
+            }
         }
+        renderPersistedPayrollLoanSettlement(() => context.render());
     } catch (error) {
         await Modal.alert({
             title: 'No se registraron los pagos',

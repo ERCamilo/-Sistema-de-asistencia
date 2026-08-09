@@ -45,23 +45,27 @@ export const UndoManager = {
     },
 
     // Ejecutar el deshacer
-    undo() {
-        if (!this._pending) return;
+    async undo() {
+        if (!this._pending || this._pending.undoing) return false;
 
-        const { restoreFn, label, options = {} } = this._pending;
+        const pending = this._pending;
+        const { restoreFn, label, options = {} } = pending;
         clearTimeout(this._timer);
-        this._pending = null;
-        this._dismiss();
-
-        // Ejecutar la restauración
-        restoreFn();
-
-        // Guardar y renderizar usando dependencias inyectadas
-        if (this._dependencies.saveFn) this._dependencies.saveFn(options.saveOptions);
-        if (this._dependencies.renderFn) this._dependencies.renderFn();
-
-        if (this._dependencies.showNotificationFn) {
-            this._dependencies.showNotificationFn(`↩️ Deshecho: ${label}`, 'info');
+        pending.undoing = true;
+        try {
+            await Promise.resolve(restoreFn());
+            if (this._dependencies.saveFn) {
+                await Promise.resolve(this._dependencies.saveFn(options.saveOptions));
+            }
+            this._dismiss();
+            if (this._dependencies.renderFn) this._dependencies.renderFn();
+            if (this._dependencies.showNotificationFn) {
+                this._dependencies.showNotificationFn(`↩️ Deshecho: ${label}`, 'info');
+            }
+            return true;
+        } catch (error) {
+            pending.undoing = false;
+            throw error;
         }
     },
 
