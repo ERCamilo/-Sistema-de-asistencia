@@ -12,7 +12,7 @@ La revisión de Nómina calcula préstamos de pago único y en cuotas sin regist
 6. Confirmar que esa versión exacta de la Nómina fue pagada.
 7. Abrir el resumen de cierre, verificar la Nómina y los pagos opcionales y aceptar.
 8. Consultar el cierre desde `Nómina > Historial`.
-9. Si hubo un error, deshacer el cierre durante los 30 segundos siguientes; también se restauran los bonos y deducciones puntuales aplicados.
+9. Si hubo un error, deshacer el cierre mientras siga cumpliendo los resguardos de integridad; también se restauran los bonos y deducciones puntuales aplicados.
 
 > Seleccionar, revisar o exportar nunca crea abonos. Los pagos sólo se registran al aceptar el cierre verificado del paso 5.
 
@@ -75,7 +75,7 @@ También muestra los totales del lote. El operador debe marcar la verificación 
 
 Antes de guardar se revalidan todos los saldos y cuotas. Cada lote tiene una identidad estable y cada cargo usa una clave idempotente por período, empleado, préstamo y cuota; un doble clic, reintento o sincronización repetida no puede duplicar pagos.
 
-El cierre y los empleados afectados se escriben en una única transacción de IndexedDB junto con la intención de sincronización. Un reintento idéntico no reescribe empleados ni duplica la cola. Durante 30 segundos se puede deshacer desde el panel del paso 5 o desde el detalle histórico. Deshacer anula lógicamente los pagos vinculados, restaura los saldos y recupera una sola vez los bonos y deducciones puntuales; no elimina el cierre.
+El cierre y los empleados afectados se escriben en una única transacción de IndexedDB junto con la intención de sincronización. Un reintento idéntico no reescribe empleados ni duplica la cola. Se puede deshacer desde el panel del paso 5 o desde el detalle histórico mientras el cierre siga vigente y el lote vinculado esté completo, consistente y bajo la misma pertenencia de cierre. Deshacer anula lógicamente los pagos vinculados, restaura los saldos y recupera una sola vez los bonos y deducciones puntuales; no elimina el cierre.
 
 ## Historial de Nómina
 
@@ -126,8 +126,8 @@ Los avisos de mocks duplicados provienen de carpetas de trabajo `.codex-*` preex
 | Regla de habilitación | `bc9e755` | Vincula la confirmación de pago a la vista previa exacta. |
 | Lotes persistentes | `71dac8e` | Registra pagos idempotentes y conserva el resumen cerrado. |
 | Sincronización parcial | `618728d` | Bloquea lotes incompletos recibidos desde otro dispositivo. |
-| Botón, modal y deshacer | `bd197e5` | Implementa el cierre guiado en el paso 5 y la ventana de 30 segundos. |
-| Endurecimiento final | `d3c0ed8` | Compacta la instantánea, renueva la ventana al registrar y evita reutilizar pagos. |
+| Botón, modal y deshacer | `bd197e5` | Implementa el cierre guiado en el paso 5 y su anulación lógica. |
+| Endurecimiento final | `d3c0ed8` | Compacta la instantánea, conserva metadatos legacy de deshacer y evita reutilizar pagos. |
 | Cierre general e historial | `99fea49` … `88b0e2d` | Persiste cierres inmutables, los sincroniza, migra evidencia legacy y separa el cálculo vivo. |
 | Consistencia y paginación | `830a9e5` … `d84e745` | Unifica la huella, sincroniza empleados antes del cierre y pagina de forma diferida con filtros. |
 | Anulación integral | `e571ecd` | Restaura ajustes puntuales y anula sus efectos junto con pagos de préstamos. |

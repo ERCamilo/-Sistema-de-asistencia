@@ -272,4 +272,17 @@ describe('Payroll loan settlement batches', () => {
             now: batch.undoUntil + 2
         })).toThrow(/anulado/i);
     });
+
+    test('rejects a matched payment that belongs to a different payroll closure', () => {
+        const emp = employee('emp-7', 'Ana Pérez');
+        const loan = installmentLoan(emp);
+        const batch = buildBatch([emp], [payrollRow(emp, loan)]);
+        applyPayrollLoanSettlementBatch([emp], batch, { now: 100_100 });
+        loan.payments[0].payrollClosureId = 'other-closure';
+
+        expect(() => undoPayrollLoanSettlementBatch([emp], batch.id, {
+            now: 100_200
+        })).toThrow(/otro cierre/i);
+        expect(loan.payments[0].voided).toBe(false);
+    });
 });
