@@ -557,8 +557,8 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
     if (batch.incomplete) {
         throw new Error('El lote está incompleto y todavía se está sincronizando');
     }
-    if (Number(now) > Number(batch.undoUntil || 0)) {
-        throw new Error('El período para deshacer este lote expiró');
+    if (batch.voided) {
+        throw new Error('El lote ya fue anulado y no se puede deshacer nuevamente');
     }
     const entries = paymentEntries(employees);
     const targets = (batch.paymentRefs || []).map(ref => {

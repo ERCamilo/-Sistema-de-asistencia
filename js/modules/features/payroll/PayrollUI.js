@@ -60,8 +60,6 @@ let context = null;
 let payrollService = null;
 let latestPayrollPreviewRows = [];
 let payrollClosureInProgress = false;
-let payrollClosureUndoExpiryTimer = null;
-let payrollClosureUndoExpiryId = null;
 let payrollPeriodClosureCache = {
     key: null,
     items: [],
@@ -224,24 +222,6 @@ function getState() {
 
 function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
-}
-
-function schedulePayrollClosureUndoExpiry(closure) {
-    const remaining = Number(closure?.undoUntil || 0) - Date.now();
-    if (!closure || remaining <= 0) {
-        if (payrollClosureUndoExpiryTimer) clearTimeout(payrollClosureUndoExpiryTimer);
-        payrollClosureUndoExpiryTimer = null;
-        payrollClosureUndoExpiryId = null;
-        return;
-    }
-    if (payrollClosureUndoExpiryId === closure.id && payrollClosureUndoExpiryTimer) return;
-    if (payrollClosureUndoExpiryTimer) clearTimeout(payrollClosureUndoExpiryTimer);
-    payrollClosureUndoExpiryId = closure.id;
-    payrollClosureUndoExpiryTimer = setTimeout(() => {
-        payrollClosureUndoExpiryTimer = null;
-        payrollClosureUndoExpiryId = null;
-        context?.render?.();
-    }, remaining + 25);
 }
 
 function payrollPeriodKey(periodStart, periodEnd) {
@@ -452,7 +432,6 @@ function PayrollGeneratorTab() {
     if (closureCache.error) {
         payrollClosureGate = { ...payrollClosureGate, enabled: false, reason: 'history-error' };
     }
-    schedulePayrollClosureUndoExpiry(payrollClosureGate.activeClosure || payrollClosureGate.exactClosure);
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
@@ -2293,11 +2272,16 @@ export async function undoPayrollClosure(closureId) {
     try {
         const closure = await payrollClosureStore.getById(closureId);
         if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        const activeClosures = await payrollClosureStore.getByPeriod(
+            closure.periodStart,
+            closure.periodEnd
+        );
         const restoredExportConfig = restorePayrollClosureAdjustments(state.exportConfig, closure);
         const employeeCopies = JSON.parse(JSON.stringify(state.employees || []));
         const result = undoPayrollClosureEffects(employeeCopies, closure, {
             now: Date.now(),
-            voidedBy: settlementOperatorId()
+            voidedBy: settlementOperatorId(),
+            activeClosures
         });
         const affectedIds = new Set((closure.paymentRefs || []).map(ref => String(ref.employeeId)));
         const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
@@ -2328,7 +2312,7 @@ export async function undoPayrollClosure(closureId) {
     } catch (error) {
         await Modal.alert({
             title: 'No se puede deshacer',
-            message: escapeHTML(error?.message || 'La ventana para deshacer ya no está disponible.')
+            message: escapeHTML(error?.message || 'El cierre no se puede deshacer de forma segura.')
         });
     }
 }

@@ -97,7 +97,7 @@ describe('Payroll loan settlement UI', () => {
         expect(document.body.textContent).toMatch(/2 pagos con saldo cero o negativo/i);
     });
 
-    test('shows an active batch summary and undo only inside its time window', () => {
+    test('shows an active complete batch undo regardless of its legacy deadline', () => {
         document.body.innerHTML = renderPayrollLoanSettlementPanel({
             gate: gate({ alreadySettled: true, reason: 'already-settled' }),
             activeBatch: batch(),
@@ -113,8 +113,7 @@ describe('Payroll loan settlement UI', () => {
             activeBatch: batch(),
             now: 130_001
         });
-        expect(document.querySelector('[data-payroll-action="undo-payroll-loan-settlement"]')).toBeNull();
-        expect(document.body.textContent).toMatch(/ventana para deshacer finalizó/i);
+        expect(document.querySelector('[data-payroll-action="undo-payroll-loan-settlement"]')).not.toBeNull();
     });
 
     test('blocks an incomplete synchronized batch without offering undo', () => {

@@ -22,9 +22,7 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
     const exactClosure = gate?.exactClosure || null;
     const periodClosure = gate?.activeClosure || exactClosure;
     const showClosedState = Boolean(periodClosure && !gate?.correctionReady);
-    const canUndo = Boolean(
-        periodClosure && Number(now) <= Number(periodClosure.undoUntil || 0)
-    );
+    const canUndo = Boolean(periodClosure?.status === 'closed');
     const canConfirm = Boolean(
         gate?.hasRows && gate?.invalidCount === 0 &&
         !['history-loading', 'in-progress', 'already-closed'].includes(gate?.reason)
@@ -52,7 +50,7 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
                                 data-id="${escapeHTML(periodClosure.id)}">
                             Deshacer cierre
                         </button>
-                    ` : '<small>La ventana para deshacer finalizó.</small>'}
+                    ` : ''}
                     ${gate?.reason === 'correction-required' ? `
                         <button type="button"
                                 class="payroll-loan-settlement__undo"
