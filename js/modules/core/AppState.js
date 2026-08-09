@@ -202,6 +202,7 @@ const initialState = {
         activePreset: 'thisMonth',
         leaderFilter: 'all',
         deductions: [],
+        payrollPreviewInclusion: { bonuses: true, deductions: true, loans: true },
         employeeDeductionsAdded: false
     },
     statsCache: { 

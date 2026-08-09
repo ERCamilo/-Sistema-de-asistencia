@@ -786,6 +786,30 @@
     text-align: right;
 }
 
+.payroll-review-table__toggle-heading label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 44px;
+    cursor: pointer;
+}
+
+.payroll-review-table__toggle-heading input {
+    width: 18px;
+    height: 18px;
+    accent-color: #06b6d4;
+}
+
+.payroll-review-table__toggle-heading input:focus-visible {
+    outline: 3px solid #facc15;
+    outline-offset: 3px;
+}
+
+.payroll-review-table__toggle-heading small {
+    color: #94a3b8;
+    font-variant-numeric: tabular-nums;
+}
+
 /* Closed payroll history */
 .payroll-history {
     width: min(1180px, calc(100% - 32px));
