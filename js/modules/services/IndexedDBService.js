@@ -8,7 +8,7 @@ import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 14) {
+    constructor(dbName = 'attendance-app-db', version = 15) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -196,6 +196,19 @@ export class IndexedDBService {
                     inboxStore.createIndex('status', 'status', { unique: false });
                     inboxStore.createIndex('scopeKey', 'scopeKey', { unique: false });
                     inboxStore.createIndex('receivedAt', 'receivedAt', { unique: false });
+                }
+
+                // Store: cierres históricos de Nómina (v15). Vive fuera del
+                // estado global para no reescribir todo el historial en cada save.
+                if (!db.objectStoreNames.contains('payrollClosures')) {
+                    const closureStore = db.createObjectStore('payrollClosures', { keyPath: 'id' });
+                    closureStore.createIndex('periodKey', 'periodKey', { unique: false });
+                    closureStore.createIndex('closedAtId', ['closedAt', 'id'], { unique: false });
+                    closureStore.createIndex(
+                        'statusClosedAtId',
+                        ['status', 'closedAt', 'id'],
+                        { unique: false }
+                    );
                 }
             };
         });
@@ -488,6 +501,103 @@ export class IndexedDBService {
         });
     }
 
+    /**
+     * Reads and conditionally replaces one record inside the same transaction.
+     * The mutator must be synchronous and return { write, value }.
+     */
+    async atomicMutate(storeName, key, mutator) {
+        if (typeof mutator !== 'function') {
+            throw new TypeError('atomicMutate requires a synchronous mutator');
+        }
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.get(key);
+            let result;
+            let mutationError = null;
+
+            request.onsuccess = () => {
+                try {
+                    result = mutator(request.result);
+                    if (!result || typeof result.write !== 'boolean' || !('value' in result)) {
+                        throw new TypeError('atomicMutate mutator must return { write, value }');
+                    }
+                    if (result.write) {
+                        store.put(this._serializeForIDB(result.value));
+                    }
+                } catch (error) {
+                    mutationError = error;
+                    transaction.abort();
+                }
+            };
+            request.onerror = () => {
+                mutationError = request.error;
+            };
+            transaction.oncomplete = () => resolve(result.value);
+            transaction.onerror = () => reject(
+                mutationError || transaction.error || new Error(`Atomic mutation failed for ${storeName}`)
+            );
+            transaction.onabort = () => reject(
+                mutationError || transaction.error || new Error(`Atomic mutation aborted for ${storeName}`)
+            );
+        });
+    }
+
+    /**
+     * Atomically mutates one primary record and writes related record batches
+     * in other stores. Used by payroll closure so its loan balances and audit
+     * snapshot cannot diverge after a crash between local writes.
+     */
+    async atomicMutateWithBatches(storeName, key, mutator, batches = []) {
+        if (typeof mutator !== 'function') {
+            throw new TypeError('atomicMutateWithBatches requires a synchronous mutator');
+        }
+        const validBatches = (batches || []).filter(batch =>
+            batch?.storeName && Array.isArray(batch.records)
+        );
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const storeNames = [...new Set([storeName, ...validBatches.map(batch => batch.storeName)])];
+            const transaction = this.db.transaction(storeNames, 'readwrite');
+            const primaryStore = transaction.objectStore(storeName);
+            const request = primaryStore.get(key);
+            let result;
+            let mutationError = null;
+
+            request.onsuccess = () => {
+                try {
+                    result = mutator(request.result);
+                    if (!result || typeof result.write !== 'boolean' || !('value' in result)) {
+                        throw new TypeError('atomicMutateWithBatches mutator must return { write, value }');
+                    }
+                    if (result.write) {
+                        primaryStore.put(this._serializeForIDB(result.value));
+                        for (const batch of validBatches) {
+                            const relatedStore = transaction.objectStore(batch.storeName);
+                            for (const record of batch.records) {
+                                relatedStore.put(this._serializeForIDB(record));
+                            }
+                        }
+                    }
+                } catch (error) {
+                    mutationError = error;
+                    transaction.abort();
+                }
+            };
+            request.onerror = () => {
+                mutationError = request.error;
+            };
+            transaction.oncomplete = () => resolve(result.value);
+            transaction.onerror = () => reject(
+                mutationError || transaction.error || new Error(`Atomic batch mutation failed for ${storeName}`)
+            );
+            transaction.onabort = () => reject(
+                mutationError || transaction.error || new Error(`Atomic batch mutation aborted for ${storeName}`)
+            );
+        });
+    }
+
     async getAll(storeName) {
         await this.init();
         return new Promise((resolve, reject) => {
@@ -495,6 +605,42 @@ export class IndexedDBService {
             const store = transaction.objectStore(storeName);
             const request = store.getAll();
             request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getPageByIndex(storeName, indexName, {
+        limit = 20,
+        direction = 'prev',
+        lowerBound,
+        upperBound,
+        lowerOpen = false,
+        upperOpen = false
+    } = {}) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const index = store.index(indexName);
+            let range = null;
+            if (lowerBound !== undefined && upperBound !== undefined) {
+                range = IDBKeyRange.bound(lowerBound, upperBound, lowerOpen, upperOpen);
+            } else if (lowerBound !== undefined) {
+                range = IDBKeyRange.lowerBound(lowerBound, lowerOpen);
+            } else if (upperBound !== undefined) {
+                range = IDBKeyRange.upperBound(upperBound, upperOpen);
+            }
+            const records = [];
+            const request = index.openCursor(range, direction);
+            request.onsuccess = event => {
+                const cursor = event.target.result;
+                if (!cursor || records.length >= limit) {
+                    resolve(records);
+                    return;
+                }
+                records.push(cursor.value);
+                cursor.continue();
+            };
             request.onerror = () => reject(request.error);
         });
     }
@@ -777,6 +923,7 @@ export class IndexedDBService {
             pettyCashProjects: await this.getAll('pettyCashProjects').catch(() => []),
             pettyCashPeriods: await this.getAll('pettyCashPeriods').catch(() => []),
             pettyCashMovements: await this.getAll('pettyCashMovements').catch(() => []),
+            payrollClosures: await this.getAll('payrollClosures'),
             exportedAt: new Date().toISOString(),
             version: this.version
         };
@@ -832,6 +979,7 @@ export class IndexedDBService {
             await this.clear('leaders');
             await this.clear('attendance');
             await this.clear('settings');
+            await this.clear('payrollClosures');
 
             // L5: escritura por lotes (batchUpdate) en vez de update() uno-por-uno;
             // mucho más rápido al restaurar backups grandes.
@@ -840,6 +988,9 @@ export class IndexedDBService {
             if (Array.isArray(data.leaders))   await this.batchUpdate('leaders', data.leaders);
             if (Array.isArray(data.attendance)) await this.batchUpdate('attendance', data.attendance);
             if (Array.isArray(data.settings))  await this.batchUpdate('settings', data.settings);
+            if (Array.isArray(data.payrollClosures)) {
+                await this.batchUpdate('payrollClosures', data.payrollClosures);
+            }
 
             return true;
         } catch (error) {

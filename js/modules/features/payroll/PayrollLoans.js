@@ -1,5 +1,6 @@
 import {
     getBalance,
+    getActiveLoanTerms,
     getPayrollDeductionOptions,
     getTotalDue,
     getTotalInterestAccrued,
@@ -32,7 +33,8 @@ export function getEligiblePayrollLoans(employee, periodEnd = null) {
         .filter(loan => loan.status === LOAN_STATUS.ACTIVE && getBalance(loan) > 0)
         .map(loan => {
             const chargeOptions = getPayrollDeductionOptions(loan, periodEnd);
-            const isInstallments = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+            const terms = getActiveLoanTerms(loan);
+            const isInstallments = terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
             return {
                 loanId: loan.id,
                 concept: loan.concept || 'Préstamo',

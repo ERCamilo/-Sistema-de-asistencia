@@ -24,6 +24,12 @@ const mockService = {
     // Métodos genéricos usados por PettyCashStore (caja chica v10)
     getAll: jest.fn().mockResolvedValue([]),
     get: jest.fn().mockResolvedValue(null),
+    query: jest.fn().mockResolvedValue([]),
+    getPageByIndex: jest.fn().mockResolvedValue([]),
+    atomicMutate: jest.fn().mockImplementation(async (_store, _key, mutator) => mutator(null).value),
+    atomicMutateWithBatches: jest.fn().mockImplementation(
+        async (_store, _key, mutator) => mutator(null).value
+    ),
     update: jest.fn().mockResolvedValue(1),
     delete: jest.fn().mockResolvedValue(undefined),
     batchUpdate: jest.fn().mockResolvedValue(0),

@@ -1,5 +1,6 @@
 import icons from '../../ui/IconSystem.js';
 import { stateManager } from '../../core/AppState.js';
+import { Modal } from '../../components/Modal.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
@@ -19,8 +20,36 @@ import {
     toSplitXRows
 } from './PayrollLoans.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
+import {
+    applyPayrollLoanSettlementBatch,
+    buildPayrollPreviewFingerprint,
+    confirmPayrollPaid
+} from './PayrollLoanSettlement.js';
+import {
+    applyPayrollPreviewInclusion,
+    filterPayablePayrollPreviewRows,
+    getPayrollPreviewCategoryCounts,
+    getPayrollPreviewInclusion
+} from './PayrollPreview.js';
+import {
+    openPayrollClosureModal,
+    renderPayrollClosurePanel
+} from './PayrollClosureUI.js';
+import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
+import {
+    buildPayrollClosureDraft,
+    getPayrollClosureGate,
+    undoPayrollClosureEffects
+} from './PayrollClosureWorkflow.js';
+import payrollClosureStore from './PayrollClosureStore.js';
+import payrollClosureSync from './PayrollClosureSync.js';
+import {
+    consumePayrollClosureAdjustments,
+    restorePayrollClosureAdjustments
+} from './PayrollClosureAdjustments.js';
 import { getPayrollEmployeesForPeriod, resolvePayrollPeriod } from './PayrollPeriod.js';
 import { summarizeAdjustmentDetails } from './PayrollSummary.js';
+import { buildPayrollHistoricalOrganization } from './PayrollHistoricalIdentity.js';
 import {
     hydrateRememberedAdjustments,
     resolveAdjustmentScope,
@@ -36,6 +65,34 @@ import {
 let context = null;
 let payrollService = null;
 let latestPayrollPreviewRows = [];
+let payrollClosureInProgress = false;
+let payrollPeriodClosureCache = {
+    key: null,
+    items: [],
+    ready: false,
+    loading: false,
+    error: null
+};
+let payrollHistoryState = {
+    items: [],
+    pages: [],
+    pageIndex: 0,
+    page: 1,
+    hasPrevious: false,
+    filters: { status: '', periodStart: '', periodEnd: '' },
+    nextCursor: null,
+    selectedClosure: null,
+    loading: false,
+    ready: false,
+    error: null,
+    detailFilters: {
+        leaderId: '',
+        includeBonuses: true,
+        includeDeductions: true,
+        includeLoans: true
+    }
+};
+let payrollHistoryLoadToken = 0;
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-payroll-action)
@@ -78,6 +135,18 @@ const _ACTION_MAP = {
         event.stopPropagation();
         window.PayrollUI?.selectAllPayrollLoanCharges?.(employeeId, target.dataset.loanId);
     },
+    'toggle-payroll-paid': (_id, target) => window.PayrollUI?.togglePayrollPaidConfirmation?.(target.checked),
+    'toggle-payroll-preview-category': (category, target) => window.PayrollUI?.togglePayrollPreviewCategory?.(
+        category,
+        target.checked
+    ),
+    'open-payroll-closure': () => window.PayrollUI?.openPayrollClosure?.(),
+    'undo-payroll-closure': (closureId) => window.PayrollUI?.undoPayrollClosure?.(closureId),
+    'prepare-payroll-correction': (closureId) => window.PayrollUI?.preparePayrollCorrection?.(closureId),
+    'open-payroll-history-detail': (closureId) => window.PayrollUI?.openPayrollHistoryDetail?.(closureId),
+    'close-payroll-history-detail': () => window.PayrollUI?.closePayrollHistoryDetail?.(),
+    'previous-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'previous' }),
+    'next-payroll-history-page': () => window.PayrollUI?.loadPayrollHistory?.({ direction: 'next' }),
     'toggle-payroll-loan-details': (_employeeId, target, event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -123,6 +192,17 @@ function _handlePayrollKeydown(e) {
 }
 
 function _handlePayrollAdjustmentInput(e) {
+    const historyFilter = e.target.dataset.payrollHistoryFilter;
+    if (historyFilter && e.type === 'change') {
+        window.PayrollUI?.setPayrollHistoryFilter?.(historyFilter, e.target.value);
+        return;
+    }
+    const historyDetailFilter = e.target.dataset.payrollHistoryDetailFilter;
+    if (historyDetailFilter && e.type === 'change') {
+        const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+        window.PayrollUI?.setPayrollHistoryDetailFilter?.(historyDetailFilter, value);
+        return;
+    }
     const form = e.target.closest('.payroll-adjustment-form');
     if (!form) return;
     updateAdjustmentFormPresentation(
@@ -152,6 +232,74 @@ function getState() {
 
 function getSummaryAmountClass(amount, nonZeroClass) {
     return Math.abs(Number(amount) || 0) < 0.005 ? 'is-zero' : nonZeroClass;
+}
+
+function payrollPeriodKey(periodStart, periodEnd) {
+    return `${String(periodStart || '')}:${String(periodEnd || '')}`;
+}
+
+function canUsePayrollRemote() {
+    return Boolean(globalThis.currentUser) && globalThis.navigator?.onLine !== false;
+}
+
+function requestPayrollPeriodClosures(periodStart, periodEnd, { force = false } = {}) {
+    const key = payrollPeriodKey(periodStart, periodEnd);
+    if (payrollPeriodClosureCache.key !== key) {
+        payrollPeriodClosureCache = {
+            key,
+            items: [],
+            ready: false,
+            loading: false,
+            error: null
+        };
+    }
+    if ((payrollPeriodClosureCache.ready && !force) || payrollPeriodClosureCache.loading) {
+        return payrollPeriodClosureCache;
+    }
+    payrollPeriodClosureCache.loading = true;
+    payrollPeriodClosureCache.error = null;
+    Promise.resolve()
+        .then(async () => {
+            if (!canUsePayrollRemote()) {
+                throw new Error('No se puede verificar el historial remoto sin conexión.');
+            }
+            await payrollClosureSync.pullPeriod(periodStart, periodEnd);
+            return payrollClosureStore.getByPeriod(periodStart, periodEnd);
+        })
+        .then(items => {
+            if (payrollPeriodClosureCache.key !== key) return;
+            payrollPeriodClosureCache = {
+                key,
+                items,
+                ready: true,
+                loading: false,
+                error: null
+            };
+            context?.render?.();
+        })
+        .catch(error => {
+            if (payrollPeriodClosureCache.key !== key) return;
+            payrollPeriodClosureCache.loading = false;
+            payrollPeriodClosureCache.ready = false;
+            payrollPeriodClosureCache.error = error;
+            console.warn('No se pudo cargar el historial de nómina:', error);
+            context?.render?.();
+        });
+    return payrollPeriodClosureCache;
+}
+
+function updatePayrollPeriodClosureCache(closure) {
+    const key = payrollPeriodKey(closure.periodStart, closure.periodEnd);
+    if (payrollPeriodClosureCache.key !== key) return;
+    const byId = new Map(payrollPeriodClosureCache.items.map(item => [item.id, item]));
+    byId.set(closure.id, closure);
+    payrollPeriodClosureCache = {
+        key,
+        items: [...byId.values()],
+        ready: true,
+        loading: false,
+        error: null
+    };
 }
 
 function getEmployeesWithDeductions() {
@@ -197,17 +345,25 @@ export function PayrollTab() {
                             data-value="ledger">
                         ${icons.get('dollar')} Cuentas por Cobrar
                     </button>
+                    <button type="button"
+                            class="view-btn ${mode === 'history' ? 'active' : ''}"
+                            data-payroll-action="change-payroll-view-mode"
+                            data-value="history">
+                        ${icons.get('calendar')} Historial
+                    </button>
                 </div>
             </div>
-            ${mode === 'ledger' ? LoansLedger() : PayrollGeneratorTab()}
+            ${mode === 'ledger'
+                ? LoansLedger()
+                : (mode === 'history' ? PayrollHistoryTab() : PayrollGeneratorTab())}
         </div>
     `;
 }
 
 /** Setter wired through data-payroll-action="change-payroll-view-mode". */
 export function changePayrollViewMode(mode) {
-    if (mode !== 'generator' && mode !== 'ledger') return;
-    getState().payrollViewMode = mode;
+    if (!['generator', 'ledger', 'history'].includes(mode)) return;
+    stateManager.setState({ payrollViewMode: mode });
     // 🛡️ When entering the loans ledger, pull any legacy advances that the
     // user just registered through the in-profile editor into emp.loans[] so
     // they appear immediately (without forcing a page refresh). The migration
@@ -216,6 +372,7 @@ export function changePayrollViewMode(mode) {
         try { migrateAllAdvances(); } catch (_) { /* never block the view switch */ }
     }
     context.render();
+    if (mode === 'history') loadPayrollHistory();
 }
 
 /**
@@ -256,6 +413,9 @@ function PayrollGeneratorTab() {
                 state.exportConfig.activePreset = period.source === 'configured' ? 'payPeriod' : 'thisMonth';
             }
             if (!state.exportConfig.leaderFilter) state.exportConfig.leaderFilter = 'all';
+            state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion(
+                state.exportConfig.payrollPreviewInclusion
+            );
         });
     }
     const isStepCollapsed = (id) => (state.exportConfig.collapsedSteps || []).includes(id);
@@ -264,6 +424,27 @@ function PayrollGeneratorTab() {
     latestPayrollPreviewRows = exportData;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
     const hasInvalidLoanRows = invalidLoanRows.length > 0;
+    const previewFingerprint = buildPayrollPreviewFingerprint({
+        periodStart: state.exportConfig.periodStart,
+        periodEnd: state.exportConfig.periodEnd,
+        rows: exportData
+    });
+    const closureCache = requestPayrollPeriodClosures(
+        state.exportConfig.periodStart,
+        state.exportConfig.periodEnd
+    );
+    let payrollClosureGate = getPayrollClosureGate({
+        rows: exportData,
+        fingerprint: previewFingerprint,
+        paidConfirmation: state.exportConfig.payrollPaidConfirmation,
+        activeClosures: closureCache.items,
+        correctionSupersedesId: state.exportConfig.payrollCorrectionSupersedesId,
+        historyReady: closureCache.ready,
+        inProgress: payrollClosureInProgress
+    });
+    if (closureCache.error) {
+        payrollClosureGate = { ...payrollClosureGate, enabled: false, reason: 'history-error' };
+    }
     const totalAmount = exportData.reduce((sum, item) => sum + item.monto, 0);
     const filteredPayrollEmployees = getLeaderFilteredEmployees(state);
     const loanSummary = summarizePayrollLoans(
@@ -299,6 +480,13 @@ function PayrollGeneratorTab() {
     const bonusAmount = exportData.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
+    const isVisibleReviewAmount = value => Math.abs(Number(value) || 0) >= 0.005;
+    const hasReviewAmount = key => exportData.some(item => isVisibleReviewAmount(item[key]));
+    const showBonusColumn = hasReviewAmount('_bonuses');
+    const showDeductionColumn = hasReviewAmount('_deductions');
+    const showLoanColumn = hasReviewAmount('_loans');
+    const previewInclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
+    const previewCategoryCounts = getPayrollPreviewCategoryCounts(exportData, previewInclusion);
     const deductionDetails = summarizeAdjustmentDetails(
         state.exportConfig.deductions,
         exportData,
@@ -606,9 +794,9 @@ function PayrollGeneratorTab() {
                                 <th class="payroll-review-table__number">#</th>
                                 <th class="payroll-review-table__employee">EMPLEADO</th>
                                 <th>BRUTO</th>
-                                <th>BONIFIC.</th>
-                                <th>DEDUCCIONES</th>
-                                <th>PRÉSTAMOS</th>
+                                ${showBonusColumn || !previewInclusion.bonuses ? `<th class="is-bonus payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="bonuses" ${previewInclusion.bonuses ? 'checked' : ''} aria-label="Incluir bonificaciones en la vista previa"> <span>BONIFIC.</span><small>${previewCategoryCounts.bonuses.active}/${previewCategoryCounts.bonuses.total}</small></label></th>` : ''}
+                                ${showDeductionColumn || !previewInclusion.deductions ? `<th class="is-deduction payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="deductions" ${previewInclusion.deductions ? 'checked' : ''} aria-label="Incluir deducciones en la vista previa"> <span>DEDUCCIONES</span><small>${previewCategoryCounts.deductions.active}/${previewCategoryCounts.deductions.total}</small></label></th>` : ''}
+                                ${showLoanColumn || !previewInclusion.loans ? `<th class="is-loan payroll-review-table__toggle-heading"><label><input type="checkbox" data-payroll-action="toggle-payroll-preview-category" data-value="loans" ${previewInclusion.loans ? 'checked' : ''} aria-label="Incluir préstamos en la vista previa"> <span>PRÉSTAMOS</span><small>${previewCategoryCounts.loans.active}/${previewCategoryCounts.loans.total}</small></label></th>` : ''}
                                 <th>NETO</th>
                             </tr>
                         </thead>
@@ -621,9 +809,9 @@ function PayrollGeneratorTab() {
                                         ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
                                     </td>
                                     <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
-                                    <td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>
-                                    <td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>
-                                    <td class="payroll-review-table__amount ${Number(emp._loans) > 0 ? 'is-loan' : 'is-empty'}">${Number(emp._loans) > 0 ? `−${formatCurrency(emp._loans)}` : '—'}</td>
+                                    ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
+                                    ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
+                                    ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
                                     <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
@@ -632,14 +820,19 @@ function PayrollGeneratorTab() {
                             <tr>
                                 <td colspan="2">Totales</td>
                                 <td class="payroll-review-table__amount">${formatCurrency(grossAmount)}</td>
-                                <td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>
-                                <td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>
-                                <td class="payroll-review-table__amount ${loanAmount > 0 ? 'is-loan' : 'is-empty'}">${loanAmount > 0 ? `−${formatCurrency(loanAmount)}` : '—'}</td>
+                                ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(bonusAmount)}</td>` : ''}
+                                ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(deductionAmount)}</td>` : ''}
+                                ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount is-loan">−${formatCurrency(loanAmount)}</td>` : ''}
                                 <td class="payroll-review-table__amount is-net">${formatCurrency(totalAmount)}</td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
+
+                ${renderPayrollClosurePanel({
+                    gate: payrollClosureGate,
+                    now: Date.now()
+                })}
             </div>
             </div>
             
@@ -819,13 +1012,12 @@ function generateExportData() {
             state.exportConfig.bonuses || []
         );
         
-        const positionIds = (emp.positions && emp.positions.length > 0)
-            ? emp.positions
-            : (emp.position ? [emp.position] : []);
-            
-        const positionNames = positionIds
-            .map(posId => state.positions.find(p => p.id === posId)?.name)
-            .filter(Boolean);
+        const organization = buildPayrollHistoricalOrganization({
+            employee: emp,
+            breakdown: payroll.breakdown || [],
+            positions: state.positions,
+            leaders: state.leaders
+        });
             
         return {
             id: parseInt(emp.number) || 0,
@@ -840,17 +1032,23 @@ function generateExportData() {
             _positionBreakdown: payroll.breakdown || [],
             _employeeId: emp.id,
             _employeeName: emp.name,
-            _employeePosition: positionNames.length > 0 ? positionNames.join(', ') : 'Sin posicion',
+            _employeePosition: organization.positionName,
+            _leaderRefs: organization.leaderRefs,
             _number: emp.number
         };
     });
 
-    return applyPayrollLoanDeductions(
+    const sourceRows = applyPayrollLoanDeductions(
         baseRows,
         state.employees,
         state.exportConfig.payrollLoanSelection || [],
         periodEnd
-    )
+    );
+    const previewRows = applyPayrollPreviewInclusion(
+        sourceRows,
+        state.exportConfig.payrollPreviewInclusion
+    );
+    return filterPayablePayrollPreviewRows(previewRows)
         // Keep selected-loan rows even when their resulting payment is invalid,
         // so the UI can show the error instead of silently omitting the employee.
         .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
@@ -1446,6 +1644,7 @@ export function updateExportPeriod(type, value) {
         state.exportConfig.activePreset = null;
         state.exportConfig.payrollLoanSelection = [];
         state.exportConfig.payrollLoanExpandedEmployees = [];
+        state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
     });
     context.render();
 }
@@ -1454,6 +1653,25 @@ export function setLeaderFilter(leaderId) {
     const state = getState();
     state.exportConfig.leaderFilter = leaderId;
     context.render();
+}
+
+export function togglePayrollPreviewCategory(category, checked) {
+    if (!['bonuses', 'deductions', 'loans'].includes(category)) return;
+    const state = getState();
+    const inclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
+    stateManager.setState({
+        exportConfig: {
+            ...state.exportConfig,
+            payrollPreviewInclusion: { ...inclusion, [category]: Boolean(checked) },
+            payrollPaidConfirmation: null
+        }
+    });
+    context.render();
+    queueMicrotask(() => {
+        document.querySelector(`[data-payroll-action="toggle-payroll-preview-category"][data-value="${category}"]`)?.focus?.();
+        const net = generateExportData().reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+        window.showNotification?.(`Vista previa actualizada: neto ${formatCurrency(net)}`, 'info');
+    });
 }
 
 export function setExportPreset(preset) {
@@ -1486,6 +1704,7 @@ export function setExportPreset(preset) {
             state.exportConfig.periodSource = period.source;
             state.exportConfig.payrollLoanSelection = [];
             state.exportConfig.payrollLoanExpandedEmployees = [];
+            state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
         });
         if (period.source === 'month-fallback' && window.showNotification) {
             window.showNotification('⚠️ El período configurado no es válido; se usó el mes actual.', 'warning');
@@ -1500,6 +1719,7 @@ export function setExportPreset(preset) {
         state.exportConfig.activePreset = preset;
         state.exportConfig.payrollLoanSelection = [];
         state.exportConfig.payrollLoanExpandedEmployees = [];
+        state.exportConfig.payrollPreviewInclusion = getPayrollPreviewInclusion();
     });
     context.render();
 }
@@ -1659,6 +1879,505 @@ export function selectAllPayrollLoanCharges(employeeId, loanId) {
         loan.maxChargeCount
     ));
 }
+
+function currentPayrollClosureState({ activeClosures = null, historyReady = null, ignoreInProgress = false } = {}) {
+    const state = getState();
+    const rows = generateExportData();
+    const fingerprint = buildPayrollPreviewFingerprint({
+        periodStart: state.exportConfig.periodStart,
+        periodEnd: state.exportConfig.periodEnd,
+        rows
+    });
+    const cache = activeClosures === null
+        ? requestPayrollPeriodClosures(
+            state.exportConfig.periodStart,
+            state.exportConfig.periodEnd
+        )
+        : { items: activeClosures, ready: historyReady !== false, error: null };
+    let gate = getPayrollClosureGate({
+        rows,
+        fingerprint,
+        paidConfirmation: state.exportConfig.payrollPaidConfirmation,
+        activeClosures: cache.items,
+        correctionSupersedesId: state.exportConfig.payrollCorrectionSupersedesId,
+        historyReady: historyReady ?? cache.ready,
+        inProgress: ignoreInProgress ? false : payrollClosureInProgress
+    });
+    if (cache.error) gate = { ...gate, enabled: false, reason: 'history-error' };
+    return { state, rows, fingerprint, activeClosures: cache.items, gate };
+}
+
+async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {}) {
+    const state = getState();
+    const periodStart = state.exportConfig.periodStart;
+    const periodEnd = state.exportConfig.periodEnd;
+    if (!canUsePayrollRemote()) {
+        throw new Error('Conectate para verificar que este período no tenga un cierre remoto.');
+    }
+    await payrollClosureSync.pullPeriod(periodStart, periodEnd);
+    const activeClosures = await payrollClosureStore.getByPeriod(
+        periodStart,
+        periodEnd
+    );
+    payrollPeriodClosureCache = {
+        key: payrollPeriodKey(periodStart, periodEnd),
+        items: activeClosures,
+        ready: true,
+        loading: false,
+        error: null
+    };
+    return currentPayrollClosureState({
+        activeClosures,
+        historyReady: true,
+        ignoreInProgress
+    });
+}
+
+export function togglePayrollPaidConfirmation(checked) {
+    const current = currentPayrollClosureState();
+    if (!checked) {
+        stateManager.setState({
+            exportConfig: {
+                ...current.state.exportConfig,
+                payrollPaidConfirmation: null
+            }
+        });
+        context.render();
+        return;
+    }
+    if (!current.gate.hasRows || current.gate.invalidCount > 0 ||
+        !current.gate.payrollPaid && ['history-loading', 'history-error', 'in-progress', 'already-closed']
+            .includes(current.gate.reason)) {
+        if (window.showNotification) {
+            window.showNotification('⚠️ Resolvé los saldos y verificá el historial antes de confirmar el pago.', 'warning');
+        }
+        context.render();
+        return;
+    }
+    stateManager.setState({
+        exportConfig: {
+            ...current.state.exportConfig,
+            payrollPaidConfirmation: confirmPayrollPaid(current.fingerprint)
+        }
+    });
+    if (window.showNotification) {
+        window.showNotification('✅ Nómina marcada como pagada para esta vista previa', 'success');
+    }
+    context.render();
+}
+
+function PayrollHistoryTab() {
+    if (!payrollHistoryState.ready && !payrollHistoryState.loading) {
+        queueMicrotask(() => loadPayrollHistory());
+    }
+    return renderPayrollHistoryView({
+        ...payrollHistoryState,
+        currentEmployees: getState().employees || []
+    });
+}
+
+function payrollHistorySummary(item = {}) {
+    const summary = { ...item };
+    delete summary.rows;
+    delete summary.paymentRefs;
+    delete summary.loanSettlementBatchId;
+    return summary;
+}
+
+export async function loadPayrollHistory({ direction = 'current', force = false } = {}) {
+    if (payrollHistoryState.loading && !force) return;
+    if (direction === 'previous') {
+        const previousIndex = payrollHistoryState.pageIndex - 1;
+        const previous = payrollHistoryState.pages[previousIndex];
+        if (!previous) return;
+        payrollHistoryState = {
+            ...payrollHistoryState,
+            ...previous,
+            pageIndex: previousIndex,
+            page: previousIndex + 1,
+            hasPrevious: previousIndex > 0,
+            selectedClosure: null
+        };
+        context?.render?.();
+        return;
+    }
+    if (direction === 'next') {
+        const cachedIndex = payrollHistoryState.pageIndex + 1;
+        const cached = payrollHistoryState.pages[cachedIndex];
+        if (cached) {
+            payrollHistoryState = {
+                ...payrollHistoryState,
+                ...cached,
+                pageIndex: cachedIndex,
+                page: cachedIndex + 1,
+                hasPrevious: true,
+                selectedClosure: null
+            };
+            context?.render?.();
+            return;
+        }
+        if (!payrollHistoryState.nextCursor) return;
+    }
+    const token = ++payrollHistoryLoadToken;
+    const cursor = direction === 'next' ? payrollHistoryState.nextCursor : null;
+    const targetIndex = direction === 'next' ? payrollHistoryState.pageIndex + 1 : 0;
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        items: [],
+        pages: force ? [] : payrollHistoryState.pages,
+        nextCursor: null,
+        selectedClosure: null,
+        loading: true,
+        error: null
+    };
+    context?.render?.();
+    try {
+        const page = canUsePayrollRemote()
+            ? await payrollClosureSync.pullPage({
+                limit: 10,
+                status: payrollHistoryState.filters.status || null,
+                periodStart: payrollHistoryState.filters.periodStart || null,
+                periodEnd: payrollHistoryState.filters.periodEnd || null,
+                cursor
+            })
+            : await payrollClosureStore.listPage({
+                limit: 10,
+                status: payrollHistoryState.filters.status || null,
+                periodStart: payrollHistoryState.filters.periodStart || null,
+                periodEnd: payrollHistoryState.filters.periodEnd || null,
+                cursor
+            });
+        const syncStates = await payrollClosureStore.getSyncStates(page.items.map(item => item.id));
+        if (token !== payrollHistoryLoadToken) return;
+        const items = page.items.slice(0, 10).map(item => ({
+            ...payrollHistorySummary(item),
+            syncStatus: syncStates[item.id] || 'synced'
+        }));
+        if (direction === 'next' && items.length === 0) {
+            const currentIndex = payrollHistoryState.pageIndex;
+            const currentPage = payrollHistoryState.pages[currentIndex] || { items: [] };
+            const pages = [...payrollHistoryState.pages];
+            pages[currentIndex] = { ...currentPage, nextCursor: null };
+            payrollHistoryState = {
+                ...payrollHistoryState,
+                ...pages[currentIndex],
+                pages,
+                loading: false,
+                ready: true,
+                error: null
+            };
+            context?.render?.();
+            return;
+        }
+        const pageState = { items, nextCursor: page.nextCursor };
+        const pages = payrollHistoryState.pages.slice(0, targetIndex);
+        pages[targetIndex] = pageState;
+        payrollHistoryState = {
+            ...payrollHistoryState,
+            ...pageState,
+            pages,
+            pageIndex: targetIndex,
+            page: targetIndex + 1,
+            hasPrevious: targetIndex > 0,
+            nextCursor: page.nextCursor,
+            loading: false,
+            ready: true,
+            error: null
+        };
+    } catch (error) {
+        if (token !== payrollHistoryLoadToken) return;
+        payrollHistoryState = {
+            ...payrollHistoryState,
+            loading: false,
+            ready: true,
+            error: error?.message || 'No se pudo cargar el historial local.'
+        };
+    }
+    context?.render?.();
+}
+
+export function setPayrollHistoryFilter(name, value) {
+    if (!['status', 'periodStart', 'periodEnd'].includes(name)) return;
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        filters: { ...payrollHistoryState.filters, [name]: String(value || '') },
+        selectedClosure: null,
+        pages: [],
+        pageIndex: 0,
+        page: 1,
+        hasPrevious: false,
+        nextCursor: null,
+        ready: false
+    };
+    loadPayrollHistory({ force: true });
+}
+
+export function setPayrollHistoryDetailFilter(name, value) {
+    const booleanFilters = ['includeBonuses', 'includeDeductions', 'includeLoans'];
+    if (name !== 'leaderId' && !booleanFilters.includes(name)) return;
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        detailFilters: {
+            ...payrollHistoryState.detailFilters,
+            [name]: booleanFilters.includes(name) ? Boolean(value) : String(value || '')
+        }
+    };
+    context?.render?.();
+}
+
+function focusPayrollHistoryControl(action, id = null) {
+    queueMicrotask(() => {
+        const controls = document.querySelectorAll(`[data-payroll-action="${action}"]`);
+        const target = id === null
+            ? controls[0]
+            : [...controls].find(control => String(control.dataset.id) === String(id));
+        target?.focus?.();
+    });
+}
+
+export async function openPayrollHistoryDetail(closureId) {
+    const id = String(closureId || '');
+    if (!id) return;
+    stateManager.setState({ payrollViewMode: 'history' });
+    const loaded = payrollHistoryState.items.find(item => String(item.id) === id);
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        loading: true,
+        error: null,
+        detailFilters: {
+            leaderId: '',
+            includeBonuses: true,
+            includeDeductions: true,
+            includeLoans: true
+        }
+    };
+    context?.render?.();
+    try {
+        const closure = canUsePayrollRemote() && loaded?.syncStatus === 'synced'
+            ? await payrollClosureSync.pullDetail(id)
+            : await payrollClosureStore.getById(id);
+        if (!closure) throw new Error('No se encontró el cierre en el historial local.');
+        const syncStates = await payrollClosureStore.getSyncStates([id]);
+        payrollHistoryState = {
+            ...payrollHistoryState,
+            selectedClosure: { ...closure, syncStatus: syncStates[id] || 'synced' },
+            loading: false
+        };
+    } catch (error) {
+        payrollHistoryState = {
+            ...payrollHistoryState,
+            loading: false,
+            error: error?.message || 'No se pudo abrir el cierre.'
+        };
+    }
+    context?.render?.();
+    if (payrollHistoryState.selectedClosure) {
+        focusPayrollHistoryControl('close-payroll-history-detail');
+    }
+}
+
+export function closePayrollHistoryDetail() {
+    const closedId = payrollHistoryState.selectedClosure?.id || null;
+    payrollHistoryState = { ...payrollHistoryState, selectedClosure: null };
+    context?.render?.();
+    if (closedId) focusPayrollHistoryControl('open-payroll-history-detail', closedId);
+}
+
+function updatePayrollHistoryState(closure) {
+    payrollHistoryState = {
+        ...payrollHistoryState,
+        items: payrollHistoryState.items.map(item => item.id === closure.id
+            ? { ...closure, syncStatus: 'pending' }
+            : item),
+        selectedClosure: payrollHistoryState.selectedClosure?.id === closure.id
+            ? { ...closure, syncStatus: 'pending' }
+            : payrollHistoryState.selectedClosure
+    };
+}
+
+function settlementOperatorId() {
+    return globalThis.currentUser?.uid || globalThis.currentUser?.email || null;
+}
+
+export function preparePayrollCorrection(closureId) {
+    const current = currentPayrollClosureState();
+    const active = current.gate.activeClosure;
+    if (!active || String(active.id) !== String(closureId)) return;
+    stateManager.setState({
+        exportConfig: {
+            ...current.state.exportConfig,
+            payrollCorrectionSupersedesId: active.id
+        }
+    });
+    window.showNotification?.('Corrección preparada. El cierre anterior conservará su auditoría.', 'info');
+    context.render();
+}
+
+export async function openPayrollClosure() {
+    if (payrollClosureInProgress) return;
+    payrollClosureInProgress = true;
+    try {
+        const current = await loadCurrentPayrollClosureState({ ignoreInProgress: true });
+        if (!current.gate.enabled) {
+            window.showNotification?.('⚠️ El cierre de nómina todavía no está habilitado.', 'warning');
+            return;
+        }
+        const draft = buildPayrollClosureDraft({
+            employees: current.state.employees,
+            rows: current.rows,
+            periodStart: current.state.exportConfig.periodStart,
+            periodEnd: current.state.exportConfig.periodEnd,
+            periodSource: current.state.exportConfig.periodSource,
+            closedAt: Date.now(),
+            closedBy: settlementOperatorId(),
+            bonuses: current.state.exportConfig.bonuses,
+            deductions: current.state.exportConfig.deductions,
+            supersedesId: current.gate.nextSupersedesId
+        });
+        const verified = await openPayrollClosureModal(draft);
+        if (!verified) return;
+
+        const latest = await loadCurrentPayrollClosureState({ ignoreInProgress: true });
+        if (!latest.gate.enabled || latest.fingerprint !== draft.closure.fingerprint) {
+            throw new Error('La vista previa cambió mientras se verificaba el cierre. Revisala y confirmá la Nómina nuevamente.');
+        }
+
+        const closedAt = Date.now();
+        const employeeCopies = JSON.parse(JSON.stringify(latest.state.employees || []));
+        const finalized = buildPayrollClosureDraft({
+            employees: employeeCopies,
+            rows: latest.rows,
+            periodStart: latest.state.exportConfig.periodStart,
+            periodEnd: latest.state.exportConfig.periodEnd,
+            periodSource: latest.state.exportConfig.periodSource,
+            closedAt,
+            closedBy: settlementOperatorId(),
+            bonuses: latest.state.exportConfig.bonuses,
+            deductions: latest.state.exportConfig.deductions,
+            supersedesId: latest.gate.nextSupersedesId
+        });
+        if (finalized.batch) {
+            applyPayrollLoanSettlementBatch(employeeCopies, finalized.batch, {
+                now: closedAt,
+                recordedBy: settlementOperatorId()
+            });
+        }
+        const affectedIds = new Set(
+            (finalized.batch?.employees || []).map(item => String(item.employeeId))
+        );
+        const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
+        const savedClosure = await payrollClosureStore.saveWithEmployees(
+            finalized.closure,
+            affectedEmployees,
+            {
+                enqueueCloud: true,
+                queuedAt: closedAt,
+                schemaVersion: latest.state.settings?.schemaVersion
+            }
+        );
+
+        const nextExportConfig = {
+            ...consumePayrollClosureAdjustments(latest.state.exportConfig, savedClosure),
+            payrollPaidConfirmation: null,
+            payrollCorrectionSupersedesId: null,
+            payrollLoanSelection: [],
+            payrollPreviewInclusion: getPayrollPreviewInclusion()
+        };
+        stateManager.setState(finalized.batch
+            ? { employees: employeeCopies, exportConfig: nextExportConfig }
+            : { exportConfig: nextExportConfig });
+        updatePayrollPeriodClosureCache(savedClosure);
+        updatePayrollHistoryState(savedClosure);
+
+        try {
+            await Promise.resolve(context.saveToLocalStorage({
+                immediate: true,
+                announce: `Nómina cerrada: ${savedClosure.totals.net.toFixed(2)}`
+            }));
+        } catch (error) {
+            console.warn('El cierre quedó guardado, pero el guardado general debe reintentarse:', error);
+            window.showNotification?.('⚠️ El cierre quedó local; la sincronización general se reintentará.', 'warning');
+        }
+        context.render();
+    } catch (error) {
+        await Modal.alert({
+            title: 'No se cerró la nómina',
+            message: escapeHTML(error?.message || 'La información cambió. Revisá la Nómina antes de intentarlo nuevamente.')
+        });
+    } finally {
+        payrollClosureInProgress = false;
+        context?.render?.();
+    }
+}
+
+export async function undoPayrollClosure(closureId) {
+    if (payrollClosureInProgress) return;
+    payrollClosureInProgress = true;
+    try {
+        const state = getState();
+        const closure = await payrollClosureStore.getById(closureId);
+        if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        if (!canUsePayrollRemote()) {
+            throw new Error('Conectate para verificar que este período no tenga una corrección remota.');
+        }
+        const refresh = await payrollClosureSync.pullPeriod(
+            closure.periodStart,
+            closure.periodEnd
+        );
+        if (refresh.conflicts?.length) {
+            throw new Error('No se pudo verificar el estado remoto de este cierre de Nómina.');
+        }
+        const activeClosures = await payrollClosureStore.getByPeriod(
+            closure.periodStart,
+            closure.periodEnd
+        );
+        const restoredExportConfig = restorePayrollClosureAdjustments(state.exportConfig, closure);
+        const employeeCopies = JSON.parse(JSON.stringify(state.employees || []));
+        const result = undoPayrollClosureEffects(employeeCopies, closure, {
+            now: Date.now(),
+            voidedBy: settlementOperatorId(),
+            activeClosures
+        });
+        const affectedIds = new Set((closure.paymentRefs || []).map(ref => String(ref.employeeId)));
+        const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
+        const savedClosure = await payrollClosureStore.saveWithEmployees(
+            result.closure,
+            affectedEmployees,
+            { enqueueCloud: true, schemaVersion: state.settings?.schemaVersion }
+        );
+        stateManager.setState({
+            employees: employeeCopies,
+            exportConfig: {
+                ...restoredExportConfig,
+                payrollPaidConfirmation: null,
+                payrollCorrectionSupersedesId: null
+            }
+        });
+        updatePayrollPeriodClosureCache(savedClosure);
+        updatePayrollHistoryState(savedClosure);
+        await Promise.resolve(context.saveToLocalStorage({
+            immediate: true,
+            announce: 'Cierre de nómina deshecho'
+        }));
+        window.showNotification?.(
+            `↩️ Cierre anulado${result.voidedPaymentCount ? ` · ${result.voidedPaymentCount} pago(s) restaurado(s)` : ''}${result.voidedBonusCount || result.voidedDeductionCount ? ' · ajustes restaurados' : ''}`,
+            'info'
+        );
+        context.render();
+    } catch (error) {
+        await Modal.alert({
+            title: 'No se puede deshacer',
+            message: escapeHTML(error?.message || 'El cierre no se puede deshacer de forma segura.')
+        });
+    } finally {
+        payrollClosureInProgress = false;
+        context?.render?.();
+    }
+}
+
+// Compatibility aliases for extensions that still call the previous loan-only API.
+export const openPayrollLoanSettlement = openPayrollClosure;
+export const undoPayrollLoanSettlement = undoPayrollClosure;
 
 export function setPayrollGuideStep(stepId) {
     const stepMap = {

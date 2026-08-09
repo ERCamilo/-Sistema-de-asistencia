@@ -44,11 +44,11 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
 
 });
 
-testRunner.addSuite("IndexedDB — schema v14: stores de sync e importación Mini", {
+testRunner.addSuite("IndexedDB — schema v15: stores de sync, Mini e historial de Nómina", {
 
-    "la versión de la DB subió a 14"() {
-        testRunner.assert(/version\s*=\s*14/.test(IDB_SRC),
-            'IndexedDBService debe abrir la DB en versión 14 para crear pettyCashMirrorOutbox y los stores Mini');
+    "la versión de la DB subió a 15"() {
+        testRunner.assert(/version\s*=\s*15/.test(IDB_SRC),
+            'IndexedDBService debe abrir la DB en versión 15 para crear el historial de Nómina');
     },
 
     "existe el store mainSyncOutbox con keyPath 'key' autoIncrement (NO reutiliza sync_queue)"() {

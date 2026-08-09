@@ -37,6 +37,11 @@ export const writeBatch = jest.fn(() => ({
     delete: noop,
     commit: asyncNoop
 }));
+export const runTransaction = jest.fn(async (_db, operation) => operation({
+    get: jest.fn(async () => ({ exists: () => false, data: () => null })),
+    set: noop
+}));
+export const startAfter = jest.fn(() => ({}));
 export const getBlob = asyncNoop;
 
 // Storage

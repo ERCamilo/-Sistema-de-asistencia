@@ -28,39 +28,44 @@ export const UndoManager = {
      * @param {string} label         - Texto descriptivo: "Asistencia de Juan"
      * @param {function} restoreFn   - Función que restaura el estado previo
      */
-    push(snapshot, label, restoreFn) {
+    push(snapshot, label, restoreFn, options = {}) {
         // Si hay uno pendiente, lo consolida (solo 1 undo activo a la vez)
         if (this._pending) {
             this._dismiss();
         }
 
-        this._pending = { snapshot, label, restoreFn };
+        this._pending = { snapshot, label, restoreFn, options };
         this._show(label);
 
-        // Auto-eliminar después de 5 segundos
+        const timeoutMs = Math.max(0, Number(options.timeoutMs) || 5000);
+        // Auto-eliminar después de la ventana solicitada (5 s por defecto).
         this._timer = setTimeout(() => {
             this._dismiss();
-        }, 5000);
+        }, timeoutMs);
     },
 
     // Ejecutar el deshacer
-    undo() {
-        if (!this._pending) return;
+    async undo() {
+        if (!this._pending || this._pending.undoing) return false;
 
-        const { restoreFn, label } = this._pending;
+        const pending = this._pending;
+        const { restoreFn, label, options = {} } = pending;
         clearTimeout(this._timer);
-        this._pending = null;
-        this._dismiss();
-
-        // Ejecutar la restauración
-        restoreFn();
-
-        // Guardar y renderizar usando dependencias inyectadas
-        if (this._dependencies.saveFn) this._dependencies.saveFn();
-        if (this._dependencies.renderFn) this._dependencies.renderFn();
-
-        if (this._dependencies.showNotificationFn) {
-            this._dependencies.showNotificationFn(`↩️ Deshecho: ${label}`, 'info');
+        pending.undoing = true;
+        try {
+            await Promise.resolve(restoreFn());
+            if (this._dependencies.saveFn) {
+                await Promise.resolve(this._dependencies.saveFn(options.saveOptions));
+            }
+            this._dismiss();
+            if (this._dependencies.renderFn) this._dependencies.renderFn();
+            if (this._dependencies.showNotificationFn) {
+                this._dependencies.showNotificationFn(`↩️ Deshecho: ${label}`, 'info');
+            }
+            return true;
+        } catch (error) {
+            pending.undoing = false;
+            throw error;
         }
     },
 

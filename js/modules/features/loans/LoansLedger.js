@@ -32,6 +32,7 @@ import {
     getPaidAmount,
     getPayrollDeductionOptions,
     getRefinanceCount,
+    getActiveLoanTerms,
     getTotalInterestAccrued,
     LOAN_STATUS,
     INSTALLMENT_MODE,
@@ -411,6 +412,7 @@ function DisclosureControl() {
 }
 
 function LoanCard(loan) {
+    const terms = getActiveLoanTerms(loan);
     const balance = getBalance(loan);
     const totalDue = getTotalDue(loan);
     const paid = getPaidAmount(loan);
@@ -424,8 +426,8 @@ function LoanCard(loan) {
     const refinancings = (loan.refinancings || []).filter(r => !r.voided);
     const refinCount = getRefinanceCount(loan);
     const totalInterest = getTotalInterestAccrued(loan);
-    const isInstallmentLoan = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
-    const installmentCount = (loan.installments || []).length;
+    const isInstallmentLoan = terms.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const installmentCount = terms.installments.length;
     const repaymentOptions = getPayrollDeductionOptions(loan);
     const nextCharge = repaymentOptions[0] || null;
     const repaymentLabel = isInstallmentLoan ? `En cuotas · ${installmentCount}` : 'Pago único';
@@ -468,7 +470,7 @@ function LoanCard(loan) {
                 <div style="flex: 1; min-width: 200px;">
                     <div style="font-size: 0.95rem; font-weight: 700; color: #f1f5f9; margin-bottom: 4px;">${escapeHTML(loan.concept || 'Préstamo')}</div>
                     <div class="loan-card__repayment-line">
-                        <span>${formatDateShort(loan.startDate)}</span>
+                        <span>${formatDateShort(terms.startDate)}</span>
                         ${repaymentBadge}
                     </div>
                     ${isActive && nextChargeLabel ? `<div class="loan-card__next-charge">${nextChargeLabel}</div>` : ''}
@@ -488,11 +490,11 @@ function LoanCard(loan) {
             <div class="loan-card__metrics loan-card__metrics--desktop">
                 <div>
                     <div class="loan-card__metric-label">Capital</div>
-                    <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
+                    <div class="loan-card__metric-value">${formatCurrency(terms.principal)}</div>
                 </div>
                 <div>
                     <div class="loan-card__metric-label">Interés</div>
-                    <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                    <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                 </div>
                 <div>
                     <div class="loan-card__metric-label">Int. acumulado</div>
@@ -521,7 +523,7 @@ function LoanCard(loan) {
                             ${Number.isFinite(Number(loan.seq)) ? `<b>#${Number(loan.seq)}</b>` : ''}
                         </strong>
                         <span>
-                            ${formatDateShort(loan.startDate)}
+                            ${formatDateShort(terms.startDate)}
                         </span>
                         ${repaymentBadge}
                         ${isActive && nextChargeLabel ? `<small class="loan-card__next-charge">${nextChargeLabel}</small>` : ''}
@@ -541,11 +543,11 @@ function LoanCard(loan) {
                     <div class="loan-card__metrics loan-card__metrics--breakdown">
                         <div>
                             <div class="loan-card__metric-label">Capital</div>
-                            <div class="loan-card__metric-value">${formatCurrency(loan.principal)}</div>
+                            <div class="loan-card__metric-value">${formatCurrency(terms.principal)}</div>
                         </div>
                         <div>
                             <div class="loan-card__metric-label">Interés</div>
-                            <div class="loan-card__metric-value">${loan.interestRate}%${loan.interestIncluded ? ' (incl.)' : ''}</div>
+                            <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                         </div>
                         <div>
                             <div class="loan-card__metric-label">Int. acumulado</div>
@@ -700,7 +702,7 @@ function LoanCard(loan) {
 
 function PaymentForm(loan, balance) {
     const draft = (state.loansLedger || {}).paymentDraft || { amount: 0, date: '', note: '' };
-    const isInstallmentLoan = loan.installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
+    const isInstallmentLoan = getActiveLoanTerms(loan).installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
     const resolvedDraft = resolveLoanPaymentDraft(loan, draft);
     const choices = getInstallmentPaymentChoices(loan);
     const firstCharge = choices[0]?.firstCharge || null;
@@ -833,34 +835,35 @@ function PaymentForm(loan, balance) {
 // ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
 
 function RefinanceForm(loan, balance) {
-    const draft = (state.loansLedger || {}).refinanceDraft || { basis: 'balance', interestRate: 0, note: '' };
-    const base = draft.basis === 'balance' ? balance : Number(loan.principal || 0);
+    const draft = (state.loansLedger || {}).refinanceDraft || { interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
+    const base = balance;
     const rate = Number(draft.interestRate || 0);
     const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
     const interestToAdd = r2(base * rate / 100);
     const newBalance = r2(balance + interestToAdd);
 
-    const radio = (val, label, desc) => `
-        <label style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; background: #0f172a; border: 1px solid ${draft.basis === val ? '#6d28d9' : '#334155'}; border-radius: 8px; cursor: pointer; flex: 1; min-width: 160px;">
-            <input type="radio" name="refin-basis-${loan.id}" ${draft.basis === val ? 'checked' : ''}
-                   onchange="setRefinanceDraftField('basis', '${val}')" style="margin-top: 2px;">
-            <span><span style="color: #f1f5f9; font-weight: 700; font-size: 0.85rem;">${label}</span><br>
-            <span style="color: #64748b; font-size: 0.72rem;">${desc}</span></span>
-        </label>`;
-
     return `
         <div class="loan-operation-form loan-operation-form--refinance">
             <div class="loan-operation-form__title">Refinanciar (no pudo pagar)</div>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
-                ${radio('balance', 'Sobre saldo restante', `Interés sobre ${formatCurrency(balance)}`)}
-                ${radio('principal', 'Sobre capital original', `Interés sobre ${formatCurrency(loan.principal)}`)}
-            </div>
+            <p style="color: #94a3b8; font-size: 0.82rem; margin: 0 0 10px;">Nuevo contrato sobre saldo pendiente: <strong>${formatCurrency(balance)}</strong></p>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
                 <div>
                     <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Tasa de interés (%)</label>
                     <input type="number" inputmode="decimal" autocomplete="off" value="${draft.interestRate || ''}"
                            min="0" max="${VALIDATION.MAX_INTEREST_PERCENT}" step="0.1"
                            oninput="setRefinanceDraftField('interestRate', this.value)" placeholder="0"
+                           style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
+                </div>
+                <div>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Frecuencia (semanas)</label>
+                    <select onchange="setRefinanceDraftField('installmentFrequencyWeeks', this.value)" style="width:100%; padding:8px; background:#0f172a; border:1px solid #334155; border-radius:6px; color:#f1f5f9;">
+                        ${[1, 2, 3, 4].map(weeks => `<option value="${weeks}" ${Number(draft.installmentFrequencyWeeks || 2) === weeks ? 'selected' : ''}>Cada ${weeks} semana${weeks === 1 ? '' : 's'}</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Nuevas cuotas</label>
+                    <input type="number" inputmode="numeric" value="${draft.installmentCount || 2}" min="1" max="${VALIDATION.MAX_INSTALLMENTS}" step="1"
+                           oninput="setRefinanceDraftField('installmentCount', this.value)"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
                 <div>

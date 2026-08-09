@@ -391,7 +391,29 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('Interés $0.00');
     });
 
-    test('review table separates active loans and keeps employee identity sticky', () => {
+    test('review table omits optional charge columns when the preview has no amounts', () => {
+        state.employees = [{
+            id: 'e1',
+            number: '12',
+            name: 'Ada Lovelace',
+            active: true,
+            loans: []
+        }];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(() => ({
+                        brutoOriginal: 1200,
+                        bruto: 1200,
+                        bonuses: 0,
+                        deductions: 0,
+                        neto: 1200
+                    }))
+                }
+            },
+            render
+        });
         PayrollUI.setPayrollGuideStep('review');
         const host = document.createElement('div');
         const html = PayrollUI.PayrollTab();
@@ -400,14 +422,16 @@ describe('Financial desktop layouts', () => {
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
             .map(cell => cell.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'NETO']);
         expect(host.querySelector('th.payroll-review-table__number')).not.toBeNull();
         expect(host.querySelector('th.payroll-review-table__employee')).not.toBeNull();
-        expect(html).toContain('payroll-review-table__amount is-bonus');
-        expect(html).toContain('payroll-review-table__amount is-deduction');
+        expect(host.querySelector('th.is-bonus')).toBeNull();
+        expect(host.querySelector('th.is-deduction')).toBeNull();
+        expect(host.querySelector('th.is-loan')).toBeNull();
+        expect(host.querySelector('tbody tr').children).toHaveLength(4);
     });
 
-    test('review table shows selected active-loan discounts in red separately from deductions', () => {
+    test('review table shows non-empty optional columns and highlights loans in yellow', () => {
         state.employees = [{
             id: 'e1',
             number: '12',
@@ -429,12 +453,20 @@ describe('Financial desktop layouts', () => {
         const host = document.createElement('div');
         host.innerHTML = PayrollUI.PayrollTab();
         const row = host.querySelector('tbody tr');
+        const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
+            .map(cell => cell.textContent.trim());
 
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.1/1', 'DEDUCCIONES1/1', 'PRÉSTAMOS1/1', 'NETO']);
         expect(row.querySelector('.payroll-review-table__number').textContent.trim()).toBe('12');
         expect(row.querySelector('.payroll-review-table__employee').textContent.trim()).toBe('Ada Lovelace');
         expect(row.querySelector('.is-bonus').textContent.trim()).toBe('+$100.00');
         expect(row.querySelector('.is-deduction').textContent.trim()).toBe('−$300.00');
         expect(row.querySelector('.is-loan').textContent.trim()).toBe('−$275.00');
+        expect(row.children).toHaveLength(7);
+        expect(host.querySelector('th.is-loan')).not.toBeNull();
+        expect(PAYROLL_REDESIGN_CSS).toMatch(
+            /\.payroll-review-table[^}]*\.is-loan\s*\{[^}]*color:\s*#f59e0b;/
+        );
     });
 
     test('receivables renders a desktop table and keeps compact mobile indicators', () => {

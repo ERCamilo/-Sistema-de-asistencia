@@ -316,9 +316,15 @@ export function recordPayment(emp, loanId, params) {
     const { valid, errors } = validatePaymentInput(loan, params);
     if (!valid) throw new Error(errors.join('. '));
 
-    const now = Date.now();
+    const now = Number.isFinite(Number(params.recordedAt))
+        ? Number(params.recordedAt)
+        : Date.now();
+    const paymentId = params.id || genId('PAY');
+    if ((loan.payments || []).some(item => String(item.id) === String(paymentId))) {
+        throw new Error(`Ya existe un abono con el identificador ${paymentId}`);
+    }
     const payment = {
-        id: genId('PAY'),
+        id: paymentId,
         date: params.date,
         amount: round2(params.amount),
         note: (params.note || '').trim(),
@@ -331,6 +337,32 @@ export function recordPayment(emp, loanId, params) {
         voided: false,
         voidedAt: null
     };
+    if (params.source) payment.source = String(params.source);
+    if (params.payrollBatchId) payment.payrollBatchId = String(params.payrollBatchId);
+    if (params.payrollClosureId) payment.payrollClosureId = String(params.payrollClosureId);
+    if (params.payrollPreviewFingerprint) {
+        payment.payrollPreviewFingerprint = String(params.payrollPreviewFingerprint);
+    }
+    if (params.payrollIdempotencyKey) {
+        payment.payrollIdempotencyKey = String(params.payrollIdempotencyKey);
+    }
+    if (Array.isArray(params.payrollChargeKeys)) {
+        payment.payrollChargeKeys = [...new Set(params.payrollChargeKeys.map(String))];
+    }
+    if (params.payrollPeriodStart) payment.payrollPeriodStart = String(params.payrollPeriodStart);
+    if (params.payrollPeriodEnd) payment.payrollPeriodEnd = String(params.payrollPeriodEnd);
+    for (const field of [
+        'payrollBatchCreatedAt',
+        'payrollBatchUndoUntil',
+        'payrollBatchTotal',
+        'payrollBatchEmployeeCount',
+        'payrollExpectedPaymentCount'
+    ]) {
+        if (Number.isFinite(Number(params[field]))) payment[field] = Number(params[field]);
+    }
+    if (params.payrollBatchSnapshot && typeof params.payrollBatchSnapshot === 'object') {
+        payment.payrollBatchSnapshot = params.payrollBatchSnapshot;
+    }
     loan.payments.push(payment);
     loan.updatedAt = Date.now();
     emp.updatedAt = Date.now();
@@ -343,6 +375,42 @@ export function recordPayment(emp, loanId, params) {
         loan.closedBy = params.recordedBy || null;
     }
 
+    return payment;
+}
+
+/** Restore a soft-voided payment without creating a duplicate merge identity. */
+export function restorePayment(emp, loanId, paymentId, restoredBy = null, restoredAt = Date.now()) {
+    const loan = (emp.loans || []).find(l => l.id === loanId);
+    if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
+    const payment = (loan.payments || []).find(p => String(p.id) === String(paymentId));
+    if (!payment) throw new Error(`Abono no encontrado: ${paymentId}`);
+    if (!payment.voided) return payment;
+    if (loan.status === LOAN_STATUS.WRITTEN_OFF) {
+        throw new Error('No se puede restaurar un abono de un préstamo anulado');
+    }
+
+    const { valid, errors } = validatePaymentInput(loan, payment);
+    if (!valid) throw new Error(errors.join('. '));
+
+    const now = Number.isFinite(Number(restoredAt)) ? Number(restoredAt) : Date.now();
+    payment.voided = false;
+    payment.voidedAt = null;
+    payment.voidedBy = null;
+    payment.restoredAt = now;
+    payment.restoredBy = restoredBy;
+    payment.updatedAt = now;
+    loan.updatedAt = now;
+    emp.updatedAt = now;
+
+    if (getBalance(loan) <= 0.01) {
+        loan.status = LOAN_STATUS.PAID;
+        loan.closedAt = now;
+        loan.closedBy = restoredBy;
+    } else if (loan.status === LOAN_STATUS.PAID) {
+        loan.status = LOAN_STATUS.ACTIVE;
+        loan.closedAt = null;
+        loan.closedBy = null;
+    }
     return payment;
 }
 
@@ -371,11 +439,13 @@ export function refinanceLoan(emp, loanId, params = {}) {
     const { valid, errors } = validateRefinanceInput(loan, params);
     if (!valid) throw new Error(errors.join('. '));
 
-    const basis = params.basis === 'balance' ? 'balance' : 'principal';
+    const createsReplacement = params.replacement !== false && params.installmentCount != null;
+    const basis = createsReplacement ? 'balance' : (params.basis === 'balance' ? 'balance' : 'principal');
     const baseAmount = basis === 'balance' ? balance : round2(Number(loan.principal || 0));
     const rate = Number(params.interestRate);
     const interestAmount = round2(baseAmount * rate / 100);
 
+    const now = Date.now();
     const event = {
         id: genId('REFIN'),
         date: params.date || new Date().toISOString().slice(0, 10),
@@ -387,14 +457,34 @@ export function refinanceLoan(emp, loanId, params = {}) {
             ? round2(Number(params.unpaidAmount)) : null,
         note: (params.note || '').trim(),
         createdBy: params.createdBy || null,
-        createdAt: Date.now(),
+        createdAt: now,
         // 🕒 updatedAt por-evento (espejo de payments): sin esto, una
         // anulación hecha en un dispositivo perdía el merge contra una copia
         // vieja no-anulada con el mismo id en otro dispositivo.
-        updatedAt: Date.now(),
+        updatedAt: now,
         voided: false,
         voidedAt: null
     };
+
+    if (createsReplacement) {
+        const count = Number(params.installmentCount);
+        const frequencyWeeks = Number(params.installmentFrequencyWeeks || 2);
+        if (!Number.isInteger(count) || count < 1 || count > VALIDATION.MAX_INSTALLMENTS) throw new Error(`La cantidad de cuotas debe estar entre 1 y ${VALIDATION.MAX_INSTALLMENTS}`);
+        if (!VALIDATION.ALLOWED_FREQUENCY_WEEKS.includes(frequencyWeeks)) throw new Error(`La frecuencia debe ser una de: ${VALIDATION.ALLOWED_FREQUENCY_WEEKS.join(', ')} semanas`);
+        const effectiveAt = Number.isFinite(Number(params.effectiveAt)) ? Number(params.effectiveAt) : now;
+        const principal = balance;
+        const startDate = params.date || new Date(effectiveAt).toISOString().slice(0, 10);
+        const replacementInterest = round2(principal * rate / 100);
+        event.kind = 'replacement';
+        event.effectiveAt = effectiveAt;
+        event.replacementTerms = {
+            version: 2, principal, interestRate: rate, interestIncluded: false, startDate,
+            installmentMode: INSTALLMENT_MODE.INSTALLMENTS, installmentFrequencyWeeks: frequencyWeeks, installmentCount: count,
+            installments: generateInstallmentSchedule({ principal, interestRate: rate, interestIncluded: false, startDate, count, frequencyWeeks }),
+            interestAmount: replacementInterest, totalDue: round2(principal + replacementInterest),
+            paidAmountAtReplacement: getPaidAmount(loan), effectiveAt
+        };
+    }
 
     if (!Array.isArray(loan.refinancings)) loan.refinancings = [];
     loan.refinancings.push(event);
@@ -510,19 +600,66 @@ export function deleteLoan(emp, loanId) {
 
 // ─── Derived calculations ────────────────────────────────────────────────────
 
+/**
+ * The effective contract for a loan. A refinancing may persist a full
+ * replacementTerms snapshot; the latest non-voided snapshot becomes the one
+ * source of truth for current KPIs, cards, schedules and payroll deductions.
+ * Older loans and interest-only refinancing events retain their stored terms.
+ */
+export function getActiveLoanTerms(loan = {}) {
+    const base = {
+        principal: Number(loan.principal || 0),
+        interestRate: Number(loan.interestRate || 0),
+        interestIncluded: !!loan.interestIncluded,
+        startDate: loan.startDate,
+        installmentMode: loan.installmentMode || INSTALLMENT_MODE.LUMP,
+        installmentFrequencyWeeks: Number(loan.installmentFrequencyWeeks || 2),
+        installments: Array.isArray(loan.installments) ? loan.installments : []
+    };
+
+    const replacement = (loan.refinancings || [])
+        .filter(event => !event?.voided && event.replacementTerms && typeof event.replacementTerms === 'object')
+        .sort((left, right) => {
+            const leftTime = Number(left.effectiveAt ?? left.createdAt) || Date.parse(left.date || '') || 0;
+            const rightTime = Number(right.effectiveAt ?? right.createdAt) || Date.parse(right.date || '') || 0;
+            return leftTime - rightTime || String(left.id || '').localeCompare(String(right.id || ''));
+        })
+        .at(-1)?.replacementTerms;
+    if (!replacement) return base;
+    return {
+        ...base,
+        ...replacement,
+        principal: Number(replacement.principal ?? base.principal),
+        interestRate: Number(replacement.interestRate ?? base.interestRate),
+        interestIncluded: replacement.interestIncluded ?? base.interestIncluded,
+        installments: Array.isArray(replacement.installments) ? replacement.installments : base.installments
+    };
+}
+
 /** Total amount the loan should collect (principal + interest + refinancing interest). */
 export function getTotalDue(loan) {
-    const principal = Number(loan.principal || 0);
-    const rate = Number(loan.interestRate || 0);
-    const interest = loan.interestIncluded ? 0 : (principal * rate / 100);
+    const terms = getActiveLoanTerms(loan);
+    const principal = terms.principal;
+    const rate = terms.interestRate;
+    const interest = terms.interestIncluded ? 0 : (principal * rate / 100);
     return round2(principal + interest + getRefinanceInterest(loan));
 }
 
 /** Total interest added by all NON-VOIDED refinancing events on this loan. */
 export function getRefinanceInterest(loan) {
-    return round2((loan.refinancings || [])
-        .filter(r => !r.voided)
-        .reduce((sum, r) => sum + Number(r.interestAmount || 0), 0));
+    const events = [...(loan.refinancings || [])]
+        .filter(event => !event?.voided)
+        .sort((left, right) => refinancingOrder(left, right));
+    const latestReplacement = events.filter(event => event.replacementTerms && typeof event.replacementTerms === 'object').at(-1);
+    const applicable = latestReplacement
+        ? events.filter(event => refinancingOrder(event, latestReplacement) > 0 && !event.replacementTerms)
+        : events.filter(event => !event.replacementTerms);
+    return round2(applicable.reduce((sum, event) => sum + Number(event.interestAmount || 0), 0));
+}
+
+function refinancingOrder(left, right) {
+    const timestamp = event => Number(event?.effectiveAt ?? event?.createdAt) || Date.parse(event?.date || '') || 0;
+    return timestamp(left) - timestamp(right) || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
 /** Number of times this loan has been refinanced (excludes voided events). */
@@ -545,7 +682,11 @@ export function getPaidAmount(loan) {
 /** Remaining balance: totalDue - paidAmount (clamped to >= 0). */
 export function getBalance(loan) {
     const due = getTotalDue(loan);
-    const paid = getPaidAmount(loan);
+    const replacement = (loan.refinancings || [])
+        .filter(event => !event?.voided && event.replacementTerms && typeof event.replacementTerms === 'object')
+        .sort((left, right) => (Number(left.effectiveAt ?? left.createdAt) || 0) - (Number(right.effectiveAt ?? right.createdAt) || 0) || String(left.id || '').localeCompare(String(right.id || '')))
+        .at(-1)?.replacementTerms;
+    const paid = Math.max(0, getPaidAmount(loan) - Number(replacement?.paidAmountAtReplacement || 0));
     return Math.max(0, round2(due - paid));
 }
 
@@ -566,22 +707,27 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
 
     const today = asOfDate || new Date().toISOString().slice(0, 10);
 
-    if (loan.installmentMode !== INSTALLMENT_MODE.INSTALLMENTS) {
+    const terms = getActiveLoanTerms(loan);
+    if (terms.installmentMode !== INSTALLMENT_MODE.INSTALLMENTS) {
         return [{
             kind: 'lump',
             amount: balance,
-            dueDate: loan.startDate,
+            dueDate: terms.startDate,
             isInstallment: false,
             installmentSeq: null,
             isDue: true
         }];
     }
 
-    let paidToAllocate = getPaidAmount(loan);
+    const replacement = (loan.refinancings || [])
+        .filter(event => !event?.voided && event.replacementTerms && typeof event.replacementTerms === 'object')
+        .sort((left, right) => (Number(left.effectiveAt ?? left.createdAt) || 0) - (Number(right.effectiveAt ?? right.createdAt) || 0) || String(left.id || '').localeCompare(String(right.id || '')))
+        .at(-1)?.replacementTerms;
+    let paidToAllocate = Math.max(0, getPaidAmount(loan) - Number(replacement?.paidAmountAtReplacement || 0));
     let selectableBalance = balance;
     const options = [];
 
-    for (const inst of (loan.installments || [])) {
+    for (const inst of terms.installments) {
         const scheduledAmount = round2(inst.scheduledAmount);
         const appliedToInstallment = Math.min(paidToAllocate, scheduledAmount);
         paidToAllocate = round2(Math.max(0, paidToAllocate - appliedToInstallment));
@@ -604,8 +750,8 @@ export function getPayrollDeductionOptions(loan, asOfDate = null) {
     }
 
     if (selectableBalance > 0) {
-        const lastScheduledDate = loan.installments?.[loan.installments.length - 1]?.dueDate;
-        const dueDate = lastScheduledDate || loan.startDate;
+        const lastScheduledDate = terms.installments[terms.installments.length - 1]?.dueDate;
+        const dueDate = lastScheduledDate || terms.startDate;
         options.push({
             kind: 'balance-adjustment',
             amount: selectableBalance,
@@ -726,9 +872,8 @@ export function getEmployeesWithOnlyInactiveLoans(state) {
 
 /** Get the interest amount of a single loan. */
 export function getInterestAmount(loan) {
-    const principal = Number(loan.principal || 0);
-    const rate = Number(loan.interestRate || 0);
-    return loan.interestIncluded ? 0 : round2(principal * rate / 100);
+    const terms = getActiveLoanTerms(loan);
+    return terms.interestIncluded ? 0 : round2(terms.principal * terms.interestRate / 100);
 }
 
 /** Sum of interest for all currently active loans. */
