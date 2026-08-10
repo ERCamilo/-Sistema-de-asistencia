@@ -491,12 +491,16 @@ function PayrollGeneratorTab() {
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
     const isVisibleReviewAmount = value => Math.abs(Number(value) || 0) >= 0.005;
-    const hasReviewAmount = key => exportData.some(item => isVisibleReviewAmount(item[key]));
-    const showBonusColumn = hasReviewAmount('_bonuses');
-    const showDeductionColumn = hasReviewAmount('_deductions');
-    const showLoanColumn = hasReviewAmount('_loans');
+    const previewCategoryTotals = {
+        bonuses: state.exportConfig.bonuses?.length || 0,
+        deductions: state.exportConfig.deductions?.length || 0,
+        loans: loanSummary.selectedCount
+    };
+    const showBonusColumn = previewCategoryTotals.bonuses > 0;
+    const showDeductionColumn = previewCategoryTotals.deductions > 0;
+    const showLoanColumn = previewCategoryTotals.loans > 0;
     const previewInclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
-    const previewCategoryCounts = getPayrollPreviewCategoryCounts(exportData, previewInclusion);
+    const previewCategoryCounts = getPayrollPreviewCategoryCounts(previewCategoryTotals, previewInclusion);
     const deductionDetails = summarizeAdjustmentDetails(
         state.exportConfig.deductions,
         exportData,

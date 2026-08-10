@@ -504,6 +504,61 @@ describe('Financial desktop layouts', () => {
         expect(host.querySelector('tbody tr').children).toHaveLength(4);
     });
 
+    test('review table keeps a configured bonus toggle visible when it applies zero in the current payroll', () => {
+        state.employees = [{
+            id: 'active-1',
+            number: '12',
+            name: 'Ada Activa',
+            active: true,
+            loans: []
+        }, {
+            id: 'inactive-1',
+            number: '501',
+            name: 'Hector Inactivo',
+            active: false,
+            loans: []
+        }];
+        state.exportConfig.bonuses = [{
+            id: 'BON-INACTIVE',
+            name: 'Bono',
+            type: 'fixed',
+            value: 20000,
+            scope: 'employee',
+            targetId: 'inactive-1',
+            targetIds: ['inactive-1'],
+            employeeId: 'inactive-1',
+            employeeIds: ['inactive-1']
+        }];
+        state.exportConfig.deductions = [];
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(() => ({
+                        brutoOriginal: 1200,
+                        bruto: 1200,
+                        bonuses: 0,
+                        deductions: 0,
+                        neto: 1200
+                    }))
+                }
+            },
+            render
+        });
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
+            .map(cell => cell.textContent.trim());
+
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.1/1', 'NETO']);
+        expect(host.querySelector('th.is-bonus input[type="checkbox"]')?.checked).toBe(true);
+        expect(host.querySelector('th.is-deduction')).toBeNull();
+        expect(host.querySelector('th.is-loan')).toBeNull();
+    });
+
     test('review table shows non-empty optional columns and highlights loans in yellow', () => {
         state.employees = [{
             id: 'e1',
@@ -519,6 +574,20 @@ describe('Financial desktop layouts', () => {
                 payments: [],
                 refinancings: []
             }]
+        }];
+        state.exportConfig.bonuses = [{
+            id: 'BON-1',
+            name: 'Bono',
+            type: 'fixed',
+            value: 100,
+            scope: 'global'
+        }];
+        state.exportConfig.deductions = [{
+            id: 'DED-1',
+            name: 'Descuento',
+            type: 'fixed',
+            value: 300,
+            scope: 'global'
         }];
         state.exportConfig.payrollLoanSelection = [{ employeeId: 'e1', loanIds: ['loan-1'] }];
         PayrollUI.setPayrollGuideStep('review');

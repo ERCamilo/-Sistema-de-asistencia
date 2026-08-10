@@ -50,11 +50,14 @@ describe('PayrollPreview inclusion controls', () => {
         expect(effective.map(row => row.id)).toEqual([1, 2]);
     });
 
-    it('reports active category counts against the complete preview', () => {
-        expect(getPayrollPreviewCategoryCounts(rows, { bonuses: false, deductions: true, loans: true })).toEqual({
-            bonuses: { active: 0, total: 2 },
+    it('reports active configured items instead of counting payroll rows', () => {
+        expect(getPayrollPreviewCategoryCounts(
+            { bonuses: 1, deductions: 2, loans: 3 },
+            { bonuses: false, deductions: true, loans: true }
+        )).toEqual({
+            bonuses: { active: 0, total: 1 },
             deductions: { active: 2, total: 2 },
-            loans: { active: 2, total: 2 }
+            loans: { active: 3, total: 3 }
         });
     });
 });
