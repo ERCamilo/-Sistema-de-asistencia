@@ -462,10 +462,9 @@ function PayrollGeneratorTab() {
     const hasEmployeeBonuses = employeesWithBonuses.length > 0;
     const employeeBonusesAdded = !!state.exportConfig.employeeBonusesAdded;
     
-    const employeeOptions = state.employees
-        .filter(e => e.active !== false)
+    const employeeOptions = [...state.employees]
         .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }))
-        .map(e => `<option value="${e.id}">${e.number} - ${e.name}</option>`)
+        .map(e => `<option value="${e.id}">${e.number} - ${e.name}${e.active === false ? ' (Inactivo)' : ''}</option>`)
         .join('');
         
     const leaderFilter = state.exportConfig.leaderFilter || 'all';

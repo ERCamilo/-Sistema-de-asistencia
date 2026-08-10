@@ -173,8 +173,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
     const noun = kind === 'bonuses' ? 'bonificación' : 'deducción';
     const actionLabel = isEditing ? 'Guardar cambios' : `Agregar ${noun}`;
     const action = isEditing ? 'update-desktop-adjustment' : 'add-desktop-adjustment';
-    const employees = (state.employees || [])
-        .filter(employee => employee.active !== false)
+    const employees = [...(state.employees || [])]
         .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
     const leaders = (state.leaders || []).filter(leader => leader.active !== false);
     const positions = (state.positions || []).filter(position => position.active !== false);
@@ -201,7 +200,12 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
             <div class="payroll-adjustment-form__target payroll-adjustment-form__target--employee ${resolved.scope === 'employee' ? 'is-visible' : ''}">
                 <label for="${formKey}-employee">Empleado</label>
                 <select id="${formKey}-employee" name="employeeTarget">
-                    ${optionList(employees, resolved.targetId, 'Seleccionar empleado', item => `${item.number || 'S/N'} · ${item.name}`)}
+                    ${optionList(
+                        employees,
+                        resolved.targetId,
+                        'Seleccionar empleado',
+                        item => `${item.number || 'S/N'} · ${item.name}${item.active === false ? ' (Inactivo)' : ''}`
+                    )}
                 </select>
             </div>
 

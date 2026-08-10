@@ -381,6 +381,68 @@ describe('Financial desktop layouts', () => {
         expect(state.exportConfig.bonuses[0].name).toBe('Bono');
     });
 
+    test('inactive employees remain selectable for individual bonuses and deductions', () => {
+        state.employees = [
+            { id: 'active-1', number: '001', name: 'Ada Activa', active: true, loans: [] },
+            { id: 'inactive-1', number: '099', name: 'Grace Inactiva', active: false, loans: [] }
+        ];
+        PayrollUI.setPayrollGuideStep('bonuses');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+
+        const selectors = [
+            host.querySelector('.payroll-adjustment-desktop.is-deduction [name="employeeTarget"]'),
+            host.querySelector('.payroll-adjustment-desktop.is-bonus [name="employeeTarget"]'),
+            host.querySelector('#payroll-emp-deduction-employee'),
+            host.querySelector('#payroll-emp-bonus-employee')
+        ];
+        selectors.forEach(selector => {
+            const inactiveOption = [...selector.options]
+                .find(option => option.value === 'inactive-1');
+            expect(inactiveOption).toBeDefined();
+            expect(inactiveOption.textContent).toContain('Grace Inactiva');
+            expect(inactiveOption.textContent).toContain('Inactivo');
+        });
+
+        const bonusForm = host.querySelector(
+            '.payroll-adjustment-desktop.is-bonus .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+        bonusForm.querySelector('input[value="employee"]').checked = true;
+        bonusForm.querySelector('[name="employeeTarget"]').value = 'inactive-1';
+        bonusForm.querySelector('[name="value"]').value = '125';
+        PayrollUI.addDesktopAdjustment(
+            'bonuses',
+            bonusForm.querySelector('[data-payroll-action="add-desktop-adjustment"]')
+        );
+
+        expect(state.exportConfig.bonuses[0]).toMatchObject({
+            employeeId: 'inactive-1',
+            employeeName: 'Grace Inactiva',
+            scope: 'employee',
+            targetId: 'inactive-1',
+            value: 125
+        });
+
+        const deductionForm = host.querySelector(
+            '.payroll-adjustment-desktop.is-deduction .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+        deductionForm.querySelector('input[value="employee"]').checked = true;
+        deductionForm.querySelector('[name="employeeTarget"]').value = 'inactive-1';
+        deductionForm.querySelector('[name="value"]').value = '35';
+        PayrollUI.addDesktopAdjustment(
+            'deductions',
+            deductionForm.querySelector('[data-payroll-action="add-desktop-adjustment"]')
+        );
+
+        expect(state.exportConfig.deductions[0]).toMatchObject({
+            employeeId: 'inactive-1',
+            employeeName: 'Grace Inactiva',
+            scope: 'employee',
+            targetId: 'inactive-1',
+            value: 35
+        });
+    });
+
     test('bonus and deduction detail rows expand independently', () => {
         PayrollUI.togglePayrollSummaryDetail('bonuses');
         const html = PayrollUI.PayrollTab();
