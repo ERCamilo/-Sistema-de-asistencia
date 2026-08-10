@@ -353,6 +353,16 @@ describe('Financial desktop layouts', () => {
             scope: 'position',
             targetId: 'position-1'
         });
+        expect(state.exportConfig.payrollAdjustmentComposerScopes.deductions).toBe('position');
+        const rerendered = document.createElement('div');
+        rerendered.innerHTML = PayrollUI.PayrollTab();
+        const nextForm = rerendered.querySelector(
+            '.payroll-adjustment-desktop.is-deduction .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+        expect(nextForm.dataset.adjustmentScope).toBe('position');
+        expect(nextForm.querySelector('input[name="scope"][value="position"]').checked).toBe(true);
+        expect(nextForm.querySelector('[name="name"]').value).toBe('');
+        expect(nextForm.querySelector('[name="value"]').value).toBe('');
         expect(render).toHaveBeenCalled();
     });
 
@@ -452,6 +462,7 @@ describe('Financial desktop layouts', () => {
             targetIds: ['active-1', 'inactive-1'],
             value: 125
         });
+        expect(state.exportConfig.payrollAdjustmentComposerScopes.bonuses).toBe('employee');
     });
 
     test('bonus and deduction detail rows expand independently', () => {

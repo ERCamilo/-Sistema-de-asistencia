@@ -1224,6 +1224,10 @@ export function addDesktopAdjustment(kind, target) {
     stateManager.batchSetState(() => {
         if (!state.exportConfig[kind]) state.exportConfig[kind] = [];
         state.exportConfig[kind].push(item);
+        state.exportConfig.payrollAdjustmentComposerScopes = {
+            ...(state.exportConfig.payrollAdjustmentComposerScopes || {}),
+            [kind]: draft.scope
+        };
     });
     if (item.remembered) persistAdjustmentDefault(kind, null, item);
     window.showNotification?.(`${adjustmentKindLabel(kind)} agregada.`, 'success');
@@ -1248,6 +1252,10 @@ export function updateDesktopAdjustment(kind, target) {
     const next = buildDesktopAdjustment(kind, draft, previous);
     stateManager.batchSetState(() => {
         state.exportConfig[kind][index] = next;
+        state.exportConfig.payrollAdjustmentComposerScopes = {
+            ...(state.exportConfig.payrollAdjustmentComposerScopes || {}),
+            [kind]: draft.scope
+        };
     });
     if (previous.remembered || next.remembered) {
         persistAdjustmentDefault(kind, previous, next);

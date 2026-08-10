@@ -415,6 +415,9 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
     const adjustments = state.exportConfig?.[kind] || [];
     const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, state);
     const isBonus = kind === 'bonuses';
+    const composerScope = resolveAdjustmentScope({
+        scope: state.exportConfig?.payrollAdjustmentComposerScopes?.[kind]
+    }).scope;
 
     return `
         <div class="payroll-adjustment-desktop is-${isBonus ? 'bonus' : 'deduction'}">
@@ -428,7 +431,7 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
             </div>
             <div class="payroll-adjustment-desktop__layout">
                 <section class="payroll-adjustment-composer">
-                    ${renderAdjustmentForm(kind, state, rows)}
+                    ${renderAdjustmentForm(kind, state, rows, { scope: composerScope })}
                 </section>
                 ${renderSummary(kind, summary, state, rows)}
             </div>
