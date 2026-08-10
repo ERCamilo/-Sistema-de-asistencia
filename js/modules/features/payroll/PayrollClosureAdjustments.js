@@ -1,4 +1,7 @@
-import { resolveAdjustmentScope } from './PayrollAdjustments.js';
+import {
+    resolveAdjustmentScope,
+    resolveAdjustmentTargetIds
+} from './PayrollAdjustments.js';
 
 const KINDS = Object.freeze({
     bonuses: { detailsKey: '_bonusDetails', prefix: 'BON' },
@@ -15,7 +18,7 @@ function adjustmentId(adjustment, index, prefix) {
 
 function normalizeAdjustment(adjustment = {}, index = 0, prefix = 'ADJ') {
     const resolved = resolveAdjustmentScope(adjustment);
-    return {
+    const normalized = {
         id: adjustmentId(adjustment, index, prefix),
         name: text(adjustment.name),
         type: adjustment.type === 'percentage' ? 'percentage' : 'fixed',
@@ -24,6 +27,11 @@ function normalizeAdjustment(adjustment = {}, index = 0, prefix = 'ADJ') {
         targetId: resolved.targetId,
         remembered: Boolean(adjustment.remembered)
     };
+    const targetIds = resolveAdjustmentTargetIds(adjustment);
+    if (resolved.scope === 'employee' && targetIds.length > 1) {
+        normalized.targetIds = targetIds;
+    }
+    return normalized;
 }
 
 function appliedIds(rows, detailsKey) {

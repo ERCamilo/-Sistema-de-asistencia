@@ -17,7 +17,9 @@ export function resolveAdjustmentScope(adjustment = {}) {
 
     let targetId = adjustment.targetId;
     if (targetId == null) {
-        if (scope === 'employee') targetId = adjustment.employeeId;
+        if (scope === 'employee') {
+            targetId = adjustment.employeeId ?? adjustment.targetIds?.[0] ?? adjustment.employeeIds?.[0];
+        }
         if (scope === 'position') targetId = adjustment.positionId;
         if (scope === 'leader') targetId = adjustment.leaderId;
     }
@@ -26,6 +28,21 @@ export function resolveAdjustmentScope(adjustment = {}) {
         scope,
         targetId: scope === 'global' || targetId == null ? null : String(targetId)
     };
+}
+
+export function resolveAdjustmentTargetIds(adjustment = {}) {
+    const resolved = resolveAdjustmentScope(adjustment);
+    if (resolved.scope !== 'employee') {
+        return resolved.targetId == null ? [] : [resolved.targetId];
+    }
+
+    const source = Array.isArray(adjustment.targetIds) && adjustment.targetIds.length > 0
+        ? adjustment.targetIds
+        : Array.isArray(adjustment.employeeIds) && adjustment.employeeIds.length > 0
+            ? adjustment.employeeIds
+            : resolved.targetId == null ? [] : [resolved.targetId];
+    return [...new Set(source.filter(id => id != null).map(String))]
+        .sort((left, right) => left.localeCompare(right, 'es', { numeric: true }));
 }
 
 function canonicalAdjustment(adjustment) {
@@ -127,7 +144,7 @@ export function calculateScopedAdjustment(adjustment, context = {}, index = 0, f
         applies = true;
         matchingEntries = breakdown;
     } else if (resolved.scope === 'employee') {
-        applies = resolved.targetId != null && resolved.targetId === employeeId;
+        applies = employeeId != null && resolveAdjustmentTargetIds(adjustment).includes(employeeId);
         matchingEntries = applies ? breakdown : [];
     } else if (resolved.scope === 'position') {
         matchingEntries = breakdown.filter(

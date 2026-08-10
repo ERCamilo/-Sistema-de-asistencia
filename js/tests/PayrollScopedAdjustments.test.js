@@ -1,7 +1,8 @@
 import {
     calculateScopedAdjustment,
     normalizePayrollDefaults,
-    resolveAdjustmentScope
+    resolveAdjustmentScope,
+    resolveAdjustmentTargetIds
 } from '../modules/features/payroll/PayrollAdjustments.js';
 import { PayrollService } from '../modules/features/payroll/PayrollService.js';
 
@@ -114,6 +115,27 @@ describe('PayrollService — scoped adjustments for multiple positions', () => {
         );
 
         expect(result).toBeNull();
+    });
+
+    test('applies the complete fixed amount to every employee selected by one rule', () => {
+        const rule = {
+            id: 'multi-employee-bonus',
+            scope: 'employee',
+            targetIds: ['emp-1', 'emp-2'],
+            type: 'fixed',
+            value: 500
+        };
+        const contextFor = employeeId => ({
+            employeeId,
+            totalGross: 1000,
+            breakdown: [{ positionId: 'bricklayer', subtotal: 1000 }],
+            positions: []
+        });
+
+        expect(resolveAdjustmentTargetIds(rule)).toEqual(['emp-1', 'emp-2']);
+        expect(calculateScopedAdjustment(rule, contextFor('emp-1')).amount).toBe(500);
+        expect(calculateScopedAdjustment(rule, contextFor('emp-2')).amount).toBe(500);
+        expect(calculateScopedAdjustment(rule, contextFor('emp-3'))).toBeNull();
     });
 });
 

@@ -16,7 +16,10 @@ const state = {
         ],
         bonuses: []
     },
-    employees: [{ id: 'employee-1', number: '007', name: 'Ada Lovelace', active: true }],
+    employees: [
+        { id: 'employee-1', number: '007', name: 'Ada Lovelace', active: true },
+        { id: 'employee-2', number: '009', name: 'Grace Hopper', active: false }
+    ],
     leaders: [{ id: 'leader-1', name: 'Equipo Norte', active: true }],
     positions: [{ id: 'position-1', name: 'Albañil', leaderId: 'leader-1', active: true }]
 };
@@ -119,5 +122,35 @@ describe('PayrollAdjustmentDesktop', () => {
         expect(form.querySelector('.payroll-adjustment-form__target--position').classList)
             .toContain('is-visible');
         expect(form.querySelector('[data-preview-total]').textContent).toBe('$100.00');
+    });
+
+    test('renders employee chips and reads several employees from one rule', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderDesktopAdjustmentWorkspace('bonuses', {
+            ...state,
+            exportConfig: {
+                ...state.exportConfig,
+                bonuses: [{
+                    id: 'multi',
+                    name: 'Bono especial',
+                    scope: 'employee',
+                    targetIds: ['employee-1', 'employee-2'],
+                    type: 'fixed',
+                    value: 500
+                }]
+            }
+        }, rows);
+        const editForm = host.querySelector('.payroll-adjustment-rule__editor .payroll-adjustment-form');
+
+        expect(editForm.querySelectorAll('[data-adjustment-employee-chip]')).toHaveLength(2);
+        expect(editForm.textContent).toContain('007 · Ada Lovelace');
+        expect(editForm.textContent).toContain('009 · Grace Hopper');
+        expect(editForm.querySelector('[data-payroll-action="open-adjustment-employee-picker"]'))
+            .not.toBeNull();
+        expect(readAdjustmentForm(editForm)).toMatchObject({
+            scope: 'employee',
+            targetId: 'employee-1',
+            targetIds: ['employee-1', 'employee-2']
+        });
     });
 });

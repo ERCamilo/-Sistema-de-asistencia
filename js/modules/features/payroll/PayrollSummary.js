@@ -1,6 +1,14 @@
+import {
+    resolveAdjustmentScope,
+    resolveAdjustmentTargetIds
+} from './PayrollAdjustments.js';
+
 function adjustmentAmountForRow(adjustment, row) {
     if (!adjustment || !row) return 0;
-    if (adjustment.employeeId && String(adjustment.employeeId) !== String(row._employeeId)) {
+    if (
+        resolveAdjustmentScope(adjustment).scope === 'employee' &&
+        !resolveAdjustmentTargetIds(adjustment).includes(String(row._employeeId))
+    ) {
         return 0;
     }
 
@@ -16,7 +24,7 @@ export function summarizeAdjustmentDetails(adjustments = [], rows = [], fallback
     const normalizedRows = Array.isArray(rows) ? rows : [];
     const globals = normalizedAdjustments
         .map((adjustment, index) => ({ adjustment, index }))
-        .filter(({ adjustment }) => !adjustment?.employeeId)
+        .filter(({ adjustment }) => resolveAdjustmentScope(adjustment).scope !== 'employee')
         .map(({ adjustment, index }) => ({
             key: adjustment.id || `global-${index}`,
             label: adjustment.name || `${fallbackLabel} ${index + 1}`,
@@ -28,7 +36,9 @@ export function summarizeAdjustmentDetails(adjustments = [], rows = [], fallback
             )
         }));
 
-    const individualAdjustments = normalizedAdjustments.filter(adjustment => adjustment?.employeeId);
+    const individualAdjustments = normalizedAdjustments.filter(
+        adjustment => resolveAdjustmentScope(adjustment).scope === 'employee'
+    );
     const individualAmount = individualAdjustments.reduce(
         (total, adjustment) => total + normalizedRows.reduce(
             (rowTotal, row) => rowTotal + adjustmentAmountForRow(adjustment, row),

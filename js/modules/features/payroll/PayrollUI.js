@@ -59,8 +59,12 @@ import {
 import {
     readAdjustmentForm,
     renderDesktopAdjustmentWorkspace,
+    updateAdjustmentEmployeeSelection,
     updateAdjustmentFormPresentation
 } from './PayrollAdjustmentDesktop.js';
+import {
+    openPayrollAdjustmentEmployeePicker
+} from './PayrollAdjustmentEmployeePicker.js';
 
 let context = null;
 let payrollService = null;
@@ -167,6 +171,13 @@ const _ACTION_MAP = {
     'add-desktop-adjustment': (kind, target) => window.PayrollUI?.addDesktopAdjustment?.(kind, target),
     'update-desktop-adjustment': (kind, target) => window.PayrollUI?.updateDesktopAdjustment?.(kind, target),
     'remove-desktop-adjustment': (kind, target) => window.PayrollUI?.removeDesktopAdjustment?.(kind, target),
+    'open-adjustment-employee-picker': (_value, target) => {
+        window.PayrollUI?.openAdjustmentEmployeePicker?.(target);
+    },
+    'remove-adjustment-employee': (_value, target) => window.PayrollUI?.removeAdjustmentEmployee?.(
+        target.dataset.employeeId,
+        target
+    ),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
@@ -1062,23 +1073,33 @@ function buildDesktopAdjustment(kind, draft, current = {}) {
     const state = getState();
     const prefix = kind === 'bonuses' ? 'BON' : 'DED';
     const defaultName = kind === 'bonuses' ? 'Bono' : 'Descuento';
+    const employeeTargetIds = draft.scope === 'employee'
+        ? [...new Set((draft.targetIds || []).map(String))]
+            .sort((left, right) => left.localeCompare(right, 'es', { numeric: true }))
+        : [];
     const item = {
         id: current.id || `${prefix}-${Date.now()}-${state.exportConfig[kind]?.length || 0}`,
         name: draft.name || defaultName,
         type: draft.type,
         value: draft.value,
         scope: draft.scope,
-        targetId: draft.scope === 'global' ? null : String(draft.targetId),
+        targetId: draft.scope === 'global'
+            ? null
+            : draft.scope === 'employee'
+                ? employeeTargetIds[0]
+                : String(draft.targetId),
         remembered: draft.scope !== 'employee' && draft.remembered,
         source: current.source || 'manual'
     };
 
     if (draft.scope === 'employee') {
-        const employee = (state.employees || []).find(
-            entry => String(entry.id) === String(draft.targetId)
-        );
-        item.employeeId = draft.targetId;
-        item.employeeName = employee?.name || '';
+        const selectedEmployees = employeeTargetIds.map(employeeId =>
+            (state.employees || []).find(entry => String(entry.id) === employeeId)
+        ).filter(Boolean);
+        item.targetIds = employeeTargetIds;
+        item.employeeIds = employeeTargetIds;
+        item.employeeId = employeeTargetIds[0];
+        item.employeeName = selectedEmployees.map(employee => employee.name).join(', ');
     }
 
     return item;
@@ -1093,6 +1114,69 @@ function validateDesktopAdjustment(draft) {
         return 'Seleccioná el destino del ajuste.';
     }
     return null;
+}
+
+function buildAdjustmentEmployeePickerEntries() {
+    const state = getState();
+    const { periodStart, periodEnd } = state.exportConfig;
+    return [...(state.employees || [])]
+        .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }))
+        .map(employee => {
+            let payroll = { brutoOriginal: 0, breakdown: [] };
+            if (periodStart && periodEnd) {
+                try {
+                    payroll = calculatePayrollBeforeLoans(
+                        payrollService,
+                        employee.id,
+                        periodStart,
+                        periodEnd,
+                        state.exportConfig.deductions || [],
+                        state.exportConfig.bonuses || []
+                    );
+                } catch (_) {
+                    // The picker must remain usable even if one historical payroll cannot be calculated.
+                }
+            }
+            const organization = buildPayrollHistoricalOrganization({
+                employee,
+                breakdown: payroll.breakdown || [],
+                positions: state.positions || [],
+                leaders: state.leaders || []
+            });
+            const positions = organization.positionName === 'Sin posicion'
+                ? []
+                : organization.positionName.split(',').map(name => name.trim()).filter(Boolean);
+            return {
+                id: String(employee.id),
+                number: employee.number,
+                name: employee.name,
+                active: employee.active !== false,
+                positions,
+                gross: Number(payroll.brutoOriginal) || 0
+            };
+        });
+}
+
+export async function openAdjustmentEmployeePicker(target) {
+    const form = target?.closest('.payroll-adjustment-form');
+    if (!form) return;
+    const draft = readAdjustmentForm(form);
+    const selectedIds = await openPayrollAdjustmentEmployeePicker({
+        employees: buildAdjustmentEmployeePickerEntries(),
+        selectedIds: draft?.targetIds || []
+    });
+    if (!selectedIds) return;
+    updateAdjustmentEmployeeSelection(form, selectedIds, getState().employees || []);
+    updateAdjustmentFormPresentation(form, latestPayrollPreviewRows, getState().positions || []);
+}
+
+export function removeAdjustmentEmployee(employeeId, target) {
+    const form = target?.closest('.payroll-adjustment-form');
+    if (!form || employeeId == null) return;
+    const selectedIds = (readAdjustmentForm(form)?.targetIds || [])
+        .filter(id => id !== String(employeeId));
+    updateAdjustmentEmployeeSelection(form, selectedIds, getState().employees || []);
+    updateAdjustmentFormPresentation(form, latestPayrollPreviewRows, getState().positions || []);
 }
 
 function persistAdjustmentDefault(kind, previous, next) {

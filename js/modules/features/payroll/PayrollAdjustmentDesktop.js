@@ -2,7 +2,8 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import {
     calculateScopedAdjustment,
-    resolveAdjustmentScope
+    resolveAdjustmentScope,
+    resolveAdjustmentTargetIds
 } from './PayrollAdjustments.js';
 
 const SCOPE_META = [
@@ -31,17 +32,55 @@ function targetLabel(adjustment, state) {
     const { scope, targetId } = resolveAdjustmentScope(adjustment);
     if (scope === 'global') return 'Toda la nómina';
 
+    if (scope === 'employee') {
+        const labels = resolveAdjustmentTargetIds(adjustment).map(employeeId => {
+            const employee = (state.employees || []).find(entry => String(entry.id) === employeeId);
+            if (!employee) return `#${employeeId}`;
+            return `${employee.number ? `#${employee.number} · ` : ''}${employee.name || 'Empleado'}`;
+        });
+        if (labels.length === 0) return 'Destino no disponible';
+        if (labels.length <= 2) return labels.join(', ');
+        return `${labels.slice(0, 2).join(', ')} +${labels.length - 2} más`;
+    }
+
     const collection = scope === 'leader'
         ? state.leaders
         : scope === 'position'
             ? state.positions
-            : state.employees;
+            : [];
     const item = (collection || []).find(entry => String(entry.id) === String(targetId));
     if (!item) return 'Destino no disponible';
-    if (scope === 'employee') {
-        return `${item.number ? `#${item.number} · ` : ''}${item.name || 'Empleado'}`;
-    }
     return item.name || item.code || 'Sin nombre';
+}
+
+function renderEmployeeSelection(employeeIds, employees) {
+    const employeeById = new Map((employees || []).map(employee => [String(employee.id), employee]));
+    const chips = employeeIds.map(employeeId => {
+        const employee = employeeById.get(String(employeeId));
+        const label = employee
+            ? `${employee.number || 'S/N'} · ${employee.name}`
+            : `Empleado ${employeeId}`;
+        return `
+            <span class="payroll-adjustment-employee-chip" data-adjustment-employee-chip>
+                <span>${safe(label)}</span>
+                <button type="button"
+                        data-payroll-action="remove-adjustment-employee"
+                        data-employee-id="${safe(employeeId)}"
+                        aria-label="Quitar ${safe(label)}">×</button>
+            </span>
+            <input type="hidden" name="employeeTargets" value="${safe(employeeId)}">
+        `;
+    }).join('');
+
+    return `
+        <div class="payroll-adjustment-employee-selection__chips" data-adjustment-employee-chips>
+            ${chips || '<span class="payroll-adjustment-employee-selection__empty">Ningún empleado seleccionado</span>'}
+        </div>
+        <button type="button"
+                class="payroll-adjustment-employee-selection__add"
+                data-payroll-action="open-adjustment-employee-picker"
+                aria-label="Agregar empleados">+</button>
+    `;
 }
 
 function detailId(adjustment, index, kind) {
@@ -106,8 +145,11 @@ export function readAdjustmentForm(form) {
         global: null,
         leader: data.get('leaderTarget'),
         position: data.get('positionTarget'),
-        employee: data.get('employeeTarget')
+        employee: data.getAll('employeeTargets')[0] || null
     };
+    const targetIds = scope === 'employee'
+        ? [...new Set(data.getAll('employeeTargets').filter(Boolean).map(String))]
+        : [];
 
     return {
         name: String(data.get('name') || '').trim(),
@@ -115,8 +157,18 @@ export function readAdjustmentForm(form) {
         value: Number(data.get('value')) || 0,
         scope,
         targetId: targetFields[scope] || null,
+        targetIds,
         remembered: data.get('remembered') === 'on'
     };
+}
+
+export function updateAdjustmentEmployeeSelection(form, employeeIds, employees) {
+    const selection = form?.querySelector('[data-adjustment-employee-selection]');
+    if (!selection) return;
+    selection.innerHTML = renderEmployeeSelection(
+        [...new Set((employeeIds || []).filter(Boolean).map(String))],
+        employees || []
+    );
 }
 
 export function calculateAdjustmentPreview(adjustment, rows = [], positions = []) {
@@ -175,6 +227,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
     const action = isEditing ? 'update-desktop-adjustment' : 'add-desktop-adjustment';
     const employees = [...(state.employees || [])]
         .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
+    const selectedEmployeeIds = resolveAdjustmentTargetIds(adjustment);
     const leaders = (state.leaders || []).filter(leader => leader.active !== false);
     const positions = (state.positions || []).filter(position => position.active !== false);
 
@@ -198,15 +251,10 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                 </select>
             </div>
             <div class="payroll-adjustment-form__target payroll-adjustment-form__target--employee ${resolved.scope === 'employee' ? 'is-visible' : ''}">
-                <label for="${formKey}-employee">Empleado</label>
-                <select id="${formKey}-employee" name="employeeTarget">
-                    ${optionList(
-                        employees,
-                        resolved.targetId,
-                        'Seleccionar empleado',
-                        item => `${item.number || 'S/N'} · ${item.name}${item.active === false ? ' (Inactivo)' : ''}`
-                    )}
-                </select>
+                <label>Empleados</label>
+                <div class="payroll-adjustment-employee-selection" data-adjustment-employee-selection>
+                    ${renderEmployeeSelection(selectedEmployeeIds, employees)}
+                </div>
             </div>
 
             <div class="payroll-adjustment-form__fields">
