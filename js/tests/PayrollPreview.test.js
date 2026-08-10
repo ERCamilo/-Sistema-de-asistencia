@@ -1,5 +1,6 @@
 import {
     applyPayrollPreviewInclusion,
+    filterPayablePayrollPreviewRows,
     getPayrollPreviewInclusion,
     getPayrollPreviewCategoryCounts
 } from '../modules/features/payroll/PayrollPreview.js';
@@ -59,5 +60,17 @@ describe('PayrollPreview inclusion controls', () => {
             deductions: { active: 2, total: 2 },
             loans: { active: 3, total: 3 }
         });
+    });
+
+    it('keeps a non-positive row visible when it contains an applied adjustment', () => {
+        const invalidDeductionRow = {
+            id: 3,
+            monto: -500,
+            _loans: 0,
+            _bonusDetails: [],
+            _deductionDetails: [{ id: 'DED-1', amount: 500 }]
+        };
+
+        expect(filterPayablePayrollPreviewRows([invalidDeductionRow])).toEqual([invalidDeductionRow]);
     });
 });

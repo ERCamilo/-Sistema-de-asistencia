@@ -56,5 +56,10 @@ export function getPayrollPreviewCategoryCounts(configuredCounts = {}, inclusion
 }
 
 export function filterPayablePayrollPreviewRows(rows = []) {
-    return rows.filter(row => amount(row.monto) > 0.001 || amount(row._loans) > 0);
+    return rows.filter(row =>
+        amount(row.monto) > 0.001
+        || amount(row._loans) > 0
+        || (row._bonusDetails || []).length > 0
+        || (row._deductionDetails || []).length > 0
+    );
 }

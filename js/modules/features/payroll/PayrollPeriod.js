@@ -1,4 +1,5 @@
 import { getDateKey, parseDate } from '../../utils/DateUtils.js';
+import { resolveAdjustmentScope, resolveAdjustmentTargetIds } from './PayrollAdjustments.js';
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -59,8 +60,21 @@ function attendancePositionIds(records) {
     return normalizeIds(ids);
 }
 
+function adjustedEmployeeIds(exportConfig = {}) {
+    const ids = new Set();
+    for (const adjustment of [
+        ...(exportConfig.bonuses || []),
+        ...(exportConfig.deductions || [])
+    ]) {
+        if (resolveAdjustmentScope(adjustment).scope !== 'employee') continue;
+        resolveAdjustmentTargetIds(adjustment).forEach(id => ids.add(id));
+    }
+    return ids;
+}
+
 export function getPayrollEmployeesForPeriod(state, periodStart, periodEnd) {
     const leaderFilter = state?.exportConfig?.leaderFilter || 'all';
+    const adjustedInactiveIds = adjustedEmployeeIds(state?.exportConfig);
     const leaderPositions = normalizeIds(
         (state?.positions || [])
             .filter(position => String(position.leaderId) === String(leaderFilter))
@@ -68,7 +82,7 @@ export function getPayrollEmployeesForPeriod(state, periodStart, periodEnd) {
     );
 
     return (state?.employees || []).filter(employee => {
-        if (employee.active === false) return false;
+        if (employee.active === false && !adjustedInactiveIds.has(String(employee.id))) return false;
         const presentRecords = getPresentAttendanceInPeriod(
             employee,
             periodStart,

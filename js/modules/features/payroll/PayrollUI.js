@@ -434,7 +434,12 @@ function PayrollGeneratorTab() {
     const exportData = generateExportData();
     latestPayrollPreviewRows = exportData;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
-    const hasInvalidLoanRows = invalidLoanRows.length > 0;
+    const invalidNetRows = exportData.filter(row => (Number(row.monto) || 0) <= 0.001);
+    const hasInvalidNetRows = invalidNetRows.length > 0;
+    const hasNonLoanInvalidRows = invalidNetRows.some(row => !row._invalidLoanNet);
+    const invalidPaymentMessage = hasNonLoanInvalidRows
+        ? `Hay ${invalidNetRows.length} empleado(s) cuyo pago queda en cero o negativo. Ajusta sus bonificaciones o deducciones antes de exportar.`
+        : `Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago en cero o negativo. Elimina sus préstamos temporales para habilitar la exportación.`;
     const previewFingerprint = buildPayrollPreviewFingerprint({
         periodStart: state.exportConfig.periodStart,
         periodEnd: state.exportConfig.periodEnd,
@@ -773,13 +778,13 @@ function PayrollGeneratorTab() {
                         </div>
 
             <!-- Paso 3: Vista Previa -->
-            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
+            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidNetRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
                 <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step3')}" data-payroll-action="toggle-step" data-value="step3" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step3') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 3: Vista Previa (${exportData.length} empleados)
                     </h3>
-                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidLoanRows ? '#f87171' : '#10b981'}; font-weight: 700;">${hasInvalidLoanRows ? `⚠️ ${invalidLoanRows.length} pago(s) inválido(s)` : formatCurrency(totalAmount)}</span>` : ''}
+                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidNetRows ? '#f87171' : '#10b981'}; font-weight: 700;">${hasInvalidNetRows ? `⚠️ ${invalidNetRows.length} pago(s) inválido(s)` : formatCurrency(totalAmount)}</span>` : ''}
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
@@ -795,9 +800,9 @@ function PayrollGeneratorTab() {
                     </div>
                 </div>
 
-                ${hasInvalidLoanRows ? `
+                ${hasInvalidNetRows ? `
                     <div role="alert" style="margin-bottom: 14px; padding: 12px; border: 1px solid #ef4444; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #fca5a5; font-weight: 700; font-size: 0.85rem;">
-                        ⚠️ Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago en cero o negativo. Elimina sus préstamos temporales para habilitar la exportación.
+                        ⚠️ ${invalidPaymentMessage}
                     </div>
                 ` : ''}
 
@@ -816,17 +821,17 @@ function PayrollGeneratorTab() {
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${emp._invalidLoanNet ? 'is-invalid' : ''}">
+                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${(Number(emp.monto) || 0) <= 0.001 ? 'is-invalid' : ''}">
                                     <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
                                     <td class="payroll-review-table__employee">
                                         ${escapeHTML(emp._employeeName)}
-                                        ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
+                                        ${(Number(emp.monto) || 0) <= 0.001 ? `<span>${emp._invalidLoanNet ? 'Pago inválido: elimina préstamos' : 'Pago inválido: ajusta bonificaciones o deducciones'}</span>` : ''}
                                     </td>
                                     <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
                                     ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
                                     ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
                                     ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
-                                    <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
+                                    <td class="payroll-review-table__amount is-net ${(Number(emp.monto) || 0) <= 0.001 ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -885,9 +890,9 @@ function PayrollGeneratorTab() {
                             <small>Total neto</small>
                             <strong>${formatCurrency(totalAmount)}</strong>
                         </span>
-                        <span class="payroll-guide-summary__mobile-state ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                        <span class="payroll-guide-summary__mobile-state ${hasInvalidNetRows ? 'is-invalid' : 'is-valid'}">
                             <i aria-hidden="true"></i>
-                            ${hasInvalidLoanRows ? 'Revisar' : 'Listo'}
+                            ${hasInvalidNetRows ? 'Revisar' : 'Listo'}
                         </span>
                         <span class="payroll-guide-summary__mobile-label">
                             ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
@@ -939,20 +944,20 @@ function PayrollGeneratorTab() {
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
-                        <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
-                        ${hasInvalidLoanRows
-                            ? `${icons.get('alert', { size: 16 })} ${invalidLoanRows.length} pago(s) requieren revisión`
+                        <div class="payroll-guide-summary__validation ${hasInvalidNetRows ? 'is-invalid' : 'is-valid'}">
+                        ${hasInvalidNetRows
+                            ? `${icons.get('alert', { size: 16 })} ${invalidNetRows.length} pago(s) requieren revisión`
                             : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
                         </div>
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                         <button type="button"
                                 data-payroll-action="copy-export-json"
-                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
                             ${icons.get('copy', { size: 15 })} Copiar JSON
                         </button>
                         <button type="button"
                                 data-payroll-action="download-export-json"
-                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
                             ${icons.get('download', { size: 15 })} Descargar .json
                         </button>
                         </div>
@@ -1064,8 +1069,14 @@ function generateExportData() {
     );
     return filterPayablePayrollPreviewRows(previewRows)
         // Keep selected-loan rows even when their resulting payment is invalid,
-        // so the UI can show the error instead of silently omitting the employee.
-        .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
+        // and keep applied adjustment rows so the UI can show zero/negative
+        // conflicts instead of silently omitting the employee.
+        .filter(emp =>
+            emp._montoBeforeLoans > 0.001
+            || emp._loans > 0
+            || (emp._bonusDetails || []).length > 0
+            || (emp._deductionDetails || []).length > 0
+        )
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
 }
 

@@ -559,6 +559,114 @@ describe('Financial desktop layouts', () => {
         expect(host.querySelector('th.is-loan')).toBeNull();
     });
 
+    test('review table includes an inactive employee selected by an individual bonus', () => {
+        state.employees = [{
+            id: 'active-1',
+            number: '12',
+            name: 'Ada Activa',
+            active: true,
+            loans: []
+        }, {
+            id: 'inactive-1',
+            number: '501',
+            name: 'Hector Inactivo',
+            active: false,
+            loans: []
+        }];
+        state.exportConfig.bonuses = [{
+            id: 'BON-INACTIVE',
+            name: 'Bono',
+            type: 'fixed',
+            value: 2000,
+            scope: 'employee',
+            targetId: 'inactive-1',
+            targetIds: ['inactive-1']
+        }];
+        state.exportConfig.deductions = [];
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(employeeId => employeeId === 'inactive-1'
+                        ? {
+                            brutoOriginal: 0,
+                            bruto: 2000,
+                            bonuses: 2000,
+                            deductions: 0,
+                            neto: 2000,
+                            bonusBreakdown: [{ id: 'BON-INACTIVE', name: 'Bono', amount: 2000 }]
+                        }
+                        : {
+                            brutoOriginal: 1200,
+                            bruto: 1200,
+                            bonuses: 0,
+                            deductions: 0,
+                            neto: 1200
+                        })
+                }
+            },
+            render
+        });
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const inactiveRow = [...host.querySelectorAll('.payroll-guide-panel--review tbody tr')]
+            .find(row => row.querySelector('.payroll-review-table__employee')?.textContent.includes('Hector Inactivo'));
+
+        expect(inactiveRow).toBeDefined();
+        expect(inactiveRow.querySelector('.is-bonus').textContent.trim()).toBe('+$2,000.00');
+        expect(inactiveRow.querySelector('.is-net').textContent.trim()).toBe('$2,000.00');
+    });
+
+    test('review table keeps an inactive deduction conflict visible and blocks export', () => {
+        state.employees = [{
+            id: 'inactive-1',
+            number: '501',
+            name: 'Hector Inactivo',
+            active: false,
+            loans: []
+        }];
+        state.exportConfig.bonuses = [];
+        state.exportConfig.deductions = [{
+            id: 'DED-INACTIVE',
+            name: 'Descuento',
+            type: 'fixed',
+            value: 500,
+            scope: 'employee',
+            targetId: 'inactive-1',
+            targetIds: ['inactive-1']
+        }];
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(() => ({
+                        brutoOriginal: 0,
+                        bruto: 0,
+                        bonuses: 0,
+                        deductions: 500,
+                        neto: -500,
+                        deductionBreakdown: [{ id: 'DED-INACTIVE', name: 'Descuento', amount: 500 }]
+                    }))
+                }
+            },
+            render
+        });
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const row = host.querySelector('.payroll-guide-panel--review tbody tr');
+
+        expect(row.querySelector('.payroll-review-table__employee').textContent).toContain('Hector Inactivo');
+        expect(row.classList.contains('is-invalid')).toBe(true);
+        expect(host.querySelector('[role="alert"]').textContent).toContain('cero o negativo');
+        expect(host.querySelector('[data-payroll-action="copy-export-json"]').disabled).toBe(true);
+    });
+
     test('review table shows non-empty optional columns and highlights loans in yellow', () => {
         state.employees = [{
             id: 'e1',
