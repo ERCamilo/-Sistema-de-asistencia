@@ -97,6 +97,7 @@ import {
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
+import { normalizeRegularHoursPerDay, resolveDailyTargetHours } from './modules/utils/AttendanceHours.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
 // Local alias so the detail panel can use escapeHTML(...) without colliding
 // with any other escapeHTML helper defined later in this file.
@@ -3340,8 +3341,12 @@ window.handleWeekCheck = (empId, dateStr) => {
             isHoliday: isDayHoliday(date, state.settings.holidays)
         });
 
-        // 🔥 Unificación: Usar horas configuradas para el día, o el default
-        const hours = (state.dayHoursConfig && state.dayHoursConfig[dateStr]) || (state.settings?.regularHoursPerDay || 8);
+        // 🔥 Unificación: respetar incluso un override diario explícito de cero.
+        const hours = resolveDailyTargetHours(
+            dateStr,
+            state.dayHoursConfig,
+            state.settings?.regularHoursPerDay
+        );
 
         // Crear registro de asistencia
         const newAttendance = {
@@ -4019,7 +4024,7 @@ function AttendancePageTitle() {
         ? pillWeekRange(state.selectedDate)
         : formatDateShort(state.selectedDate);
     const activeCount = (state.employees || []).filter(e => e.active !== false).length;
-    const defaultHours = state.settings?.regularHoursPerDay || 8;
+    const defaultHours = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
     const modeLabel = state.viewMode === 'week' ? 'Semanal' : 'Diaria';
     return `<div class="page-title-row">
                 <div>
@@ -4104,21 +4109,22 @@ function _AttendanceDetailPanelInner() {
     let periodHours = 0;
     let periodDays = 0;
     let overtimeHours = 0;
+    const regularHours = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
     try {
         for (let d = new Date(rangeStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
             const dk = getDateKey(new Date(d));
             const att = state.attendance[`${emp.id}-${dk}`];
             if (att && att.present) {
+                const workedHours = Number(att.hoursWorked) || 0;
+                const dailyTargetHours = resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
                 periodDays++;
-                periodHours += (att.hoursWorked || 0);
-                const reg = state.settings?.regularHoursPerDay || 8;
-                if ((att.hoursWorked || 0) > reg) overtimeHours += (att.hoursWorked - reg);
+                periodHours += workedHours;
+                if (workedHours > dailyTargetHours) overtimeHours += (workedHours - dailyTargetHours);
             }
         }
     } catch (e) { /* defensive */ }
 
     // ----- Visual summary cards: current week + period hours progress -----
-    const regularHours = state.settings?.regularHoursPerDay || 8;
     const holidays = state.settings?.holidays || [];
     const firstWorkPosId = emp.positions?.[0];
     const firstWorkPos = state.positions.find(p => p.id === firstWorkPosId);
@@ -4158,7 +4164,9 @@ function _AttendanceDetailPanelInner() {
     let periodTargetHours = 0;
     for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
         const dk = getDateKey(new Date(d));
-        if (worksOnDay(d) && !holidays.includes(dk)) periodTargetHours += regularHours;
+        if (worksOnDay(d) && !holidays.includes(dk)) {
+            periodTargetHours += resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
+        }
     }
     const periodHoursPct = periodTargetHours > 0
         ? Math.min(100, Math.round((periodHours / periodTargetHours) * 100))
@@ -5571,6 +5579,14 @@ window.saveSettings = function () {
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
+    const attendanceDeficitUnitElement = document.getElementById('attendanceDeficitUnit');
+    const attendanceDeficitUnit = attendanceDeficitUnitElement
+        ? (attendanceDeficitUnitElement.value === 'hours' ? 'hours' : 'days')
+        : (state.settings.attendanceDeficitUnit === 'hours' ? 'hours' : 'days');
+    const showAttendanceCardDeficitElement = document.getElementById('showAttendanceCardDeficit');
+    const showAttendanceCardDeficit = showAttendanceCardDeficitElement
+        ? showAttendanceCardDeficitElement.checked
+        : state.settings.showAttendanceCardDeficit === true;
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks son switches
     // auto-save: ya están comprometidos en state (commitAutoSaveSwitch, ver
@@ -5639,6 +5655,10 @@ window.saveSettings = function () {
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.scrollbarMode = scrollbarMode;
+    stateManager.batchSetState(() => {
+        state.settings.showAttendanceCardDeficit = showAttendanceCardDeficit;
+    });
+    state.settings.attendanceDeficitUnit = attendanceDeficitUnit;
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks NO se reasignan
     // acá: ya están comprometidos en state por commitAutoSaveSwitch. Tampoco

@@ -7,6 +7,7 @@ import { toStoredHourly } from '../../features/payroll/SalaryConversion.js';
 import { collectPositionDays, reassignPositionDays } from '../../services/AttendancePositionAudit.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
+import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import {
     attachEmployeePositionEditor,
     renderEmployeePositionEditor
@@ -29,7 +30,7 @@ export class EmployeeModal {
         let showOptionalFields = !!(emp?.phone || emp?.email || emp?.notes);
 
         const hireDateValue = emp?.hireDate || new Date().toISOString().split('T')[0];
-        const regularHours = state.settings.regularHoursPerDay || 8;
+        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
 
         const contentHTML = `
             <div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;" id="employee-modal-form">
@@ -190,7 +191,7 @@ export class EmployeeModal {
         const state = getState();
 
         // Sueldos personalizados (común a todos los caminos)
-        const regularHours = state.settings.regularHoursPerDay || 8;
+        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
         const positionSalaries = {};
         const positionSalaryModes = {};
         el.querySelectorAll('.custom-salary-input').forEach(input => {

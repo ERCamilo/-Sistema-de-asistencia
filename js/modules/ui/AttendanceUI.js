@@ -3,19 +3,26 @@
  * Parte de la Fase 4: Modularización y Componentización
  */
 
-import { state, calculateStats, getEmployeeTotalHours, getEmployeeMTDStats } from '../core/AppState.js';
+import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
 import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { escapeHTML } from '../utils/Sanitize.js';
+import { normalizeRegularHoursPerDay, resolveDailyTargetHours } from '../utils/AttendanceHours.js';
 import {
     renderPositionIconSvg,
     resolveLeaderIcon,
     resolvePositionIcon,
     safePositionColor
 } from '../features/employees/PositionVisuals.js';
+import {
+    buildAttendanceCardPeriodMetrics,
+    formatAttendanceDecimal,
+    formatAttendanceDayNumber,
+    formatAttendanceDeficit
+} from '../features/attendance/AttendanceCardMetrics.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -141,10 +148,11 @@ export function DateControlsCompact() {
 
     const isToday = getDateKey(new Date()) === getDateKey(state.selectedDate);
     const dayHours = getDayHours(state.selectedDate);
+    const regularHoursPerDay = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
     let hourColor = '#10b981';
-    if (dayHours > 8) {
+    if (dayHours > regularHoursPerDay) {
         hourColor = '#3b82f6';
-    } else if (dayHours < 8) {
+    } else if (dayHours < regularHoursPerDay) {
         hourColor = '#ef4444';
     }
 
@@ -204,7 +212,7 @@ export function formatSplitName(fullName) {
  */
 export function getDayHours(date) {
     const key = getDateKey(date);
-    return state.dayHoursConfig[key] ?? state.settings.regularHoursPerDay;
+    return resolveDailyTargetHours(key, state.dayHoursConfig, state.settings?.regularHoursPerDay);
 }
 
 /**
@@ -221,7 +229,7 @@ export function getCheckColor(att, date) {
 
     // Horas trabajadas vs Configuración Global General
     const hours = att.hoursWorked || 0;
-    const regular = state.settings?.regularHoursPerDay || 8;
+    const regular = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
     const tolerance = 0.1;
 
     if (hours > regular + tolerance) return 'check-overtime';
@@ -329,11 +337,12 @@ export function DateControls() {
     const weekLabel = 'Semana';
 
     // Semántica de colores en horas (Refactorizado de operador ternario anidado)
-    let hourColor = '#10b981'; // Verde (8h) - Default
-    if (dayHours > 8) {
-        hourColor = '#3b82f6'; // Azul (> 8h)
-    } else if (dayHours < 8) {
-        hourColor = '#ef4444'; // Rojo (< 8h)
+    const regularHoursPerDay = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
+    let hourColor = '#10b981';
+    if (dayHours > regularHoursPerDay) {
+        hourColor = '#3b82f6';
+    } else if (dayHours < regularHoursPerDay) {
+        hourColor = '#ef4444';
     }
 
     // Seccion Hoy (Derecha - 1fr)
@@ -782,12 +791,42 @@ export function AttendanceBulkActions(employees) {
 /**
  * 👤 Fila de Empleado (Vista Diaria / Relajada)
  */
+export function getAttendanceCardStatus(employee, selectedDate, attendance = {}) {
+    const activeOnSelectedDate = wasEmployeeActiveOnDate(employee, selectedDate, attendance);
+    if (!activeOnSelectedDate) {
+        return { kind: 'not-active-on-date', activeOnSelectedDate };
+    }
+    if (employee?.active === false) {
+        return { kind: 'inactive-currently', activeOnSelectedDate };
+    }
+    return { kind: 'active', activeOnSelectedDate };
+}
+
+function renderAttendanceCardStatus(status) {
+    if (status.kind === 'not-active-on-date') {
+        return `<span class="attendance-status-pill is-date-inactive" role="status">${icons.get('alert', { size: 12 })}<span>No activo en esta fecha</span></span>`;
+    }
+    if (status.kind === 'inactive-currently') {
+        return `<span class="attendance-status-pill is-currently-inactive" role="status"><span>Inactivo actualmente</span></span>`;
+    }
+    return '';
+}
+
 export function EmployeeRow(emp) {
     const dateKey = getDateKey(state.selectedDate);
     const attKey = `${emp.id}-${dateKey}`;
     const att = state.attendance[attKey];
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
     const watermarkModel = getAttendanceWatermarkModel(emp, att);
+    const cardStatus = getAttendanceCardStatus(emp, dateKey, state.attendance);
+    const periodMetrics = buildAttendanceCardPeriodMetrics({
+        employee: emp,
+        selectedDate: state.selectedDate,
+        attendance: state.attendance,
+        positions: state.positions,
+        settings: state.settings,
+        dayHoursConfig: state.dayHoursConfig
+    });
 
     // ⚡ P4-OPT: Solo regenerar si algo relevante cambió
     // - att.updatedAt: cambia cuando se registra/modifica asistencia de este empleado
@@ -795,24 +834,28 @@ export function EmployeeRow(emp) {
     // - dateKey: cambia cuando el usuario navega a otra fecha
     return componentMemo.get(
         `emp-row-${emp.id}`,
-        () => _buildEmployeeRow(emp, dateKey, attKey, att, watermarkModel),
+        () => _buildEmployeeRow(emp, dateKey, attKey, att, watermarkModel, periodMetrics, cardStatus),
         [
             dateKey,
             att?.updatedAt ?? 0,
             emp.updatedAt ?? 0,
             state.listDisplayMode,
-            state.settings?.regularHoursPerDay || 8,
+            normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay),
             getDayHours(state.selectedDate),
             (state.settings.holidays || []).join(','),
             state.tempPositionSelection?.[attKey] || '',
             att?.selectedPosition || '',
             isDetailSelected,
-            watermarkModel.fingerprint
+            cardStatus.kind,
+            watermarkModel.fingerprint,
+            periodMetrics.fingerprint,
+            state.settings?.showAttendanceCardDeficit === true,
+            state.settings?.attendanceDeficitUnit || 'days'
         ]
     );
 }
 
-function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel) {
+function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics, cardStatus) {
     // Defensa: empleados con formato viejo (positionId sin positions[])
     if (!emp.positions) {
         emp.positions = emp.positionId ? [emp.positionId] : [];
@@ -825,12 +868,6 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel) {
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
-
-    const today = state.selectedDate;
-    const mtdStats = getEmployeeMTDStats(emp.id, today);
-    const monthHours = mtdStats.hours;
-    const monthDays = mtdStats.days;
-    const monthOvertimeHours = mtdStats.overtime;
 
     const selectedPosId = state.tempPositionSelection?.[key] || emp.positions?.[0];
 
@@ -845,24 +882,17 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel) {
         : [];
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
 
-    // 🚩 Empleado activo HOY pero que, según el historial de estados, no estaba
-    // activo en esta fecha. Lo mostramos igual (totalmente funcional) con la
-    // tarjeta atenuada y un óvalo rojizo de texto siempre visible. Si se marca
-    // su asistencia, wasEmployeeActiveOnDate pasa a true y el marcador se va.
-    const inactiveOnDate = emp.active === true && !wasEmployeeActiveOnDate(emp, dateKey, state.attendance);
-    const inactiveFlagHTML = inactiveOnDate
-        ? `<div class="inactive-on-date-flag" title="Según el registro de estados, este empleado no estaba activo el ${dateKey}. Puedes registrar su asistencia igualmente; corrige las fechas en su perfil si fue un error." style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:3px 10px;border-radius:999px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.55);color:#fca5a5;font-size:0.7rem;font-weight:600;line-height:1.2;white-space:nowrap;">${icons.get('alert', { size: 12 })} No activo en esta fecha</div>`
-        : '';
-
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${inactiveOnDate ? 'i' : 'a'}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkModel?.fingerprint || 'hidden'}`;
-    return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${inactiveOnDate ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}"${inactiveOnDate ? ' style="opacity:0.62;"' : ''}>
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${cardStatus.kind}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkModel?.fingerprint || 'hidden'}`;
+    return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${cardStatus.kind === 'not-active-on-date' ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}">
                 ${renderAttendanceWatermark(watermarkModel)}
                 <div class="employee-info">
                     <div class="employee-header">
-                        <div class="employee-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}${!emp.active ? '<span style="margin-left:8px;padding:2px 8px;background:rgba(239,68,68,0.2);border:1px solid #ef4444;border-radius:6px;font-size:0.65rem;color:#ef4444;font-weight:600;">INACTIVO</span>' : ''}</div>
-                        <div class="employee-number">${emp.number}</div>
+                        <div class="employee-identity">
+                            <span class="employee-number-badge" aria-label="Empleado número ${escapeHTML(String(emp.number ?? ''))}">${escapeHTML(String(emp.number ?? ''))}</span>
+                            <div class="employee-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
+                        </div>
+                        <div class="employee-status-slot">${renderAttendanceCardStatus(cardStatus)}</div>
                     </div>
-                    ${inactiveFlagHTML}
                     <div class="position-toggles" style="margin-top: 2px;">
                         ${emp.positions.map(pid => {
         const pos = state.positions.find(p => p.id === pid); if (!pos) return '';
@@ -895,32 +925,19 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel) {
     }).join('')}
                         </div>
                     ` : ''}
-                    <div class="employee-meta">
-                        <div class="employee-meta-item">📅 ${monthDays} días</div>
-                        <div class="employee-meta-divider"></div>
-                        <div class="employee-meta-item">⏱️ ${monthHours}h</div>
-                        ${monthOvertimeHours > 0 ? `<div class="employee-meta-divider"></div><div class="employee-meta-item" style="color:#06b6d4;">⚡ +${monthOvertimeHours}h extras mes</div>` : ''}
+                    <div class="attendance-period-summary" aria-label="Resumen rápido de asistencia">
+                        <span class="attendance-period-credit">${formatAttendanceDayNumber(periodMetrics.workedDays)}/${formatAttendanceDayNumber(periodMetrics.scheduledDays)} días</span>
+                        ${state.settings?.showAttendanceCardDeficit === true
+                            ? `<span class="attendance-period-deficit check-undertime">${formatAttendanceDeficit(periodMetrics, state.settings?.attendanceDeficitUnit || 'days')}</span>`
+                            : ''}
+                        <span class="attendance-period-overtime">+${formatAttendanceDecimal(periodMetrics.overtimeHours)}h extra${periodMetrics.overtimeHours === 1 ? '' : 's'}</span>
                     </div>
-                    ${(() => {
-        // Solo renderizamos esta fila si hay algo útil que mostrar:
-        // horas extras del día, o una nota del día. Cuando no hay nada
-        // (caso típico: empleado aún sin marcar), evitamos los ~28px de
-        // alto vacío que antes existían con min-height + placeholder.
-        if (!isChecked) return '';
-        const threshold = state.settings?.regularHoursPerDay || 8;
-        const overtime = att.overtimeHours || Math.max(0, att.hoursWorked - threshold);
-        const hasNote = att.notes && att.notes.trim();
-        if (overtime <= 0 && !hasNote) return '';
-        return `
-                    <div class="employee-meta" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #1e293b; display: flex; align-items: center; overflow: hidden;">
-                        ${overtime > 0 ? `<div class="employee-meta-item" style="color: #3b82f6; font-weight: 600; white-space: nowrap; flex-shrink: 0;">⚡ +${overtime.toFixed(1)}h extras</div>` : ''}
-                        ${overtime > 0 && hasNote ? '<div class="employee-meta-divider"></div>' : ''}
-                        ${hasNote ? `<div class="employee-meta-item" style="color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; flex: 1; display: inline-flex; align-items: center; gap: 4px;"
-                                 data-att-action="open-advanced-attendance" data-id="${emp.id}">
-                                ${icons.get('file', { size: 12 })} ${escapeHTML(att.notes)}
-                            </div>` : ''}
-                    </div>`;
-    })()}
+                    ${periodMetrics.selectedDayNote ? `
+                        <div class="attendance-card-note" title="${escapeHTML(periodMetrics.selectedDayNote)}"
+                             data-att-action="open-advanced-attendance" data-id="${emp.id}">
+                            ${icons.get('file', { size: 12 })}<span>${escapeHTML(periodMetrics.selectedDayNote)}</span>
+                        </div>
+                    ` : ''}
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; min-width: 60px; flex-shrink: 0;">
                     <label class="check-container" style="position: relative;">
@@ -952,15 +969,21 @@ export function EmployeeRowCompact(emp) {
     const isChecked = att && att.present;
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
     const watermarkModel = getAttendanceWatermarkModel(emp, att);
+    const cardStatus = getAttendanceCardStatus(emp, state.selectedDate, state.attendance);
 
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
-    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}">
+    return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}${cardStatus.kind === 'not-active-on-date' ? ' inactive-on-date' : ''}">
                 ${renderAttendanceWatermark(watermarkModel)}
-                <div style="width: 40px; font-family: monospace; color: #64748b; font-size: 0.75rem;">${emp.number}</div>
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
+                    <div class="employee-header">
+                        <div class="employee-compact-heading">
+                            <span class="employee-number-badge" aria-label="Empleado número ${escapeHTML(String(emp.number ?? ''))}">${escapeHTML(String(emp.number ?? ''))}</span>
+                            <div class="employee-compact-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
+                        </div>
+                        <div class="employee-status-slot">${renderAttendanceCardStatus(cardStatus)}</div>
+                    </div>
                     <div style="font-size: 0.7rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         ${emp.positions.map(pid => state.positions.find(p => p.id === pid)?.name).join(', ')}
                     </div>
@@ -1045,7 +1068,7 @@ export function getFilteredEmployeesForDay() {
     // Filtrar por Estado (Presentes/Ausentes/Extras)
     if (state.employeeFilter) {
         const dateKey = getDateKey(state.selectedDate);
-        const dayHours = state.dayHoursConfig?.[dateKey] ?? state.settings?.regularHoursPerDay ?? 8;
+        const dayHours = resolveDailyTargetHours(dateKey, state.dayHoursConfig, state.settings?.regularHoursPerDay);
         employees = employees.filter(emp => {
             const att = state.attendance[`${emp.id}-${dateKey}`];
             const isChecked = att && att.present;
@@ -1121,7 +1144,7 @@ export function WeekRow(emp, week, positionMap) {
     const deps = [
         emp.updatedAt ?? 0,
         state.settings?.updatedAt ?? 0, // ⚡ P4-OPT: Sincronismo vía timestamp global de settings
-        state.settings?.regularHoursPerDay || 8,
+        normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay),
         ...week.map(date => {
             const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
             return att?.updatedAt ?? 0;

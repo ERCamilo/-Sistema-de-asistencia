@@ -16,6 +16,7 @@ import {
     EmployeeRowCompact,
     getAttendanceWatermarkPositions,
     getAttendanceWatermarkModel,
+    getAttendanceCardStatus,
     getEffectiveAttendanceDetailEmployeeId,
     usesAttendanceDetailPanel
 } from '../modules/ui/AttendanceUI.js';
@@ -26,6 +27,106 @@ import {
 } from '../modules/ui/components/AttendanceDetailCalendar.js';
 
 testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
+
+    "estado de tarjeta distingue fecha inactiva de inactividad actual"() {
+        const selected = '2026-05-10';
+        const activeNowInactiveThen = {
+            id: 'status-a', active: true,
+            statusHistory: [{ date: '2026-05-01', active: false }, { date: '2026-05-11', active: true }]
+        };
+        const inactiveNowActiveThen = {
+            id: 'status-b', active: false,
+            statusHistory: [{ date: '2026-05-01', active: true }, { date: '2026-05-11', active: false }]
+        };
+        const inactiveBoth = {
+            id: 'status-c', active: false,
+            statusHistory: [{ date: '2026-05-01', active: false }]
+        };
+        const activeNormal = { id: 'status-d', active: true, statusHistory: [{ date: '2026-05-01', active: true }] };
+
+        const warningStatus = getAttendanceCardStatus(activeNowInactiveThen, selected, {});
+        testRunner.assertEquals(warningStatus.kind, 'not-active-on-date');
+        testRunner.assert(!Object.prototype.hasOwnProperty.call(warningStatus, 'blocksAttendance'), 'la advertencia no introduce estado de bloqueo paralelo');
+        testRunner.assertEquals(getAttendanceCardStatus(inactiveNowActiveThen, selected, {}).kind, 'inactive-currently');
+        testRunner.assertEquals(getAttendanceCardStatus(inactiveBoth, selected, {}).kind, 'not-active-on-date');
+        testRunner.assertEquals(getAttendanceCardStatus(activeNormal, selected, {}).kind, 'active');
+
+        const explicit = { 'status-c-2026-05-10': { present: true, hoursWorked: 8 } };
+        testRunner.assertEquals(getAttendanceCardStatus(inactiveBoth, selected, explicit).kind, 'inactive-currently',
+            'asistencia explícita viva conserva el contrato de wasEmployeeActiveOnDate');
+    },
+
+    "EmployeeRow advierte fecha inactiva sin bloquear el control normal"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const employee = {
+            id: 'warning-card', number: '027', name: 'Empleado Advertido', positions: ['p1'], active: true,
+            statusHistory: [{ date: '2026-05-01', active: false }, { date: '2026-05-11', active: true }]
+        };
+        window.state.selectedDate = new Date('2026-05-10T12:00:00');
+        window.state.attendance = {};
+        window.state.positions = [{ id: 'p1', name: 'Ayudante', workingDays: [0] }];
+        try {
+            const html = EmployeeRow(employee);
+            testRunner.assert(html.indexOf('employee-number-badge') < html.indexOf('Empleado Advertido'), 'número antes del nombre');
+            testRunner.assert(html.includes('No activo en esta fecha'), 'pill ámbar de fecha');
+            testRunner.assert(html.includes('data-att-action="handle-checkbox-click"'), 'la advertencia conserva la acción normal');
+            testRunner.assert(!html.includes('attendance-pending-tile'), 'la advertencia no crea un estado Pendiente paralelo');
+            testRunner.assert(!html.includes('aria-disabled="true"'), 'la advertencia no presenta semántica deshabilitada');
+            testRunner.assert(!html.includes('>INACTIVO<'), 'el badge inline antiguo fue retirado');
+
+            const compactHtml = EmployeeRowCompact(employee);
+            testRunner.assert(compactHtml.indexOf('employee-number-badge') < compactHtml.indexOf('Empleado Advertido'), 'compacta mantiene número antes del nombre');
+            testRunner.assert(compactHtml.includes('No activo en esta fecha'), 'compacta conserva el estado de fecha');
+            testRunner.assert(compactHtml.includes('data-att-action="handle-checkbox-click"'), 'compacta conserva la acción normal');
+            testRunner.assert(!compactHtml.includes('attendance-pending-tile'), 'compacta tampoco crea Pendiente');
+            testRunner.assert(!compactHtml.includes('aria-disabled="true"'), 'compacta no presenta semántica deshabilitada');
+
+            const uiSource = require('fs').readFileSync(require('path').resolve(__dirname, '../modules/ui/AttendanceUI.js'), 'utf8');
+            testRunner.assert(
+                /'handle-checkbox-click':\s*\([^)]*\)\s*=>\s*window\.handleCheckboxClick\?\.\(e,\s*el\.dataset\.empId\)/.test(uiSource),
+                'el mapa delegado debe enviar el checkbox normal al handler sin guardas de bloqueo'
+            );
+            window.state.attendance = {
+                'warning-card-2026-05-10': { present: true, hoursWorked: 8, selectedPosition: 'p1', updatedAt: 1 }
+            };
+            const attendedHtml = EmployeeRow(employee);
+            testRunner.assert(!attendedHtml.includes('No activo en esta fecha'), 'la asistencia explícita elimina la advertencia al renderizar de nuevo');
+            testRunner.assert(attendedHtml.includes('hours-badge'), 'la tarjeta asistida conserva el badge normal de horas');
+            const attendedCompactHtml = EmployeeRowCompact(employee);
+            testRunner.assert(!attendedCompactHtml.includes('No activo en esta fecha'), 'compacta también elimina la advertencia');
+            testRunner.assert(attendedCompactHtml.includes('8h'), 'compacta conserva sus horas normales');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+        }
+    },
+
+    "EmployeeRow permite asistencia histórica si está inactivo actualmente"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const employee = {
+            id: 'historical-card', number: '028', name: 'Empleado Histórico', positions: ['p1'], active: false,
+            statusHistory: [{ date: '2026-05-01', active: true }, { date: '2026-05-11', active: false }]
+        };
+        window.state.selectedDate = new Date('2026-05-10T12:00:00');
+        window.state.attendance = {};
+        window.state.positions = [{ id: 'p1', name: 'Ayudante', workingDays: [0] }];
+        try {
+            const html = EmployeeRow(employee);
+            testRunner.assert(html.includes('Inactivo actualmente'), 'pill slate de estado actual');
+            testRunner.assert(html.includes('data-att-action="handle-checkbox-click"'), 'la fecha históricamente activa sigue editable');
+            testRunner.assert(!html.includes('attendance-pending-tile'), 'no debe bloquear control histórico');
+            testRunner.assert(!html.includes('>INACTIVO<'), 'sin marcador inline antiguo');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+        }
+    },
 
     "DateControls: mantiene etiquetas consistentes para Dia y Semana independientemente de viewMode"() {
         const originalViewMode = window.state.viewMode;
@@ -97,6 +198,23 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.viewMode = originalViewMode;
             window.state.dayHoursConfig = originalDayHoursConfig;
             window.state.selectedDate = originalDate;
+        }
+    },
+
+    "DateControlsCompact: compara el color con las horas regulares configuradas, no con 8"() {
+        const originalViewMode = window.state.viewMode;
+        const originalSettings = window.state.settings;
+        const originalDayHoursConfig = window.state.dayHoursConfig;
+        window.state.viewMode = 'day';
+        window.state.settings = { ...window.state.settings, regularHoursPerDay: 6 };
+        window.state.dayHoursConfig = {};
+        try {
+            const html = DateControlsCompact();
+            testRunner.assert(html.includes('color: #10b981'), '6h debe ser jornada regular verde cuando Ajustes define 6h');
+        } finally {
+            window.state.viewMode = originalViewMode;
+            window.state.settings = originalSettings;
+            window.state.dayHoursConfig = originalDayHoursConfig;
         }
     },
 
@@ -291,6 +409,125 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.positions = originalPositions;
             window.state.employees = originalEmployees;
         }
+    },
+
+    "EmployeeRow: muestra resumen del período y nota diaria escapada"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const originalSettings = window.state.settings;
+        const employee = { id: 'emp-summary', number: '014', name: 'Resumen', positions: ['p1'], active: true, hireDate: '2026-05-04' };
+
+        window.state.selectedDate = new Date('2026-05-05T12:00:00');
+        window.state.positions = [{ id: 'p1', name: 'Ayudante', workingDays: [1, 2, 3, 4, 5] }];
+        window.state.settings = {
+            ...window.state.settings,
+            regularHoursPerDay: 8,
+            showAttendanceCardDeficit: true,
+            attendanceDeficitUnit: 'hours',
+            holidays: [],
+            payPeriod: { periodStart: '2026-05-01', periodLength: 15 }
+        };
+        window.state.attendance = {
+            'emp-summary-2026-05-04': { present: true, hoursWorked: 4, overtimeHours: 2, selectedPosition: 'p1' },
+            'emp-summary-2026-05-05': { present: true, hoursWorked: 8, overtimeHours: 0, selectedPosition: 'p1', notes: '<img src=x onerror=alert(1)>' }
+        };
+
+        try {
+            const html = EmployeeRow(employee);
+            testRunner.assert(html.includes('attendance-period-summary'), 'debe mostrar el pie compacto del período');
+            testRunner.assert(!html.includes('attendance-period-range'), 'la tarjeta no debe repetir el rango del período');
+            testRunner.assert(html.includes('1.5/2 días'), 'debe mostrar crédito proporcional 4/8 + 8/8');
+            testRunner.assert(html.includes('−4h'), 'debe respetar la unidad global de déficit');
+            testRunner.assert(html.includes('+2h extra'), 'debe mostrar extras por separado');
+            testRunner.assert(html.includes('attendance-card-note'), 'debe mostrar la nota del día por defecto');
+            testRunner.assert(html.includes('&lt;img src=x onerror=alert(1)&gt;'), 'debe escapar la nota');
+            testRunner.assert(!html.includes('<img src=x'), 'no debe inyectar HTML desde la nota');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+            window.state.settings = originalSettings;
+        }
+    },
+
+    "EmployeeRow: una tarjeta 3/10 se vuelve proporcional según sus horas reales"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const originalSettings = window.state.settings;
+        const originalDayHoursConfig = window.state.dayHoursConfig;
+        const employee = { id: 'emp-proportional', number: '015', name: 'Proporcional', positions: ['p1'], active: true, hireDate: '2026-05-04' };
+
+        window.state.selectedDate = new Date('2026-05-15T12:00:00');
+        window.state.positions = [{ id: 'p1', name: 'Ayudante', workingDays: [1, 2, 3, 4, 5] }];
+        window.state.settings = {
+            ...window.state.settings,
+            regularHoursPerDay: 8,
+            showAttendanceCardDeficit: true,
+            attendanceDeficitUnit: 'days',
+            holidays: [],
+            payPeriod: { periodStart: '2026-05-04', periodLength: 12 }
+        };
+        window.state.dayHoursConfig = {};
+        window.state.attendance = {
+            'emp-proportional-2026-05-04': { present: true, hoursWorked: 8, overtimeHours: 0, selectedPosition: 'p1' },
+            'emp-proportional-2026-05-05': { present: true, hoursWorked: 8, overtimeHours: 0, selectedPosition: 'p1' },
+            'emp-proportional-2026-05-06': { present: true, hoursWorked: 4, overtimeHours: 0, selectedPosition: 'p1' }
+        };
+
+        try {
+            const html = EmployeeRow(employee);
+            testRunner.assert(html.includes('2.5/10 días'), 'dos jornadas completas + 4/8 deben mostrar 2.5/10, no 3/10');
+            testRunner.assert(html.includes('−7.5 días'), 'el déficit debe concordar con el crédito proporcional');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+            window.state.settings = originalSettings;
+            window.state.dayHoursConfig = originalDayHoursConfig;
+        }
+    },
+
+    "EmployeeRow: oculta déficit por defecto sin perder crédito proporcional"() {
+        const originalDate = window.state.selectedDate;
+        const originalAttendance = window.state.attendance;
+        const originalPositions = window.state.positions;
+        const originalSettings = window.state.settings;
+        const employee = { id: 'emp-day-decimal', number: '016', name: 'Decimal', positions: ['p1'], active: true, hireDate: '2026-05-04' };
+        window.state.selectedDate = new Date('2026-05-04T12:00:00');
+        window.state.positions = [{ id: 'p1', name: 'Ayudante', workingDays: [1] }];
+        window.state.settings = {
+            ...window.state.settings,
+            regularHoursPerDay: 8,
+            showAttendanceCardDeficit: false,
+            attendanceDeficitUnit: 'days',
+            holidays: [],
+            payPeriod: { periodStart: '2026-05-04', periodLength: 1 }
+        };
+        window.state.attendance = {
+            'emp-day-decimal-2026-05-04': { present: true, hoursWorked: 5.5, overtimeHours: 0, selectedPosition: 'p1' }
+        };
+        try {
+            const html = EmployeeRow(employee);
+            testRunner.assert(html.includes('0.7/1 días'), '0.6875 días debe mostrarse como 0.7');
+            testRunner.assert(!html.includes('attendance-period-deficit'), 'el déficit debe ocultarse completamente por defecto');
+            testRunner.assert(!html.includes('−0.3 días'), 'el valor oculto no debe quedar en el HTML');
+            testRunner.assert(!html.includes('0.6875/1'), 'la precisión completa no debe filtrarse a la presentación');
+        } finally {
+            window.state.selectedDate = originalDate;
+            window.state.attendance = originalAttendance;
+            window.state.positions = originalPositions;
+            window.state.settings = originalSettings;
+        }
+    },
+
+    "EmployeeRow: conserva el gradiente semántico de jornada incompleta para déficit"() {
+        const cssSource = require('fs').readFileSync(require('path').resolve(__dirname, '../../css/attendance_ui.css'), 'utf8');
+        testRunner.assert(
+            /\.attendance-period-deficit\.check-undertime[\s\S]*?linear-gradient\(135deg,\s*#ec4899,\s*#ef4444\)/.test(cssSource),
+            'El déficit debe usar el gradiente rosa-rojo establecido'
+        );
     },
 
     "EmployeeRow: la huella de memo cambia al mover el marco seleccionado"() {
