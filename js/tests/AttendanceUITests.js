@@ -6,6 +6,7 @@ import {
     AttendanceBulkActions,
     DateControls,
     DateControlsCompact,
+    shouldShowCompactDayControls,
     formatSplitName,
     WeekView,
     SearchBar,
@@ -73,6 +74,45 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.activeTab = originalActiveTab;
             window.DatePicker = originalDatePicker;
         }
+    },
+
+    "DateControlsCompact: agrupa fecha y selector compacto de horas en la vista diaria"() {
+        const originalViewMode = window.state.viewMode;
+        const originalDayHoursConfig = window.state.dayHoursConfig;
+        const originalDate = window.state.selectedDate;
+
+        window.state.viewMode = 'day';
+        window.state.selectedDate = new Date('2026-07-26T12:00:00');
+        window.state.dayHoursConfig = { '2026-07-26': 8 };
+
+        try {
+            const html = DateControlsCompact();
+            testRunner.assert(html.includes('attendance-floating-date'), 'Debe identificar la navegación flotante de fecha');
+            testRunner.assert(html.includes('attendance-floating-hours'), 'Debe colocar el selector flotante de horas debajo de la fecha');
+            testRunner.assert(html.includes('data-att-action="change-base-hours"'), 'Debe conservar el comportamiento del selector de horas');
+            testRunner.assert(html.includes('8h'), 'Debe mostrar las horas asignadas al día');
+            testRunner.assert(!html.includes('Horas a Asignar'), 'El selector flotante no debe mostrar un título adicional');
+            testRunner.assert(!html.includes('control-section center-control'), 'El selector flotante no debe conservar el marco exterior del control completo');
+        } finally {
+            window.state.viewMode = originalViewMode;
+            window.state.dayHoursConfig = originalDayHoursConfig;
+            window.state.selectedDate = originalDate;
+        }
+    },
+
+    "DateControlsCompact: espera a que acciones y primera fila salgan antes de fijarse"() {
+        testRunner.assert(
+            !shouldShowCompactDayControls({ scrollY: 562, activationScrollY: 200, safeTop: 73, protectedBottom: 181 }),
+            'No debe aparecer mientras el contenido protegido intersecte la zona flotante'
+        );
+        testRunner.assert(
+            shouldShowCompactDayControls({ scrollY: 562, activationScrollY: 200, safeTop: 73, protectedBottom: 72 }),
+            'Debe aparecer cuando acciones y primera fila ya hayan salido de la zona flotante'
+        );
+        testRunner.assert(
+            !shouldShowCompactDayControls({ scrollY: 150, activationScrollY: 200, safeTop: 73, protectedBottom: 40 }),
+            'Debe respetar el umbral mínimo de desplazamiento'
+        );
     },
 
     "formatSplitName: divide correctamente nombres largos en primer nombre y primer apellido"() {
@@ -187,6 +227,12 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             window.state.selectedDate = originalDate;
             window.state.attendance = originalAttendance;
         }
+    },
+
+    "DayView: mantiene buscador y acciones masivas en el flujo normal"() {
+        const html = DayView();
+        testRunner.assert(html.includes('attendance-flow-controls'), 'Debe usar un contenedor de flujo normal para los controles diarios');
+        testRunner.assert(!html.includes('class="sticky-controls-wrapper"'), 'La vista diaria no debe fijar la barra de acciones al desplazarse');
     },
 
     "DayView: aplica clase de distribucion de columnas"() {

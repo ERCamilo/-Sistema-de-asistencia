@@ -18,6 +18,7 @@ import {
     DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
     EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
     DateControls, DateControlsCompact, getDayHours, getCheckColor, getFilteredEmployeesForDay,
+    shouldShowCompactDayControls,
     getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
@@ -6737,8 +6738,31 @@ document.addEventListener('click', function (e) {
 let lastScrollTime = 0;
 window.addEventListener('scroll', () => {
     const scrollY = window.scrollY;
-    const isScrolled = scrollY > 200;
+    const passedScrollThreshold = scrollY > 200;
     const showBackToTop = scrollY > 400;
+    const onAttendance = state.activeTab === 'attendance';
+    let shouldShowCompactControls = passedScrollThreshold;
+
+    if (onAttendance && state.viewMode === 'day') {
+        const compactControls = document.querySelector('.date-controls-compact');
+        const protectedElements = [
+            document.querySelector('.attendance-bulk-bar'),
+            document.querySelector('#day-view-list .employee-row')
+        ].filter(Boolean);
+        const protectedBottom = protectedElements.length
+            ? Math.max(...protectedElements.map(element => element.getBoundingClientRect().bottom))
+            : Number.NEGATIVE_INFINITY;
+        const safeTop = compactControls
+            ? parseFloat(getComputedStyle(compactControls).top) || 0
+            : 0;
+
+        shouldShowCompactControls = shouldShowCompactDayControls({
+            scrollY,
+            activationScrollY: 200,
+            safeTop,
+            protectedBottom
+        });
+    }
 
     // 🚀 Control del botón "Ir Arriba"
     const backToTopBtn = document.getElementById('backToTop');
@@ -6747,7 +6771,7 @@ window.addEventListener('scroll', () => {
         else backToTopBtn.classList.remove('visible');
     }
 
-    if (isScrolled !== state.isScrolled) {
+    if (shouldShowCompactControls !== state.isScrolled) {
         const now = Date.now();
         if (now - lastScrollTime > 50) { // Throttle de 50ms
             // state.isScrolled solo lo consume la vista de Asistencia (sus
@@ -6757,15 +6781,14 @@ window.addEventListener('scroll', () => {
             // hacia arriba (bug visible en Préstamos al hacer scroll). Por eso:
             //   - en Asistencia: escritura por proxy (necesita re-render);
             //   - en el resto: escritura en crudo (valor correcto, sin render).
-            const onAttendance = state.activeTab === 'attendance';
             if (onAttendance) {
-                state.isScrolled = isScrolled;
+                state.isScrolled = shouldShowCompactControls;
             } else {
-                stateManager.getState().isScrolled = isScrolled;
+                stateManager.getState().isScrolled = shouldShowCompactControls;
             }
             const compactControls = document.querySelector('.date-controls-compact');
             if (compactControls) {
-                if (isScrolled && onAttendance) {
+                if (shouldShowCompactControls && onAttendance) {
                     compactControls.classList.add('visible');
                 } else {
                     compactControls.classList.remove('visible');

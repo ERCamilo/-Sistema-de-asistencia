@@ -103,6 +103,16 @@ attachAttendanceDelegation();
 // --------------------------------------------------------------------------
 // 📅 COMPONENTE: DateControlsCompact
 // --------------------------------------------------------------------------
+export function shouldShowCompactDayControls({
+    scrollY,
+    activationScrollY = 200,
+    safeTop,
+    protectedBottom
+}) {
+    return Number(scrollY) > Number(activationScrollY)
+        && Number(protectedBottom) <= Number(safeTop);
+}
+
 export function DateControlsCompact() {
     const isWeek = state.viewMode === 'week';
     const isLegacy = state.settings?.legacyNavigation;
@@ -130,24 +140,42 @@ export function DateControlsCompact() {
     ].filter(Boolean).join(' ');
 
     const isToday = getDateKey(new Date()) === getDateKey(state.selectedDate);
+    const dayHours = getDayHours(state.selectedDate);
+    let hourColor = '#10b981';
+    if (dayHours > 8) {
+        hourColor = '#3b82f6';
+    } else if (dayHours < 8) {
+        hourColor = '#ef4444';
+    }
 
     return `
             <div class="${classes}">
-                <div class="pill-nav">
-                    <button class="pill-btn" type="button" data-att-action="change-date" data-value="-1">
-                        ${icons.get('chevron-left', { size: 18 })}
-                    </button>
-                    
-                    <div class="pill-display" role="button" tabindex="0" data-att-action="toggle-date-picker" data-value="compact" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
-                        ${icons.get('calendar', { size: 14, color: isToday ? '#06b6d4' : undefined })}
-                        <span style="${isToday ? 'color: #06b6d4;' : ''}">${dateText}</span>
-                        ${datePickerHTML}
+                <div class="attendance-floating-date">
+                    <div class="pill-nav">
+                        <button class="pill-btn" type="button" data-att-action="change-date" data-value="-1">
+                            ${icons.get('chevron-left', { size: 18 })}
+                        </button>
+
+                        <div class="pill-display" role="button" tabindex="0" data-att-action="toggle-date-picker" data-value="compact" style="position: relative; ${isToday ? 'border-color: rgba(6, 182, 212, 0.5);' : ''}">
+                            ${icons.get('calendar', { size: 14, color: isToday ? '#06b6d4' : undefined })}
+                            <span style="${isToday ? 'color: #06b6d4;' : ''}">${dateText}</span>
+                            ${datePickerHTML}
+                        </div>
+
+                        <button class="pill-btn" type="button" data-att-action="change-date" data-value="1">
+                            ${icons.get('chevron-right', { size: 18 })}
+                        </button>
                     </div>
-                    
-                    <button class="pill-btn" type="button" data-att-action="change-date" data-value="1">
-                        ${icons.get('chevron-right', { size: 18 })}
-                    </button>
                 </div>
+                ${isWeek ? '' : `
+                    <div class="attendance-floating-hours" aria-label="Horas a asignar para este día">
+                        <div class="stepper-container" title="Horas a asignar para este día">
+                            <button class="stepper-btn" type="button" data-att-action="change-base-hours" data-value="-0.5" aria-label="Reducir horas">−</button>
+                            <div class="stepper-value" style="color: ${hourColor} !important;">${dayHours}h</div>
+                            <button class="stepper-btn" type="button" data-att-action="change-base-hours" data-value="0.5" aria-label="Aumentar horas">+</button>
+                        </div>
+                    </div>
+                `}
             </div>
         `;
 }
@@ -969,7 +997,7 @@ export function DayView() {
             ${StatsGrid()}
             ${Legend()}
             
-            <div class="sticky-controls-wrapper" style="margin-top: 12px; margin-bottom: 0;">
+            <div class="attendance-flow-controls" style="margin-top: 12px; margin-bottom: 0;">
                 ${SearchBar()}
                 ${AttendanceBulkActions(filtered)}
             </div>
