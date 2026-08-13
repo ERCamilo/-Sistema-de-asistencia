@@ -4,6 +4,7 @@
  */
 
 import { getDateKey, wasEmployeeActiveOnDate, parseDate } from '../utils/DateUtils.js';
+import { DEFAULT_REGULAR_HOURS_PER_DAY, normalizeRegularHoursPerDay } from '../utils/AttendanceHours.js';
 
 // 1. Clase Optimizador (Batch Rendering)
 class RenderOptimizer {
@@ -134,11 +135,13 @@ const initialState = {
     employeeSalaryView: 'month',
     selectedPersonnelEmployeeId: null,
     settings: {
-        regularHoursPerDay: 8,
+        regularHoursPerDay: DEFAULT_REGULAR_HOURS_PER_DAY,
         syncEnabled: true,
         attendancePositionWatermarks: true,
         attendanceWatermarkVisibility: 'present',
         attendanceWatermarkContent: 'position',
+        showAttendanceCardDeficit: false,
+        attendanceDeficitUnit: 'days',
         overtimeFactor: 1,
         holidayFactor: 2,
         holidays: [],
@@ -354,8 +357,8 @@ export function calculateStats() {
             return sum + a.overtimeHours;
         }
 
-        // Cálculo automático basado en el umbral global de ajustes (no el del botón ±8h)
-        const threshold = state.settings?.regularHoursPerDay || 8;
+        // Cálculo automático basado en el umbral global de ajustes (no el selector diario)
+        const threshold = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
         return sum + Math.max(0, (a.hoursWorked || 0) - threshold);
     }, 0);
     

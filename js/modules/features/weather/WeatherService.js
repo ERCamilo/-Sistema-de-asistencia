@@ -208,9 +208,11 @@ export function setActiveProvider(state, name) {
     // Invalidate cache when provider changes so we don't show stale
     // data with the new provider's branding/units mismatch.
     if (state.weather?.cache) {
-        state.weather.cache.current = null;
-        state.weather.cache.forecast = null;
-        state.weather.cache.alerts = null;
-        state.weather.cache.provider = name;
+        const cache = state.weather.cache;
+        cache.current = null;
+        cache.forecast = null;
+        cache.hourly = null;
+        cache.alerts = null;
+        cache.provider = name;
     }
 }

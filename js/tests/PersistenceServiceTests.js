@@ -20,6 +20,7 @@ import dataService from '../modules/services/DataService.js';
 import FirebaseService from '../modules/services/FirebaseService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 import { saveOutcomeNotifier } from '../modules/services/SaveOutcomeNotifier.js';
+import { updateWeatherRuntimeState } from '../modules/features/weather/WeatherRuntime.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -37,7 +38,8 @@ function snapshotState() {
         attendance: state.attendance,
         isDataLoaded: state.isDataLoaded,
         useIndexedDB: state.useIndexedDB,
-        settings: state.settings
+        settings: state.settings,
+        weather: state.weather
     }));
 }
 
@@ -49,6 +51,7 @@ function restoreState(snap) {
     state.isDataLoaded = snap.isDataLoaded;
     state.useIndexedDB = snap.useIndexedDB;
     state.settings = snap.settings;
+    state.weather = snap.weather;
 }
 
 function clearAllMocks() {
@@ -143,6 +146,38 @@ testRunner.addSuite("PersistenceService — saveApplicationData", {
                 indexedDBService.saveState.mock.calls.length >= 1,
                 "indexedDBService.saveState should have been called"
             );
+        } finally {
+            restoreState(snap);
+        }
+    },
+
+    async "persists weather cache without runtime-only status fields"() {
+        const snap = snapshotState();
+        try {
+            clearAllMocks();
+            state.isDataLoaded = true;
+            state.useIndexedDB = true;
+            state.weather = {
+                cache: { current: { data: { temp: 28 }, fetchedAt: Date.now() } },
+                provider: 'mock'
+            };
+            updateWeatherRuntimeState(state, {
+                loadState: 'error',
+                errorMessage: 'Transient request failure',
+                isRefreshing: true,
+                initialRefreshScheduled: true
+            });
+
+            saveApplicationData({ skipValidation: true });
+            await waitForSave();
+
+            const serialized = JSON.stringify(indexedDBService.saveState.mock.calls.at(-1)[0]);
+            testRunner.assert(serialized.includes('"cache"'), 'Weather cache remains serializable');
+            testRunner.assert(serialized.includes('"provider":"mock"'), 'Weather provider remains serializable');
+            testRunner.assert(!serialized.includes('loadState'), 'loadState is not persisted');
+            testRunner.assert(!serialized.includes('errorMessage'), 'errorMessage is not persisted');
+            testRunner.assert(!serialized.includes('isRefreshing'), 'isRefreshing is not persisted');
+            testRunner.assert(!serialized.includes('initialRefreshScheduled'), 'initial scheduler guard is not persisted');
         } finally {
             restoreState(snap);
         }

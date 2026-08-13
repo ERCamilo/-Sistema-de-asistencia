@@ -84,11 +84,13 @@ testRunner.addSuite("window.saveSettings — no lee los switches auto-save del D
     },
 
     "el resto de los campos borrador (companyName, factores, etc.) se sigue leyendo del DOM igual que antes"() {
-        for (const id of ['companyName', 'regularHoursPerDay', 'overtimeFactor', 'holidayFactor', 'defaultDeductionPercentage']) {
+        for (const id of ['companyName', 'regularHoursPerDay', 'overtimeFactor', 'holidayFactor', 'defaultDeductionPercentage', 'attendanceDeficitUnit', 'showAttendanceCardDeficit']) {
             const re = new RegExp(`getElementById\\(\\s*['"]${id}['"]\\s*\\)`);
             testRunner.assert(re.test(SAVE_SETTINGS_SRC),
                 `${id} sigue siendo borrador del DOM — el fix de F2 no debe tocar este comportamiento`);
         }
+        testRunner.assert(/state\.settings\.showAttendanceCardDeficit\s*=\s*showAttendanceCardDeficit/.test(SAVE_SETTINGS_SRC),
+            'saveSettings debe persistir explícitamente el checkbox de déficit');
     }
 });
 

@@ -4,6 +4,8 @@
  * Mantiene la base de datos central limpia de lógica de compatibilidad.
  */
 
+import { normalizeRegularHoursPerDay } from './AttendanceHours.js';
+
 export class LegacyMigrator {
     /**
      * Determina si un objeto de datos necesita migración
@@ -92,7 +94,9 @@ export class LegacyMigrator {
     static _sanitizeEntities(data) {
         // Asegurar que settings tenga campos mínimos
         const s = data.settings;
-        if (s.regularHoursPerDay === undefined) s.regularHoursPerDay = 8;
+        s.regularHoursPerDay = normalizeRegularHoursPerDay(s.regularHoursPerDay);
+        s.showAttendanceCardDeficit = s.showAttendanceCardDeficit === true;
+        if (!['days', 'hours'].includes(s.attendanceDeficitUnit)) s.attendanceDeficitUnit = 'days';
         if (s.attendancePositionWatermarks === undefined) s.attendancePositionWatermarks = true;
         if (!['always', 'present'].includes(s.attendanceWatermarkVisibility)) {
             s.attendanceWatermarkVisibility = 'present';

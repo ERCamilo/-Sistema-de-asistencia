@@ -169,6 +169,62 @@ testRunner.addSuite("SettingsUI — Inicialización y Dependencias", {
             'icono del trabajo debe ser el valor inicial');
     },
 
+    "SettingsTab: permite elegir déficit en días u horas y usa días por defecto"() {
+        const stateMock = {
+            settingsActiveTab: 'general',
+            settings: {
+                regularHoursPerDay: 8, syncEnabled: true, overtimeFactor: 1, holidayFactor: 2,
+                holidays: [], scrollbarMode: 'on-scroll', iconSet: 'default',
+                companyName: 'Empresa Test', weatherEnabled: false,
+                attendanceDeficitUnit: undefined
+            },
+            employees: [], positions: [], attendance: {}, swVersion: '1.0.0'
+        };
+        initSettingsUI({
+            state: stateMock,
+            icons: { get: () => '', getAvailableSets: () => ['default'] },
+            holidayService: { renderSettingsCalendar: () => '' },
+            get currentUser() { return null; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({ percentage: 0, usedMB: 0, available: '5MB' })
+        });
+
+        const html = SettingsTab();
+        testRunner.assert(html.includes('id="attendanceDeficitUnit"'), 'debe mostrar el selector global');
+        testRunner.assert(/value="days"[^>]*selected/.test(html), 'Días debe ser el valor inicial');
+        testRunner.assert(html.includes('value="hours"'), 'debe ofrecer Horas');
+    },
+
+    "SettingsTab: ofrece mostrar déficit en tarjetas y queda apagado por defecto"() {
+        const stateMock = {
+            settingsActiveTab: 'general',
+            settings: {
+                regularHoursPerDay: 8, syncEnabled: true, overtimeFactor: 1, holidayFactor: 2,
+                holidays: [], scrollbarMode: 'on-scroll', iconSet: 'default',
+                companyName: 'Empresa Test', weatherEnabled: false,
+                attendanceDeficitUnit: 'days'
+            },
+            employees: [], positions: [], attendance: {}, swVersion: '1.0.0'
+        };
+        initSettingsUI({
+            state: stateMock,
+            icons: { get: () => '', getAvailableSets: () => ['default'] },
+            holidayService: { renderSettingsCalendar: () => '' },
+            get currentUser() { return null; },
+            get autoSyncEnabled() { return true; },
+            calculateStorageStats: () => ({ percentage: 0, usedMB: 0, available: '5MB' })
+        });
+
+        let html = SettingsTab();
+        testRunner.assert(html.includes('id="showAttendanceCardDeficit"'), 'debe renderizar el control persistible');
+        testRunner.assert(html.includes('Mostrar déficit en las tarjetas'), 'debe usar una etiqueta clara');
+        testRunner.assert(!/id="showAttendanceCardDeficit"[^>]*checked/.test(html), 'sin setting explícito debe iniciar apagado');
+
+        stateMock.settings.showAttendanceCardDeficit = true;
+        html = SettingsTab();
+        testRunner.assert(/id="showAttendanceCardDeficit"[^>]*checked/.test(html), 'el valor persistido true debe renderizarse activo');
+    },
+
     "SettingsTab: renderiza la pestaña correcta según el tab activo"() {
         const stateMock = {
             settingsActiveTab: 'data',

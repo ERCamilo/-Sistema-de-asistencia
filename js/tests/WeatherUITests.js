@@ -23,6 +23,7 @@ import {
     refreshWeather
 } from '../modules/features/weather/WeatherController.js';
 import { fetchCurrent } from '../modules/features/weather/WeatherService.js';
+import { getWeatherRuntimeState, updateWeatherRuntimeState } from '../modules/features/weather/WeatherRuntime.js';
 import {
     DEFAULT_WEATHER_SUMMARY_METRICS,
     normalizeWeatherSummaryMetrics,
@@ -44,6 +45,12 @@ function resetWeatherState() {
     // tests can flip this off to exercise the kill-switch.
     state.settings = state.settings || {};
     state.settings.weatherEnabled = true;
+    updateWeatherRuntimeState(state, {
+        loadState: 'idle',
+        errorMessage: '',
+        isRefreshing: false,
+        initialRefreshScheduled: false
+    });
 }
 
 testRunner.addSuite("WeatherChip — render", {
@@ -81,6 +88,23 @@ testRunner.addSuite("WeatherChip — render", {
         delete state.settings.weatherEnabled;
         const html = WeatherChip();
         testRunner.assertEquals(html, '', 'Chip hidden by default — must be opted in');
+    },
+
+    "loading and error states are announced in the operational weather viewer"() {
+        resetWeatherState();
+        updateWeatherRuntimeState(state, { loadState: 'loading' });
+        let bar = WeatherBar();
+        testRunner.assert(bar.includes('aria-busy="true"'), 'Viewer exposes loading state');
+        testRunner.assert(bar.includes('weather-viewer-status'), 'Viewer has a stable live status region');
+        testRunner.assert(bar.includes('Actualizando clima'), 'Loading message is meaningful');
+
+        updateWeatherRuntimeState(state, {
+            loadState: 'error',
+            errorMessage: 'No se pudo actualizar el clima.'
+        });
+        bar = WeatherBar();
+        testRunner.assert(bar.includes('weather-viewer-status--error'), 'Viewer exposes fetch failures');
+        testRunner.assert(bar.includes('role="status"'), 'Viewer error is announced');
     }
 });
 
@@ -130,7 +154,7 @@ testRunner.addSuite("WeatherController — open/close flow", {
         await forceRefreshModule.forceRefreshWeather();
         
         testRunner.assert(state.weather.cache.current.fetchedAt > firstFetchedAt, 'fetchedAt updated indicating cache bypass');
-        testRunner.assertEquals(state.weather.isRefreshing, false, 'isRefreshing state is reset to false');
+        testRunner.assertEquals(getWeatherRuntimeState(state).isRefreshing, false, 'isRefreshing runtime state is reset to false');
     }
 });
 

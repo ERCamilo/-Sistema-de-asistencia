@@ -86,6 +86,16 @@ function setupHoliday(empCount) {
 
 testRunner.addSuite("AttendanceHandlers — Batching de render (Fase 4 Paso 5)", {
 
+    "changeBaseHours suma correctamente sobre regularHoursPerDay decimal persistido como string"() {
+        setup('day');
+        const raw = stateManager.getState();
+        raw.settings.regularHoursPerDay = '7.5';
+
+        changeBaseHours(0.5);
+
+        testRunner.assertEquals(raw.dayHoursConfig['2026-06-17'], 8);
+    },
+
     "changeBaseHours en semana agenda un número constante de renders (≤2), no 1 por día"() {
         installScheduleSpy();
         try {

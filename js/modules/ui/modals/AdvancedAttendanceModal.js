@@ -9,6 +9,7 @@ import { getDateKey, formatDateShort, isDayHoliday } from '../../utils/DateUtils
 import { Modal } from '../../components/Modal.js';
 import { debug } from '../../utils/Debug.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
+import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 
 /**
  * ⚙️ CLASE: AdvancedAttendanceModal
@@ -72,7 +73,9 @@ export class AdvancedAttendanceModal {
         const hasMultiplePositions = emp.positions && emp.positions.length > 1;
         
         // Asegurar valores por defecto
-        const hoursWorked = att.hoursWorked !== undefined ? att.hoursWorked : (state.settings?.regularHoursPerDay || 8);
+        const hoursWorked = att.hoursWorked !== undefined
+            ? att.hoursWorked
+            : normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
         const overtimeHours = att.overtimeHours || 0;
         const isHoliday = att.isHoliday || false;
         const notes = att.notes || '';

@@ -1,5 +1,6 @@
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
+import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOrchestrator.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -18,6 +19,7 @@ import {
     DayView, WeekView, StatsGrid, Legend, PositionFilters, SearchBar,
     EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
     DateControls, DateControlsCompact, getDayHours, getCheckColor, getFilteredEmployeesForDay,
+    shouldShowCompactDayControls,
     getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
@@ -96,6 +98,7 @@ import {
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
+import { normalizeRegularHoursPerDay, resolveDailyTargetHours } from './modules/utils/AttendanceHours.js';
 import { escapeHTML as _escapeHTML_split } from './modules/utils/Sanitize.js';
 // Local alias so the detail panel can use escapeHTML(...) without colliding
 // with any other escapeHTML helper defined later in this file.
@@ -162,7 +165,8 @@ import {
     WeatherBar,
     registerLegacyGlobals as registerWeatherGlobals,
     registerAdapter as registerWeatherAdapter,
-    setActiveProvider as setWeatherProvider
+    initializeWeatherAfterHydration,
+    updateWeatherApiKeyProvider
 } from './modules/features/weather/index.js';
 import { WeatherApiAdapter } from './modules/features/weather/adapters/WeatherApiAdapter.js';
 import { monitorSWVersion } from './modules/utils/SWVersion.js';
@@ -3339,8 +3343,12 @@ window.handleWeekCheck = (empId, dateStr) => {
             isHoliday: isDayHoliday(date, state.settings.holidays)
         });
 
-        // 🔥 Unificación: Usar horas configuradas para el día, o el default
-        const hours = (state.dayHoursConfig && state.dayHoursConfig[dateStr]) || (state.settings?.regularHoursPerDay || 8);
+        // 🔥 Unificación: respetar incluso un override diario explícito de cero.
+        const hours = resolveDailyTargetHours(
+            dateStr,
+            state.dayHoursConfig,
+            state.settings?.regularHoursPerDay
+        );
 
         // Crear registro de asistencia
         const newAttendance = {
@@ -3627,14 +3635,12 @@ window.WeatherChipWithPanel = WeatherChipWithPanel;
 window.WeatherBar = WeatherBar;
 registerWeatherGlobals();
 
-// Register the real WeatherAPI.com adapter and activate it if the admin
-// has configured an API key. Without a key, MockAdapter stays active.
+// Register the real adapter now. Provider selection and the initial refresh
+// happen only after loadApplicationData() restores the saved settings below.
+// That keeps startup nonblocking and avoids a duplicate pre-hydration fetch.
 (function _wireWeatherAdapter() {
     try {
         registerWeatherAdapter('weatherapi', WeatherApiAdapter);
-        if (state.settings?.weatherApiKey) {
-            setWeatherProvider(state, 'weatherapi');
-        }
     } catch (err) {
         if (window.debug) window.debug.log(`Weather adapter registration: ${err.message}`);
     }
@@ -4018,7 +4024,7 @@ function AttendancePageTitle() {
         ? pillWeekRange(state.selectedDate)
         : formatDateShort(state.selectedDate);
     const activeCount = (state.employees || []).filter(e => e.active !== false).length;
-    const defaultHours = state.settings?.regularHoursPerDay || 8;
+    const defaultHours = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
     const modeLabel = state.viewMode === 'week' ? 'Semanal' : 'Diaria';
     return `<div class="page-title-row">
                 <div>
@@ -4103,21 +4109,22 @@ function _AttendanceDetailPanelInner() {
     let periodHours = 0;
     let periodDays = 0;
     let overtimeHours = 0;
+    const regularHours = normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay);
     try {
         for (let d = new Date(rangeStart); d <= iterEnd; d.setDate(d.getDate() + 1)) {
             const dk = getDateKey(new Date(d));
             const att = state.attendance[`${emp.id}-${dk}`];
             if (att && att.present) {
+                const workedHours = Number(att.hoursWorked) || 0;
+                const dailyTargetHours = resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
                 periodDays++;
-                periodHours += (att.hoursWorked || 0);
-                const reg = state.settings?.regularHoursPerDay || 8;
-                if ((att.hoursWorked || 0) > reg) overtimeHours += (att.hoursWorked - reg);
+                periodHours += workedHours;
+                if (workedHours > dailyTargetHours) overtimeHours += (workedHours - dailyTargetHours);
             }
         }
     } catch (e) { /* defensive */ }
 
     // ----- Visual summary cards: current week + period hours progress -----
-    const regularHours = state.settings?.regularHoursPerDay || 8;
     const holidays = state.settings?.holidays || [];
     const firstWorkPosId = emp.positions?.[0];
     const firstWorkPos = state.positions.find(p => p.id === firstWorkPosId);
@@ -4157,7 +4164,9 @@ function _AttendanceDetailPanelInner() {
     let periodTargetHours = 0;
     for (let d = new Date(rangeStart); d <= rangeEnd; d.setDate(d.getDate() + 1)) {
         const dk = getDateKey(new Date(d));
-        if (worksOnDay(d) && !holidays.includes(dk)) periodTargetHours += regularHours;
+        if (worksOnDay(d) && !holidays.includes(dk)) {
+            periodTargetHours += resolveDailyTargetHours(dk, state.dayHoursConfig, regularHours);
+        }
     }
     const periodHoursPct = periodTargetHours > 0
         ? Math.min(100, Math.round((periodHours / periodTargetHours) * 100))
@@ -5570,6 +5579,14 @@ window.saveSettings = function () {
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
+    const attendanceDeficitUnitElement = document.getElementById('attendanceDeficitUnit');
+    const attendanceDeficitUnit = attendanceDeficitUnitElement
+        ? (attendanceDeficitUnitElement.value === 'hours' ? 'hours' : 'days')
+        : (state.settings.attendanceDeficitUnit === 'hours' ? 'hours' : 'days');
+    const showAttendanceCardDeficitElement = document.getElementById('showAttendanceCardDeficit');
+    const showAttendanceCardDeficit = showAttendanceCardDeficitElement
+        ? showAttendanceCardDeficitElement.checked
+        : state.settings.showAttendanceCardDeficit === true;
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks son switches
     // auto-save: ya están comprometidos en state (commitAutoSaveSwitch, ver
@@ -5638,6 +5655,10 @@ window.saveSettings = function () {
     // ⚡ Guardar configuración de nómina
     state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
     state.settings.scrollbarMode = scrollbarMode;
+    stateManager.batchSetState(() => {
+        state.settings.showAttendanceCardDeficit = showAttendanceCardDeficit;
+    });
+    state.settings.attendanceDeficitUnit = attendanceDeficitUnit;
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks NO se reasignan
     // acá: ya están comprometidos en state por commitAutoSaveSwitch. Tampoco
@@ -5658,20 +5679,9 @@ window.saveSettings = function () {
         }
     }
 
-    // Weather API key: cambiar provider segun presencia de key
-    const prevKey = state.settings.weatherApiKey || '';
-    state.settings.weatherApiKey = weatherApiKey;
-    if (weatherApiKey && weatherApiKey !== prevKey) {
-        // Key nueva o cambiada: activar adapter real e invalidar cache
-        try {
-            setWeatherProvider(state, 'weatherapi');
-        } catch (_e) { /* adapter no registrado — no deberia pasar */ }
-    } else if (!weatherApiKey && prevKey) {
-        // Key eliminada: volver a mock
-        try {
-            setWeatherProvider(state, 'mock');
-        } catch (_e) { /* siempre registrado */ }
-    }
+    // Weather API key: switch the canonical provider immediately. The
+    // WeatherService owns current/forecast/hourly cache invalidation.
+    updateWeatherApiKeyProvider({ currentState: state, weatherApiKey });
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
@@ -6737,8 +6747,31 @@ document.addEventListener('click', function (e) {
 let lastScrollTime = 0;
 window.addEventListener('scroll', () => {
     const scrollY = window.scrollY;
-    const isScrolled = scrollY > 200;
+    const passedScrollThreshold = scrollY > 200;
     const showBackToTop = scrollY > 400;
+    const onAttendance = state.activeTab === 'attendance';
+    let shouldShowCompactControls = passedScrollThreshold;
+
+    if (onAttendance && state.viewMode === 'day') {
+        const compactControls = document.querySelector('.date-controls-compact');
+        const protectedElements = [
+            document.querySelector('.attendance-bulk-bar'),
+            document.querySelector('#day-view-list .employee-row')
+        ].filter(Boolean);
+        const protectedBottom = protectedElements.length
+            ? Math.max(...protectedElements.map(element => element.getBoundingClientRect().bottom))
+            : Number.NEGATIVE_INFINITY;
+        const safeTop = compactControls
+            ? parseFloat(getComputedStyle(compactControls).top) || 0
+            : 0;
+
+        shouldShowCompactControls = shouldShowCompactDayControls({
+            scrollY,
+            activationScrollY: 200,
+            safeTop,
+            protectedBottom
+        });
+    }
 
     // 🚀 Control del botón "Ir Arriba"
     const backToTopBtn = document.getElementById('backToTop');
@@ -6747,7 +6780,7 @@ window.addEventListener('scroll', () => {
         else backToTopBtn.classList.remove('visible');
     }
 
-    if (isScrolled !== state.isScrolled) {
+    if (shouldShowCompactControls !== state.isScrolled) {
         const now = Date.now();
         if (now - lastScrollTime > 50) { // Throttle de 50ms
             // state.isScrolled solo lo consume la vista de Asistencia (sus
@@ -6757,15 +6790,14 @@ window.addEventListener('scroll', () => {
             // hacia arriba (bug visible en Préstamos al hacer scroll). Por eso:
             //   - en Asistencia: escritura por proxy (necesita re-render);
             //   - en el resto: escritura en crudo (valor correcto, sin render).
-            const onAttendance = state.activeTab === 'attendance';
             if (onAttendance) {
-                state.isScrolled = isScrolled;
+                state.isScrolled = shouldShowCompactControls;
             } else {
-                stateManager.getState().isScrolled = isScrolled;
+                stateManager.getState().isScrolled = shouldShowCompactControls;
             }
             const compactControls = document.querySelector('.date-controls-compact');
             if (compactControls) {
-                if (isScrolled && onAttendance) {
+                if (shouldShowCompactControls && onAttendance) {
                     compactControls.classList.add('visible');
                 } else {
                     compactControls.classList.remove('visible');
@@ -6968,9 +7000,16 @@ function _initOutgoingConflictGuard() {
     }, 6000);
 
     try {
-        // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
+        // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO) y, solo después,
+        // iniciar el clima sin bloquear el resto de la secuencia de arranque.
         debug.log('📂 Cargando datos...');
-        await loadApplicationData();
+        await hydrateApplicationAndInitializeWeather({
+            loadApplicationData,
+            initializeWeatherAfterHydration,
+            onWeatherStartupError: err => {
+                if (window.debug) window.debug.log(`Weather startup: ${err.message}`);
+            }
+        });
 
         // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
         // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.

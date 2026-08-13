@@ -129,6 +129,31 @@ export function SettingsGeneralTab(context) {
                         </fieldset>
                     </div>
 
+                    <label class="stg-switch-row ${state.settings.showAttendanceCardDeficit === true ? 'is-active' : ''}"
+                           role="switch" aria-checked="${state.settings.showAttendanceCardDeficit === true}">
+                        <input type="checkbox"
+                               id="showAttendanceCardDeficit"
+                               ${state.settings.showAttendanceCardDeficit === true ? 'checked' : ''}>
+                        <span class="stg-switch-copy">
+                            <strong>Mostrar déficit en las tarjetas</strong>
+                            <small>Agrega el faltante al resumen compacto de cada trabajador.</small>
+                        </span>
+                        <span class="stg-switch-track" aria-hidden="true">
+                            <span class="stg-switch-handle"></span>
+                        </span>
+                    </label>
+
+                    <div class="form-group" style="margin-top: 16px; margin-bottom: 16px;">
+                        <label class="form-label" for="attendanceDeficitUnit">Mostrar déficit de asistencia en</label>
+                        <select id="attendanceDeficitUnit" class="form-input">
+                            <option value="days" ${state.settings.attendanceDeficitUnit !== 'hours' ? 'selected' : ''}>Días</option>
+                            <option value="hours" ${state.settings.attendanceDeficitUnit === 'hours' ? 'selected' : ''}>Horas</option>
+                        </select>
+                        <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px; line-height: 1.5;">
+                            Cambia la unidad compacta del déficit en las tarjetas de asistencia.
+                        </div>
+                    </div>
+
                     <div id="weatherConfigPanel" class="stg-card" style="margin-top: 4px; margin-left: 0; display: ${state.settings.weatherEnabled === true ? 'block' : 'none'};">
                         <div class="stg-card-title">Configuración del Clima</div>
                         <div class="form-group" style="margin-bottom: 16px;">

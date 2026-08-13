@@ -38,6 +38,7 @@ function buildForm() {
     document.body.innerHTML = `
         <input id="companyName" value="Empresa Test">
         <input id="regularHoursPerDay" type="number" value="8">
+        <input id="showAttendanceCardDeficit" type="checkbox">
         <select id="scrollbarMode">
             <option value="always">Siempre</option>
             <option value="on-scroll" selected>Al hacer scroll</option>
@@ -66,6 +67,15 @@ testRunner.addSuite("SettingsDraftBar — isSettingsDraftDirty (value vs default
         document.getElementById('regularHoursPerDay').value = '9';
         testRunner.assert(isSettingsDraftDirty(document) === true,
             'un número editado debe marcar sucio');
+    },
+
+    "cambiar el checkbox de déficit lo ensucia y revertirlo limpia"() {
+        buildForm();
+        const checkbox = document.getElementById('showAttendanceCardDeficit');
+        checkbox.checked = true;
+        testRunner.assert(isSettingsDraftDirty(document) === true, 'activar el checkbox debe marcar borrador');
+        checkbox.checked = false;
+        testRunner.assert(isSettingsDraftDirty(document) === false, 'volver a defaultChecked debe limpiar el borrador');
     },
 
     "revertir a mano la edición vuelve a limpio"() {
@@ -171,6 +181,20 @@ testRunner.addSuite("SettingsDraftBar — barra pegajosa (crear/mostrar/ocultar)
             'descartar debe devolver el select a su opción defaultSelected');
         const bar = document.getElementById(SETTINGS_DRAFT_BAR_ID);
         testRunner.assert(!bar || bar.hidden === true, 'tras descartar la barra queda oculta');
+    },
+
+    "discardSettingsDraft revierte el checkbox de déficit y limpia el draft"() {
+        buildForm();
+        const checkbox = document.getElementById('showAttendanceCardDeficit');
+        checkbox.checked = true;
+        testRunner.assert(isSettingsDraftDirty(document) === true, 'el cambio previo debe estar sucio');
+
+        discardSettingsDraft({ doc: document });
+
+        testRunner.assert(checkbox.checked === checkbox.defaultChecked,
+            'Descartar debe restaurar checked desde defaultChecked');
+        testRunner.assert(checkbox.checked === false, 'el default apagado debe quedar visualmente apagado');
+        testRunner.assert(isSettingsDraftDirty(document) === false, 'tras descartar no debe quedar draft sucio');
     },
 
     "discardSettingsDraft no requiere window.render (reset puramente de DOM)"() {
