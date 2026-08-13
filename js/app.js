@@ -1,5 +1,6 @@
 import FirebaseService from './modules/services/FirebaseService.js';
 import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
+import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOrchestrator.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
 import { Header } from './modules/ui/Header.js';
@@ -164,7 +165,8 @@ import {
     WeatherBar,
     registerLegacyGlobals as registerWeatherGlobals,
     registerAdapter as registerWeatherAdapter,
-    setActiveProvider as setWeatherProvider
+    initializeWeatherAfterHydration,
+    updateWeatherApiKeyProvider
 } from './modules/features/weather/index.js';
 import { WeatherApiAdapter } from './modules/features/weather/adapters/WeatherApiAdapter.js';
 import { monitorSWVersion } from './modules/utils/SWVersion.js';
@@ -3633,14 +3635,12 @@ window.WeatherChipWithPanel = WeatherChipWithPanel;
 window.WeatherBar = WeatherBar;
 registerWeatherGlobals();
 
-// Register the real WeatherAPI.com adapter and activate it if the admin
-// has configured an API key. Without a key, MockAdapter stays active.
+// Register the real adapter now. Provider selection and the initial refresh
+// happen only after loadApplicationData() restores the saved settings below.
+// That keeps startup nonblocking and avoids a duplicate pre-hydration fetch.
 (function _wireWeatherAdapter() {
     try {
         registerWeatherAdapter('weatherapi', WeatherApiAdapter);
-        if (state.settings?.weatherApiKey) {
-            setWeatherProvider(state, 'weatherapi');
-        }
     } catch (err) {
         if (window.debug) window.debug.log(`Weather adapter registration: ${err.message}`);
     }
@@ -5679,20 +5679,9 @@ window.saveSettings = function () {
         }
     }
 
-    // Weather API key: cambiar provider segun presencia de key
-    const prevKey = state.settings.weatherApiKey || '';
-    state.settings.weatherApiKey = weatherApiKey;
-    if (weatherApiKey && weatherApiKey !== prevKey) {
-        // Key nueva o cambiada: activar adapter real e invalidar cache
-        try {
-            setWeatherProvider(state, 'weatherapi');
-        } catch (_e) { /* adapter no registrado — no deberia pasar */ }
-    } else if (!weatherApiKey && prevKey) {
-        // Key eliminada: volver a mock
-        try {
-            setWeatherProvider(state, 'mock');
-        } catch (_e) { /* siempre registrado */ }
-    }
+    // Weather API key: switch the canonical provider immediately. The
+    // WeatherService owns current/forecast/hourly cache invalidation.
+    updateWeatherApiKeyProvider({ currentState: state, weatherApiKey });
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
@@ -7011,9 +7000,16 @@ function _initOutgoingConflictGuard() {
     }, 6000);
 
     try {
-        // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO)
+        // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO) y, solo después,
+        // iniciar el clima sin bloquear el resto de la secuencia de arranque.
         debug.log('📂 Cargando datos...');
-        await loadApplicationData();
+        await hydrateApplicationAndInitializeWeather({
+            loadApplicationData,
+            initializeWeatherAfterHydration,
+            onWeatherStartupError: err => {
+                if (window.debug) window.debug.log(`Weather startup: ${err.message}`);
+            }
+        });
 
         // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
         // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.

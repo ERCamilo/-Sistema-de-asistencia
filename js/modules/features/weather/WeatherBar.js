@@ -21,6 +21,13 @@ import {
     resolveWeatherSummaryMetric,
     WEATHER_SUMMARY_METRIC_OPTIONS
 } from './WeatherSummaryMetrics.js';
+import { getWeatherRuntimeState } from './WeatherRuntime.js';
+
+export function getWeatherViewerLayout(viewportWidth) {
+    return typeof viewportWidth === 'number' && Number.isFinite(viewportWidth) && viewportWidth <= 480
+        ? 'narrow'
+        : 'standard';
+}
 
 function _shortDayLabel(dateKey, todayKey) {
     if (dateKey === todayKey) return 'Hoy';
@@ -324,7 +331,7 @@ function _renderMetricEditor(selectedMetrics) {
         </div>`;
 }
 
-function _renderExpandedBody(current, hourly, forecast, todayKey, syncLabel) {
+function _renderExpandedBody(current, hourly, forecast, todayKey, syncLabel, runtime) {
     const selectedMetrics = normalizeWeatherSummaryMetrics(state.settings?.weatherSummaryMetrics);
     const forecastExpanded = !!state.weatherForecastExpanded;
 
@@ -357,7 +364,7 @@ function _renderExpandedBody(current, hourly, forecast, todayKey, syncLabel) {
                     <button type="button"
                             class="weather-refresh-button"
                             data-app-fn="forceRefreshWeather"
-                            ${state.weather?.isRefreshing ? 'disabled' : ''}
+                            ${runtime.isRefreshing ? 'disabled' : ''}
                             aria-label="Actualizar clima">
                         ${_iconSvg('refresh')}
                     </button>
@@ -379,11 +386,24 @@ export function WeatherBar() {
     const location = getActiveLocation(state);
     const notice = _weatherNotice(current, hourly);
     const syncLabel = _formatRelativeSync(_lastWeatherSyncAt(state.weather?.cache));
+    const runtime = getWeatherRuntimeState(state);
+    const loadState = runtime.loadState;
+    const viewerLayout = getWeatherViewerLayout(typeof window === 'undefined' ? undefined : window.innerWidth);
+    const statusMessage = loadState === 'loading'
+        ? 'Actualizando clima…'
+        : loadState === 'offline'
+            ? 'Sin conexión. Se muestra el último clima disponible.'
+            : loadState === 'error'
+                ? (runtime.errorMessage || 'No se pudo actualizar el clima.')
+                : '';
 
     return `
-        <section class="weather-bar weather-bar--${expanded ? 'expanded' : 'collapsed'}"
+        <section class="weather-bar weather-bar--${expanded ? 'expanded' : 'collapsed'} weather-bar--${viewerLayout}"
+                 aria-busy="${loadState === 'loading'}"
                  aria-label="Clima para ${escapeHTML(location.name)}">
+            <div class="weather-viewer-status weather-viewer-status--${loadState}"
+                 role="status" aria-live="polite">${escapeHTML(statusMessage)}</div>
             ${_renderSummary(current, forecast, todayKey, notice, expanded)}
-            ${expanded ? _renderExpandedBody(current, hourly, forecast, todayKey, syncLabel) : ''}
+            ${expanded ? _renderExpandedBody(current, hourly, forecast, todayKey, syncLabel, runtime) : ''}
         </section>`;
 }

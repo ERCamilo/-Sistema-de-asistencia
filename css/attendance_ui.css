@@ -2617,7 +2617,7 @@ select[aria-invalid="true"] {
 
 .weather-summary {
     display: grid;
-    grid-template-columns: minmax(240px, 1.15fr) minmax(360px, 1.8fr) 44px;
+    grid-template-columns: minmax(180px, 1.15fr) minmax(0, 1.8fr) 44px;
     align-items: center;
     gap: 8px;
     min-height: 84px;
@@ -3103,6 +3103,41 @@ select[aria-invalid="true"] {
     stroke-linejoin: round;
 }
 
+.weather-bar--narrow {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.weather-bar--narrow .weather-summary-metrics {
+    grid-template-columns: 1fr;
+}
+
+.weather-bar--narrow .weather-metric-copy small {
+    display: block;
+    white-space: normal;
+}
+
+.weather-bar--narrow .weather-footer-actions {
+    flex-wrap: wrap;
+}
+
+.weather-viewer-status {
+    min-height: 20px;
+    padding: 4px 10px;
+    color: #94a3b8;
+    background: #0d1826;
+    font-size: 0.68rem;
+    line-height: 1.2;
+}
+
+.weather-viewer-status:empty {
+    min-height: 0;
+    padding-block: 0;
+}
+
+.weather-viewer-status--offline { color: #fde68a; }
+.weather-viewer-status--error { color: #fecaca; }
+
 .weather-hero-sun-rays {
     fill: none;
     stroke: #fde047;
@@ -3355,6 +3390,60 @@ select[aria-invalid="true"] {
 
     .weather-metric-editor-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .weather-bar {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    .weather-summary-current,
+    .weather-current-copy,
+    .weather-notice > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .weather-summary-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .weather-metric-card {
+        justify-content: flex-start;
+        flex-direction: row;
+        text-align: left;
+        border-left: 0;
+        border-top: 1px solid #334155;
+    }
+
+    .weather-metric-card:first-child {
+        border-top: 0;
+    }
+
+    .weather-metric-copy strong,
+    .weather-metric-copy small {
+        overflow: visible;
+        text-overflow: clip;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .weather-metric-copy small {
+        display: block;
+        white-space: normal;
+    }
+
+    .weather-footer-actions {
+        flex-wrap: wrap;
+    }
+
+    .weather-customize-button {
+        min-width: 0;
+        white-space: normal;
     }
 }
 

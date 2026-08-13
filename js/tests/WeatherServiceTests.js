@@ -24,6 +24,8 @@ import {
 } from '../modules/features/weather/WeatherService.js';
 import { WEATHER_ICON, WEATHER_TTL, DEFAULT_LOCATION, emojiFor, formatTemp } from '../modules/features/weather/WeatherTypes.js';
 import * as MockAdapterModule from '../modules/features/weather/adapters/MockAdapter.js';
+import { updateWeatherApiKeyProvider } from '../modules/features/weather/WeatherSettings.js';
+import { WeatherApiAdapter } from '../modules/features/weather/adapters/WeatherApiAdapter.js';
 
 function buildState(overrides = {}) {
     return {
@@ -236,7 +238,9 @@ testRunner.addSuite("WeatherService — location + provider switching", {
     async "setActiveProvider switches + clears the cache"() {
         const state = buildState();
         await fetchCurrent(state);
+        await fetchHourly(state);
         testRunner.assert(state.weather.cache.current.data, 'cache populated first');
+        testRunner.assert(state.weather.cache.hourly.data, 'hourly cache populated first');
 
         // Register a sibling adapter so setActiveProvider has somewhere to go.
         const fake = {
@@ -249,10 +253,42 @@ testRunner.addSuite("WeatherService — location + provider switching", {
         setActiveProvider(state, 'fake');
         testRunner.assertEquals(state.settings.weatherProvider, 'fake', 'provider flipped');
         testRunner.assertEquals(state.weather.cache.current, null, 'cache invalidated');
+        testRunner.assertEquals(state.weather.cache.hourly, null, 'hourly cache invalidated');
 
         // Next fetch should come from the new adapter.
         const data = await fetchCurrent(state);
         testRunner.assertEquals(data.temp, 99, 'fake adapter served');
+    },
+
+    "settings API-key changes switch the current-session provider and invalidate every forecast cache"() {
+        const state = buildState({
+            settings: { weatherApiKey: '', weatherProvider: 'mock' },
+            weather: {
+                cache: {
+                    current: { data: { temp: 25 }, fetchedAt: Date.now() },
+                    forecast: { data: [{ date: '2026-08-13' }], fetchedAt: Date.now() },
+                    hourly: { data: [{ hourLabel: '12:00' }], fetchedAt: Date.now() }
+                }
+            }
+        });
+        registerAdapter('weatherapi', WeatherApiAdapter);
+
+        testRunner.assert(updateWeatherApiKeyProvider({ currentState: state, weatherApiKey: 'new-key' }), 'Adding a key switches provider immediately');
+        testRunner.assertEquals(state.settings.weatherApiKey, 'new-key', 'New key is stored in the current session');
+        testRunner.assertEquals(state.settings.weatherProvider, 'weatherapi', 'Real provider becomes active');
+        testRunner.assertEquals(state.weather.cache.current, null, 'Current cache invalidated');
+        testRunner.assertEquals(state.weather.cache.forecast, null, 'Forecast cache invalidated');
+        testRunner.assertEquals(state.weather.cache.hourly, null, 'Hourly cache invalidated');
+
+        state.weather.cache.current = { data: { temp: 28 }, fetchedAt: Date.now() };
+        state.weather.cache.forecast = { data: [{ date: '2026-08-14' }], fetchedAt: Date.now() };
+        state.weather.cache.hourly = { data: [{ hourLabel: '15:00' }], fetchedAt: Date.now() };
+
+        testRunner.assert(updateWeatherApiKeyProvider({ currentState: state, weatherApiKey: '' }), 'Removing a key switches provider immediately');
+        testRunner.assertEquals(state.settings.weatherProvider, 'mock', 'Mock provider becomes active');
+        testRunner.assertEquals(state.weather.cache.current, null, 'Current cache invalidated after removal');
+        testRunner.assertEquals(state.weather.cache.forecast, null, 'Forecast cache invalidated after removal');
+        testRunner.assertEquals(state.weather.cache.hourly, null, 'Hourly cache invalidated after removal');
     },
 
     "setActiveProvider throws for unknown names"() {

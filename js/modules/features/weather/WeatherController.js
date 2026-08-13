@@ -14,10 +14,20 @@ import {
     normalizeWeatherSummaryMetrics,
     updateWeatherSummaryMetric
 } from './WeatherSummaryMetrics.js';
+import { getWeatherRuntimeState, updateWeatherRuntimeState } from './WeatherRuntime.js';
 
-function ensureWeatherState() {
-    if (!state.weather) state.weather = {};
-    if (typeof state.weather.panelOpen === 'undefined') state.weather.panelOpen = false;
+function ensureWeatherState(currentState = state) {
+    if (!currentState.weather) currentState.weather = {};
+    if (typeof currentState.weather.panelOpen === 'undefined') currentState.weather.panelOpen = false;
+    return currentState.weather;
+}
+
+function isOnline() {
+    return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+function setWeatherLoadState(loadState, errorMessage = '') {
+    updateWeatherRuntimeState(state, { loadState, errorMessage });
 }
 
 /**
@@ -32,7 +42,15 @@ function ensureWeatherState() {
  * @returns {boolean} true if anything changed (cache miss + new data)
  */
 export async function refreshWeather(opts = {}) {
+    if (!isOnline()) {
+        setWeatherLoadState('offline');
+        render();
+        return false;
+    }
+
     ensureWeatherState();
+    setWeatherLoadState('loading');
+    render();
     let changed = false;
     try {
         const prevCurrent = state.weather.cache?.current?.fetchedAt;
@@ -46,15 +64,50 @@ export async function refreshWeather(opts = {}) {
         const prevHourly = state.weather.cache?.hourly?.fetchedAt;
         await fetchHourly(state, 24, 3, { force: !!opts.force });
         if (state.weather.cache?.hourly?.fetchedAt !== prevHourly) changed = true;
+
+        setWeatherLoadState('ready');
     } catch (err) {
-        // Never let a weather error break the rest of the UI. Log and move on.
+        // Never let a weather error break the rest of the UI. Preserve the
+        // cached snapshot and provide an accessible, actionable status instead.
+        setWeatherLoadState('error', 'No se pudo actualizar el clima. Intenta nuevamente cuando tengas conexión.');
         if (window.debug) window.debug.log(`refreshWeather error: ${err.message}`);
     }
-    if (changed || opts.force) {
-        saveApplicationData();
-        render();
-    }
+    if (changed || opts.force) saveApplicationData();
+    // Always project the terminal ready/error state. A cache hit changes no
+    // timestamps, but the viewer must still leave aria-busy="true".
+    render();
     return changed;
+}
+
+/**
+ * Starts the initial refresh only after persisted settings are available.
+ * It deliberately uses the saved WeatherService location and never requests
+ * browser geolocation. Scheduling through a microtask keeps first paint free
+ * of network work and the runtime flag prevents a later initializer from
+ * duplicating the same refresh.
+ */
+export function scheduleInitialWeatherRefresh({
+    currentState = state,
+    refresh = refreshWeather,
+    online = isOnline()
+} = {}) {
+    if (currentState?.settings?.weatherEnabled !== true) return false;
+
+    const runtime = getWeatherRuntimeState(currentState);
+    if (!online) {
+        updateWeatherRuntimeState(currentState, { loadState: 'offline', errorMessage: '' });
+        if (currentState === state) render();
+        return false;
+    }
+    if (runtime.initialRefreshScheduled) return false;
+
+    updateWeatherRuntimeState(currentState, {
+        initialRefreshScheduled: true,
+        loadState: 'loading',
+        errorMessage: ''
+    });
+    Promise.resolve().then(() => refresh());
+    return true;
 }
 
 /**
@@ -63,15 +116,16 @@ export async function refreshWeather(opts = {}) {
  */
 export async function forceRefreshWeather() {
     ensureWeatherState();
-    if (state.weather.isRefreshing) return;
+    const runtime = getWeatherRuntimeState(state);
+    if (runtime.isRefreshing) return;
     
-    state.weather.isRefreshing = true;
+    updateWeatherRuntimeState(state, { isRefreshing: true });
     render();
     
     try {
         await refreshWeather({ force: true });
     } finally {
-        state.weather.isRefreshing = false;
+        updateWeatherRuntimeState(state, { isRefreshing: false });
         render();
     }
 }
@@ -174,7 +228,4 @@ export function registerLegacyGlobals() {
     window.forceRefreshWeather = forceRefreshWeather;
     _installOutsideClickHandler();
     _installMetricChangeHandler();
-    // Kick a refresh at boot so the chip has fresh data on first render.
-    // Fire-and-forget: don't block module initialization on network.
-    refreshWeather();
 }
