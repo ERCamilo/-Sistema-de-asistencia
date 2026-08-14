@@ -2,6 +2,7 @@ import { Modal } from '../modules/components/Modal.js';
 import { state } from '../modules/core/AppState.js';
 import * as PayrollUI from '../modules/features/payroll/PayrollUI.js';
 import payrollClosureStore from '../modules/features/payroll/PayrollClosureStore.js';
+import payrollClosureSync from '../modules/features/payroll/PayrollClosureSync.js';
 
 function closure(overrides = {}) {
     return {
@@ -30,11 +31,14 @@ function deferred() {
 describe('Payroll closure mutation UI', () => {
     let getById;
     let getByPeriod;
+    let pullPeriod;
     let saveWithEmployees;
+    let saveToLocalStorage;
     let alert;
     let render;
 
     beforeEach(() => {
+        globalThis.currentUser = { uid: 'payroll-test-user' };
         state.employees = [];
         state.exportConfig = {
             periodStart: '2026-08-01',
@@ -43,14 +47,17 @@ describe('Payroll closure mutation UI', () => {
             deductions: []
         };
         render = jest.fn();
+        saveToLocalStorage = jest.fn();
         PayrollUI.init({
             state,
             services: { payroll: { calculateEmployeePayroll: jest.fn() } },
             render,
-            saveToLocalStorage: jest.fn()
+            saveToLocalStorage
         });
         getById = jest.spyOn(payrollClosureStore, 'getById');
         getByPeriod = jest.spyOn(payrollClosureStore, 'getByPeriod').mockResolvedValue([]);
+        pullPeriod = jest.spyOn(payrollClosureSync, 'pullPeriod')
+            .mockResolvedValue({ closures: [], imported: 0, conflicts: [] });
         saveWithEmployees = jest.spyOn(payrollClosureStore, 'saveWithEmployees')
             .mockImplementation(async value => value);
         alert = jest.spyOn(Modal, 'alert').mockResolvedValue();
@@ -58,6 +65,7 @@ describe('Payroll closure mutation UI', () => {
 
     afterEach(() => {
         jest.restoreAllMocks();
+        delete globalThis.currentUser;
     });
 
     test('ignores a second undo while one is pending and releases the guard after success', async () => {
@@ -105,6 +113,41 @@ describe('Payroll closure mutation UI', () => {
         await PayrollUI.undoPayrollClosure('closure-1');
 
         expect(getById).toHaveBeenCalledTimes(2);
+        expect(alert).toHaveBeenCalledTimes(1);
+    });
+
+    test('refreshes the exact period and blocks undo when a remote successor is discovered', async () => {
+        const current = closure();
+        const successor = closure({ id: 'closure-2', supersedesId: current.id });
+        let refreshed = false;
+        getById.mockResolvedValue(current);
+        pullPeriod.mockImplementation(async (periodStart, periodEnd) => {
+            expect([periodStart, periodEnd]).toEqual([current.periodStart, current.periodEnd]);
+            refreshed = true;
+            return { closures: [current, successor], imported: 2, conflicts: [] };
+        });
+        getByPeriod.mockImplementation(async () => refreshed ? [current, successor] : [current]);
+
+        await PayrollUI.undoPayrollClosure(current.id);
+
+        expect(refreshed).toBe(true);
+        expect(saveWithEmployees).not.toHaveBeenCalled();
+        expect(saveToLocalStorage).not.toHaveBeenCalled();
+        expect(alert).toHaveBeenCalledWith(expect.objectContaining({
+            title: 'No se puede deshacer'
+        }));
+    });
+
+    test('fails closed when the remote period refresh fails', async () => {
+        const current = closure();
+        getById.mockResolvedValue(current);
+        pullPeriod.mockRejectedValue(new Error('remote unavailable'));
+
+        await PayrollUI.undoPayrollClosure(current.id);
+
+        expect(getByPeriod).not.toHaveBeenCalled();
+        expect(saveWithEmployees).not.toHaveBeenCalled();
+        expect(saveToLocalStorage).not.toHaveBeenCalled();
         expect(alert).toHaveBeenCalledTimes(1);
     });
 });

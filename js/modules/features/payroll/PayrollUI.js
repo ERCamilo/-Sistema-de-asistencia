@@ -59,8 +59,12 @@ import {
 import {
     readAdjustmentForm,
     renderDesktopAdjustmentWorkspace,
+    updateAdjustmentEmployeeSelection,
     updateAdjustmentFormPresentation
 } from './PayrollAdjustmentDesktop.js';
+import {
+    openPayrollAdjustmentEmployeePicker
+} from './PayrollAdjustmentEmployeePicker.js';
 
 let context = null;
 let payrollService = null;
@@ -167,6 +171,13 @@ const _ACTION_MAP = {
     'add-desktop-adjustment': (kind, target) => window.PayrollUI?.addDesktopAdjustment?.(kind, target),
     'update-desktop-adjustment': (kind, target) => window.PayrollUI?.updateDesktopAdjustment?.(kind, target),
     'remove-desktop-adjustment': (kind, target) => window.PayrollUI?.removeDesktopAdjustment?.(kind, target),
+    'open-adjustment-employee-picker': (_value, target) => {
+        window.PayrollUI?.openAdjustmentEmployeePicker?.(target);
+    },
+    'remove-adjustment-employee': (_value, target) => window.PayrollUI?.removeAdjustmentEmployee?.(
+        target.dataset.employeeId,
+        target
+    ),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
@@ -423,7 +434,12 @@ function PayrollGeneratorTab() {
     const exportData = generateExportData();
     latestPayrollPreviewRows = exportData;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
-    const hasInvalidLoanRows = invalidLoanRows.length > 0;
+    const invalidNetRows = exportData.filter(row => (Number(row.monto) || 0) <= 0.001);
+    const hasInvalidNetRows = invalidNetRows.length > 0;
+    const hasNonLoanInvalidRows = invalidNetRows.some(row => !row._invalidLoanNet);
+    const invalidPaymentMessage = hasNonLoanInvalidRows
+        ? `Hay ${invalidNetRows.length} empleado(s) cuyo pago queda en cero o negativo. Ajusta sus bonificaciones o deducciones antes de exportar.`
+        : `Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago en cero o negativo. Elimina sus préstamos temporales para habilitar la exportación.`;
     const previewFingerprint = buildPayrollPreviewFingerprint({
         periodStart: state.exportConfig.periodStart,
         periodEnd: state.exportConfig.periodEnd,
@@ -462,10 +478,9 @@ function PayrollGeneratorTab() {
     const hasEmployeeBonuses = employeesWithBonuses.length > 0;
     const employeeBonusesAdded = !!state.exportConfig.employeeBonusesAdded;
     
-    const employeeOptions = state.employees
-        .filter(e => e.active !== false)
+    const employeeOptions = [...state.employees]
         .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }))
-        .map(e => `<option value="${e.id}">${e.number} - ${e.name}</option>`)
+        .map(e => `<option value="${e.id}">${e.number} - ${e.name}${e.active === false ? ' (Inactivo)' : ''}</option>`)
         .join('');
         
     const leaderFilter = state.exportConfig.leaderFilter || 'all';
@@ -481,12 +496,16 @@ function PayrollGeneratorTab() {
     const deductionAmount = exportData.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
     const loanAmount = exportData.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
     const isVisibleReviewAmount = value => Math.abs(Number(value) || 0) >= 0.005;
-    const hasReviewAmount = key => exportData.some(item => isVisibleReviewAmount(item[key]));
-    const showBonusColumn = hasReviewAmount('_bonuses');
-    const showDeductionColumn = hasReviewAmount('_deductions');
-    const showLoanColumn = hasReviewAmount('_loans');
+    const previewCategoryTotals = {
+        bonuses: state.exportConfig.bonuses?.length || 0,
+        deductions: state.exportConfig.deductions?.length || 0,
+        loans: loanSummary.selectedCount
+    };
+    const showBonusColumn = previewCategoryTotals.bonuses > 0;
+    const showDeductionColumn = previewCategoryTotals.deductions > 0;
+    const showLoanColumn = previewCategoryTotals.loans > 0;
     const previewInclusion = getPayrollPreviewInclusion(state.exportConfig.payrollPreviewInclusion);
-    const previewCategoryCounts = getPayrollPreviewCategoryCounts(exportData, previewInclusion);
+    const previewCategoryCounts = getPayrollPreviewCategoryCounts(previewCategoryTotals, previewInclusion);
     const deductionDetails = summarizeAdjustmentDetails(
         state.exportConfig.deductions,
         exportData,
@@ -759,13 +778,13 @@ function PayrollGeneratorTab() {
                         </div>
 
             <!-- Paso 3: Vista Previa -->
-            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidLoanRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
+            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidNetRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
                 <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step3')}" data-payroll-action="toggle-step" data-value="step3" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step3') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 3: Vista Previa (${exportData.length} empleados)
                     </h3>
-                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidLoanRows ? '#f87171' : '#10b981'}; font-weight: 700;">${hasInvalidLoanRows ? `⚠️ ${invalidLoanRows.length} pago(s) inválido(s)` : formatCurrency(totalAmount)}</span>` : ''}
+                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidNetRows ? '#f87171' : '#10b981'}; font-weight: 700;">${hasInvalidNetRows ? `⚠️ ${invalidNetRows.length} pago(s) inválido(s)` : formatCurrency(totalAmount)}</span>` : ''}
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
@@ -781,9 +800,9 @@ function PayrollGeneratorTab() {
                     </div>
                 </div>
 
-                ${hasInvalidLoanRows ? `
+                ${hasInvalidNetRows ? `
                     <div role="alert" style="margin-bottom: 14px; padding: 12px; border: 1px solid #ef4444; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #fca5a5; font-weight: 700; font-size: 0.85rem;">
-                        ⚠️ Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago en cero o negativo. Elimina sus préstamos temporales para habilitar la exportación.
+                        ⚠️ ${invalidPaymentMessage}
                     </div>
                 ` : ''}
 
@@ -802,17 +821,17 @@ function PayrollGeneratorTab() {
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${emp._invalidLoanNet ? 'is-invalid' : ''}">
+                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${(emp._invalidLoanNet || (Number(emp.monto) || 0) <= 0.001) ? 'is-invalid' : ''}">
                                     <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
                                     <td class="payroll-review-table__employee">
                                         ${escapeHTML(emp._employeeName)}
-                                        ${emp._invalidLoanNet ? '<span>Pago inválido: elimina préstamos</span>' : ''}
+                                        ${(Number(emp.monto) || 0) <= 0.001 ? `<span>${emp._invalidLoanNet ? 'Pago inválido: elimina préstamos' : 'Pago inválido: ajusta bonificaciones o deducciones'}</span>` : ''}
                                     </td>
                                     <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
                                     ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
                                     ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
                                     ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
-                                    <td class="payroll-review-table__amount is-net ${emp._invalidLoanNet ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
+                                    <td class="payroll-review-table__amount is-net ${(emp._invalidLoanNet || (Number(emp.monto) || 0) <= 0.001) ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -871,9 +890,9 @@ function PayrollGeneratorTab() {
                             <small>Total neto</small>
                             <strong>${formatCurrency(totalAmount)}</strong>
                         </span>
-                        <span class="payroll-guide-summary__mobile-state ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
+                        <span class="payroll-guide-summary__mobile-state ${hasInvalidNetRows ? 'is-invalid' : 'is-valid'}">
                             <i aria-hidden="true"></i>
-                            ${hasInvalidLoanRows ? 'Revisar' : 'Listo'}
+                            ${hasInvalidNetRows ? 'Revisar' : 'Listo'}
                         </span>
                         <span class="payroll-guide-summary__mobile-label">
                             ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
@@ -925,20 +944,20 @@ function PayrollGeneratorTab() {
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
-                        <div class="payroll-guide-summary__validation ${hasInvalidLoanRows ? 'is-invalid' : 'is-valid'}">
-                        ${hasInvalidLoanRows
-                            ? `${icons.get('alert', { size: 16 })} ${invalidLoanRows.length} pago(s) requieren revisión`
+                        <div class="payroll-guide-summary__validation ${hasInvalidNetRows ? 'is-invalid' : 'is-valid'}">
+                        ${hasInvalidNetRows
+                            ? `${icons.get('alert', { size: 16 })} ${invalidNetRows.length} pago(s) requieren revisión`
                             : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
                         </div>
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                         <button type="button"
                                 data-payroll-action="copy-export-json"
-                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
                             ${icons.get('copy', { size: 15 })} Copiar JSON
                         </button>
                         <button type="button"
                                 data-payroll-action="download-export-json"
-                                ${hasInvalidLoanRows ? 'disabled aria-disabled="true"' : ''}>
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
                             ${icons.get('download', { size: 15 })} Descargar .json
                         </button>
                         </div>
@@ -1050,8 +1069,14 @@ function generateExportData() {
     );
     return filterPayablePayrollPreviewRows(previewRows)
         // Keep selected-loan rows even when their resulting payment is invalid,
-        // so the UI can show the error instead of silently omitting the employee.
-        .filter(emp => emp._montoBeforeLoans > 0.001 || emp._loans > 0)
+        // and keep applied adjustment rows so the UI can show zero/negative
+        // conflicts instead of silently omitting the employee.
+        .filter(emp =>
+            emp._montoBeforeLoans > 0.001
+            || emp._loans > 0
+            || (emp._bonusDetails || []).length > 0
+            || (emp._deductionDetails || []).length > 0
+        )
         .sort((a, b) => String(a._number || a.id).localeCompare(String(b._number || b.id), 'es', { numeric: true }));
 }
 
@@ -1063,23 +1088,33 @@ function buildDesktopAdjustment(kind, draft, current = {}) {
     const state = getState();
     const prefix = kind === 'bonuses' ? 'BON' : 'DED';
     const defaultName = kind === 'bonuses' ? 'Bono' : 'Descuento';
+    const employeeTargetIds = draft.scope === 'employee'
+        ? [...new Set((draft.targetIds || []).map(String))]
+            .sort((left, right) => left.localeCompare(right, 'es', { numeric: true }))
+        : [];
     const item = {
         id: current.id || `${prefix}-${Date.now()}-${state.exportConfig[kind]?.length || 0}`,
         name: draft.name || defaultName,
         type: draft.type,
         value: draft.value,
         scope: draft.scope,
-        targetId: draft.scope === 'global' ? null : String(draft.targetId),
+        targetId: draft.scope === 'global'
+            ? null
+            : draft.scope === 'employee'
+                ? employeeTargetIds[0]
+                : String(draft.targetId),
         remembered: draft.scope !== 'employee' && draft.remembered,
         source: current.source || 'manual'
     };
 
     if (draft.scope === 'employee') {
-        const employee = (state.employees || []).find(
-            entry => String(entry.id) === String(draft.targetId)
-        );
-        item.employeeId = draft.targetId;
-        item.employeeName = employee?.name || '';
+        const selectedEmployees = employeeTargetIds.map(employeeId =>
+            (state.employees || []).find(entry => String(entry.id) === employeeId)
+        ).filter(Boolean);
+        item.targetIds = employeeTargetIds;
+        item.employeeIds = employeeTargetIds;
+        item.employeeId = employeeTargetIds[0];
+        item.employeeName = selectedEmployees.map(employee => employee.name).join(', ');
     }
 
     return item;
@@ -1094,6 +1129,69 @@ function validateDesktopAdjustment(draft) {
         return 'Seleccioná el destino del ajuste.';
     }
     return null;
+}
+
+function buildAdjustmentEmployeePickerEntries() {
+    const state = getState();
+    const { periodStart, periodEnd } = state.exportConfig;
+    return [...(state.employees || [])]
+        .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }))
+        .map(employee => {
+            let payroll = { brutoOriginal: 0, breakdown: [] };
+            if (periodStart && periodEnd) {
+                try {
+                    payroll = calculatePayrollBeforeLoans(
+                        payrollService,
+                        employee.id,
+                        periodStart,
+                        periodEnd,
+                        state.exportConfig.deductions || [],
+                        state.exportConfig.bonuses || []
+                    );
+                } catch (_) {
+                    // The picker must remain usable even if one historical payroll cannot be calculated.
+                }
+            }
+            const organization = buildPayrollHistoricalOrganization({
+                employee,
+                breakdown: payroll.breakdown || [],
+                positions: state.positions || [],
+                leaders: state.leaders || []
+            });
+            const positions = organization.positionName === 'Sin posicion'
+                ? []
+                : organization.positionName.split(',').map(name => name.trim()).filter(Boolean);
+            return {
+                id: String(employee.id),
+                number: employee.number,
+                name: employee.name,
+                active: employee.active !== false,
+                positions,
+                gross: Number(payroll.brutoOriginal) || 0
+            };
+        });
+}
+
+export async function openAdjustmentEmployeePicker(target) {
+    const form = target?.closest('.payroll-adjustment-form');
+    if (!form) return;
+    const draft = readAdjustmentForm(form);
+    const selectedIds = await openPayrollAdjustmentEmployeePicker({
+        employees: buildAdjustmentEmployeePickerEntries(),
+        selectedIds: draft?.targetIds || []
+    });
+    if (!selectedIds) return;
+    updateAdjustmentEmployeeSelection(form, selectedIds, getState().employees || []);
+    updateAdjustmentFormPresentation(form, latestPayrollPreviewRows, getState().positions || []);
+}
+
+export function removeAdjustmentEmployee(employeeId, target) {
+    const form = target?.closest('.payroll-adjustment-form');
+    if (!form || employeeId == null) return;
+    const selectedIds = (readAdjustmentForm(form)?.targetIds || [])
+        .filter(id => id !== String(employeeId));
+    updateAdjustmentEmployeeSelection(form, selectedIds, getState().employees || []);
+    updateAdjustmentFormPresentation(form, latestPayrollPreviewRows, getState().positions || []);
 }
 
 function persistAdjustmentDefault(kind, previous, next) {
@@ -1126,6 +1224,10 @@ export function addDesktopAdjustment(kind, target) {
     stateManager.batchSetState(() => {
         if (!state.exportConfig[kind]) state.exportConfig[kind] = [];
         state.exportConfig[kind].push(item);
+        state.exportConfig.payrollAdjustmentComposerScopes = {
+            ...(state.exportConfig.payrollAdjustmentComposerScopes || {}),
+            [kind]: draft.scope
+        };
     });
     if (item.remembered) persistAdjustmentDefault(kind, null, item);
     window.showNotification?.(`${adjustmentKindLabel(kind)} agregada.`, 'success');
@@ -1150,6 +1252,10 @@ export function updateDesktopAdjustment(kind, target) {
     const next = buildDesktopAdjustment(kind, draft, previous);
     stateManager.batchSetState(() => {
         state.exportConfig[kind][index] = next;
+        state.exportConfig.payrollAdjustmentComposerScopes = {
+            ...(state.exportConfig.payrollAdjustmentComposerScopes || {}),
+            [kind]: draft.scope
+        };
     });
     if (previous.remembered || next.remembered) {
         persistAdjustmentDefault(kind, previous, next);
@@ -2317,6 +2423,16 @@ export async function undoPayrollClosure(closureId) {
         const state = getState();
         const closure = await payrollClosureStore.getById(closureId);
         if (!closure) throw new Error('No se encontró el cierre de Nómina');
+        if (!canUsePayrollRemote()) {
+            throw new Error('Conectate para verificar que este período no tenga una corrección remota.');
+        }
+        const refresh = await payrollClosureSync.pullPeriod(
+            closure.periodStart,
+            closure.periodEnd
+        );
+        if (refresh.conflicts?.length) {
+            throw new Error('No se pudo verificar el estado remoto de este cierre de Nómina.');
+        }
         const activeClosures = await payrollClosureStore.getByPeriod(
             closure.periodStart,
             closure.periodEnd

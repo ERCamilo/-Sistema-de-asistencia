@@ -32,6 +32,67 @@ testRunner.addSuite('PayrollPeriod — período y elegibilidad', {
         testRunner.assertEquals(JSON.stringify(result.map(item => item.id)), JSON.stringify([1]), 'Nómina solo debe incluir empleados activos');
     },
 
+    'incluye un empleado inactivo cuando una regla individual vigente lo selecciona'() {
+        const state = {
+            employees: [
+                { id: 1, number: 1, active: true },
+                { id: 2, number: 2, active: false },
+                { id: 3, number: 3, active: false }
+            ],
+            positions: [],
+            attendance: {},
+            exportConfig: {
+                leaderFilter: 'all',
+                bonuses: [{
+                    id: 'BON-1',
+                    scope: 'employee',
+                    targetIds: ['2'],
+                    type: 'fixed',
+                    value: 2000
+                }],
+                deductions: []
+            }
+        };
+
+        const result = getPayrollEmployeesForPeriod(state, '2026-07-01', '2026-07-15');
+
+        testRunner.assertEquals(
+            JSON.stringify(result.map(item => item.id)),
+            JSON.stringify([1, 2]),
+            'Debe incluir únicamente al inactivo seleccionado por la regla'
+        );
+    },
+
+    'aplica el filtro de líder al inactivo seleccionado por una deducción'() {
+        const state = {
+            employees: [
+                { id: 2, number: 2, active: false, position: 10 },
+                { id: 3, number: 3, active: false, position: 99 }
+            ],
+            positions: [{ id: '10', leaderId: 7 }],
+            attendance: {},
+            exportConfig: {
+                leaderFilter: '7',
+                bonuses: [],
+                deductions: [{
+                    id: 'DED-1',
+                    scope: 'employee',
+                    employeeIds: ['2', '3'],
+                    type: 'fixed',
+                    value: 500
+                }]
+            }
+        };
+
+        const result = getPayrollEmployeesForPeriod(state, '2026-07-01', '2026-07-15');
+
+        testRunner.assertEquals(
+            JSON.stringify(result.map(item => item.id)),
+            JSON.stringify([2]),
+            'El inactivo ajustado todavía debe respetar el líder seleccionado'
+        );
+    },
+
     'acepta líder por posición actual o histórica normalizando ids'() {
         const state = {
             employees: [

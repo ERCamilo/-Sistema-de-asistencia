@@ -40,4 +40,19 @@ describe('PayrollSummary — grouped adjustment details', () => {
         expect(result.individualAmount).toBe(0);
         expect(result.totalAmount).toBe(0);
     });
+
+    test('counts one multi-employee rule and applies its full value to every selected row', () => {
+        const result = summarizeAdjustmentDetails([{
+            id: 'multi',
+            scope: 'employee',
+            targetIds: ['e1', 'e2'],
+            type: 'fixed',
+            value: 500
+        }], rows, 'Bonificación');
+
+        expect(result.globals).toEqual([]);
+        expect(result.individualCount).toBe(1);
+        expect(result.individualAmount).toBe(1000);
+        expect(result.totalAmount).toBe(1000);
+    });
 });

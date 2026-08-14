@@ -1,5 +1,6 @@
 import {
     applyPayrollPreviewInclusion,
+    filterPayablePayrollPreviewRows,
     getPayrollPreviewInclusion,
     getPayrollPreviewCategoryCounts
 } from '../modules/features/payroll/PayrollPreview.js';
@@ -50,11 +51,26 @@ describe('PayrollPreview inclusion controls', () => {
         expect(effective.map(row => row.id)).toEqual([1, 2]);
     });
 
-    it('reports active category counts against the complete preview', () => {
-        expect(getPayrollPreviewCategoryCounts(rows, { bonuses: false, deductions: true, loans: true })).toEqual({
-            bonuses: { active: 0, total: 2 },
+    it('reports active configured items instead of counting payroll rows', () => {
+        expect(getPayrollPreviewCategoryCounts(
+            { bonuses: 1, deductions: 2, loans: 3 },
+            { bonuses: false, deductions: true, loans: true }
+        )).toEqual({
+            bonuses: { active: 0, total: 1 },
             deductions: { active: 2, total: 2 },
-            loans: { active: 2, total: 2 }
+            loans: { active: 3, total: 3 }
         });
+    });
+
+    it('keeps a non-positive row visible when it contains an applied adjustment', () => {
+        const invalidDeductionRow = {
+            id: 3,
+            monto: -500,
+            _loans: 0,
+            _bonusDetails: [],
+            _deductionDetails: [{ id: 'DED-1', amount: 500 }]
+        };
+
+        expect(filterPayablePayrollPreviewRows([invalidDeductionRow])).toEqual([invalidDeductionRow]);
     });
 });

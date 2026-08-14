@@ -80,6 +80,7 @@ function compactBatchSnapshot(batch) {
     return {
         id: batch.id,
         closureId: batch.closureId || null,
+        supersedesClosureId: batch.supersedesClosureId || null,
         source: batch.source,
         periodStart: batch.periodStart,
         periodEnd: batch.periodEnd,
@@ -326,16 +327,27 @@ function preflightPayrollBatch(employees, batch) {
         const existing = (loan.payments || []).find(payment => text(payment.id) === text(item.paymentId));
 
         if (existing) {
+            const sameChargeKeys = JSON.stringify((existing.payrollChargeKeys || []).map(text)) ===
+                JSON.stringify((item.chargeKeys || []).map(text));
             if (text(existing.payrollIdempotencyKey) !== text(item.idempotencyKey) ||
-                money(existing.amount) !== money(item.amount)) {
+                money(existing.amount) !== money(item.amount) || !sameChargeKeys) {
                 throw new Error(`Conflicto de identidad en el pago de ${item.concept}`);
             }
-            if (text(existing.payrollBatchId) !== text(batch.id) ||
-                existing.payrollPreviewFingerprint !== batch.previewFingerprint) {
+            const sameBatch = text(existing.payrollBatchId) === text(batch.id) &&
+                existing.payrollPreviewFingerprint === batch.previewFingerprint;
+            const immediateSuccessor = Boolean(
+                batch.closureId && batch.supersedesClosureId &&
+                text(batch.closureId) !== text(batch.supersedesClosureId) &&
+                text(existing.payrollClosureId) === text(batch.supersedesClosureId)
+            );
+            if (!sameBatch && !immediateSuccessor) {
                 throw new Error(`El cargo de ${item.concept} ya pertenece a otra Nómina o vista previa`);
             }
             if (!existing.voided) {
-                operations.push({ kind: 'existing', employee, loan, item, payment: existing });
+                operations.push({
+                    kind: immediateSuccessor ? 'relink' : 'existing',
+                    employee, loan, item, payment: existing
+                });
                 continue;
             }
         }
@@ -371,6 +383,28 @@ function preflightPayrollBatch(employees, batch) {
     return operations;
 }
 
+function relinkPayrollPayment(payment, operation, batch, firstPaymentId, now) {
+    payment.payrollBatchId = batch.id;
+    payment.payrollClosureId = batch.closureId || null;
+    payment.payrollSupersedesClosureId = batch.supersedesClosureId || null;
+    payment.payrollPreviewFingerprint = batch.previewFingerprint;
+    payment.payrollIdempotencyKey = operation.item.idempotencyKey;
+    payment.payrollChargeKeys = [...operation.item.chargeKeys];
+    payment.payrollPeriodStart = batch.periodStart;
+    payment.payrollPeriodEnd = batch.periodEnd;
+    payment.payrollBatchCreatedAt = batch.createdAt;
+    payment.payrollBatchUndoUntil = batch.undoUntil;
+    payment.payrollBatchTotal = batch.total;
+    payment.payrollBatchEmployeeCount = batch.employeeCount;
+    payment.payrollExpectedPaymentCount = batch.paymentRefs.length;
+    payment.payrollBatchSnapshot = operation.item.paymentId === firstPaymentId
+        ? compactBatchSnapshot(batch)
+        : null;
+    payment.updatedAt = Number(now) || Date.now();
+    operation.loan.updatedAt = payment.updatedAt;
+    operation.employee.updatedAt = payment.updatedAt;
+}
+
 export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.now(), recordedBy } = {}) {
     const operations = preflightPayrollBatch(employees, batch);
     const firstPaymentId = batch.paymentRefs?.[0]?.paymentId;
@@ -383,6 +417,11 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             payments.push(operation.payment);
             continue;
         }
+        if (operation.kind === 'relink') {
+            relinkPayrollPayment(operation.payment, operation, batch, firstPaymentId, now);
+            payments.push(operation.payment);
+            continue;
+        }
         if (operation.kind === 'restore') {
             const payment = restorePayment(
                 operation.employee,
@@ -391,24 +430,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
                 recordedBy ?? batch.recordedBy ?? null,
                 now
             );
-            payment.payrollBatchId = batch.id;
-            payment.payrollClosureId = batch.closureId || null;
-            payment.payrollPreviewFingerprint = batch.previewFingerprint;
-            payment.payrollIdempotencyKey = operation.item.idempotencyKey;
-            payment.payrollChargeKeys = [...operation.item.chargeKeys];
-            payment.payrollPeriodStart = batch.periodStart;
-            payment.payrollPeriodEnd = batch.periodEnd;
-            payment.payrollBatchCreatedAt = batch.createdAt;
-            payment.payrollBatchUndoUntil = batch.undoUntil;
-            payment.payrollBatchTotal = batch.total;
-            payment.payrollBatchEmployeeCount = batch.employeeCount;
-            payment.payrollExpectedPaymentCount = batch.paymentRefs.length;
-            if (operation.item.paymentId === firstPaymentId) {
-                payment.payrollBatchSnapshot = compactBatchSnapshot(batch);
-            }
-            payment.updatedAt = Number(now) || Date.now();
-            operation.loan.updatedAt = payment.updatedAt;
-            operation.employee.updatedAt = payment.updatedAt;
+            relinkPayrollPayment(payment, operation, batch, firstPaymentId, now);
             restoredCount++;
             payments.push(payment);
             continue;
@@ -423,6 +445,7 @@ export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.n
             source: 'payroll',
             payrollBatchId: batch.id,
             payrollClosureId: batch.closureId || null,
+            payrollSupersedesClosureId: batch.supersedesClosureId || null,
             payrollPreviewFingerprint: batch.previewFingerprint,
             payrollIdempotencyKey: operation.item.idempotencyKey,
             payrollChargeKeys: operation.item.chargeKeys,
@@ -465,6 +488,8 @@ export function listPayrollLoanSettlementBatches(employees, {
         const metadata = linked[0].payment;
         const snapshot = header ? clone(header) : {
             id,
+            closureId: text(metadata.payrollClosureId) || null,
+            supersedesClosureId: text(metadata.payrollSupersedesClosureId) || null,
             source: 'payroll',
             periodStart: text(metadata.payrollPeriodStart),
             periodEnd: text(metadata.payrollPeriodEnd),

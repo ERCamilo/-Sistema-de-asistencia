@@ -353,6 +353,16 @@ describe('Financial desktop layouts', () => {
             scope: 'position',
             targetId: 'position-1'
         });
+        expect(state.exportConfig.payrollAdjustmentComposerScopes.deductions).toBe('position');
+        const rerendered = document.createElement('div');
+        rerendered.innerHTML = PayrollUI.PayrollTab();
+        const nextForm = rerendered.querySelector(
+            '.payroll-adjustment-desktop.is-deduction .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+        expect(nextForm.dataset.adjustmentScope).toBe('position');
+        expect(nextForm.querySelector('input[name="scope"][value="position"]').checked).toBe(true);
+        expect(nextForm.querySelector('[name="name"]').value).toBe('');
+        expect(nextForm.querySelector('[name="value"]').value).toBe('');
         expect(render).toHaveBeenCalled();
     });
 
@@ -379,6 +389,80 @@ describe('Financial desktop layouts', () => {
 
         expect(state.exportConfig.deductions[0].name).toBe('Descuento');
         expect(state.exportConfig.bonuses[0].name).toBe('Bono');
+    });
+
+    test('employee picker adds active and inactive employees to one adjustment rule', async () => {
+        state.positions = [
+            { id: 'bricklayer', name: 'Albañil', active: true },
+            { id: 'helper', name: 'Ayudante', active: true }
+        ];
+        state.employees = [
+            {
+                id: 'active-1', number: '001', name: 'Ada Activa', active: true,
+                positions: ['bricklayer'], loans: []
+            },
+            {
+                id: 'inactive-1', number: '099', name: 'Grace Inactiva', active: false,
+                positions: ['helper'], loans: []
+            }
+        ];
+        PayrollUI.setPayrollGuideStep('bonuses');
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+
+        const bonusForm = host.querySelector(
+            '.payroll-adjustment-desktop.is-bonus .payroll-adjustment-composer .payroll-adjustment-form'
+        );
+        bonusForm.querySelector('input[value="employee"]').checked = true;
+        const pickerPromise = PayrollUI.openAdjustmentEmployeePicker(
+            bonusForm.querySelector('[data-payroll-action="open-adjustment-employee-picker"]')
+        );
+        const modal = document.querySelector('.payroll-adjustment-picker');
+        const inactiveRow = modal.querySelector('[data-adjustment-picker-employee="inactive-1"]');
+
+        expect(modal).not.toBeNull();
+        expect(inactiveRow.textContent).toContain('Grace Inactiva');
+        expect(inactiveRow.textContent).toContain('Ayudante');
+        expect(inactiveRow.textContent).toContain('Inactivo');
+        modal.querySelector('[data-adjustment-picker-employee="active-1"]').click();
+        modal.querySelector('[data-adjustment-picker-employee="inactive-1"]').click();
+        document.querySelector('.modal-footer [data-button-index="1"]').click();
+        await pickerPromise;
+
+        expect(bonusForm.querySelectorAll('[data-adjustment-employee-chip]')).toHaveLength(2);
+        const activeChipRemove = [...bonusForm.querySelectorAll('[data-adjustment-employee-chip]')]
+            .find(chip => chip.textContent.includes('Ada Activa'))
+            .querySelector('[data-payroll-action="remove-adjustment-employee"]');
+        PayrollUI.removeAdjustmentEmployee('active-1', activeChipRemove);
+        expect(bonusForm.querySelectorAll('[data-adjustment-employee-chip]')).toHaveLength(1);
+
+        const reopenPromise = PayrollUI.openAdjustmentEmployeePicker(
+            bonusForm.querySelector('[data-payroll-action="open-adjustment-employee-picker"]')
+        );
+        const reopenedModal = [...document.querySelectorAll('.payroll-adjustment-picker')].at(-1);
+        expect(reopenedModal.querySelector('[data-adjustment-picker-employee="active-1"]')
+            .getAttribute('aria-pressed')).toBe('false');
+        expect(reopenedModal.querySelector('[data-adjustment-picker-employee="inactive-1"]')
+            .getAttribute('aria-pressed')).toBe('true');
+        reopenedModal.querySelector('[data-adjustment-picker-employee="active-1"]').click();
+        reopenedModal.closest('[data-modal-overlay]')
+            .querySelector('.modal-footer [data-button-index="1"]').click();
+        await reopenPromise;
+
+        bonusForm.querySelector('[name="value"]').value = '125';
+        PayrollUI.addDesktopAdjustment(
+            'bonuses',
+            bonusForm.querySelector('[data-payroll-action="add-desktop-adjustment"]')
+        );
+
+        expect(state.exportConfig.bonuses[0]).toMatchObject({
+            employeeId: 'active-1',
+            scope: 'employee',
+            targetId: 'active-1',
+            targetIds: ['active-1', 'inactive-1'],
+            value: 125
+        });
+        expect(state.exportConfig.payrollAdjustmentComposerScopes.bonuses).toBe('employee');
     });
 
     test('bonus and deduction detail rows expand independently', () => {
@@ -431,6 +515,169 @@ describe('Financial desktop layouts', () => {
         expect(host.querySelector('tbody tr').children).toHaveLength(4);
     });
 
+    test('review table keeps a configured bonus toggle visible when it applies zero in the current payroll', () => {
+        state.employees = [{
+            id: 'active-1',
+            number: '12',
+            name: 'Ada Activa',
+            active: true,
+            loans: []
+        }, {
+            id: 'inactive-1',
+            number: '501',
+            name: 'Hector Inactivo',
+            active: false,
+            loans: []
+        }];
+        state.exportConfig.bonuses = [{
+            id: 'BON-INACTIVE',
+            name: 'Bono',
+            type: 'fixed',
+            value: 20000,
+            scope: 'employee',
+            targetId: 'inactive-1',
+            targetIds: ['inactive-1'],
+            employeeId: 'inactive-1',
+            employeeIds: ['inactive-1']
+        }];
+        state.exportConfig.deductions = [];
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(() => ({
+                        brutoOriginal: 1200,
+                        bruto: 1200,
+                        bonuses: 0,
+                        deductions: 0,
+                        neto: 1200
+                    }))
+                }
+            },
+            render
+        });
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
+            .map(cell => cell.textContent.trim());
+
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.1/1', 'NETO']);
+        expect(host.querySelector('th.is-bonus input[type="checkbox"]')?.checked).toBe(true);
+        expect(host.querySelector('th.is-deduction')).toBeNull();
+        expect(host.querySelector('th.is-loan')).toBeNull();
+    });
+
+    test('review table includes an inactive employee selected by an individual bonus', () => {
+        state.employees = [{
+            id: 'active-1',
+            number: '12',
+            name: 'Ada Activa',
+            active: true,
+            loans: []
+        }, {
+            id: 'inactive-1',
+            number: '501',
+            name: 'Hector Inactivo',
+            active: false,
+            loans: []
+        }];
+        state.exportConfig.bonuses = [{
+            id: 'BON-INACTIVE',
+            name: 'Bono',
+            type: 'fixed',
+            value: 2000,
+            scope: 'employee',
+            targetId: 'inactive-1',
+            targetIds: ['inactive-1']
+        }];
+        state.exportConfig.deductions = [];
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(employeeId => employeeId === 'inactive-1'
+                        ? {
+                            brutoOriginal: 0,
+                            bruto: 2000,
+                            bonuses: 2000,
+                            deductions: 0,
+                            neto: 2000,
+                            bonusBreakdown: [{ id: 'BON-INACTIVE', name: 'Bono', amount: 2000 }]
+                        }
+                        : {
+                            brutoOriginal: 1200,
+                            bruto: 1200,
+                            bonuses: 0,
+                            deductions: 0,
+                            neto: 1200
+                        })
+                }
+            },
+            render
+        });
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const inactiveRow = [...host.querySelectorAll('.payroll-guide-panel--review tbody tr')]
+            .find(row => row.querySelector('.payroll-review-table__employee')?.textContent.includes('Hector Inactivo'));
+
+        expect(inactiveRow).toBeDefined();
+        expect(inactiveRow.querySelector('.is-bonus').textContent.trim()).toBe('+$2,000.00');
+        expect(inactiveRow.querySelector('.is-net').textContent.trim()).toBe('$2,000.00');
+    });
+
+    test('review table keeps an inactive deduction conflict visible and blocks export', () => {
+        state.employees = [{
+            id: 'inactive-1',
+            number: '501',
+            name: 'Hector Inactivo',
+            active: false,
+            loans: []
+        }];
+        state.exportConfig.bonuses = [];
+        state.exportConfig.deductions = [{
+            id: 'DED-INACTIVE',
+            name: 'Descuento',
+            type: 'fixed',
+            value: 500,
+            scope: 'employee',
+            targetId: 'inactive-1',
+            targetIds: ['inactive-1']
+        }];
+        state.exportConfig.payrollLoanSelection = [];
+        PayrollUI.init({
+            state,
+            services: {
+                payroll: {
+                    calculateEmployeePayroll: jest.fn(() => ({
+                        brutoOriginal: 0,
+                        bruto: 0,
+                        bonuses: 0,
+                        deductions: 500,
+                        neto: -500,
+                        deductionBreakdown: [{ id: 'DED-INACTIVE', name: 'Descuento', amount: 500 }]
+                    }))
+                }
+            },
+            render
+        });
+        PayrollUI.setPayrollGuideStep('review');
+
+        const host = document.createElement('div');
+        host.innerHTML = PayrollUI.PayrollTab();
+        const row = host.querySelector('.payroll-guide-panel--review tbody tr');
+
+        expect(row.querySelector('.payroll-review-table__employee').textContent).toContain('Hector Inactivo');
+        expect(row.classList.contains('is-invalid')).toBe(true);
+        expect(host.querySelector('[role="alert"]').textContent).toContain('cero o negativo');
+        expect(host.querySelector('[data-payroll-action="copy-export-json"]').disabled).toBe(true);
+    });
+
     test('review table shows non-empty optional columns and highlights loans in yellow', () => {
         state.employees = [{
             id: 'e1',
@@ -446,6 +693,20 @@ describe('Financial desktop layouts', () => {
                 payments: [],
                 refinancings: []
             }]
+        }];
+        state.exportConfig.bonuses = [{
+            id: 'BON-1',
+            name: 'Bono',
+            type: 'fixed',
+            value: 100,
+            scope: 'global'
+        }];
+        state.exportConfig.deductions = [{
+            id: 'DED-1',
+            name: 'Descuento',
+            type: 'fixed',
+            value: 300,
+            scope: 'global'
         }];
         state.exportConfig.payrollLoanSelection = [{ employeeId: 'e1', loanIds: ['loan-1'] }];
         PayrollUI.setPayrollGuideStep('review');

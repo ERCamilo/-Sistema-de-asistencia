@@ -97,4 +97,32 @@ describe('Payroll closure adjustments', () => {
         }, { periodStart: original.periodStart, periodEnd: original.periodEnd, adjustments }))
             .toThrow('BON-ONCE');
     });
+
+    test('preserves every employee selected by one rule through close and restore', () => {
+        const multiRule = {
+            id: 'BON-MULTI',
+            name: 'Bono de equipo',
+            type: 'fixed',
+            value: 500,
+            scope: 'employee',
+            targetId: 'e1',
+            targetIds: ['e1', 'e2']
+        };
+        const appliedRows = [{
+            _bonusDetails: [{ id: 'BON-MULTI', amount: 500 }],
+            _deductionDetails: []
+        }];
+        const snapshot = buildPayrollAdjustmentSnapshot({
+            rows: appliedRows,
+            bonuses: [multiRule],
+            deductions: []
+        });
+        const restored = restorePayrollClosureAdjustments(
+            { bonuses: [], deductions: [] },
+            { adjustments: snapshot }
+        );
+
+        expect(snapshot.bonuses[0].targetIds).toEqual(['e1', 'e2']);
+        expect(restored.bonuses[0].targetIds).toEqual(['e1', 'e2']);
+    });
 });

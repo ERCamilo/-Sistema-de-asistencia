@@ -44,14 +44,22 @@ export function applyPayrollPreviewInclusion(rows = [], inclusion = {}) {
     });
 }
 
-export function getPayrollPreviewCategoryCounts(rows = [], inclusion = {}) {
+export function getPayrollPreviewCategoryCounts(configuredCounts = {}, inclusion = {}) {
     const effectiveInclusion = getPayrollPreviewInclusion(inclusion);
-    return PREVIEW_CATEGORIES.reduce((result, category) => ({
-        ...result,
-        [category]: { active: effectiveInclusion[category] ? rows.length : 0, total: rows.length }
-    }), {});
+    return PREVIEW_CATEGORIES.reduce((result, category) => {
+        const total = Math.max(0, Math.trunc(Number(configuredCounts[category]) || 0));
+        return {
+            ...result,
+            [category]: { active: effectiveInclusion[category] ? total : 0, total }
+        };
+    }, {});
 }
 
 export function filterPayablePayrollPreviewRows(rows = []) {
-    return rows.filter(row => amount(row.monto) > 0.001 || amount(row._loans) > 0);
+    return rows.filter(row =>
+        amount(row.monto) > 0.001
+        || amount(row._loans) > 0
+        || (row._bonusDetails || []).length > 0
+        || (row._deductionDetails || []).length > 0
+    );
 }

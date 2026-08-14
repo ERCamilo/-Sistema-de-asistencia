@@ -299,4 +299,68 @@ describe('Unified payroll closure workflow', () => {
         expect(employees[0].loans[0].payments[0].voided).toBe(true);
         expect(undone.closure.status).toBe('voided');
     });
+
+    test('transfers a retained charge only to its explicit correction successor', () => {
+        const employees = [employee({ withLoan: true })];
+        const original = buildPayrollClosureDraft({
+            employees,
+            rows: [row({ withLoan: true })],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 100,
+            closedBy: 'operator'
+        });
+        applyPayrollLoanSettlementBatch(employees, original.batch, { now: 100 });
+        const payment = employees[0].loans[0].payments[0];
+        const audit = { recordedAt: payment.recordedAt, recordedBy: payment.recordedBy };
+        const correctedRow = { ...row({ withLoan: true }), _bonuses: 25, monto: 1025 };
+        const unrelated = buildPayrollClosureDraft({
+            employees,
+            rows: [correctedRow],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 200,
+            closedBy: 'operator'
+        });
+
+        expect(() => applyPayrollLoanSettlementBatch(employees, unrelated.batch, { now: 200 }))
+            .toThrow(/otra nómina|vista previa/i);
+
+        const correction = buildPayrollClosureDraft({
+            employees,
+            rows: [correctedRow],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 200,
+            closedBy: 'operator',
+            supersedesId: original.closure.id
+        });
+        applyPayrollLoanSettlementBatch(employees, correction.batch, { now: 200 });
+
+        expect(correction.batch.supersedesClosureId).toBe(original.closure.id);
+        expect(employees[0].loans[0].payments).toEqual([payment]);
+        expect(payment).toMatchObject({
+            id: original.batch.paymentRefs[0].paymentId,
+            amount: original.batch.items[0].amount,
+            payrollIdempotencyKey: original.batch.items[0].idempotencyKey,
+            payrollChargeKeys: original.batch.items[0].chargeKeys,
+            payrollBatchId: correction.batch.id,
+            payrollClosureId: correction.closure.id,
+            payrollSupersedesClosureId: original.closure.id,
+            ...audit
+        });
+        expect(payment.payrollBatchSnapshot).toMatchObject({
+            id: correction.batch.id,
+            closureId: correction.closure.id,
+            supersedesClosureId: original.closure.id
+        });
+
+        const undone = undoPayrollClosureEffects(employees, correction.closure, {
+            now: 210,
+            voidedBy: 'operator'
+        });
+        expect(undone.voidedPaymentCount).toBe(1);
+        expect(payment.voided).toBe(true);
+        expect(employees[0].loans[0].payments).toHaveLength(1);
+    });
 });
