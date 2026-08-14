@@ -50,6 +50,8 @@ export const SETTINGS_DRAFT_FIELD_IDS = [
     'weatherApiKey',
     'weatherLocationInput',
     'scrollbarMode',
+    'showAttendanceCardDeficit',
+    'attendanceDeficitUnit',
     'regularHoursPerDay',
     'overtimeFactor',
     'holidayFactor',
@@ -65,7 +67,9 @@ export function isSettingsDraftDirty(doc = document) {
     for (const id of SETTINGS_DRAFT_FIELD_IDS) {
         const el = doc.getElementById(id);
         if (!el) continue;
-        if (el.tagName === 'SELECT') {
+        if (el.type === 'checkbox') {
+            if (el.checked !== el.defaultChecked) return true;
+        } else if (el.tagName === 'SELECT') {
             const options = Array.from(el.options);
             if (options.length === 0 || el.selectedIndex === -1) continue;
             const defIdx = options.findIndex(o => o.defaultSelected);
@@ -163,7 +167,9 @@ export function discardSettingsDraft({ doc = document } = {}) {
     for (const id of SETTINGS_DRAFT_FIELD_IDS) {
         const el = doc.getElementById(id);
         if (!el) continue;
-        if (el.tagName === 'SELECT') {
+        if (el.type === 'checkbox' || el.type === 'radio') {
+            el.checked = el.defaultChecked;
+        } else if (el.tagName === 'SELECT') {
             const options = Array.from(el.options);
             if (options.length === 0) continue;
             const defIdx = options.findIndex(o => o.defaultSelected);

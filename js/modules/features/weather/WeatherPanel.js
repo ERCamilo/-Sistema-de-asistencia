@@ -15,6 +15,7 @@ import { readCachedCurrent, readCachedForecast, readCachedHourly, getActiveLocat
 import { emojiFor, labelFor, formatTemp } from './WeatherTypes.js';
 import { formatDateShort } from '../../utils/DateUtils.js';
 import { getWindAlert, getPrecipAlert, getTempAlert, getWindGustAlert, getPressureAlert, getVisAlert, getUvAlert, ALERT_LEVEL } from './WeatherAlertRules.js';
+import { getWeatherRuntimeState } from './WeatherRuntime.js';
 
 function _shortDayLabel(dateKey, todayKey) {
     if (dateKey === todayKey) return 'Hoy';
@@ -25,6 +26,7 @@ function _shortDayLabel(dateKey, todayKey) {
 export function WeatherPanel() {
     if (!state.weather || !state.weather.panelOpen) return '';
 
+    const runtime = getWeatherRuntimeState(state);
     const current = readCachedCurrent(state);
     const forecast = readCachedForecast(state);
     const hourly = readCachedHourly(state);
@@ -118,9 +120,9 @@ export function WeatherPanel() {
                 <span style="font-size: 0.65rem; color: #64748b;">Fuente: ${state.weather?.cache?.provider || 'mock'}</span>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <button type="button" data-app-fn="forceRefreshWeather"
-                            ${state.weather?.isRefreshing ? 'disabled' : ''}
+                            ${runtime.isRefreshing ? 'disabled' : ''}
                             style="background: transparent; color: #06b6d4; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; font-size: 0.65rem; font-weight: 700; cursor: pointer;">
-                        ${state.weather?.isRefreshing ? 'Actualizando...' : '🔄 Actualizar'}
+                        ${runtime.isRefreshing ? 'Actualizando...' : '🔄 Actualizar'}
                     </button>
                     <button type="button" data-app-fn="closeWeatherPanel"
                             style="background: transparent; color: #94a3b8; border: none; cursor: pointer; font-size: 0.75rem; padding: 4px 8px;">

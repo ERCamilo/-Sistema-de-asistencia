@@ -6,6 +6,7 @@ import { slugify, generateUUID } from '../../utils/Helpers.js';
 import { HelpTooltip } from '../../components/HelpTooltip.js';
 import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
 import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js';
+import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -24,7 +25,7 @@ export class PositionModal {
         const activeLeaders = state.leaders.filter(l => l.active);
         const selectedColor = pos?.color || COLOR_PALETTE[0];
 
-        const regularHours = state.settings.regularHoursPerDay || 8;
+        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
         // Modo en que se cargó la tarifa (aditivo). Reabrimos el input en ese modo.
         const savedMode = pos?.salaryInputMode === 'daily' ? 'daily' : 'hourly';
         const displayRate = pos?.hourlyRate
@@ -173,7 +174,7 @@ export class PositionModal {
         }
 
         // Toggle hora/día: al cambiar de modo, convierte el monto mostrado para que el
-        // pago real no cambie (ej. $1000/día <-> $125/hora @8h), y actualiza hint/preview.
+        // pago real no cambie al alternar día/hora con la jornada configurada, y actualiza hint/preview.
         const modeInput = modal.element.querySelector('#posSalaryMode');
         const modeBtns = modal.element.querySelectorAll('.salary-mode-btn');
         modeBtns.forEach(btn => {
@@ -233,7 +234,7 @@ export class PositionModal {
         const hourlyRateInput = modalEl.querySelector('#posHourlyRate');
         if (!hourlyRateInput) return;
 
-        const regularHours = state.settings.regularHoursPerDay || 8;
+        const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
         const mode = modalEl.querySelector('#posSalaryMode')?.value || 'hourly';
         // El input puede estar en modo día; el preview siempre razona en por-hora.
         const hourlyRate = toStoredHourly(Number.parseFloat(hourlyRateInput.value) || 0, mode, regularHours);
@@ -319,7 +320,11 @@ export class PositionModal {
 
         const state = getState();
         // Se guarda SIEMPRE por hora; si el modo es 'día', se convierte dividiendo por horas/día.
-        const rate = toStoredHourly(rawRate, salaryMode, state.settings.regularHoursPerDay || 8);
+        const rate = toStoredHourly(
+            rawRate,
+            salaryMode,
+            normalizeRegularHoursPerDay(state.settings.regularHoursPerDay)
+        );
         // ⚡ Opción A (IDs estables): el id del puesto NO se deriva del nombre.
         // La unicidad se valida por nombre (slug), pero el id es inmutable, así
         // que renombrar actualiza el MISMO documento en la nube (sin duplicar

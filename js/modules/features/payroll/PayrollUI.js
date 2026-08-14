@@ -821,7 +821,7 @@ function PayrollGeneratorTab() {
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${(Number(emp.monto) || 0) <= 0.001 ? 'is-invalid' : ''}">
+                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${(emp._invalidLoanNet || (Number(emp.monto) || 0) <= 0.001) ? 'is-invalid' : ''}">
                                     <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
                                     <td class="payroll-review-table__employee">
                                         ${escapeHTML(emp._employeeName)}
@@ -831,7 +831,7 @@ function PayrollGeneratorTab() {
                                     ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
                                     ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
                                     ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
-                                    <td class="payroll-review-table__amount is-net ${(Number(emp.monto) || 0) <= 0.001 ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
+                                    <td class="payroll-review-table__amount is-net ${(emp._invalidLoanNet || (Number(emp.monto) || 0) <= 0.001) ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>

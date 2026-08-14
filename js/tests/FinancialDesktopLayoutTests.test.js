@@ -715,9 +715,12 @@ describe('Financial desktop layouts', () => {
         host.innerHTML = PayrollUI.PayrollTab();
         const row = host.querySelector('tbody tr');
         const headers = [...host.querySelectorAll('.payroll-guide-panel--review th')]
-            .map(cell => cell.textContent.trim());
+            .map(cell => cell.querySelector('span')?.textContent.trim() || cell.textContent.trim());
+        const categoryCounts = [...host.querySelectorAll('.payroll-review-table__toggle-heading small')]
+            .map(counter => counter.textContent.trim());
 
-        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.1/1', 'DEDUCCIONES1/1', 'PRÉSTAMOS1/1', 'NETO']);
+        expect(headers).toEqual(['#', 'EMPLEADO', 'BRUTO', 'BONIFIC.', 'DEDUCCIONES', 'PRÉSTAMOS', 'NETO']);
+        expect(categoryCounts).toEqual(['1/1', '1/1', '1/1']);
         expect(row.querySelector('.payroll-review-table__number').textContent.trim()).toBe('12');
         expect(row.querySelector('.payroll-review-table__employee').textContent.trim()).toBe('Ada Lovelace');
         expect(row.querySelector('.is-bonus').textContent.trim()).toBe('+$100.00');

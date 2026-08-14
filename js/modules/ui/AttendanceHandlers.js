@@ -6,6 +6,7 @@
 import { state, stateManager, invalidateEmployeeStats, buildAttendanceIndex } from '../core/AppState.js';
 import { saveApplicationData } from '../services/PersistenceService.js';
 import { DateUtils, getDateKey } from '../utils/DateUtils.js';
+import { resolveDailyTargetHours } from '../utils/AttendanceHours.js';
 import { Notification } from '../components/Notification.js';
 
 /**
@@ -22,7 +23,11 @@ export function changeBaseHours(delta) {
     stateManager.batchSetState(() => {
         datesToUpdate.forEach(dateKey => {
             // Obtener horas actuales del día o las regulares
-            let currentHours = state.dayHoursConfig[dateKey] ?? (state.settings?.regularHoursPerDay || 8);
+            const currentHours = resolveDailyTargetHours(
+                dateKey,
+                state.dayHoursConfig,
+                state.settings?.regularHoursPerDay
+            );
 
             // Calcular nuevo valor
             let newHours = Math.max(0, Math.min(24, currentHours + delta));
