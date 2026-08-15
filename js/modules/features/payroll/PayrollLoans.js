@@ -194,7 +194,7 @@ export function applyPayrollLoanDeductions(rows, employees, selection, periodEnd
             _montoBeforeLoans: baseAmount,
             _loans: loanAmount,
             _loanDetails: selected?.loans || [],
-            _invalidLoanNet: loanAmount > 0 && finalAmount <= 0
+            _invalidLoanNet: loanAmount > 0 && round2(finalAmount) < 0
         };
     });
 }

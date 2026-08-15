@@ -433,13 +433,17 @@ function PayrollGeneratorTab() {
 
     const exportData = generateExportData();
     latestPayrollPreviewRows = exportData;
+    const getReviewNet = (row) => Math.round((((Number(row?.monto) || 0) + Number.EPSILON) * 100)) / 100;
     const invalidLoanRows = getInvalidPayrollLoanRows(exportData);
-    const invalidNetRows = exportData.filter(row => (Number(row.monto) || 0) <= 0.001);
+    const invalidNetRows = exportData.filter(row => getReviewNet(row) < 0);
+    const zeroNetRows = exportData.filter(row => getReviewNet(row) === 0);
     const hasInvalidNetRows = invalidNetRows.length > 0;
+    const hasZeroNetRows = zeroNetRows.length > 0;
     const hasNonLoanInvalidRows = invalidNetRows.some(row => !row._invalidLoanNet);
     const invalidPaymentMessage = hasNonLoanInvalidRows
-        ? `Hay ${invalidNetRows.length} empleado(s) cuyo pago queda en cero o negativo. Ajusta sus bonificaciones o deducciones antes de exportar.`
-        : `Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago en cero o negativo. Elimina sus préstamos temporales para habilitar la exportación.`;
+        ? `Hay ${invalidNetRows.length} empleado(s) cuyo pago queda negativo. Ajusta sus bonificaciones o deducciones antes de exportar.`
+        : `Hay ${invalidLoanRows.length} empleado(s) cuyo descuento de préstamos deja el pago negativo. Elimina sus préstamos temporales para habilitar la exportación.`;
+    const zeroPaymentMessage = `Hay ${zeroNetRows.length} empleado(s) con pago en cero. Puedes continuar, pero revísalo antes de aceptar.`;
     const previewFingerprint = buildPayrollPreviewFingerprint({
         periodStart: state.exportConfig.periodStart,
         periodEnd: state.exportConfig.periodEnd,
@@ -778,13 +782,13 @@ function PayrollGeneratorTab() {
                         </div>
 
             <!-- Paso 3: Vista Previa -->
-            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidNetRows ? '#ef4444' : '#334155'}; transition: all 0.2s;">
+            <div style="background: #1e293b; border-radius: 12px; padding: ${isStepCollapsed('step3') ? '14px 20px' : '20px'}; margin-bottom: 20px; border: 1px solid ${hasInvalidNetRows ? '#ef4444' : hasZeroNetRows ? '#f59e0b' : '#334155'}; transition: all 0.2s;">
                 <div role="button" tabindex="0" aria-expanded="${!isStepCollapsed('step3')}" data-payroll-action="toggle-step" data-value="step3" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h3 style="margin: 0; font-size: 1.125rem; color: #06b6d4; font-weight: 700; display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.8rem; transform: rotate(${isStepCollapsed('step3') ? '0deg' : '90deg'}); transition: transform 0.2s; display: inline-block;">▶</span>
                         Paso 3: Vista Previa (${exportData.length} empleados)
                     </h3>
-                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidNetRows ? '#f87171' : '#10b981'}; font-weight: 700;">${hasInvalidNetRows ? `⚠️ ${invalidNetRows.length} pago(s) inválido(s)` : formatCurrency(totalAmount)}</span>` : ''}
+                    ${isStepCollapsed('step3') ? `<span style="font-size: 1rem; color: ${hasInvalidNetRows ? '#f87171' : hasZeroNetRows ? '#fbbf24' : '#10b981'}; font-weight: 700;">${hasInvalidNetRows ? `⚠️ ${invalidNetRows.length} pago(s) negativos` : hasZeroNetRows ? `⚠️ ${zeroNetRows.length} pago(s) en cero` : formatCurrency(totalAmount)}</span>` : ''}
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
@@ -804,6 +808,10 @@ function PayrollGeneratorTab() {
                     <div role="alert" style="margin-bottom: 14px; padding: 12px; border: 1px solid #ef4444; border-radius: 8px; background: rgba(239, 68, 68, 0.1); color: #fca5a5; font-weight: 700; font-size: 0.85rem;">
                         ⚠️ ${invalidPaymentMessage}
                     </div>
+                ` : hasZeroNetRows ? `
+                    <div role="status" style="margin-bottom: 14px; padding: 12px; border: 1px solid #f59e0b; border-radius: 8px; background: rgba(245, 158, 11, 0.1); color: #fcd34d; font-weight: 700; font-size: 0.85rem;">
+                        ⚠️ ${zeroPaymentMessage}
+                    </div>
                 ` : ''}
 
                 <div class="responsive-table-wrapper" role="region" aria-label="Tabla de nómina" tabindex="0">
@@ -821,17 +829,17 @@ function PayrollGeneratorTab() {
                         </thead>
                         <tbody>
                             ${exportData.map((emp, idx) => `
-                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${(emp._invalidLoanNet || (Number(emp.monto) || 0) <= 0.001) ? 'is-invalid' : ''}">
+                                <tr class="payroll-review-table__row ${idx % 2 === 0 ? 'is-even' : ''} ${getReviewNet(emp) < 0 ? 'is-invalid' : ''}">
                                     <td class="payroll-review-table__number">${escapeHTML(String(emp._number || emp.id))}</td>
                                     <td class="payroll-review-table__employee">
                                         ${escapeHTML(emp._employeeName)}
-                                        ${(Number(emp.monto) || 0) <= 0.001 ? `<span>${emp._invalidLoanNet ? 'Pago inválido: elimina préstamos' : 'Pago inválido: ajusta bonificaciones o deducciones'}</span>` : ''}
+                                        ${getReviewNet(emp) < 0 ? `<span>Pago negativo: ajusta los descuentos antes de continuar</span>` : getReviewNet(emp) === 0 ? `<span>Pago en cero: puedes continuar, pero revísalo antes de aceptar</span>` : ''}
                                     </td>
                                     <td class="payroll-review-table__amount">${formatCurrency(emp._brutoOriginal)}</td>
                                     ${showBonusColumn || !previewInclusion.bonuses ? `<td class="payroll-review-table__amount is-bonus">+${formatCurrency(emp._bonuses)}</td>` : ''}
                                     ${showDeductionColumn || !previewInclusion.deductions ? `<td class="payroll-review-table__amount is-deduction">−${formatCurrency(emp._deductions)}</td>` : ''}
                                     ${showLoanColumn || !previewInclusion.loans ? `<td class="payroll-review-table__amount ${isVisibleReviewAmount(emp._loans) ? 'is-loan' : 'is-empty'}">${isVisibleReviewAmount(emp._loans) ? `−${formatCurrency(emp._loans)}` : '—'}</td>` : ''}
-                                    <td class="payroll-review-table__amount is-net ${(emp._invalidLoanNet || (Number(emp.monto) || 0) <= 0.001) ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
+                                    <td class="payroll-review-table__amount is-net ${getReviewNet(emp) < 0 ? 'is-invalid' : ''}">${formatCurrency(emp.monto)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
@@ -890,9 +898,9 @@ function PayrollGeneratorTab() {
                             <small>Total neto</small>
                             <strong>${formatCurrency(totalAmount)}</strong>
                         </span>
-                        <span class="payroll-guide-summary__mobile-state ${hasInvalidNetRows ? 'is-invalid' : 'is-valid'}">
+                        <span class="payroll-guide-summary__mobile-state ${hasInvalidNetRows ? 'is-invalid' : hasZeroNetRows ? 'is-warning' : 'is-valid'}">
                             <i aria-hidden="true"></i>
-                            ${hasInvalidNetRows ? 'Revisar' : 'Listo'}
+                            ${hasInvalidNetRows || hasZeroNetRows ? 'Revisar' : 'Listo'}
                         </span>
                         <span class="payroll-guide-summary__mobile-label">
                             ${mobileSummaryExpanded ? 'Ocultar' : 'Resumen'}
@@ -944,10 +952,12 @@ function PayrollGeneratorTab() {
                         </div>
                         <div class="is-total"><dt>Total neto</dt><dd>${formatCurrency(totalAmount)}</dd></div>
                         </dl>
-                        <div class="payroll-guide-summary__validation ${hasInvalidNetRows ? 'is-invalid' : 'is-valid'}">
+                        <div class="payroll-guide-summary__validation ${hasInvalidNetRows ? 'is-invalid' : hasZeroNetRows ? 'is-warning' : 'is-valid'}">
                         ${hasInvalidNetRows
-                            ? `${icons.get('alert', { size: 16 })} ${invalidNetRows.length} pago(s) requieren revisión`
-                            : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
+                            ? `${icons.get('alert', { size: 16 })} ${invalidNetRows.length} pago(s) negativos requieren revisión`
+                            : hasZeroNetRows
+                                ? `${icons.get('alert', { size: 16 })} ${zeroNetRows.length} pago(s) en cero: puedes continuar`
+                                : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
                         </div>
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
                         <button type="button"

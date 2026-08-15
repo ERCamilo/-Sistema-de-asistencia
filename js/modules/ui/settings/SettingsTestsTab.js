@@ -30,6 +30,16 @@ export function SettingsTestsTab() {
                     Presiona "Ejecutar Pruebas" para iniciar la verificación del sistema.
                 </div>
             </div>
+
+            <section class="stg-card" aria-labelledby="modal-preview-title" style="margin-top:20px;">
+                <h4 id="modal-preview-title" style="margin-top:0;">Vista previa segura de modales</h4>
+                <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">Abre componentes reales con datos de ejemplo. Sus acciones están desconectadas: no guardan, suben ni borran información.</p>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-modal-preview" data-value="outgoing-conflict">Conflicto nube/local</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-modal-preview" data-value="incoming-changes">Cambios entrantes</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-modal-preview" data-value="restore-backup">Restaurar backup</button>
+                </div>
+            </section>
         </div>
     `;
 }

@@ -115,4 +115,36 @@ export async function wipeAllLocalTraces(deps = {}) {
     return { ok: errors.length === 0, errors };
 }
 
-export default { wipeAllLocalTraces, LOCAL_TRACE_KEYS };
+/**
+ * Prepara una adopción nube→local del dataset principal sin borrar dominios
+ * que todavía no puede rehidratar DataOps (Caja Chica, comprobantes y cierres).
+ * El guard y la purga siguen siendo necesarios para que un outbox viejo no
+ * vuelva a escribir datos principales durante la recarga.
+ */
+export async function wipeMainLocalTraces(deps = {}) {
+    const {
+        beginWipe = beginLocalDataWipe,
+        purgePendingCloudWrites = purgeAllPendingCloudWrites,
+        clearMainStorage = () => storageService.clear(),
+        clearStore = (store) => indexedDBService.clear(store)
+    } = deps;
+    const errors = [];
+    const attempt = async (step, fn) => {
+        try {
+            const result = await fn();
+            if (result === false) errors.push({ step, error: 'reported-false' });
+        } catch (error) {
+            console.warn(`⚠️ wipeMainLocalTraces: paso "${step}" falló:`, error);
+            errors.push({ step, error });
+        }
+    };
+    await attempt('begin-wipe', () => beginWipe());
+    await attempt('purge-pending-cloud-writes', () => purgePendingCloudWrites());
+    await attempt('clear-main-storage', () => clearMainStorage());
+    for (const store of ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue', 'mainSyncOutbox']) {
+        await attempt('clear-indexeddb', () => clearStore(store));
+    }
+    return { ok: errors.length === 0, errors };
+}
+
+export default { wipeAllLocalTraces, wipeMainLocalTraces, LOCAL_TRACE_KEYS };

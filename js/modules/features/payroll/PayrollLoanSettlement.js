@@ -167,7 +167,7 @@ export function getPayrollLoanSettlementGate({
     settledBatch = null
 } = {}) {
     const hasLoans = rows.some(row => money(row?._loans) > 0);
-    const invalidCount = rows.filter(row => money(row?.monto) <= 0).length;
+    const invalidCount = rows.filter(row => money(row?.monto) < 0).length;
     const payrollPaid = Boolean(
         fingerprint && paidConfirmation?.fingerprint === fingerprint
     );
@@ -211,7 +211,7 @@ export function buildPayrollLoanSettlementBatch({
 
     for (const row of rows) {
         if (money(row?._loans) <= 0) continue;
-        if (money(row?.monto) <= 0) {
+        if (money(row?.monto) < 0) {
             throw new Error(`El pago neto de ${text(row?._employeeName) || 'un empleado'} no es válido`);
         }
         const employeeId = text(row._employeeId);

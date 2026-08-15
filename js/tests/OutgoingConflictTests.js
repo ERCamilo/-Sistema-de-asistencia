@@ -112,25 +112,38 @@ testRunner.addSuite("OutgoingConflict — app.js (source checks)", {
         );
     },
 
-    "app.js calls Modal.confirm in the outgoing-conflict handler"() {
-        // The handler can be arbitrarily long (e.g. multi-line Spanish messages),
-        // so search up to 3000 chars from the event-name string.
-        const block = APP_SRC.match(/sync:outgoing-conflict[\s\S]{0,3000}/);
+    "app.js routes outgoing conflicts through the dedicated modal"() {
+        const block = APP_SRC.match(/sync:outgoing-conflict[\s\S]{0,5000}/);
         testRunner.assert(
-            !!block && /Modal\.confirm/.test(block[0]),
-            'outgoing-conflict handler must call Modal.confirm to ask the user'
+            !!block && /OutgoingConflictModal\.show/.test(block[0]),
+            'outgoing-conflict handler must show the dedicated conflict modal'
         );
     },
 
-    "if user confirms, app.js calls replaceCloudFull (true overwrite, not merge)"() {
-        // CHANGED 2026-05-28: saveApplicationData({force:true}) used merge:true
-        // in Firestore, which didn't actually delete cloud-only data. Now uses
-        // replaceCloudFull for a true overwrite that deletes orphan cloud docs.
-        const block = APP_SRC.match(/sync:outgoing-conflict[\s\S]{0,3000}/);
+    "the handler exposes cloud, merge, and device actions without replaceCloudFull"() {
+        const block = APP_SRC.match(/sync:outgoing-conflict[\s\S]{0,5000}/);
         testRunner.assert(
-            !!block && /replaceCloudFull/.test(block[0]),
-            'After user confirms, handler must call replaceCloudFull (not saveApplicationData)'
+            !!block && /onUseCloud/.test(block[0]) && /onCombine/.test(block[0]) && /onUseDevice/.test(block[0]),
+            'handler must expose the three explicit conflict actions'
         );
+        testRunner.assert(
+            !!block && /replaceLocalWithCloud/.test(block[0]) && /mergeMainDataFromCloud/.test(block[0]) && /replaceCloudWithLocal/.test(block[0]),
+            'handler must route each action through its primary-domain operation'
+        );
+        testRunner.assert(
+            !!block && !/replaceCloudFull/.test(block[0]),
+            'outgoing conflict must not use the global cloud replacement path'
+        );
+    },
+
+    "usar nube actualiza la pantalla sin programar una recarga"() {
+        const block = APP_SRC.match(/onUseCloud\s*:[\s\S]{0,1800}onCombine\s*:/);
+        testRunner.assert(!!block, 'debe existir la acción usar nube');
+        testRunner.assert(
+            /replaceLocalWithCloud\(\{\s*reload:\s*\(\)\s*=>\s*render\(\)\s*\}\)/.test(block[0]),
+            'usar nube debe actualizar la pantalla sin navegar antes de reanudar la sincronización'
+        );
+        testRunner.assert(!/location\.reload/.test(block[0]), 'usar nube no debe programar una recarga');
     },
 
     "handler clears _outgoingConflictReviewPending after responding"() {
@@ -217,17 +230,12 @@ testRunner.addSuite("OutgoingConflict — app.js usa outgoingWatermarkCache (Fas
         );
     },
 
-    "el reset 'local wins' de _initOutgoingConflictGuard resetea AMBAS piezas vía resetOutgoingWatermark"() {
-        // Judgment Day Fase 2B, Ronda 3 (fix F2 completo): el branch
-        // "if (confirmed)" debe usar resetOutgoingWatermark(state,
-        // outgoingWatermarkCache, ...) para resetear atómicamente
-        // state._lastKnownCloudUpdatedAt Y outgoingWatermarkCache, en vez de
-        // dos escrituras inline separadas que pueden desincronizarse.
-        const block = APP_SRC.match(/Local wins: true overwrite[\s\S]{0,1500}/);
-        testRunner.assert(!!block, 'debe existir el branch "local wins" (comentario "Local wins: true overwrite")');
+    "la acción usar dispositivo resetea AMBAS piezas vía resetOutgoingWatermark"() {
+        const block = APP_SRC.match(/onUseDevice[\s\S]{0,1500}/);
+        testRunner.assert(!!block, 'debe existir la acción explícita "onUseDevice"');
         testRunner.assert(
             /resetOutgoingWatermark\(\s*state\s*,\s*outgoingWatermarkCache\s*,\s*state\.settings\?\.localUpdatedAt/.test(block[0]),
-            'el branch "local wins" debe llamar a resetOutgoingWatermark(state, outgoingWatermarkCache, state.settings?.localUpdatedAt || 0) para resetear ambas piezas atómicamente'
+            'onUseDevice debe resetear ambos watermarks atómicamente antes de reemplazar los datos principales'
         );
     },
 

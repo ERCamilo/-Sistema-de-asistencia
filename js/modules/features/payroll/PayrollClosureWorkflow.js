@@ -46,7 +46,7 @@ export function getPayrollClosureGate({
     const effectiveClosures = getEffectivePayrollClosures(activeClosures);
     const activeClosure = effectiveClosures[0] || null;
     const exactClosure = effectiveClosures.find(item => item.fingerprint === fingerprint) || null;
-    const invalidCount = rows.filter(item => money(item?.monto) <= 0).length;
+    const invalidCount = rows.filter(item => money(item?.monto) < 0).length;
     const payrollPaid = Boolean(fingerprint && paidConfirmation?.fingerprint === fingerprint);
     const hasLoans = rows.some(item => money(item?._loans) > 0);
     const correctionReady = Boolean(

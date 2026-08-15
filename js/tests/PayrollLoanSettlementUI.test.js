@@ -94,7 +94,7 @@ describe('Payroll loan settlement UI', () => {
 
         document.body.innerHTML = invalid;
         expect(document.querySelector('input').disabled).toBe(true);
-        expect(document.body.textContent).toMatch(/2 pagos con saldo cero o negativo/i);
+        expect(document.body.textContent).toMatch(/2 pagos con saldo negativo/i);
     });
 
     test('shows an active complete batch undo regardless of its legacy deadline', () => {
