@@ -13,6 +13,7 @@ import {
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
+import { openSafeModalPreview } from './ModalPreviewGallery.js';
 import { clearAppCaches } from '../services/CacheManager.js';
 import { translateError } from '../services/ErrorTranslator.js';
 import { logError } from '../services/ErrorLog.js';
@@ -70,6 +71,7 @@ const _SETTINGS_ACTION_MAP = {
         }
     },
     'run-browser-tests': () => window.runBrowserTests?.(),
+    'open-modal-preview': (kind) => openSafeModalPreview(kind),
     'export-error-log': () => window.exportErrorLog?.(),
     'purge-orphan-attendance': () => window.purgeOrphanAttendanceHandler?.(),
     // Mantenimiento: limpiar el cache del navegador para forzar la última versión.

@@ -40,7 +40,7 @@ import {
 } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
-import { sanitizePettyCashForSnapshot } from './modules/services/SnapshotSanitizer.js';
+import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
@@ -51,9 +51,11 @@ import { collectOrphanAttendanceKeys } from './modules/services/AttendanceCleanu
 import { purgeOrphanAttendance } from './modules/services/AttendanceCleanupRunner.js';
 import { detectIncomingChanges } from './modules/services/IncomingChangeDetector.js';
 import { IncomingChangeModal } from './modules/ui/IncomingChangeModal.js';
+import { OutgoingConflictModal } from './modules/ui/OutgoingConflictModal.js';
 import { pauseCloudUpload, resumeCloudUpload, isSyncPaused, SYNC_PAUSE_ENABLED, isDownloadPaused, pauseCloudDownload, resumeCloudDownload, markRestoreDownloadPause, clearRestoreDownloadPause, healOrphanedRestorePause } from './modules/services/SyncPauseService.js';
 import { prepareRestoredState } from './modules/services/RestorePrepare.js';
 import { mergeIncomingPositions, mergeIncomingLeaders } from './modules/services/CatalogIncomingMerge.js';
+import { mergeMainDataFromCloud } from './modules/services/MainDataCloudMerge.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
 import { LeaderRepository } from './modules/services/LeaderRepository.js';
@@ -559,9 +561,10 @@ window.App.Sync = {
             title: '⚠️ Descargar y Reemplazar',
             flow: 'cloud-to-device',
             bullets: [
-                'Se borran TODOS los datos de este dispositivo (empleados, asistencia, ajustes).',
+                'Se reemplazan empleados, cargos, líderes, asistencia y ajustes de este dispositivo.',
                 'Se descartan las subidas pendientes que aún no llegaron a la nube.',
                 'Los datos de la nube quedan como única fuente y la app se recarga.',
+                'Caja Chica, comprobantes y cierres de nómina locales se conservan.',
                 'Si la descarga falla, no se toca nada local.'
             ],
             confirmText: 'Sí, reemplazar lo local',
@@ -5800,18 +5803,27 @@ async function applyBackupData(importedData) {
         // Backups viejos sin pettyCash: los stores locales quedan intactos
         // (clearFirst ya no los toca) — no se destruye lo que el archivo no
         // puede restaurar.
+        let pettyCashRestoreWarning = null;
         if (data.pettyCash && typeof data.pettyCash === 'object') {
             try {
-                await PettyCashStore.applyRemote('projects', data.pettyCash.projects || []);
-                await PettyCashStore.applyRemote('periods', data.pettyCash.periods || []);
-                await PettyCashStore.applyRemote('movements', data.pettyCash.movements || []);
+                const preparedPettyCash = preparePettyCashBackupForRestore(data.pettyCash);
+                await PettyCashStore.applyRemote('projects', preparedPettyCash.pettyCash.projects);
+                await PettyCashStore.applyRemote('periods', preparedPettyCash.pettyCash.periods);
+                await PettyCashStore.applyRemote('movements', preparedPettyCash.pettyCash.movements);
+                if (preparedPettyCash.unrecoverableReceiptCount > 0) {
+                    pettyCashRestoreWarning = `${preparedPettyCash.unrecoverableReceiptCount} comprobante(s) solo local(es) no se pueden recuperar desde este backup.`;
+                }
                 console.log('💵 Caja chica restaurada desde el backup');
             } catch (e) {
                 console.warn('⚠️ No se pudo restaurar la caja chica del backup:', e);
+                pettyCashRestoreWarning = 'No se pudo restaurar Caja Chica; los datos principales sí fueron restaurados.';
             }
         }
 
-        showNotification('✅ Datos restaurados localmente', 'success');
+        showNotification(
+            pettyCashRestoreWarning ? `⚠️ Datos principales restaurados. ${pettyCashRestoreWarning}` : '✅ Datos restaurados localmente',
+            pettyCashRestoreWarning ? 'warning' : 'success'
+        );
         render(); // Refrescar UI
 
         return true;
@@ -6866,58 +6878,87 @@ async function _checkSanitizationCloudSyncPrompt() {
  * termina (para que showNotification / Modal estén disponibles).
  */
 function _initOutgoingConflictGuard() {
-    eventBus.on('sync:outgoing-conflict', async ({ localTime, cloudTime }) => {
-        // Formatear diferencia relativa para el mensaje
-        const diffMs  = Math.max(0, cloudTime - localTime);
-        const diffSec = Math.round(diffMs / 1000);
-        const diffStr = diffSec < 60
-            ? `${diffSec} segundo${diffSec !== 1 ? 's' : ''}`
-            : `${Math.round(diffSec / 60)} minuto${Math.round(diffSec / 60) !== 1 ? 's' : ''}`;
-
+    eventBus.on('sync:outgoing-conflict', ({ localTime, cloudTime }) => {
         const cloudDate = cloudTime
             ? new Date(cloudTime).toLocaleString()
             : 'desconocida';
 
-        const confirmed = await Modal.confirm({
-            title: '⚠️ La nube tiene cambios más recientes',
-            message:
-                `La nube tiene cambios realizados hace <strong>${diffStr}</strong> ` +
-                `que son más recientes que tus datos locales ` +
-                `(última actualización en la nube: ${cloudDate}).<br><br>` +
-                `Si subes ahora, esos cambios serán reemplazados por tus datos locales.<br><br>` +
-                `¿Deseas continuar y reemplazar los datos de la nube?`,
-            confirmText: '⬆️ Sí, reemplazar nube con mis datos',
-            cancelText: '← No, conservar los cambios de la nube',
-            type: 'warning'
-        });
-
-        // Limpiar flag de revisión pendiente — independientemente de la decisión.
-        state._outgoingConflictReviewPending = false;
-
-        if (confirmed) {
-            // Local wins: true overwrite (not merge). Deletes orphan cloud docs,
-            // writes the main doc WITHOUT merge:true, so cloud-only data is removed.
-            // 🛡️ Judgment Day Fase 2B (fix A1, endurecido en Ronda 3):
-            // resetOutgoingWatermark() resetea ATÓMICAMENTE
-            // state._lastKnownCloudUpdatedAt Y el cache compartido de
-            // watermarks (settingsDocTs/mirrorTs). Sin esto, el próximo
-            // snapshot remoto legítimo volvía a MAXear los caches stale-altos
-            // (vía mergeCloudWatermark) y resucitaba el watermark que el
-            // usuario recién resolvió.
-            resetOutgoingWatermark(state, outgoingWatermarkCache, state.settings?.localUpdatedAt || 0);
-            try {
-                await FirebaseService.replaceCloudFull(state);
-                showNotification('⬆️ Tus datos locales reemplazaron los de la nube', 'success');
-            } catch (e) {
-                console.error('Error en replaceCloudFull:', e);
-                showNotification('❌ Error al reemplazar los datos de la nube', 'error');
+        const finishReview = () => { state._outgoingConflictReviewPending = false; };
+        const conflictDialog = OutgoingConflictModal.show({
+            detail: `La nube tiene datos más nuevos que este dispositivo (última actualización: ${cloudDate}).`,
+            syncControls: { isSyncPaused, isDownloadPaused, pauseCloudUpload, pauseCloudDownload, resumeCloudUpload, resumeCloudDownload },
+            onCancel: finishReview,
+            onUseCloud: async () => {
+                try {
+                    const result = await replaceLocalWithCloud({ reload: () => render() });
+                    if (!result.ok) {
+                        showNotification('❌ No se pudieron usar los datos de la nube. La sincronización sigue pausada. Pulsa el botón de tu cuenta, arriba a la derecha, para reanudarla.', 'error');
+                        return false;
+                    }
+                    return true;
+                } catch (error) {
+                    showNotification('❌ No se pudieron usar los datos de la nube. La sincronización sigue pausada. Pulsa el botón de tu cuenta, arriba a la derecha, para reanudarla.', 'error');
+                    return false;
+                } finally { finishReview(); }
+            },
+            onCombine: async () => {
+                try {
+                    const result = await mergeMainDataFromCloud({
+                        state,
+                        fetchFullState: () => FirebaseService.getFullState(),
+                        loadEmployees: () => EmployeeRepository.loadAll(),
+                        loadPositions: () => PositionRepository.loadAll(),
+                        loadLeaders: () => LeaderRepository.loadAll(),
+                        fetchAllAttendance: () => FirebaseService.getAllAttendance(),
+                        mergeEmployees: mergeIncomingEmployees,
+                        mergePositions: mergeIncomingPositions,
+                        mergeLeaders: mergeIncomingLeaders,
+                        mergeAttendance: mergeAttendanceRecords
+                    });
+                    if (!result.ok) {
+                        showNotification('❌ No se pudieron combinar los datos. La sincronización sigue pausada. Pulsa el botón de tu cuenta, arriba a la derecha, para reanudarla.', 'error');
+                        return false;
+                    }
+                    stateManager.batchSetState(() => {
+                        state.employees = result.merged.employees.map(e => e instanceof Employee ? e : new Employee(e));
+                        state.positions = result.merged.positions.map(p => p instanceof Position ? p : new Position(p));
+                        state.leaders = result.merged.leaders.map(l => l instanceof Leader ? l : new Leader(l));
+                        state.attendance = result.merged.attendance;
+                        invalidateAllStats();
+                        buildAttendanceIndex();
+                    });
+                    await saveToIndexedDB();
+                    saveApplicationData({ force: true });
+                    render();
+                    showNotification('✅ Los datos se combinaron. Caja Chica y cierres de nómina no cambiaron.', 'success');
+                    return true;
+                } catch (error) {
+                    showNotification('❌ No se pudieron combinar los datos. La sincronización sigue pausada. Pulsa el botón de tu cuenta, arriba a la derecha, para reanudarla.', 'error');
+                    return false;
+                } finally { finishReview(); }
+            },
+            onUseDevice: async () => {
+                // resetOutgoingWatermark() limpia ambos watermarks antes del
+                // reemplazo explícito para que no resurja el conflicto resuelto.
+                resetOutgoingWatermark(state, outgoingWatermarkCache, state.settings?.localUpdatedAt || 0);
+                try {
+                    const result = await replaceCloudWithLocal();
+                    showNotification(
+                        result.ok
+                            ? '✅ Los datos de este dispositivo ahora reemplazan los de la nube.'
+                            : '❌ No se pudieron usar los datos de este dispositivo. La sincronización sigue pausada. Pulsa el botón de tu cuenta, arriba a la derecha, para reanudarla.',
+                        result.ok ? 'success' : 'error'
+                    );
+                    return result.ok;
+                } catch (error) {
+                    showNotification('❌ No se pudieron usar los datos de este dispositivo. La sincronización sigue pausada. Pulsa el botón de tu cuenta, arriba a la derecha, para reanudarla.', 'error');
+                    return false;
+                } finally { finishReview(); }
             }
-        } else {
-            // Cloud wins: don't push. The existing subscribeToChanges listener
-            // will handle applying the newer remote data (or the user can accept
-            // the incoming-change modal if it reappears).
-            showNotification('← Se conservaron los cambios de la nube', 'info');
-        }
+        });
+        // Another real conflict modal owns the pending flag. Any other busy
+        // result must release this event so the next save can surface it again.
+        if (!conflictDialog && !document.querySelector('.outgoing-conflict-modal')) finishReview();
     });
 }
 

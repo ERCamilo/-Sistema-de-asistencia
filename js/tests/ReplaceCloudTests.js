@@ -197,20 +197,22 @@ function saveSettingsBlockFromSrc() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// app.js — outgoing conflict uses replaceCloudFull
+// app.js — outgoing conflict stays within the primary data domain
 // ─────────────────────────────────────────────────────────────
 
-testRunner.addSuite("ReplaceCloud — app.js outgoing-conflict uses replaceCloudFull", {
+testRunner.addSuite("ReplaceCloud — app.js outgoing-conflict preserves non-primary domains", {
 
-    "outgoing-conflict confirmed path calls replaceCloudFull"() {
-        // The handler for the confirmed case must call replaceCloudFull
-        // instead of (or in addition to) saveApplicationData.
+    "outgoing-conflict device path calls replaceCloudWithLocal"() {
         const block = APP_SRC.match(
-            /sync:outgoing-conflict[\s\S]{0,3000}/
+            /sync:outgoing-conflict[\s\S]{0,5000}/
         );
         testRunner.assert(
-            !!block && /replaceCloudFull/.test(block[0]),
-            'The outgoing-conflict confirmed path must call replaceCloudFull for a true overwrite'
+            !!block && /replaceCloudWithLocal/.test(block[0]),
+            'The outgoing-conflict device path must use the primary-domain replacement operation'
+        );
+        testRunner.assert(
+            !!block && !/replaceCloudFull/.test(block[0]),
+            'The outgoing conflict must not invoke the global replacement operation'
         );
     }
 

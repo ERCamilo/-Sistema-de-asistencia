@@ -317,7 +317,8 @@ testRunner.addSuite("app.js — Coherencia de asistencia (contrato, Fase 4 Paso 
     // la invalidación de sanitize.
     "applyBackupData mantiene coherencia total tras el restore (post-sanitize, pre-persist)"() {
         const body = between('async function applyBackupData', 'window.importData');
-        testRunner.assert(body.length > 0 && body.length < 3000, 'el cuerpo de applyBackupData debe acotarse bien');
+        testRunner.assert(body.length > 0, 'debe existir el cuerpo de applyBackupData');
+        testRunner.assert(body.includes('preparePettyCashBackupForRestore'), 'debe preparar Caja Chica antes de aplicar el backup');
         testRunner.assert(body.includes('invalidateAllStats()'), 'debe limpiar todas las stats (bulk)');
         testRunner.assert(TOTAL_REBUILD.test(body), 'debe reconstruir el índice TOTAL (sin argumento)');
         // Orden: coherencia DESPUÉS de sanitizePositions y ANTES de saveToIndexedDB.

@@ -17,7 +17,7 @@
 
 import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '../core/AppState.js';
 import { indexedDBService } from './IndexedDBService.js';
-import { wipeAllLocalTraces } from './LocalWipeService.js';
+import { wipeMainLocalTraces } from './LocalWipeService.js';
 // JD-F11: imports estáticos — este archivo ya importa PersistenceService en
 // el grafo estático (endLocalDataWipe); los import() dinámicos que había en
 // purgePending/pauseUpload eran complejidad innecesaria, no evitaban ciclo.
@@ -41,7 +41,9 @@ import { Leader } from '../features/employees/Leader.js';
 const MIRROR_METADATA_FIELDS = ['updatedAt', 'lastDevice', 'lastChangedBy', 'deviceId'];
 
 /**
- * Borra todos los datos locales y adopta la nube como única fuente de verdad.
+ * Reemplaza el dataset principal local y adopta la nube como su fuente de verdad.
+ * Caja Chica, comprobantes y cierres se preservan hasta que este flujo pueda
+ * descargarlos con el mismo contrato de completitud.
  *
  * Orden crítico: FETCH PRIMERO (si la red falla, no se tocó nada local),
  * recién después wipe + aplicar + persistir + reload. El wipe interno
@@ -78,7 +80,7 @@ async function _replaceLocalWithCloud(deps = {}) {
         loadPositions = () => PositionRepository.loadAll(),
         loadLeaders = () => LeaderRepository.loadAll(),
         fetchAllAttendance = () => FirebaseService.getAllAttendance(),
-        wipeLocal = () => wipeAllLocalTraces(),
+        wipeLocal = () => wipeMainLocalTraces(),
         // JD-F7: clearFirst — el wipe previo es best-effort; sin clearFirst,
         // saveState hace put() (upsert) y registros viejos que sobrevivieron a
         // un wipe parcial se MEZCLARÍAN con el dataset de la nube (merge
