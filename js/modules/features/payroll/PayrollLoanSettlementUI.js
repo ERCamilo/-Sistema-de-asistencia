@@ -5,7 +5,7 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 function blockerMessage(gate) {
     if (gate?.reason === 'no-loans') return 'Aplica al menos un préstamo o una cuota al resumen.';
     if (gate?.reason === 'invalid-net') {
-        return `Resuelve ${gate.invalidCount} pago${gate.invalidCount === 1 ? '' : 's'} con saldo cero o negativo.`;
+        return `Resuelve ${gate.invalidCount} pago${gate.invalidCount === 1 ? '' : 's'} con saldo negativo.`;
     }
     if (gate?.reason === 'payroll-not-confirmed') return 'Confirma que la nómina fue pagada para continuar.';
     if (gate?.reason === 'already-settled') return 'Los pagos de préstamos de esta nómina ya fueron registrados.';

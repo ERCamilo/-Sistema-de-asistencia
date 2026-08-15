@@ -86,7 +86,7 @@ describe('Unified payroll closure workflow', () => {
 
     test.each([
         [[], 'no-rows'],
-        [[row({ net: 0 })], 'invalid-net']
+        [[row({ net: -0.01 })], 'invalid-net']
     ])('blocks invalid payroll rows', (rows, reason) => {
         expect(getPayrollClosureGate({
             rows,
@@ -94,6 +94,15 @@ describe('Unified payroll closure workflow', () => {
             paidConfirmation: confirmPayrollPaid('fingerprint', 10),
             activeClosures: []
         })).toMatchObject({ enabled: false, reason });
+    });
+
+    test('permite continuar con un pago exactamente en cero para revisarlo como advertencia', () => {
+        expect(getPayrollClosureGate({
+            rows: [row({ net: 0 })],
+            fingerprint: 'fingerprint',
+            paidConfirmation: confirmPayrollPaid('fingerprint', 10),
+            activeClosures: []
+        })).toMatchObject({ enabled: true, invalidCount: 0, reason: null });
     });
 
     test('links the optional loan batch and every payment reference to the closure', () => {

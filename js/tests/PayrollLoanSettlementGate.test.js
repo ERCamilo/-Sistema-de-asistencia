@@ -73,7 +73,6 @@ describe('Payroll loan settlement gate', () => {
 
     test.each([
         { rows: [row({ _loans: 0, _loanDetails: [] })], reason: 'no-loans' },
-        { rows: [row({ monto: 0 })], reason: 'invalid-net' },
         { rows: [row({ monto: -0.01 })], reason: 'invalid-net' }
     ])('blocks $reason', ({ rows, reason }) => {
         const fingerprint = buildPayrollPreviewFingerprint({
@@ -89,6 +88,16 @@ describe('Payroll loan settlement gate', () => {
 
         expect(gate.enabled).toBe(false);
         expect(gate.reason).toBe(reason);
+    });
+
+    test('permite liquidar un pago neto en cero cuando ya fue confirmado', () => {
+        const rows = [row({ monto: 0 })];
+        const fingerprint = buildPayrollPreviewFingerprint({
+            periodStart: '2026-08-01', periodEnd: '2026-08-23', rows
+        });
+        expect(getPayrollLoanSettlementGate({
+            rows, fingerprint, paidConfirmation: confirmPayrollPaid(fingerprint, 1234)
+        })).toMatchObject({ enabled: true, invalidCount: 0, reason: null });
     });
 
     test('uses stable employee ordering but detects a different loan charge selection', () => {

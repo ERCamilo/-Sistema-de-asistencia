@@ -135,8 +135,8 @@ export function buildPayrollClosure({
     if (!Array.isArray(rows) || rows.length === 0) {
         throw new Error('La Nómina debe contener al menos una fila pagable');
     }
-    if (rows.some(row => money(row?.monto) <= 0)) {
-        throw new Error('Todos los empleados deben conservar un pago neto mayor que cero');
+    if (rows.some(row => money(row?.monto) < 0)) {
+        throw new Error('Ningún empleado puede terminar con un pago neto negativo');
     }
 
     const compactRows = buildPayrollClosureSnapshot({ periodStart, periodEnd, rows }).rows;

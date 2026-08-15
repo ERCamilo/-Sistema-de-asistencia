@@ -180,10 +180,17 @@ describe('PayrollClosure', () => {
         [{ periodStart: '2026-08-16', periodEnd: '2026-08-15', rows: [payrollRow()], fingerprint: 'x' }, /orden/i],
         [{ periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [], fingerprint: 'x' }, /fila pagable/i],
         [{ periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [payrollRow(), payrollRow()], fingerprint: 'x' }, /duplicado/i],
-        [{ periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [payrollRow({ monto: 0 })], fingerprint: 'x' }, /neto/i],
+        [{ periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [payrollRow({ monto: -0.01 })], fingerprint: 'x' }, /neto/i],
         [{ periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [payrollRow()], fingerprint: '' }, /identidad/i]
     ])('rejects invalid closure input %#', (input, expected) => {
         expect(() => buildPayrollClosure(input)).toThrow(expected);
+    });
+
+    test('accepts an exact zero net as a reviewable closure row', () => {
+        expect(() => buildPayrollClosure({
+            periodStart: '2026-08-01', periodEnd: '2026-08-15',
+            rows: [payrollRow({ monto: 0 })], fingerprint: 'zero-net'
+        })).not.toThrow();
     });
 
     test('marks corrections without overwriting the previous closure identity', () => {

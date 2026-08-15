@@ -674,7 +674,7 @@ describe('Financial desktop layouts', () => {
 
         expect(row.querySelector('.payroll-review-table__employee').textContent).toContain('Hector Inactivo');
         expect(row.classList.contains('is-invalid')).toBe(true);
-        expect(host.querySelector('[role="alert"]').textContent).toContain('cero o negativo');
+        expect(host.querySelector('[role="alert"]').textContent).toContain('queda negativo');
         expect(host.querySelector('[data-payroll-action="copy-export-json"]').disabled).toBe(true);
     });
 

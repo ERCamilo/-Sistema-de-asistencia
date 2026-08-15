@@ -11,6 +11,10 @@ function amount(value) {
     return Number(value) || 0;
 }
 
+function money(value) {
+    return Math.round((amount(value) + Number.EPSILON) * 100) / 100;
+}
+
 /**
  * Produces a payment preview without changing the configured adjustments or
  * temporary loan selection. The source rows remain the canonical configured
@@ -39,7 +43,7 @@ export function applyPayrollPreviewInclusion(rows = [], inclusion = {}) {
             _bonusDetails: effectiveInclusion.bonuses ? [...(row._bonusDetails || [])] : [],
             _deductionDetails: effectiveInclusion.deductions ? [...(row._deductionDetails || [])] : [],
             _loanDetails: effectiveInclusion.loans ? [...(row._loanDetails || [])] : [],
-            _invalidLoanNet: effectiveInclusion.loans && loans > 0 && net <= 0.001
+            _invalidLoanNet: effectiveInclusion.loans && loans > 0 && money(net) < 0
         };
     });
 }

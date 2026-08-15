@@ -78,7 +78,7 @@ describe('PayrollLoansDesktop', () => {
         );
         expect(model.zeroCount).toBe(1);
         expect(model.negativeCount).toBe(1);
-        expect(model.invalidCount).toBe(2);
+        expect(model.invalidCount).toBe(1);
 
         const host = document.createElement('div');
         host.innerHTML = renderPayrollLoansDesktop({

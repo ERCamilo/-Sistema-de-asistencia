@@ -184,7 +184,7 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
         testRunner.assertEquals(rows[0]._loanDetails[0].lastInstallmentSeq, 3, 'Continúa sin saltar cuotas');
     },
 
-    'marca como inválido y conserva el trabajador cuando el neto queda en cero o negativo'() {
+    'conserva el trabajador y bloquea sólo cuando el neto queda negativo'() {
         const employee = buildEmployee();
         const selection = buildPayrollLoanSelection([employee]);
         const zero = applyPayrollLoanDeductions([baseRow(75)], [employee], selection);
@@ -192,7 +192,7 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
 
         testRunner.assertEquals(zero.length, 1, 'El trabajador no debe omitirse');
         testRunner.assertEquals(zero[0].monto, 0, 'El neto cero debe conservarse para mostrar el error');
-        testRunner.assert(zero[0]._invalidLoanNet, 'Neto cero debe ser inválido');
+        testRunner.assert(!zero[0]._invalidLoanNet, 'Neto cero debe quedar como advertencia, no bloqueo');
         testRunner.assert(negative[0]._invalidLoanNet, 'Neto negativo debe ser inválido');
     },
 

@@ -5,7 +5,7 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 function blockerMessage(gate) {
     if (gate?.reason === 'no-rows') return 'No hay empleados con un pago válido en esta vista previa.';
     if (gate?.reason === 'invalid-net') {
-        return `Resuelve ${gate.invalidCount} pago${gate.invalidCount === 1 ? '' : 's'} con saldo cero o negativo.`;
+        return `Resuelve ${gate.invalidCount} pago${gate.invalidCount === 1 ? '' : 's'} con saldo negativo.`;
     }
     if (gate?.reason === 'history-loading') return 'Verificando cierres anteriores de este período…';
     if (gate?.reason === 'history-error') return 'No se pudo verificar el historial local. Recargá antes de cerrar.';

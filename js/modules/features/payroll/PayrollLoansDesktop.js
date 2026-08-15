@@ -21,8 +21,10 @@ function splitEmployeeName(name) {
 }
 
 function getLoanWarningState(payrollRow) {
-    if (!payrollRow?._invalidLoanNet) return 'none';
-    return Number(payrollRow.monto) < 0 ? 'negative' : 'zero';
+    const net = Math.round((((Number(payrollRow?.monto) || 0) + Number.EPSILON) * 100)) / 100;
+    if (net < 0) return 'negative';
+    if (net === 0) return 'zero';
+    return 'none';
 }
 
 function renderWarningSummary(model) {
@@ -106,7 +108,7 @@ export function buildPayrollLoansDesktopModel(employees = [], selection = [], pa
             selectedBalance,
             eligibleBalance: loans.reduce((sum, loan) => sum + loan.balance, 0),
             netRemaining: Number(payrollRow?.monto) || 0,
-            invalid: warningState !== 'none',
+            invalid: warningState === 'negative',
             warningState
         });
     }
