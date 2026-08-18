@@ -35,7 +35,8 @@ testRunner.addSuite("SaveOutcomeNotifier (singleton) — botón Reintentar (U12)
             testRunner.assertEquals(toast.type, 'warning');
             const btn = toast.element.querySelector('.notification-action');
             testRunner.assert(!!btn, 'el toast de fallo debe tener el botón Reintentar');
-            testRunner.assertEquals(btn.textContent, 'Reintentar');
+            const labelEl = btn.querySelector('.notification-action-label');
+            testRunner.assertEquals(labelEl ? labelEl.textContent : btn.textContent, 'Reintentar');
         } finally { reset(); }
     },
 

@@ -63,14 +63,26 @@ export function SettingsDataTab(context) {
                                 </button>
                             </div>
                             
-                            <div class="form-group" style="margin-bottom: 0; margin-top: 10px;">
-                                <label class="form-label" style="font-size: 0.78rem; color: #64748b;">Auto-Backup</label>
-                                <select id="backupFrequency" onchange="updateBackupFrequency(this.value)" class="form-input" style="font-size: 0.85rem; height: 38px;">
-                                    <option value="none" ${state.settings.backupFrequency === 'none' ? 'selected' : ''}>Desactivado</option>
-                                    <option value="daily" ${state.settings.backupFrequency === 'daily' ? 'selected' : ''}>Diario</option>
-                                    <option value="weekly" ${state.settings.backupFrequency === 'weekly' ? 'selected' : ''}>Semanal</option>
-                                    <option value="monthly" ${state.settings.backupFrequency === 'monthly' ? 'selected' : ''}>Mensual</option>
-                                </select>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label class="form-label" style="font-size: 0.78rem; color: #64748b; margin-bottom: 6px; display: block;">Auto-Backup (Snapshot)</label>
+                                    <select id="backupFrequency" onchange="updateBackupFrequency(this.value)" class="form-input" style="padding: 9px 36px 9px 12px; font-size: 0.88rem; line-height: 1.4; height: auto;">
+                                        <option value="none" ${state.settings?.backupFrequency === 'none' ? 'selected' : ''}>Desactivado</option>
+                                        <option value="daily" ${state.settings?.backupFrequency === 'daily' ? 'selected' : ''}>Diario</option>
+                                        <option value="weekly" ${state.settings?.backupFrequency === 'weekly' ? 'selected' : ''}>Semanal</option>
+                                        <option value="monthly" ${state.settings?.backupFrequency === 'monthly' ? 'selected' : ''}>Mensual</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label class="form-label" style="font-size: 0.78rem; color: #64748b; margin-bottom: 6px; display: block;">Respaldo Espejo (Mirror)</label>
+                                    <select id="mirrorCadence" onchange="updateMirrorCadence(this.value)" class="form-input" style="padding: 9px 36px 9px 12px; font-size: 0.88rem; line-height: 1.4; height: auto;">
+                                        <option value="instant" ${state.settings?.mirrorCadence === 'instant' ? 'selected' : ''}>Instantáneo (Sin espera)</option>
+                                        <option value="1m" ${state.settings?.mirrorCadence === '1m' ? 'selected' : ''}>1 min (Rápido)</option>
+                                        <option value="5m" ${(state.settings?.mirrorCadence === '5m' || !state.settings?.mirrorCadence) ? 'selected' : ''}>5 min (Recomendado)</option>
+                                        <option value="15m" ${state.settings?.mirrorCadence === '15m' ? 'selected' : ''}>15 min (Ahorro)</option>
+                                        <option value="manual" ${state.settings?.mirrorCadence === 'manual' ? 'selected' : ''}>Solo al cerrar / Manual</option>
+                                    </select>
+                                </div>
                             </div>
                         `}
                     </div>

@@ -20,7 +20,7 @@ import { saveOutcomeNotifier } from './SaveOutcomeNotifier.js';
 import { SYNC_PAUSE_ENABLED, isSyncPaused } from './SyncPauseService.js';
 import { shouldAttemptAutoSnapshot } from './AutoSnapshotPolicy.js';
 import { MainSyncStore, initMainSyncLifecycle } from './MainSyncStore.js';
-import { createMirrorCadence } from './MirrorCadence.js';
+import { createMirrorCadence, getMirrorCadenceMs } from './MirrorCadence.js';
 import { redactSensitiveBackup } from './BackupRedaction.js';
 import { Notification as NotificationSystem } from '../components/Notification.js';
 import { generateUUID, slugify } from '../utils/Helpers.js';
@@ -418,14 +418,12 @@ function _mainSyncGuards() {
             }
             return repo.deleteOne(id);
         },
-        // El feedback de UI (toast honesto + anillos de asistencia) sólo
-        // reaccionaba, antes del outbox, a la resolución del MIRROR completo —
-        // la asistencia granular y los borrados nunca lo tocaban (salvo el
-        // registro de error de sync). Se preserva ese comportamiento acá:
-        // sólo 'mirror' dispara recordCloudResult + el evento de anillos.
+        // Feedback de UI (toast honesto y anillos de asistencia): cualquier escritura
+        // al outbox reporta a SaveOutcomeNotifier. Los anillos de asistencia
+        // confirman de inmediato con la subida 'daily' o con 'mirror'.
         onCloudResult: (ok, err, entry) => {
-            if (entry?.kind === 'mirror') {
-                saveOutcomeNotifier.recordCloudResult(ok);
+            saveOutcomeNotifier.recordCloudResult(ok);
+            if (entry?.kind === 'mirror' || entry?.kind === 'daily') {
                 globalThis.eventBus?.emit?.('sync:mirror-result', { ok });
             }
             // Fase 2 U4: marca de agua para el badge "pendiente de subir" del
@@ -557,6 +555,7 @@ export const syncFirebaseMirrorDebounced = (function() {
         return false;
     });
     const cadence = createMirrorCadence({
+        intervalMs: () => getMirrorCadenceMs(state?.settings?.mirrorCadence),
         emit: (snapshot) => MainSyncStore.enqueueMirror(snapshot).then(flushOutbox),
         onError: (e) => console.warn('⚠️ Error encolando el mirror diferido:', e)
     });

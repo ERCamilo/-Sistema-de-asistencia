@@ -87,7 +87,7 @@ export class Notification {
                 <span class="notification-icon">${this._getIcon(this.type)}</span>
             </div>
             <div class="notification-content">
-                <span class="notification-message">${this.message}</span>
+                <span class="notification-message"></span>
             </div>
             <div class="notification-actions">
                 ${this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${icons.get(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('')}
@@ -98,6 +98,9 @@ export class Notification {
         if (this.variant === 'update') {
             this._hydrateUpdateInfo();
             this._attachUpdateDisclosureListener();
+        } else {
+            const messageEl = this.element.querySelector('.notification-message');
+            if (messageEl) messageEl.textContent = this.message;
         }
 
         // Event listeners (acciones primero, luego cerrar)

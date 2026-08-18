@@ -1,4 +1,4 @@
-import { createMirrorCadence, MIRROR_CADENCE_MS } from '../modules/services/MirrorCadence.js';
+import { createMirrorCadence, MIRROR_CADENCE_MS, getMirrorCadenceMs, MIRROR_CADENCE_PRESETS } from '../modules/services/MirrorCadence.js';
 
 describe('MirrorCadence — trailing throttle de cinco minutos', () => {
     let now;
@@ -62,5 +62,86 @@ describe('MirrorCadence — trailing throttle de cinco minutos', () => {
         await cadence.offer({ revision: 3 });
         expect(emit).toHaveBeenCalledTimes(2);
         expect(emit).toHaveBeenLastCalledWith({ revision: 3 });
+    });
+
+    test('getMirrorCadenceMs resuelve presets correctamente', () => {
+        expect(getMirrorCadenceMs('1m')).toBe(60_000);
+        expect(getMirrorCadenceMs('5m')).toBe(300_000);
+        expect(getMirrorCadenceMs('15m')).toBe(900_000);
+        expect(getMirrorCadenceMs('manual')).toBe(Infinity);
+        expect(getMirrorCadenceMs(undefined)).toBe(MIRROR_CADENCE_MS);
+        expect(getMirrorCadenceMs(120_000)).toBe(120_000);
+    });
+
+    test('intervalMs dinámico por función adapta la cadencia en tiempo de ejecución', async () => {
+        let currentSetting = '1m';
+        const dynamicCadence = createMirrorCadence({
+            emit,
+            now: () => now,
+            intervalMs: () => getMirrorCadenceMs(currentSetting)
+        });
+
+        await dynamicCadence.offer({ revision: 1 });
+        expect(emit).toHaveBeenCalledTimes(1);
+
+        now += 30_000;
+        await dynamicCadence.offer({ revision: 2 });
+        expect(emit).toHaveBeenCalledTimes(1);
+
+        now += 30_000;
+        await jest.advanceTimersByTimeAsync(30_000);
+        expect(emit).toHaveBeenCalledTimes(2);
+        expect(emit).toHaveBeenLastCalledWith({ revision: 2 });
+
+        dynamicCadence.discard();
+    });
+
+    test('modo manual no programa temporizador trailing automático', async () => {
+        const manualCadence = createMirrorCadence({
+            emit,
+            now: () => now,
+            intervalMs: Infinity
+        });
+
+        await manualCadence.offer({ revision: 1 });
+        expect(emit).toHaveBeenCalledTimes(1);
+
+        now += 100_000;
+        await manualCadence.offer({ revision: 2 });
+        expect(emit).toHaveBeenCalledTimes(1);
+
+        now += 10_000_000;
+        await jest.advanceTimersByTimeAsync(10_000_000);
+        expect(emit).toHaveBeenCalledTimes(1); // nunca emite automáticamente
+
+        await manualCadence.flush();
+        expect(emit).toHaveBeenCalledTimes(2);
+        expect(emit).toHaveBeenLastCalledWith({ revision: 2 });
+
+        manualCadence.discard();
+    });
+
+    test('preset instant (0ms) emite cada snapshot inmediatamente sin coalescer', async () => {
+        expect(getMirrorCadenceMs('instant')).toBe(0);
+        const instantCadence = createMirrorCadence({
+            emit,
+            now: () => now,
+            intervalMs: 0
+        });
+
+        await instantCadence.offer({ revision: 1 });
+        expect(emit).toHaveBeenCalledTimes(1);
+
+        now += 500;
+        await instantCadence.offer({ revision: 2 });
+        expect(emit).toHaveBeenCalledTimes(2);
+        expect(emit).toHaveBeenLastCalledWith({ revision: 2 });
+
+        now += 500;
+        await instantCadence.offer({ revision: 3 });
+        expect(emit).toHaveBeenCalledTimes(3);
+        expect(emit).toHaveBeenLastCalledWith({ revision: 3 });
+
+        instantCadence.discard();
     });
 });

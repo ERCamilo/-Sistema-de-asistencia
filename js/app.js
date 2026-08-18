@@ -777,6 +777,24 @@ window.App.updateBackupFrequency = (value) => {
 
 window.updateBackupFrequency = window.App.updateBackupFrequency;
 
+window.App.updateMirrorCadence = (value) => {
+    stateManager.batchSetState(() => {
+        if (!state.settings) state.settings = {};
+        state.settings.mirrorCadence = value;
+    });
+    saveApplicationData();
+    const labels = {
+        'instant': 'Instantáneo (Sin espera)',
+        '1m': '1 minuto',
+        '5m': '5 minutos (Recomendado)',
+        '15m': '15 minutos',
+        'manual': 'Solo al cerrar / Manual'
+    };
+    showNotification(`🔄 Respaldo Espejo: ${labels[value] || value}`, 'info');
+};
+
+window.updateMirrorCadence = window.App.updateMirrorCadence;
+
 window.App.updatePayPeriod = (field, value) => {
     if (!state.settings.payPeriod) {
         state.settings.payPeriod = { periodStart: '', periodLength: 15, payDay: '' };

@@ -325,7 +325,7 @@ const _notify = (o) => {
         // de invocar el handler — así la resolución del reintento (éxito o
         // fallo) llega de vuelta a este MISMO ciclo de notify/_notify.
         const actions = o.retry ? [{
-            label: 'Reintentar', icon: 'refresh-cw', closeOnClick: false,
+            label: 'Reintentar', icon: 'sync', closeOnClick: false,
             onClick: () => {
                 // Judgment Day #4: si un doble click (u otro disparador) ya
                 // dejó un retry en vuelo, no reinvocamos drainMainSyncOutbox

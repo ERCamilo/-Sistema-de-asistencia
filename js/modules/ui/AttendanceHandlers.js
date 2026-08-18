@@ -61,7 +61,7 @@ export function toggleHoliday(providedDateKey = null) {
     } else {
         holidays.push(dateKey);
         isNowHoliday = true;
-        Notification.success('Día marcado como FERIADO 🚩', { icon: 'gold' });
+        Notification.success('Día marcado como FERIADO 🚩');
     }
     
     // ⚡ Fase 4 Paso 5: batchear settings.holidays + la sincronización por-registro +
