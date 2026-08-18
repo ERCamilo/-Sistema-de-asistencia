@@ -7,6 +7,6 @@
  * el formateo a UI.
  */
 
-export const BUILD = '2026.0817.214030';
+export const BUILD = '2026.0817.214232';
 
 export default BUILD;
