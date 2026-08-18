@@ -263,9 +263,9 @@ testRunner.addSuite("LoansLedger UI — acciones de préstamo activo", {
             "no ofrece realizar un pago dentro del contexto de refinanciamiento");
         testRunner.assert(!html.includes('data-app-fn=\"writeOffLoanWithConfirm\"'),
             "no ofrece anular dentro del contexto de refinanciamiento");
-        testRunner.assert(html.includes("setRefinanceDraftField('basis'"),
+        testRunner.assert(html.includes('data-arg="basis"') || html.includes("setRefinanceDraftField('basis'"),
             "ofrece selector de base de cálculo (saldo vs capital)");
-        testRunner.assert(html.includes("setRefinanceDraftField('mode'"),
+        testRunner.assert(html.includes('data-arg="mode"') || html.includes("setRefinanceDraftField('mode'"),
             "ofrece selector de modalidad de pago (cuotas vs pago único)");
     },
 

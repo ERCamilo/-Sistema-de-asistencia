@@ -3994,9 +3994,9 @@ function SidebarNavigation() {
                     <span class="sidebar-icon">${icons.get('payroll')}</span>
                     <span class="sidebar-label">Nómina</span>
                 </button>
-                <button class="${cuentasCls}" type="button" data-app-fn="openCuentasPorCobrar" aria-label="Cuentas por Cobrar" title="Cuentas por Cobrar">
+                <button class="${cuentasCls}" type="button" data-app-fn="openCuentasPorCobrar" aria-label="Préstamos / Adelantos" title="Préstamos / Adelantos">
                     <span class="sidebar-icon">💳</span>
-                    <span class="sidebar-label">Cuentas por Cobrar</span>
+                    <span class="sidebar-label">Préstamos / Adelantos</span>
                     ${badge(activeLoans)}
                 </button>
                 <button class="${state.activeTab === 'pettycash' ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="pettycash" aria-label="Caja Chica" title="Caja Chica">

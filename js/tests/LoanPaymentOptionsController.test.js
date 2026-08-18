@@ -89,4 +89,25 @@ describe('Installment payment options controller', () => {
         expect(getBalance(loan)).toBe(0);
         expect(loan.status).toBe(LOAN_STATUS.PAID);
     });
+
+    test('toggles installments cleanly on and off', () => {
+        togglePaymentForm('loan-1'); // starts at 1 cuota ($250)
+        expect(state.loansLedger.paymentDraft.installmentCount).toBe(1);
+        expect(state.loansLedger.paymentDraft.amount).toBe(250);
+
+        // Click Cuota 3 -> checks 3 cuotas ($750)
+        setPaymentDraftField('toggleInstallment', 3);
+        expect(state.loansLedger.paymentDraft.installmentCount).toBe(3);
+        expect(state.loansLedger.paymentDraft.amount).toBe(750);
+
+        // Click Cuota 3 (already checked) -> unchecks Cuota 3, leaves 2 cuotas ($500)
+        setPaymentDraftField('toggleInstallment', 3);
+        expect(state.loansLedger.paymentDraft.installmentCount).toBe(2);
+        expect(state.loansLedger.paymentDraft.amount).toBe(500);
+
+        // Click Cuota 1 (already checked) -> unchecks Cuotas 1 & 2, leaves 0 cuotas ($0)
+        setPaymentDraftField('toggleInstallment', 1);
+        expect(state.loansLedger.paymentDraft.installmentCount).toBe(0);
+        expect(state.loansLedger.paymentDraft.amount).toBe(0);
+    });
 });

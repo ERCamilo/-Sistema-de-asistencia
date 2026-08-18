@@ -396,7 +396,9 @@ export function setPaymentDraftField(field, value) {
     stateManager.batchSetState(() => {
         state.loansLedger.paymentDraft = updateLoanPaymentDraft(loan, draft, field, value);
     });
-    if (field === 'mode' || field === 'installmentCount') render();
+    if (field === 'mode' || field === 'installmentCount' || field === 'partialAmount' || field === 'toggleInstallment' || field === 'amount') {
+        render();
+    }
 }
 
 export function submitPayment(loanId) {

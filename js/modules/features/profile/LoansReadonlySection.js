@@ -93,7 +93,7 @@ export function generateLoansReadonlySection(emp) {
                 <div style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;">💵</div>
                 <div style="color: #64748b; font-size: 0.9rem; font-weight: 500;">Sin préstamos registrados</div>
                 <div style="color: #475569; font-size: 0.75rem; margin-top: 4px;">
-                    Usa el botón de Cuentas por Cobrar para registrar el primero
+                    Usa el botón de Préstamos / Adelantos para registrar el primero
                 </div>
             </div>
         `;
@@ -115,7 +115,7 @@ export function generateLoansReadonlySection(emp) {
                 </div>
                 <button type="button" data-app-fn="openLoansLedgerFor" data-arg="${empId}"
                         style="background: #f59e0b; color: #0f172a; border: none; padding: 10px 16px; border-radius: 10px; font-weight: 900; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                    📊 Gestionar en Cuentas por Cobrar →
+                    📊 Gestionar en Préstamos / Adelantos →
                 </button>
             </div>
 
@@ -124,7 +124,7 @@ export function generateLoansReadonlySection(emp) {
 
             <!-- Aviso de read-only -->
             <div style="margin-top: 12px; padding: 8px 12px; background: rgba(6, 182, 212, 0.08); border-left: 3px solid #06b6d4; border-radius: 4px; font-size: 0.72rem; color: #94a3b8; line-height: 1.5;">
-                ℹ️ Vista de solo lectura. Para registrar, editar o abonar préstamos usa <strong>Cuentas por Cobrar</strong>.
+                ℹ️ Vista de solo lectura. Para registrar, editar o abonar préstamos usa <strong>Préstamos / Adelantos</strong>.
             </div>
         </div>
     `;

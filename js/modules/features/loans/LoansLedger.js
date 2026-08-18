@@ -214,7 +214,7 @@ function LedgerOverview() {
                 ` : ''}
             </main>
 
-            <aside class="loans-overview__summary" aria-label="Resumen de cuentas por cobrar">
+            <aside class="loans-overview__summary" aria-label="Resumen de préstamos / adelantos">
                 <div class="loans-overview__summary-header">
                     <span>Resumen de cartera</span>
                     <strong>Actualizado al período vigente</strong>
@@ -305,7 +305,7 @@ function EmployeeLoansDetail(empId) {
                     <button type="button"
                             class="loans-detail-back"
                             data-app-fn="clearLoansEmployee"
-                            aria-label="Volver a cuentas por cobrar">
+                            aria-label="Volver a préstamos / adelantos">
                         <svg class="loans-detail-back__icon" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M19 12H5"></path>
                             <path d="m12 19-7-7 7-7"></path>
@@ -704,89 +704,127 @@ function PaymentForm(loan, balance) {
     const draft = (state.loansLedger || {}).paymentDraft || { amount: 0, date: '', note: '' };
     const isInstallmentLoan = getActiveLoanTerms(loan).installmentMode === INSTALLMENT_MODE.INSTALLMENTS;
     const resolvedDraft = resolveLoanPaymentDraft(loan, draft);
-    const choices = getInstallmentPaymentChoices(loan);
-    const firstCharge = choices[0]?.firstCharge || null;
-    const selectedChoice = choices[Math.max(0, resolvedDraft.installmentCount - 1)] || choices[0] || null;
-    const installmentActionLabel = resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL
-        ? 'Pagar préstamo completo'
-        : resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE
-            ? `Pagar ${resolvedDraft.installmentCount} cuotas`
-            : 'Pagar una cuota';
-    const selectionDetail = resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL
-        ? `Saldo completo · ${formatCurrency(resolvedDraft.amount)}`
-        : resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE
-            ? `Cuotas ${firstCharge?.installmentSeq || 1}–${selectedChoice?.lastCharge?.installmentSeq || resolvedDraft.installmentCount} · ${formatCurrency(resolvedDraft.amount)}`
-            : firstCharge?.kind === 'installment'
-                ? `Cuota ${firstCharge.installmentSeq} · ${formatCurrency(resolvedDraft.amount)} · ${formatDateShort(firstCharge.dueDate)}`
-                : `Próximo cargo · ${formatCurrency(resolvedDraft.amount)}`;
-    const installmentHelp = resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL
-        ? 'El préstamo quedará saldado al registrar este pago.'
-        : resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE
-            ? 'Se pagarán cuotas consecutivas empezando por la más próxima pendiente.'
-            : 'Se pagará únicamente la próxima cuota pendiente.';
+    const charges = isInstallmentLoan ? getPayrollDeductionOptions(loan) : [];
+    const nextPendingCuota = isInstallmentLoan && resolvedDraft.installmentCount < charges.length
+        ? charges[resolvedDraft.installmentCount]
+        : null;
+
+    const installmentDetail = resolvedDraft.installmentCount > 0
+        ? `${resolvedDraft.installmentCount} cuota${resolvedDraft.installmentCount === 1 ? '' : 's'} completa${resolvedDraft.installmentCount === 1 ? '' : 's'}${resolvedDraft.partialAmount > 0 ? ` + abono parcial (${formatCurrency(resolvedDraft.partialAmount)})` : ''}`
+        : resolvedDraft.partialAmount > 0
+            ? `Abono parcial (${formatCurrency(resolvedDraft.partialAmount)})`
+            : 'Sin cuotas seleccionadas';
+
+    const saveActionLabel = resolvedDraft.amount >= balance
+        ? `Pagar completo (${formatCurrency(resolvedDraft.amount)})`
+        : resolvedDraft.amount > 0
+            ? `Pagar ${formatCurrency(resolvedDraft.amount)}`
+            : 'Guardar pago';
 
     return `
         <div class="loan-operation-form loan-operation-form--payment">
             <div class="loan-operation-form__title">Realizar pago</div>
+
             ${isInstallmentLoan ? `
-                <div class="loan-payment-plan" role="group" aria-label="Forma de pago">
-                    <button type="button"
-                            class="loan-payment-plan__option ${resolvedDraft.mode === PAYMENT_PLAN_MODE.SINGLE ? 'is-active' : ''}"
-                            aria-pressed="${resolvedDraft.mode === PAYMENT_PLAN_MODE.SINGLE}"
-                            data-app-fn="setPaymentDraftField"
-                            data-arg="mode"
-                            data-arg2="${PAYMENT_PLAN_MODE.SINGLE}">
-                        <span>Pagar una cuota</span>
-                        <strong>${formatCurrency(choices[0]?.amount || 0)}</strong>
-                        <small>${firstCharge?.kind === 'installment' ? `Cuota ${firstCharge.installmentSeq}` : 'Próximo cargo'}</small>
-                    </button>
-                    <button type="button"
-                            class="loan-payment-plan__option ${resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE ? 'is-active' : ''}"
-                            aria-pressed="${resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE}"
-                            data-app-fn="setPaymentDraftField"
-                            data-arg="mode"
-                            data-arg2="${PAYMENT_PLAN_MODE.MULTIPLE}"
-                            ${choices.length < 2 ? 'disabled' : ''}>
-                        <span>Pagar varias cuotas</span>
-                        <strong>${choices.length > 1 ? `2–${choices.length}` : '—'}</strong>
-                        <small>Consecutivas</small>
-                    </button>
-                    <button type="button"
-                            class="loan-payment-plan__option ${resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL ? 'is-active' : ''}"
-                            aria-pressed="${resolvedDraft.mode === PAYMENT_PLAN_MODE.TOTAL}"
-                            data-app-fn="setPaymentDraftField"
-                            data-arg="mode"
-                            data-arg2="${PAYMENT_PLAN_MODE.TOTAL}">
-                        <span>Pagar completo</span>
-                        <strong>${formatCurrency(balance)}</strong>
-                        <small>Saldar préstamo</small>
-                    </button>
-                </div>
-                ${resolvedDraft.mode === PAYMENT_PLAN_MODE.MULTIPLE ? `
-                    <label class="loan-payment-plan__count">
-                        <span>Cuotas a pagar</span>
-                        <select onchange="setPaymentDraftField('installmentCount', this.value)">
-                            ${choices.slice(1).map(choice => `
-                                <option value="${choice.count}" ${choice.count === resolvedDraft.installmentCount ? 'selected' : ''}>
-                                    ${choice.count} cuotas · ${formatCurrency(choice.amount)}
-                                </option>
-                            `).join('')}
-                        </select>
-                    </label>
-                ` : ''}
-                <div class="loan-payment-plan__summary">
-                    <span>Pago seleccionado</span>
-                    <strong>${selectionDetail}</strong>
+                <div style="margin-bottom: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 0.72rem; color: #34d399; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;">
+                            Cuotas pendientes (${charges.length})
+                        </span>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button"
+                                    data-app-fn="setPaymentDraftField" data-arg="installmentCount" data-arg2="${charges.length}"
+                                    style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer; transition: all 150ms ease;">
+                                Pagar todo (${formatCurrency(balance)})
+                            </button>
+                            ${resolvedDraft.installmentCount > 0 || resolvedDraft.partialAmount > 0 ? `
+                                <button type="button"
+                                        data-app-fn="setPaymentDraftField" data-arg="installmentCount" data-arg2="0"
+                                        style="background: transparent; color: #94a3b8; border: 1px solid #334155; border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; cursor: pointer;">
+                                    Limpiar
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Checklist de cuotas -->
+                    <div class="loan-installments-checklist" style="display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; padding-right: 2px;">
+                        ${charges.map((charge, idx) => {
+                            const isChecked = idx < resolvedDraft.installmentCount;
+                            const seq = charge.installmentSeq || (idx + 1);
+                            return `
+                                <div role="button" tabindex="0"
+                                     data-app-fn="setPaymentDraftField" data-arg="toggleInstallment" data-arg2="${idx + 1}"
+                                     style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: ${isChecked ? 'rgba(16, 185, 129, 0.12)' : '#0f172a'}; border: 1px solid ${isChecked ? 'rgba(16, 185, 129, 0.45)' : '#334155'}; border-radius: 8px; cursor: pointer; transition: all 150ms ease;">
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <div style="width: 20px; height: 20px; border-radius: 5px; border: 2px solid ${isChecked ? '#10b981' : '#64748b'}; background: ${isChecked ? '#10b981' : 'transparent'}; display: flex; align-items: center; justify-content: center; color: #ffffff; flex-shrink: 0;">
+                                            ${isChecked ? `
+                                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                                </svg>
+                                            ` : ''}
+                                        </div>
+                                        <div>
+                                            <div style="color: ${isChecked ? '#ffffff' : '#e2e8f0'}; font-weight: 700; font-size: 0.84rem;">
+                                                Cuota ${seq}
+                                            </div>
+                                            <div style="color: #94a3b8; font-size: 0.72rem;">
+                                                Vence: ${formatDateShort(charge.dueDate)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="color: ${isChecked ? '#34d399' : '#f1f5f9'}; font-weight: 800; font-size: 0.88rem;">
+                                            ${formatCurrency(charge.amount)}
+                                        </div>
+                                        <div style="font-size: 0.68rem; color: ${isChecked ? '#10b981' : '#64748b'}; font-weight: 600;">
+                                            ${isChecked ? 'Seleccionada' : 'Pendiente'}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Abono parcial / Monto diferente a la siguiente cuota -->
+                    ${nextPendingCuota ? `
+                        <div style="margin-top: 10px; padding: 10px 12px; background: #0f172a; border: 1px dashed #334155; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <label style="font-size: 0.72rem; color: #cbd5e1; font-weight: 700;">
+                                    Abono parcial a la Cuota ${nextPendingCuota.installmentSeq || (resolvedDraft.installmentCount + 1)}
+                                    <small style="color: #94a3b8; font-weight: normal;">(máx. ${formatCurrency(nextPendingCuota.amount - 0.01)})</small>
+                                </label>
+                                ${resolvedDraft.partialAmount > 0 ? `
+                                    <span style="font-size: 0.75rem; color: #34d399; font-weight: 800;">+${formatCurrency(resolvedDraft.partialAmount)}</span>
+                                ` : ''}
+                            </div>
+                            <input type="number" inputmode="decimal" autocomplete="off"
+                                   value="${resolvedDraft.partialAmount || ''}"
+                                   min="0" max="${nextPendingCuota.amount - 0.01}" step="0.01"
+                                   placeholder="0.00 (menor a una cuota)"
+                                   oninput="setPaymentDraftField('partialAmount', this.value)"
+                                   style="width: 100%; padding: 8px 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
+                            <div style="margin-top: 4px; font-size: 0.68rem; color: #64748b;">
+                                Si el monto cubre la cuota completa (${formatCurrency(nextPendingCuota.amount)}), se seleccionará automáticamente la cuota.
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding: 8px 12px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; font-size: 0.8rem;">
+                        <span style="color: #94a3b8;">${installmentDetail}</span>
+                        <span style="color: #cbd5e1;">Monto total: <strong style="color: #34d399; font-size: 0.95rem;">${formatCurrency(resolvedDraft.amount)}</strong></span>
+                    </div>
                 </div>
             ` : ''}
+
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">${isInstallmentLoan ? 'Monto calculado' : 'Monto a pagar'}</label>
+                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Monto a pagar</label>
                     <input type="number" inputmode="decimal" autocomplete="off"
                            value="${resolvedDraft.amount || ''}" max="${balance}" min="0" step="0.01"
-                           ${isInstallmentLoan ? 'readonly' : `oninput="setPaymentDraftField('amount', this.value)"`}
+                           oninput="setPaymentDraftField('amount', this.value)"
                            placeholder="0.00"
-                           class="${isInstallmentLoan ? 'loan-payment-plan__amount' : ''}"
+                           class="loan-payment-plan__amount"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
                 <div>
@@ -803,24 +841,31 @@ function PaymentForm(loan, balance) {
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
             </div>
+
             <div style="margin: -2px 0 10px; color: #7f8b98; font-size: 0.68rem;">
-                ${isInstallmentLoan
-                    ? installmentHelp
-                    : 'Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.'}
+                ${resolvedDraft.amount >= balance
+                    ? 'El préstamo quedará saldado al registrar este pago.'
+                    : isInstallmentLoan
+                        ? 'Los pagos se aplican a las cuotas en orden cronológico de vencimiento.'
+                        : 'Si ingresas el saldo pendiente completo, el préstamo se saldará automáticamente.'}
             </div>
+
             <div class="loan-payment-form__actions">
                 <button type="button"
                         class="loan-payment-form__action loan-payment-form__action--save"
                         data-app-fn="submitPayment"
-                        data-arg="${loan.id}">
-                    ${isInstallmentLoan ? installmentActionLabel : 'Guardar pago'}
+                        data-arg="${loan.id}"
+                        ${resolvedDraft.amount <= 0 ? 'disabled' : ''}>
+                    ${saveActionLabel}
                 </button>
-                ${isInstallmentLoan ? '' : `<button type="button"
-                        class="loan-payment-form__action loan-payment-form__action--total"
-                        data-app-fn="settleLoanByFullPayment"
-                        data-arg="${loan.id}">
-                    Pago total
-                </button>`}
+                ${isInstallmentLoan ? '' : `
+                    <button type="button"
+                            class="loan-payment-form__action loan-payment-form__action--total"
+                            data-app-fn="settleLoanByFullPayment"
+                            data-arg="${loan.id}">
+                        Pago total
+                    </button>
+                `}
                 <button type="button"
                         class="loan-payment-form__action loan-payment-form__action--cancel"
                         data-app-fn="togglePaymentForm"
@@ -859,22 +904,43 @@ function RefinanceForm(loan, balance) {
             <div class="loan-operation-form__title">Refinanciar préstamo</div>
             <p style="color: #94a3b8; font-size: 0.82rem; margin: 0 0 12px;">Aplica un interés adicional por refinanciamiento y define la modalidad de pago.</p>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 14px;">
+                <!-- Base de cálculo toggle -->
                 <div>
-                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Base de cálculo del interés</label>
-                    <select onchange="setRefinanceDraftField('basis', this.value)"
-                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
-                        <option value="balance" ${basis === 'balance' ? 'selected' : ''}>Saldo restante (${formatCurrency(balance)})</option>
-                        <option value="principal" ${basis === 'principal' ? 'selected' : ''}>Capital original (${formatCurrency(originalPrincipal)})</option>
-                    </select>
+                    <label style="font-size: 0.72rem; color: #cbd5e1; display: block; margin-bottom: 6px; font-weight: 700;">Base de cálculo</label>
+                    <div class="segmented-control" role="group" aria-label="Base de cálculo" style="display: flex; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px; gap: 4px;">
+                        <button type="button"
+                                class="segmented-item ${basis === 'balance' ? 'active' : ''}"
+                                data-app-fn="setRefinanceDraftField" data-arg="basis" data-arg2="balance"
+                                style="flex: 1; padding: 8px 10px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 180ms ease; ${basis === 'balance' ? 'background: #7c3aed; color: #ffffff; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);' : 'background: transparent; color: #94a3b8;'}">
+                            Saldo (${formatCurrency(balance)})
+                        </button>
+                        <button type="button"
+                                class="segmented-item ${basis === 'principal' ? 'active' : ''}"
+                                data-app-fn="setRefinanceDraftField" data-arg="basis" data-arg2="principal"
+                                style="flex: 1; padding: 8px 10px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 180ms ease; ${basis === 'principal' ? 'background: #7c3aed; color: #ffffff; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);' : 'background: transparent; color: #94a3b8;'}">
+                            Capital (${formatCurrency(originalPrincipal)})
+                        </button>
+                    </div>
                 </div>
+
+                <!-- Modalidad de pago toggle -->
                 <div>
-                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Modalidad tras refinanciar</label>
-                    <select onchange="setRefinanceDraftField('mode', this.value)"
-                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
-                        <option value="installments" ${isInstallments ? 'selected' : ''}>Dividir en nuevas cuotas</option>
-                        <option value="lump" ${!isInstallments ? 'selected' : ''}>Pago único (saldo acumulado)</option>
-                    </select>
+                    <label style="font-size: 0.72rem; color: #cbd5e1; display: block; margin-bottom: 6px; font-weight: 700;">Modalidad de pago</label>
+                    <div class="segmented-control" role="group" aria-label="Modalidad de pago" style="display: flex; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px; gap: 4px;">
+                        <button type="button"
+                                class="segmented-item ${!isInstallments ? 'active' : ''}"
+                                data-app-fn="setRefinanceDraftField" data-arg="mode" data-arg2="lump"
+                                style="flex: 1; padding: 8px 10px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 180ms ease; ${!isInstallments ? 'background: #7c3aed; color: #ffffff; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);' : 'background: transparent; color: #94a3b8;'}">
+                            Pago único
+                        </button>
+                        <button type="button"
+                                class="segmented-item ${isInstallments ? 'active' : ''}"
+                                data-app-fn="setRefinanceDraftField" data-arg="mode" data-arg2="installments"
+                                style="flex: 1; padding: 8px 10px; border-radius: 6px; border: none; font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 180ms ease; ${isInstallments ? 'background: #7c3aed; color: #ffffff; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.4);' : 'background: transparent; color: #94a3b8;'}">
+                            En cuotas
+                        </button>
+                    </div>
                 </div>
             </div>
 

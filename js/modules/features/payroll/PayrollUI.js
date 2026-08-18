@@ -354,7 +354,7 @@ export function PayrollTab() {
                             class="view-btn ${mode === 'ledger' ? 'active' : ''}"
                             data-payroll-action="change-payroll-view-mode"
                             data-value="ledger">
-                        ${icons.get('dollar')} Cuentas por Cobrar
+                        ${icons.get('dollar')} Préstamos / Adelantos
                     </button>
                     <button type="button"
                             class="view-btn ${mode === 'history' ? 'active' : ''}"
@@ -763,7 +763,7 @@ function PayrollGeneratorTab() {
                     <section class="payroll-guide-panel payroll-guide-panel--loans" ${guideStep === 'loans' ? '' : 'hidden'}>
                         <div class="payroll-guide-panel__intro">
                             <h3>Préstamos del período</h3>
-                            <p>Esta selección es temporal y no registra abonos en las cuentas por cobrar.</p>
+                            <p>Esta selección es temporal y no registra abonos en préstamos / adelantos.</p>
                         </div>
 
                         ${renderPayrollLoansDesktop({

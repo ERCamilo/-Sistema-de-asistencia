@@ -84,7 +84,7 @@ function renderModalContent(batch) {
     return `
         <div class="payroll-settlement-modal">
             <p class="payroll-settlement-modal__intro">
-                Revisa los descuentos que ya fueron incluidos en la nómina. Al aceptar se registrarán como pagos en Cuentas por Cobrar.
+                Revisa los descuentos que ya fueron incluidos en la nómina. Al aceptar se registrarán como pagos en Préstamos / Adelantos.
             </p>
             <div class="payroll-settlement-modal__employees">
                 ${(batch.employees || []).map(employee => `

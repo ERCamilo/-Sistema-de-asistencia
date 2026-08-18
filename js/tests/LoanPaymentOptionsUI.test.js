@@ -47,57 +47,45 @@ function renderPaymentForm() {
 }
 
 describe('Installment payment options UI', () => {
-    test('shows one installment first, followed by multiple and full payment', () => {
+    test('renders interactive checklist of pending installments with checkmarks', () => {
         seedInstallmentPaymentForm();
         const host = renderPaymentForm();
-        const options = [...host.querySelectorAll('.loan-payment-plan__option')];
+        const checklist = host.querySelector('.loan-installments-checklist');
+        expect(checklist).not.toBeNull();
 
-        expect(options.map(option => option.textContent.replace(/\s+/g, ' ').trim())).toEqual([
-            'Pagar una cuota $250.00 Cuota 1',
-            'Pagar varias cuotas 2–4 Consecutivas',
-            'Pagar completo $1,000.00 Saldar préstamo'
-        ]);
-        expect(options[0].getAttribute('aria-pressed')).toBe('true');
-        expect(host.querySelector('.loan-payment-plan__amount').readOnly).toBe(true);
-        expect(host.querySelector('.loan-payment-form__action--save').textContent.trim())
-            .toBe('Pagar una cuota');
+        const rows = checklist.querySelectorAll('[data-arg="toggleInstallment"]');
+        expect(rows).toHaveLength(4);
+        expect(rows[0].textContent).toContain('Cuota 1');
+        expect(rows[0].textContent).toContain('$250.00');
+        expect(rows[0].textContent).toContain('Seleccionada');
+        expect(rows[1].textContent).toContain('Pendiente');
     });
 
-    test('shows the consecutive installment count and calculated amount', () => {
+    test('shows dynamic installment count, partial amount and total sum', () => {
         const loan = seedInstallmentPaymentForm();
-        let draft = updateLoanPaymentDraft(
-            loan,
-            state.loansLedger.paymentDraft,
-            'mode',
-            PAYMENT_PLAN_MODE.MULTIPLE
-        );
-        draft = updateLoanPaymentDraft(loan, draft, 'installmentCount', 3);
+        let draft = updateLoanPaymentDraft(loan, state.loansLedger.paymentDraft, 'installmentCount', 2);
+        draft = updateLoanPaymentDraft(loan, draft, 'partialAmount', 50);
         state.loansLedger.paymentDraft = draft;
 
         const host = renderPaymentForm();
-
-        expect(host.querySelector('.loan-payment-plan__count select').value).toBe('3');
-        expect(host.querySelector('.loan-payment-plan__summary').textContent)
-            .toMatch(/Cuotas 1–3\s+·\s+\$750\.00/);
-        expect(host.querySelector('.loan-payment-form__action--save').textContent.trim())
-            .toBe('Pagar 3 cuotas');
+        expect(host.textContent).toContain('2 cuotas completas + abono parcial ($50.00)');
+        expect(host.textContent).toContain('Monto total: $550.00');
+        expect(host.querySelector('.loan-payment-form__action--save').textContent.trim()).toBe('Pagar $550.00');
     });
 
-    test('full payment presents the exact balance as the final action', () => {
+    test('selecting all cuotas presents full payment action', () => {
         const loan = seedInstallmentPaymentForm();
         state.loansLedger.paymentDraft = updateLoanPaymentDraft(
             loan,
             state.loansLedger.paymentDraft,
-            'mode',
-            PAYMENT_PLAN_MODE.TOTAL
+            'installmentCount',
+            4
         );
 
         const host = renderPaymentForm();
-
-        expect(host.querySelector('.loan-payment-plan__summary').textContent)
-            .toMatch(/Saldo completo\s+·\s+\$1,000\.00/);
-        expect(host.querySelector('.loan-payment-form__action--save').textContent.trim())
-            .toBe('Pagar préstamo completo');
+        expect(host.textContent).toContain('4 cuotas completas');
+        expect(host.textContent).toContain('Monto total: $1,000.00');
+        expect(host.querySelector('.loan-payment-form__action--save').textContent.trim()).toBe('Pagar completo ($1,000.00)');
     });
 
     test('lump-sum loans keep the existing custom amount form', () => {
@@ -123,7 +111,7 @@ describe('Installment payment options UI', () => {
 
         const host = renderPaymentForm();
 
-        expect(host.querySelector('.loan-payment-plan')).toBeNull();
+        expect(host.querySelector('.loan-installments-checklist')).toBeNull();
         expect(host.textContent).toContain('Monto a pagar');
         expect(host.querySelector('.loan-payment-form__action--total')).not.toBeNull();
         expect(host.querySelector('input[type="number"]').readOnly).toBe(false);
