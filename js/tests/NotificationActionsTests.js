@@ -159,8 +159,50 @@ testRunner.addSuite("Notification — botones de acción", {
         testRunner.assert(!n.element.querySelector('.notification-action'),
             'sin actions no debe haber botones .notification-action');
         cleanup();
-    }
+    },
 
+    "los iconos principales de cada tipo de notificación son SVGs vectoriales y no emojis/unicode"() {
+        ['success', 'error', 'warning', 'info'].forEach((type) => {
+            cleanup();
+            const n = new Notification({ message: 'Mensaje de prueba', type, duration: 0 }).show();
+            const iconSvg = n.element.querySelector('.notification-icon svg');
+            testRunner.assert(!!iconSvg, `el tipo ${type} debe renderizar un elemento svg en .notification-icon`);
+            testRunner.assert(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(n.element.querySelector('.notification-icon').textContent),
+                `el icono de ${type} no debe contener caracteres emoji`);
+            cleanup();
+        });
+    },
+
+    "el botón de cierre y los botones de acción usan SVGs vectoriales"() {
+        cleanup();
+        const n = new Notification({
+            message: 'Aviso',
+            type: 'warning',
+            duration: 0,
+            actions: [{ label: 'Reintentar', icon: 'sync', onClick: () => {} }]
+        }).show();
+        testRunner.assert(!!n.element.querySelector('.notification-close svg'),
+            'el botón de cierre debe renderizar un icono svg');
+        testRunner.assert(!!n.element.querySelector('.notification-action-icon svg'),
+            'la acción debe renderizar un icono svg');
+        cleanup();
+    },
+
+    "sanitiza y remueve emojis redundantes al inicio del mensaje"() {
+        cleanup();
+        const n = new Notification({ message: '✅ Estado sincronizado con la nube', type: 'success', duration: 0 }).show();
+        testRunner.assertEquals(n.message, 'Estado sincronizado con la nube',
+            'debe limpiar el emoji ✅ del inicio del mensaje');
+        testRunner.assertEquals(n.element.querySelector('.notification-message').textContent,
+            'Estado sincronizado con la nube', 'el DOM debe reflejar el mensaje sin emoji');
+
+        n.update({ message: '❌ Error de red detectado' });
+        testRunner.assertEquals(n.message, 'Error de red detectado',
+            'update() también debe limpiar el emoji ❌ del mensaje');
+        testRunner.assertEquals(n.element.querySelector('.notification-message').textContent,
+            'Error de red detectado');
+        cleanup();
+    }
 });
 
 testRunner.addSuite("Notification — update() acepta options.actions (U11)", {

@@ -1,5 +1,39 @@
 import icons from '../ui/IconSystem.js';
 
+export const NOTIFICATION_SVGS = {
+    // Tipos de notificación
+    'check': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    'success': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    'x-circle': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    'error': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    'alert': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    'warning': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    'info': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    'close': '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+
+    // Acciones comunes
+    'sync': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>',
+    'refresh': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+    'cloud': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>',
+    'download': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+    'upload': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'
+};
+
+export function getNotificationActionSvg(iconKey) {
+    if (!iconKey) return '';
+    if (NOTIFICATION_SVGS[iconKey]) return NOTIFICATION_SVGS[iconKey];
+    const res = icons.get(iconKey);
+    if (res && res.includes('<svg')) return res;
+    return NOTIFICATION_SVGS.check;
+}
+
+export function sanitizeNotificationMessage(msg) {
+    if (typeof msg !== 'string') return msg;
+    return msg
+        .replace(/^[\s\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{200D}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{2705}\u{274C}\u{26A0}\u{2139}\u{2714}\u{2716}\u{1F4E5}\u{1F4E4}\u{1F5D1}\u{1F4F8}\u{1F680}\u{21A9}\u{1F504}\u{1F4A1}\u{1F6A8}\u{1F4CB}\u{1F4C5}\u{1F4C4}\u{1F514}\u{1F4B0}]+/u, '')
+        .trim();
+}
+
 export class Notification {
     static activeNotifications = [];
     static MAX_STACK = 3;
@@ -8,7 +42,7 @@ export class Notification {
     static ERROR_MAX_DURATION = 15000;
 
     constructor(options = {}) {
-        this.message = options.message || '';
+        this.message = sanitizeNotificationMessage(options.message || '');
         this.type = options.type || 'info'; // 'success', 'error', 'warning', 'info', 'loading'
 
         // Duration por defecto: loading es sticky (0), error tiene tope de 15s, resto 4s
@@ -64,13 +98,7 @@ export class Notification {
         if (type === 'loading') {
             return '<span class="notification-spinner"></span>';
         }
-        const typeIcons = {
-            success: icons.get('check'),
-            error: icons.get('x-circle'),
-            warning: icons.get('alert'),
-            info: icons.get('info')
-        };
-        return typeIcons[type] || typeIcons.info;
+        return NOTIFICATION_SVGS[type] || NOTIFICATION_SVGS.info;
     }
 
     // Mostrar notificacion
@@ -90,8 +118,8 @@ export class Notification {
                 <span class="notification-message"></span>
             </div>
             <div class="notification-actions">
-                ${this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${icons.get(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('')}
-                ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : ''}
+                ${this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${getNotificationActionSvg(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('')}
+                ${this.closable ? `<button class="notification-close" aria-label="Cerrar">${NOTIFICATION_SVGS.close}</button>` : ''}
             </div>
         `;
 
@@ -212,7 +240,7 @@ export class Notification {
 
         // Actualizar propiedades
         if (options.type) this.type = options.type;
-        if (options.message) this.message = options.message;
+        if (options.message !== undefined) this.message = sanitizeNotificationMessage(options.message);
         if (options.duration !== undefined) this.duration = options.duration;
         if (options.closable !== undefined) this.closable = options.closable;
         // U11: asignar this.actions desde options.actions. El bloque de abajo
@@ -241,8 +269,8 @@ export class Notification {
         if (messageEl) messageEl.textContent = this.message;
         
         if (actionsEl) {
-            const actionBtns = this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${icons.get(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('');
-            const closeBtn = this.closable ? `<button class="notification-close" aria-label="Cerrar">${icons.get('close')}</button>` : '';
+            const actionBtns = this.actions.map((a, i) => `<button class="notification-action" data-action-index="${i}">${a.icon ? `<span class="notification-action-icon">${getNotificationActionSvg(a.icon)}</span>` : ''}<span class="notification-action-label"></span></button>`).join('');
+            const closeBtn = this.closable ? `<button class="notification-close" aria-label="Cerrar">${NOTIFICATION_SVGS.close}</button>` : '';
             actionsEl.innerHTML = actionBtns + closeBtn;
             this._attachActionListeners();
             if (this.closable) this._attachCloseListener();

@@ -45,13 +45,13 @@ export function SettingsTestsTab() {
                 <h4 id="notification-preview-title" style="margin-top:0;">Vista previa de notificaciones (Toasts)</h4>
                 <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">Prueba los diferentes estados visuales, botones de acción interactivos, animación de reintento y apilamiento.</p>
                 <div style="display:flex;flex-wrap:wrap;gap:8px;">
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="success">✅ Éxito</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="warning-retry">⚠️ Warning con Reintentar</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="error">❌ Error</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="info">ℹ️ Info</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="loading">⏳ Carga y transición</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="update">🚀 Actualización PWA</button>
-                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="stack">📚 Ráfaga (Stacking)</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="success">Éxito</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="warning-retry">Warning con Reintentar</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="error">Error</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="info">Info</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="loading">Carga y transición</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="update">Actualización PWA</button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="open-notification-preview" data-value="stack">Ráfaga (Stacking)</button>
                 </div>
             </section>
         </div>

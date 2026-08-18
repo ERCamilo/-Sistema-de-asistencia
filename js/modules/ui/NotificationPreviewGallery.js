@@ -1,5 +1,5 @@
 /**
- * 🔔 NotificationPreviewGallery.js — Galería interactiva de previsualización de notificaciones.
+ * NotificationPreviewGallery.js — Galería interactiva de previsualización de notificaciones.
  * Permite probar visualmente los diferentes tipos de toasts, botones de acción,
  * animaciones de carga y apilamiento directamente desde la pestaña de Pruebas.
  */
@@ -10,7 +10,7 @@ export function openSafeNotificationPreview(kind, deps = {}) {
     const notify = deps.notification || Notification;
 
     if (kind === 'success') {
-        notify.success('✅ Estado general sincronizado con la nube');
+        notify.success('Estado general sincronizado con la nube');
         return true;
     }
 
@@ -35,7 +35,7 @@ export function openSafeNotificationPreview(kind, deps = {}) {
                     setTimeout(() => {
                         toast?.update({
                             type: 'success',
-                            message: '✅ Conexión recuperada y guardado en la nube',
+                            message: 'Conexión recuperada y guardado en la nube',
                             actions: []
                         });
                     }, 1200);
@@ -46,13 +46,13 @@ export function openSafeNotificationPreview(kind, deps = {}) {
     }
 
     if (kind === 'error') {
-        notify.error('❌ Error al sincronizar con Firebase: sin conexión a internet', {
+        notify.error('Error al sincronizar con Firebase: sin conexión a internet', {
             duration: 8000,
             actions: [{
                 label: 'Ver diagnóstico',
                 icon: 'alert',
                 onClick: () => {
-                    notify.info('ℹ️ Diagnóstico: Estado sin conexión (offline mode)');
+                    notify.info('Diagnóstico: Estado sin conexión (modo local activo)');
                 }
             }]
         });
@@ -60,7 +60,7 @@ export function openSafeNotificationPreview(kind, deps = {}) {
     }
 
     if (kind === 'info') {
-        notify.info('ℹ️ Modo fuera de línea activado. Tus cambios se guardan localmente.');
+        notify.info('Modo fuera de línea activado. Tus cambios se guardan localmente.');
         return true;
     }
 
@@ -69,7 +69,7 @@ export function openSafeNotificationPreview(kind, deps = {}) {
         setTimeout(() => {
             loader.update({
                 type: 'success',
-                message: '✅ Historial de asistencia sincronizado con éxito',
+                message: 'Historial de asistencia sincronizado con éxito',
                 duration: 4000
             });
         }, 1800);
@@ -103,7 +103,7 @@ export function openSafeNotificationPreview(kind, deps = {}) {
             notify.warning('2. 3 asistencias pendientes de sincronizar con la nube', { duration: 6000 });
         }, 300);
         setTimeout(() => {
-            notify.success('3. ✅ 42 registros cargados correctamente', 6000);
+            notify.success('3. 42 registros cargados correctamente', 6000);
         }, 600);
         return true;
     }

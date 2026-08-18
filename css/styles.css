@@ -2703,6 +2703,38 @@
             color: #06b6d4;
         }
 
+        .notification-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .notification-icon svg {
+            display: block;
+            width: 22px;
+            height: 22px;
+        }
+
+        .notification-action-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .notification-action-icon svg {
+            display: block;
+            width: 14px;
+            height: 14px;
+        }
+
+        .notification-close svg {
+            display: block;
+            width: 15px;
+            height: 15px;
+        }
+
         .notification-content {
             flex: 1;
             padding-right: 8px;
