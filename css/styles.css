@@ -2736,26 +2736,105 @@
             transform: scale(1.1);
         }
 
-        .notification-action {
+        .notification-actions {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            background: rgba(6, 182, 212, 0.15);
-            border: 1px solid rgba(6, 182, 212, 0.4);
-            color: #06b6d4;
-            font-size: 0.85rem;
-            font-weight: 700;
-            padding: 6px 14px;
-            border-radius: 8px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: all 0.2s;
+            gap: 8px;
             flex-shrink: 0;
         }
 
-        .notification-action:hover {
-            background: rgba(6, 182, 212, 0.3);
+        .notification-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: rgba(6, 182, 212, 0.14);
+            border: 1px solid rgba(6, 182, 212, 0.35);
+            color: #38bdf8;
+            font-size: 0.82rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            padding: 6px 14px;
+            border-radius: 999px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            flex-shrink: 0;
+            outline: none;
+        }
+
+        .notification-action:hover:not(:disabled) {
+            background: rgba(6, 182, 212, 0.26);
+            border-color: rgba(6, 182, 212, 0.55);
             color: #ffffff;
+            box-shadow: 0 0 14px rgba(6, 182, 212, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .notification-action:active:not(:disabled) {
+            transform: translateY(0) scale(0.96);
+        }
+
+        /* Armonización por tipo de notificación */
+        .notification-warning .notification-action {
+            background: rgba(245, 158, 11, 0.14);
+            border-color: rgba(245, 158, 11, 0.35);
+            color: #fbbf24;
+        }
+
+        .notification-warning .notification-action:hover:not(:disabled) {
+            background: rgba(245, 158, 11, 0.26);
+            border-color: rgba(245, 158, 11, 0.55);
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(245, 158, 11, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .notification-error .notification-action {
+            background: rgba(239, 68, 68, 0.14);
+            border-color: rgba(239, 68, 68, 0.35);
+            color: #f87171;
+        }
+
+        .notification-error .notification-action:hover:not(:disabled) {
+            background: rgba(239, 68, 68, 0.26);
+            border-color: rgba(239, 68, 68, 0.55);
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .notification-success .notification-action {
+            background: rgba(16, 185, 129, 0.14);
+            border-color: rgba(16, 185, 129, 0.35);
+            color: #34d399;
+        }
+
+        .notification-success .notification-action:hover:not(:disabled) {
+            background: rgba(16, 185, 129, 0.26);
+            border-color: rgba(16, 185, 129, 0.55);
+            color: #ffffff;
+            box-shadow: 0 0 14px rgba(16, 185, 129, 0.3);
+            transform: translateY(-1px);
+        }
+
+        /* Estado de carga / reintento en vuelo */
+        .notification-action.is-loading,
+        .notification-action:disabled {
+            opacity: 0.75;
+            cursor: wait;
+            pointer-events: none;
+            transform: none !important;
+        }
+
+        .notification-action.is-loading .notification-action-icon svg,
+        .notification-action.is-loading .notification-action-icon {
+            animation: notification-action-spin 0.85s linear infinite;
+        }
+
+        @keyframes notification-action-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
         .notification-action-icon {
@@ -2765,8 +2844,9 @@
         }
 
         .notification-action-icon svg {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s ease;
         }
 
         /* Variante compacta para actualizaciones, inspirada en la jerarquía

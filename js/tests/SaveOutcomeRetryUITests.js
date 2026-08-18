@@ -57,9 +57,13 @@ testRunner.addSuite("SaveOutcomeNotifier (singleton) — botón Reintentar (U12)
         try {
             driveCloudFailure();
             const toast = Notification.activeNotifications[0];
-            toast.element.querySelector('.notification-action').click();
+            const btn = toast.element.querySelector('.notification-action');
+            btn.click();
 
             testRunner.assertEquals(called, 1, 'debe invocar el handler inyectado');
+            testRunner.assert(btn.classList.contains('is-loading'), 'el botón debe tener la clase is-loading');
+            testRunner.assert(btn.disabled, 'el botón debe quedar deshabilitado');
+            testRunner.assertEquals(btn.querySelector('.notification-action-label')?.textContent, 'Reintentando...');
             testRunner.assert(Notification.activeNotifications.includes(toast),
                 'closeOnClick:false — el toast debe seguir visible mientras se reintenta');
         } finally { reset(); }

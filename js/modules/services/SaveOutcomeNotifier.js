@@ -333,6 +333,15 @@ const _notify = (o) => {
                 // evitamos también la llamada redundante a o.retry().
                 if (saveOutcomeNotifier.isRetryInFlight()) return;
                 saveOutcomeNotifier.recordRetryStarted();
+                if (_toastAlive() && _toast.element) {
+                    const btn = _toast.element.querySelector('.notification-action');
+                    if (btn) {
+                        btn.classList.add('is-loading');
+                        btn.disabled = true;
+                        const label = btn.querySelector('.notification-action-label');
+                        if (label) label.textContent = 'Reintentando...';
+                    }
+                }
                 try { o.retry(); } catch (_) { /* defensivo — drainMainSyncOutbox no debería rechazar */ }
             }
         }] : [];
