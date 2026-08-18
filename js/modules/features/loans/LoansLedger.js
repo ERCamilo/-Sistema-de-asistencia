@@ -835,48 +835,86 @@ function PaymentForm(loan, balance) {
 // ─── REFINANCE (refinanciamiento) FORM ────────────────────────────────────────
 
 function RefinanceForm(loan, balance) {
-    const draft = (state.loansLedger || {}).refinanceDraft || { interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
-    const base = balance;
-    const rate = Number(draft.interestRate || 0);
+    const draft = (state.loansLedger || {}).refinanceDraft || {
+        basis: 'balance',
+        mode: 'installments',
+        interestRate: 0,
+        installmentCount: 2,
+        installmentFrequencyWeeks: 2,
+        note: ''
+    };
     const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-    const interestToAdd = r2(base * rate / 100);
+    const basis = draft.basis === 'principal' ? 'principal' : 'balance';
+    const isInstallments = draft.mode === 'installments';
+    const originalPrincipal = r2(Number(loan.principal || 0));
+    const baseAmount = basis === 'principal' ? originalPrincipal : balance;
+    const rate = Number(draft.interestRate || 0);
+    const interestToAdd = r2(baseAmount * rate / 100);
     const newBalance = r2(balance + interestToAdd);
+    const count = Number(draft.installmentCount || 2);
+    const approxInstallment = isInstallments && count > 0 ? r2(newBalance / count) : 0;
 
     return `
         <div class="loan-operation-form loan-operation-form--refinance">
-            <div class="loan-operation-form__title">Refinanciar (no pudo pagar)</div>
-            <p style="color: #94a3b8; font-size: 0.82rem; margin: 0 0 10px;">Nuevo contrato sobre saldo pendiente: <strong>${formatCurrency(balance)}</strong></p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 10px;">
+            <div class="loan-operation-form__title">Refinanciar préstamo</div>
+            <p style="color: #94a3b8; font-size: 0.82rem; margin: 0 0 12px;">Aplica un interés adicional por refinanciamiento y define la modalidad de pago.</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px;">
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Tasa de interés (%)</label>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Base de cálculo del interés</label>
+                    <select onchange="setRefinanceDraftField('basis', this.value)"
+                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
+                        <option value="balance" ${basis === 'balance' ? 'selected' : ''}>Saldo restante (${formatCurrency(balance)})</option>
+                        <option value="principal" ${basis === 'principal' ? 'selected' : ''}>Capital original (${formatCurrency(originalPrincipal)})</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Modalidad tras refinanciar</label>
+                    <select onchange="setRefinanceDraftField('mode', this.value)"
+                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
+                        <option value="installments" ${isInstallments ? 'selected' : ''}>Dividir en nuevas cuotas</option>
+                        <option value="lump" ${!isInstallments ? 'selected' : ''}>Pago único (saldo acumulado)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                <div>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Tasa de interés (%)</label>
                     <input type="number" inputmode="decimal" autocomplete="off" value="${draft.interestRate || ''}"
                            min="0" max="${VALIDATION.MAX_INTEREST_PERCENT}" step="0.1"
                            oninput="setRefinanceDraftField('interestRate', this.value)" placeholder="0"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
+                ${isInstallments ? `
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Frecuencia (semanas)</label>
-                    <select onchange="setRefinanceDraftField('installmentFrequencyWeeks', this.value)" style="width:100%; padding:8px; background:#0f172a; border:1px solid #334155; border-radius:6px; color:#f1f5f9;">
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Frecuencia</label>
+                    <select onchange="setRefinanceDraftField('installmentFrequencyWeeks', this.value)"
+                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.88rem;">
                         ${[1, 2, 3, 4].map(weeks => `<option value="${weeks}" ${Number(draft.installmentFrequencyWeeks || 2) === weeks ? 'selected' : ''}>Cada ${weeks} semana${weeks === 1 ? '' : 's'}</option>`).join('')}
                     </select>
                 </div>
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Nuevas cuotas</label>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Nuevas cuotas</label>
                     <input type="number" inputmode="numeric" value="${draft.installmentCount || 2}" min="1" max="${VALIDATION.MAX_INSTALLMENTS}" step="1"
                            oninput="setRefinanceDraftField('installmentCount', this.value)"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
-                </div>
+                </div>` : ''}
                 <div>
-                    <label style="font-size: 0.7rem; color: #94a3b8; display: block; margin-bottom: 4px;">Nota (opcional)</label>
+                    <label style="font-size: 0.72rem; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: 600;">Nota (opcional)</label>
                     <input type="text" value="${escapeAttr(draft.note || '')}"
                            oninput="setRefinanceDraftField('note', this.value)" placeholder="motivo"
                            style="width: 100%; padding: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; font-size: 0.9rem;">
                 </div>
             </div>
-            <div style="display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; background: #0f172a; border-radius: 8px; margin-bottom: 10px; font-size: 0.82rem;">
-                <span style="color: #94a3b8;">Interés a agregar: <strong style="color: #a78bfa;">+${formatCurrency(interestToAdd)}</strong></span>
+
+            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; font-size: 0.82rem;">
+                <span style="color: #94a3b8;">Base: <strong style="color: #f1f5f9;">${formatCurrency(baseAmount)}</strong></span>
+                <span style="color: #94a3b8;">Interés a agregar: <strong style="color: #a78bfa;">+${formatCurrency(interestToAdd)} (${rate}%)</strong></span>
                 <span style="color: #94a3b8;">Nuevo saldo: <strong style="color: #f59e0b;">${formatCurrency(newBalance)}</strong></span>
+                ${isInstallments && count > 0 ? `<span style="color: #94a3b8;">Cuotas est.: <strong style="color: #38bdf8;">${count} × ~${formatCurrency(approxInstallment)}</strong></span>` : ''}
             </div>
+
             <div class="loan-refinance-form__actions">
                 <button type="button" data-app-fn="submitRefinance" data-arg="${loan.id}"
                         class="loan-refinance-form__action loan-refinance-form__action--save">

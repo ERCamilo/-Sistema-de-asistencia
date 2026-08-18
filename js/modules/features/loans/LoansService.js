@@ -439,8 +439,8 @@ export function refinanceLoan(emp, loanId, params = {}) {
     const { valid, errors } = validateRefinanceInput(loan, params);
     if (!valid) throw new Error(errors.join('. '));
 
-    const createsReplacement = params.replacement !== false && params.installmentCount != null;
-    const basis = createsReplacement ? 'balance' : (params.basis === 'balance' ? 'balance' : 'principal');
+    const createsReplacement = params.replacement !== false && params.installmentCount != null && Number(params.installmentCount) > 0;
+    const basis = params.basis === 'principal' ? 'principal' : 'balance';
     const baseAmount = basis === 'balance' ? balance : round2(Number(loan.principal || 0));
     const rate = Number(params.interestRate);
     const interestAmount = round2(baseAmount * rate / 100);
@@ -474,14 +474,15 @@ export function refinanceLoan(emp, loanId, params = {}) {
         const effectiveAt = Number.isFinite(Number(params.effectiveAt)) ? Number(params.effectiveAt) : now;
         const principal = balance;
         const startDate = params.date || new Date(effectiveAt).toISOString().slice(0, 10);
-        const replacementInterest = round2(principal * rate / 100);
+        const replacementInterest = interestAmount;
+        const totalDue = round2(principal + replacementInterest);
         event.kind = 'replacement';
         event.effectiveAt = effectiveAt;
         event.replacementTerms = {
             version: 2, principal, interestRate: rate, interestIncluded: false, startDate,
             installmentMode: INSTALLMENT_MODE.INSTALLMENTS, installmentFrequencyWeeks: frequencyWeeks, installmentCount: count,
-            installments: generateInstallmentSchedule({ principal, interestRate: rate, interestIncluded: false, startDate, count, frequencyWeeks }),
-            interestAmount: replacementInterest, totalDue: round2(principal + replacementInterest),
+            installments: generateInstallmentSchedule({ principal: totalDue, interestRate: 0, interestIncluded: true, startDate, count, frequencyWeeks }),
+            interestAmount: replacementInterest, totalDue,
             paidAmountAtReplacement: getPaidAmount(loan), effectiveAt
         };
     }

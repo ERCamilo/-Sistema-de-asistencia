@@ -89,7 +89,7 @@ function ensureLedgerState() {
 }
 
 function createEmptyRefinanceDraft() {
-    return { interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
+    return { basis: 'balance', mode: 'installments', interestRate: 0, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
 }
 
 function createEmptyLoanDraft() {
@@ -573,7 +573,14 @@ export function toggleRefinanceForm(loanId) {
     stateManager.batchSetState(() => {
         state.loansLedger.showRefinanceFormForLoan = open;
         if (open) state.loansLedger.showPaymentFormForLoan = null;
-        state.loansLedger.refinanceDraft = { interestRate: rate, installmentCount: 2, installmentFrequencyWeeks: 2, note: '' };
+        state.loansLedger.refinanceDraft = {
+            basis: 'balance',
+            mode: 'installments',
+            interestRate: rate,
+            installmentCount: 2,
+            installmentFrequencyWeeks: 2,
+            note: ''
+        };
     });
     render();
 }
@@ -599,8 +606,23 @@ export function submitRefinance(loanId) {
         alertMsg('Empleado no encontrado');
         return;
     }
+    const draft = state.loansLedger.refinanceDraft || {};
+    const isInstallments = draft.mode !== 'lump' && (draft.mode === 'installments' || (draft.installmentCount != null && Number(draft.installmentCount) > 0));
+    const params = {
+        basis: draft.basis === 'principal' ? 'principal' : 'balance',
+        interestRate: Number(draft.interestRate || 0),
+        note: (draft.note || '').trim()
+    };
+    if (isInstallments) {
+        params.installmentCount = Number(draft.installmentCount || 2);
+        params.installmentFrequencyWeeks = Number(draft.installmentFrequencyWeeks || 2);
+        params.replacement = true;
+    } else {
+        params.installmentCount = null;
+        params.replacement = false;
+    }
     try {
-        const ev = refinanceLoan(emp, loanId, state.loansLedger.refinanceDraft);
+        const ev = refinanceLoan(emp, loanId, params);
         state.loansLedger.showRefinanceFormForLoan = null;
         saveApplicationData({ immediate: true, announce: `Préstamo refinanciado: +${ev.interestAmount.toFixed(2)} de interés` });
         render();
