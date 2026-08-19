@@ -91,11 +91,51 @@ function LedgerOverview() {
         <div class="loans-overview">
             <main class="loans-overview__main">
                 <div class="loans-overview__mobile-kpis">
-                    ${kpiCard('Saldo pendiente', formatCurrency(totalExposure), '#f59e0b', 'payroll', 'Total facturado', formatCurrency(totalHistoricalDue))}
-                    ${kpiCard('Total pagado', formatCurrency(totalPaid), 'rgb(16, 185, 115)', 'check', 'Total histórico', formatCurrency(totalHistoricalPaid))}
-                    ${kpiCard('Interés total', formatCurrency(totalActiveInterest), '#f43f5e', 'analytics', 'Total histórico', formatCurrency(totalHistoricalInterest))}
-                    ${kpiCard('Empleados con deuda', allWithDebt.length.toString(), '#06b6d4', 'personnel', 'Inactivos', inactiveWithDebt.length.toString())}
-                    ${kpiCard('Préstamos activos', totalLoans.toString(), '#a855f7', 'briefcase', 'Cerrados', closedLoansCount.toString())}
+                    ${kpiCard(
+                        'Saldo pendiente',
+                        formatCurrency(totalExposure),
+                        '#f59e0b',
+                        'payroll',
+                        'Total facturado',
+                        formatCurrency(totalHistoricalDue),
+                        'Saldo pendiente:\nEs el dinero total que los empleados todavía deben a la empresa hoy.\n\nFórmula:\nSaldo pendiente = (Capital prestado + Intereses) − Total abonado\n\n* Conforme se reciben pagos, este saldo baja hasta llegar a $0.00 (saldado).'
+                    )}
+                    ${kpiCard(
+                        'Total pagado',
+                        formatCurrency(totalPaid),
+                        'rgb(16, 185, 115)',
+                        'check',
+                        'Total histórico',
+                        formatCurrency(totalHistoricalPaid),
+                        'Total pagado:\nEs el dinero real que los empleados con préstamos activos ya han entregado a la empresa.\n\nFórmula:\nTotal pagado = Suma de todos los abonos y descuentos de nómina.\n\n* Total histórico = Incluye también préstamos pasados ya saldados.'
+                    )}
+                    ${kpiCard(
+                        'Interés total',
+                        formatCurrency(totalActiveInterest),
+                        '#f43f5e',
+                        'analytics',
+                        'Total histórico',
+                        formatCurrency(totalHistoricalInterest),
+                        'Interés total:\nEs la ganancia o recargo financiero aplicado sobre el dinero prestado originalmente.\n\nFórmula:\nInterés total = Interés inicial + Intereses por refinanciamiento.\n\n* No incluye el capital ni descuenta los abonos realizados.'
+                    )}
+                    ${kpiCard(
+                        'Empleados con deuda',
+                        allWithDebt.length.toString(),
+                        '#06b6d4',
+                        'personnel',
+                        'Inactivos',
+                        inactiveWithDebt.length.toString(),
+                        'Empleados con deuda:\nCantidad de personas (tanto empleados activos como exempleados inactivos) que tienen saldo pendiente de pago.\n\n* Los exempleados inactivos no entran a la nómina, pero su deuda sigue registrada para poder cobrarles.'
+                    )}
+                    ${kpiCard(
+                        'Préstamos activos',
+                        totalLoans.toString(),
+                        '#a855f7',
+                        'briefcase',
+                        'Cerrados',
+                        closedLoansCount.toString(),
+                        'Préstamos activos:\nNúmero de préstamos que se están cobrando actualmente en la empresa.\n\n* No incluye préstamos ya saldados al 100% ni anulados.'
+                    )}
                 </div>
 
                 ${inactiveWithDebt.length > 0 ? `
@@ -112,10 +152,10 @@ function LedgerOverview() {
                 <div style="background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #334155; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
                     <div style="flex: 1; min-width: 220px;">
                         <input type="text" autocomplete="off"
-                               placeholder="🔍 Buscar empleado por nombre o número..."
-                               value="${escapeAttr(ledger.search || '')}"
-                               oninput="setLoansSearch(this.value)"
-                               style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
+                                placeholder="🔍 Buscar empleado por nombre o número..."
+                                value="${escapeAttr(ledger.search || '')}"
+                                oninput="setLoansSearch(this.value)"
+                                style="width: 100%; padding: 10px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; font-size: 0.9rem;">
                     </div>
                     <button type="button" data-app-fn="openLoansEmployeePicker"
                             style="padding: 10px 16px; background: #f59e0b; color: #000; border: none; border-radius: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;">
@@ -155,7 +195,8 @@ function LedgerOverview() {
                         </div>
                     </div>
                     <!-- Balance pinned to the right -->
-                    <div style="text-align: right; flex-shrink: 0;">
+                    <div style="text-align: right; flex-shrink: 0;"
+                         title="Saldo pendiente: ${formatCurrency(emp.totalBalance)} (Falta por pagar)&#10;Total a devolver: ${formatCurrency(emp.totalDue)} (Capital + Intereses)&#10;Total pagado: ${formatCurrency(emp.totalPaid)}">
                         <div style="font-size: 1.05rem; font-weight: 900; color: #f59e0b; line-height: 1.1;">${formatCurrency(emp.totalBalance)}</div>
                         <div style="font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em;">de ${formatCurrency(emp.totalDue)}</div>
                     </div>
@@ -202,7 +243,8 @@ function LedgerOverview() {
                                         </div>
                                     </div>
                                     <!-- Total paid/due pinned to the right -->
-                                    <div style="text-align: right; flex-shrink: 0;">
+                                    <div style="text-align: right; flex-shrink: 0;"
+                                         title="Cuenta saldada:&#10;Total prestado y recuperado: ${formatCurrency(emp.totalPaid)}&#10;Saldo pendiente: $0.00">
                                         <div style="font-size: 0.95rem; font-weight: 800; color: rgb(16, 185, 115); line-height: 1.1;">${formatCurrency(emp.totalPaid)}</div>
                                         <div style="font-size: 0.6rem; color: #64748b; text-transform: uppercase;">recuperado</div>
                                     </div>
@@ -221,44 +263,62 @@ function LedgerOverview() {
                 </div>
                 <table>
                     <tbody>
-                        <tr>
-                            <th scope="row">Saldo pendiente<small>Total facturado ${formatCurrency(totalHistoricalDue)}</small></th>
+                        <tr title="Saldo pendiente:&#10;Dinero total que los empleados todavía deben a la empresa hoy.&#10;&#10;Fórmula:&#10;Saldo pendiente = (Capital prestado + Intereses) − Total pagado&#10;&#10;* Total facturado = Todo el dinero prestado más intereses generados desde el primer día.">
+                            <th scope="row">
+                                Saldo pendiente
+                                <small>Total facturado ${formatCurrency(totalHistoricalDue)}</small>
+                            </th>
                             <td>${formatCurrency(totalExposure)}</td>
                         </tr>
-                        <tr>
-                            <th scope="row">Total pagado<small>Histórico ${formatCurrency(totalHistoricalPaid)}</small></th>
+                        <tr title="Total pagado:&#10;Dinero real que ya fue cobrado o descontado de nómina en los préstamos activos.&#10;&#10;Fórmula:&#10;Total pagado = Suma de todos los abonos registrados.&#10;&#10;* Total histórico = Incluye también préstamos pasados ya saldados.">
+                            <th scope="row">
+                                Total pagado
+                                <small>Histórico ${formatCurrency(totalHistoricalPaid)}</small>
+                            </th>
                             <td>${formatCurrency(totalPaid)}</td>
                         </tr>
-                        <tr>
-                            <th scope="row">Interés activo<small>Histórico ${formatCurrency(totalHistoricalInterest)}</small></th>
+                        <tr title="Interés activo:&#10;Ganancia o recargo financiero total sobre los préstamos vigentes.&#10;&#10;Fórmula:&#10;Interés activo = Interés pactado original + Intereses por refinanciamiento.&#10;&#10;* Histórico = Todos los intereses generados a lo largo del tiempo.">
+                            <th scope="row">
+                                Interés activo
+                                <small>Histórico ${formatCurrency(totalHistoricalInterest)}</small>
+                            </th>
                             <td>${formatCurrency(totalActiveInterest)}</td>
                         </tr>
-                        <tr>
-                            <th scope="row">Empleados con deuda<small>${inactiveWithDebt.length} inactivos · ${allInactive.length} cuentas saldadas</small></th>
+                        <tr title="Empleados con deuda:&#10;Cantidad de personas con préstamos pendientes de cobro (activos y exempleados inactivos).&#10;&#10;* Inactivos = Exempleados que aún deben dinero a la empresa.">
+                            <th scope="row">
+                                Empleados con deuda
+                                <small>${inactiveWithDebt.length} inactivos · ${allInactive.length} cuentas saldadas</small>
+                            </th>
                             <td>${allWithDebt.length}</td>
                         </tr>
-                        <tr>
-                            <th scope="row">Préstamos activos<small>${closedLoansCount} cerrados</small></th>
+                        <tr title="Préstamos activos:&#10;Préstamos abiertos en este momento en proceso de pago.&#10;&#10;* Cerrados = Préstamos ya saldados al 100% o anulados.">
+                            <th scope="row">
+                                Préstamos activos
+                                <small>${closedLoansCount} cerrados</small>
+                            </th>
                             <td>${totalLoans}</td>
                         </tr>
                     </tbody>
                 </table>
-                <p>Este resumen no modifica saldos ni registra movimientos.</p>
+                <p>Pasa el cursor sobre cualquier métrica para ver su explicación y fórmula de cálculo.</p>
             </aside>
         </div>
     `;
 }
 
-function kpiCard(label, value, color, iconName, subLabel = '', subValue = '') {
+function kpiCard(label, value, color, iconName, subLabel = '', subValue = '', tooltip = '') {
     const subHTML = (subLabel && subValue)
         ? `<div style="font-size: 0.65rem; color: #64748b; margin-top: 6px; border-top: 1px dashed #334155; padding-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeAttr(`${subLabel}: ${subValue}`)}">${subLabel}: <span style="font-weight: 700;">${subValue}</span></div>`
         : '';
     return `
-        <div style="background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #334155; border-left: 4px solid ${color}; min-width: 0; display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="loan-kpi-card" title="${escapeAttr(tooltip)}" style="background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #334155; border-left: 4px solid ${color}; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; cursor: help;">
             <div>
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-                    <div style="color: ${color}; flex-shrink: 0;">${icons.get(iconName, { size: 16 })}</div>
-                    <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; line-height: 1.2;">${label}</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <div style="color: ${color}; flex-shrink: 0;">${icons.get(iconName, { size: 16 })}</div>
+                        <div style="font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em; line-height: 1.2;">${label}</div>
+                    </div>
+                    ${tooltip ? `<span style="font-size: 0.65rem; color: #64748b; border: 1px solid #334155; border-radius: 50%; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800;" aria-hidden="true">?</span>` : ''}
                 </div>
                 <div style="font-size: 1.15rem; font-weight: 900; color: #f1f5f9; word-break: break-word; line-height: 1.1;">${value}</div>
             </div>
@@ -285,6 +345,15 @@ function EmployeeLoansDetail(empId) {
     const paid = allLoans.filter(l => l.status === LOAN_STATUS.PAID);
     const writtenOff = allLoans.filter(l => l.status === LOAN_STATUS.WRITTEN_OFF);
     const totalBalance = active.reduce((s, l) => s + getBalance(l), 0);
+    const activeTotalDue = active.reduce((s, l) => s + getTotalDue(l), 0);
+    const activePaid = active.reduce((s, l) => s + getPaidAmount(l), 0);
+    const allTimePaid = allLoans.reduce((s, l) => s + getPaidAmount(l), 0);
+    const progressPct = activeTotalDue > 0 ? Math.round((activePaid / activeTotalDue) * 100) : (allLoans.length > 0 && active.length === 0 ? 100 : 0);
+    const nextPayrollDeduction = active.reduce((sum, loan) => {
+        const options = getPayrollDeductionOptions(loan);
+        return sum + (options.length > 0 ? Number(options[0].amount || 0) : getBalance(loan));
+    }, 0);
+
     const employeeNameParts = String(emp.name || '').trim().split(/\s+/).filter(Boolean);
     const employeeFirstName = employeeNameParts.shift() || 'Sin nombre';
     const employeeRemainingName = employeeNameParts.join(' ');
@@ -323,6 +392,46 @@ function EmployeeLoansDetail(empId) {
                     <div style="font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Saldo pendiente</div>
                     <div style="font-size: 1.5rem; font-weight: 900; color: #f59e0b;">${formatCurrency(totalBalance)}</div>
                 </div>
+            </div>
+
+            <!-- Employee KPI stats cards -->
+            <div class="loans-employee-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px;">
+                ${kpiCard(
+                    'Saldo pendiente',
+                    formatCurrency(totalBalance),
+                    '#f59e0b',
+                    'payroll',
+                    'Total con interés',
+                    formatCurrency(activeTotalDue),
+                    'Saldo pendiente:\nEs el dinero total que el empleado debe actualmente a la empresa.\n\nFórmula:\nSaldo pendiente = Total a devolver − Total pagado'
+                )}
+                ${kpiCard(
+                    'Total abonado',
+                    formatCurrency(activePaid),
+                    'rgb(16, 185, 115)',
+                    'check',
+                    'Progreso de pago',
+                    active.length > 0 ? `${progressPct}% saldado` : (allLoans.length > 0 ? '100% saldado' : '0%'),
+                    'Total abonado:\nDinero real que el empleado ya entregó en abonos o descuentos de nómina para sus préstamos activos.\n\n* Histórico acumulado: ' + formatCurrency(allTimePaid)
+                )}
+                ${kpiCard(
+                    'Próximo descuento',
+                    formatCurrency(nextPayrollDeduction),
+                    '#06b6d4',
+                    'calendar',
+                    'Frecuencia',
+                    'Próximo cierre de nómina',
+                    'Próximo descuento:\nMonto a descontar en el próximo cierre de nómina.\n\n* Corresponde a las próximas cuotas o saldos pendientes del empleado.'
+                )}
+                ${kpiCard(
+                    'Historial de préstamos',
+                    `${active.length} ${active.length === 1 ? 'activo' : 'activos'}`,
+                    '#a855f7',
+                    'briefcase',
+                    'Historial',
+                    `${paid.length} saldados · ${writtenOff.length} anulados`,
+                    'Récord del empleado:\nHistorial de préstamos solicitados y saldados en la empresa.\n\n* ' + allLoans.length + ' préstamo(s) en total.'
+                )}
             </div>
 
             ${duplicateCandidates.length > 0 ? `
@@ -488,27 +597,27 @@ function LoanCard(loan) {
 
             <!-- Desktop numbers row -->
             <div class="loan-card__metrics loan-card__metrics--desktop">
-                <div>
+                <div title="Capital prestado:&#10;Dinero entregado originalmente al empleado.&#10;&#10;(No incluye intereses ni resta los abonos).">
                     <div class="loan-card__metric-label">Capital</div>
                     <div class="loan-card__metric-value">${formatCurrency(terms.principal)}</div>
                 </div>
-                <div>
+                <div title="Tasa de interés:&#10;Porcentaje (%) acordado por el préstamo.&#10;&#10;* Si dice (incl.), el interés ya estaba sumado en el capital inicial.">
                     <div class="loan-card__metric-label">Interés</div>
                     <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                 </div>
-                <div>
+                <div title="Interés acumulado:&#10;Monto en dinero de los intereses generados.&#10;&#10;Fórmula:&#10;Interés original + Recargos por refinanciamientos.">
                     <div class="loan-card__metric-label">Int. acumulado</div>
-                    <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}" title="Interés total acumulado (original + refinanciamientos)">${formatCurrency(totalInterest)}</div>
+                    <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
                 </div>
-                <div>
+                <div title="Total a devolver:&#10;Deuda total acordada antes de empezar a pagar.&#10;&#10;Fórmula:&#10;Total = Capital prestado + Interés acumulado.&#10;(No descuenta los pagos que ya se hicieron).">
                     <div class="loan-card__metric-label">Total</div>
                     <div class="loan-card__metric-value">${formatCurrency(totalDue)}</div>
                 </div>
-                <div>
+                <div title="Total pagado:&#10;Dinero que el empleado ya entregó en abonos o descuentos de nómina.">
                     <div class="loan-card__metric-label">Pagado</div>
                     <div class="loan-card__metric-value loan-card__metric-value--paid">${formatCurrency(paid)}</div>
                 </div>
-                <div>
+                <div title="Saldo pendiente:&#10;Dinero que el empleado todavía debe en este préstamo.&#10;&#10;Fórmula:&#10;Saldo pendiente = Total a devolver − Total pagado.&#10;(Al llegar a $0.00 el préstamo queda saldado).">
                     <div class="loan-card__metric-label">Saldo pendiente</div>
                     <div class="loan-card__metric-value ${balance > 0 ? 'loan-card__metric-value--pending' : 'loan-card__metric-value--paid'}">${formatCurrency(balance)}</div>
                 </div>
@@ -529,7 +638,7 @@ function LoanCard(loan) {
                         ${isActive && nextChargeLabel ? `<small class="loan-card__next-charge">${nextChargeLabel}</small>` : ''}
                         ${loan.updatedAt ? `<small>⏱️ Último cambio: ${formatTimeSince(loan.updatedAt)}</small>` : ''}
                     </span>
-                    <span class="loan-card__pending">
+                    <span class="loan-card__pending" title="Saldo pendiente actual: ${formatCurrency(balance)} de ${formatCurrency(totalDue)}">
                         <span>Saldo pendiente</span>
                         <strong class="${balance > 0 ? '' : 'loan-card__pending--paid'}">${formatCurrency(balance)}</strong>
                     </span>
@@ -541,23 +650,23 @@ function LoanCard(loan) {
                 <div class="loan-card__breakdown-body">
                     <div class="loan-card__breakdown-title">Desglose financiero</div>
                     <div class="loan-card__metrics loan-card__metrics--breakdown">
-                        <div>
+                        <div title="Capital prestado:&#10;Dinero entregado originalmente al empleado.">
                             <div class="loan-card__metric-label">Capital</div>
                             <div class="loan-card__metric-value">${formatCurrency(terms.principal)}</div>
                         </div>
-                        <div>
+                        <div title="Tasa de interés:&#10;Porcentaje (%) pactado en el préstamo.">
                             <div class="loan-card__metric-label">Interés</div>
                             <div class="loan-card__metric-value">${terms.interestRate}%${terms.interestIncluded ? ' (incl.)' : ''}</div>
                         </div>
-                        <div>
+                        <div title="Interés acumulado:&#10;Total de intereses (inicial + refinanciamientos).">
                             <div class="loan-card__metric-label">Int. acumulado</div>
                             <div class="loan-card__metric-value ${refinCount > 0 ? 'loan-card__metric-value--refinanced' : ''}">${formatCurrency(totalInterest)}</div>
                         </div>
-                        <div>
+                        <div title="Total a devolver:&#10;Capital prestado + Intereses totales acordados.">
                             <div class="loan-card__metric-label">Total</div>
                             <div class="loan-card__metric-value">${formatCurrency(totalDue)}</div>
                         </div>
-                        <div>
+                        <div title="Total pagado:&#10;Abonos y descuentos recibidos en este préstamo.">
                             <div class="loan-card__metric-label">Pagado</div>
                             <div class="loan-card__metric-value loan-card__metric-value--paid">${formatCurrency(paid)}</div>
                         </div>

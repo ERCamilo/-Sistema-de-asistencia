@@ -2551,6 +2551,12 @@
 
 .loans-overview__summary tr {
     border-bottom: 1px solid #293440;
+    transition: background 0.15s ease;
+    cursor: help;
+}
+
+.loans-overview__summary tr:hover {
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .loans-overview__summary th,

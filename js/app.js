@@ -492,17 +492,53 @@ Object.entries(EmployeesUI).forEach(([key, value]) => {
 // ============================================
 window.App.Sync = {
     syncNow: async () => {
+        if (!window.currentUser) {
+            showNotification('⚠️ Debes iniciar sesión con Google primero para sincronizar', 'warning');
+            return;
+        }
         try {
             SyncStatus.markSyncing();   // spinner del badge (dos flechas girando)
             state.syncStatus = 'syncing';
             render();
+
+            // 1. PULL & MERGE: Traer datos de la nube y combinarlos deterministamente con los locales
+            const mergeResult = await mergeMainDataFromCloud({
+                state,
+                fetchFullState: () => FirebaseService.getFullState(),
+                loadEmployees: () => EmployeeRepository.loadAll(),
+                loadPositions: () => PositionRepository.loadAll(),
+                loadLeaders: () => LeaderRepository.loadAll(),
+                fetchAllAttendance: () => FirebaseService.getAllAttendance(),
+                mergeEmployees: mergeIncomingEmployees,
+                mergePositions: mergeIncomingPositions,
+                mergeLeaders: mergeIncomingLeaders,
+                mergeAttendance: mergeAttendanceRecords
+            });
+
+            if (mergeResult.ok && mergeResult.merged) {
+                stateManager.batchSetState(() => {
+                    state.employees = mergeResult.merged.employees.map(e => e instanceof Employee ? e : new Employee(e));
+                    state.positions = mergeResult.merged.positions.map(p => p instanceof Position ? p : new Position(p));
+                    state.leaders = mergeResult.merged.leaders.map(l => l instanceof Leader ? l : new Leader(l));
+                    state.attendance = mergeResult.merged.attendance;
+                    invalidateAllStats();
+                    buildAttendanceIndex();
+                });
+                await saveToIndexedDB();
+            }
+
+            // 2. PUSH: Subir el estado combinado resultante a Firebase
             await FirebaseService.saveFullState(state);
-            if (state.settingsActiveTab === 'data') state.snapshots = await FirebaseService.listSnapshots();
+            if (state.settingsActiveTab === 'data') {
+                state.snapshots = await FirebaseService.listSnapshots();
+            }
+
             state.syncStatus = 'synced';
             SyncStatus.markSynced();    // apaga el spinner → ✓ al día
-            showNotification('✅ Estado general sincronizado', 'success');
+            showNotification('✅ Sincronización completa (datos combinados y actualizados)', 'success');
             render();
         } catch (e) {
+            console.error('Error en syncNow:', e);
             state.syncStatus = 'error';
             SyncStatus.markError(e);    // apaga el spinner → ✗ error
             showNotification('❌ Error al sincronizar con Firebase', 'error');
