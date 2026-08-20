@@ -81,14 +81,22 @@ const _SETTINGS_ACTION_MAP = {
         let val = input ? input.value.trim() : '';
         if (val) {
             if (!/^https?:\/\//i.test(val)) {
-                val = 'http://' + val;
+                val = val.startsWith('splitx.erlin.do') ? 'https://' + val : 'http://' + val;
             }
             try {
                 const parsed = new URL(val);
-                const isAllowed = parsed.hostname === 'splitx.erlin.do' ||
-                                  parsed.hostname === 'localhost' ||
-                                  parsed.hostname === '127.0.0.1';
-                if (!isAllowed) {
+                const isSplitXProd = parsed.hostname === 'splitx.erlin.do';
+                const isLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+
+                if (isSplitXProd && parsed.protocol !== 'https:') {
+                    window.showNotification?.(
+                        '❌ Para producción se requiere obligatoriamente HTTPS (https://splitx.erlin.do)',
+                        'error'
+                    );
+                    return;
+                }
+
+                if (!isSplitXProd && !isLocal) {
                     window.showNotification?.(
                         '❌ Por seguridad solo se permite https://splitx.erlin.do o entornos locales (localhost / 127.0.0.1)',
                         'error'

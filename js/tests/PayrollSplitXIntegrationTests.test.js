@@ -67,16 +67,26 @@ describe('Payroll SplitX postMessage Integration', () => {
         jest.clearAllMocks();
     });
 
-    test('sendToSplitX opens splitx.erlin.do and initiates postMessage listener', () => {
+    test('sendToSplitX opens splitx.erlin.do, sends initial SPLITX_PING and initiates listener', () => {
         const target = PayrollUI.sendToSplitX();
 
         expect(window.open).toHaveBeenCalledWith('https://splitx.erlin.do', '_blank');
         expect(target).toBe(mockWindow);
         expect(notifications.some(n => n.msg.includes('Abriendo SplitX'))).toBe(true);
+        expect(mockWindow.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'SPLITX_PING',
+                source: 'Sistema-de-Asistencia',
+                version: '1.0',
+                transferId: expect.any(String)
+            }),
+            'https://splitx.erlin.do'
+        );
     });
 
     test('sendToSplitX sends payload with targetOrigin and transferId upon receiving SPLITX_READY event', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
+        mockWindow.postMessage.mockClear();
 
         // Simulate SPLITX_READY message event from the expected window and origin
         const readyEvent = new MessageEvent('message', {
@@ -109,6 +119,7 @@ describe('Payroll SplitX postMessage Integration', () => {
 
     test('sendToSplitX ignores events from mismatched origin or window source', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
+        mockWindow.postMessage.mockClear();
 
         // Event from wrong origin
         const badOriginEvent = new MessageEvent('message', {
@@ -129,8 +140,9 @@ describe('Payroll SplitX postMessage Integration', () => {
         expect(mockWindow.postMessage).not.toHaveBeenCalled();
     });
 
-    test('sendToSplitX is idempotent and only sends the payload once even on multiple SPLITX_READY events', () => {
+    test('sendToSplitX is idempotent and only sends the payroll payload once even on multiple SPLITX_READY events', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
+        mockWindow.postMessage.mockClear();
 
         const readyEvent = new MessageEvent('message', {
             data: { type: 'SPLITX_READY', version: '1.0' },
@@ -145,11 +157,23 @@ describe('Payroll SplitX postMessage Integration', () => {
         expect(mockWindow.postMessage).toHaveBeenCalledTimes(1);
     });
 
-    test('sendToSplitX notifies success when SPLITX_IMPORT_SUCCESS is received from valid origin', () => {
+    test('sendToSplitX notifies success when SPLITX_IMPORT_SUCCESS is received with matching transferId', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
+        const pingCall = mockWindow.postMessage.mock.calls.find(c => c[0].type === 'SPLITX_PING');
+        const transferId = pingCall[0].transferId;
 
+        // Message with mismatched transferId should be ignored
+        const wrongTxEvent = new MessageEvent('message', {
+            data: { type: 'SPLITX_IMPORT_SUCCESS', count: 1, transferId: 'wrong_id' },
+            origin: 'https://splitx.erlin.do',
+            source: mockWindow
+        });
+        window.dispatchEvent(wrongTxEvent);
+        expect(notifications.some(n => n.type === 'success')).toBe(false);
+
+        // Message with matching transferId succeeds
         const successEvent = new MessageEvent('message', {
-            data: { type: 'SPLITX_IMPORT_SUCCESS', count: 1 },
+            data: { type: 'SPLITX_IMPORT_SUCCESS', count: 1, transferId },
             origin: 'https://splitx.erlin.do',
             source: mockWindow
         });
@@ -158,11 +182,13 @@ describe('Payroll SplitX postMessage Integration', () => {
         expect(notifications.some(n => n.type === 'success' && n.msg.includes('1 colaboradores cargados en SplitX'))).toBe(true);
     });
 
-    test('sendToSplitX handles error response from SplitX', () => {
+    test('sendToSplitX handles error response from SplitX with matching transferId', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
+        const pingCall = mockWindow.postMessage.mock.calls.find(c => c[0].type === 'SPLITX_PING');
+        const transferId = pingCall[0].transferId;
 
         const errorEvent = new MessageEvent('message', {
-            data: { type: 'SPLITX_IMPORT_ERROR', error: 'Formato no soportado' },
+            data: { type: 'SPLITX_IMPORT_ERROR', error: 'Formato no soportado', transferId },
             origin: 'https://splitx.erlin.do',
             source: mockWindow
         });
@@ -178,6 +204,8 @@ describe('Payroll SplitX postMessage Integration', () => {
 
         expect(window.open).toHaveBeenCalledWith('http://127.0.0.1:8081', '_blank');
         expect(target).toBe(mockWindow);
+
+        mockWindow.postMessage.mockClear();
 
         const readyEvent = new MessageEvent('message', {
             data: { type: 'SPLITX_READY', version: '1.0' },

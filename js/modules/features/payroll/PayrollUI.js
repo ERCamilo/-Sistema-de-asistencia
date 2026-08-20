@@ -1951,6 +1951,20 @@ export function sendToSplitX(targetUrl) {
         }
     };
 
+    const sendPing = () => {
+        if (payloadSent || handshakeCompleted) return;
+        try {
+            targetWindow.postMessage({
+                type: 'SPLITX_PING',
+                transferId,
+                source: 'Sistema-de-Asistencia',
+                version: '1.0'
+            }, targetOrigin);
+        } catch (err) {
+            console.error('Error enviando PING a SplitX:', err);
+        }
+    };
+
     const messageHandler = (event) => {
         // Validación estricta de origen y ventana de origen
         if (event.origin !== targetOrigin) return;
@@ -1963,18 +1977,21 @@ export function sendToSplitX(targetUrl) {
                 window.showNotification('🔄 Transfiriendo datos a SplitX...', 'info');
             }
         } else if (event.data.type === 'SPLITX_IMPORT_SUCCESS') {
+            if (event.data.transferId !== transferId) return;
             handshakeCompleted = true;
             cleanup();
             if (window.showNotification) {
                 window.showNotification(`✅ ${event.data.count || data.length} colaboradores cargados en SplitX`, 'success');
             }
         } else if (event.data.type === 'SPLITX_IMPORT_ERROR') {
+            if (event.data.transferId !== transferId) return;
             handshakeCompleted = true;
             cleanup();
             if (window.showNotification) {
                 window.showNotification(`❌ Error en SplitX: ${event.data.error || 'Desconocido'}`, 'error');
             }
         } else if (event.data.type === 'SPLITX_IMPORT_CANCELLED') {
+            if (event.data.transferId !== transferId) return;
             handshakeCompleted = true;
             cleanup();
             if (window.showNotification) {
@@ -1991,21 +2008,16 @@ export function sendToSplitX(targetUrl) {
 
     window.addEventListener('message', messageHandler);
 
-    let attempts = 0;
+    // Enviar PING inicial y reintentar cada 800ms hasta recibir READY (sin enviar nómina a ciegas)
+    sendPing();
     retryInterval = setInterval(() => {
         if (handshakeCompleted || payloadSent) {
             clearInterval(retryInterval);
             retryInterval = null;
             return;
         }
-        attempts++;
-        if (attempts <= 4) {
-            sendPayload();
-        } else {
-            clearInterval(retryInterval);
-            retryInterval = null;
-        }
-    }, 1500);
+        sendPing();
+    }, 800);
 
     timeoutId = setTimeout(() => {
         if (!handshakeCompleted) {
