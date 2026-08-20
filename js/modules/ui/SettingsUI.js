@@ -84,7 +84,17 @@ const _SETTINGS_ACTION_MAP = {
                 val = 'http://' + val;
             }
             try {
-                new URL(val);
+                const parsed = new URL(val);
+                const isAllowed = parsed.hostname === 'splitx.erlin.do' ||
+                                  parsed.hostname === 'localhost' ||
+                                  parsed.hostname === '127.0.0.1';
+                if (!isAllowed) {
+                    window.showNotification?.(
+                        '❌ Por seguridad solo se permite https://splitx.erlin.do o entornos locales (localhost / 127.0.0.1)',
+                        'error'
+                    );
+                    return;
+                }
             } catch (e) {
                 window.showNotification?.('❌ URL inválida. Debe ser un formato como http://127.0.0.1:8081', 'error');
                 return;

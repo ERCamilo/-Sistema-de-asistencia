@@ -75,21 +75,24 @@ describe('Payroll SplitX postMessage Integration', () => {
         expect(notifications.some(n => n.msg.includes('Abriendo SplitX'))).toBe(true);
     });
 
-    test('sendToSplitX sends payload upon receiving SPLITX_READY event', () => {
+    test('sendToSplitX sends payload with targetOrigin and transferId upon receiving SPLITX_READY event', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
 
-        // Simulate SPLITX_READY message event
+        // Simulate SPLITX_READY message event from the expected window and origin
         const readyEvent = new MessageEvent('message', {
             data: { type: 'SPLITX_READY', version: '1.0' },
-            origin: 'https://splitx.erlin.do'
+            origin: 'https://splitx.erlin.do',
+            source: mockWindow
         });
         window.dispatchEvent(readyEvent);
 
+        expect(mockWindow.postMessage).toHaveBeenCalledTimes(1);
         expect(mockWindow.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({
                 type: 'SPLITX_IMPORT_PAYROLL',
                 source: 'Sistema-de-Asistencia',
                 version: '1.0',
+                transferId: expect.any(String),
                 currency: 'DOP',
                 period: { start: '2026-08-01', end: '2026-08-15' },
                 employees: expect.arrayContaining([
@@ -99,17 +102,56 @@ describe('Payroll SplitX postMessage Integration', () => {
                     })
                 ])
             }),
-            '*'
+            'https://splitx.erlin.do'
         );
         expect(notifications.some(n => n.msg.includes('Transfiriendo'))).toBe(true);
     });
 
-    test('sendToSplitX notifies success when SPLITX_IMPORT_SUCCESS is received', () => {
+    test('sendToSplitX ignores events from mismatched origin or window source', () => {
+        PayrollUI.sendToSplitX('https://splitx.erlin.do');
+
+        // Event from wrong origin
+        const badOriginEvent = new MessageEvent('message', {
+            data: { type: 'SPLITX_READY', version: '1.0' },
+            origin: 'https://evil-site.com',
+            source: mockWindow
+        });
+        window.dispatchEvent(badOriginEvent);
+        expect(mockWindow.postMessage).not.toHaveBeenCalled();
+
+        // Event from wrong source window
+        const badSourceEvent = new MessageEvent('message', {
+            data: { type: 'SPLITX_READY', version: '1.0' },
+            origin: 'https://splitx.erlin.do',
+            source: {}
+        });
+        window.dispatchEvent(badSourceEvent);
+        expect(mockWindow.postMessage).not.toHaveBeenCalled();
+    });
+
+    test('sendToSplitX is idempotent and only sends the payload once even on multiple SPLITX_READY events', () => {
+        PayrollUI.sendToSplitX('https://splitx.erlin.do');
+
+        const readyEvent = new MessageEvent('message', {
+            data: { type: 'SPLITX_READY', version: '1.0' },
+            origin: 'https://splitx.erlin.do',
+            source: mockWindow
+        });
+
+        window.dispatchEvent(readyEvent);
+        window.dispatchEvent(readyEvent);
+        window.dispatchEvent(readyEvent);
+
+        expect(mockWindow.postMessage).toHaveBeenCalledTimes(1);
+    });
+
+    test('sendToSplitX notifies success when SPLITX_IMPORT_SUCCESS is received from valid origin', () => {
         PayrollUI.sendToSplitX('https://splitx.erlin.do');
 
         const successEvent = new MessageEvent('message', {
             data: { type: 'SPLITX_IMPORT_SUCCESS', count: 1 },
-            origin: 'https://splitx.erlin.do'
+            origin: 'https://splitx.erlin.do',
+            source: mockWindow
         });
         window.dispatchEvent(successEvent);
 
@@ -121,21 +163,33 @@ describe('Payroll SplitX postMessage Integration', () => {
 
         const errorEvent = new MessageEvent('message', {
             data: { type: 'SPLITX_IMPORT_ERROR', error: 'Formato no soportado' },
-            origin: 'https://splitx.erlin.do'
+            origin: 'https://splitx.erlin.do',
+            source: mockWindow
         });
         window.dispatchEvent(errorEvent);
 
         expect(notifications.some(n => n.type === 'error' && n.msg.includes('Formato no soportado'))).toBe(true);
     });
 
-    test('sendToSplitX uses custom URL from state.settings.splitxUrl when configured', () => {
+    test('sendToSplitX uses custom URL with matching targetOrigin when configured', () => {
         state.settings.splitxUrl = 'http://127.0.0.1:8081';
 
         const target = PayrollUI.sendToSplitX();
 
         expect(window.open).toHaveBeenCalledWith('http://127.0.0.1:8081', '_blank');
         expect(target).toBe(mockWindow);
-        expect(notifications.some(n => n.msg.includes('http://127.0.0.1:8081'))).toBe(true);
+
+        const readyEvent = new MessageEvent('message', {
+            data: { type: 'SPLITX_READY', version: '1.0' },
+            origin: 'http://127.0.0.1:8081',
+            source: mockWindow
+        });
+        window.dispatchEvent(readyEvent);
+
+        expect(mockWindow.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'SPLITX_IMPORT_PAYROLL' }),
+            'http://127.0.0.1:8081'
+        );
     });
 
     test('sendToSplitX handles popup blocker by notifying user and returning null', () => {

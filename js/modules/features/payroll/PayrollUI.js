@@ -1892,14 +1892,26 @@ export function sendToSplitX(targetUrl) {
 
     const state = getState();
     const resolvedTargetUrl = targetUrl || state?.settings?.splitxUrl || 'https://splitx.erlin.do';
+    let targetOrigin;
+    try {
+        targetOrigin = new URL(resolvedTargetUrl).origin;
+    } catch {
+        targetOrigin = 'https://splitx.erlin.do';
+    }
+
     const currency = state?.settings?.currency || 'DOP';
     const period = {
         start: state?.exportConfig?.periodStart || null,
         end: state?.exportConfig?.periodEnd || null
     };
 
+    const transferId = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : `tx_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
     const payload = {
         type: 'SPLITX_IMPORT_PAYROLL',
+        transferId,
         source: 'Sistema-de-Asistencia',
         version: '1.0',
         timestamp: new Date().toISOString(),
@@ -1920,19 +1932,29 @@ export function sendToSplitX(targetUrl) {
         return null;
     }
 
+    let payloadSent = false;
     let handshakeCompleted = false;
     let timeoutId = null;
     let retryInterval = null;
 
     const sendPayload = () => {
+        if (payloadSent || handshakeCompleted) return;
+        payloadSent = true;
+        if (retryInterval) {
+            clearInterval(retryInterval);
+            retryInterval = null;
+        }
         try {
-            targetWindow.postMessage(payload, '*');
+            targetWindow.postMessage(payload, targetOrigin);
         } catch (err) {
             console.error('Error enviando payload a SplitX:', err);
         }
     };
 
     const messageHandler = (event) => {
+        // Validación estricta de origen y ventana de origen
+        if (event.origin !== targetOrigin) return;
+        if (event.source !== targetWindow) return;
         if (!event.data || typeof event.data !== 'object') return;
 
         if (event.data.type === 'SPLITX_READY') {
@@ -1971,8 +1993,9 @@ export function sendToSplitX(targetUrl) {
 
     let attempts = 0;
     retryInterval = setInterval(() => {
-        if (handshakeCompleted) {
+        if (handshakeCompleted || payloadSent) {
             clearInterval(retryInterval);
+            retryInterval = null;
             return;
         }
         attempts++;
@@ -1980,6 +2003,7 @@ export function sendToSplitX(targetUrl) {
             sendPayload();
         } else {
             clearInterval(retryInterval);
+            retryInterval = null;
         }
     }, 1500);
 
