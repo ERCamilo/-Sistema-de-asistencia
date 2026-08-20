@@ -2016,9 +2016,11 @@ window.changeDate = async (days) => {
 
     // Delay de 50ms para asegurar que el navegador pinte el loader antes del bloqueo de JS
     setTimeout(async () => {
-        // Si estamos en vista semanal, cambiar por semanas completas (7 días)
+        // Si estamos en vista semanal/período, avanzar por el bloque correspondiente
         if (state.viewMode === 'week') {
-            state.selectedDate = DateUtils.addDays(state.selectedDate, days * 7);
+            const periodInfo = typeof window.getPeriodViewDates === 'function' ? window.getPeriodViewDates(state.selectedDate) : null;
+            const stepDays = periodInfo?.hasPagination ? 21 : (periodInfo?.dates?.length || 7);
+            state.selectedDate = DateUtils.addDays(state.selectedDate, days * stepDays);
         } else {
             state.selectedDate = DateUtils.addDays(state.selectedDate, days);
         }
@@ -2033,6 +2035,40 @@ window.changeDate = async (days) => {
         render();
         
         // Liberar bloqueo tras el renderizado
+        window._isNavigating = false;
+        window.hideLoader?.();
+    });
+};
+
+window.changePeriodPage = async (delta) => {
+    window.showLoader?.(true);
+
+    setTimeout(async () => {
+        const jumpDays = (parseInt(delta, 10) || 0) * 21;
+        stateManager.batchSetState(() => {
+            state.selectedDate = DateUtils.addDays(state.selectedDate, jumpDays);
+        });
+
+        saveApplicationData();
+        await _ensureSelectedAttendanceRange();
+        window.updateAttendanceSubscription?.();
+
+        render();
+        window._isNavigating = false;
+        window.hideLoader?.();
+    });
+};
+
+window.changeAttendanceWeekSpan = async (val) => {
+    window.showLoader?.(true);
+    setTimeout(async () => {
+        stateManager.batchSetState(() => {
+            state.attendanceWeekSpan = val;
+        });
+        saveApplicationData();
+        await _ensureSelectedAttendanceRange();
+        window.updateAttendanceSubscription?.();
+        render();
         window._isNavigating = false;
         window.hideLoader?.();
     });
@@ -3339,7 +3375,7 @@ window.closeModal = () => {
 // ============================================
 // NUEVA FUNCIÓN: handleWeekCheck (Vista Semanal)
 // ============================================
-window.handleWeekCheck = (empId, dateStr) => {
+window.handleWeekCheck = (empId, dateStr, event, element) => {
     // Prevenir clicks múltiples rápidos
     if (state.isProcessingClick) return;
 
@@ -3361,13 +3397,16 @@ window.handleWeekCheck = (empId, dateStr) => {
                 state.contextMenu.date === dateStr) {
                 state.contextMenu = null;
             } else {
-                // Abrir menú nuevo - Posición calculada cerca del centro
-                let menuX = Math.max(20, Math.min(window.innerWidth - 240, window.innerWidth / 2 - 110));
-                let menuY = Math.max(20, window.scrollY + 150);
+                // Abrir menú nuevo - Posición calculada directamente anclada al check clickeado
+                const rect = element?.getBoundingClientRect() || event?.target?.closest('.week-check-wrapper')?.getBoundingClientRect();
+                let menuX, menuY;
 
-                // Ajustar si está muy abajo
-                if (menuY + 150 > window.scrollY + window.innerHeight) {
-                    menuY = window.scrollY + window.innerHeight - 170;
+                if (rect) {
+                    menuX = Math.max(10, Math.min(rect.left, window.innerWidth - 220));
+                    menuY = Math.max(10, Math.min(rect.bottom + 6, window.innerHeight - 140));
+                } else {
+                    menuX = Math.max(20, Math.min(window.innerWidth - 240, window.innerWidth / 2 - 110));
+                    menuY = Math.max(20, window.innerHeight / 2 - 70);
                 }
 
                 state.contextMenu = {
@@ -6780,7 +6819,7 @@ setupHeaderHeightObserver();
 // Event listener global para cerrar menú contextual y calendarios
 document.addEventListener('click', function (e) {
     // Cerrar menú contextual
-    if (state.contextMenu && !e.target.closest('.context-menu') && !e.target.closest('.check-container')) {
+    if (state.contextMenu && !e.target.closest('.context-menu') && !e.target.closest('.check-container') && !e.target.closest('.week-check-wrapper')) {
         state.contextMenu = null;
         render();
     }

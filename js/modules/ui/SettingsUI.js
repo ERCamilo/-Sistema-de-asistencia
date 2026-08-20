@@ -76,6 +76,42 @@ const _SETTINGS_ACTION_MAP = {
     'open-notification-preview': (kind) => openSafeNotificationPreview(kind),
     'export-error-log': () => window.exportErrorLog?.(),
     'purge-orphan-attendance': () => window.purgeOrphanAttendanceHandler?.(),
+    'save-splitx-url': () => {
+        const input = document.getElementById('splitxCustomUrl');
+        let val = input ? input.value.trim() : '';
+        if (val) {
+            if (!/^https?:\/\//i.test(val)) {
+                val = 'http://' + val;
+            }
+            try {
+                new URL(val);
+            } catch (e) {
+                window.showNotification?.('❌ URL inválida. Debe ser un formato como http://127.0.0.1:8081', 'error');
+                return;
+            }
+        }
+        stateManager.batchSetState(() => {
+            state.settings.splitxUrl = val;
+            state.settings.updatedAt = Date.now();
+            state.settings._isDirty = true;
+        });
+        saveApplicationData();
+        window.showNotification?.(
+            val ? `✅ URL de SplitX configurada: ${val}` : '✅ URL de SplitX restablecida a https://splitx.erlin.do',
+            'success'
+        );
+        context?.render?.();
+    },
+    'reset-splitx-url': () => {
+        stateManager.batchSetState(() => {
+            state.settings.splitxUrl = '';
+            state.settings.updatedAt = Date.now();
+            state.settings._isDirty = true;
+        });
+        saveApplicationData();
+        window.showNotification?.('✅ URL de SplitX restablecida a https://splitx.erlin.do', 'success');
+        context?.render?.();
+    },
     // Mantenimiento: limpiar el cache del navegador para forzar la última versión.
     'clear-cache': () => {
         const doClear = async () => {
@@ -376,7 +412,7 @@ export function SettingsTab() {
                     ${activeTab === 'general' ? SettingsGeneralTab(context) : ''}
                     ${activeTab === 'data' ? SettingsDataTab(context) : ''}
                     ${activeTab === 'calendar' ? SettingsTabCalendar(context) : ''}
-                    ${activeTab === 'tests' ? SettingsTestsTab() : ''}
+                    ${activeTab === 'tests' ? SettingsTestsTab(context) : ''}
                     
                     <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
                         <button type="button" data-settings-action="save-settings" class="btn btn-primary" style="padding: 12px 32px; font-size: 1rem;">

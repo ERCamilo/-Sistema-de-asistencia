@@ -272,9 +272,10 @@ testRunner.addSuite('PayrollLoans — selección temporal y exportación', {
         const rows = applyPayrollLoanDeductions([{ ...baseRow(), _brutoOriginal: 210, _bonuses: 20, _deductions: 30 }], [employee], selection);
         const splitX = toSplitXRows(rows);
 
-        testRunner.assertEquals(JSON.stringify(Object.keys(splitX[0])), JSON.stringify(['id', 'nombre', 'monto', 'bruto', 'bonificaciones', 'descuentos', 'prestamos']), 'Claves exactas y ordenadas');
+        testRunner.assertEquals(JSON.stringify(Object.keys(splitX[0])), JSON.stringify(['id', 'nombre', 'monto', 'bruto', 'bonificaciones', 'descuentos', 'prestamos', 'prestamoCapital', 'prestamoInteres', 'saldoPendiente', 'loanDetails']), 'Claves exactas y ordenadas');
         testRunner.assertEquals(splitX[0].monto, 125, 'SplitX recibe el neto después de préstamos');
         testRunner.assertEquals(splitX[0].bruto + splitX[0].bonificaciones - splitX[0].descuentos - splitX[0].prestamos, splitX[0].monto, 'El desglose reconstruye el neto');
+        testRunner.assertEquals(splitX[0].prestamoCapital + splitX[0].prestamoInteres, splitX[0].prestamos, 'Capital + Interés iguala la cuota de préstamo');
     },
 
     'resume selección, interés total y saldo total sin mutar préstamos'() {

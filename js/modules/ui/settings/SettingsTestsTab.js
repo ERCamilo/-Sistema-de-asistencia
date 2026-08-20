@@ -5,7 +5,12 @@
  * desde el navegador, sin afectar datos reales del usuario.
  */
 
-export function SettingsTestsTab() {
+import icons from '../IconSystem.js';
+
+export function SettingsTestsTab(context) {
+    const state = context?.state || {};
+    const splitxActiveUrl = state.settings?.splitxUrl || 'https://splitx.erlin.do';
+
     return `
         <div class="stg-panel">
             <div class="stg-header" style="margin-bottom: 20px;">
@@ -30,6 +35,44 @@ export function SettingsTestsTab() {
                     Presiona "Ejecutar Pruebas" para iniciar la verificación del sistema.
                 </div>
             </div>
+
+            <!-- Integración SplitX en Pruebas / Desarrollo -->
+            <section class="stg-card" aria-labelledby="splitx-integration-title" style="margin-top:20px;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                    ${icons.get('splitx', { size: 22 })}
+                    <h4 id="splitx-integration-title" style="margin:0;">Entorno de SplitX (Desarrollo / Pruebas)</h4>
+                </div>
+                <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
+                    Configura una dirección local personalizada (ej: <code>http://127.0.0.1:8081</code> o <code>http://localhost:5500</code>) para probar la integración con SplitX antes del despliegue. Si se deja en blanco o se restablece, se usará la URL de producción.
+                </p>
+                <div style="display:flex;flex-direction:column;gap:8px;max-width:520px;margin-top:12px;">
+                    <label for="splitxCustomUrl" style="font-size:0.8rem;color:#cbd5e1;font-weight:600;">URL de destino para SplitX:</label>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <input type="url" 
+                               id="splitxCustomUrl" 
+                               class="form-input" 
+                               style="flex:1;min-width:240px;font-size:0.85rem;"
+                               placeholder="https://splitx.erlin.do (o ej. http://127.0.0.1:8081)" 
+                               value="${state.settings?.splitxUrl || ''}">
+                        <button type="button" 
+                                class="btn btn-primary" 
+                                data-settings-action="save-splitx-url"
+                                style="white-space:nowrap;font-size:0.85rem;padding:6px 14px;">
+                            Guardar URL
+                        </button>
+                        <button type="button" 
+                                class="btn btn-secondary" 
+                                data-settings-action="reset-splitx-url"
+                                title="Restablecer a URL por defecto (https://splitx.erlin.do)"
+                                style="white-space:nowrap;font-size:0.85rem;padding:6px 10px;">
+                            Por defecto
+                        </button>
+                    </div>
+                    <div style="margin-top:4px;font-size:0.78rem;color:#64748b;">
+                        URL activa: <strong style="color:#38bdf8;">${splitxActiveUrl}</strong>
+                    </div>
+                </div>
+            </section>
 
             <section class="stg-card" aria-labelledby="modal-preview-title" style="margin-top:20px;">
                 <h4 id="modal-preview-title" style="margin-top:0;">Vista previa segura de modales</h4>

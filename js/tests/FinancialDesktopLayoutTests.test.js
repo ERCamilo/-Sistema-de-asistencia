@@ -81,6 +81,7 @@ describe('Financial desktop layouts', () => {
         expect(html).toContain('data-value="review"');
         expect(html).toContain('aria-label="Resumen de nómina"');
         expect(html).toContain('Total neto');
+        expect(html).toContain('data-payroll-action="send-to-splitx"');
         expect(html).toContain('data-payroll-action="copy-export-json"');
         expect(html).toContain('data-payroll-action="download-export-json"');
     });
@@ -675,6 +676,7 @@ describe('Financial desktop layouts', () => {
         expect(row.querySelector('.payroll-review-table__employee').textContent).toContain('Hector Inactivo');
         expect(row.classList.contains('is-invalid')).toBe(true);
         expect(host.querySelector('[role="alert"]').textContent).toContain('queda negativo');
+        expect(host.querySelector('[data-payroll-action="send-to-splitx"]').disabled).toBe(true);
         expect(host.querySelector('[data-payroll-action="copy-export-json"]').disabled).toBe(true);
     });
 

@@ -228,13 +228,52 @@ export function getInvalidPayrollLoanRows(rows) {
 }
 
 export function toSplitXRows(rows) {
-    return (rows || []).map(row => ({
-        id: row.id,
-        nombre: row.nombre,
-        monto: Number(row.monto) || 0,
-        bruto: Number(row._brutoOriginal) || 0,
-        bonificaciones: Number(row._bonuses) || 0,
-        descuentos: Number(row._deductions) || 0,
-        prestamos: Number(row._loans) || 0
-    }));
+    return (rows || []).map(row => {
+        const loanDetailsList = row._loanDetails || [];
+        const loanAmount = Number(row._loans) || 0;
+        
+        let totalInterest = 0;
+        let totalRemainingBalance = 0;
+        let totalPrincipal = 0;
+
+        if (loanDetailsList.length > 0) {
+            loanDetailsList.forEach(l => {
+                totalRemainingBalance += Number(l.balance) || 0;
+                const loanTotalDue = Number(l.totalDue) || Number(l.balance) || 0;
+                const loanInterest = Number(l.interest) || 0;
+                const selectedAmount = Number(l.selectedAmount) || 0;
+                if (loanInterest > 0 && loanTotalDue > 0) {
+                    const interestRatio = Math.min(1, Math.max(0, loanInterest / loanTotalDue));
+                    const chargeInterest = round2(selectedAmount * interestRatio);
+                    totalInterest += chargeInterest;
+                    totalPrincipal += round2(selectedAmount - chargeInterest);
+                } else {
+                    totalPrincipal += selectedAmount;
+                }
+            });
+            totalInterest = round2(totalInterest);
+            totalPrincipal = round2(totalPrincipal);
+            totalRemainingBalance = round2(totalRemainingBalance);
+        } else if (loanAmount > 0) {
+            totalPrincipal = loanAmount;
+        }
+
+        return {
+            id: row.id,
+            nombre: row.nombre,
+            monto: Number(row.monto) || 0,
+            bruto: Number(row._brutoOriginal) || 0,
+            bonificaciones: Number(row._bonuses) || 0,
+            descuentos: Number(row._deductions) || 0,
+            prestamos: loanAmount,
+            prestamoCapital: totalPrincipal,
+            prestamoInteres: totalInterest,
+            saldoPendiente: totalRemainingBalance,
+            loanDetails: {
+                principal: totalPrincipal,
+                interestAmount: totalInterest,
+                remainingBalance: totalRemainingBalance
+            }
+        };
+    });
 }

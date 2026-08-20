@@ -197,7 +197,20 @@ class IconSystem {
             'activity': { unicode: '📡', lucide: 'activity', phosphor: 'activity', tabler: 'activity', bootstrap: 'activity' },
             'calendar-check': { unicode: '📅✅', lucide: 'calendar-check', phosphor: 'calendar-check', tabler: 'calendar-check', bootstrap: 'calendar-check' },
             'calendar-off': { unicode: '📅❌', lucide: 'calendar-off', phosphor: 'calendar-off', tabler: 'calendar-off', bootstrap: 'calendar-x' },
-            'palmtree': { unicode: '🌴', lucide: 'palm-tree', phosphor: 'palm-tree', tabler: 'tree-palm', bootstrap: 'brightness-high' }
+            'palmtree': { unicode: '🌴', lucide: 'palm-tree', phosphor: 'palm-tree', tabler: 'tree-palm', bootstrap: 'brightness-high' },
+            'splitx': {
+                customSvg: (options) => {
+                    const size = options.size || 16;
+                    const cls = options.class ? ` ${options.class}` : '';
+                    const style = options.style ? ` style="${options.style}"` : ' style="vertical-align:-2px;margin-right:2px;"';
+                    return `<svg class="icon-splitx${cls}" width="${size}" height="${size}" viewBox="0 0 100 100" fill="none"${style}><defs><linearGradient id="topCyanBlue" x1="85" y1="12" x2="15" y2="55" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#22d3ee"/><stop offset="35%" stop-color="#0ea5e9"/><stop offset="100%" stop-color="#2563eb"/></linearGradient><linearGradient id="botIndigoViolet" x1="45" y1="45" x2="85" y2="88" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#6366f1"/><stop offset="60%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#a855f7"/></linearGradient></defs><path d="M 72 24 C 72 17.5 66.5 12 59.5 12 L 28 12 C 16.5 12 8 20.5 8 32 L 8 34 C 8 42.5 13 49 19.5 53 L 42.5 68.5 C 44.5 69.8 47.5 69.5 49 67.5 L 56.5 57.5 C 58 55.5 57.5 52.5 55.5 51 L 34.5 37 C 31 34.5 33 28 37.5 28 L 59.5 28 C 66.5 28 72 24 72 24 Z" fill="url(#topCyanBlue)"/><path d="M 28 76 C 28 82.5 33.5 88 40.5 88 L 72 88 C 83.5 88 92 79.5 92 68 L 92 66 C 92 57.5 87 51 80.5 47 L 57.5 31.5 C 55.5 30.2 52.5 30.5 51 32.5 L 43.5 42.5 C 42 44.5 42.5 47.5 44.5 49 L 65.5 63 C 69 65.5 67 72 62.5 72 L 40.5 72 C 33.5 72 28 76 28 76 Z" fill="url(#botIndigoViolet)"/></svg>`;
+                },
+                unicode: '⚡',
+                lucide: 'external-link',
+                phosphor: 'arrow-square-out',
+                tabler: 'external-link',
+                bootstrap: 'box-arrow-up-right'
+            }
         };
     }
 
@@ -237,6 +250,10 @@ class IconSystem {
         if (!iconDef) {
             console.warn(`Icon "${name}" not found in registry.`);
             return '';
+        }
+
+        if (iconDef.customSvg) {
+            return typeof iconDef.customSvg === 'function' ? iconDef.customSvg(options) : iconDef.customSvg;
         }
 
         const cls = options.class ? ` ${options.class}` : '';

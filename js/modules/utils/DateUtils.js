@@ -210,8 +210,16 @@ export function getWeekRangeText(dateInput) {
 }
 
 /**
- * 🔍 Verifica si un empleado estaba activo en una fecha específica
+ * 📅 Formatea un rango de fechas arbitrario en texto amigable (ej. "17 ago - 06 sep")
  */
+export function getPeriodRangeText(startDateInput, endDateInput) {
+    if (!startDateInput || !endDateInput) return '';
+    const startObj = typeof startDateInput === 'string' ? parseDate(startDateInput) : new Date(startDateInput);
+    const endObj = typeof endDateInput === 'string' ? parseDate(endDateInput) : new Date(endDateInput);
+    const start = startObj.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+    const end = endObj.toLocaleDateString('es-DO', { day: 'numeric', month: 'short' });
+    return `${start} - ${end}`;
+}
 export function wasEmployeeActiveOnDate(employee, date, attendance = {}) {
     const dateKey = typeof date === 'string' ? date : getDateKey(date);
     // Normaliza a YYYY-MM-DD para comparar como string de forma fiable

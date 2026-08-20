@@ -5,7 +5,7 @@
 
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
-import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, parseDate, isDayHoliday, getWeekRangeText, DateUtils } from '../utils/DateUtils.js';
+import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, parseDate, isDayHoliday, getWeekRangeText, getPeriodRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
 import { EmptyState } from '../components/EmptyState.js';
@@ -32,6 +32,7 @@ import {
 // ============================================
 const _ACTION_MAP = {
     'change-date': (delta) => window.changeDate?.(parseFloat(delta)),
+    'change-period-page': (delta) => window.changePeriodPage?.(parseInt(delta, 10)),
     'change-view-mode': (mode) => window.changeViewMode?.(mode),
     'go-to-today': () => window.goToToday?.(),
     'toggle-date-picker': (mode, _el, e) => { e?.stopPropagation(); window.toggleDatePicker?.(mode); },
@@ -47,8 +48,10 @@ const _ACTION_MAP = {
     'clear-search-filter': () => window.setSearchFilter?.(''),
     'view-employee-details': (id) => window.viewAttendanceEmployee?.(id),
     'open-advanced-attendance': (id, _el, e) => { e?.stopPropagation(); window.openAdvancedAttendance?.(id); },
-    'handle-week-check': (_, el, e) => { e?.stopPropagation(); window.handleWeekCheck?.(el.dataset.empId, el.dataset.dateKey); },
+    'handle-week-check': (_, el, e) => { e?.stopPropagation(); window.handleWeekCheck?.(el.dataset.empId, el.dataset.dateKey, e, el); },
     'toggle-week-position': (_, el, e) => { e?.stopPropagation(); window.toggleWeekPosition?.(el.dataset.empId, el.dataset.posId, el.dataset.dateKey); },
+    'change-week-span': (val) => window.changeAttendanceWeekSpan?.(val),
+    'change-period-page': (delta) => window.changePeriodPage?.(parseInt(delta, 10)),
     'toggle-legend': () => window.toggleLegend?.(),
     'toggle-weather': () => window.toggleWeatherExpanded?.(),
     'toggle-position': (_, el) => window.togglePosition?.(el.dataset.empId, el.dataset.posId),
@@ -124,9 +127,9 @@ export function DateControlsCompact() {
     const isWeek = state.viewMode === 'week';
     const isLegacy = state.settings?.legacyNavigation;
     const isAsBottomBar = isWeek && isLegacy;
-
+    const periodInfo = isWeek ? getPeriodViewDates(state.selectedDate) : null;
     const dateText = isWeek
-        ? getWeekRangeText(state.selectedDate)
+        ? (periodInfo && periodInfo.dates.length > 7 ? getPeriodRangeText(periodInfo.periodStart, periodInfo.periodEnd) : getWeekRangeText(state.selectedDate))
         : formatDateShort(state.selectedDate);
 
     // El picker ahora depende del estado global y funciones de window (Legacy bridge)
@@ -328,8 +331,9 @@ function ControlesAsistenciaHoy(isToday, todayBtnStyle, todayIconColor) {
 export function DateControls() {
     const isHoliday = isDayHoliday(state.selectedDate, state.settings.holidays);
     const dayHours = getDayHours(state.selectedDate);
+    const periodInfo = state.viewMode === 'week' ? getPeriodViewDates(state.selectedDate) : null;
     const displayText = state.viewMode === 'week'
-        ? getWeekRangeText(state.selectedDate)
+        ? (periodInfo && periodInfo.dates.length > 7 ? getPeriodRangeText(periodInfo.periodStart, periodInfo.periodEnd) : getWeekRangeText(state.selectedDate))
         : formatDateShort(state.selectedDate);
 
     // Lógica de etiquetas consistentes para ahorrar espacio en móvil sin alternancia molesta
@@ -361,12 +365,20 @@ export function DateControls() {
     return `
         <div class="attendance-toolbar glass-effect ${showPicker ? 'date-picker-open' : ''}" style="position: relative; z-index: 10; padding: 16px; border-radius: 20px; margin-bottom: 2px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);">
             
-            <!-- 1. NIVEL SUPERIOR: Selector de Vista -->
-            <div class="view-mode-container" style="margin-bottom: 16px; display: flex; justify-content: center;">
+            <!-- 1. NIVEL SUPERIOR: Selector de Vista y Alcance -->
+            <div class="view-mode-container" style="margin-bottom: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
                 <div class="segmented-control" style="width: 200px;">
                     <button class="segmented-item ${state.viewMode === 'day' ? 'active' : ''}" type="button" data-att-action="change-view-mode" data-value="day">${dayLabel}</button>
                     <button class="segmented-item ${state.viewMode === 'week' ? 'active' : ''}" type="button" data-att-action="change-view-mode" data-value="week">${weekLabel}</button>
                 </div>
+                ${state.viewMode === 'week' ? `
+                    <div class="week-span-selector segmented-control" style="width: 100%; max-width: 320px;" title="Alcance de semanas a mostrar">
+                        <button class="segmented-item ${(state.attendanceWeekSpan === '1' || state.attendanceWeekSpan === 1) ? 'active' : ''}" type="button" data-att-action="change-week-span" data-value="1">1 sem</button>
+                        <button class="segmented-item ${(state.attendanceWeekSpan === '2' || state.attendanceWeekSpan === 2) ? 'active' : ''}" type="button" data-att-action="change-week-span" data-value="2">2 sem</button>
+                        <button class="segmented-item ${(state.attendanceWeekSpan === '3' || state.attendanceWeekSpan === 3) ? 'active' : ''}" type="button" data-att-action="change-week-span" data-value="3">3 sem</button>
+                        <button class="segmented-item ${(!state.attendanceWeekSpan || state.attendanceWeekSpan === 'period') ? 'active' : ''}" type="button" data-att-action="change-week-span" data-value="period">Período</button>
+                    </div>
+                ` : ''}
             </div>
 
             <!-- 2. NIVEL MEDIO: Nav Pill (Fecha) -->
@@ -1095,30 +1107,178 @@ export function getFilteredEmployeesForDay() {
 
 
 /**
- * 📅 Vista Semanal Principal (WeekView)
+ * 📅 Obtiene las fechas del período visible para la matriz de asistencia en Desktop
+ * mostrando el alcance seleccionado (1, 2, 3 semanas o período de nómina activo).
+ */
+export function getPeriodViewDates(selectedDateInput = state.selectedDate) {
+    const selectedKey = getDateKey(selectedDateInput);
+    const span = state.attendanceWeekSpan || 'period';
+
+    // 1. Si el usuario seleccionó un número fijo de semanas (1 semana = 7 días):
+    if (span === '1' || span === 1) {
+        const weekDates = DateUtils.getWeekDates(selectedKey);
+        return {
+            dates: weekDates,
+            page: 0,
+            totalPages: 1,
+            periodStart: weekDates[0],
+            periodEnd: weekDates[weekDates.length - 1],
+            hasPagination: false,
+            totalPeriodDays: 7
+        };
+    }
+
+    // 2. Si el usuario seleccionó 2 semanas (14 días):
+    if (span === '2' || span === 2) {
+        const startStr = DateUtils.getWeekStart(selectedKey);
+        const dates = [];
+        for (let i = 0; i < 14; i++) {
+            dates.push(DateUtils.addDays(startStr, i));
+        }
+        return {
+            dates,
+            page: 0,
+            totalPages: 1,
+            periodStart: dates[0],
+            periodEnd: dates[dates.length - 1],
+            hasPagination: false,
+            totalPeriodDays: 14
+        };
+    }
+
+    // 3. Si el usuario seleccionó 3 semanas (21 días):
+    if (span === '3' || span === 3) {
+        const startStr = DateUtils.getWeekStart(selectedKey);
+        const dates = [];
+        for (let i = 0; i < 21; i++) {
+            dates.push(DateUtils.addDays(startStr, i));
+        }
+        return {
+            dates,
+            page: 0,
+            totalPages: 1,
+            periodStart: dates[0],
+            periodEnd: dates[dates.length - 1],
+            hasPagination: false,
+            totalPeriodDays: 21
+        };
+    }
+
+    // 4. Modo 'period': Período de nómina configurado
+    const settingsPp = state.settings?.payPeriod;
+    const exportPp = state.exportConfig?.payPeriod;
+    const payPeriod = (settingsPp?.periodStart && Number(settingsPp?.periodLength) > 0)
+        ? settingsPp
+        : ((exportPp?.periodStart && Number(exportPp?.periodLength) > 0) ? exportPp : (settingsPp || exportPp));
+    const length = Number(payPeriod?.periodLength);
+
+    // Si hay un período de nómina configurado con fecha de inicio y longitud válidas:
+    if (payPeriod?.periodStart && Number.isInteger(length) && length >= 1 && length <= 366) {
+        const configuredStart = new Date(`${payPeriod.periodStart}T00:00:00`);
+        const selDate = typeof selectedDateInput === 'string' ? parseDate(selectedDateInput) : new Date(selectedDateInput);
+        
+        // Calcular ciclo activo que contiene la fecha seleccionada
+        const diffDays = Math.floor((selDate.getTime() - configuredStart.getTime()) / (1000 * 60 * 60 * 24));
+        const cycleOffset = Math.floor(diffDays / length);
+
+        const cycleStartDate = new Date(configuredStart);
+        cycleStartDate.setDate(configuredStart.getDate() + (cycleOffset * length));
+
+        const allPeriodDates = [];
+        for (let i = 0; i < length; i++) {
+            const d = new Date(cycleStartDate);
+            d.setDate(d.getDate() + i);
+            allPeriodDates.push(getDateKey(d));
+        }
+
+        // Si el período entra en 21 días (ej. 7, 14, 15 o 21 días), se muestra únicamente este período:
+        if (allPeriodDates.length <= 21) {
+            return {
+                dates: allPeriodDates,
+                page: 0,
+                totalPages: 1,
+                periodStart: allPeriodDates[0],
+                periodEnd: allPeriodDates[allPeriodDates.length - 1],
+                hasPagination: false,
+                totalPeriodDays: allPeriodDates.length
+            };
+        }
+
+        // Si supera los 21 días (ej. período mensual de 30 o 31 días), se pagina en bloques de hasta 21 días:
+        const selectedIndex = allPeriodDates.indexOf(selectedKey);
+        const activeIndex = selectedIndex >= 0 ? selectedIndex : 0;
+        const page = Math.floor(activeIndex / 21);
+        const totalPages = Math.ceil(allPeriodDates.length / 21);
+        const pageDates = allPeriodDates.slice(page * 21, (page + 1) * 21);
+
+        return {
+            dates: pageDates,
+            page,
+            totalPages,
+            periodStart: pageDates[0],
+            periodEnd: pageDates[pageDates.length - 1],
+            hasPagination: true,
+            totalPeriodDays: allPeriodDates.length
+        };
+    }
+
+    // Fallback si no hay período configurado: la semana de 7 días de la fecha seleccionada
+    const weekDates = DateUtils.getWeekDates(selectedKey);
+    return {
+        dates: weekDates,
+        page: 0,
+        totalPages: 1,
+        periodStart: weekDates[0],
+        periodEnd: weekDates[weekDates.length - 1],
+        hasPagination: false,
+        totalPeriodDays: 7
+    };
+}
+
+/**
+ * 📅 Vista Semanal / Período Principal (WeekView)
  */
 export function WeekView() {
-    const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
+    const periodInfo = getPeriodViewDates();
+    const dates = periodInfo.dates;
     
     // ⚡ P4-OPT: Mapa de posiciones para búsquedas O(1)
     const positionMap = new Map(state.positions.map(p => [p.id, p]));
-    const filtered = getFilteredEmployeesForWeek(week, positionMap);
+    const filtered = getFilteredEmployeesForWeek(dates, positionMap);
     
     const tbodyHTML = filtered.length > 0
-        ? filtered.map(emp => WeekRow(emp, week, positionMap)).join('')
-        : `<tr><td colspan="8">${EmptyState.render({ icon: 'personnel', title: 'No hay empleados', description: 'Sin registros para este periodo.', size: 'medium' })}</td></tr>`;
+        ? filtered.map(emp => WeekRow(emp, dates, positionMap)).join('')
+        : `<tr><td colspan="${dates.length + 1}">${EmptyState.render({ icon: 'personnel', title: 'No hay empleados', description: 'Sin registros para este periodo.', size: 'medium' })}</td></tr>`;
+
+    const paginationHTML = periodInfo.hasPagination ? `
+        <div class="period-pagination-bar" style="display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 10px 16px; border-radius: 10px; margin-bottom: 12px; border: 1px solid #334155;">
+            <span style="font-size: 0.82rem; color: #94a3b8;">
+                Mostrando días <strong style="color: #06b6d4;">${periodInfo.page * 21 + 1} - ${Math.min((periodInfo.page + 1) * 21, periodInfo.totalPeriodDays)}</strong> de ${periodInfo.totalPeriodDays} del período
+            </span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="pill-btn" style="width: 34px; height: 34px; border-radius: 8px;" ${periodInfo.page === 0 ? 'disabled style="opacity: 0.3; cursor: not-allowed; width: 34px; height: 34px; border-radius: 8px;"' : 'data-att-action="change-period-page" data-value="-1"'} aria-label="Página anterior del período">
+                    ${icons.get('chevron-left', { size: 16 })}
+                </button>
+                <span style="font-size: 0.82rem; color: #f1f5f9; font-weight: 700; padding: 0 4px;">Pág. ${periodInfo.page + 1} de ${periodInfo.totalPages}</span>
+                <button type="button" class="pill-btn" style="width: 34px; height: 34px; border-radius: 8px;" ${periodInfo.page >= periodInfo.totalPages - 1 ? 'disabled style="opacity: 0.3; cursor: not-allowed; width: 34px; height: 34px; border-radius: 8px;"' : 'data-att-action="change-period-page" data-value="1"'} aria-label="Página siguiente del período">
+                    ${icons.get('chevron-right', { size: 16 })}
+                </button>
+            </div>
+        </div>
+    ` : '';
 
     return `
         <div class="sticky-controls-wrapper" style="margin: 8px 0 16px 0;">
             ${SearchBar()}
         </div>
         ${PositionFilters()}
+        ${paginationHTML}
         <div id="week-view-list" data-preserve-scroll="attendance-week-list" class="sticky-table-container modern-scroll">
-            <table class="week-view-table" style="margin-bottom: 100px;">
+            <table class="week-view-table" style="margin-bottom: 100px; width: 100%;">
                 <thead class="sticky-header">
                     <tr>
                         <th class="sticky-column">EMPLEADO</th>
-                         ${week.map(date => {
+                         ${dates.map(date => {
         const dObj = parseDate(date);
         const isH = isDayHoliday(date, state.settings?.holidays);
         const isS = dObj.getDay() === 0;
@@ -1132,27 +1292,29 @@ export function WeekView() {
                     ${tbodyHTML}
                 </tbody>
                 <tfoot>
-                    ${WeekViewTotalsRow()}
+                    ${WeekViewTotalsRow(dates)}
                 </tfoot>
             </table>
         </div>
     `;
 }
 
-export function WeekRow(emp, week, positionMap) {
+export function WeekRow(emp, week, positionMapArg = null) {
+    const dates = (Array.isArray(week) && week.length > 0) ? week : getPeriodViewDates().dates;
+    const positionMap = positionMapArg || new Map(state.positions.map(p => [p.id, p]));
     // ⚡ P4-OPT: Fingerprint = updatedAt de cada día de la semana para este empleado
     const deps = [
         emp.updatedAt ?? 0,
         state.settings?.updatedAt ?? 0, // ⚡ P4-OPT: Sincronismo vía timestamp global de settings
         normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay),
-        ...week.map(date => {
+        ...dates.map(date => {
             const att = state.attendance[`${emp.id}-${getDateKey(date)}`];
             return att?.updatedAt ?? 0;
         })
     ];
     return componentMemo.get(
-        `week-row-${emp.id}-${getDateKey(week[0])}`,
-        () => _buildWeekRow(emp, week, positionMap, deps.join('-')),
+        `week-row-${emp.id}-${getDateKey(dates[0])}-${dates.length}`,
+        () => _buildWeekRow(emp, dates, positionMap, deps.join('-')),
         deps
     );
 }
@@ -1173,6 +1335,9 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
                 </div>
             </td>
             ${week.map(date => {
+        const dObj = parseDate(date);
+        const isS = dObj.getDay() === 0;
+        const isH = isDayHoliday(date, state.settings?.holidays);
         const dKey = getDateKey(date);
         const aKey = `${emp.id}-${dKey}`;
         const att = state.attendance[aKey];
@@ -1186,7 +1351,7 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
         const selP = att?.selectedPosition || emp.positions?.[0] || null;
 
         return `
-                    <td>
+                    <td class="${isS ? 'sunday-cell' : ''} ${isH ? 'holiday-cell' : ''}">
                         <div class="day-cell">
                             <div class="week-check-wrapper" role="button" tabindex="0" data-att-action="handle-week-check" data-emp-id="${emp.id}" data-date-key="${dKey}">
                                 <div class="check-box week-check-box ${cColor}">${isCh ? '✓' : ''}</div>
@@ -1215,23 +1380,26 @@ function _buildWeekRow(emp, week, positionMap, depsFingerprint) {
 
 
 /**
- * 📏 Fila de Totales (Vista Semanal)
+ * 📏 Fila de Totales (Vista Semanal / Período)
  */
-export function WeekViewTotalsRow() {
-    const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
+export function WeekViewTotalsRow(datesArg = null) {
+    const dates = (Array.isArray(datesArg) && datesArg.length > 0) ? datesArg : getPeriodViewDates().dates;
     return `
         <tr id="week-totals-row" style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(16, 185, 129, 0.1)); border-top: 2px solid #06b6d4;">
             <td class="sticky-column" style="padding: 12px 16px; background: #0f172a; z-index: 5;">
                 <div style="font-weight: 700; color: #06b6d4; font-size: 0.875rem;">TOTALES</div>
             </td>
-            ${week.map(date => {
+            ${dates.map(date => {
+        const dObj = parseDate(date);
+        const isS = dObj.getDay() === 0;
+        const isH = isDayHoliday(date, state.settings?.holidays);
         const dKey = getDateKey(date);
         // ⚡ P3-OPT: Lookup O(1) en lugar de filter O(N) sobre todo el historial
         const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present);
         const totalHours = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
         const presentCount = dayAttendance.length;
         return `
-                    <td style="text-align: center; padding: 12px 8px;">
+                    <td class="${isS ? 'sunday-cell' : ''} ${isH ? 'holiday-cell' : ''}" style="text-align: center; padding: 12px 8px;">
                         <div style="color: #06b6d4; font-weight: 700; font-size: 1rem; margin-bottom: 4px;">${presentCount}</div>
                         <div style="font-size: 0.7rem; color: #94a3b8;">${totalHours.toFixed(1)}h</div>
                     </td>
@@ -1245,8 +1413,9 @@ export function WeekViewTotalsRow() {
  * 🔍 Lógica de filtrado para WeekView
  */
 export function getFilteredEmployeesForWeek(week, positionMapArg = null) {
-    const startDate = week[0];
-    const endDate = week[6];
+    const dates = (Array.isArray(week) && week.length > 0) ? week : getPeriodViewDates().dates;
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
     
     // Crear mapa si no se provee
     const positionMap = positionMapArg || new Map(state.positions.map(p => [p.id, p]));
@@ -1306,9 +1475,9 @@ export function updateWeekRow(empId) {
     const emp = state.employees.find(e => e.id === empId);
     if (!emp) return;
 
-    const week = DateUtils.getWeekDates(getDateKey(state.selectedDate));
+    const dates = getPeriodViewDates().dates;
     const temp = document.createElement('tbody');
-    temp.innerHTML = WeekRow(emp, week);
+    temp.innerHTML = WeekRow(emp, dates);
     const newRow = temp.firstElementChild;
 
     row.replaceWith(newRow);
@@ -1331,4 +1500,5 @@ window.updateWeekRow = updateWeekRow;
 window.updateWeekTotals = updateWeekTotals;
 window.getFilteredEmployeesForDay = getFilteredEmployeesForDay;
 window.getFilteredEmployeesForWeek = getFilteredEmployeesForWeek;
+window.getPeriodViewDates = getPeriodViewDates;
 window.getWeekDates = DateUtils.getWeekDates;

@@ -180,6 +180,7 @@ const _ACTION_MAP = {
     ),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
+    'send-to-splitx': () => window.PayrollUI?.sendToSplitX?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
 };
 
@@ -960,6 +961,11 @@ function PayrollGeneratorTab() {
                                 : `${icons.get('check', { size: 16 })} Cálculo listo para continuar`}
                         </div>
                         <div class="payroll-guide-summary__actions ${guideStep === 'review' ? '' : 'is-mobile-deferred'}">
+                        <button type="button"
+                                data-payroll-action="send-to-splitx"
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('splitx', { size: 16 })} Abrir en SplitX
+                        </button>
                         <button type="button"
                                 data-payroll-action="copy-export-json"
                                 ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
@@ -1878,6 +1884,115 @@ export function downloadExportJSON() {
     a.click();
     URL.revokeObjectURL(url);
     if (window.showNotification) window.showNotification('✅ Archivo para SplitX descargado', 'success');
+}
+
+export function sendToSplitX(targetUrl) {
+    const data = getSplitXExportData();
+    if (!data || data.length === 0) return null;
+
+    const state = getState();
+    const resolvedTargetUrl = targetUrl || state?.settings?.splitxUrl || 'https://splitx.erlin.do';
+    const currency = state?.settings?.currency || 'DOP';
+    const period = {
+        start: state?.exportConfig?.periodStart || null,
+        end: state?.exportConfig?.periodEnd || null
+    };
+
+    const payload = {
+        type: 'SPLITX_IMPORT_PAYROLL',
+        source: 'Sistema-de-Asistencia',
+        version: '1.0',
+        timestamp: new Date().toISOString(),
+        currency,
+        period,
+        employees: data
+    };
+
+    if (window.showNotification) {
+        window.showNotification(`🚀 Abriendo SplitX (${resolvedTargetUrl})...`, 'info');
+    }
+
+    const targetWindow = window.open(resolvedTargetUrl, '_blank');
+    if (!targetWindow) {
+        if (window.showNotification) {
+            window.showNotification('❌ El navegador bloqueó la ventana emergente de SplitX. Por favor permite ventanas emergentes.', 'error');
+        }
+        return null;
+    }
+
+    let handshakeCompleted = false;
+    let timeoutId = null;
+    let retryInterval = null;
+
+    const sendPayload = () => {
+        try {
+            targetWindow.postMessage(payload, '*');
+        } catch (err) {
+            console.error('Error enviando payload a SplitX:', err);
+        }
+    };
+
+    const messageHandler = (event) => {
+        if (!event.data || typeof event.data !== 'object') return;
+
+        if (event.data.type === 'SPLITX_READY') {
+            sendPayload();
+            if (window.showNotification) {
+                window.showNotification('🔄 Transfiriendo datos a SplitX...', 'info');
+            }
+        } else if (event.data.type === 'SPLITX_IMPORT_SUCCESS') {
+            handshakeCompleted = true;
+            cleanup();
+            if (window.showNotification) {
+                window.showNotification(`✅ ${event.data.count || data.length} colaboradores cargados en SplitX`, 'success');
+            }
+        } else if (event.data.type === 'SPLITX_IMPORT_ERROR') {
+            handshakeCompleted = true;
+            cleanup();
+            if (window.showNotification) {
+                window.showNotification(`❌ Error en SplitX: ${event.data.error || 'Desconocido'}`, 'error');
+            }
+        } else if (event.data.type === 'SPLITX_IMPORT_CANCELLED') {
+            handshakeCompleted = true;
+            cleanup();
+            if (window.showNotification) {
+                window.showNotification('ℹ️ Importación cancelada en SplitX', 'info');
+            }
+        }
+    };
+
+    const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (retryInterval) clearInterval(retryInterval);
+        window.removeEventListener('message', messageHandler);
+    };
+
+    window.addEventListener('message', messageHandler);
+
+    let attempts = 0;
+    retryInterval = setInterval(() => {
+        if (handshakeCompleted) {
+            clearInterval(retryInterval);
+            return;
+        }
+        attempts++;
+        if (attempts <= 4) {
+            sendPayload();
+        } else {
+            clearInterval(retryInterval);
+        }
+    }, 1500);
+
+    timeoutId = setTimeout(() => {
+        if (!handshakeCompleted) {
+            cleanup();
+            if (window.showNotification) {
+                window.showNotification('⚠️ Si SplitX no cargó automáticamente, puedes usar el botón "Copiar JSON".', 'warning');
+            }
+        }
+    }, 10000);
+
+    return targetWindow;
 }
 
 export function toggleStep(stepId) {

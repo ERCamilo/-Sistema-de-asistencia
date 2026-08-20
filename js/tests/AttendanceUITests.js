@@ -9,6 +9,7 @@ import {
     shouldShowCompactDayControls,
     formatSplitName,
     WeekView,
+    getPeriodViewDates,
     SearchBar,
     PositionFilters,
     DayView,
@@ -927,5 +928,126 @@ testRunner.addSuite("AttendanceUI - DateControls y Adaptabilidad", {
             'debe enlazar directamente a Ajustes > Calendario');
         testRunner.assert(html.includes('Configurar período'),
             'el llamado a la acción debe ser explícito');
+    },
+
+    "getPeriodViewDates: fallback sin período genera la semana actual de 7 días"() {
+        const originalExport = window.state.exportConfig;
+        const originalSettings = window.state.settings;
+        try {
+            window.state.exportConfig = {};
+            window.state.settings = { ...window.state.settings, payPeriod: null };
+            const res = getPeriodViewDates('2026-08-19');
+            testRunner.assertEquals(res.dates.length, 7, 'Debe contener exactamente 7 días');
+            testRunner.assertEquals(res.totalPages, 1, 'Debe tener 1 sola página');
+            testRunner.assertEquals(res.hasPagination, false, 'No debe requerir paginación');
+            testRunner.assertEquals(res.periodStart, '2026-08-17', 'Debe comenzar el lunes 17');
+            testRunner.assertEquals(res.periodEnd, '2026-08-23', 'Debe terminar el domingo 23');
+        } finally {
+            window.state.exportConfig = originalExport;
+            window.state.settings = originalSettings;
+        }
+    },
+
+    "getPeriodViewDates: período configurado de 14 días muestra los 14 días completos"() {
+        const originalExport = window.state.exportConfig;
+        try {
+            window.state.exportConfig = {
+                payPeriod: { periodStart: '2026-08-01', periodLength: 14 }
+            };
+            const res = getPeriodViewDates('2026-08-05');
+            testRunner.assertEquals(res.dates.length, 14, 'Debe contener 14 días');
+            testRunner.assertEquals(res.totalPages, 1, 'Debe tener 1 página');
+            testRunner.assertEquals(res.hasPagination, false, 'No debe requerir paginación');
+            testRunner.assertEquals(res.periodStart, '2026-08-01', 'Inicio debe ser 2026-08-01');
+            testRunner.assertEquals(res.periodEnd, '2026-08-14', 'Fin debe ser 2026-08-14');
+        } finally {
+            window.state.exportConfig = originalExport;
+        }
+    },
+
+    "getPeriodViewDates: período de más de 21 días pagina en bloques de 21"() {
+        const originalExport = window.state.exportConfig;
+        try {
+            window.state.exportConfig = {
+                payPeriod: { periodStart: '2026-08-01', periodLength: 30 }
+            };
+            // Página 1 (días 1 al 21)
+            const p1 = getPeriodViewDates('2026-08-05');
+            testRunner.assertEquals(p1.dates.length, 21, 'Página 1 debe tener 21 días');
+            testRunner.assertEquals(p1.page, 0, 'Página 1 debe tener índice 0');
+            testRunner.assertEquals(p1.totalPages, 2, 'Total páginas debe ser 2');
+            testRunner.assertEquals(p1.hasPagination, true, 'Debe requerir paginación');
+            testRunner.assertEquals(p1.periodStart, '2026-08-01', 'Página 1 inicia 2026-08-01');
+            testRunner.assertEquals(p1.periodEnd, '2026-08-21', 'Página 1 termina 2026-08-21');
+
+            // Página 2 (días 22 al 30)
+            const p2 = getPeriodViewDates('2026-08-25');
+            testRunner.assertEquals(p2.dates.length, 9, 'Página 2 debe tener 9 días restantes');
+            testRunner.assertEquals(p2.page, 1, 'Página 2 debe tener índice 1');
+            testRunner.assertEquals(p2.totalPages, 2, 'Total páginas debe ser 2');
+            testRunner.assertEquals(p2.periodStart, '2026-08-22', 'Página 2 inicia 2026-08-22');
+            testRunner.assertEquals(p2.periodEnd, '2026-08-30', 'Página 2 termina 2026-08-30');
+        } finally {
+            window.state.exportConfig = originalExport;
+        }
+    },
+
+    "WeekView: renderiza barra de paginación cuando el período supera 21 días"() {
+        const originalExport = window.state.exportConfig;
+        const originalDate = window.state.selectedDate;
+        try {
+            window.state.exportConfig = {
+                payPeriod: { periodStart: '2026-08-01', periodLength: 30 }
+            };
+            window.state.selectedDate = new Date('2026-08-05T12:00:00');
+            const html = WeekView();
+            testRunner.assert(html.includes('class="period-pagination-bar"'), 'Debe incluir period-pagination-bar');
+            testRunner.assert(html.includes('change-period-page'), 'Debe incluir botones de cambio de página');
+            testRunner.assert(html.includes('Pág. 1 de 2'), 'Debe indicar página 1 de 2');
+        } finally {
+            window.state.exportConfig = originalExport;
+            window.state.selectedDate = originalDate;
+        }
+    },
+
+    "getPeriodViewDates: respeta selectores explícitos de 1, 2 y 3 semanas"() {
+        const originalSpan = window.state.attendanceWeekSpan;
+        try {
+            // 1 semana
+            window.state.attendanceWeekSpan = '1';
+            const s1 = getPeriodViewDates('2026-08-19');
+            testRunner.assertEquals(s1.dates.length, 7, '1 semana debe devolver 7 días');
+            testRunner.assertEquals(s1.periodStart, '2026-08-17');
+            testRunner.assertEquals(s1.periodEnd, '2026-08-23');
+
+            // 2 semanas
+            window.state.attendanceWeekSpan = '2';
+            const s2 = getPeriodViewDates('2026-08-19');
+            testRunner.assertEquals(s2.dates.length, 14, '2 semanas debe devolver 14 días');
+            testRunner.assertEquals(s2.periodStart, '2026-08-17');
+            testRunner.assertEquals(s2.periodEnd, '2026-08-30');
+
+            // 3 semanas
+            window.state.attendanceWeekSpan = '3';
+            const s3 = getPeriodViewDates('2026-08-19');
+            testRunner.assertEquals(s3.dates.length, 21, '3 semanas debe devolver 21 días');
+            testRunner.assertEquals(s3.periodStart, '2026-08-17');
+            testRunner.assertEquals(s3.periodEnd, '2026-09-06');
+        } finally {
+            window.state.attendanceWeekSpan = originalSpan;
+        }
+    },
+
+    "DateControls: renderiza selector de alcance cuando viewMode es week"() {
+        const originalView = window.state.viewMode;
+        try {
+            window.state.viewMode = 'week';
+            const html = DateControls();
+            testRunner.assert(html.includes('week-span-selector'), 'Debe incluir week-span-selector');
+            testRunner.assert(html.includes('data-att-action="change-week-span"'), 'Debe incluir acciones change-week-span');
+            testRunner.assert(html.includes('Período'), 'Debe incluir opción Período');
+        } finally {
+            window.state.viewMode = originalView;
+        }
     }
 });

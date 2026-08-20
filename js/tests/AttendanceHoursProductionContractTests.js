@@ -45,7 +45,7 @@ testRunner.addSuite('app.js — contrato productivo de horas de asistencia', {
     },
 
     'handleWeekCheck preserva override diario cero mediante el resolver canónico'() {
-        const body = between("window.handleWeekCheck = (empId, dateStr)", 'window.handleWeekCheckClick');
+        const body = between("window.handleWeekCheck = ", 'window.handleWeekCheckClick');
         testRunner.assert(
             /resolveDailyTargetHours\s*\(\s*dateStr\s*,\s*state\.dayHoursConfig\s*,\s*state\.settings\?\.regularHoursPerDay\s*\)/.test(body),
             'handleWeekCheck debe resolver la jornada diaria sin usar ||, que descarta el cero explícito'
