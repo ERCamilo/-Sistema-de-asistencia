@@ -182,12 +182,12 @@ describe('Payroll loan settlement UI', () => {
         await expect(promise).resolves.toBe(false);
     });
 
-    test('PayrollUI wires paid confirmation into the general closure and linked loan payments', () => {
+    test('PayrollUI wires paid confirmation into the general closure and unified employee effects', () => {
         expect(PAYROLL_UI_SOURCE).toContain("'toggle-payroll-paid'");
         expect(PAYROLL_UI_SOURCE).toContain("'open-payroll-closure'");
         expect(PAYROLL_UI_SOURCE).toContain("'undo-payroll-closure'");
         expect(PAYROLL_UI_SOURCE).toContain('buildPayrollClosureDraft');
-        expect(PAYROLL_UI_SOURCE).toContain('applyPayrollLoanSettlementBatch');
+        expect(PAYROLL_UI_SOURCE).toContain('applyPayrollClosureEffects');
         expect(PAYROLL_UI_SOURCE).toContain('openPayrollClosureModal');
         expect(PAYROLL_UI_SOURCE).toContain('renderPayrollClosurePanel');
     });

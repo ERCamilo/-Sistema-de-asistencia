@@ -5,6 +5,11 @@ import {
     resolveAdjustmentScope,
     resolveAdjustmentTargetIds
 } from './PayrollAdjustments.js';
+import { splitAdjustmentInstallments } from './PayrollAdjustmentInstallmentPlan.js';
+import {
+    buildScheduledAdjustmentGroups,
+    renderScheduledAdjustmentGroups
+} from './PayrollAdjustmentScheduled.js';
 
 const SCOPE_META = [
     { id: 'global', label: 'General', summary: 'Generales' },
@@ -151,14 +156,20 @@ export function readAdjustmentForm(form) {
         ? [...new Set(data.getAll('employeeTargets').filter(Boolean).map(String))]
         : [];
 
+    const type = data.get('type') === 'percentage' ? 'percentage' : 'fixed';
+    const installmentsEligible = scope === 'employee' && type === 'fixed';
+
     return {
         name: String(data.get('name') || '').trim(),
-        type: data.get('type') === 'percentage' ? 'percentage' : 'fixed',
+        type,
         value: Number(data.get('value')) || 0,
         scope,
         targetId: targetFields[scope] || null,
         targetIds,
-        remembered: data.get('remembered') === 'on'
+        remembered: data.get('remembered') === 'on',
+        installmentsEnabled: installmentsEligible && data.get('installmentsEnabled') === 'on',
+        installmentCount: Number(data.get('installmentCount')),
+        firstPeriodStart: String(data.get('firstPeriodStart') || '').trim()
     };
 }
 
@@ -230,6 +241,18 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
     const selectedEmployeeIds = resolveAdjustmentTargetIds(adjustment);
     const leaders = (state.leaders || []).filter(leader => leader.active !== false);
     const positions = (state.positions || []).filter(position => position.active !== false);
+    const installmentsEligible = resolved.scope === 'employee' && adjustment.type !== 'percentage';
+    const installmentsEnabled = installmentsEligible && adjustment.installmentsEnabled === true;
+    const installmentCount = Number.isInteger(Number(adjustment.installmentCount))
+        ? Number(adjustment.installmentCount)
+        : 2;
+    const firstPeriodStart = adjustment.firstPeriodStart || state.exportConfig?.periodStart || '';
+    let installmentAmounts = [];
+    try {
+        installmentAmounts = splitAdjustmentInstallments(Number(adjustment.value) || 0, installmentCount);
+    } catch (_) {
+        installmentAmounts = [];
+    }
 
     return `
         <form class="payroll-adjustment-form is-${kind === 'bonuses' ? 'bonus' : 'deduction'}"
@@ -295,6 +318,47 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                            placeholder="0.00">
                 </label>
             </div>
+
+            <section class="payroll-adjustment-installments" data-installment-section>
+                <label class="payroll-adjustment-installments__toggle"
+                       data-installment-option
+                       ${installmentsEligible ? '' : 'hidden'}>
+                    <input type="checkbox"
+                           name="installmentsEnabled"
+                           ${installmentsEnabled ? 'checked' : ''}>
+                    <span>
+                        <strong>Dividir en cuotas</strong>
+                        <small>Guarda el monto completo en cada empleado y lo reparte entre varias nóminas.</small>
+                    </span>
+                </label>
+                <div class="payroll-adjustment-installments__details"
+                     data-installment-details
+                     ${installmentsEnabled ? '' : 'hidden'}>
+                    <label>
+                        <span>Cantidad de cuotas</span>
+                        <input name="installmentCount"
+                               type="number"
+                               inputmode="numeric"
+                               min="2"
+                               max="52"
+                               step="1"
+                               value="${installmentCount}">
+                    </label>
+                    <label>
+                        <span>Primera nómina</span>
+                        <input name="firstPeriodStart"
+                               type="date"
+                               value="${safe(firstPeriodStart)}">
+                    </label>
+                    <p data-installment-explanation>
+                        Cada empleado tendrá <strong data-installment-total>${formatCurrency(Number(adjustment.value) || 0)}</strong> en total.
+                        Las cuotas regulares serán de
+                        <strong data-installment-regular>${installmentAmounts.length ? formatCurrency(installmentAmounts[0]) : '—'}</strong>
+                        y la última será de
+                        <strong data-installment-last>${installmentAmounts.length ? formatCurrency(installmentAmounts.at(-1)) : '—'}</strong>.
+                    </p>
+                </div>
+            </section>
 
             <div class="payroll-adjustment-preview" aria-live="polite">
                 <span><small>Empleados</small><strong data-preview-employees>${preview.employeeCount}</strong></span>
@@ -414,6 +478,7 @@ function renderSummary(kind, summary, state, rows) {
 export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
     const adjustments = state.exportConfig?.[kind] || [];
     const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, state);
+    const scheduledGroups = buildScheduledAdjustmentGroups(kind, state.employees || []);
     const isBonus = kind === 'bonuses';
     const composerScope = resolveAdjustmentScope({
         scope: state.exportConfig?.payrollAdjustmentComposerScopes?.[kind]
@@ -435,6 +500,7 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
                 </section>
                 ${renderSummary(kind, summary, state, rows)}
             </div>
+            ${renderScheduledAdjustmentGroups(kind, scheduledGroups)}
         </div>
     `;
 }
@@ -448,6 +514,33 @@ export function updateAdjustmentFormPresentation(form, rows, positions) {
     });
     form.querySelector('.payroll-adjustment-remember')
         ?.classList.toggle('is-hidden', adjustment.scope === 'employee');
+
+    const installmentsEligible = adjustment.scope === 'employee' && adjustment.type === 'fixed';
+    const installmentOption = form.querySelector('[data-installment-option]');
+    const installmentToggle = form.querySelector('[name="installmentsEnabled"]');
+    const installmentDetails = form.querySelector('[data-installment-details]');
+    if (!installmentsEligible && installmentToggle) installmentToggle.checked = false;
+    if (installmentOption) installmentOption.hidden = !installmentsEligible;
+    if (installmentDetails) {
+        installmentDetails.hidden = !(installmentsEligible && installmentToggle?.checked);
+    }
+
+    let installmentAmounts = [];
+    try {
+        installmentAmounts = splitAdjustmentInstallments(adjustment.value, adjustment.installmentCount);
+    } catch (_) {
+        installmentAmounts = [];
+    }
+    const regularNode = form.querySelector('[data-installment-regular]');
+    const lastNode = form.querySelector('[data-installment-last]');
+    const totalInstallmentNode = form.querySelector('[data-installment-total]');
+    if (regularNode) regularNode.textContent = installmentAmounts.length
+        ? formatCurrency(installmentAmounts[0])
+        : '—';
+    if (lastNode) lastNode.textContent = installmentAmounts.length
+        ? formatCurrency(installmentAmounts.at(-1))
+        : '—';
+    if (totalInstallmentNode) totalInstallmentNode.textContent = formatCurrency(adjustment.value);
 
     const preview = calculateAdjustmentPreview(adjustment, rows, positions);
     const employeeNode = form.querySelector('[data-preview-employees]');

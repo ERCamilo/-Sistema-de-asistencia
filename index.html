@@ -100,18 +100,30 @@
     <div id="root"></div>
     <script type="module" src="js/app.js"></script>
     
-    <!-- 🧪 Pruebas Unitarias -->
-    <script src="js/tests/TestRunner.js"></script>
-    <script type="module" src="js/tests/BusinessLogicTests.js"></script>
-    <script type="module" src="js/tests/BatchedSaverTests.js"></script>
-    <script type="module" src="js/tests/ModalTests.js"></script>
-    <script type="module" src="js/tests/DataIntegrityTests.js"></script>
-    <script type="module" src="js/tests/HelpTooltipTests.js"></script>
-    <script type="module" src="js/tests/OnboardingTests.js"></script>
-    <script type="module" src="js/tests/EmployeeProfileTests.js"></script>
-    <script type="module" src="js/tests/AttendanceUITests.js"></script>
-    <script type="module" src="js/tests/AnalyticsUITests.js"></script>
-    <script type="module" src="js/tests/BrowserWorkflowTests.js"></script>
+    <!-- 🧪 Pruebas Unitarias (Carga bajo demanda con ?test=true) -->
+    <script type="module">
+        if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('test')) {
+            const testScripts = [
+                'js/tests/TestRunner.js',
+                'js/tests/BusinessLogicTests.js',
+                'js/tests/BatchedSaverTests.js',
+                'js/tests/ModalTests.js',
+                'js/tests/DataIntegrityTests.js',
+                'js/tests/HelpTooltipTests.js',
+                'js/tests/OnboardingTests.js',
+                'js/tests/EmployeeProfileTests.js',
+                'js/tests/AttendanceUITests.js',
+                'js/tests/AnalyticsUITests.js',
+                'js/tests/BrowserWorkflowTests.js'
+            ];
+            for (const src of testScripts) {
+                const s = document.createElement('script');
+                s.src = src;
+                if (src.endsWith('.js') && src !== 'js/tests/TestRunner.js') s.type = 'module';
+                document.body.appendChild(s);
+            }
+        }
+    </script>
 
     <!-- 📱 Registro del Service Worker -->
     <script type="module">

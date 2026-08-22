@@ -15,6 +15,14 @@ import { getDateKey } from '../../utils/DateUtils.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { mergeTombstoneMaps } from '../../services/NestedTombstones.js';
 import { payrollService } from '../../services/index.js';
+import { applyManualAdjustmentMovement } from '../payroll/PayrollAdjustmentManualMovement.js';
+import {
+    ADJUSTMENT_PLAN_STATUS,
+    isPayrollAdjustmentInstallmentPlan
+} from '../payroll/PayrollAdjustmentInstallmentPlan.js';
+import {
+    buildEmployeeScheduledAdjustmentPlans
+} from '../payroll/PayrollAdjustmentScheduled.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -61,6 +69,188 @@ export function syncProfileToMaster(empId, saveOptions = {}) {
     // saveOptions permite que el caller pida announce (toast honesto del resultado).
     saveApplicationData({ immediate: true, ...saveOptions });
     return true;
+}
+
+
+function clone(value) {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+}
+
+function currentUserLabel() {
+    const user = globalThis.currentUser;
+    return String(user?.displayName || user?.email || '').trim();
+}
+
+function createManualMovementId() {
+    if (globalThis.crypto?.randomUUID) {
+        return `ADJ-MANUAL-${globalThis.crypto.randomUUID()}`;
+    }
+    return `ADJ-MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function activeEmployeePlan(kind, planId) {
+    const employee = state.employees.find(item =>
+        String(item?.id) === String(state.employeeProfile?.employeeId)
+    );
+    const plan = (Array.isArray(employee?.[kind]) ? employee[kind] : [])
+        .find(item => String(item?.id) === String(planId));
+    if (!employee ||
+        !isPayrollAdjustmentInstallmentPlan(plan) ||
+        plan.kind !== kind ||
+        String(plan.employeeId) !== String(employee.id)) {
+        return null;
+    }
+    return { employee, plan };
+}
+
+function scheduledEmployeePlanAt(index) {
+    const numericIndex = Number(index);
+    if (!Number.isInteger(numericIndex) || numericIndex < 0) return null;
+    const employee = state.employees.find(item =>
+        String(item?.id) === String(state.employeeProfile?.employeeId)
+    );
+    if (!employee) return null;
+    const projected = buildEmployeeScheduledAdjustmentPlans(employee)[numericIndex];
+    return projected
+        ? { kind: projected.kind, planId: projected.planId }
+        : null;
+}
+
+export function openManualAdjustmentMovement(kind, planId) {
+    const target = activeEmployeePlan(kind, planId);
+    if (!target || target.plan.status !== ADJUSTMENT_PLAN_STATUS.ACTIVE) {
+        notify('Este plan no está disponible para registrar movimientos.', 'warning');
+        return false;
+    }
+    stateManager.batchSetState(() => {
+        state.employeeProfile.manualAdjustmentDraft = {
+            id: createManualMovementId(),
+            kind,
+            planId: String(planId),
+            amount: '',
+            date: getDateKey(new Date()),
+            recordedBy: currentUserLabel(),
+            note: ''
+        };
+    });
+    render();
+    return true;
+}
+
+export function openManualAdjustmentMovementAt(index) {
+    const reference = scheduledEmployeePlanAt(index);
+    if (!reference) {
+        notify('Este plan no está disponible para registrar movimientos.', 'warning');
+        return false;
+    }
+    return openManualAdjustmentMovement(reference.kind, reference.planId);
+}
+
+export function cancelManualAdjustmentMovement() {
+    if (!state.employeeProfile) return;
+    stateManager.batchSetState(() => {
+        state.employeeProfile.manualAdjustmentDraft = null;
+    });
+    render();
+}
+
+export async function recordManualAdjustmentMovement(kind, planId, input = {}) {
+    const target = activeEmployeePlan(kind, planId);
+    if (!target) {
+        notify('Este plan no pertenece al empleado seleccionado.', 'error');
+        return false;
+    }
+    const employeeIndex = state.employees.indexOf(target.employee);
+    let result;
+    try {
+        result = applyManualAdjustmentMovement(target.employee, {
+            ...input,
+            kind,
+            planId
+        });
+    } catch (error) {
+        notify(error.message || 'No se pudo registrar el movimiento.', 'warning');
+        return false;
+    }
+    if (!result.changed) {
+        notify('Este movimiento ya estaba registrado.', 'info');
+        return true;
+    }
+
+    const previousEmployees = state.employees;
+    const previousProfilePlans = state.employeeProfile?.[kind];
+    const nextEmployees = [...state.employees];
+    nextEmployees[employeeIndex] = result.employee;
+    stateManager.batchSetState(() => {
+        state.employees = nextEmployees;
+        if (state.employeeProfile) {
+            state.employeeProfile[kind] = clone(result.employee[kind]);
+        }
+    });
+
+    let outcome;
+    try {
+        outcome = await saveApplicationData({
+            immediate: true,
+            announce: false,
+            requireLocalSuccess: true
+        });
+    } catch (_) {
+        outcome = { localOk: false, cloudRequested: false };
+    }
+    if (!outcome?.localOk) {
+        stateManager.batchSetState(() => {
+            state.employees = previousEmployees;
+            if (state.employeeProfile) state.employeeProfile[kind] = previousProfilePlans;
+        });
+        notify(
+            'No se pudo guardar el movimiento en este dispositivo. No se realizó ningún cambio.',
+            'error'
+        );
+        render();
+        return false;
+    }
+
+    stateManager.batchSetState(() => {
+        if (state.employeeProfile) state.employeeProfile.manualAdjustmentDraft = null;
+    });
+    notify(
+        kind === 'bonuses'
+            ? 'Entrega registrada y guardada.'
+            : 'Abono registrado y guardado.',
+        'success'
+    );
+    render();
+    return true;
+}
+
+export async function submitManualAdjustmentMovement(kind, planId) {
+    const draft = state.employeeProfile?.manualAdjustmentDraft;
+    const form = typeof document !== 'undefined'
+        ? document.querySelector('[data-manual-adjustment-form]')
+        : null;
+    if (!draft || draft.kind !== kind || String(draft.planId) !== String(planId) || !form) {
+        notify('Abre nuevamente el formulario para registrar el movimiento.', 'warning');
+        return false;
+    }
+    const data = new FormData(form);
+    return recordManualAdjustmentMovement(kind, planId, {
+        id: draft.id,
+        amount: data.get('manualAmount'),
+        date: data.get('manualDate'),
+        recordedBy: data.get('manualRecordedBy'),
+        note: data.get('manualNote')
+    });
+}
+
+export async function submitManualAdjustmentMovementAt(index) {
+    const reference = scheduledEmployeePlanAt(index);
+    if (!reference) {
+        notify('Abre nuevamente el formulario para registrar el movimiento.', 'warning');
+        return false;
+    }
+    return submitManualAdjustmentMovement(reference.kind, reference.planId);
 }
 
 // ─── Open / close ────────────────────────────────────────────────────────────
@@ -309,4 +499,10 @@ export function registerLegacyGlobals() {
     window.setProfilePeriod = setProfilePeriod;
     window.togglePositionBreakdown = togglePositionBreakdown;
     window.markAsPaid = markAsPaid;
+    window.openManualAdjustmentMovement = openManualAdjustmentMovement;
+    window.openManualAdjustmentMovementAt = openManualAdjustmentMovementAt;
+    window.cancelManualAdjustmentMovement = cancelManualAdjustmentMovement;
+    window.recordManualAdjustmentMovement = recordManualAdjustmentMovement;
+    window.submitManualAdjustmentMovement = submitManualAdjustmentMovement;
+    window.submitManualAdjustmentMovementAt = submitManualAdjustmentMovementAt;
 }

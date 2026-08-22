@@ -87,6 +87,9 @@ describe('PayrollAdjustmentDesktop', () => {
         expect(host.textContent).toContain('Agregar deducción');
         expect(host.textContent).toContain('Por líder / equipo');
         expect(host.textContent).toContain('$195.00');
+        expect(host.querySelector('[data-scheduled-adjustments]')).not.toBeNull();
+        expect(host.textContent).toContain('Programados');
+        expect(host.textContent).toContain('No hay descuentos programados');
     });
 
     test('reads the selected group target and updates the live estimate', () => {
@@ -152,5 +155,44 @@ describe('PayrollAdjustmentDesktop', () => {
             targetId: 'employee-1',
             targetIds: ['employee-1', 'employee-2']
         });
+    });
+
+    test('shows installment controls only for fixed individual adjustments and explains the split', () => {
+        const host = document.createElement('div');
+        host.innerHTML = renderDesktopAdjustmentWorkspace('deductions', {
+            ...state,
+            exportConfig: {
+                ...state.exportConfig,
+                periodStart: '2026-08-16',
+                deductions: []
+            }
+        }, rows);
+        const form = host.querySelector('.payroll-adjustment-form');
+        const option = form.querySelector('[data-installment-option]');
+        const details = form.querySelector('[data-installment-details]');
+
+        expect(option.hidden).toBe(true);
+        form.querySelector('input[name="scope"][value="employee"]').checked = true;
+        form.querySelector('input[name="type"][value="fixed"]').checked = true;
+        form.querySelector('[name="value"]').value = '100';
+        updateAdjustmentFormPresentation(form, rows, state.positions);
+        expect(option.hidden).toBe(false);
+
+        form.querySelector('[name="installmentsEnabled"]').checked = true;
+        form.querySelector('[name="installmentCount"]').value = '3';
+        updateAdjustmentFormPresentation(form, rows, state.positions);
+
+        expect(details.hidden).toBe(false);
+        expect(form.querySelector('[name="firstPeriodStart"]').value).toBe('2026-08-16');
+        expect(form.querySelector('[data-installment-regular]').textContent).toBe('$33.33');
+        expect(form.querySelector('[data-installment-last]').textContent).toBe('$33.34');
+        expect(form.querySelector('[data-installment-explanation]').textContent)
+            .toContain('Cada empleado tendrá $100.00 en total');
+
+        form.querySelector('input[name="type"][value="percentage"]').checked = true;
+        updateAdjustmentFormPresentation(form, rows, state.positions);
+        expect(option.hidden).toBe(true);
+        expect(details.hidden).toBe(true);
+        expect(readAdjustmentForm(form).installmentsEnabled).toBe(false);
     });
 });

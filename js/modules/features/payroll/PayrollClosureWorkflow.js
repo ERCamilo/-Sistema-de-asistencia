@@ -1,11 +1,16 @@
 import { buildPayrollClosure, PAYROLL_CLOSURE_STATUS, voidPayrollClosure } from './PayrollClosure.js';
 import {
+    applyPayrollLoanSettlementBatch,
     buildPayrollLoanSettlementBatch,
     buildPayrollPreviewFingerprint,
     undoPayrollLoanSettlementBatch
 } from './PayrollLoanSettlement.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
 import { buildPayrollAdjustmentSnapshot } from './PayrollClosureAdjustments.js';
+import {
+    applyPayrollAdjustmentInstallmentsForClosure,
+    undoPayrollAdjustmentInstallmentsForClosure
+} from './PayrollAdjustmentInstallmentSettlement.js';
 
 function money(value) {
     return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
@@ -128,6 +133,37 @@ export function buildPayrollClosureDraft({
     };
 }
 
+export function applyPayrollClosureEffects(employees, draft, {
+    now = Date.now(),
+    recordedBy = null
+} = {}) {
+    if (!draft?.closure?.id) throw new Error('El cierre de Nómina no es válido');
+    let loanResult = null;
+    if (draft.batch) {
+        loanResult = applyPayrollLoanSettlementBatch(employees, draft.batch, {
+            now,
+            recordedBy
+        });
+    }
+    const installmentResult = applyPayrollAdjustmentInstallmentsForClosure(
+        employees,
+        draft.closure,
+        { now, recordedBy }
+    );
+    const affected = new Set([
+        ...(draft.batch?.employees || []).map(item => String(item.employeeId)),
+        ...installmentResult.affectedEmployeeIds
+    ]);
+    return {
+        loanResult,
+        appliedInstallmentCount: installmentResult.appliedCount,
+        relinkedInstallmentCount: installmentResult.relinkedCount,
+        affectedEmployeeIds: [...affected].sort((left, right) =>
+            left.localeCompare(right, 'es', { numeric: true })
+        )
+    };
+}
+
 export function undoPayrollClosureEffects(employees, closure, {
     now = Date.now(),
     voidedBy = null,
@@ -150,9 +186,22 @@ export function undoPayrollClosureEffects(employees, closure, {
         );
         voidedPaymentCount = result.voidedCount;
     }
+    const installmentResult = undoPayrollAdjustmentInstallmentsForClosure(
+        employees,
+        closure,
+        { now, voidedBy }
+    );
+    const affected = new Set([
+        ...(closure.paymentRefs || []).map(ref => String(ref.employeeId)),
+        ...installmentResult.affectedEmployeeIds
+    ]);
     return {
         closure: voidPayrollClosure(closure, { voidedAt: now, voidedBy, voidReason }),
         voidedPaymentCount,
+        revertedInstallmentCount: installmentResult.revertedCount,
+        affectedEmployeeIds: [...affected].sort((left, right) =>
+            left.localeCompare(right, 'es', { numeric: true })
+        ),
         voidedBonusCount: (closure.rows || []).reduce(
             (count, row) => count + (row.bonusDetails || []).length,
             0
@@ -165,6 +214,7 @@ export function undoPayrollClosureEffects(employees, closure, {
 }
 
 export default {
+    applyPayrollClosureEffects,
     buildPayrollClosureDraft,
     getEffectivePayrollClosures,
     getPayrollClosureGate,

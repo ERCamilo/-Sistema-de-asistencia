@@ -659,7 +659,7 @@ export function saveApplicationData(options = {}) {
     // locales durante la ventana de 300 ms en que el guardado aún está en cola.
     // Sin esto, un nuevo empleado/cargo/líder añadido al state puede perderse si
     // el listener de Firebase aplica datos remotos antes de que _executeSave corra.
-    if (!globalThis._isApplyingRemoteData && !options.localOnly) {
+    if (!globalThis._isApplyingRemoteData && !options.localOnly && !options.requireLocalSuccess) {
         if (!state.settings) state.settings = {};
         state.settings.localUpdatedAt = Date.now();
     }
@@ -770,10 +770,56 @@ export function flushPendingSave() {
     return true;
 }
 
+// Some writes must be durable on this device before they are eligible for
+// cloud synchronization. This helper exposes the real local fallback result.
+async function _persistLocalState(options = {}) {
+    if (globalThis._isApplyingRemoteData) return false;
+
+    let localOk = false;
+    if (state.useIndexedDB) {
+        try {
+            // Granular saves skip the full integrity scan because they only
+            // persist a bounded attendance slice.
+            const isGranularSave = !!options.dateKey ||
+                (Array.isArray(options.dateKeys) && options.dateKeys.length > 0);
+            if (!isGranularSave && !options.skipValidation) {
+                await validateDataIntegrity();
+            }
+
+            const rawState = stateManager.getState();
+            await indexedDBService.saveState(rawState, options);
+            localOk = true;
+        } catch (error) {
+            const errorName = error?.name || '';
+            const errorMessage = error?.message || 'Error desconocido';
+
+            if (errorName === 'ConstraintError' || errorMessage.includes('ConstraintError')) {
+                console.warn('⚡ Conflicto de integridad en IndexedDB; cayendo a localStorage para no perder el dato.');
+                const fallbackOk = dataService ? dataService.saveAll() : false;
+                localOk = fallbackOk === true;
+                NotificationSystem.error(localOk
+                    ? '⚠️ Conflicto de datos detectado — guardado en respaldo local'
+                    : '❌ Conflicto de datos detectado');
+            } else {
+                console.error('❌ Error fatal en persistencia local:', error);
+                const fallbackOk = dataService ? dataService.saveAll() : false;
+                localOk = fallbackOk === true;
+                if (!localOk) {
+                    NotificationSystem.error('❌ Error al guardar localmente: ' + errorMessage);
+                }
+            }
+        }
+    } else {
+        const fallbackOk = dataService ? dataService.saveAll() : false;
+        localOk = fallbackOk === true;
+    }
+    return localOk;
+}
+
 async function _executeSave(options = {}) {
     if (!state.isDataLoaded) {
         console.warn('⚠️ Intento de guardado ignorado: datos aún no cargados.');
-        return;
+        return { localOk: false, cloudRequested: false };
     }
 
     const _logDates = Array.isArray(options.dateKeys) ? options.dateKeys.join(', ') : options.dateKey;
@@ -822,6 +868,18 @@ async function _executeSave(options = {}) {
         state.settings.localUpdatedAt = Date.now();
     }
 
+    let _localOk = true;
+    let _localConfirmed = false;
+    if (options.requireLocalSuccess) {
+        _localOk = await _persistLocalState(options);
+        _localConfirmed = true;
+        if (!_localOk && !globalThis._isApplyingRemoteData) {
+            stateManager.batchSetState(() => {
+                state.settings.localUpdatedAt = _localTime;
+            });
+        }
+    }
+
     if (_hasOutgoingConflict && !state._outgoingConflictReviewPending) {
         state._outgoingConflictReviewPending = true;
         debug.log(
@@ -842,7 +900,8 @@ async function _executeSave(options = {}) {
     // _cloudAttempted = ¿se está intentando escribir a la nube en este guardado?
     // Lo usa el toast honesto (SaveOutcomeNotifier) para saber si debe esperar
     // el resultado de la nube (verde/amarillo) o anunciar solo el local (verde).
-    const _cloudAttempted = _canSyncFirebase && !_hasOutgoingConflict;
+    const _cloudAttempted = _canSyncFirebase && !_hasOutgoingConflict &&
+        (!options.requireLocalSuccess || _localOk);
     if (_cloudAttempted) {
         // 1+2. U7 — Bandeja de pendientes hacia la nube (MainSyncStore) en vez
         // de llamar a Firestore directo. Si la pestaña se cierra antes de que
@@ -980,54 +1039,10 @@ async function _executeSave(options = {}) {
         }
     }
 
-    // 💾 Persistencia Local
-    let _localOk = true;
-    if (state.useIndexedDB && !globalThis._isApplyingRemoteData) {
-        try {
-            // ⚡ P2-OPT: Saltar validación de integridad pesada en guardados
-            // granulares — tanto dateKey singular como dateKeys (el canal
-            // unificado multi-fecha). Sin el chequeo de dateKeys, cada purge
-            // corría la validación completa (puede estampar/re-subir empleados
-            // no relacionados = costo de cuota).
-            const _isGranularSave = !!options.dateKey ||
-                (Array.isArray(options.dateKeys) && options.dateKeys.length > 0);
-            if (!_isGranularSave && !options.skipValidation) {
-                await validateDataIntegrity();
-            }
-
-            // ⚡ FIX: Usar el estado "raw" (sin proxy) para evitar DataCloneError en IndexedDB
-            const rawState = stateManager.getState();
-            await indexedDBService.saveState(rawState, options);
-        } catch (error) {
-            // Manejo de conflictos de integridad con defensa contra error nulo
-            const errorName = error?.name || '';
-            const errorMessage = error?.message || 'Error desconocido';
-
-            if (errorName === 'ConstraintError' || errorMessage.includes('ConstraintError')) {
-                // R2: el ConstraintError es una colisión LOCAL del índice único
-                // 'employeeDate'. NO descartar el guardado: caer a localStorage para
-                // que el dato NO se pierda de AMBOS stores (antes quedaba sólo el
-                // error y _localOk=false). La reconciliación del índice duplicado es
-                // un fix aparte; acá lo prioritario es no perder el guardado.
-                console.warn('⚡ Conflicto de integridad en IndexedDB; cayendo a localStorage para no perder el dato.');
-                const fallbackOk = dataService ? dataService.saveAll() : false;
-                _localOk = fallbackOk === true;
-                NotificationSystem.error(_localOk
-                    ? '⚠️ Conflicto de datos detectado — guardado en respaldo local'
-                    : '❌ Conflicto de datos detectado');
-            } else {
-                console.error('❌ Error fatal en persistencia local:', error);
-                // Fallback a localStorage
-                const fallbackOk = dataService ? dataService.saveAll() : false;
-                _localOk = fallbackOk === true;
-                if (!_localOk) {
-                    NotificationSystem.error('❌ Error al guardar localmente: ' + errorMessage);
-                }
-            }
-        }
-    } else if (!globalThis._isApplyingRemoteData) {
-        const fallbackOk = dataService ? dataService.saveAll() : false;
-        _localOk = fallbackOk === true;
+    // 💾 Persistencia Local. Guarded operations already completed this
+    // step before any cloud enqueue; ordinary saves retain the legacy order.
+    if (!_localConfirmed) {
+        _localOk = await _persistLocalState(options);
     }
 
     // 💬 Toast HONESTO del resultado (solo si el caller lo pidió con announce).
@@ -1041,9 +1056,11 @@ async function _executeSave(options = {}) {
     }
 
     // 📡 Emitir evento de guardado
-    if (globalThis.eventBus) {
+    if (globalThis.eventBus && (!options.requireLocalSuccess || _localOk)) {
         globalThis.eventBus.emit('data:saved', { timestamp: Date.now() });
     }
+
+    return { localOk: _localOk, cloudRequested: _cloudAttempted };
 }
 
 /**

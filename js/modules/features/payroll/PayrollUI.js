@@ -3,6 +3,7 @@ import { stateManager } from '../../core/AppState.js';
 import { Modal } from '../../components/Modal.js';
 import { formatCurrency } from '../../utils/Formatters.js';
 import { getDateKey, formatDateShort } from '../../utils/DateUtils.js';
+import { ensureJsPDFLoaded } from '../../utils/LazyCDN.js';
 import { LoansLedger } from '../loans/LoansLedger.js';
 import { migrateAllAdvances } from '../loans/LoansController.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
@@ -21,7 +22,6 @@ import {
 } from './PayrollLoans.js';
 import { renderPayrollLoansDesktop } from './PayrollLoansDesktop.js';
 import {
-    applyPayrollLoanSettlementBatch,
     buildPayrollPreviewFingerprint,
     confirmPayrollPaid
 } from './PayrollLoanSettlement.js';
@@ -37,6 +37,7 @@ import {
 } from './PayrollClosureUI.js';
 import { renderPayrollHistoryView } from './PayrollHistoryUI.js';
 import {
+    applyPayrollClosureEffects,
     buildPayrollClosureDraft,
     getPayrollClosureGate,
     undoPayrollClosureEffects
@@ -65,6 +66,10 @@ import {
 import {
     openPayrollAdjustmentEmployeePicker
 } from './PayrollAdjustmentEmployeePicker.js';
+import {
+    buildPayrollAdjustmentInstallmentSave,
+    filterLegacyEmployeeAdjustments
+} from './PayrollAdjustmentInstallmentWorkflow.js';
 
 let context = null;
 let payrollService = null;
@@ -180,6 +185,7 @@ const _ACTION_MAP = {
     ),
     'copy-export-json': () => window.PayrollUI?.copyExportJSON?.(),
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
+    'export-payroll-pdf': () => window.PayrollUI?.exportPayrollPDF?.(),
     'send-to-splitx': () => window.PayrollUI?.sendToSplitX?.(),
     'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
 };
@@ -316,12 +322,12 @@ function updatePayrollPeriodClosureCache(closure) {
 
 function getEmployeesWithDeductions() {
     const state = getState();
-    return state.employees.filter(e => Array.isArray(e.deductions) && e.deductions.length > 0);
+    return state.employees.filter(e => filterLegacyEmployeeAdjustments(e.deductions).length > 0);
 }
 
 function getEmployeesWithBonuses() {
     const state = getState();
-    return state.employees.filter(e => Array.isArray(e.bonuses) && e.bonuses.length > 0);
+    return state.employees.filter(e => filterLegacyEmployeeAdjustments(e.bonuses).length > 0);
 }
 
 function getLeaderFilteredEmployees(state) {
@@ -549,12 +555,12 @@ function PayrollGeneratorTab() {
                 <nav class="payroll-guide-steps" aria-label="Pasos de nómina">
                     ${guideItems.map(([id, number, label, detail, mobileLabel], index) => `
                         <button type="button"
-                                class="payroll-guide-step ${id === guideStep ? 'is-active' : ''} ${index < guideStepIndex ? 'is-complete' : ''}"
+                                class="payroll-guide-step ${id === guideStep ? 'is-active' : ''} ${index < guideStepIndex ? 'is-complete' : ''} payroll-guide-step--${id}"
                                 data-payroll-action="set-payroll-guide-step"
                                 data-value="${id}"
                                 aria-label="Paso ${number}: ${label}"
                                 aria-current="${id === guideStep ? 'step' : 'false'}">
-                            <span class="payroll-guide-step__number">${index < guideStepIndex ? icons.get('check', { size: 15 }) : number}</span>
+                            <span class="payroll-guide-step__number">${index < guideStepIndex ? '<svg class="payroll-step-check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>' : number}</span>
                             <span class="payroll-guide-step__copy" data-mobile-label="${mobileLabel}">
                                 <small>Paso ${number}</small>
                                 <strong>${label}</strong>
@@ -793,7 +799,7 @@ function PayrollGeneratorTab() {
                 </div>
                 
                 <div style="display: ${isStepCollapsed('step3') ? 'none' : 'block'}; margin-top: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; gap: 8px; align-items: center; max-width: 60%;">
                         <span style="font-size: 0.75rem; color: #94a3b8; margin-right: 4px;">Líder:</span>
                         <select onchange="PayrollUI.setLeaderFilter(this.value)" class="form-input" style="padding: 6px 12px; font-size: 0.875rem; border-color: #334155; background: #0f172a; color: #f1f5f9; border-radius: 6px; cursor: pointer; outline: none;">
@@ -802,6 +808,15 @@ function PayrollGeneratorTab() {
                                 <option value="${ldr.id}" ${leaderFilter === ldr.id ? 'selected' : ''}>${ldr.name}</option>
                             `).join('')}
                         </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button"
+                                data-payroll-action="export-payroll-pdf"
+                                class="payroll-btn-secondary"
+                                style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;"
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('file-pdf', { size: 14 })} Exportar PDF
+                        </button>
                     </div>
                 </div>
 
@@ -967,6 +982,11 @@ function PayrollGeneratorTab() {
                             ${icons.get('splitx', { size: 16 })} Abrir en SplitX
                         </button>
                         <button type="button"
+                                data-payroll-action="export-payroll-pdf"
+                                ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
+                            ${icons.get('file-pdf', { size: 15 })} Exportar PDF
+                        </button>
+                        <button type="button"
                                 data-payroll-action="copy-export-json"
                                 ${hasInvalidNetRows ? 'disabled aria-disabled="true"' : ''}>
                             ${icons.get('copy', { size: 15 })} Copiar JSON
@@ -1100,6 +1120,16 @@ function adjustmentKindLabel(kind) {
     return kind === 'bonuses' ? 'bonificación' : 'deducción';
 }
 
+function createPayrollAdjustmentIdFactory(createdAt) {
+    let serial = 0;
+    return prefix => {
+        serial += 1;
+        const entropy = globalThis.crypto?.randomUUID?.()
+            || Math.random().toString(36).slice(2);
+        return `${prefix}-${createdAt}-${serial}-${entropy}`;
+    };
+}
+
 function buildDesktopAdjustment(kind, draft, current = {}) {
     const state = getState();
     const prefix = kind === 'bonuses' ? 'BON' : 'DED';
@@ -1225,7 +1255,7 @@ function persistAdjustmentDefault(kind, previous, next) {
     context.saveToLocalStorage({ immediate: true, announce: false });
 }
 
-export function addDesktopAdjustment(kind, target) {
+export async function addDesktopAdjustment(kind, target) {
     if (!['deductions', 'bonuses'].includes(kind)) return;
     const form = target?.closest('.payroll-adjustment-form');
     const draft = readAdjustmentForm(form);
@@ -1236,6 +1266,62 @@ export function addDesktopAdjustment(kind, target) {
     }
 
     const state = getState();
+    if (draft.installmentsEnabled) {
+        const previousEmployees = [...(state.employees || [])];
+        const previousExportConfig = {
+            ...state.exportConfig,
+            payrollAdjustmentComposerScopes: {
+                ...(state.exportConfig.payrollAdjustmentComposerScopes || {})
+            }
+        };
+        let stateApplied = false;
+        let result;
+        try {
+            const createdAt = Date.now();
+            result = buildPayrollAdjustmentInstallmentSave({
+                employees: state.employees,
+                kind,
+                draft,
+                createdAt
+            }, { createId: createPayrollAdjustmentIdFactory(createdAt) });
+            stateManager.setState({
+                employees: result.employees,
+                exportConfig: {
+                    ...state.exportConfig,
+                    payrollAdjustmentComposerScopes: {
+                        ...(state.exportConfig.payrollAdjustmentComposerScopes || {}),
+                        [kind]: draft.scope
+                    }
+                }
+            });
+            stateApplied = true;
+            const persistenceOutcome = await Promise.resolve(context.saveToLocalStorage({
+                immediate: true,
+                announce: false,
+                requireLocalSuccess: true
+            }));
+            if (persistenceOutcome?.localOk !== true) {
+                throw new Error('No se pudieron guardar las cuotas en este dispositivo. No se realizó ningún cambio.');
+            }
+        } catch (error) {
+            if (stateApplied) {
+                stateManager.setState({
+                    employees: previousEmployees,
+                    exportConfig: previousExportConfig
+                });
+            }
+            window.showNotification?.(
+                error?.message || 'No se pudieron guardar las cuotas. No se realizó ningún cambio.',
+                'error'
+            );
+            return;
+        }
+
+        window.showNotification?.(result.notice, 'success');
+        context.render();
+        return;
+    }
+
     const item = buildDesktopAdjustment(kind, draft);
     stateManager.batchSetState(() => {
         if (!state.exportConfig[kind]) state.exportConfig[kind] = [];
@@ -1465,7 +1551,7 @@ export function addEmployeeDeductionsToExport() {
     );
 
     employeesWithDeductions.forEach(emp => {
-        (emp.deductions || []).forEach(ded => {
+        filterLegacyEmployeeAdjustments(emp.deductions).forEach(ded => {
             const newDed = {
                 id: ded.id || `DED-${Date.now()}`,
                 type: ded.type,
@@ -1660,7 +1746,7 @@ export function addEmployeeBonusesToExport() {
     );
 
     employeesWithBonuses.forEach(emp => {
-        (emp.bonuses || []).forEach(bon => {
+        filterLegacyEmployeeAdjustments(emp.bonuses).forEach(bon => {
             const newBon = {
                 id: bon.id || `BON-${Date.now()}`,
                 type: bon.type,
@@ -1886,6 +1972,216 @@ export function downloadExportJSON() {
     if (window.showNotification) window.showNotification('✅ Archivo para SplitX descargado', 'success');
 }
 
+export async function exportPayrollPDF() {
+    const previewRows = generateExportData();
+    if (!previewRows || previewRows.length === 0) {
+        if (window.showNotification) {
+            window.showNotification('❌ No hay datos para exportar', 'error');
+        }
+        return;
+    }
+
+    const invalidRows = getInvalidPayrollLoanRows(previewRows);
+    if (invalidRows.length > 0) {
+        if (window.showNotification) {
+            window.showNotification(
+                `❌ No se puede exportar: ${invalidRows.length} pago(s) quedan en cero o negativo por préstamos`,
+                'error'
+            );
+        }
+        return;
+    }
+
+    const state = getState();
+    const companyName = state?.settings?.companyName || 'Empresa';
+    const periodStart = state?.exportConfig?.periodStart || '';
+    const periodEnd = state?.exportConfig?.periodEnd || '';
+
+    const grossAmount = previewRows.reduce((sum, item) => sum + (Number(item._brutoOriginal) || 0), 0);
+    const bonusAmount = previewRows.reduce((sum, item) => sum + (Number(item._bonuses) || 0), 0);
+    const deductionAmount = previewRows.reduce((sum, item) => sum + (Number(item._deductions) || 0), 0);
+    const loanAmount = previewRows.reduce((sum, item) => sum + (Number(item._loans) || 0), 0);
+    const totalAmount = previewRows.reduce((sum, item) => sum + (Number(item.monto) || 0), 0);
+
+    const hasBonuses = bonusAmount > 0;
+    const hasDeductions = deductionAmount > 0;
+    const hasLoans = loanAmount > 0;
+
+    if (window.showNotification) {
+        window.showNotification('⏳ Generando PDF de nómina...', 'loading');
+    }
+
+    try {
+        await ensureJsPDFLoaded();
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+        });
+
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        let yPosition = 16;
+
+        // ── Cabecera ──────────────────────────────────────
+        doc.setFillColor(6, 182, 212); // Cyan #06b6d4
+        doc.rect(0, 0, pageWidth, 4, 'F');
+
+        doc.setFontSize(15);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42);
+        doc.text(companyName.toUpperCase(), 14, yPosition);
+
+        yPosition += 6;
+        doc.setFontSize(10.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(6, 182, 212);
+        doc.text('REPORTE DE NÓMINA - VISTA PREVIA', 14, yPosition);
+
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        const dateRangeText = `Período: ${formatDateShort(periodStart)} – ${formatDateShort(periodEnd)}`;
+        doc.text(dateRangeText, pageWidth - 14, yPosition - 6, { align: 'right' });
+        const emissionText = `Emisión: ${new Date().toLocaleDateString('es-DO')} ${new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}`;
+        doc.text(emissionText, pageWidth - 14, yPosition, { align: 'right' });
+
+        yPosition += 8;
+
+        // ── Resumen de totales (KPI Summary Table) ─────────
+        doc.autoTable({
+            startY: yPosition,
+            head: [['Empleados', 'Salario Bruto', 'Bonificaciones', 'Deducciones', 'Préstamos', 'Total Neto']],
+            body: [[
+                `${previewRows.length}`,
+                formatCurrency(grossAmount),
+                bonusAmount > 0 ? `+${formatCurrency(bonusAmount)}` : '$0.00',
+                deductionAmount > 0 ? `-${formatCurrency(deductionAmount)}` : '$0.00',
+                loanAmount > 0 ? `-${formatCurrency(loanAmount)}` : '$0.00',
+                formatCurrency(totalAmount)
+            ]],
+            theme: 'grid',
+            styles: {
+                fontSize: 8,
+                cellPadding: 3,
+                halign: 'center',
+                valign: 'middle'
+            },
+            headStyles: {
+                fillColor: [30, 41, 59],
+                textColor: 255,
+                fontStyle: 'bold',
+                fontSize: 8
+            },
+            columnStyles: {
+                0: { fontStyle: 'bold' },
+                1: { halign: 'right' },
+                2: { halign: 'right', textColor: [16, 185, 129] },
+                3: { halign: 'right', textColor: [239, 68, 68] },
+                4: { halign: 'right', textColor: [245, 158, 11] },
+                5: { halign: 'right', fontStyle: 'bold', textColor: [6, 182, 212] }
+            },
+            margin: { left: 14, right: 14 }
+        });
+
+        yPosition = doc.lastAutoTable.finalY + 7;
+
+        // ── Tabla de Colaboradores ───────────────────────
+        const tableHeaders = ['#', 'Colaborador', 'Bruto'];
+        if (hasBonuses) tableHeaders.push('Bonif.');
+        if (hasDeductions) tableHeaders.push('Deduc.');
+        if (hasLoans) tableHeaders.push('Prést.');
+        tableHeaders.push('Neto a Pagar');
+
+        const tableBody = previewRows.map((emp) => {
+            const row = [
+                String(emp._number || emp.id || ''),
+                emp._employeeName || 'Empleado',
+                formatCurrency(emp._brutoOriginal)
+            ];
+            if (hasBonuses) row.push(emp._bonuses > 0 ? `+${formatCurrency(emp._bonuses)}` : '—');
+            if (hasDeductions) row.push(emp._deductions > 0 ? `-${formatCurrency(emp._deductions)}` : '—');
+            if (hasLoans) row.push(emp._loans > 0 ? `-${formatCurrency(emp._loans)}` : '—');
+            row.push(formatCurrency(emp.monto));
+            return row;
+        });
+
+        const totalsFooter = ['Total', `${previewRows.length} colaborador(es)`, formatCurrency(grossAmount)];
+        if (hasBonuses) totalsFooter.push(`+${formatCurrency(bonusAmount)}`);
+        if (hasDeductions) totalsFooter.push(`-${formatCurrency(deductionAmount)}`);
+        if (hasLoans) totalsFooter.push(`-${formatCurrency(loanAmount)}`);
+        totalsFooter.push(formatCurrency(totalAmount));
+
+        const columnStyles = {
+            0: { halign: 'center', cellWidth: 12 },
+            1: { halign: 'left', fontStyle: 'bold' },
+            2: { halign: 'right' }
+        };
+        let colIdx = 3;
+        if (hasBonuses) {
+            columnStyles[colIdx] = { halign: 'right', textColor: [16, 185, 129] };
+            colIdx++;
+        }
+        if (hasDeductions) {
+            columnStyles[colIdx] = { halign: 'right', textColor: [239, 68, 68] };
+            colIdx++;
+        }
+        if (hasLoans) {
+            columnStyles[colIdx] = { halign: 'right', textColor: [217, 119, 6] };
+            colIdx++;
+        }
+        columnStyles[colIdx] = { halign: 'right', fontStyle: 'bold', textColor: [15, 23, 42] };
+
+        doc.autoTable({
+            startY: yPosition,
+            head: [tableHeaders],
+            body: tableBody,
+            foot: [totalsFooter],
+            theme: 'striped',
+            styles: {
+                fontSize: 8.5,
+                cellPadding: 2.5,
+                valign: 'middle'
+            },
+            headStyles: {
+                fillColor: [6, 182, 212],
+                textColor: 255,
+                fontStyle: 'bold',
+                fontSize: 8.5
+            },
+            footStyles: {
+                fillColor: [241, 245, 249],
+                textColor: [15, 23, 42],
+                fontStyle: 'bold',
+                fontSize: 8.5
+            },
+            alternateRowStyles: {
+                fillColor: [248, 250, 252]
+            },
+            margin: { left: 14, right: 14 },
+            didDrawPage: () => {
+                const pageNumber = doc.internal.getNumberOfPages();
+                doc.setFontSize(8);
+                doc.setTextColor(148, 163, 184);
+                doc.text(`Página ${pageNumber}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+            }
+        });
+
+        const filename = `nomina_${getDateKey(periodStart || new Date())}_al_${getDateKey(periodEnd || new Date())}.pdf`;
+        doc.save(filename);
+
+        if (window.showNotification) {
+            window.showNotification(`✅ Reporte PDF descargado: ${filename}`, 'success');
+        }
+    } catch (error) {
+        console.error('Error generando PDF de nómina:', error);
+        if (window.showNotification) {
+            window.showNotification('❌ Error al generar archivo PDF', 'error');
+        }
+    }
+}
+
 export function sendToSplitX(targetUrl) {
     const data = getSplitXExportData();
     if (!data || data.length === 0) return null;
@@ -1917,7 +2213,11 @@ export function sendToSplitX(targetUrl) {
         timestamp: new Date().toISOString(),
         currency,
         period,
-        employees: data
+        employees: data,
+        data: data,
+        payroll: data,
+        items: data,
+        rows: data
     };
 
     if (window.showNotification) {
@@ -2523,15 +2823,11 @@ export async function openPayrollClosure() {
             deductions: latest.state.exportConfig.deductions,
             supersedesId: latest.gate.nextSupersedesId
         });
-        if (finalized.batch) {
-            applyPayrollLoanSettlementBatch(employeeCopies, finalized.batch, {
-                now: closedAt,
-                recordedBy: settlementOperatorId()
-            });
-        }
-        const affectedIds = new Set(
-            (finalized.batch?.employees || []).map(item => String(item.employeeId))
-        );
+        const effects = applyPayrollClosureEffects(employeeCopies, finalized, {
+            now: closedAt,
+            recordedBy: settlementOperatorId()
+        });
+        const affectedIds = new Set(effects.affectedEmployeeIds);
         const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
         const savedClosure = await payrollClosureStore.saveWithEmployees(
             finalized.closure,
@@ -2550,7 +2846,7 @@ export async function openPayrollClosure() {
             payrollLoanSelection: [],
             payrollPreviewInclusion: getPayrollPreviewInclusion()
         };
-        stateManager.setState(finalized.batch
+        stateManager.setState(affectedEmployees.length > 0
             ? { employees: employeeCopies, exportConfig: nextExportConfig }
             : { exportConfig: nextExportConfig });
         updatePayrollPeriodClosureCache(savedClosure);
@@ -2605,7 +2901,7 @@ export async function undoPayrollClosure(closureId) {
             voidedBy: settlementOperatorId(),
             activeClosures
         });
-        const affectedIds = new Set((closure.paymentRefs || []).map(ref => String(ref.employeeId)));
+        const affectedIds = new Set(result.affectedEmployeeIds || []);
         const affectedEmployees = employeeCopies.filter(item => affectedIds.has(String(item.id)));
         const savedClosure = await payrollClosureStore.saveWithEmployees(
             result.closure,

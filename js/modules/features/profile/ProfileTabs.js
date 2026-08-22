@@ -18,6 +18,7 @@ import { formatCurrency } from '../../utils/Formatters.js';
 import { CalendarView } from '../../ui/components/CalendarView.js';
 import icons from '../../ui/IconSystem.js';
 import { ProfileStartDatePicker, ProfileEndDatePicker, ProfileHireDatePicker, calculateMonthlyEstimate } from './ProfilePickers.js';
+import { renderEmployeeScheduledAdjustments } from '../payroll/PayrollAdjustmentScheduled.js';
 
 // ─── Tab: Nómina ─────────────────────────────────────────────────────────────
 
@@ -46,6 +47,9 @@ export function ProfileTabNomina(emp) {
     const deductionsHTML = (window.generateDeductionsHTML && window.generateDeductionsHTML(payroll)) || '';
     const bonusesHTML = (window.generateBonusesHTML && window.generateBonusesHTML(payroll)) || '';
     const advancesHTML = (window.generateAdvancesHTML && window.generateAdvancesHTML(payroll)) || '';
+    const scheduledAdjustmentsHTML = renderEmployeeScheduledAdjustments(emp, {
+        draft: state.employeeProfile.manualAdjustmentDraft || null
+    });
 
     return `<div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Selector de Período -->
@@ -185,6 +189,9 @@ export function ProfileTabNomina(emp) {
                 </div>
             </div>
         </div>
+
+        <!-- Planes programados guardados en el empleado -->
+        ${scheduledAdjustmentsHTML}
 
         <!-- Deducciones / Bonos / Adelantos (HTML generado por app.js) -->
         <div id="deductions-section" style="background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 16px;">${deductionsHTML}</div>

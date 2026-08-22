@@ -5,6 +5,10 @@ import {
     resolveAdjustmentTargetIds
 } from '../modules/features/payroll/PayrollAdjustments.js';
 import { PayrollService } from '../modules/features/payroll/PayrollService.js';
+import {
+    ADJUSTMENT_PLAN_KIND,
+    createPayrollAdjustmentInstallmentPlans
+} from '../modules/features/payroll/PayrollAdjustmentInstallmentPlan.js';
 
 const scopedRule = (id, scope, targetId, type, value) => ({
     id,
@@ -85,6 +89,46 @@ describe('PayrollService — scoped adjustments for multiple positions', () => {
             appliedTo: 1000,
             amount: 20
         });
+    });
+
+    test('includes current employee installment plans without mutating them across recalculations', () => {
+        const payrollState = buildState();
+        let serial = 0;
+        const bonus = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.BONUS,
+            employeeIds: ['emp-1'],
+            name: 'Premio',
+            totalAmount: 10,
+            installmentCount: 2,
+            firstPeriodStart: '2026-07-24',
+            createdAt: 100
+        }, { createId: prefix => `${prefix}-${++serial}` })[0];
+        const deduction = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['emp-1'],
+            name: 'Uniforme',
+            totalAmount: 6,
+            installmentCount: 2,
+            firstPeriodStart: '2026-07-24',
+            createdAt: 100
+        }, { createId: prefix => `${prefix}-${++serial}` })[0];
+        payrollState.employees[0].bonuses = [bonus];
+        payrollState.employees[0].deductions = [deduction];
+        const before = JSON.parse(JSON.stringify(payrollState.employees[0]));
+        const service = new PayrollService(payrollState);
+
+        const first = service.calculateEmployeePayroll(
+            'emp-1', '2026-07-24', '2026-07-24', [], [], []
+        );
+        const second = service.calculateEmployeePayroll(
+            'emp-1', '2026-07-24', '2026-07-24', [], [], []
+        );
+
+        expect(first).toMatchObject({ bonuses: 5, deductions: 3, neto: 1002 });
+        expect(second).toEqual(first);
+        expect(first.bonusBreakdown[0]).toMatchObject({ planId: bonus.id, sequence: 1 });
+        expect(first.deductionBreakdown[0]).toMatchObject({ planId: deduction.id, sequence: 1 });
+        expect(payrollState.employees[0]).toEqual(before);
     });
 
     test('applies a fixed leader rule once even when two positions match', () => {

@@ -1,5 +1,6 @@
 import { getDateKey } from '../../utils/DateUtils.js';
 import { calculateScopedAdjustments } from './PayrollAdjustments.js';
+import { buildPayrollAdjustmentInstallmentPreview } from './PayrollAdjustmentInstallmentSettlement.js';
 
 const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
 
@@ -264,8 +265,15 @@ export class PayrollService {
             adjustmentContext,
             'Bono'
         );
-        const bonusBreakdown = bonusResult.breakdown;
-        const totalBonuses = bonusResult.total;
+        const installmentPreview = buildPayrollAdjustmentInstallmentPreview(emp, {
+            periodStart: startDateKey,
+            periodEnd: endDateKey
+        });
+        const bonusBreakdown = [
+            ...bonusResult.breakdown,
+            ...installmentPreview.bonusDetails
+        ];
+        const totalBonuses = bonusResult.total + installmentPreview.bonusTotal;
 
         // Las deducciones también se calculan sobre el bruto original. Ninguna
         // regla reduce la base de la siguiente, por lo que el orden no altera el
@@ -276,8 +284,11 @@ export class PayrollService {
             adjustmentContext,
             'Deducción'
         );
-        const deductionBreakdown = deductionResult.breakdown;
-        const totalDeductions = deductionResult.total;
+        const deductionBreakdown = [
+            ...deductionResult.breakdown,
+            ...installmentPreview.deductionDetails
+        ];
+        const totalDeductions = deductionResult.total + installmentPreview.deductionTotal;
 
         // 🏦 NUEVO: Calcular adelantos y préstamos
         const advancesList = advances ?? this.state.employeeProfile?.advances ?? [];

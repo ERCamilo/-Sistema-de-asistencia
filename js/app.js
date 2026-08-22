@@ -3236,87 +3236,27 @@ function updateExportDeductionsSection() {
     render();
 }
 
-window.copyExportJSON = async () => {
-    try {
-        const exportData = generateExportData();
-
-        if (!exportData || exportData.length === 0) {
-            showNotification('❌ No hay datos para exportar', 'error');
-            return;
-        }
-
-        // Limpiar propiedades privadas (_bruto, _deductions, _employeeName, _employeePosition)
-        const cleanData = exportData.map(({ id, nombre, monto }) => ({
-            id,
-            nombre,
-            monto
-        }));
-
-        const json = JSON.stringify(cleanData, null, 2);
-
-        // Intentar copiar con clipboard API
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(json);
-            showNotification('✅ JSON copiado al portapapeles', 'success');
-        } else {
-            // Fallback: Crear textarea temporal
-            const textarea = document.createElement('textarea');
-            textarea.value = json;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-
-            const success = document.execCommand('copy');
-            document.body.removeChild(textarea);
-
-            if (success) {
-                showNotification('✅ JSON copiado al portapapeles', 'success');
-            } else {
-                throw new Error('execCommand failed');
-            }
-        }
-    } catch (error) {
-        console.error('Error copiando JSON:', error);
-        showNotification('❌ Error al copiar. Intenta descargar el archivo.', 'error');
+window.copyExportJSON = () => {
+    if (typeof PayrollUI?.copyExportJSON === 'function') {
+        return PayrollUI.copyExportJSON();
     }
 };
 
 window.downloadExportJSON = () => {
-    try {
-        const exportData = generateExportData();
+    if (typeof PayrollUI?.downloadExportJSON === 'function') {
+        return PayrollUI.downloadExportJSON();
+    }
+};
 
-        if (!exportData || exportData.length === 0) {
-            showNotification('❌ No hay datos para exportar', 'error');
-            return;
-        }
+window.exportPayrollPDF = () => {
+    if (typeof PayrollUI?.exportPayrollPDF === 'function') {
+        return PayrollUI.exportPayrollPDF();
+    }
+};
 
-        // Limpiar propiedades privadas
-        const cleanData = exportData.map(({ id, nombre, monto }) => ({
-            id,
-            nombre,
-            monto
-        }));
-
-        const json = JSON.stringify(cleanData, null, 2);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-
-        const today = new Date();
-        const filename = `nomina-${getDateKey(today)}.json`;
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        showNotification(`✅ Archivo ${filename} descargado`, 'success');
-    } catch (error) {
-        console.error('Error descargando JSON:', error);
-        showNotification('❌ Error al descargar archivo', 'error');
+window.sendToSplitX = (targetUrl) => {
+    if (typeof PayrollUI?.sendToSplitX === 'function') {
+        return PayrollUI.sendToSplitX(targetUrl);
     }
 };
 
@@ -7116,22 +7056,20 @@ function _initOutgoingConflictGuard() {
 
     // 📡 ESCUCHA AUTOMÁTICA: Ocultar loader cuando el render termine
     eventBus.on('render:complete', () => {
-        if (!isInitialLoad) {
-            const wasHidden = hideLoader();
-            if (wasHidden) {
-                debug.log('🎯 Render finalizado, loader ocultado.');
-            }
+        const wasHidden = hideLoader();
+        if (wasHidden) {
+            debug.log('🎯 Render finalizado, loader ocultado.');
         }
     });
 
-    // Timeout de seguridad: Ocultar loader tras 6 segundos si Firebase falla
+    // Timeout de seguridad: Ocultar loader tras 2.5s como red de seguridad extrema
     const loaderTimeout = setTimeout(() => {
         if (isInitialLoad) {
-            console.warn('⚠️ Firebase tardó demasiado. Ocultando loader por seguridad.');
-            hideLoader();
+            console.warn('⚠️ Ocultando loader por timeout de seguridad.');
+            hideLoader(true);
             isInitialLoad = false;
         }
-    }, 6000);
+    }, 2500);
 
     try {
         // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO) y, solo después,
@@ -7306,22 +7244,24 @@ function _initOutgoingConflictGuard() {
                 // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                 window.startPettyCashSync?.();
 
-                // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2) ---
+                // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2 - no bloqueante) ---
                 if (state.isDataLoaded) {
-                    try {
-                        const cloudData = await FirebaseService.getFullState();
-                        // Si no hay datos en la nube pero sí locales, migramos de inmediato
-                        if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
-                            debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
-                            await FirebaseService.saveFullState(state);
-                            if (Object.keys(state.attendance).length > 0) {
-                                await FirebaseService.syncHistory(state.attendance);
+                    (async () => {
+                        try {
+                            const cloudData = await FirebaseService.getFullState();
+                            // Si no hay datos en la nube pero sí locales, migramos de inmediato
+                            if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
+                                debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
+                                await FirebaseService.saveFullState(state);
+                                if (Object.keys(state.attendance).length > 0) {
+                                    await FirebaseService.syncHistory(state.attendance);
+                                }
+                                showNotification('✅ Datos migrados a la nube', 'success');
                             }
-                            showNotification('✅ Datos migrados a la nube', 'success');
+                        } catch (e) {
+                            console.error('Error en migración inicial:', e);
                         }
-                    } catch (e) {
-                        console.error('Error en migración inicial:', e);
-                    }
+                    })();
                 }
 
                 // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
@@ -7907,9 +7847,16 @@ function _initOutgoingConflictGuard() {
         render();
 
         debug.log('✅ Aplicación iniciada correctamente');
-        hideLoader(); // 🚀 Ocultar el loader al completar el primer render
+        clearTimeout(loaderTimeout);
+        isInitialLoad = false;
+        hideLoader(true); // 🚀 Ocultar el loader al completar el primer render local
     } catch (error) {
         console.error('❌ Error fatal durante la inicialización:', error);
+        clearTimeout(loaderTimeout);
+        isInitialLoad = false;
+        try {
+            hideLoader(true);
+        } catch (_) {}
         // Intentar renderizar aunque sea un estado de error
         render();
     }

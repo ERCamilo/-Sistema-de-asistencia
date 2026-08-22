@@ -8,14 +8,15 @@
  *   - Escalares (name, phone, ...): gana el de mayor updatedAt; en
  *     empate gana local.
  *   - Arreglos tipo "log" (loans, advances, bonuses, deductions):
- *     UNIÓN por id. Items sin id se omiten (no podemos fusionarlos).
- *     Si el mismo id está en ambos, gana el de mayor updatedAt.
+ *     UNIÓN por id. Los planes modernos de bonificación/deducción además
+ *     unen cuotas e historial; los ajustes heredados conservan el LWW previo.
  *   - statusHistory: unión por timestamp (sirve de id).
  *   - positions (strings): unión deduplicada.
  *   - positionSalaries (mapa por positionId): unión por clave, en
  *     empate gana el lado con mayor updatedAt.
  *   - Dentro de un loan, payments[] e installments[] también se
- *     unen por id.
+ *     unen por id. Los planes modernos hacen lo mismo con history[] e
+ *     installments[].
  *   - El resultado lleva max(server.updatedAt, local.updatedAt).
  *
  * No muta los inputs. Útil para read-modify-write antes de saveOne.
@@ -24,6 +25,10 @@
 import { generateUUID } from '../utils/Helpers.js';
 import { fingerprintId } from './RecordKey.js';
 import { mergeTombstoneMaps, tombstoneSetFor, TOMBSTONE_FIELDS } from './NestedTombstones.js';
+import {
+    ADJUSTMENT_PLAN_KIND,
+    isPayrollAdjustmentInstallmentPlan
+} from '../features/payroll/PayrollAdjustmentInstallmentPlan.js';
 
 const ARRAY_FIELDS_BY_ID = ['loans', 'advances', 'bonuses', 'deductions'];
 const LOAN_NESTED_BY_ID  = ['payments', 'installments', 'refinancings'];
@@ -119,6 +124,101 @@ function mergeLoan(winnerLoan, loserLoan, serverLoan, localLoan) {
     return out;
 }
 
+function stableValue(value) {
+    if (Array.isArray(value)) return value.map(stableValue);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(
+        Object.keys(value).sort().map(key => [key, stableValue(value[key])])
+    );
+}
+
+function deterministicWinner(serverItem, localItem, omittedKeys = []) {
+    const serverTs = ts(serverItem);
+    const localTs = ts(localItem);
+    if (serverTs !== null && localTs !== null && serverTs !== localTs) {
+        return serverTs > localTs ? serverItem : localItem;
+    }
+    if (serverTs !== null && localTs === null) return serverItem;
+    if (serverTs === null && localTs !== null) return localItem;
+
+    const omit = new Set(omittedKeys);
+    const comparable = item => Object.fromEntries(
+        Object.entries(item || {}).filter(([key]) => !omit.has(key))
+    );
+    const serverKey = JSON.stringify(stableValue(comparable(serverItem)));
+    const localKey = JSON.stringify(stableValue(comparable(localItem)));
+    return serverKey > localKey ? serverItem : localItem;
+}
+
+function mergePlanRecords(serverItems, localItems, sortRecords) {
+    return unionById(serverItems, localItems, 'id', (_winner, _loser, serverItem, localItem) => ({
+        ...deterministicWinner(serverItem, localItem)
+    })).sort(sortRecords);
+}
+
+function mergeAdjustmentPlan(serverPlan, localPlan) {
+    const winner = deterministicWinner(serverPlan, localPlan, ['history', 'installments']);
+    return {
+        ...winner,
+        history: mergePlanRecords(
+            serverPlan.history,
+            localPlan.history,
+            (left, right) => String(left.id).localeCompare(String(right.id), 'es', { numeric: true })
+        ),
+        installments: mergePlanRecords(
+            serverPlan.installments,
+            localPlan.installments,
+            (left, right) => {
+                const sequenceDifference = (Number(left.sequence) || 0) - (Number(right.sequence) || 0);
+                return sequenceDifference || String(left.id).localeCompare(String(right.id), 'es', { numeric: true });
+            }
+        )
+    };
+}
+
+function adjustmentEntriesForEmployee(entries, employeeId, kind) {
+    return (Array.isArray(entries) ? entries : []).filter(entry =>
+        !isPayrollAdjustmentInstallmentPlan(entry) || (
+            String(entry.employeeId) === String(employeeId) &&
+            entry.kind === kind
+        )
+    );
+}
+
+function mergeAdjustmentEntries(serverItems, localItems, employeeId, kind) {
+    return unionById(
+        adjustmentEntriesForEmployee(serverItems, employeeId, kind),
+        adjustmentEntriesForEmployee(localItems, employeeId, kind),
+        'id',
+        (winner, _loser, serverItem, localItem) => (
+            isPayrollAdjustmentInstallmentPlan(serverItem) &&
+            isPayrollAdjustmentInstallmentPlan(localItem)
+                ? mergeAdjustmentPlan(serverItem, localItem)
+                : winner
+        )
+    );
+}
+
+
+function employeeWithValidAdjustmentPlans(employee) {
+    const out = { ...employee };
+    if (Array.isArray(employee?.bonuses)) {
+        out.bonuses = adjustmentEntriesForEmployee(
+            employee.bonuses,
+            employee.id,
+            ADJUSTMENT_PLAN_KIND.BONUS
+        );
+    }
+    if (Array.isArray(employee?.deductions)) {
+        out.deductions = adjustmentEntriesForEmployee(
+            employee.deductions,
+            employee.id,
+            ADJUSTMENT_PLAN_KIND.DEDUCTION
+        );
+    }
+    return out;
+}
+
 function mergeStatusHistory(server, local) {
     // Tratamos timestamp como id.
     const seen = new Set();
@@ -162,8 +262,8 @@ function mergePositionSalaries(server, local, serverNewer) {
  */
 export function mergeEmployees(server, local) {
     if (!server && !local) return {};
-    if (!server) return { ...local };
-    if (!local)  return { ...server };
+    if (!server) return employeeWithValidAdjustmentPlans(local);
+    if (!local) return employeeWithValidAdjustmentPlans(server);
 
     const winnerSide = pickNewerScalar(server, local);
     const winner = winnerSide === 'server' ? server : local;
@@ -188,9 +288,19 @@ export function mergeEmployees(server, local) {
     // 2. Arrays "tipo log" por id (loans tiene merge anidado).
     out.loans = unionById(server.loans, local.loans, 'id',
         (winLoan, loseLoan, sL, lL) => mergeLoan(winLoan, loseLoan, sL, lL));
-    out.advances    = unionById(server.advances,    local.advances);
-    out.bonuses     = unionById(server.bonuses,     local.bonuses);
-    out.deductions  = unionById(server.deductions,  local.deductions);
+    out.advances = unionById(server.advances, local.advances);
+    out.bonuses = mergeAdjustmentEntries(
+        server.bonuses,
+        local.bonuses,
+        out.id,
+        ADJUSTMENT_PLAN_KIND.BONUS
+    );
+    out.deductions = mergeAdjustmentEntries(
+        server.deductions,
+        local.deductions,
+        out.id,
+        ADJUSTMENT_PLAN_KIND.DEDUCTION
+    );
 
     // 2.b 🪦 Tombstones (hallazgo P1): la unión por id RESUCITABA los items
     // borrados (el lado que aún los tenía los re-aportaba). Los borrados se

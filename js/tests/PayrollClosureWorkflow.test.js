@@ -1,4 +1,5 @@
 import {
+    applyPayrollClosureEffects,
     buildPayrollClosureDraft,
     getEffectivePayrollClosures,
     getPayrollClosureGate,
@@ -9,6 +10,13 @@ import {
     confirmPayrollPaid
 } from '../modules/features/payroll/PayrollLoanSettlement.js';
 import { applyPayrollLoanSettlementBatch } from '../modules/features/payroll/PayrollLoanSettlement.js';
+import {
+    ADJUSTMENT_PLAN_KIND,
+    createPayrollAdjustmentInstallmentPlans
+} from '../modules/features/payroll/PayrollAdjustmentInstallmentPlan.js';
+import {
+    buildPayrollAdjustmentInstallmentPreview
+} from '../modules/features/payroll/PayrollAdjustmentInstallmentSettlement.js';
 
 function employee({ withLoan = false } = {}) {
     return {
@@ -138,6 +146,61 @@ describe('Unified payroll closure workflow', () => {
         });
         expect(undoPayrollClosureEffects([employee()], current.closure, { now: 110 }))
             .toMatchObject({ voidedBonusCount: 1, voidedDeductionCount: 1 });
+    });
+
+    test('applies and reopens installment effects through the canonical closure identity', () => {
+        let serial = 0;
+        const plan = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['employee-1'],
+            name: 'Uniforme',
+            totalAmount: 90,
+            installmentCount: 3,
+            firstPeriodStart: '2026-08-01',
+            createdAt: 50
+        }, { createId: prefix => `${prefix}-${++serial}` })[0];
+        const employees = [{ ...employee(), bonuses: [], deductions: [plan] }];
+        const preview = buildPayrollAdjustmentInstallmentPreview(employees[0], {
+            periodStart: '2026-08-01', periodEnd: '2026-08-15'
+        });
+        const payrollRow = {
+            ...row(),
+            _deductions: preview.deductionTotal,
+            _deductionDetails: preview.deductionDetails,
+            monto: 1000 - preview.deductionTotal
+        };
+        const current = buildPayrollClosureDraft({
+            employees,
+            rows: [payrollRow],
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            closedAt: 100,
+            closedBy: 'operator'
+        });
+
+        const applied = applyPayrollClosureEffects(employees, current, {
+            now: 100, recordedBy: 'operator'
+        });
+        const undone = undoPayrollClosureEffects(employees, current.closure, {
+            now: 110, voidedBy: 'operator'
+        });
+
+        expect(applied).toMatchObject({
+            appliedInstallmentCount: 1,
+            affectedEmployeeIds: ['employee-1']
+        });
+        expect(current.closure.rows[0].deductionDetails[0]).toMatchObject({
+            planId: plan.id,
+            payrollPeriodStart: '2026-08-01',
+            payrollPeriodEnd: '2026-08-15'
+        });
+        expect(undone).toMatchObject({
+            revertedInstallmentCount: 1,
+            affectedEmployeeIds: ['employee-1']
+        });
+        expect(employees[0].deductions[0]).toMatchObject({
+            status: 'active', balance: 90, appliedAmount: 0
+        });
     });
 
     test('uses one canonical snapshot for confirmation identity and immutable closure rows', () => {

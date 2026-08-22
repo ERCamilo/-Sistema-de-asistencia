@@ -95,16 +95,79 @@
     color: #11171c;
     font-size: 0.66rem;
     font-weight: 850;
+    transition: all 0.2s ease;
+}
+
+.payroll-step-check-icon {
+    display: block;
+    width: 13px;
+    height: 13px;
 }
 
 .payroll-guide-step.is-active .payroll-guide-step__number {
-    background: #4bc5d5;
-    color: #091318;
+    background: #06b6d4;
+    color: #082f49;
 }
 
 .payroll-guide-step.is-complete .payroll-guide-step__number {
-    background: #62d2a0;
-    color: #102119;
+    background: #10b981;
+    color: #022c22;
+}
+
+/* Colores de acento específicos por sección */
+.payroll-guide-step--period.is-active {
+    border-color: rgba(6, 182, 212, 0.4);
+    background: rgba(6, 182, 212, 0.1);
+}
+.payroll-guide-step--period.is-active .payroll-guide-step__number,
+.payroll-guide-step--period.is-complete .payroll-guide-step__number {
+    background: #06b6d4;
+    color: #082f49;
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.35);
+}
+
+.payroll-guide-step--deductions.is-active {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+}
+.payroll-guide-step--deductions.is-active .payroll-guide-step__number,
+.payroll-guide-step--deductions.is-complete .payroll-guide-step__number {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
+}
+
+.payroll-guide-step--bonuses.is-active {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.1);
+}
+.payroll-guide-step--bonuses.is-active .payroll-guide-step__number,
+.payroll-guide-step--bonuses.is-complete .payroll-guide-step__number {
+    background: #10b981;
+    color: #022c22;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);
+}
+
+.payroll-guide-step--loans.is-active {
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.1);
+}
+.payroll-guide-step--loans.is-active .payroll-guide-step__number,
+.payroll-guide-step--loans.is-complete .payroll-guide-step__number {
+    background: #f59e0b;
+    color: #451a03;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0.35);
+}
+
+.payroll-guide-step--review.is-active {
+    border-color: rgba(6, 182, 212, 0.4);
+    background: rgba(6, 182, 212, 0.1);
+}
+.payroll-guide-step--review.is-active .payroll-guide-step__number,
+.payroll-guide-step--review.is-complete .payroll-guide-step__number {
+    background: #06b6d4;
+    color: #082f49;
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.35);
 }
 
 .payroll-guide-step__copy {
@@ -4385,5 +4448,519 @@
 
     .loan-payment-form__action--cancel {
         flex-basis: 76px;
+    }
+}
+
+/* Ajustes individuales divididos en varias nóminas */
+.payroll-adjustment-installments {
+    margin-top: 14px;
+}
+
+.payroll-adjustment-installments [hidden] {
+    display: none !important;
+}
+
+.payroll-adjustment-installments__toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(6, 182, 212, 0.35);
+    border-radius: 10px;
+    background: rgba(6, 182, 212, 0.08);
+    cursor: pointer;
+}
+
+.payroll-adjustment-installments__toggle input {
+    margin-top: 3px;
+    accent-color: #06b6d4;
+}
+
+.payroll-adjustment-installments__toggle span {
+    display: grid;
+    gap: 3px;
+}
+
+.payroll-adjustment-installments__toggle strong {
+    color: #f8fafc;
+}
+
+.payroll-adjustment-installments__toggle small {
+    color: #94a3b8;
+    line-height: 1.4;
+}
+
+.payroll-adjustment-installments__details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+    padding: 14px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.65);
+}
+
+.payroll-adjustment-installments__details label {
+    display: grid;
+    gap: 6px;
+    color: #cbd5e1;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.payroll-adjustment-installments__details input {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #f8fafc;
+}
+
+.payroll-adjustment-installments__details p {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(16, 185, 129, 0.08);
+    color: #cbd5e1;
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.payroll-adjustment-installments__details p strong {
+    color: #6ee7b7;
+}
+
+@media (max-width: 640px) {
+    .payroll-adjustment-installments__details {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Planes programados de bonificaciones y descuentos */
+.payroll-adjustment-scheduled {
+    margin: 0 14px 14px;
+    overflow: hidden;
+    border: 1px solid #303b46;
+    border-radius: 9px;
+    background: #182028;
+}
+
+.payroll-adjustment-scheduled > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px;
+    border-bottom: 1px solid #303b46;
+}
+
+.payroll-adjustment-scheduled > header span,
+.payroll-adjustment-scheduled > header h4,
+.payroll-adjustment-scheduled > header p {
+    display: block;
+    margin: 0;
+}
+
+.payroll-adjustment-scheduled > header span {
+    color: var(--adjustment-accent-soft);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.payroll-adjustment-scheduled > header h4 {
+    margin-top: 3px;
+    color: #f5f7fa;
+    font-size: 0.95rem;
+}
+
+.payroll-adjustment-scheduled > header p,
+.payroll-scheduled__identity small,
+.payroll-scheduled__group summary small,
+.payroll-scheduled__employee summary small {
+    color: #8f9ba7;
+    font-size: 0.7rem;
+    line-height: 1.45;
+}
+
+.payroll-adjustment-scheduled > header > strong {
+    padding: 6px 9px;
+    border-radius: 999px;
+    background: var(--adjustment-accent-glow);
+    color: var(--adjustment-accent-soft);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.payroll-scheduled__empty,
+.payroll-scheduled__empty-history {
+    margin: 0;
+    padding: 18px 14px;
+    color: #94a3b8;
+    font-size: 0.78rem;
+}
+
+.payroll-scheduled__group,
+.payroll-scheduled__employee {
+    border-bottom: 1px solid #303b46;
+}
+
+.payroll-scheduled__group:last-child,
+.payroll-scheduled__employee:last-child {
+    border-bottom: 0;
+}
+
+.payroll-scheduled__group > summary,
+.payroll-scheduled__employee > summary {
+    display: grid;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    color: #cbd5e1;
+    cursor: pointer;
+    list-style: none;
+}
+
+.payroll-scheduled__group > summary {
+    grid-template-columns: minmax(135px, 1.2fr) repeat(5, minmax(82px, 0.7fr)) auto;
+}
+
+.payroll-scheduled__employee > summary {
+    grid-template-columns: minmax(145px, 1.15fr) repeat(4, minmax(86px, 0.7fr)) auto;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.payroll-scheduled__group > summary::-webkit-details-marker,
+.payroll-scheduled__employee > summary::-webkit-details-marker {
+    display: none;
+}
+
+.payroll-scheduled__identity,
+.payroll-scheduled__employee summary > span:first-child,
+.payroll-scheduled__group summary > span:nth-child(6) {
+    display: grid;
+    gap: 2px;
+}
+
+.payroll-scheduled__toggle {
+    justify-self: end;
+    padding: 6px 8px;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    color: #dbe5ee;
+    font-size: 0.68rem;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.payroll-scheduled__toggle span:last-child,
+.payroll-scheduled__group[open] > summary .payroll-scheduled__toggle span:first-child,
+.payroll-scheduled__employee[open] > summary .payroll-scheduled__toggle span:first-child {
+    display: none;
+}
+
+.payroll-scheduled__group[open] > summary .payroll-scheduled__toggle span:last-child,
+.payroll-scheduled__employee[open] > summary .payroll-scheduled__toggle span:last-child {
+    display: inline;
+}
+
+.payroll-scheduled__group[open] > summary,
+.payroll-scheduled__employee[open] > summary {
+    background: var(--adjustment-accent-glow);
+}
+
+.payroll-scheduled__group-body {
+    padding: 0 12px 12px;
+}
+
+.payroll-scheduled__progress {
+    height: 5px;
+    margin: 10px 2px 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #27313b;
+}
+
+.payroll-scheduled__progress span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--adjustment-accent);
+}
+
+.payroll-scheduled__employee-body {
+    padding: 12px 14px 14px;
+    border-top: 1px solid #334155;
+    background: #111820;
+}
+
+.payroll-scheduled__employee-body p,
+.payroll-scheduled__employee-body h6 {
+    margin: 0 0 10px;
+    color: #cbd5e1;
+}
+
+.payroll-scheduled__history {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.payroll-scheduled__history li {
+    display: grid;
+    grid-template-columns: 70px 90px 92px minmax(150px, 1fr) 72px;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 7px;
+    background: #1b2530;
+    color: #aeb9c4;
+    font-size: 0.7rem;
+}
+
+.payroll-scheduled__history .is-applied {
+    color: #6ee7b7;
+}
+
+.payroll-scheduled__history .is-voided {
+    color: #fca5a5;
+}
+
+@media (max-width: 900px) {
+    .payroll-adjustment-scheduled {
+        margin: 0 8px 8px;
+    }
+
+    .payroll-scheduled__group > summary,
+    .payroll-scheduled__employee > summary {
+        grid-template-columns: 1fr auto;
+    }
+
+    .payroll-scheduled__group > summary > span:not(:first-child):not(.payroll-scheduled__toggle),
+    .payroll-scheduled__employee > summary > span:not(:first-child):not(.payroll-scheduled__toggle) {
+        grid-column: 1 / -1;
+    }
+
+    .payroll-scheduled__toggle {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .payroll-scheduled__history li {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .payroll-scheduled__history li > span:nth-child(4) {
+        grid-column: 1 / -1;
+    }
+}
+
+
+/* Planes programados dentro de la ficha del empleado */
+.payroll-scheduled__history-note {
+    grid-column: 1 / -1;
+    color: #94a3b8;
+    line-height: 1.45;
+}
+
+.payroll-employee-scheduled {
+    margin: 0 0 18px;
+    overflow: hidden;
+    border: 1px solid #303b46;
+    border-radius: 10px;
+    background: #182028;
+}
+
+.payroll-employee-scheduled > header {
+    padding: 15px 16px;
+    border-bottom: 1px solid #303b46;
+}
+
+.payroll-employee-scheduled > header span,
+.payroll-employee-scheduled > header h4,
+.payroll-employee-scheduled > header p {
+    display: block;
+    margin: 0;
+}
+
+.payroll-employee-scheduled > header span {
+    color: var(--adjustment-accent-soft);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.payroll-employee-scheduled > header h4 {
+    margin-top: 4px;
+    color: #f5f7fa;
+    font-size: 0.98rem;
+}
+
+.payroll-employee-scheduled > header p {
+    margin-top: 4px;
+    color: #94a3b8;
+    font-size: 0.74rem;
+    line-height: 1.45;
+}
+
+.payroll-employee-scheduled__plan {
+    border-bottom: 1px solid #303b46;
+}
+
+.payroll-employee-scheduled__plan:last-child {
+    border-bottom: 0;
+}
+
+.payroll-employee-scheduled__plan > summary {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.2fr) repeat(3, minmax(88px, 0.7fr)) minmax(110px, 0.8fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 13px 16px;
+    color: #cbd5e1;
+    cursor: pointer;
+    list-style: none;
+}
+
+.payroll-employee-scheduled__plan > summary::-webkit-details-marker {
+    display: none;
+}
+
+.payroll-employee-scheduled__plan > summary span {
+    display: grid;
+    gap: 2px;
+    font-size: 0.72rem;
+}
+
+.payroll-employee-scheduled__plan > summary small {
+    color: #8f9ba7;
+}
+
+.payroll-employee-scheduled__plan[open] > summary {
+    background: var(--adjustment-accent-glow);
+}
+
+.payroll-employee-scheduled__body {
+    padding: 14px 16px 16px;
+    border-top: 1px solid #334155;
+    background: #111820;
+}
+
+.payroll-employee-scheduled__body h6 {
+    margin: 14px 0 10px;
+    color: #dbe5ee;
+}
+
+.payroll-employee-scheduled__next {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 16px;
+    color: #aeb9c4;
+    font-size: 0.74rem;
+}
+
+.payroll-employee-scheduled__action,
+.payroll-employee-scheduled__form-actions button {
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-weight: 750;
+    cursor: pointer;
+}
+
+.payroll-employee-scheduled__action {
+    margin-top: 14px;
+}
+
+.payroll-employee-scheduled__complete {
+    margin: 14px 0 0;
+    color: #6ee7b7;
+    font-size: 0.75rem;
+}
+
+.payroll-employee-scheduled__form {
+    margin-top: 14px;
+    padding: 13px;
+    border: 1px solid #3c4a58;
+    border-radius: 9px;
+    background: #18232d;
+}
+
+.payroll-employee-scheduled__form h6 {
+    margin-top: 0;
+}
+
+.payroll-employee-scheduled__form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.payroll-employee-scheduled__form-grid label {
+    display: grid;
+    gap: 5px;
+    color: #aeb9c4;
+    font-size: 0.7rem;
+}
+
+.payroll-employee-scheduled__form-grid input {
+    width: 100%;
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    background: #0f1720;
+    color: #f1f5f9;
+}
+
+.payroll-employee-scheduled__note {
+    grid-column: 1 / -1;
+}
+
+.payroll-employee-scheduled__form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.payroll-employee-scheduled__form-actions .is-primary {
+    border-color: var(--adjustment-accent);
+    background: var(--adjustment-accent);
+    color: #07141a;
+}
+
+@media (max-width: 900px) {
+    .payroll-employee-scheduled__plan > summary {
+        grid-template-columns: 1fr auto;
+    }
+
+    .payroll-employee-scheduled__plan > summary > span:not(:first-child):not(.payroll-scheduled__toggle) {
+        grid-column: 1 / -1;
+    }
+
+    .payroll-employee-scheduled__plan > summary .payroll-scheduled__toggle {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .payroll-employee-scheduled__form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .payroll-employee-scheduled__note {
+        grid-column: auto;
     }
 }
