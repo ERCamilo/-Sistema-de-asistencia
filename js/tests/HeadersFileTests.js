@@ -68,7 +68,8 @@ testRunner.addSuite("Security headers — _headers en Cloudflare Pages", {
  * names — `Content-Security-Policy-Report-Only` (today) and
  * `Content-Security-Policy` (after promotion) — so flipping to enforcement
  * keeps the suite green. The allowlist is grounded in the external hosts the
- * app actually calls (Firebase, Google auth, weatherapi, n8n, the icon/Excel
+ * app actually calls (Firebase, Google auth, weatherapi, n8n, the Supabase
+ * petty-cash mirror, the Cloudflare Web Analytics beacon, the icon/Excel
  * CDNs and avatar service).
  */
 // Pulls the CSP directive string from _headers regardless of whether it is
@@ -108,6 +109,16 @@ testRunner.addSuite("Security headers — Content-Security-Policy", {
         testRunner.assert(/connect-src[^;]*googleapis\.com/i.test(csp), 'connect-src debe permitir Firestore/Storage/Auth (googleapis)');
         testRunner.assert(/connect-src[^;]*api\.weatherapi\.com/i.test(csp), 'connect-src debe permitir weatherapi');
         testRunner.assert(/connect-src[^;]*n8n\.erlin\.do/i.test(csp), 'connect-src debe permitir el webhook de caja chica (n8n)');
+    },
+
+    "permite el espejo de caja chica en Supabase y el beacon de analytics"() {
+        const csp = readCsp();
+        testRunner.assert(/connect-src[^;]*supabase\.co/i.test(csp),
+            'connect-src debe permitir el mirror de caja chica (*.supabase.co)');
+        testRunner.assert(/script-src[^;]*static\.cloudflareinsights\.com/i.test(csp),
+            'script-src debe permitir el beacon auto-inyectado de Cloudflare Web Analytics');
+        testRunner.assert(/connect-src[^;]*static\.cloudflareinsights\.com/i.test(csp),
+            'connect-src debe permitir el reporte del beacon de Cloudflare');
     },
 
     "permite el popup de inicio de sesión de Google"() {
