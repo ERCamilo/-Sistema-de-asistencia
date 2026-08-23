@@ -232,7 +232,8 @@ describe('Generic app image lifecycle and concurrency model', () => {
         expect(edgeFunction).toMatch(/"delete_app_image_pointer_cas"/i);
         expect(edgeFunction).toMatch(/upsert:\s*false/i);
         expect(edgeFunction).not.toMatch(/\.from\("app_images"\)\s*\.upsert/i);
-        const storageRemoval = edgeFunction.indexOf('storagePath,\n        "delete"');
+        // EOL-tolerant: the source may be checked out with LF or CRLF.
+        const storageRemoval = edgeFunction.search(/storagePath,\r?\n\s+"delete"/);
         const pointerDelete = edgeFunction.indexOf('"delete_app_image_pointer_cas"');
         expect(storageRemoval).toBeGreaterThan(-1);
         expect(storageRemoval).toBeLessThan(pointerDelete);
