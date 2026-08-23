@@ -70,4 +70,24 @@ describe('AppImageClient', () => {
         await expect(client.lookup({ ...coordinates, ownerId: '../employee' })).rejects.toThrow();
         expect(fetchImpl).not.toHaveBeenCalled();
     });
+
+    test('binds the fetch implementation to the global receiver (native fetch contract)', async () => {
+        // Regression: storing globalThis.fetch as an instance method made
+        // `this.fetchImpl(...)` invoke the native fetch with the client as
+        // receiver -> "Illegal invocation" -> every request died silently.
+        let receiver = null;
+        const fetchImpl = function (...args) {
+            receiver = this; // native fetch requires `this` to be the global object
+            return jsonResponse({ ok: true, asset: { id: 'asset-1' } });
+        };
+        const client = new AppImageClient({
+            endpoint: 'https://n8n.example/webhook/app-images',
+            getIdToken: async () => 'token',
+            fetchImpl
+        });
+
+        await client.lookup(coordinates);
+
+        expect(receiver).toBe(globalThis);
+    });
 });

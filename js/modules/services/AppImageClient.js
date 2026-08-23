@@ -60,7 +60,10 @@ export class AppImageClient {
     } = {}) {
         this.endpoint = String(endpoint || '').trim();
         this.getIdToken = getIdToken;
-        this.fetchImpl = fetchImpl;
+        // Native fetch requires the global object as its receiver. Storing it as an
+        // instance method makes `this.fetchImpl(...)` throw "Illegal invocation",
+        // which silently killed every upload and lookup (mocks hide it in tests).
+        this.fetchImpl = typeof fetchImpl === 'function' ? fetchImpl.bind(globalThis) : fetchImpl;
     }
 
     async request(action, coordinates, extra = {}) {
