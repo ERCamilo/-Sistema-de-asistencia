@@ -13,6 +13,16 @@ import {
     putEmployeePhotoCache
 } from './EmployeePhotoCache.js';
 
+// ⏱️ Cotas de apertura de la base de datos.
+// Sin límite de tiempo, un open bloqueado por otra ventana/pestaña que retiene
+// una conexión vieja durante un upgrade de versión puede quedar pendiente para
+// siempre: el boot (que espera init() vía loadApplicationData) se cuelga, el
+// listener de auth nunca se registra y el usuario aparece deslogueado y sin
+// datos con la consola limpia. Acotamos la apertura y rechazamos con errores
+// tipados para que app.js pueda mostrar un diálogo accionable.
+export const IDB_OPEN_TIMEOUT_MS = 8000;
+export const IDB_BLOCKED_GRACE_MS = 4000;
+
 export class IndexedDBService {
     constructor(dbName = 'attendance-app-db', version = 16) {
         this.dbName = dbName;
@@ -32,8 +42,42 @@ export class IndexedDBService {
 
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(this.dbName, this.version);
+            let settled = false;
+            let openTimer = null;
+            let blockedTimer = null;
+
+            // Limpieza centralizada de timers: sin esto quedan timers vivos tras
+            // un settle temprano (éxito/error rápido) y un rechazo tardío podría
+            // dispararse sobre una promesa ya resuelta.
+            const clearOpenTimers = () => {
+                if (openTimer !== null) clearTimeout(openTimer);
+                if (blockedTimer !== null) clearTimeout(blockedTimer);
+                openTimer = null;
+                blockedTimer = null;
+            };
+
+            // ⏱️ Cota global del open: algunos navegadores dejan indexedDB.open
+            // pendiente indefinidamente si otra ventana oculta retiene una
+            // conexión vieja durante un upgrade de versión, sin disparar ni
+            // blocked ni error. Rechazamos con error tipado para no colgar el
+            // boot y dejarle a app.js la señal para mostrar el diálogo accionable.
+            openTimer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                clearOpenTimers();
+                try { if (request.cancel) request.cancel(); } catch (_) { /* noop: nunca lanzar desde el timer */ }
+                const timeoutError = new Error(
+                    `IndexedDB tardó más de ${IDB_OPEN_TIMEOUT_MS} ms en abrir. El almacenamiento local no responde.`
+                );
+                timeoutError.name = 'IndexedDBOpenTimeoutError';
+                console.error('❌ IndexedDB: timeout al abrir la base de datos.', timeoutError);
+                reject(timeoutError);
+            }, IDB_OPEN_TIMEOUT_MS);
 
             request.onerror = () => {
+                if (settled) return;
+                settled = true;
+                clearOpenTimers();
                 console.error('❌ Error al abrir IndexedDB:', request.error);
                 reject(request.error);
             };
@@ -45,9 +89,27 @@ export class IndexedDBService {
                 try {
                     Notification?.warning?.('Hay otra pestaña de la app abierta. Ciérrala para completar la actualización de la base de datos.');
                 } catch (_) { /* Notification puede no estar disponible en algunos entornos */ }
+                // Gracia corta: si el bloqueo sigue pasado ese margen, rechazamos
+                // con error tipado en lugar de dejar la promesa pendiente para
+                // siempre. onblocked puede dispararse más de una vez: el timer de
+                // gracia se programa sólo la primera vez.
+                if (blockedTimer !== null) return;
+                blockedTimer = setTimeout(() => {
+                    if (settled) return;
+                    settled = true;
+                    clearOpenTimers();
+                    const blockedError = new Error(
+                        'La apertura del almacenamiento local está bloqueada por otra ventana o pestaña de la aplicación. Cerrá todas las ventanas o pestañas de la app y volvé a abrir.'
+                    );
+                    blockedError.name = 'IndexedDBOpenBlockedError';
+                    console.error('❌ IndexedDB: apertura bloqueada por otra ventana/pestaña.', blockedError);
+                    reject(blockedError);
+                }, IDB_BLOCKED_GRACE_MS);
             };
 
             request.onsuccess = () => {
+                settled = true;
+                clearOpenTimers();
                 this.db = request.result;
                 this.isInitialized = true;
                 // 🔧 Si OTRA pestaña dispara un upgrade de versión (p.ej. v10→v11),

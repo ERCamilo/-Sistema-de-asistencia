@@ -7069,6 +7069,27 @@ function _initOutgoingConflictGuard() {
         }
     }, 2500);
 
+    // 💾 Diálogo de recuperación cuando el almacenamiento local (IndexedDB) no
+    // pudo abrirse en el arranque. Recibe el nombre del error tipado que produjo
+    // IndexedDBService.init() y elige el copy correspondiente: bloqueado por otra
+    // ventana vs timeout del almacenamiento. Sin este diálogo el caso moría en
+    // silencio (loader oculto por el safety timeout y consola casi limpia).
+    async function showStorageFailureRecoveryDialog(errorName) {
+        const isBlocked = errorName === 'IndexedDBOpenBlockedError';
+        const shouldReload = await Modal.confirm({
+            title: '💾 No se pudo abrir el almacenamiento local',
+            message: isBlocked
+                ? 'Hay otra ventana o pestaña de la aplicación abierta que está bloqueando la actualización del almacenamiento local. Cerrá todas las ventanas de la app y volvé a abrir.'
+                : 'El almacenamiento local tardó demasiado en responder. Recargá la página; si el problema continúa, cerrá otras ventanas de la app.',
+            confirmText: 'Recargar ahora',
+            cancelText: 'Continuar sin datos locales',
+            type: 'danger'
+        });
+        if (shouldReload) {
+            window.location.reload();
+        }
+    }
+
     try {
         // 1. Cargar datos de forma asíncrona (AWAIT CRÍTICO) y, solo después,
         // iniciar el clima sin bloquear el resto de la secuencia de arranque.
@@ -7863,6 +7884,14 @@ function _initOutgoingConflictGuard() {
         try {
             hideLoader(true);
         } catch (_) {}
+        // 💾 Almacenamiento local inaccesible en el arranque (upgrade bloqueado
+        // por otra ventana u open colgado): ofrecer una salida accionable en
+        // lugar del silencio. Fire-and-forget: el render de error sigue igual.
+        if (error?.name === 'IndexedDBOpenBlockedError' || error?.name === 'IndexedDBOpenTimeoutError') {
+            showStorageFailureRecoveryDialog(error.name).catch((dialogError) => {
+                console.error('❌ No se pudo mostrar el diálogo de recuperación del almacenamiento:', dialogError);
+            });
+        }
         // Intentar renderizar aunque sea un estado de error
         render();
     }

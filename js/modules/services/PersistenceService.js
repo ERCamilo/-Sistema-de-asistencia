@@ -1196,6 +1196,16 @@ export async function loadApplicationData() {
         return false;
 
     } catch (error) {
+        // 🧨 Apertura de IndexedDB acotada (bloqueada por otra ventana o
+        // timeout): NO se tragan acá. Deben propagar al catch de arranque de
+        // app.js, que muestra el diálogo accionable (recargar / continuar sin
+        // datos locales). Tragarlos dejaría el boot "silenciosamente vacío".
+        if (
+            error?.name === 'IndexedDBOpenBlockedError' ||
+            error?.name === 'IndexedDBOpenTimeoutError'
+        ) {
+            throw error;
+        }
         console.error('❌ Error fatal al cargar datos:', error);
         state.isDataLoaded = true; // No bloquear la UI
         return false;

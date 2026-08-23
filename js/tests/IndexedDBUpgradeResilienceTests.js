@@ -103,3 +103,61 @@ testRunner.addSuite("IndexedDB — schema v16: sync, Mini, payroll history, and 
     }
 
 });
+
+testRunner.addSuite("IndexedDB — apertura acotada del boot (timeout/blocked tipados)", {
+
+    "init define las cotas de apertura (IDB_OPEN_TIMEOUT_MS / IDB_BLOCKED_GRACE_MS)"() {
+        testRunner.assert(/IDB_OPEN_TIMEOUT_MS\s*=\s*8000/.test(IDB_SRC),
+            'debe existir la cota global IDB_OPEN_TIMEOUT_MS = 8000 para el open');
+        testRunner.assert(/IDB_BLOCKED_GRACE_MS\s*=\s*4000/.test(IDB_SRC),
+            'debe existir la gracia corta IDB_BLOCKED_GRACE_MS = 4000 tras onblocked');
+    },
+
+    "el open tiene una cota global que rechaza con IndexedDBOpenTimeoutError"() {
+        // Incidente de producción: otra ventana oculta reteniendo una conexión
+        // vieja dejaba indexedDB.open pendiente PARA SIEMPRE (sin blocked ni
+        // error). Sin cota, el boot queda colgado y el listener de auth nunca
+        // se registra → usuario "deslogueado" y sin datos, consola limpia.
+        const block = IDB_SRC.match(/openTimer\s*=\s*setTimeout\(\s*\(\)\s*=>\s*\{[\s\S]{0,700}/);
+        testRunner.assert(!!block, 'debe existir el timer de cota global openTimer');
+        testRunner.assert(/IndexedDBOpenTimeoutError/.test(block[0]),
+            'la cota debe rechazar con error.name = IndexedDBOpenTimeoutError');
+        testRunner.assert(/IDB_OPEN_TIMEOUT_MS\)/.test(block[0]),
+            'la cota debe usar la constante IDB_OPEN_TIMEOUT_MS como delay');
+        testRunner.assert(/request\.cancel/.test(block[0]),
+            'la cota debe intentar request.cancel de forma defensiva');
+        // El timer nunca debe poder lanzar: el cancel va envuelto en try/catch.
+        testRunner.assert(/try\s*\{\s*if\s*\(request\.cancel\)\s*request\.cancel\(\);\s*\}\s*catch/.test(block[0]),
+            'request.cancel debe ir dentro de try/catch (nunca lanzar desde el timer)');
+    },
+
+    "onblocked ya NO deja la promesa pendiente sin límite (gracia corta + rechazo tipado)"() {
+        const block = IDB_SRC.match(/onblocked\s*=\s*\(\)\s*=>\s*\{[\s\S]{0,2400}/);
+        testRunner.assert(!!block, 'debe existir el handler onblocked');
+        testRunner.assert(/blockedTimer\s*=\s*setTimeout/.test(block[0]),
+            'onblocked debe programar un timer de gracia corto (no dejar pending infinito)');
+        testRunner.assert(/IDB_BLOCKED_GRACE_MS\)/.test(block[0]),
+            'el timer de gracia debe usar la constante IDB_BLOCKED_GRACE_MS');
+        testRunner.assert(/IndexedDBOpenBlockedError/.test(block[0]),
+            'la gracia vencida debe rechazar con error.name = IndexedDBOpenBlockedError');
+        testRunner.assert(
+            /Cerr[aá] todas las ventanas|otra ventana o pestaña/i.test(block[0]),
+            'el mensaje debe pedirle al usuario cerrar las otras ventanas/pestañas de la app'
+        );
+    },
+
+    "los timers se limpian al asentarse (éxito/error) para no colgar timers ni doble-settear"() {
+        // Éxito rápido NO debe dejar vivos openTimer/blockedTimer; y cada rama
+        // guarda con settled para evitar rechazos tardíos sobre promesa resuelta.
+        const successBlock = IDB_SRC.match(/onsuccess\s*=\s*\(\)\s*=>\s*\{[\s\S]{0,200}/);
+        const errorBlock = IDB_SRC.match(/onerror\s*=\s*\(\)\s*=>\s*\{[\s\S]{0,300}/);
+        testRunner.assert(!!successBlock && /clearOpenTimers\(\)/.test(successBlock[0]),
+            'onsuccess debe limpiar los timers (clearOpenTimers)');
+        testRunner.assert(!!errorBlock && /clearOpenTimers\(\)/.test(errorBlock[0]),
+            'onerror debe limpiar los timers (clearOpenTimers)');
+        const guardCount = (IDB_SRC.match(/if \(settled\) return;/g) || []).length;
+        testRunner.assert(guardCount >= 3,
+            `cada rama de settle debe guardar con settled (encontradas ${guardCount}, esperadas >= 3)`);
+    }
+
+});
