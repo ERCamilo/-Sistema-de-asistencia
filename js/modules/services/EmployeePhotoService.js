@@ -273,7 +273,13 @@ export class EmployeePhotoService {
                                 });
                             }
                         });
-                    } catch {
+                    } catch (error) {
+                        // Remote sync failures were previously swallowed whole, which made
+                        // upload outages undiagnosable (photo showed locally, no requests).
+                        console.warn('[employee-photo] remote sync failed', {
+                            code: error?.code || null,
+                            message: error?.message || String(error)
+                        });
                         allSynced = false;
                     } finally {
                         this.pendingSignalPublications.delete(id);
