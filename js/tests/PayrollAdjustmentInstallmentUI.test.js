@@ -53,6 +53,47 @@ describe('Payroll adjustment installments UI persistence', () => {
         return form;
     }
 
+    test.each(['deductions', 'bonuses'])(
+        'updates the active %s form from delegated click and change events',
+        kind => {
+            state.exportConfig.payrollAdjustmentComposerScopes[kind] = 'global';
+            document.body.innerHTML = PayrollUI.PayrollTab();
+            const form = document.body.querySelector(
+                `.payroll-adjustment-desktop.is-${kind === 'bonuses' ? 'bonus' : 'deduction'} `
+                + '.payroll-adjustment-composer .payroll-adjustment-form'
+            );
+            const workspace = form.closest('.payroll-adjustment-desktop');
+            workspace.addEventListener('click', event => event.stopPropagation());
+            workspace.addEventListener('change', event => event.stopPropagation());
+            const employeeTarget = form.querySelector('.payroll-adjustment-form__target--employee');
+            const installmentOption = form.querySelector('[data-installment-option]');
+
+            const individual = form.querySelector('input[name="scope"][value="employee"]');
+            individual.click();
+
+            expect(form.dataset.adjustmentScope).toBe('employee');
+            expect(employeeTarget.classList).toContain('is-visible');
+            expect(installmentOption.hidden).toBe(false);
+            expect(installmentOption.textContent).toContain('Dividir en cuotas');
+
+            const percentage = form.querySelector('input[name="type"][value="percentage"]');
+            percentage.checked = true;
+            percentage.dispatchEvent(new Event('change', { bubbles: true }));
+            expect(installmentOption.hidden).toBe(true);
+
+            const fixed = form.querySelector('input[name="type"][value="fixed"]');
+            fixed.click();
+            expect(installmentOption.hidden).toBe(false);
+
+            const general = form.querySelector('input[name="scope"][value="global"]');
+            general.click();
+
+            expect(form.dataset.adjustmentScope).toBe('global');
+            expect(employeeTarget.classList).not.toContain('is-visible');
+            expect(installmentOption.hidden).toBe(true);
+        }
+    );
+
     test('saves plans on employees, persists once, notifies and creates no temporary payroll rule', async () => {
         const form = installmentForm();
 

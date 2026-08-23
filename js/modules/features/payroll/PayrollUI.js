@@ -209,6 +209,14 @@ function _handlePayrollKeydown(e) {
     _handlePayrollClick(e);
 }
 
+function _handlePayrollAdjustmentChoiceCapture(e) {
+    if (!e.target.matches?.(
+        '.payroll-adjustment-form input[name="scope"], '
+        + '.payroll-adjustment-form input[name="type"]'
+    )) return;
+    _handlePayrollAdjustmentInput(e);
+}
+
 function _handlePayrollAdjustmentInput(e) {
     const historyFilter = e.target.dataset.payrollHistoryFilter;
     if (historyFilter && e.type === 'change') {
@@ -236,6 +244,8 @@ export function init(ctx) {
     context = ctx;
     payrollService = ctx.services.payroll;
     if (!_payrollDelegationAttached) {
+        document.addEventListener('click', _handlePayrollAdjustmentChoiceCapture, true);
+        document.addEventListener('change', _handlePayrollAdjustmentChoiceCapture, true);
         document.addEventListener('click', _handlePayrollClick);
         document.addEventListener('keydown', _handlePayrollKeydown);
         document.addEventListener('input', _handlePayrollAdjustmentInput);
