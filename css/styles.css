@@ -1603,7 +1603,288 @@
             border-bottom: 1px solid #1e293b;
         }
 
+        .floating-card-identity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .floating-card-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .employee-avatar {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            overflow: hidden;
+            border: 1px solid rgba(103, 232, 249, 0.55);
+            border-radius: 50%;
+            background: linear-gradient(135deg, #06b6d4, #8b5cf6);
+            color: #08111f;
+            font-size: 0.82rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+        }
+
+        .employee-avatar:focus-visible {
+            outline: 3px solid #67e8f9;
+            outline-offset: 2px;
+        }
+
+        .employee-avatar--compact {
+            width: 34px;
+            height: 34px;
+            font-size: 0.7rem;
+        }
+
+        .employee-avatar__fallback,
+        .employee-avatar__image {
+            width: 100%;
+            height: 100%;
+        }
+
+        .employee-avatar__fallback {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .employee-avatar__fallback svg {
+            width: 54%;
+            height: 54%;
+        }
+
+        .employee-avatar__image {
+            position: absolute;
+            inset: 0;
+            object-fit: cover;
+        }
+
+        .employee-avatar-control {
+            position: relative;
+            flex: 0 0 auto;
+        }
+
+        .employee-avatar-camera {
+            position: absolute;
+            right: -5px;
+            bottom: -5px;
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            border: 2px solid #0f172a;
+            border-radius: 50%;
+            background: #06b6d4;
+            color: #06202a;
+            font-size: 0.62rem;
+            cursor: pointer;
+        }
+
+        .employee-editor-avatar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 18px;
+            padding: 12px;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            background: rgba(15, 23, 42, 0.55);
+        }
+
+        .employee-editor-avatar > div {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .employee-editor-avatar span {
+            color: #94a3b8;
+            font-size: 0.75rem;
+        }
+
+        .employee-editor-photo-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 7px;
+        }
+
+        .employee-editor-photo-actions button,
+        .employee-photo-viewer__actions button {
+            min-height: 40px;
+            padding: 8px 12px;
+            border: 1px solid #475569;
+            border-radius: 9px;
+            background: #1e293b;
+            color: #f8fafc;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .employee-editor-photo-actions button:disabled,
+        .employee-photo-viewer__actions button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .employee-photo-sheet {
+            position: fixed;
+            inset: 0;
+            z-index: 2200;
+            display: flex;
+            align-items: flex-end;
+            padding: 12px;
+            background: rgba(2, 6, 23, 0.78);
+        }
+
+        .employee-photo-sheet[hidden] {
+            display: none;
+        }
+
+        .employee-photo-sheet__panel {
+            width: min(100%, 420px);
+            margin: 0 auto;
+            padding: 16px;
+            border: 1px solid #334155;
+            border-radius: 16px;
+            background: #111827;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .employee-photo-sheet__title,
+        .employee-photo-sheet__status,
+        .employee-photo-sheet__error {
+            display: block;
+            margin: 0 0 10px;
+        }
+
+        .employee-photo-sheet__status { color: #67e8f9; }
+        .employee-photo-sheet__error { color: #fca5a5; }
+
+        .employee-photo-sheet__panel > button {
+            width: 100%;
+            margin-top: 8px;
+            padding: 11px 12px;
+            border: 1px solid #475569;
+            border-radius: 9px;
+            background: #1e293b;
+            color: #f8fafc;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .employee-photo-sheet__panel > button:first-of-type {
+            border-color: #22d3ee;
+            background: #06b6d4;
+            color: #06202a;
+        }
+
+        .employee-photo-sheet__panel > button:disabled {
+            cursor: wait;
+            opacity: 0.55;
+        }
+
+        @media (min-width: 768px) {
+            .employee-photo-sheet { align-items: center; }
+        }
+
+        .employee-photo-viewer {
+            position: fixed;
+            inset: 0;
+            z-index: 2300;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+        }
+
+        .employee-photo-viewer__backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.94);
+        }
+
+        .employee-photo-viewer__content {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: min(100%, 720px);
+            min-height: min(72vh, 560px);
+            max-height: calc(100vh - 24px);
+            overflow: hidden;
+            border: 1px solid #334155;
+            border-radius: 16px;
+            background: #020617;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.7);
+        }
+
+        .employee-photo-viewer__close {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1;
+            width: 38px;
+            height: 38px;
+            border: 1px solid #64748b;
+            border-radius: 50%;
+            background: rgba(15, 23, 42, 0.9);
+            color: #f8fafc;
+            font-size: 1.4rem;
+            cursor: pointer;
+        }
+
+        .employee-photo-viewer__loading {
+            color: #cbd5e1;
+            font-weight: 700;
+        }
+
+        .employee-photo-viewer__image {
+            display: block;
+            max-width: 100%;
+            max-height: calc(100vh - 26px);
+            object-fit: contain;
+        }
+
+        .employee-photo-viewer__status {
+            position: absolute;
+            right: 16px;
+            bottom: 76px;
+            left: 16px;
+            color: #e2e8f0;
+            text-align: center;
+            text-shadow: 0 1px 3px #020617;
+        }
+
+        .employee-photo-viewer__actions {
+            position: absolute;
+            right: 12px;
+            bottom: 12px;
+            left: 12px;
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            padding: 8px;
+            border-radius: 12px;
+            background: rgba(2, 6, 23, 0.86);
+            backdrop-filter: blur(8px);
+        }
+
         .floating-card-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
             font-size: 1.125rem;
             font-weight: 700;
             background: linear-gradient(135deg, #06b6d4, #10b981);

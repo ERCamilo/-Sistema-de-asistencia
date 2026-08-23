@@ -20,7 +20,7 @@ import {
     EmployeeRow, EmployeeRowCompact, WeekRow, WeekViewTotalsRow, renderSkeleton,
     DateControls, DateControlsCompact, getDayHours, getCheckColor, getFilteredEmployeesForDay,
     shouldShowCompactDayControls,
-    getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel
+    getEffectiveAttendanceDetailEmployeeId, usesAttendanceDetailPanel, AttendanceDetailAvatar
 } from './modules/ui/AttendanceUI.js';
 import { CalendarView } from './modules/ui/components/CalendarView.js';
 import {
@@ -57,6 +57,7 @@ import { prepareRestoredState } from './modules/services/RestorePrepare.js';
 import { mergeIncomingPositions, mergeIncomingLeaders } from './modules/services/CatalogIncomingMerge.js';
 import { mergeMainDataFromCloud } from './modules/services/MainDataCloudMerge.js';
 import { EmployeeRepository } from './modules/services/EmployeeRepository.js';
+import { employeePhotoService } from './modules/services/EmployeePhotoService.js';
 import { PositionRepository } from './modules/services/PositionRepository.js';
 import { LeaderRepository } from './modules/services/LeaderRepository.js';
 import { PositionsLiveSync } from './modules/services/PositionsLiveSync.js';
@@ -4248,9 +4249,6 @@ function _AttendanceDetailPanelInner() {
 
     const detailInteractivePanel = renderAttendanceDetailWorkPanel(emp, today);
 
-    // ----- Compose initials for avatar -----
-    const initials = (emp.name || '?').split(/\s+/).map(s => s[0] || '').slice(0, 2).join('').toUpperCase();
-
     // ----- Status pill -----
     const isActive = emp.active !== false;
     const statusPill = isActive
@@ -4263,7 +4261,7 @@ function _AttendanceDetailPanelInner() {
     return `<aside class="attendance-detail" data-emp-id="${emp.id}">
         <div class="detail-card">
             <div class="detail-head">
-                <div class="detail-avatar">${escapeHTML(initials)}</div>
+                ${AttendanceDetailAvatar(emp)}
                 <div class="detail-head-meta">
                     <div class="detail-name">${escapeHTML(emp.name || 'Sin nombre')}</div>
                     <div class="detail-sub">#${escapeHTML(String(emp.number || '—'))}${positionChips ? ' · ' + positionChips : ''}</div>
@@ -6696,7 +6694,7 @@ function App() {
             // and stacks vertically (with the detail panel hidden) below.
             const pageHeader = AttendancePageTitle();
             if (state.viewMode === 'week') return `${pageHeader}${AttendanceTab()}`;
-            return `${pageHeader}<div class="attendance-split"><div class="attendance-main">${AttendanceTab()}</div>${AttendanceDetailPanel()}</div>`;
+            return `${pageHeader}<div class="attendance-split"><div class="attendance-main">${AttendanceTab()}</div>${usesAttendanceDetailPanel(window.innerWidth) ? AttendanceDetailPanel() : ''}</div>`;
         },
         'employees': () => EmployeesUI.EmployeesTab(),
         'positions': () => {
@@ -7478,6 +7476,14 @@ function _initOutgoingConflictGuard() {
                                     : merged;
                                 debug.log(`📡 LiveSync: aplicada lista de ${state.employees.length} empleado(s) desde la nube (merge por-registro)`);
                                 if (typeof render === 'function') render();
+                                void employeePhotoService.reconcileEmployeePhotoSignals(state.employees)
+                                    .then(results => {
+                                        const changed = results.some(result =>
+                                            result.status === 'fulfilled'
+                                            && ['updated', 'deleted'].includes(result.value?.status)
+                                        );
+                                        if (changed && typeof render === 'function') render();
+                                    });
                             }
                         });
                     }

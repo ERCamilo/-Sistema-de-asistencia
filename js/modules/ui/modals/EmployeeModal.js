@@ -12,6 +12,7 @@ import {
     attachEmployeePositionEditor,
     renderEmployeePositionEditor
 } from '../../features/employees/EmployeePositionEditor.js';
+import { EmployeeAvatar, hydrateEmployeeAvatars } from '../components/EmployeeAvatar.js';
 
 export class EmployeeModal {
     static open(employeeId = null, options = {}) {
@@ -34,6 +35,27 @@ export class EmployeeModal {
 
         const contentHTML = `
             <div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;" id="employee-modal-form">
+                ${isEdit ? `
+                    <div class="employee-editor-avatar">
+                        ${EmployeeAvatar(emp)}
+                        <div>
+                            <strong>${escapeHTML(emp.name || 'Empleado')}</strong>
+                            <span>Foto del empleado</span>
+                            <div class="employee-editor-photo-actions"
+                                 data-employee-photo-editor-actions data-employee-id="${escapeHTML(emp.id)}">
+                                <button type="button" data-employee-photo-action="change"
+                                        data-employee-id="${escapeHTML(emp.id)}"
+                                        data-employee-name="${escapeHTML(emp.name || 'Empleado')}">Agregar foto</button>
+                                <button type="button" data-employee-photo-action="adjust" hidden disabled
+                                        aria-disabled="true"
+                                        title="El ajuste de recorte todavía no está disponible">Ajustar</button>
+                                <button type="button" data-employee-photo-action="delete" hidden
+                                        data-employee-id="${escapeHTML(emp.id)}"
+                                        data-employee-name="${escapeHTML(emp.name || 'Empleado')}">Eliminar</button>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
                 <div class="form-group">
                     <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
                         <span>🔢 Número de Empleado</span>
@@ -141,6 +163,7 @@ export class EmployeeModal {
 
         // Listeners Locales
         const body = modal.element;
+        void hydrateEmployeeAvatars(body);
         
         // Toggle campos opcionales
         const toggleBtn = body.querySelector('#toggleOptionalBtn');

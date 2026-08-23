@@ -24,6 +24,7 @@ import {
 } from './PositionVisuals.js';
 import { hourlyToDaily } from '../payroll/SalaryConversion.js';
 import { resolvePositionBaseHourlyRate } from './EmployeePositionMetrics.js';
+import { EmployeeAvatar } from '../../ui/components/EmployeeAvatar.js';
 
 const WEEKS_PER_MONTH = 52 / 12;
 let employeeOpenFilter = null;
@@ -90,7 +91,6 @@ export function EmployeeCard(emp, { selected = false } = {}) {
     const { positions, leaders, earningsDisplay, primaryPosition } = getEmployeeViewData(emp);
     const employeeId = escapeAttr(emp.key || emp.id);
     const color = safePositionColor(primaryPosition?.color);
-    const icon = resolvePositionIcon(primaryPosition || {});
     const watermarkPositions = positions.slice(0, 3);
     const hiddenWatermarks = Math.max(0, positions.length - watermarkPositions.length);
     const leaderNumbers = [...new Set(leaders.map(leader => leader.number)
@@ -111,7 +111,7 @@ export function EmployeeCard(emp, { selected = false } = {}) {
             </div>
             <div class="employee-list-row__identity">
                 <span class="employee-list-row__icon">
-                    ${renderPositionIconSvg(icon, { size: 20 })}
+                    ${EmployeeAvatar(emp, { variant: 'compact' })}
                 </span>
                 <div>
                     <strong title="${escapeAttr(emp.name)}">${escapeHTML(emp.name)}</strong>

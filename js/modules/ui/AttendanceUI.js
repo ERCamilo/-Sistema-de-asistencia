@@ -23,6 +23,7 @@ import {
     formatAttendanceDayNumber,
     formatAttendanceDeficit
 } from '../features/attendance/AttendanceCardMetrics.js';
+import { EmployeeAvatar } from './components/EmployeeAvatar.js';
 
 // Componentes y utilerías locales
 // NOTA: Este archivo ahora importa explícitamente 'state', 'icons', y utilidades de fecha.
@@ -600,6 +601,12 @@ export function PositionFilters() {
 
 export function usesAttendanceDetailPanel(viewportWidth) {
     return Number(viewportWidth) >= 1024;
+}
+
+export function AttendanceDetailAvatar(employee) {
+    return `<div class="attendance-detail-avatar" data-attendance-detail-avatar>
+        ${EmployeeAvatar(employee, { variant: 'default' })}
+    </div>`;
 }
 
 export function getEffectiveAttendanceDetailEmployeeId() {

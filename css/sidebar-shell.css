@@ -293,6 +293,15 @@ body.has-sidebar {
     gap: 12px;
 }
 
+.attendance-detail-avatar {
+    flex: none;
+}
+
+.attendance-detail-avatar .employee-avatar {
+    width: 48px;
+    height: 48px;
+}
+
 .detail-avatar {
     width: 48px;
     height: 48px;

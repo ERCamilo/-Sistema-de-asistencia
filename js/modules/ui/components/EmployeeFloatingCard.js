@@ -4,8 +4,15 @@
  */
 
 import { state } from '../../core/AppState.js';
+import { eventBus } from '../../core/Events.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { CalendarView } from './CalendarView.js';
+import { EmployeeAvatar, hydrateEmployeeAvatars } from './EmployeeAvatar.js';
+import {
+    EmployeePhotoAcquisitionUI,
+    registerEmployeePhotoAcquisitionEvents
+} from './EmployeePhotoAcquisition.js';
+import { registerEmployeePhotoViewerEvents } from './EmployeePhotoViewer.js';
 
 // ============================================
 // 🎯 EVENT DELEGATION (data-fc-action)
@@ -32,6 +39,12 @@ if (!_fcDelegationAttached) {
     document.addEventListener('click', _handleFcClick);
     _fcDelegationAttached = true;
 }
+
+eventBus.on('render:complete', () => {
+    void hydrateEmployeeAvatars(document);
+});
+registerEmployeePhotoAcquisitionEvents(document);
+registerEmployeePhotoViewerEvents(document);
 
 export class EmployeeFloatingCard {
     constructor(statsService) {
@@ -80,8 +93,12 @@ export class EmployeeFloatingCard {
             <div class="overlay" data-fc-action="close-floating-card"></div>
             <div class="floating-card" data-fc-action="stop-propagation">
                 <div class="floating-card-header">
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <div class="floating-card-title">👤 ${emp.name}</div>
+                    <div class="floating-card-identity">
+                        ${EmployeePhotoAcquisitionUI(emp, {
+                            avatarHtml: EmployeeAvatar(emp, { variant: 'compact' })
+                        })}
+                        <div class="floating-card-heading">
+                        <div class="floating-card-title">${emp.name}</div>
                         ${(() => {
                             if (!emp.positions || emp.positions.length <= 1) return '';
                             
@@ -107,6 +124,7 @@ export class EmployeeFloatingCard {
                                 </div>
                             `;
                         })()}
+                        </div>
                     </div>
                     <button class="floating-card-close" type="button" data-fc-action="close-floating-card" aria-label="Cerrar">✕</button>
                 </div>
