@@ -1,3 +1,46 @@
+const EMPLOYEE_PHOTO_STATES = new Set(['ready', 'deleted']);
+const EMPLOYEE_PHOTO_REVISION_PATTERN = /^[A-Za-z0-9._:|+-]{1,240}$/;
+
+function normalizePhotoRevision(value) {
+    if (typeof value !== 'string') return null;
+    const revision = value.trim();
+    if (!EMPLOYEE_PHOTO_REVISION_PATTERN.test(revision)) return null;
+    if (!revision.includes(':') && !revision.includes('-')) return null;
+    if (/^(?:data|blob|https?):/i.test(revision)) return null;
+    return revision;
+}
+
+/**
+ * Canonical cross-device photo signal. Supabase remains authoritative for
+ * image bytes and object metadata; Firebase stores only this bounded signal.
+ */
+export function normalizeEmployeePhoto(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+    const state = String(value.state || '').trim();
+    const revision = normalizePhotoRevision(value.revision);
+    const updatedAt = value.updatedAt;
+
+    if (!EMPLOYEE_PHOTO_STATES.has(state) || !revision) return null;
+    if (!Number.isFinite(updatedAt) || updatedAt < 0) return null;
+
+    return { state, revision, updatedAt };
+}
+
+/**
+ * Normalizes the photo field without adding it to legacy persistence payloads.
+ * Keeping absence distinct from null prevents an old save from clearing a
+ * remote photo when Firestore performs a merge write.
+ */
+export function normalizeEmployeePhotoField(employee) {
+    if (!employee || typeof employee !== 'object') return employee;
+    const normalized = { ...employee };
+    if (Object.prototype.hasOwnProperty.call(employee, 'photo')) {
+        normalized.photo = normalizeEmployeePhoto(employee.photo);
+    }
+    return normalized;
+}
+
 export class Employee {
     constructor(data) {
         this.id = data.id || `EMP${Date.now()}`;
@@ -30,6 +73,9 @@ export class Employee {
         // null igual que ausente (cae al fallback updatedAt), así que la
         // semántica no cambia.
         this.positionsUpdatedAt = typeof data.positionsUpdatedAt === 'number' ? data.positionsUpdatedAt : null;
+        if (Object.prototype.hasOwnProperty.call(data, 'photo')) {
+            this.photo = normalizeEmployeePhoto(data.photo);
+        }
     }
 
     // Métodos de negocio
@@ -76,7 +122,7 @@ export class Employee {
     }
 
     toJSON() {
-        return {
+        const json = {
             id: this.id,
             key: this.key,
             number: this.number,
@@ -101,6 +147,10 @@ export class Employee {
             updatedAt: this.updatedAt,
             positionsUpdatedAt: this.positionsUpdatedAt
         };
+        if (Object.prototype.hasOwnProperty.call(this, 'photo')) {
+            json.photo = this.photo;
+        }
+        return json;
     }
 
     static fromJSON(json) {

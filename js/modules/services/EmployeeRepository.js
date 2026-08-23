@@ -18,6 +18,7 @@ import {
 } from '../data/firebase.js';
 import { mergeEmployees } from './EmployeeMerge.js';
 import { SyncStatus } from './SyncStatus.js';
+import { normalizeEmployeePhotoField } from '../features/employees/Employee.js';
 
 const COLLECTION = 'employees';
 
@@ -42,6 +43,22 @@ function employeeDocRef(employeeId) {
 
 export const EmployeeRepository = {
 
+    async savePhotoSignal(employeeId, signal) {
+        const id = String(employeeId || '').trim();
+        const ref = employeeDocRef(id);
+        const photo = normalizeEmployeePhotoField({ photo: signal }).photo;
+        if (!ref || !photo) throw new TypeError('A valid employee photo signal is required');
+        try {
+            // Deliberately avoid the employee-level updatedAt: photo uses its
+            // own LWW timestamp and must not win unrelated scalar fields.
+            await setDoc(ref, { photo }, { merge: true });
+            SyncStatus.markSynced();
+        } catch (e) {
+            console.error(`❌ EmployeeRepository.savePhotoSignal(${id}) error:`, e);
+            throw e;
+        }
+    },
+
     /**
      * Carga todos los empleados de la colección.
      * @returns {Promise<Array|null>} [] si no hay sesión o la colección está
@@ -64,7 +81,7 @@ export const EmployeeRepository = {
                 const data = typeof d.data === 'function' ? d.data() : d;
                 if (!data) return;
                 if (!includeDeleted && Number.isFinite(data.deletedAt)) return;
-                result.push(data);
+                result.push(normalizeEmployeePhotoField(data));
             });
             return result;
         } catch (e) {
@@ -118,6 +135,8 @@ export const EmployeeRepository = {
                 console.warn(`⚠️ EmployeeRepository.saveOne(${id}): read remoto falló, escribiendo sin merge:`, e);
             }
         }
+
+        payload = normalizeEmployeePhotoField(payload);
 
         try {
             await setDoc(ref, payload, { merge: true });
@@ -210,7 +229,7 @@ export const EmployeeRepository = {
                 if (snap && typeof snap.forEach === 'function') {
                     snap.forEach(d => {
                         const data = typeof d.data === 'function' ? d.data() : d;
-                        if (data) list.push(data);
+                        if (data) list.push(normalizeEmployeePhotoField(data));
                     });
                 }
                 try { onChange(list); } catch (e) { console.error('subscribe callback error:', e); }

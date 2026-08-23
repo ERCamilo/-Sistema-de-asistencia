@@ -1,3 +1,5 @@
+import { normalizeEmployeePhoto } from '../features/employees/Employee.js';
+
 /**
  * 🔀 EmployeeMerge.js (Fase 2.2)
  *
@@ -271,6 +273,17 @@ export function mergeEmployees(server, local) {
 
     // 1. Base: escalares del ganador.
     const out = { ...loser, ...winner };
+
+    // Photo signals have their own LWW clock. A phone/salary edit must not
+    // overwrite a newer photo signal, regardless of which side owns the newer
+    // general employee updatedAt. Equal photo timestamps keep the local side.
+    const serverPhoto = normalizeEmployeePhoto(server.photo);
+    const localPhoto = normalizeEmployeePhoto(local.photo);
+    if (serverPhoto && localPhoto) {
+        out.photo = serverPhoto.updatedAt > localPhoto.updatedAt ? serverPhoto : localPhoto;
+    } else if (serverPhoto || localPhoto) {
+        out.photo = serverPhoto || localPhoto;
+    }
 
     // 1.b 🪦 Tombstone de EMPLEADO (deletedAt): lo decide el ganador escalar,
     // INCLUYENDO su ausencia. El spread de arriba NO borra claves que el

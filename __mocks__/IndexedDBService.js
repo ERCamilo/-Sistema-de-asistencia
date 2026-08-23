@@ -21,6 +21,11 @@ const mockService = {
     getReceipt: jest.fn().mockResolvedValue(null),
     deleteReceipt: jest.fn().mockResolvedValue(true),
     listPendingReceipts: jest.fn().mockResolvedValue([]),
+    // Employee photo cache (v16)
+    saveEmployeePhoto: jest.fn().mockResolvedValue(null),
+    getEmployeePhoto: jest.fn().mockResolvedValue(null),
+    replaceEmployeePhoto: jest.fn().mockResolvedValue(null),
+    deleteEmployeePhoto: jest.fn().mockResolvedValue(true),
     // Métodos genéricos usados por PettyCashStore (caja chica v10)
     getAll: jest.fn().mockResolvedValue([]),
     get: jest.fn().mockResolvedValue(null),

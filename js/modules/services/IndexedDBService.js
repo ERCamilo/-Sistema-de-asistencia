@@ -6,9 +6,15 @@
 import { Notification } from '../components/Notification.js';
 import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
+import {
+    deleteEmployeePhotoCache,
+    ensureEmployeePhotoStore,
+    getEmployeePhotoCache,
+    putEmployeePhotoCache
+} from './EmployeePhotoCache.js';
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 15) {
+    constructor(dbName = 'attendance-app-db', version = 16) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -210,6 +216,10 @@ export class IndexedDBService {
                         { unique: false }
                     );
                 }
+
+                // Store: employee avatar binaries (v16). It is intentionally
+                // separate from employee state and petty-cash receipts.
+                ensureEmployeePhotoStore(db);
             };
         });
     }
@@ -242,6 +252,23 @@ export class IndexedDBService {
             entries.forEach(entry => transaction.objectStore(entry.storeName)
                 .put(this._serializeForIDB(entry.data)));
         });
+    }
+
+    // Employee photo binaries live only in their dedicated IndexedDB store.
+    async saveEmployeePhoto(employeeId, value) {
+        return putEmployeePhotoCache(this, employeeId, value);
+    }
+
+    async getEmployeePhoto(employeeId) {
+        return getEmployeePhotoCache(this, employeeId);
+    }
+
+    async replaceEmployeePhoto(employeeId, value) {
+        return putEmployeePhotoCache(this, employeeId, value);
+    }
+
+    async deleteEmployeePhoto(employeeId) {
+        return deleteEmployeePhotoCache(this, employeeId);
     }
 
     // 🧹 clear(storeName) está definido más abajo (junto a delete/clearAll).
