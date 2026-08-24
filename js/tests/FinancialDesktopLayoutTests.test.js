@@ -389,7 +389,7 @@ describe('Financial desktop layouts', () => {
         );
 
         expect(state.exportConfig.deductions[0].name).toBe('Descuento');
-        expect(state.exportConfig.bonuses[0].name).toBe('Bono');
+        expect(state.exportConfig.bonuses[0].name).toBe('Bonificación');
     });
 
     test('employee picker adds active and inactive employees to one adjustment rule', async () => {

@@ -125,7 +125,15 @@ export class PayrollService {
     }
 
     // ⚡ NUEVO: Calcular nómina completa de un empleado en un período
-    calculateEmployeePayroll(empId, startDateKey, endDateKey, deductions = null, bonuses = null, advances = null) {
+    calculateEmployeePayroll(
+        empId,
+        startDateKey,
+        endDateKey,
+        deductions = null,
+        bonuses = null,
+        advances = null,
+        adjustmentSelections = null
+    ) {
         const emp = this.state.employees.find(e => e.id === empId);
         if (!emp) return { bruto: 0, neto: 0, deductions: 0, advances: 0, breakdown: [] };
 
@@ -267,7 +275,8 @@ export class PayrollService {
         );
         const installmentPreview = buildPayrollAdjustmentInstallmentPreview(emp, {
             periodStart: startDateKey,
-            periodEnd: endDateKey
+            periodEnd: endDateKey,
+            selections: adjustmentSelections || []
         });
         const bonusBreakdown = [
             ...bonusResult.breakdown,

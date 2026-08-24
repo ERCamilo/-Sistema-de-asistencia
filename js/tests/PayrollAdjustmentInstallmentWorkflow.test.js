@@ -16,6 +16,7 @@ const draft = {
     scope: 'employee',
     targetId: 'EMP-1',
     targetIds: ['EMP-2', 'EMP-1'],
+    remembered: true,
     installmentsEnabled: true,
     installmentCount: 3,
     firstPeriodStart: '2026-08-16'
@@ -39,6 +40,26 @@ describe('PayrollAdjustmentInstallmentWorkflow', () => {
         expect(result.notice).toContain('2 deducciones a cuotas');
         expect(result.notice).toContain('Dom, 16 ago 2026');
         expect(employees).toEqual([{ id: 'EMP-1', deductions: [] }, { id: 'EMP-2', deductions: [] }]);
+    });
+
+    test('builds saved individual fixed adjustments as one-payment plans when splitting is off', () => {
+        const employees = [{ id: 'EMP-1', bonuses: [] }, { id: 'EMP-2', bonuses: [] }];
+        const result = buildPayrollAdjustmentInstallmentSave({
+            employees,
+            kind: 'bonuses',
+            draft: {
+                ...draft,
+                name: 'Reconocimiento',
+                installmentsEnabled: false
+            },
+            createdAt: 1_787_299_200_000
+        }, { createId: idFactory() });
+
+        expect(result.plans).toHaveLength(2);
+        expect(result.plans.every(plan => plan.installmentCount === 1)).toBe(true);
+        expect(result.plans.every(plan => plan.installments.length === 1)).toBe(true);
+        expect(result.notice).toContain('2 pagos programados');
+        expect(employees.every(employee => employee.bonuses.length === 0)).toBe(true);
     });
 
     test('is atomic when any generated plan collides with an existing employee adjustment', () => {

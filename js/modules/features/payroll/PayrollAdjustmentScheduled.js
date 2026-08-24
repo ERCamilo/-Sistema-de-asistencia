@@ -7,6 +7,10 @@ import {
     getPayrollAdjustmentInstallmentRemainingAmount,
     isPayrollAdjustmentInstallmentPlan
 } from './PayrollAdjustmentInstallmentPlan.js';
+import {
+    buildPayrollAdjustmentPeriodSelectionOptions
+} from './PayrollAdjustmentPeriodSelection.js';
+import { hasPayrollAdjustmentPlanMovement } from './PayrollAdjustmentCancellation.js';
 
 const KIND_META = Object.freeze({
     [ADJUSTMENT_PLAN_KIND.BONUS]: {
@@ -18,6 +22,78 @@ const KIND_META = Object.freeze({
         emptyLabel: 'No hay descuentos programados.'
     }
 });
+
+const scheduledActionReferences = new Map();
+const scheduledProjectionRevisions = new Map();
+let scheduledActionSequence = 0;
+
+function beginScheduledProjection(kind) {
+    const revision = (scheduledProjectionRevisions.get(kind) || 0) + 1;
+    scheduledProjectionRevisions.set(kind, revision);
+    for (const [token, reference] of scheduledActionReferences) {
+        if (reference.kind === kind) scheduledActionReferences.delete(token);
+    }
+    return revision;
+}
+
+function registerScheduledActionReference(kind, item, projectionRevision) {
+    const token = `scheduled-action-${++scheduledActionSequence}`;
+    scheduledActionReferences.set(token, Object.freeze({
+        referenceType: 'plan',
+        kind,
+        planId: text(item.planId),
+        employeeId: text(item.employeeId),
+        groupId: text(item.groupId),
+        updatedAt: Number(item.updatedAt),
+        currentPayrollTotal: money(item.periodSelection?.total),
+        periodStart: text(item.periodSelection?.periodStart),
+        periodEnd: text(item.periodSelection?.periodEnd),
+        projectionRevision
+    }));
+    return token;
+}
+
+function registerScheduledGroupReference(group, projectionRevision) {
+    const token = `scheduled-action-${++scheduledActionSequence}`;
+    const members = group.employees
+        .filter(item => item.periodSelection)
+        .map(item => Object.freeze({
+            planId: text(item.planId),
+            employeeId: text(item.employeeId)
+        }));
+    const cancellationMembers = group.employees
+        .filter(item => item.canRemove)
+        .map(item => Object.freeze({
+            planId: text(item.planId),
+            employeeId: text(item.employeeId),
+            groupId: text(item.groupId),
+            updatedAt: Number(item.updatedAt),
+            currentPayrollTotal: money(item.periodSelection?.total)
+        }));
+    scheduledActionReferences.set(token, Object.freeze({
+        referenceType: 'group',
+        kind: group.kind,
+        groupId: text(group.groupId),
+        periodStart: text(group.periodStart),
+        periodEnd: text(group.periodEnd),
+        members: Object.freeze(members),
+        cancellationMembers: Object.freeze(cancellationMembers),
+        projectionRevision
+    }));
+    return token;
+}
+
+export function resolveScheduledActionReference(token) {
+    const reference = scheduledActionReferences.get(text(token));
+    if (!reference || scheduledProjectionRevisions.get(reference.kind) !== reference.projectionRevision) {
+        return null;
+    }
+    return {
+        ...reference,
+        members: reference.members?.map(member => ({ ...member })),
+        cancellationMembers: reference.cancellationMembers?.map(member => ({ ...member }))
+    };
+}
 
 function text(value) {
     return value === null || value === undefined ? '' : String(value);
@@ -106,10 +182,31 @@ function nextInstallment(plan) {
     } : null;
 }
 
-function projectEmployee(plan, employeeById) {
+function projectEmployee(plan, employeeById, selectionContext = {}) {
     const employee = employeeById.get(text(plan.employeeId));
+    const { periodStart, periodEnd, selections = [] } = selectionContext;
+    const periodEligible = Boolean(
+        employee &&
+        employee.active !== false &&
+        plan.status === ADJUSTMENT_PLAN_STATUS.ACTIVE &&
+        text(periodStart) &&
+        text(periodEnd) &&
+        text(periodStart) <= text(periodEnd) &&
+        text(periodStart) >= text(plan.firstPeriodStart)
+    );
+    const periodSelection = periodEligible
+        ? buildPayrollAdjustmentPeriodSelectionOptions(plan, {
+            kind: plan.kind,
+            employeeId: plan.employeeId,
+            periodStart,
+            periodEnd,
+            selections
+        })
+        : null;
     return {
         planId: text(plan.id),
+        groupId: text(plan.groupId),
+        updatedAt: Number(plan.updatedAt),
         kind: plan.kind,
         planName: text(plan.name),
         firstPeriodStart: text(plan.firstPeriodStart),
@@ -123,9 +220,29 @@ function projectEmployee(plan, employeeById) {
         installmentCount: Number(plan.installmentCount) || (plan.installments || []).length,
         appliedInstallments: Number(plan.appliedInstallments) || 0,
         nextInstallment: nextInstallment(plan),
+        status: plan.status,
         statusLabel: plan.status === ADJUSTMENT_PLAN_STATUS.COMPLETED
             ? 'Completado'
-            : 'En curso',
+            : plan.status === ADJUSTMENT_PLAN_STATUS.PAUSED
+                ? 'Pausado'
+                : plan.status === ADJUSTMENT_PLAN_STATUS.CANCELLED
+                    ? 'Cancelado'
+                    : 'En curso',
+        canPause: plan.status === ADJUSTMENT_PLAN_STATUS.ACTIVE &&
+            Number(plan.installmentCount) === 1 &&
+            Number(plan.appliedInstallments) === 0,
+        canResume: plan.status === ADJUSTMENT_PLAN_STATUS.PAUSED &&
+            Number(plan.installmentCount) === 1 &&
+            Number(plan.appliedInstallments) === 0,
+        hasMovement: hasPayrollAdjustmentPlanMovement(plan),
+        canRemove: Boolean(text(periodStart) && text(periodEnd)) &&
+            [ADJUSTMENT_PLAN_STATUS.ACTIVE, ADJUSTMENT_PLAN_STATUS.PAUSED].includes(plan.status),
+        periodSelection: periodSelection ? {
+            ...periodSelection,
+            periodStart: text(periodStart),
+            periodEnd: text(periodEnd)
+        } : null,
+        cancellation: plan.cancellation ? { ...plan.cancellation } : null,
         history: projectHistory(plan)
     };
 }
@@ -136,7 +253,11 @@ function sameValue(items, selector) {
     return items.every(item => selector(item) === first);
 }
 
-export function buildScheduledAdjustmentGroups(kind, employees = []) {
+export function buildScheduledAdjustmentGroups(kind, employees = [], {
+    periodStart = '',
+    periodEnd = '',
+    selections = []
+} = {}) {
     const meta = KIND_META[kind];
     if (!meta) return [];
     const employeeById = new Map((employees || []).map(employee => [text(employee?.id), employee]));
@@ -147,8 +268,12 @@ export function buildScheduledAdjustmentGroups(kind, employees = []) {
         for (const plan of (Array.isArray(holder?.[kind]) ? holder[kind] : [])) {
             if (!isPayrollAdjustmentInstallmentPlan(plan) ||
                 plan.kind !== kind ||
-                ![ADJUSTMENT_PLAN_STATUS.ACTIVE, ADJUSTMENT_PLAN_STATUS.COMPLETED]
-                    .includes(plan.status) ||
+                ![
+                    ADJUSTMENT_PLAN_STATUS.ACTIVE,
+                    ADJUSTMENT_PLAN_STATUS.PAUSED,
+                    ADJUSTMENT_PLAN_STATUS.COMPLETED,
+                    ADJUSTMENT_PLAN_STATUS.CANCELLED
+                ].includes(plan.status) ||
                 !text(plan.groupId) ||
                 !text(plan.employeeId) ||
                 seenPlans.has(text(plan.id))) {
@@ -162,7 +287,11 @@ export function buildScheduledAdjustmentGroups(kind, employees = []) {
     }
 
     return [...groups.entries()].map(([groupId, plans]) => {
-        const projectedEmployees = plans.map(plan => projectEmployee(plan, employeeById))
+        const projectedEmployees = plans.map(plan => projectEmployee(plan, employeeById, {
+            periodStart,
+            periodEnd,
+            selections
+        }))
             .sort((left, right) =>
                 Number(left.isMissing) - Number(right.isMissing) ||
                 text(left.number).localeCompare(text(right.number), 'es', { numeric: true }) ||
@@ -180,6 +309,10 @@ export function buildScheduledAdjustmentGroups(kind, employees = []) {
         );
         const hasDifferentStartDates = !sameValue(plans, plan => text(plan.firstPeriodStart));
         const allCompleted = plans.every(plan => plan.status === ADJUSTMENT_PLAN_STATUS.COMPLETED);
+        const allPaused = plans.every(plan => plan.status === ADJUSTMENT_PLAN_STATUS.PAUSED);
+        const allCancelled = plans.every(plan => plan.status === ADJUSTMENT_PLAN_STATUS.CANCELLED);
+        const hasCompleted = plans.some(plan => plan.status === ADJUSTMENT_PLAN_STATUS.COMPLETED);
+        const removable = projectedEmployees.filter(item => item.canRemove);
         return {
             groupId,
             name: sameValue(plans, plan => text(plan.name))
@@ -201,8 +334,20 @@ export function buildScheduledAdjustmentGroups(kind, employees = []) {
             progressPercent: totalInstallments > 0
                 ? money((appliedInstallments / totalInstallments) * 100)
                 : 0,
-            progressLabel: `${appliedInstallments} de ${totalInstallments} cuotas aplicadas`,
-            statusLabel: allCompleted ? 'Completado' : 'En curso',
+            progressLabel: totalInstallments === 1
+                ? `${appliedInstallments} de 1 pago aplicado`
+                : `${appliedInstallments} de ${totalInstallments} cuotas aplicadas`,
+            statusLabel: allCompleted ? 'Completado' : allCancelled ? 'Cancelado' : allPaused ? 'Pausado' : 'En curso',
+            periodStart: text(periodStart),
+            periodEnd: text(periodEnd),
+            currentPayrollTotal: money(projectedEmployees.reduce(
+                (sum, item) => sum + (item.periodSelection?.total || 0), 0
+            )),
+            periodEligibleCount: projectedEmployees.filter(item => item.periodSelection).length,
+            canRemove: !hasCompleted && removable.length > 0,
+            removeActionLabel: removable.some(item => item.hasMovement)
+                ? 'Cancelar programación'
+                : 'Eliminar programación',
             employees: projectedEmployees
         };
     }).sort((left, right) =>
@@ -221,8 +366,12 @@ export function buildEmployeeScheduledAdjustmentPlans(employee) {
             if (!isPayrollAdjustmentInstallmentPlan(plan) ||
                 plan.kind !== kind ||
                 text(plan.employeeId) !== text(employee.id) ||
-                ![ADJUSTMENT_PLAN_STATUS.ACTIVE, ADJUSTMENT_PLAN_STATUS.COMPLETED]
-                    .includes(plan.status)) {
+                ![
+                    ADJUSTMENT_PLAN_STATUS.ACTIVE,
+                    ADJUSTMENT_PLAN_STATUS.PAUSED,
+                    ADJUSTMENT_PLAN_STATUS.COMPLETED,
+                    ADJUSTMENT_PLAN_STATUS.CANCELLED
+                ].includes(plan.status)) {
                 continue;
             }
             const projected = projectEmployee(plan, employeeById);
@@ -268,13 +417,21 @@ function renderHistory(history) {
     `;
 }
 
-function renderEmployee(item, index) {
+function renderEmployee(item, index, group, projectionRevision) {
     const identity = item.number
         ? `${safe(item.number)} · ${safe(item.name)}`
         : safe(item.name);
     const next = item.nextInstallment
-        ? `Cuota ${item.nextInstallment.sequence}: ${formatCurrency(item.nextInstallment.amount)}`
-        : 'Sin cuotas pendientes';
+        ? item.installmentCount === 1
+            ? `Pago único: ${formatCurrency(item.nextInstallment.amount)}`
+            : `Cuota ${item.nextInstallment.sequence}: ${formatCurrency(item.nextInstallment.amount)}`
+        : 'Sin pagos pendientes';
+    const actionReference = item.canPause || item.canResume || item.periodSelection || item.canRemove
+        ? registerScheduledActionReference(group.kind, item, projectionRevision)
+        : '';
+    const periodActionLabel = group.kind === ADJUSTMENT_PLAN_KIND.BONUS
+        ? 'Entregar en esta nómina'
+        : 'Aplicar en esta nómina';
     return `
         <details class="payroll-scheduled__employee" data-scheduled-employee="${index}">
             <summary>
@@ -286,7 +443,47 @@ function renderEmployee(item, index) {
                 <span class="payroll-scheduled__toggle"><span>Ver historial</span><span>Ocultar historial</span></span>
             </summary>
             <div class="payroll-scheduled__employee-body">
-                <p><strong>Próxima cuota:</strong> ${safe(next)}</p>
+                <p><strong>Próximo pago:</strong> ${safe(next)}</p>
+                ${item.periodSelection ? `
+                    <div class="payroll-scheduled__period-selection">
+                        <label>
+                            <span>${safe(periodActionLabel)}</span>
+                            <select data-payroll-adjustment-period-selection
+                                    data-scheduled-reference="${safe(actionReference)}"
+                                    aria-label="${safe(periodActionLabel)} para ${safe(item.name)}">
+                                ${item.periodSelection.options.map(option => `
+                                    <option value="${safe(option.value)}"
+                                            ${option.value === item.periodSelection.selectedValue ? 'selected' : ''}>
+                                        ${safe(option.label)} · ${formatCurrency(option.total)}
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </label>
+                        <p>Total en esta nómina: <strong>${formatCurrency(item.periodSelection.total)}</strong></p>
+                    </div>
+                ` : item.status === ADJUSTMENT_PLAN_STATUS.PAUSED ? `
+                    <p class="payroll-scheduled__period-note">Este pago está pausado hasta que lo reanudes.</p>
+                ` : item.status === ADJUSTMENT_PLAN_STATUS.CANCELLED ? `
+                    <p class="payroll-scheduled__period-note">Programación cancelada${item.cancellation?.cancelledAt ? ` el ${safe(formatDate(item.cancellation.cancelledAt))}` : ''}. El saldo y los pagos anteriores se conservan.</p>
+                ` : ''}
+                ${item.canPause || item.canResume ? `
+                    <button type="button"
+                            class="payroll-adjustment-button ${item.canPause ? 'payroll-adjustment-button--danger' : 'payroll-adjustment-button--primary'}"
+                            data-payroll-action="${item.canPause ? 'pause-scheduled-adjustment' : 'resume-scheduled-adjustment'}"
+                            data-scheduled-reference="${safe(actionReference)}"
+                            aria-label="${item.canPause ? 'Pausar' : 'Reanudar'} ${safe(item.planName)} para ${safe(item.name)}">
+                        ${item.canPause ? 'Pausar' : 'Reanudar'}
+                    </button>
+                ` : ''}
+                ${item.canRemove ? `
+                    <button type="button"
+                            class="payroll-adjustment-button payroll-adjustment-button--danger"
+                            data-payroll-action="remove-scheduled-adjustment-plan"
+                            data-scheduled-reference="${safe(actionReference)}"
+                            aria-label="Quitar ${safe(item.planName)} de la programación de ${safe(item.name)}">
+                        Quitar de esta programación
+                    </button>
+                ` : ''}
                 <h6>Historial de cuotas</h6>
                 ${renderHistory(item.history)}
             </div>
@@ -294,13 +491,18 @@ function renderEmployee(item, index) {
     `;
 }
 
-function renderGroup(group, index) {
+function renderGroup(group, index, projectionRevision) {
+    const groupReference = group.periodEligibleCount > 0 || group.canRemove
+        ? registerScheduledGroupReference(group, projectionRevision)
+        : '';
     const totalLabel = group.hasDifferentTotals
         ? 'Importes distintos por empleado'
         : `${formatCurrency(group.totalPerEmployee)} por empleado`;
     const countLabel = group.hasDifferentInstallmentCounts
-        ? 'Distinta cantidad de cuotas'
-        : `${group.installmentCount} cuotas`;
+        ? 'Distinta cantidad de pagos'
+        : group.installmentCount === 1
+            ? '1 pago'
+            : `${group.installmentCount} cuotas`;
     const startLabel = group.hasDifferentStartDates
         ? 'Fechas de inicio distintas'
         : `Inicio: ${formatDate(group.firstPeriodStart)}`;
@@ -319,13 +521,42 @@ function renderGroup(group, index) {
                 <span class="payroll-scheduled__toggle"><span>Ver detalle</span><span>Ocultar detalle</span></span>
             </summary>
             <div class="payroll-scheduled__group-body">
+                ${group.periodEligibleCount > 0 ? `
+                    <div class="payroll-scheduled__period-actions">
+                        <p>Total actual del grupo: <strong>${formatCurrency(group.currentPayrollTotal)}</strong></p>
+                        <div role="group" aria-label="Acciones para todos los empleados de ${safe(group.name)}">
+                            <button type="button"
+                                    data-payroll-action="set-scheduled-adjustment-group-period-selection"
+                                    data-selection-value="count:1"
+                                    data-scheduled-reference="${safe(groupReference)}">
+                                Todos: 1 cuota
+                            </button>
+                            <button type="button"
+                                    data-payroll-action="set-scheduled-adjustment-group-period-selection"
+                                    data-selection-value="pause"
+                                    data-scheduled-reference="${safe(groupReference)}">
+                                Pausar todos en esta nómina
+                            </button>
+                        </div>
+                    </div>
+                ` : ''}
+                ${group.canRemove ? `
+                    <div class="payroll-scheduled__remove-group">
+                        <button type="button" class="payroll-adjustment-button payroll-adjustment-button--danger"
+                                data-payroll-action="cancel-scheduled-adjustment-group"
+                                data-scheduled-reference="${safe(groupReference)}"
+                                aria-label="${safe(group.removeActionLabel)} ${safe(group.name)}">
+                            ${safe(group.removeActionLabel)}
+                        </button>
+                    </div>
+                ` : ''}
                 <div class="payroll-scheduled__progress" role="progressbar"
                      aria-label="${safe(group.progressLabel)}" aria-valuemin="0" aria-valuemax="100"
                      aria-valuenow="${group.progressPercent}">
                     <span style="width: ${group.progressPercent}%"></span>
                 </div>
                 ${group.employees.map((item, employeeIndex) =>
-                    renderEmployee(item, employeeIndex)
+                    renderEmployee(item, employeeIndex, group, projectionRevision)
                 ).join('')}
             </div>
         </details>
@@ -403,7 +634,11 @@ function renderEmployeePlan(plan, draft, planIndex) {
                             data-arg="${planIndex}">
                         ${actionLabel}
                     </button>
-                ` : '<p class="payroll-employee-scheduled__complete">Este plan está completado.</p>'}
+                ` : plan.statusLabel === 'Cancelado'
+                    ? '<p class="payroll-employee-scheduled__complete">Esta programación está cancelada. El saldo y el historial se conservan.</p>'
+                    : plan.statusLabel === 'Pausado'
+                        ? '<p class="payroll-employee-scheduled__complete">Esta programación está pausada.</p>'
+                        : '<p class="payroll-employee-scheduled__complete">Este plan está completado.</p>'}
                 ${isDraft ? renderManualMovementForm(plan, draft, planIndex) : ''}
             </div>
         </details>
@@ -430,18 +665,19 @@ export function renderEmployeeScheduledAdjustments(employee, { draft = null } = 
 
 export function renderScheduledAdjustmentGroups(kind, groups = []) {
     const meta = KIND_META[kind] || KIND_META[ADJUSTMENT_PLAN_KIND.DEDUCTION];
+    const projectionRevision = beginScheduledProjection(kind);
     return `
         <section class="payroll-adjustment-scheduled" data-scheduled-adjustments>
             <header>
                 <div>
-                    <span>Cuotas guardadas</span>
+                    <span>Pagos guardados</span>
                     <h4>Programados</h4>
                     <p>Consulta lo aplicado, lo pendiente y el historial de cada empleado.</p>
                 </div>
                 <strong>${groups.length} ${groups.length === 1 ? 'plan' : 'planes'}</strong>
             </header>
             ${groups.length > 0
-                ? `<div class="payroll-scheduled__groups">${groups.map(renderGroup).join('')}</div>`
+                ? `<div class="payroll-scheduled__groups">${groups.map((group, index) => renderGroup(group, index, projectionRevision)).join('')}</div>`
                 : `<p class="payroll-scheduled__empty">${meta.emptyLabel}</p>`}
         </section>
     `;
@@ -451,5 +687,6 @@ export default {
     buildEmployeeScheduledAdjustmentPlans,
     buildScheduledAdjustmentGroups,
     renderEmployeeScheduledAdjustments,
-    renderScheduledAdjustmentGroups
+    renderScheduledAdjustmentGroups,
+    resolveScheduledActionReference
 };

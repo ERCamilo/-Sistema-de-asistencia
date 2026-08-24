@@ -5,6 +5,7 @@ import {
     createPayrollAdjustmentInstallmentPlans,
     isPayrollAdjustmentInstallmentPlan,
     normalizeEmployeeAdjustmentEntries,
+    setPayrollAdjustmentPlanPaused,
     splitAdjustmentInstallments
 } from '../modules/features/payroll/PayrollAdjustmentInstallmentPlan.js';
 
@@ -49,6 +50,58 @@ describe('PayrollAdjustmentInstallmentPlan', () => {
         });
         expect(plans[0].installments.map(item => item.amount)).toEqual([33.33, 33.33, 33.34]);
         expect(new Set(plans.flatMap(plan => plan.installments.map(item => item.id))).size).toBe(6);
+    });
+
+    test('creates one canonical scheduled payment per employee only through the explicit single-payment flow', () => {
+        const plans = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['EMP-2', 'EMP-1'],
+            name: 'Herramientas',
+            totalAmount: 75,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-08-16',
+            createdAt: 1_787_299_200_000
+        }, { createId: sequentialIds() });
+
+        expect(plans).toHaveLength(2);
+        expect(new Set(plans.map(plan => plan.groupId)).size).toBe(1);
+        expect(new Set(plans.map(plan => plan.id)).size).toBe(2);
+        expect(plans.every(plan => plan.installmentCount === 1)).toBe(true);
+        expect(plans.map(plan => plan.installments.map(item => item.amount)))
+            .toEqual([[75], [75]]);
+        expect(() => createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['EMP-1'],
+            name: 'Herramientas',
+            totalAmount: 75,
+            installmentCount: 1,
+            firstPeriodStart: '2026-08-16',
+            createdAt: 1_787_299_200_000
+        }, { createId: sequentialIds() })).toThrow('cuotas');
+    });
+
+    test('pauses and resumes only pending one-payment plans while completed plans stay final', () => {
+        const [plan] = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.BONUS,
+            employeeIds: ['EMP-1'],
+            name: 'Reconocimiento',
+            totalAmount: 120,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-08-16',
+            createdAt: 100
+        }, { createId: sequentialIds() });
+
+        const paused = setPayrollAdjustmentPlanPaused(plan, true, 200);
+        expect(paused).toMatchObject({ status: 'paused', updatedAt: 200 });
+        expect(plan.status).toBe(ADJUSTMENT_PLAN_STATUS.ACTIVE);
+        expect(setPayrollAdjustmentPlanPaused(paused, false, 300))
+            .toMatchObject({ status: ADJUSTMENT_PLAN_STATUS.ACTIVE, updatedAt: 300 });
+
+        const completed = { ...plan, status: ADJUSTMENT_PLAN_STATUS.COMPLETED, balance: 0 };
+        expect(() => setPayrollAdjustmentPlanPaused(completed, true, 400)).toThrow('completado');
+        expect(() => setPayrollAdjustmentPlanPaused(completed, false, 400)).toThrow('completado');
     });
 
     test('creates deterministic output when the same dependencies and input are supplied', () => {
@@ -124,6 +177,7 @@ describe('PayrollAdjustmentInstallmentPlan', () => {
             firstPeriodStart: '2026-08-16',
             createdAt: 1_787_299_200_000
         }, { createId: sequentialIds() });
+        modern.status = ADJUSTMENT_PLAN_STATUS.PAUSED;
         const source = [legacy, modern];
 
         const normalized = normalizeEmployeeAdjustmentEntries(source);
@@ -133,6 +187,7 @@ describe('PayrollAdjustmentInstallmentPlan', () => {
         expect(normalized[0]).toEqual({ id: 'BON-OLD', type: 'fixed', value: 25, name: 'Bono antiguo' });
         expect(normalized[1]).not.toBe(modern);
         expect(normalized[1]).toEqual(modern);
+        expect(normalized[1].status).toBe(ADJUSTMENT_PLAN_STATUS.PAUSED);
         expect(source).toEqual([legacy, modern]);
     });
 });

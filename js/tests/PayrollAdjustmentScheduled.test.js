@@ -9,6 +9,9 @@ import {
     renderEmployeeScheduledAdjustments,
     renderScheduledAdjustmentGroups
 } from '../modules/features/payroll/PayrollAdjustmentScheduled.js';
+import {
+    setPayrollAdjustmentPeriodSelection
+} from '../modules/features/payroll/PayrollAdjustmentPeriodSelection.js';
 
 function plansFor(kind, employeeIds, {
     name = 'Uniformes',
@@ -24,6 +27,7 @@ function plansFor(kind, employeeIds, {
         name,
         totalAmount,
         installmentCount,
+        singlePayment: installmentCount === 1,
         firstPeriodStart,
         createdAt: 100
     }, { createId: prefix => `${prefix}-${seed}-${++serial}` });
@@ -56,6 +60,79 @@ function completeFirstInstallment(plan, {
 }
 
 describe('Payroll scheduled adjustments', () => {
+    test('renders individual and group remove actions with accessible copy and opaque tokens', () => {
+        const plans = plansFor(ADJUSTMENT_PLAN_KIND.DEDUCTION, ['EMP-1', 'EMP-2'], {
+            name: 'Uniformes', totalAmount: 90, installmentCount: 3, seed: 'remove-dom'
+        });
+        completeFirstInstallment(plans[1]);
+        const employees = [
+            { id: 'EMP-1', number: '1', name: 'Ada', deductions: [plans[0]], bonuses: [] },
+            { id: 'EMP-2', number: '2', name: 'Grace', deductions: [plans[1]], bonuses: [] }
+        ];
+        const markup = renderScheduledAdjustmentGroups(
+            'deductions',
+            buildScheduledAdjustmentGroups('deductions', employees, {
+                periodStart: '2026-08-16', periodEnd: '2026-08-31'
+            })
+        );
+        const host = document.createElement('div');
+        host.innerHTML = markup;
+
+        expect(host.querySelectorAll('[data-payroll-action="remove-scheduled-adjustment-plan"]'))
+            .toHaveLength(2);
+        expect(host.querySelector('[data-payroll-action="cancel-scheduled-adjustment-group"]')
+            .textContent).toContain('Cancelar programación');
+        expect(host.textContent).toContain('Quitar de esta programación');
+        expect([...host.querySelectorAll('[data-scheduled-reference]')].every(item =>
+            /^scheduled-action-/.test(item.dataset.scheduledReference)
+        )).toBe(true);
+        expect(markup).not.toContain(plans[0].id);
+        expect(markup).not.toContain(plans[0].groupId);
+        expect(markup).not.toContain(plans[0].employeeId);
+    });
+
+    test('uses Eliminar for a fully virgin group and protects completed plans', () => {
+        const virgin = plansFor(ADJUSTMENT_PLAN_KIND.BONUS, ['EMP-1'], { seed: 'virgin-remove' })[0];
+        let host = document.createElement('div');
+        host.innerHTML = renderScheduledAdjustmentGroups('bonuses', buildScheduledAdjustmentGroups(
+            'bonuses', [{ id: 'EMP-1', name: 'Ada', bonuses: [virgin], deductions: [] }],
+            { periodStart: '2026-08-01', periodEnd: '2026-08-15' }
+        ));
+        expect(host.querySelector('[data-payroll-action="cancel-scheduled-adjustment-group"]')
+            .textContent).toContain('Eliminar');
+
+        virgin.status = ADJUSTMENT_PLAN_STATUS.COMPLETED;
+        virgin.balance = 0;
+        host = document.createElement('div');
+        host.innerHTML = renderScheduledAdjustmentGroups('bonuses', buildScheduledAdjustmentGroups(
+            'bonuses', [{ id: 'EMP-1', name: 'Ada', bonuses: [virgin], deductions: [] }],
+            { periodStart: '2026-08-01', periodEnd: '2026-08-15' }
+        ));
+        expect(host.querySelector('[data-payroll-action="remove-scheduled-adjustment-plan"]')).toBeNull();
+        expect(host.querySelector('[data-payroll-action="cancel-scheduled-adjustment-group"]')).toBeNull();
+    });
+    test('keeps a cancelled plan visible for audit but excludes it from payroll actions', () => {
+        const plan = plansFor(ADJUSTMENT_PLAN_KIND.DEDUCTION, ['EMP-1'], {
+            name: 'Uniforme cancelado', seed: 'cancelled-audit'
+        })[0];
+        completeFirstInstallment(plan);
+        plan.status = ADJUSTMENT_PLAN_STATUS.CANCELLED;
+        plan.cancellation = { cancelledAt: Date.UTC(2026, 7, 20), cancelledBy: 'operator', reason: null };
+        const groups = buildScheduledAdjustmentGroups('deductions', [
+            { id: 'EMP-1', name: 'Ada', deductions: [plan], bonuses: [] }
+        ], { periodStart: '2026-08-16', periodEnd: '2026-08-31' });
+        const markup = renderScheduledAdjustmentGroups('deductions', groups);
+        const host = document.createElement('div');
+        host.innerHTML = markup;
+
+        expect(groups[0]).toMatchObject({ statusLabel: 'Cancelado', currentPayrollTotal: 0 });
+        expect(host.textContent).toContain('Programación cancelada');
+        expect(host.textContent).toContain('El saldo y los pagos anteriores se conservan');
+        expect(host.querySelector('[data-payroll-action="remove-scheduled-adjustment-plan"]')).toBeNull();
+        expect(host.querySelector('[data-payroll-action="cancel-scheduled-adjustment-group"]')).toBeNull();
+        expect(markup).not.toContain(plan.id);
+    });
+
     test('groups canonical plans by shared group without mixing bonus and deduction records', () => {
         const bonuses = plansFor(ADJUSTMENT_PLAN_KIND.BONUS, ['EMP-1', 'EMP-2'], {
             name: 'Premio de obra', totalAmount: 100, installmentCount: 2, seed: 'bonus'
@@ -204,6 +281,104 @@ describe('Payroll scheduled adjustments', () => {
             id: 'EMP-EMPTY', name: 'Sin planes', bonuses: [], deductions: [legacy]
         });
         expect(empty.textContent).toContain('No hay bonificaciones ni descuentos programados');
+    });
+
+    test('renders accessible pause and resume actions for one-payment plans without exposing ids', () => {
+        const plan = plansFor(ADJUSTMENT_PLAN_KIND.DEDUCTION, ['EMP-1'], {
+            name: 'Herramientas', totalAmount: 80, installmentCount: 1, seed: 'single-dom'
+        })[0];
+        const employees = [
+            { id: 'EMP-1', number: '1', name: 'Ada', bonuses: [], deductions: [plan] }
+        ];
+
+        const activeMarkup = renderScheduledAdjustmentGroups(
+            'deductions',
+            buildScheduledAdjustmentGroups('deductions', employees)
+        );
+        const active = document.createElement('div');
+        active.innerHTML = activeMarkup;
+        const pause = active.querySelector('[data-payroll-action="pause-scheduled-adjustment"]');
+        expect(pause).not.toBeNull();
+        expect(pause.textContent).toContain('Pausar');
+        expect(pause.getAttribute('aria-label')).toContain('Herramientas');
+        expect(pause.dataset.scheduledReference).toMatch(/^scheduled-action-/);
+        expect(pause.getAttribute('data-group-index')).toBeNull();
+        expect(pause.getAttribute('data-employee-index')).toBeNull();
+        expect(activeMarkup).not.toContain(plan.id);
+        expect(activeMarkup).not.toContain(plan.groupId);
+        expect(activeMarkup).not.toContain(plan.employeeId);
+
+        plan.status = ADJUSTMENT_PLAN_STATUS.PAUSED;
+        const pausedMarkup = renderScheduledAdjustmentGroups(
+            'deductions',
+            buildScheduledAdjustmentGroups('deductions', employees)
+        );
+        const paused = document.createElement('div');
+        paused.innerHTML = pausedMarkup;
+        expect(paused.textContent).toContain('Pausado');
+        expect(paused.querySelector('[data-payroll-action="resume-scheduled-adjustment"]'))
+            .not.toBeNull();
+        expect(pausedMarkup).not.toContain(plan.id);
+        expect(pausedMarkup).not.toContain(plan.groupId);
+        expect(pausedMarkup).not.toContain(plan.employeeId);
+    });
+
+    test.each([
+        ['deductions', 'Aplicar en esta nómina'],
+        ['bonuses', 'Entregar en esta nómina']
+    ])('renders accessible current-payroll selectors and quick actions for %s without ids', (
+        kind,
+        actionLabel
+    ) => {
+        const canonicalKind = kind === 'bonuses'
+            ? ADJUSTMENT_PLAN_KIND.BONUS
+            : ADJUSTMENT_PLAN_KIND.DEDUCTION;
+        const plans = plansFor(canonicalKind, ['EMP-1', 'EMP-2'], {
+            totalAmount: 90,
+            installmentCount: 3,
+            seed: `period-${kind}`
+        });
+        const employees = [
+            { id: 'EMP-1', number: '1', name: 'Ada', active: true, bonuses: [], deductions: [] },
+            { id: 'EMP-2', number: '2', name: 'Grace', active: true, bonuses: [], deductions: [] }
+        ];
+        employees[0][kind] = [plans[0]];
+        employees[1][kind] = [plans[1]];
+        let selections = setPayrollAdjustmentPeriodSelection([], {
+            kind,
+            planId: plans[0].id,
+            employeeId: 'EMP-1',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15'
+        }, { mode: 'count', count: 2 });
+        selections = setPayrollAdjustmentPeriodSelection(selections, {
+            kind,
+            planId: plans[1].id,
+            employeeId: 'EMP-2',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15'
+        }, { mode: 'pause' });
+        const groups = buildScheduledAdjustmentGroups(kind, employees, {
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            selections
+        });
+        const markup = renderScheduledAdjustmentGroups(kind, groups);
+        const host = document.createElement('div');
+        host.innerHTML = markup;
+
+        expect(groups[0].currentPayrollTotal).toBe(60);
+        expect(host.textContent).toContain(actionLabel);
+        expect(host.textContent).toContain('Total en esta nómina');
+        expect(host.textContent).toContain('Total actual del grupo');
+        expect(host.textContent).toContain('Todos: 1 cuota');
+        expect(host.textContent).toContain('Pausar todos en esta nómina');
+        expect(host.querySelectorAll('[data-payroll-adjustment-period-selection]')).toHaveLength(2);
+        expect(host.querySelector('[data-payroll-adjustment-period-selection]').value).toBe('count:2');
+        expect(markup).not.toContain(plans[0].id);
+        expect(markup).not.toContain(plans[0].groupId);
+        expect(markup).not.toContain(plans[0].installments[0].id);
+        expect(markup).not.toContain('EMP-1');
     });
 
     test('renders clear empty and expandable detail states without exposing internal identifiers', () => {

@@ -17,14 +17,23 @@ import {
  * payments or mutates employee data.
  */
 
-export function calculatePayrollBeforeLoans(payrollService, employeeId, periodStart, periodEnd, deductions, bonuses) {
+export function calculatePayrollBeforeLoans(
+    payrollService,
+    employeeId,
+    periodStart,
+    periodEnd,
+    deductions,
+    bonuses,
+    adjustmentSelections = []
+) {
     return payrollService.calculateEmployeePayroll(
         employeeId,
         periodStart,
         periodEnd,
         deductions,
         bonuses,
-        []
+        [],
+        adjustmentSelections
     );
 }
 

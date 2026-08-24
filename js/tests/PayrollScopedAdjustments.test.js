@@ -9,6 +9,8 @@ import {
     ADJUSTMENT_PLAN_KIND,
     createPayrollAdjustmentInstallmentPlans
 } from '../modules/features/payroll/PayrollAdjustmentInstallmentPlan.js';
+import { setPayrollAdjustmentPeriodSelection } from
+    '../modules/features/payroll/PayrollAdjustmentPeriodSelection.js';
 
 const scopedRule = (id, scope, targetId, type, value) => ({
     id,
@@ -129,6 +131,37 @@ describe('PayrollService — scoped adjustments for multiple positions', () => {
         expect(first.bonusBreakdown[0]).toMatchObject({ planId: bonus.id, sequence: 1 });
         expect(first.deductionBreakdown[0]).toMatchObject({ planId: deduction.id, sequence: 1 });
         expect(payrollState.employees[0]).toEqual(before);
+    });
+
+    test('uses the provisional period selection in payroll totals without mutating the plan', () => {
+        const payrollState = buildState();
+        let serial = 0;
+        const deduction = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['emp-1'],
+            name: 'Uniforme',
+            totalAmount: 60,
+            installmentCount: 3,
+            firstPeriodStart: '2026-07-24',
+            createdAt: 100
+        }, { createId: prefix => `${prefix}-${++serial}` })[0];
+        payrollState.employees[0].deductions = [deduction];
+        const before = JSON.parse(JSON.stringify(deduction));
+        const selections = setPayrollAdjustmentPeriodSelection([], {
+            kind: deduction.kind,
+            planId: deduction.id,
+            employeeId: 'emp-1',
+            periodStart: '2026-07-24',
+            periodEnd: '2026-07-24'
+        }, { mode: 'count', count: 2 });
+
+        const result = new PayrollService(payrollState).calculateEmployeePayroll(
+            'emp-1', '2026-07-24', '2026-07-24', [], [], [], selections
+        );
+
+        expect(result).toMatchObject({ deductions: 40, neto: 960 });
+        expect(result.deductionBreakdown.map(item => item.sequence)).toEqual([1, 2]);
+        expect(deduction).toEqual(before);
     });
 
     test('applies a fixed leader rule once even when two positions match', () => {

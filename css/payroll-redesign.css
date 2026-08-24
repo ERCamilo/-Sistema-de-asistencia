@@ -3257,6 +3257,21 @@
     accent-color: var(--adjustment-accent);
 }
 
+.payroll-adjustment-remember [data-remember-copy] {
+    display: grid;
+    gap: 2px;
+}
+
+.payroll-adjustment-remember [data-remember-copy] strong {
+    color: #e2e8f0;
+    font-size: 0.72rem;
+}
+
+.payroll-adjustment-remember [data-remember-copy] small {
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
 .payroll-adjustment-form__actions {
     display: flex;
     gap: 7px;
@@ -3504,6 +3519,39 @@
     margin-top: 3px;
     color: #788591;
     font-size: 0.61rem;
+}
+
+.payroll-adjustment-rule__concept .payroll-adjustment-rule__badge {
+    display: inline-flex;
+    width: fit-content;
+    margin-top: 5px;
+    padding: 2px 6px;
+    border: 1px solid color-mix(in srgb, var(--adjustment-accent) 45%, #475569);
+    border-radius: 999px;
+    color: var(--adjustment-accent-soft);
+    font-size: 0.56rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.payroll-adjustment-rule__scheduled-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(110px, 0.85fr) 54px minmax(82px, 0.7fr) 30px;
+    gap: 8px;
+    align-items: center;
+    min-height: 52px;
+    padding: 8px 11px;
+    color: #c4cdd5;
+    font-size: 0.7rem;
+}
+
+.payroll-adjustment-rule__scheduled-row > span:not(:first-child),
+.payroll-adjustment-rule__scheduled-row > strong {
+    text-align: right;
+}
+
+.payroll-adjustment-rule__scheduled-row > strong {
+    color: var(--adjustment-accent-soft);
 }
 
 .payroll-adjustment-rule__edit {
@@ -3928,7 +3976,8 @@
 
     .payroll-adjustment-summary__columns,
     .payroll-adjustment-group > summary,
-    .payroll-adjustment-rule > summary {
+    .payroll-adjustment-rule > summary,
+    .payroll-adjustment-rule__scheduled-row {
         grid-template-columns:
             minmax(0, 1.35fr)
             minmax(48px, 0.52fr)
@@ -3939,7 +3988,8 @@
 
     .payroll-adjustment-summary__columns > :nth-child(3),
     .payroll-adjustment-group > summary > :nth-child(3),
-    .payroll-adjustment-rule > summary > :nth-child(3) {
+    .payroll-adjustment-rule > summary > :nth-child(3),
+    .payroll-adjustment-rule__scheduled-row > :nth-child(3) {
         display: none;
     }
 
@@ -4697,6 +4747,49 @@
     padding: 12px 14px 14px;
     border-top: 1px solid #334155;
     background: #111820;
+}
+
+.payroll-scheduled__period-actions,
+.payroll-scheduled__period-selection {
+    display: grid;
+    gap: 8px;
+    margin: 10px 0 12px;
+    padding: 10px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #18232d;
+}
+
+.payroll-scheduled__remove-group {
+    display: flex;
+    justify-content: flex-end;
+    margin: 8px 0 10px;
+}
+
+.payroll-scheduled__period-actions [role="group"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.payroll-scheduled__period-actions button,
+.payroll-scheduled__period-selection select {
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    background: #0f1720;
+    color: #f1f5f9;
+}
+
+.payroll-scheduled__period-selection label {
+    display: grid;
+    gap: 6px;
+    color: #cbd5e1;
+}
+
+.payroll-scheduled__period-note {
+    color: #fbbf24;
 }
 
 .payroll-scheduled__employee-body p,

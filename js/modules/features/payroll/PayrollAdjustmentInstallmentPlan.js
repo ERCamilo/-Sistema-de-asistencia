@@ -8,6 +8,7 @@ export const ADJUSTMENT_PLAN_KIND = Object.freeze({
 
 export const ADJUSTMENT_PLAN_STATUS = Object.freeze({
     ACTIVE: 'active',
+    PAUSED: 'paused',
     COMPLETED: 'completed',
     CANCELLED: 'cancelled'
 });
@@ -75,7 +76,11 @@ function validatePlanInput(input = {}) {
     }
 
     const installmentCount = Number(input.installmentCount);
-    if (!Number.isInteger(installmentCount) || installmentCount < 2 || installmentCount > MAX_INSTALLMENTS) {
+    const singlePayment = input.singlePayment === true;
+    const invalidInstallmentCount = singlePayment
+        ? installmentCount !== 1
+        : installmentCount < 2 || installmentCount > MAX_INSTALLMENTS;
+    if (!Number.isInteger(installmentCount) || invalidInstallmentCount) {
         throw new Error(`La cantidad de cuotas debe ser un número entero entre 2 y ${MAX_INSTALLMENTS}`);
     }
     if (installmentCount > moneyToCents(totalAmount)) {
@@ -148,10 +153,12 @@ export function createPayrollAdjustmentInstallmentPlans(input = {}, dependencies
         employeeIds: [...normalized.employeeIds],
         createdAt: normalized.createdAt
     });
-    const installmentAmounts = splitAdjustmentInstallments(
-        normalized.totalAmount,
-        normalized.installmentCount
-    );
+    const installmentAmounts = normalized.installmentCount === 1
+        ? [normalized.totalAmount]
+        : splitAdjustmentInstallments(
+            normalized.totalAmount,
+            normalized.installmentCount
+        );
 
     return normalized.employeeIds.map((employeeId, employeeIndex) => {
         const id = createUniqueId(createId, usedIds, 'ADJ-PLAN', {
@@ -224,7 +231,39 @@ export function getPayrollAdjustmentInstallmentRemainingAmount(installment) {
     ));
 }
 
+export function setPayrollAdjustmentPlanPaused(plan, paused, updatedAt = Date.now()) {
+    if (!isPayrollAdjustmentInstallmentPlan(plan)) {
+        throw new Error('El pago programado no es válido');
+    }
+    if (Number(plan.installmentCount) !== 1 || (plan.installments || []).length !== 1) {
+        throw new Error('Solo los pagos programados de una sola vez pueden pausarse');
+    }
+    if (plan.status === ADJUSTMENT_PLAN_STATUS.COMPLETED) {
+        throw new Error('Un pago programado completado no puede pausarse ni reanudarse');
+    }
+
+    const expectedStatus = paused
+        ? ADJUSTMENT_PLAN_STATUS.ACTIVE
+        : ADJUSTMENT_PLAN_STATUS.PAUSED;
+    if (plan.status !== expectedStatus) {
+        throw new Error(paused
+            ? 'Solo un pago programado activo puede pausarse'
+            : 'Solo un pago programado pausado puede reanudarse');
+    }
+    const timestamp = Number(updatedAt);
+    if (!Number.isFinite(timestamp) || timestamp < 0) {
+        throw new Error('La fecha de actualización es obligatoria');
+    }
+    return {
+        ...plan,
+        status: paused ? ADJUSTMENT_PLAN_STATUS.PAUSED : ADJUSTMENT_PLAN_STATUS.ACTIVE,
+        updatedAt: timestamp
+    };
+}
+
 export function recomputePayrollAdjustmentInstallmentPlan(plan, updatedAt) {
+    const wasPaused = plan?.status === ADJUSTMENT_PLAN_STATUS.PAUSED;
+    const wasCancelled = plan?.status === ADJUSTMENT_PLAN_STATUS.CANCELLED;
     const installments = Array.isArray(plan?.installments) ? plan.installments : [];
     installments.forEach(installment => {
         if (!installment || installment.status === ADJUSTMENT_INSTALLMENT_STATUS.CANCELLED) return;
@@ -242,9 +281,13 @@ export function recomputePayrollAdjustmentInstallmentPlan(plan, updatedAt) {
     plan.progressPercent = roundMoney(plan.totalAmount > 0
         ? (plan.appliedAmount / roundMoney(plan.totalAmount)) * 100
         : 0);
-    plan.status = plan.balance === 0 && plan.appliedInstallments === installments.length
-        ? ADJUSTMENT_PLAN_STATUS.COMPLETED
-        : ADJUSTMENT_PLAN_STATUS.ACTIVE;
+    plan.status = wasCancelled
+        ? ADJUSTMENT_PLAN_STATUS.CANCELLED
+        : plan.balance === 0 && plan.appliedInstallments === installments.length
+            ? ADJUSTMENT_PLAN_STATUS.COMPLETED
+            : wasPaused
+                ? ADJUSTMENT_PLAN_STATUS.PAUSED
+                : ADJUSTMENT_PLAN_STATUS.ACTIVE;
     plan.updatedAt = updatedAt;
     return plan;
 }
@@ -258,6 +301,7 @@ function normalizeModernPlan(plan) {
         installmentCount: Number(plan.installmentCount) || 0,
         appliedInstallments: Number(plan.appliedInstallments) || 0,
         progressPercent: Number(plan.progressPercent) || 0,
+        cancellation: plan.cancellation ? { ...plan.cancellation } : plan.cancellation,
         installments: (Array.isArray(plan.installments) ? plan.installments : []).map(installment => ({
             ...installment,
             amount: roundMoney(installment.amount),

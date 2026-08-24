@@ -7,6 +7,10 @@ import {
     isPayrollAdjustmentInstallmentPlan,
     recomputePayrollAdjustmentInstallmentPlan
 } from './PayrollAdjustmentInstallmentPlan.js';
+import {
+    getPayrollAdjustmentPendingInstallments,
+    resolvePayrollAdjustmentPeriodApplication
+} from './PayrollAdjustmentPeriodSelection.js';
 
 export const ADJUSTMENT_INSTALLMENT_APPLICATION_RECORD_TYPE =
     'payroll-adjustment-installment-application';
@@ -36,8 +40,12 @@ function isCanonicalEmployeePlan(plan, employeeId, kind, { requireActive = true 
         plan.type === 'fixed' &&
         (requireActive
             ? plan.status === ADJUSTMENT_PLAN_STATUS.ACTIVE
-            : [ADJUSTMENT_PLAN_STATUS.ACTIVE, ADJUSTMENT_PLAN_STATUS.COMPLETED]
-                .includes(plan.status)) &&
+            : [
+                ADJUSTMENT_PLAN_STATUS.ACTIVE,
+                ADJUSTMENT_PLAN_STATUS.PAUSED,
+                ADJUSTMENT_PLAN_STATUS.COMPLETED,
+                ADJUSTMENT_PLAN_STATUS.CANCELLED
+            ].includes(plan.status)) &&
         Array.isArray(plan.installments) &&
         Array.isArray(plan.history)
     );
@@ -52,25 +60,15 @@ function isActiveApplication(entry) {
     );
 }
 
-function applicationForPeriod(plan, periodStart, periodEnd) {
-    return plan.history.find(entry =>
+function applicationsForPeriod(plan, periodStart, periodEnd) {
+    return plan.history.filter(entry =>
         isActiveApplication(entry) &&
         text(entry.payrollPeriodStart) === text(periodStart) &&
         text(entry.payrollPeriodEnd) === text(periodEnd)
-    ) || null;
-}
-
-function pendingInstallment(plan) {
-    return [...plan.installments]
-        .filter(item =>
-            item?.id &&
-            item.status === ADJUSTMENT_INSTALLMENT_STATUS.PENDING &&
-            getPayrollAdjustmentInstallmentRemainingAmount(item) > 0
-        )
-        .sort((left, right) =>
-            (Number(left.sequence) || 0) - (Number(right.sequence) || 0) ||
-            text(left.id).localeCompare(text(right.id), 'es', { numeric: true })
-        )[0] || null;
+    ).sort((left, right) =>
+        (Number(left.sequence) || 0) - (Number(right.sequence) || 0) ||
+        text(left.installmentId).localeCompare(text(right.installmentId), 'es', { numeric: true })
+    );
 }
 
 function detailFor(
@@ -109,37 +107,44 @@ function detailFor(
     };
 }
 
-function previewDetails(employee, kind, periodStart, periodEnd) {
+function previewDetails(employee, kind, periodStart, periodEnd, selections) {
     if (!text(periodStart) || !text(periodEnd) || text(periodStart) > text(periodEnd)) return [];
     return (Array.isArray(employee?.[kind]) ? employee[kind] : [])
         .filter(plan => isCanonicalEmployeePlan(
             plan, employee?.id, kind, { requireActive: false }
         ))
-        .map(plan => {
-            const existing = applicationForPeriod(plan, periodStart, periodEnd);
-            if (existing) {
-                const applied = plan.installments.find(item =>
-                    text(item?.id) === text(existing.installmentId) &&
-                    item.status === ADJUSTMENT_INSTALLMENT_STATUS.APPLIED
-                );
-                return applied ? detailFor(
-                    plan,
-                    applied,
-                    employee.id,
-                    kind,
-                    periodStart,
-                    periodEnd,
-                    existing
-                ) : null;
+        .flatMap(plan => {
+            const existing = applicationsForPeriod(plan, periodStart, periodEnd);
+            if (existing.length > 0) {
+                return existing.map(application => {
+                    const applied = plan.installments.find(item =>
+                        text(item?.id) === text(application.installmentId) &&
+                        item.status === ADJUSTMENT_INSTALLMENT_STATUS.APPLIED
+                    );
+                    return applied ? detailFor(
+                        plan,
+                        applied,
+                        employee.id,
+                        kind,
+                        periodStart,
+                        periodEnd,
+                        application
+                    ) : null;
+                }).filter(Boolean);
             }
-            if (plan.status !== ADJUSTMENT_PLAN_STATUS.ACTIVE) return null;
-            if (text(periodStart) < text(plan.firstPeriodStart)) return null;
-            const installment = pendingInstallment(plan);
-            return installment ? detailFor(
+            if (plan.status !== ADJUSTMENT_PLAN_STATUS.ACTIVE) return [];
+            if (text(periodStart) < text(plan.firstPeriodStart)) return [];
+            const application = resolvePayrollAdjustmentPeriodApplication(plan, {
+                kind,
+                employeeId: employee.id,
+                periodStart,
+                periodEnd,
+                selections
+            });
+            return application.installments.map(installment => detailFor(
                 plan, installment, employee.id, kind, periodStart, periodEnd
-            ) : null;
+            ));
         })
-        .filter(Boolean)
         .sort((left, right) =>
             left.planId.localeCompare(right.planId, 'es', { numeric: true }) ||
             left.sequence - right.sequence ||
@@ -149,13 +154,14 @@ function previewDetails(employee, kind, periodStart, periodEnd) {
 
 export function buildPayrollAdjustmentInstallmentPreview(employee, {
     periodStart,
-    periodEnd
+    periodEnd,
+    selections = []
 } = {}) {
     const bonusDetails = previewDetails(
-        employee, ADJUSTMENT_PLAN_KIND.BONUS, periodStart, periodEnd
+        employee, ADJUSTMENT_PLAN_KIND.BONUS, periodStart, periodEnd, selections
     );
     const deductionDetails = previewDetails(
-        employee, ADJUSTMENT_PLAN_KIND.DEDUCTION, periodStart, periodEnd
+        employee, ADJUSTMENT_PLAN_KIND.DEDUCTION, periodStart, periodEnd, selections
     );
     return {
         bonusTotal: money(bonusDetails.reduce((sum, item) => sum + item.amount, 0)),
@@ -233,7 +239,7 @@ function preflightApplication(employees, closure) {
         throw new Error('El cierre de Nómina no es válido');
     }
     const employeeById = new Map((employees || []).map(item => [text(item?.id), item]));
-    return closureDetails(closure).map(detail => {
+    const operations = closureDetails(closure).map(detail => {
         if (detail.payrollPeriodStart !== text(closure.periodStart) ||
             detail.payrollPeriodEnd !== text(closure.periodEnd)) {
             throw new Error(`La cuota ${detail.installmentId} pertenece a otro período`);
@@ -265,18 +271,41 @@ function preflightApplication(employees, closure) {
         if (plan.status !== ADJUSTMENT_PLAN_STATUS.ACTIVE ||
             installment.status !== ADJUSTMENT_INSTALLMENT_STATUS.PENDING ||
             text(periodStartFor(plan)) > text(closure.periodStart) ||
-            text(pendingInstallment(plan)?.id) !== text(installment.id) ||
             getPayrollAdjustmentInstallmentRemainingAmount(installment) !== detail.amount) {
             throw new Error(`La cuota ${detail.installmentId} cambió desde la vista previa`);
         }
-        const periodApplication = applicationForPeriod(
-            plan, closure.periodStart, closure.periodEnd
-        );
-        if (periodApplication) {
-            throw new Error(`El plan ${plan.id} ya tiene una cuota aplicada en este período`);
-        }
         return { ...target, detail, history: null, operation: 'apply' };
     });
+
+    const applyGroups = new Map();
+    for (const operation of operations.filter(item => item.operation === 'apply')) {
+        const key = [
+            operation.detail.employeeId,
+            operation.detail.kind,
+            operation.detail.planId
+        ].join(':');
+        if (!applyGroups.has(key)) applyGroups.set(key, []);
+        applyGroups.get(key).push(operation);
+    }
+    for (const group of applyGroups.values()) {
+        const plan = group[0].plan;
+        if (applicationsForPeriod(plan, closure.periodStart, closure.periodEnd).length > 0) {
+            throw new Error(`El plan ${plan.id} ya tiene aplicaciones en este período`);
+        }
+        const requested = [...group].sort((left, right) =>
+            left.detail.sequence - right.detail.sequence ||
+            left.detail.installmentId.localeCompare(
+                right.detail.installmentId, 'es', { numeric: true }
+            )
+        );
+        const pending = getPayrollAdjustmentPendingInstallments(plan).slice(0, requested.length);
+        if (pending.length !== requested.length || requested.some((operation, index) =>
+            text(operation.detail.installmentId) !== text(pending[index]?.id)
+        )) {
+            throw new Error(`Las cuotas del plan ${plan.id} cambiaron desde la vista previa`);
+        }
+    }
+    return operations;
 }
 
 function periodStartFor(plan) {
