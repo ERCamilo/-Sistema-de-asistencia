@@ -7,7 +7,9 @@ import {
 } from './PayrollAdjustments.js';
 import { splitAdjustmentInstallments } from './PayrollAdjustmentInstallmentPlan.js';
 import {
+    beginScheduledAdjustmentProjection,
     buildScheduledAdjustmentGroups,
+    renderScheduledAdjustmentSummaryDetail,
     renderScheduledAdjustmentGroups
 } from './PayrollAdjustmentScheduled.js';
 import { getPayrollAdjustmentPeriodRuntimeSelections } from
@@ -94,10 +96,34 @@ function detailId(adjustment, index, kind) {
     return adjustment.id || `${kind === 'bonuses' ? 'BON' : 'DED'}-${index + 1}`;
 }
 
+function individualConceptLabel(kind, rule) {
+    const raw = rule.isScheduled ? rule.name : rule.adjustment?.name;
+    return String(raw || '').trim() || (kind === 'bonuses' ? 'Bonificación' : 'Descuento');
+}
+
+function groupIndividualRulesByConcept(kind, rules) {
+    const groups = new Map();
+    for (const rule of rules) {
+        const label = individualConceptLabel(kind, rule);
+        const key = label.toLocaleLowerCase('es');
+        if (!groups.has(key)) groups.set(key, { label, rules: [], total: 0, employeeIds: new Set() });
+        const group = groups.get(key);
+        group.rules.push(rule);
+        group.total += rule.amount;
+        (rule.employeeIds || []).forEach(id => group.employeeIds.add(String(id)));
+    }
+    return [...groups.values()].map(group => ({
+        ...group,
+        ruleCount: group.rules.length,
+        employeeCount: group.employeeIds.size
+    }));
+}
+
 export function buildAdjustmentScopeSummary(
     kind, adjustments = [], rows = [], state = {}, scheduledGroups = []
 ) {
     const detailsKey = kind === 'bonuses' ? '_bonusDetails' : '_deductionDetails';
+    const employeeLookup = new Map((state.employees || []).map(employee => [String(employee.id), employee]));
     const categories = SCOPE_META.map(meta => ({
         ...meta,
         rules: [],
@@ -132,7 +158,17 @@ export function buildAdjustmentScopeSummary(
             amount,
             appliedTo,
             sourceLabel: 'Solo esta nómina',
-            isScheduled: false
+            isScheduled: false,
+            employeeIds: [...employeeIds],
+            employeeDetails: matches.map(({ row, detail }) => {
+                const employee = employeeLookup.get(String(row._employeeId));
+                return {
+                    id: String(row._employeeId),
+                    name: employee?.name || 'Empleado no disponible',
+                    number: employee?.number || '',
+                    amount: Number(detail.amount) || 0
+                };
+            })
         });
         category.total += amount;
         employeeIds.forEach(employeeId => category.employeeIds.add(employeeId));
@@ -171,13 +207,18 @@ export function buildAdjustmentScopeSummary(
                 name: item.planName,
                 targetLabel: item.number ? `${item.number} · ${item.name}` : item.name,
                 employeeCount: 1,
+                employeeIds: [String(item.employeeId)],
                 amount,
-                selectionLabel
+                selectionLabel,
+                scheduledItem: item,
+                scheduledGroup: group
             });
             individualCategory.total += amount;
             individualCategory.employeeIds.add(String(item.employeeId));
         }
     }
+
+    individualCategory.concepts = groupIndividualRulesByConcept(kind, individualCategory.rules);
 
     return {
         categories: categories.map(category => ({
@@ -490,25 +531,53 @@ function renderRule(kind, rule, state, rows) {
     `;
 }
 
-function renderScheduledSummaryRule(rule) {
+function renderTemporaryConceptRule(kind, rule, state, rows) {
+    const formula = rule.adjustment.type === 'percentage'
+        ? `${Number(rule.adjustment.value) || 0}%`
+        : formatCurrency(Number(rule.adjustment.value) || 0);
     return `
-        <div class="payroll-adjustment-rule payroll-adjustment-rule--scheduled">
-            <div class="payroll-adjustment-rule__scheduled-row">
-                <span class="payroll-adjustment-rule__concept">
-                    <strong>${safe(rule.name || 'Sin nombre')}</strong>
-                    <small class="payroll-adjustment-rule__badge">${safe(rule.sourceLabel)}</small>
-                    <small>${safe(rule.targetLabel)}</small>
-                </span>
-                <span>${safe(rule.selectionLabel)}</span>
-                <span>${rule.employeeCount}</span>
-                <strong>${formatCurrency(rule.amount)}</strong>
-                <span aria-hidden="true"></span>
-            </div>
-        </div>
+        <section class="payroll-adjustment-concept__temporary">
+            ${rule.employeeDetails.map(employee => `
+                <article class="payroll-adjustment-concept__detail">
+                    <span class="payroll-adjustment-concept__employee">
+                        <strong>${safe(employee.number ? `${employee.number} · ${employee.name}` : employee.name)}</strong>
+                        <small>Solo esta nómina</small>
+                    </span>
+                    <span>Una sola vez<small>${formula}</small></span>
+                    <strong>${formatCurrency(employee.amount)}</strong>
+                    <span aria-hidden="true"></span>
+                </article>
+            `).join('')}
+            <details class="payroll-adjustment-concept__manage">
+                <summary>Editar este ajuste</summary>
+                <div class="payroll-adjustment-rule__editor">
+                    ${renderAdjustmentForm(kind, state, rows, rule.adjustment, rule.index)}
+                </div>
+            </details>
+        </section>
     `;
 }
 
-function renderSummary(kind, summary, state, rows) {
+function renderIndividualConcept(kind, concept, state, rows, projectionRevision) {
+    return `
+        <details class="payroll-adjustment-concept">
+            <summary>
+                <span><strong>${safe(concept.label)}</strong></span>
+                <span>${concept.ruleCount} ajustes</span>
+                <span>${concept.employeeCount} empleados</span>
+                <strong>${formatCurrency(concept.total)}</strong>
+                <span class="payroll-adjustment-group__toggle" aria-hidden="true"></span>
+            </summary>
+            <div class="payroll-adjustment-concept__body">
+                ${concept.rules.map(rule => rule.isScheduled
+                    ? renderScheduledAdjustmentSummaryDetail(rule, projectionRevision, concept.label)
+                    : renderTemporaryConceptRule(kind, rule, state, rows)).join('')}
+            </div>
+        </details>
+    `;
+}
+
+function renderSummary(kind, summary, state, rows, projectionRevision) {
     const totalLabel = kind === 'bonuses' ? 'Total bonificado' : 'Total descontado';
     const firstNonEmpty = summary.categories.find(category => category.rules.length > 0)?.id;
 
@@ -545,9 +614,13 @@ function renderSummary(kind, summary, state, rows) {
                         </summary>
                         <div class="payroll-adjustment-group__body">
                             ${category.rules.length
-                                ? category.rules.map(rule => rule.isScheduled
-                                    ? renderScheduledSummaryRule(rule)
-                                    : renderRule(kind, rule, state, rows)).join('')
+                                ? (category.id === 'employee'
+                                    ? category.concepts.map(concept =>
+                                        renderIndividualConcept(
+                                            kind, concept, state, rows, projectionRevision
+                                        )).join('')
+                                    : category.rules.map(rule =>
+                                        renderRule(kind, rule, state, rows)).join(''))
                                 : '<p class="payroll-adjustment-group__empty">No hay ajustes en este alcance.</p>'}
                         </div>
                     </details>
@@ -572,6 +645,10 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
             state.exportConfig?.periodEnd
         )
     });
+    const projectionRevision = beginScheduledAdjustmentProjection(kind);
+    const scheduledHTML = renderScheduledAdjustmentGroups(
+        kind, scheduledGroups, { projectionRevision }
+    );
     const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, state, scheduledGroups);
     const isBonus = kind === 'bonuses';
     const composerScope = resolveAdjustmentScope({
@@ -592,9 +669,9 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
                 <section class="payroll-adjustment-composer">
                     ${renderAdjustmentForm(kind, state, rows, { scope: composerScope })}
                 </section>
-                ${renderSummary(kind, summary, state, rows)}
+                ${renderSummary(kind, summary, state, rows, projectionRevision)}
             </div>
-            ${renderScheduledAdjustmentGroups(kind, scheduledGroups)}
+            ${scheduledHTML}
         </div>
     `;
 }

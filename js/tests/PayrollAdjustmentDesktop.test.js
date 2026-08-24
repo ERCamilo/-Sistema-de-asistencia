@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import {
     buildAdjustmentScopeSummary,
     calculateAdjustmentPreview,
@@ -11,6 +13,12 @@ import {
 } from '../modules/features/payroll/PayrollAdjustmentInstallmentPlan.js';
 import { setPayrollAdjustmentPeriodRuntimeSelection } from
     '../modules/features/payroll/PayrollAdjustmentPeriodSelection.js';
+import { resolveScheduledActionReference } from
+    '../modules/features/payroll/PayrollAdjustmentScheduled.js';
+
+const PAYROLL_CSS = fs.readFileSync(
+    path.resolve(__dirname, '../../css/payroll-redesign.css'), 'utf8'
+);
 
 const state = {
     exportConfig: {
@@ -82,6 +90,107 @@ describe('PayrollAdjustmentDesktop', () => {
         expect(individuals.textContent).toContain('$76.66');
         expect(host.querySelector('.payroll-adjustment-summary header').textContent).toContain('$76.66');
         expect(localState.exportConfig.deductions).toHaveLength(1);
+    });
+
+    test('groups every visible individual adjustment by normalized concept with exact details and opaque actions', () => {
+        let serial = 0;
+        const planned = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['employee-1', 'employee-2'],
+            name: ' botas ',
+            totalAmount: 30,
+            installmentCount: 2,
+            firstPeriodStart: '2026-08-01',
+            createdAt: 100
+        }, { createId: prefix => prefix + '-boots-' + (++serial) });
+        const [single] = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['employee-3'],
+            name: 'BOTAS',
+            totalAmount: 12,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-08-01',
+            createdAt: 200
+        }, { createId: prefix => prefix + '-single-' + (++serial) });
+        planned[0].history.push({ id: 'movement-1', amount: 1, status: 'applied' });
+        const adjustments = [
+            { id: 'TEMP-A', name: 'Botas', scope: 'employee',
+                targetIds: ['employee-1', 'employee-2'], type: 'fixed', value: 10 },
+            { id: 'TEMP-B', name: '  botas  ', scope: 'employee',
+                targetIds: ['employee-3'], type: 'fixed', value: 5 }
+        ];
+        const employees = [
+            { id: 'employee-1', number: '007', name: 'Ada Lovelace', active: true,
+                deductions: [planned[0]], bonuses: [] },
+            { id: 'employee-2', number: '009', name: 'Grace Hopper', active: true,
+                deductions: [planned[1]], bonuses: [] },
+            { id: 'employee-3', number: '011', name: 'Linus Torvalds', active: true,
+                deductions: [single], bonuses: [] }
+        ];
+        const details = (temporaryId, temporaryAmount, plan) => [
+            { id: temporaryId, amount: temporaryAmount, appliedTo: 1000 },
+            { id: plan.installments[0].id, planId: plan.id,
+                employeeId: plan.employeeId, amount: plan.installments[0].amount,
+                source: 'payroll-adjustment-installment' }
+        ];
+        const localState = {
+            ...state,
+            employees,
+            exportConfig: { ...state.exportConfig, periodStart: '2026-08-01',
+                periodEnd: '2026-08-15', deductions: adjustments }
+        };
+        const localRows = [
+            { _employeeId: 'employee-1', _deductionDetails: details('TEMP-A', 10, planned[0]), _bonusDetails: [] },
+            { _employeeId: 'employee-2', _deductionDetails: details('TEMP-A', 10, planned[1]), _bonusDetails: [] },
+            { _employeeId: 'employee-3', _deductionDetails: details('TEMP-B', 5, single), _bonusDetails: [] }
+        ];
+
+        const host = document.createElement('div');
+        host.innerHTML = renderDesktopAdjustmentWorkspace('deductions', localState, localRows);
+        const individuals = [...host.querySelectorAll('.payroll-adjustment-group')]
+            .find(item => item.querySelector(':scope > summary')?.textContent.includes('Individuales'));
+        const concepts = individuals.querySelectorAll('.payroll-adjustment-concept');
+
+        expect(concepts).toHaveLength(1);
+        expect(concepts[0].querySelector(':scope > summary').textContent)
+            .toEqual(expect.stringContaining('Botas'));
+        expect(concepts[0].querySelector(':scope > summary').textContent)
+            .toEqual(expect.stringContaining('$67.00'));
+        expect(concepts[0].querySelector(':scope > summary').textContent)
+            .toEqual(expect.stringContaining('5 ajustes'));
+        expect(concepts[0].querySelector(':scope > summary').textContent)
+            .toEqual(expect.stringContaining('3 empleados'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('007 · Ada Lovelace'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('009 · Grace Hopper'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('011 · Linus Torvalds'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('Solo esta nómina'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('Programado'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('1 de 2 cuotas'));
+        expect(concepts[0].textContent).toEqual(expect.stringContaining('Cancelar programación'));
+
+        const scheduledButtons = [...concepts[0].querySelectorAll('button[data-scheduled-reference]')];
+        scheduledButtons.forEach(button => {
+            expect(button.getAttribute('aria-label')).toMatch(/^(Pausar|Reanudar|Quitar programación|Cancelar programación) Botas para (Ada|Grace|Linus)/i);
+        });
+        expect(PAYROLL_CSS).not.toContain('.payroll-adjustment-concept > summary > :nth-child(3),');
+        expect(PAYROLL_CSS).not.toContain('.payroll-adjustment-concept__detail > :nth-child(3)');
+        expect(PAYROLL_CSS).toMatch(/payroll-adjustment-concept__actions\s*{[^}]*grid-column:\s*1\s*\/\s*-1/s);
+
+        const actions = [...concepts[0].querySelectorAll('[data-scheduled-reference]')];
+        expect(actions.length).toBeGreaterThanOrEqual(4);
+        actions.forEach(action => {
+            expect(action.dataset.scheduledReference).toMatch(/^scheduled-action-/);
+            expect(resolveScheduledActionReference(action.dataset.scheduledReference)).not.toBeNull();
+        });
+        [...planned, single].forEach(plan => {
+            expect(concepts[0].innerHTML).not.toContain(plan.id);
+            expect(concepts[0].innerHTML).not.toContain(plan.groupId);
+        });
+        expect(individuals.querySelector(':scope > summary').textContent)
+            .toEqual(expect.stringContaining('5 reglas'));
+        expect(host.querySelector('.payroll-adjustment-summary > header').textContent)
+            .toEqual(expect.stringContaining('$67.00'));
     });
 
     test('keeps the current payroll total exact when its scheduled final payment completes the plan', () => {

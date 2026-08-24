@@ -36,6 +36,10 @@ function beginScheduledProjection(kind) {
     return revision;
 }
 
+export function beginScheduledAdjustmentProjection(kind) {
+    return beginScheduledProjection(kind);
+}
+
 function registerScheduledActionReference(kind, item, projectionRevision) {
     const token = `scheduled-action-${++scheduledActionSequence}`;
     scheduledActionReferences.set(token, Object.freeze({
@@ -491,6 +495,69 @@ function renderEmployee(item, index, group, projectionRevision) {
     `;
 }
 
+export function renderScheduledAdjustmentSummaryDetail(rule, projectionRevision, conceptLabel = '') {
+    const item = rule?.scheduledItem;
+    const group = rule?.scheduledGroup;
+    if (!item || !group) return '';
+    const identity = item.number ? `${safe(item.number)} · ${safe(item.name)}` : safe(item.name);
+    const actionReference = item.canPause || item.canResume || item.periodSelection || item.canRemove
+        ? registerScheduledActionReference(group.kind, item, projectionRevision)
+        : '';
+    const periodActionLabel = group.kind === ADJUSTMENT_PLAN_KIND.BONUS
+        ? 'Entregar en esta nómina'
+        : 'Aplicar en esta nómina';
+    const concept = String(conceptLabel || rule.name || group.name || 'Ajuste').trim();
+    const stateAction = item.canPause ? 'Pausar' : 'Reanudar';
+    const removeAction = item.hasMovement ? 'Cancelar programación' : 'Quitar programación';
+    const contextualLabel = action => `${action} ${concept} para ${item.name}`;
+    return `
+        <article class="payroll-adjustment-concept__detail is-scheduled">
+            <span class="payroll-adjustment-concept__employee">
+                <strong>${identity}</strong>
+                <small>Programado</small>
+            </span>
+            <span>
+                ${safe(rule.selectionLabel || item.statusLabel)}
+                <small>${safe(item.statusLabel)}</small>
+            </span>
+            <strong>${formatCurrency(rule.amount)}</strong>
+            <div class="payroll-adjustment-concept__actions">
+                ${item.periodSelection ? `
+                    <label>
+                        <span class="sr-only">${safe(periodActionLabel)} para ${safe(item.name)}</span>
+                        <select data-payroll-adjustment-period-selection
+                                data-scheduled-reference="${safe(actionReference)}"
+                                aria-label="${safe(periodActionLabel)} para ${safe(item.name)}">
+                            ${item.periodSelection.options.map(option => `
+                                <option value="${safe(option.value)}"
+                                    ${option.value === item.periodSelection.selectedValue ? 'selected' : ''}>
+                                    ${safe(option.label)} · ${formatCurrency(option.total)}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </label>
+                ` : ''}
+                ${item.canPause || item.canResume ? `
+                    <button type="button" class="payroll-adjustment-button ${item.canPause ? 'payroll-adjustment-button--danger' : 'payroll-adjustment-button--primary'}"
+                            data-payroll-action="${item.canPause ? 'pause-scheduled-adjustment' : 'resume-scheduled-adjustment'}"
+                            data-scheduled-reference="${safe(actionReference)}"
+                            aria-label="${safe(contextualLabel(stateAction))}">
+                        ${stateAction}
+                    </button>
+                ` : ''}
+                ${item.canRemove ? `
+                    <button type="button" class="payroll-adjustment-button payroll-adjustment-button--danger"
+                            data-payroll-action="remove-scheduled-adjustment-plan"
+                            data-scheduled-reference="${safe(actionReference)}"
+                            aria-label="${safe(contextualLabel(removeAction))}">
+                        ${removeAction}
+                    </button>
+                ` : ''}
+            </div>
+        </article>
+    `;
+}
+
 function renderGroup(group, index, projectionRevision) {
     const groupReference = group.periodEligibleCount > 0 || group.canRemove
         ? registerScheduledGroupReference(group, projectionRevision)
@@ -663,9 +730,9 @@ export function renderEmployeeScheduledAdjustments(employee, { draft = null } = 
     `;
 }
 
-export function renderScheduledAdjustmentGroups(kind, groups = []) {
+export function renderScheduledAdjustmentGroups(kind, groups = [], options = {}) {
     const meta = KIND_META[kind] || KIND_META[ADJUSTMENT_PLAN_KIND.DEDUCTION];
-    const projectionRevision = beginScheduledProjection(kind);
+    const projectionRevision = options.projectionRevision ?? beginScheduledProjection(kind);
     return `
         <section class="payroll-adjustment-scheduled" data-scheduled-adjustments>
             <header>
@@ -686,7 +753,9 @@ export function renderScheduledAdjustmentGroups(kind, groups = []) {
 export default {
     buildEmployeeScheduledAdjustmentPlans,
     buildScheduledAdjustmentGroups,
+    beginScheduledAdjustmentProjection,
     renderEmployeeScheduledAdjustments,
+    renderScheduledAdjustmentSummaryDetail,
     renderScheduledAdjustmentGroups,
     resolveScheduledActionReference
 };
