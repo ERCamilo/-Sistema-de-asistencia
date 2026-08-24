@@ -10,6 +10,7 @@ import {
     deleteEmployeePhotoCache,
     ensureEmployeePhotoStore,
     getEmployeePhotoCache,
+    listEmployeePhotosCache,
     putEmployeePhotoCache
 } from './EmployeePhotoCache.js';
 
@@ -323,6 +324,10 @@ export class IndexedDBService {
 
     async getEmployeePhoto(employeeId) {
         return getEmployeePhotoCache(this, employeeId);
+    }
+
+    async listEmployeePhotos() {
+        return listEmployeePhotosCache(this);
     }
 
     async replaceEmployeePhoto(employeeId, value) {

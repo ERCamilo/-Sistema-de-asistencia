@@ -1,4 +1,23 @@
-import { EmployeePhotoService } from '../modules/services/EmployeePhotoService.js';
+import { EmployeePhotoService, DEFAULT_ORIGINAL_RETENTION_MS } from '../modules/services/EmployeePhotoService.js';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function syncedOriginalRecord(overrides = {}) {
+    return {
+        employeeId: 'emp-1',
+        thumbnailBlob: new Blob(['thumb'], { type: 'image/webp' }),
+        optimizedBlob: new Blob(['original'], { type: 'image/webp' }),
+        width: 800,
+        height: 800,
+        version: 100,
+        updatedAt: 100,
+        remoteSyncedVersion: 100,
+        remoteRevision: 'ready-revision',
+        remoteSignalUpdatedAt: 100,
+        pendingDelete: false,
+        ...overrides
+    };
+}
 
 function processedPhoto(version = 7) {
     return {
@@ -484,5 +503,106 @@ describe('EmployeePhotoService', () => {
         expect(cached).toBeNull();
         expect(localStore.replaceEmployeePhoto).toHaveBeenCalledTimes(1);
         expect(localStore.replaceEmployeePhoto.mock.calls[0][1].pendingDelete).toBe(true);
+    });
+});
+
+describe('EmployeePhotoService original retention', () => {
+    function storeFor(records) {
+        let cached = Array.isArray(records) ? records[0] : records;
+        const all = () => (cached ? [cached] : []);
+        return {
+            localStore: {
+                listEmployeePhotos: jest.fn(async () => all()),
+                getEmployeePhoto: jest.fn(async () => cached),
+                replaceEmployeePhoto: jest.fn(async (_id, value) => {
+                    cached = { ...cached, ...value };
+                    return cached;
+                }),
+                deleteEmployeePhoto: jest.fn()
+            },
+            getCached: () => cached
+        };
+    }
+
+    test('evicts the original of a fully-synced record past the retention window', async () => {
+        const { localStore, getCached } = storeFor(syncedOriginalRecord());
+        const service = new EmployeePhotoService({ localStore, now: () => 100 + DEFAULT_ORIGINAL_RETENTION_MS + 1 });
+
+        await expect(service.evictStaleOriginals()).resolves.toEqual({ evicted: 1, scanned: 1 });
+        const written = localStore.replaceEmployeePhoto.mock.calls[0][1];
+        expect(written.optimizedBlob).toBeNull();
+        expect(written.thumbnailBlob).toBeInstanceOf(Blob);
+        expect(written.version).toBe(100);
+        expect(written.remoteSyncedVersion).toBe(100);
+        expect(getCached().optimizedBlob).toBeNull();
+    });
+
+    test('keeps the original of an unsynced local-only photo even when stale', async () => {
+        const record = syncedOriginalRecord({
+            version: 200,
+            remoteSyncedVersion: 100,
+            remoteSignalUpdatedAt: null
+        });
+        const { localStore, getCached } = storeFor(record);
+        const service = new EmployeePhotoService({ localStore, now: () => 100 + DEFAULT_ORIGINAL_RETENTION_MS * 2 });
+
+        await expect(service.evictStaleOriginals()).resolves.toEqual({ evicted: 0, scanned: 1 });
+        expect(localStore.replaceEmployeePhoto).not.toHaveBeenCalled();
+        expect(getCached().optimizedBlob).toBeInstanceOf(Blob);
+    });
+
+    test('keeps the original of a pending-delete tombstone', async () => {
+        const record = syncedOriginalRecord({
+            pendingDelete: true,
+            thumbnailBlob: null,
+            optimizedBlob: new Blob(['original'], { type: 'image/webp' }),
+            deleteIntentAt: 50
+        });
+        const { localStore } = storeFor(record);
+        const service = new EmployeePhotoService({ localStore, now: () => 100 + DEFAULT_ORIGINAL_RETENTION_MS * 2 });
+
+        await expect(service.evictStaleOriginals()).resolves.toEqual({ evicted: 0, scanned: 1 });
+        expect(localStore.replaceEmployeePhoto).not.toHaveBeenCalled();
+    });
+
+    test('keeps the original of records younger than the retention window', async () => {
+        const { localStore, getCached } = storeFor(syncedOriginalRecord());
+        const service = new EmployeePhotoService({ localStore, now: () => 100 + DEFAULT_ORIGINAL_RETENTION_MS });
+
+        await expect(service.evictStaleOriginals()).resolves.toEqual({ evicted: 0, scanned: 1 });
+        expect(localStore.replaceEmployeePhoto).not.toHaveBeenCalled();
+
+        await expect(service.evictStaleOriginals(DAY_MS)).resolves.toEqual({ evicted: 1, scanned: 1 });
+        expect(getCached().optimizedBlob).toBeNull();
+    });
+
+    test('re-downloads the original on demand after eviction via recoverRemoteVariant', async () => {
+        const { localStore, getCached } = storeFor(syncedOriginalRecord({
+            updatedAt: 0,
+            remoteSignalUpdatedAt: 0
+        }));
+        const imageClient = {
+            upload: jest.fn(),
+            lookupAndDownload: jest.fn(async coords => ({
+                asset: { uploadedAt: '2026-08-22T12:00:00Z' },
+                blob: new Blob([`remote-${coords.variant}`], { type: 'image/webp' })
+            })),
+            delete: jest.fn()
+        };
+        const service = new EmployeePhotoService({
+            localStore,
+            imageClient,
+            now: () => DEFAULT_ORIGINAL_RETENTION_MS + 1
+        });
+
+        await expect(service.evictStaleOriginals()).resolves.toEqual({ evicted: 1, scanned: 1 });
+        expect(getCached().optimizedBlob).toBeNull();
+        imageClient.lookupAndDownload.mockClear();
+
+        const recovered = await service.getEmployeeOriginal('emp-1');
+        expect(imageClient.lookupAndDownload).toHaveBeenCalledTimes(1);
+        expect(imageClient.lookupAndDownload.mock.calls[0][0].variant).toBe('original');
+        expect(recovered.optimizedBlob).toBeInstanceOf(Blob);
+        expect(getCached().optimizedBlob).toBeInstanceOf(Blob);
     });
 });

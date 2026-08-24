@@ -9,6 +9,7 @@ const PROFILE_COORDINATES = Object.freeze({
     assetId: 'profile'
 });
 const PHOTO_VARIANTS = Object.freeze(['thumbnail', 'original']);
+export const DEFAULT_ORIGINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function normalizeEmployeeId(employeeId) {
     return String(employeeId || '').trim();
@@ -361,12 +362,50 @@ export class EmployeePhotoService {
         }
     }
 
+    async evictStaleOriginals(maxAgeMs = DEFAULT_ORIGINAL_RETENTION_MS) {
+        let records;
+        try {
+            records = await this.localStore.listEmployeePhotos?.();
+        } catch {
+            return { evicted: 0, scanned: 0 };
+        }
+        if (!Array.isArray(records)) return { evicted: 0, scanned: 0 };
+        let evicted = 0;
+        for (const record of records) {
+            if (!record || record.pendingDelete === true) continue;
+            // Nunca se desaloja una foto local sin sincronizar: el remoto aún
+            // no tiene el original y el desalojo implicaría pérdida de datos.
+            if (record.remoteSyncedVersion !== record.version) continue;
+            if (!(record.optimizedBlob instanceof Blob)) continue;
+            const reference = Number.isFinite(record.remoteSignalUpdatedAt)
+                ? record.remoteSignalUpdatedAt
+                : Number.isFinite(record.updatedAt) ? record.updatedAt : 0;
+            if (this.now() - reference <= maxAgeMs) continue;
+            const didEvict = await this.enqueueLocalMutation(record.employeeId, async () => {
+                const latest = await this.readLocal(record.employeeId);
+                if (!latest || latest.pendingDelete) return false;
+                if (latest.remoteSyncedVersion !== latest.version) return false;
+                if (!(latest.optimizedBlob instanceof Blob)) return false;
+                await this.localStore.replaceEmployeePhoto(latest.employeeId || record.employeeId, {
+                    ...latest,
+                    optimizedBlob: null,
+                    optimizedMimeType: null
+                });
+                return true;
+            }).catch(() => false);
+            if (didEvict) evicted += 1;
+        }
+        return { evicted, scanned: records.length };
+    }
+
     async reconcileEmployeePhotoSignals(employees) {
         const candidates = (Array.isArray(employees) ? employees : [])
             .filter(employee => employee?.id && normalizeEmployeePhoto(employee.photo));
-        return Promise.allSettled(candidates.map(employee =>
+        const results = await Promise.allSettled(candidates.map(employee =>
             this.reconcileEmployeePhotoSignal(employee.id, employee.photo)
         ));
+        void this.evictStaleOriginals().catch(() => {});
+        return results;
     }
 
     async refreshEmployeePhoto(employeeId) {

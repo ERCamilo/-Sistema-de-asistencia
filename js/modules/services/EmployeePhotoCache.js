@@ -132,6 +132,16 @@ export async function getEmployeePhotoCache(service, employeeId) {
     });
 }
 
+export async function listEmployeePhotosCache(service) {
+    await service.init();
+    return new Promise((resolve, reject) => {
+        const transaction = service.db.transaction([STORE_NAME], 'readonly');
+        const request = transaction.objectStore(STORE_NAME).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error || new Error('Employee photo cache list failed'));
+    });
+}
+
 export async function deleteEmployeePhotoCache(service, employeeId) {
     const id = normalizeEmployeeId(employeeId);
     await service.init();
