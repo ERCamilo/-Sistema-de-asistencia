@@ -1,7 +1,8 @@
 import {
     ADJUSTMENT_PLAN_KIND,
     ADJUSTMENT_PLAN_STATUS,
-    createPayrollAdjustmentInstallmentPlans
+    createPayrollAdjustmentInstallmentPlans,
+    setPayrollAdjustmentPlanPaused
 } from '../modules/features/payroll/PayrollAdjustmentInstallmentPlan.js';
 import {
     applyPayrollAdjustmentInstallmentsForClosure,
@@ -55,6 +56,37 @@ function closureFor(preview, {
 }
 
 describe('Payroll adjustment installment settlement', () => {
+    test('a paused one-payment plan is excluded from preview and cannot be closed until resumed', () => {
+        let serial = 0;
+        const [active] = createPayrollAdjustmentInstallmentPlans({
+            kind: ADJUSTMENT_PLAN_KIND.DEDUCTION,
+            employeeIds: ['EMP-1'],
+            name: 'Pago único',
+            totalAmount: 90,
+            installmentCount: 1,
+            singlePayment: true,
+            firstPeriodStart: '2026-08-01',
+            createdAt: 100
+        }, { createId: prefix => prefix + '-' + (++serial) });
+        const target = employee({ deductions: [active] });
+        const activePreview = buildPayrollAdjustmentInstallmentPreview(target, {
+            periodStart: '2026-08-01', periodEnd: '2026-08-15'
+        });
+        target.deductions[0] = setPayrollAdjustmentPlanPaused(active, true, 150);
+
+        expect(buildPayrollAdjustmentInstallmentPreview(target, {
+            periodStart: '2026-08-01', periodEnd: '2026-08-15'
+        })).toMatchObject({ bonusTotal: 0, deductionTotal: 0 });
+        expect(() => applyPayrollAdjustmentInstallmentsForClosure(
+            [target], closureFor(activePreview), { now: 200 }
+        )).toThrow('cambió');
+
+        target.deductions[0] = setPayrollAdjustmentPlanPaused(target.deductions[0], false, 250);
+        expect(buildPayrollAdjustmentInstallmentPreview(target, {
+            periodStart: '2026-08-01', periodEnd: '2026-08-15'
+        }).deductionTotal).toBe(90);
+    });
+
     test('preview is repeatable and does not mutate the employee or plan', () => {
         const target = employee({ bonuses: [createPlan(ADJUSTMENT_PLAN_KIND.BONUS)] });
         const before = JSON.parse(JSON.stringify(target));

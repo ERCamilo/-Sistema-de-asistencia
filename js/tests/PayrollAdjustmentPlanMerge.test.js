@@ -97,6 +97,61 @@ describe('EmployeeMerge payroll adjustment plans', () => {
         expect(mergeEmployees(right, left).bonuses[0].name).toBe('Zeta');
     });
 
+    test('preserves a newer paused plan through employee merge', () => {
+        const base = planFor();
+        const serverPlan = { ...base, status: 'paused', updatedAt: 300 };
+        const localPlan = { ...base, status: 'active', updatedAt: 200 };
+
+        const merged = mergeEmployees(
+            { id: 'EMP-1', bonuses: [serverPlan], updatedAt: 300 },
+            { id: 'EMP-1', bonuses: [localPlan], updatedAt: 200 }
+        ).bonuses[0];
+
+        expect(merged.status).toBe('paused');
+        expect(merged.updatedAt).toBe(300);
+    });
+
+    test('preserves a newer cancellation and its audit fields through merge', () => {
+        const base = planFor();
+        const cancelled = {
+            ...base,
+            status: 'cancelled',
+            cancellation: { cancelledAt: 300, cancelledBy: 'operator', reason: 'Acuerdo' },
+            updatedAt: 300
+        };
+        const active = { ...base, status: 'active', updatedAt: 200 };
+
+        const merged = mergeEmployees(
+            { id: 'EMP-1', bonuses: [cancelled], updatedAt: 300 },
+            { id: 'EMP-1', bonuses: [active], updatedAt: 200 }
+        ).bonuses[0];
+
+        expect(merged).toMatchObject({
+            status: 'cancelled',
+            cancellation: { cancelledAt: 300, cancelledBy: 'operator', reason: 'Acuerdo' },
+            balance: base.balance
+        });
+    });
+
+    test('treats cancellation as terminal when an older device uploads a later active copy', () => {
+        const base = planFor();
+        const cancelled = {
+            ...base,
+            status: 'cancelled',
+            cancellation: { cancelledAt: 300, cancelledBy: 'operator', reason: null },
+            updatedAt: 300
+        };
+        const staleReactivated = { ...base, status: 'active', updatedAt: 400 };
+
+        expect(mergeEmployees(
+            { id: 'EMP-1', bonuses: [staleReactivated], updatedAt: 400 },
+            { id: 'EMP-1', bonuses: [cancelled], updatedAt: 300 }
+        ).bonuses[0]).toMatchObject({
+            status: 'cancelled',
+            cancellation: { cancelledAt: 300 }
+        });
+    });
+
     test('preserves the existing legacy merge behavior', () => {
         const serverLegacy = { id: 'LEGACY', type: 'fixed', value: 10, updatedAt: 100 };
         const localLegacy = { id: 'LEGACY', type: 'fixed', value: 20, updatedAt: 100 };

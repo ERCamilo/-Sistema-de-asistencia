@@ -7,9 +7,13 @@ import {
 } from './PayrollAdjustments.js';
 import { splitAdjustmentInstallments } from './PayrollAdjustmentInstallmentPlan.js';
 import {
+    beginScheduledAdjustmentProjection,
     buildScheduledAdjustmentGroups,
+    renderScheduledAdjustmentSummaryDetail,
     renderScheduledAdjustmentGroups
 } from './PayrollAdjustmentScheduled.js';
+import { getPayrollAdjustmentPeriodRuntimeSelections } from
+    './PayrollAdjustmentPeriodSelection.js';
 
 const SCOPE_META = [
     { id: 'global', label: 'General', summary: 'Generales' },
@@ -92,8 +96,34 @@ function detailId(adjustment, index, kind) {
     return adjustment.id || `${kind === 'bonuses' ? 'BON' : 'DED'}-${index + 1}`;
 }
 
-export function buildAdjustmentScopeSummary(kind, adjustments = [], rows = [], state = {}) {
+function individualConceptLabel(kind, rule) {
+    const raw = rule.isScheduled ? rule.name : rule.adjustment?.name;
+    return String(raw || '').trim() || (kind === 'bonuses' ? 'Bonificación' : 'Descuento');
+}
+
+function groupIndividualRulesByConcept(kind, rules) {
+    const groups = new Map();
+    for (const rule of rules) {
+        const label = individualConceptLabel(kind, rule);
+        const key = label.toLocaleLowerCase('es');
+        if (!groups.has(key)) groups.set(key, { label, rules: [], total: 0, employeeIds: new Set() });
+        const group = groups.get(key);
+        group.rules.push(rule);
+        group.total += rule.amount;
+        (rule.employeeIds || []).forEach(id => group.employeeIds.add(String(id)));
+    }
+    return [...groups.values()].map(group => ({
+        ...group,
+        ruleCount: group.rules.length,
+        employeeCount: group.employeeIds.size
+    }));
+}
+
+export function buildAdjustmentScopeSummary(
+    kind, adjustments = [], rows = [], state = {}, scheduledGroups = []
+) {
     const detailsKey = kind === 'bonuses' ? '_bonusDetails' : '_deductionDetails';
+    const employeeLookup = new Map((state.employees || []).map(employee => [String(employee.id), employee]));
     const categories = SCOPE_META.map(meta => ({
         ...meta,
         rules: [],
@@ -126,11 +156,69 @@ export function buildAdjustmentScopeSummary(kind, adjustments = [], rows = [], s
             targetLabel: targetLabel(adjustment, state),
             employeeCount: employeeIds.size,
             amount,
-            appliedTo
+            appliedTo,
+            sourceLabel: 'Solo esta nómina',
+            isScheduled: false,
+            employeeIds: [...employeeIds],
+            employeeDetails: matches.map(({ row, detail }) => {
+                const employee = employeeLookup.get(String(row._employeeId));
+                return {
+                    id: String(row._employeeId),
+                    name: employee?.name || 'Empleado no disponible',
+                    number: employee?.number || '',
+                    amount: Number(detail.amount) || 0
+                };
+            })
         });
         category.total += amount;
         employeeIds.forEach(employeeId => category.employeeIds.add(employeeId));
     });
+
+    const individualCategory = categoryByScope.get('employee');
+    for (const group of (Array.isArray(scheduledGroups) ? scheduledGroups : [])) {
+        for (const item of (Array.isArray(group?.employees) ? group.employees : [])) {
+            const matchingDetails = rows.flatMap(row =>
+                String(row?._employeeId) === String(item.employeeId)
+                    ? (row[detailsKey] || []).filter(detail =>
+                        detail?.source === 'payroll-adjustment-installment' &&
+                        String(detail.planId) === String(item.planId)
+                    )
+                    : []
+            );
+            if (item.status === 'cancelled' || (!item.periodSelection && matchingDetails.length === 0)) {
+                continue;
+            }
+            const amount = matchingDetails.length > 0
+                ? matchingDetails.reduce((sum, detail) => sum + (Number(detail.amount) || 0), 0)
+                : Number(item.periodSelection?.total) || 0;
+            const selection = item.periodSelection;
+            const selectionLabel = !selection
+                ? 'Ya aplicado en esta nómina'
+                : selection.mode === 'pause'
+                ? 'Pausado en esta nómina'
+                : selection.mode === 'full'
+                    ? 'Saldo completo'
+                    : item.installmentCount === 1
+                        ? '1 pago'
+                        : `${Math.min(selection.count, selection.pendingCount)} de ${selection.pendingCount} cuotas`;
+            individualCategory.rules.push({
+                isScheduled: true,
+                sourceLabel: 'Programado',
+                name: item.planName,
+                targetLabel: item.number ? `${item.number} · ${item.name}` : item.name,
+                employeeCount: 1,
+                employeeIds: [String(item.employeeId)],
+                amount,
+                selectionLabel,
+                scheduledItem: item,
+                scheduledGroup: group
+            });
+            individualCategory.total += amount;
+            individualCategory.employeeIds.add(String(item.employeeId));
+        }
+    }
+
+    individualCategory.concepts = groupIndividualRulesByConcept(kind, individualCategory.rules);
 
     return {
         categories: categories.map(category => ({
@@ -138,7 +226,11 @@ export function buildAdjustmentScopeSummary(kind, adjustments = [], rows = [], s
             employeeCount: category.employeeIds.size
         })),
         total: categories.reduce((sum, category) => sum + category.total, 0),
-        overlapCount: rows.filter(row => (row[detailsKey] || []).length > 1).length
+        overlapCount: rows.filter(row => new Set((row[detailsKey] || []).map(detail =>
+            detail?.source === 'payroll-adjustment-installment'
+                ? `scheduled:${String(detail.planId)}`
+                : `temporary:${String(detail.id)}`
+        )).size > 1).length
     };
 }
 
@@ -157,7 +249,8 @@ export function readAdjustmentForm(form) {
         : [];
 
     const type = data.get('type') === 'percentage' ? 'percentage' : 'fixed';
-    const installmentsEligible = scope === 'employee' && type === 'fixed';
+    const remembered = data.get('remembered') === 'on';
+    const installmentsEligible = scope === 'employee' && type === 'fixed' && remembered;
 
     return {
         name: String(data.get('name') || '').trim(),
@@ -166,7 +259,7 @@ export function readAdjustmentForm(form) {
         scope,
         targetId: targetFields[scope] || null,
         targetIds,
-        remembered: data.get('remembered') === 'on',
+        remembered,
         installmentsEnabled: installmentsEligible && data.get('installmentsEnabled') === 'on',
         installmentCount: Number(data.get('installmentCount')),
         firstPeriodStart: String(data.get('firstPeriodStart') || '').trim()
@@ -228,6 +321,18 @@ function renderScopeSelector(kind, selectedScope, formKey) {
     `;
 }
 
+function rememberAdjustmentCopy(scope) {
+    if (scope === 'employee') {
+        return '<strong>Guardar como pago programado</strong>'
+            + '<small>Se aplicará una sola vez en la nómina elegida.</small>';
+    }
+    if (scope === 'leader' || scope === 'position') {
+        return '<strong>Guardar para próximas nóminas</strong>'
+            + '<small>Quedará disponible como ajuste predeterminado.</small>';
+    }
+    return 'Guardar';
+}
+
 function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) {
     const resolved = resolveAdjustmentScope(adjustment);
     const isEditing = Number.isInteger(index);
@@ -241,7 +346,9 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
     const selectedEmployeeIds = resolveAdjustmentTargetIds(adjustment);
     const leaders = (state.leaders || []).filter(leader => leader.active !== false);
     const positions = (state.positions || []).filter(position => position.active !== false);
-    const installmentsEligible = resolved.scope === 'employee' && adjustment.type !== 'percentage';
+    const installmentsEligible = resolved.scope === 'employee' &&
+        adjustment.type !== 'percentage' &&
+        adjustment.remembered === true;
     const installmentsEnabled = installmentsEligible && adjustment.installmentsEnabled === true;
     const installmentCount = Number.isInteger(Number(adjustment.installmentCount))
         ? Number(adjustment.installmentCount)
@@ -286,7 +393,7 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
                     <input name="name"
                            type="text"
                            value="${safe(adjustment.name || '')}"
-                           placeholder="${kind === 'bonuses' ? 'Opcional · por defecto: Bono' : 'Opcional · por defecto: Descuento'}">
+                           placeholder="${kind === 'bonuses' ? 'Opcional · por defecto: Bonificación' : 'Opcional · por defecto: Descuento'}">
                 </label>
                 <fieldset class="payroll-adjustment-value-type">
                     <legend>Tipo de valor</legend>
@@ -367,9 +474,9 @@ function renderAdjustmentForm(kind, state, rows, adjustment = {}, index = null) 
             </div>
 
             <div class="payroll-adjustment-form__footer">
-                <label class="payroll-adjustment-remember ${resolved.scope === 'employee' ? 'is-hidden' : ''}">
+                <label class="payroll-adjustment-remember">
                     <input type="checkbox" name="remembered" ${adjustment.remembered ? 'checked' : ''}>
-                    <span>Guardar</span>
+                    <span data-remember-copy>${rememberAdjustmentCopy(resolved.scope)}</span>
                 </label>
                 <div class="payroll-adjustment-form__actions">
                     ${isEditing ? `
@@ -405,6 +512,7 @@ function renderRule(kind, rule, state, rows) {
             <summary>
                 <span class="payroll-adjustment-rule__concept">
                     <strong>${safe(adjustment.name || 'Sin nombre')}</strong>
+                    <small class="payroll-adjustment-rule__badge">${safe(rule.sourceLabel)}</small>
                     <small>${safe(rule.targetLabel)}</small>
                 </span>
                 <span>${formula}</span>
@@ -423,7 +531,53 @@ function renderRule(kind, rule, state, rows) {
     `;
 }
 
-function renderSummary(kind, summary, state, rows) {
+function renderTemporaryConceptRule(kind, rule, state, rows) {
+    const formula = rule.adjustment.type === 'percentage'
+        ? `${Number(rule.adjustment.value) || 0}%`
+        : formatCurrency(Number(rule.adjustment.value) || 0);
+    return `
+        <section class="payroll-adjustment-concept__temporary">
+            ${rule.employeeDetails.map(employee => `
+                <article class="payroll-adjustment-concept__detail">
+                    <span class="payroll-adjustment-concept__employee">
+                        <strong>${safe(employee.number ? `${employee.number} · ${employee.name}` : employee.name)}</strong>
+                        <small>Solo esta nómina</small>
+                    </span>
+                    <span>Una sola vez<small>${formula}</small></span>
+                    <strong>${formatCurrency(employee.amount)}</strong>
+                    <span aria-hidden="true"></span>
+                </article>
+            `).join('')}
+            <details class="payroll-adjustment-concept__manage">
+                <summary>Editar este ajuste</summary>
+                <div class="payroll-adjustment-rule__editor">
+                    ${renderAdjustmentForm(kind, state, rows, rule.adjustment, rule.index)}
+                </div>
+            </details>
+        </section>
+    `;
+}
+
+function renderIndividualConcept(kind, concept, state, rows, projectionRevision) {
+    return `
+        <details class="payroll-adjustment-concept">
+            <summary>
+                <span><strong>${safe(concept.label)}</strong></span>
+                <span>${concept.ruleCount} ajustes</span>
+                <span>${concept.employeeCount} empleados</span>
+                <strong>${formatCurrency(concept.total)}</strong>
+                <span class="payroll-adjustment-group__toggle" aria-hidden="true"></span>
+            </summary>
+            <div class="payroll-adjustment-concept__body">
+                ${concept.rules.map(rule => rule.isScheduled
+                    ? renderScheduledAdjustmentSummaryDetail(rule, projectionRevision, concept.label)
+                    : renderTemporaryConceptRule(kind, rule, state, rows)).join('')}
+            </div>
+        </details>
+    `;
+}
+
+function renderSummary(kind, summary, state, rows, projectionRevision) {
     const totalLabel = kind === 'bonuses' ? 'Total bonificado' : 'Total descontado';
     const firstNonEmpty = summary.categories.find(category => category.rules.length > 0)?.id;
 
@@ -460,7 +614,13 @@ function renderSummary(kind, summary, state, rows) {
                         </summary>
                         <div class="payroll-adjustment-group__body">
                             ${category.rules.length
-                                ? category.rules.map(rule => renderRule(kind, rule, state, rows)).join('')
+                                ? (category.id === 'employee'
+                                    ? category.concepts.map(concept =>
+                                        renderIndividualConcept(
+                                            kind, concept, state, rows, projectionRevision
+                                        )).join('')
+                                    : category.rules.map(rule =>
+                                        renderRule(kind, rule, state, rows)).join(''))
                                 : '<p class="payroll-adjustment-group__empty">No hay ajustes en este alcance.</p>'}
                         </div>
                     </details>
@@ -477,8 +637,19 @@ function renderSummary(kind, summary, state, rows) {
 
 export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
     const adjustments = state.exportConfig?.[kind] || [];
-    const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, state);
-    const scheduledGroups = buildScheduledAdjustmentGroups(kind, state.employees || []);
+    const scheduledGroups = buildScheduledAdjustmentGroups(kind, state.employees || [], {
+        periodStart: state.exportConfig?.periodStart,
+        periodEnd: state.exportConfig?.periodEnd,
+        selections: getPayrollAdjustmentPeriodRuntimeSelections(
+            state.exportConfig?.periodStart,
+            state.exportConfig?.periodEnd
+        )
+    });
+    const projectionRevision = beginScheduledAdjustmentProjection(kind);
+    const scheduledHTML = renderScheduledAdjustmentGroups(
+        kind, scheduledGroups, { projectionRevision }
+    );
+    const summary = buildAdjustmentScopeSummary(kind, adjustments, rows, state, scheduledGroups);
     const isBonus = kind === 'bonuses';
     const composerScope = resolveAdjustmentScope({
         scope: state.exportConfig?.payrollAdjustmentComposerScopes?.[kind]
@@ -498,9 +669,9 @@ export function renderDesktopAdjustmentWorkspace(kind, state, rows) {
                 <section class="payroll-adjustment-composer">
                     ${renderAdjustmentForm(kind, state, rows, { scope: composerScope })}
                 </section>
-                ${renderSummary(kind, summary, state, rows)}
+                ${renderSummary(kind, summary, state, rows, projectionRevision)}
             </div>
-            ${renderScheduledAdjustmentGroups(kind, scheduledGroups)}
+            ${scheduledHTML}
         </div>
     `;
 }
@@ -512,10 +683,12 @@ export function updateAdjustmentFormPresentation(form, rows, positions) {
     form.querySelectorAll('.payroll-adjustment-form__target').forEach(target => {
         target.classList.toggle('is-visible', target.classList.contains(`payroll-adjustment-form__target--${adjustment.scope}`));
     });
-    form.querySelector('.payroll-adjustment-remember')
-        ?.classList.toggle('is-hidden', adjustment.scope === 'employee');
+    const rememberCopy = form.querySelector('[data-remember-copy]');
+    if (rememberCopy) rememberCopy.innerHTML = rememberAdjustmentCopy(adjustment.scope);
 
-    const installmentsEligible = adjustment.scope === 'employee' && adjustment.type === 'fixed';
+    const installmentsEligible = adjustment.scope === 'employee' &&
+        adjustment.type === 'fixed' &&
+        adjustment.remembered;
     const installmentOption = form.querySelector('[data-installment-option]');
     const installmentToggle = form.querySelector('[name="installmentsEnabled"]');
     const installmentDetails = form.querySelector('[data-installment-details]');

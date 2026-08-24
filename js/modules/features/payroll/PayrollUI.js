@@ -70,6 +70,24 @@ import {
     buildPayrollAdjustmentInstallmentSave,
     filterLegacyEmployeeAdjustments
 } from './PayrollAdjustmentInstallmentWorkflow.js';
+import {
+    isPayrollAdjustmentInstallmentPlan,
+    setPayrollAdjustmentPlanPaused
+} from './PayrollAdjustmentInstallmentPlan.js';
+import {
+    removeOrCancelPayrollAdjustmentPlans
+} from './PayrollAdjustmentCancellation.js';
+import {
+    resolveScheduledActionReference
+} from './PayrollAdjustmentScheduled.js';
+import {
+    clearPayrollAdjustmentPeriodRuntime,
+    getPayrollAdjustmentPeriodRuntimeSelections,
+    parsePayrollAdjustmentPeriodSelectionValue,
+    removePayrollAdjustmentPeriodRuntimeSelections,
+    setPayrollAdjustmentPeriodRuntimeSelection,
+    setPayrollAdjustmentPeriodRuntimeSelections
+} from './PayrollAdjustmentPeriodSelection.js';
 
 let context = null;
 let payrollService = null;
@@ -176,6 +194,25 @@ const _ACTION_MAP = {
     'add-desktop-adjustment': (kind, target) => window.PayrollUI?.addDesktopAdjustment?.(kind, target),
     'update-desktop-adjustment': (kind, target) => window.PayrollUI?.updateDesktopAdjustment?.(kind, target),
     'remove-desktop-adjustment': (kind, target) => window.PayrollUI?.removeDesktopAdjustment?.(kind, target),
+    'pause-scheduled-adjustment': (_value, target) =>
+        window.PayrollUI?.setScheduledAdjustmentPaused?.(
+            target.dataset.scheduledReference,
+            true
+        ),
+    'resume-scheduled-adjustment': (_value, target) =>
+        window.PayrollUI?.setScheduledAdjustmentPaused?.(
+            target.dataset.scheduledReference,
+            false
+        ),
+    'set-scheduled-adjustment-group-period-selection': (_value, target) =>
+        window.PayrollUI?.setScheduledAdjustmentGroupPeriodSelection?.(
+            target.dataset.scheduledReference,
+            target.dataset.selectionValue
+        ),
+    'remove-scheduled-adjustment-plan': (_value, target) =>
+        window.PayrollUI?.removeScheduledAdjustment?.(target.dataset.scheduledReference),
+    'cancel-scheduled-adjustment-group': (_value, target) =>
+        window.PayrollUI?.removeScheduledAdjustment?.(target.dataset.scheduledReference),
     'open-adjustment-employee-picker': (_value, target) => {
         window.PayrollUI?.openAdjustmentEmployeePicker?.(target);
     },
@@ -212,12 +249,21 @@ function _handlePayrollKeydown(e) {
 function _handlePayrollAdjustmentChoiceCapture(e) {
     if (!e.target.matches?.(
         '.payroll-adjustment-form input[name="scope"], '
-        + '.payroll-adjustment-form input[name="type"]'
+        + '.payroll-adjustment-form input[name="type"], '
+        + '.payroll-adjustment-form input[name="remembered"], '
+        + '.payroll-adjustment-form input[name="installmentsEnabled"]'
     )) return;
     _handlePayrollAdjustmentInput(e);
 }
 
 function _handlePayrollAdjustmentInput(e) {
+    if (e.type === 'change' && e.target.matches?.('[data-payroll-adjustment-period-selection]')) {
+        window.PayrollUI?.setScheduledAdjustmentPeriodSelection?.(
+            e.target.dataset.scheduledReference,
+            e.target.value
+        );
+        return;
+    }
     const historyFilter = e.target.dataset.payrollHistoryFilter;
     if (historyFilter && e.type === 'change') {
         window.PayrollUI?.setPayrollHistoryFilter?.(historyFilter, e.target.value);
@@ -243,8 +289,11 @@ let _payrollDelegationAttached = false;
 export function init(ctx) {
     context = ctx;
     payrollService = ctx.services.payroll;
+    if (ctx.state?.exportConfig) {
+        delete ctx.state.exportConfig.payrollAdjustmentPeriodSelections;
+    }
     if (!_payrollDelegationAttached) {
-        document.addEventListener('click', _handlePayrollAdjustmentChoiceCapture, true);
+        document.addEventListener('input', _handlePayrollAdjustmentChoiceCapture, true);
         document.addEventListener('change', _handlePayrollAdjustmentChoiceCapture, true);
         document.addEventListener('click', _handlePayrollClick);
         document.addEventListener('keydown', _handlePayrollKeydown);
@@ -1059,6 +1108,10 @@ function renderAdjustmentSummaryDetails(summary, kind) {
 function generateExportData() {
     const state = getState();
     const { periodStart, periodEnd, deductions } = state.exportConfig;
+    const adjustmentSelections = getPayrollAdjustmentPeriodRuntimeSelections(
+        periodStart,
+        periodEnd
+    );
     if (!periodStart || !periodEnd) return [];
 
     const filteredEmployees = getLeaderFilteredEmployees(state);
@@ -1074,7 +1127,8 @@ function generateExportData() {
             periodStart,
             periodEnd,
             deductions || [],
-            state.exportConfig.bonuses || []
+            state.exportConfig.bonuses || [],
+            adjustmentSelections
         );
         
         const organization = buildPayrollHistoricalOrganization({
@@ -1143,7 +1197,7 @@ function createPayrollAdjustmentIdFactory(createdAt) {
 function buildDesktopAdjustment(kind, draft, current = {}) {
     const state = getState();
     const prefix = kind === 'bonuses' ? 'BON' : 'DED';
-    const defaultName = kind === 'bonuses' ? 'Bono' : 'Descuento';
+    const defaultName = kind === 'bonuses' ? 'Bonificación' : 'Descuento';
     const employeeTargetIds = draft.scope === 'employee'
         ? [...new Set((draft.targetIds || []).map(String))]
             .sort((left, right) => left.localeCompare(right, 'es', { numeric: true }))
@@ -1159,7 +1213,7 @@ function buildDesktopAdjustment(kind, draft, current = {}) {
             : draft.scope === 'employee'
                 ? employeeTargetIds[0]
                 : String(draft.targetId),
-        remembered: draft.scope !== 'employee' && draft.remembered,
+        remembered: Boolean(draft.remembered),
         source: current.source || 'manual'
     };
 
@@ -1183,6 +1237,16 @@ function validateDesktopAdjustment(draft) {
     }
     if (draft.scope !== 'global' && !draft.targetId) {
         return 'Seleccioná el destino del ajuste.';
+    }
+    if (
+        draft.remembered &&
+        ['leader', 'position', 'employee'].includes(draft.scope) &&
+        !String(draft.name || '').trim()
+    ) {
+        return 'Escribe un concepto antes de guardar este ajuste.';
+    }
+    if (draft.remembered && draft.scope === 'employee' && draft.type !== 'fixed') {
+        return 'Guardar como pago programado solo está disponible para monto fijo.';
     }
     return null;
 }
@@ -1276,7 +1340,10 @@ export async function addDesktopAdjustment(kind, target) {
     }
 
     const state = getState();
-    if (draft.installmentsEnabled) {
+    const savesEmployeePayment = draft.remembered &&
+        draft.scope === 'employee' &&
+        draft.type === 'fixed';
+    if (savesEmployeePayment) {
         const previousEmployees = [...(state.employees || [])];
         const previousExportConfig = {
             ...state.exportConfig,
@@ -1311,7 +1378,9 @@ export async function addDesktopAdjustment(kind, target) {
                 requireLocalSuccess: true
             }));
             if (persistenceOutcome?.localOk !== true) {
-                throw new Error('No se pudieron guardar las cuotas en este dispositivo. No se realizó ningún cambio.');
+                throw new Error(draft.installmentsEnabled
+                    ? 'No se pudieron guardar las cuotas en este dispositivo. No se realizó ningún cambio.'
+                    : 'No se pudieron guardar los pagos programados en este dispositivo. No se realizó ningún cambio.');
             }
         } catch (error) {
             if (stateApplied) {
@@ -1321,7 +1390,7 @@ export async function addDesktopAdjustment(kind, target) {
                 });
             }
             window.showNotification?.(
-                error?.message || 'No se pudieron guardar las cuotas. No se realizó ningún cambio.',
+                error?.message || 'No se pudieron guardar los pagos programados. No se realizó ningún cambio.',
                 'error'
             );
             return;
@@ -1344,6 +1413,323 @@ export async function addDesktopAdjustment(kind, target) {
     if (item.remembered) persistAdjustmentDefault(kind, null, item);
     window.showNotification?.(`${adjustmentKindLabel(kind)} agregada.`, 'success');
     context.render();
+}
+
+function notifyScheduledSelectionChanged() {
+    window.showNotification?.(
+        'Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.',
+        'error'
+    );
+    return false;
+}
+
+function getScheduledSelectionPlan(state, reference) {
+    if (!reference || reference.referenceType !== 'plan' ||
+        !['deductions', 'bonuses'].includes(reference.kind) ||
+        reference.periodStart !== String(state.exportConfig?.periodStart || '') ||
+        reference.periodEnd !== String(state.exportConfig?.periodEnd || '')) {
+        return null;
+    }
+    const employee = (state.employees || []).find(item =>
+        String(item?.id) === reference.employeeId
+    );
+    const plan = (employee?.[reference.kind] || []).find(item =>
+        String(item?.id) === reference.planId
+    );
+    if (!employee || employee.active === false || !plan ||
+        String(plan.employeeId) !== reference.employeeId ||
+        plan.kind !== reference.kind || plan.status !== 'active' ||
+        String(plan.firstPeriodStart || '') > reference.periodStart) {
+        return null;
+    }
+    return { employee, plan };
+}
+
+export function setScheduledAdjustmentPeriodSelection(referenceToken, value) {
+    const reference = resolveScheduledActionReference(referenceToken);
+    const state = getState();
+    if (!getScheduledSelectionPlan(state, reference)) {
+        return notifyScheduledSelectionChanged();
+    }
+    let choice;
+    try {
+        choice = parsePayrollAdjustmentPeriodSelectionValue(value);
+    } catch (error) {
+        window.showNotification?.(error.message, 'error');
+        return false;
+    }
+    setPayrollAdjustmentPeriodRuntimeSelection(reference, choice);
+    const { payrollAdjustmentPeriodSelections: _residue, ...exportConfig } =
+        state.exportConfig;
+    stateManager.setState({
+        exportConfig: {
+            ...exportConfig,
+            payrollPaidConfirmation: null
+        }
+    });
+    context.render();
+    return true;
+}
+
+export function setScheduledAdjustmentGroupPeriodSelection(referenceToken, value) {
+    const reference = resolveScheduledActionReference(referenceToken);
+    const state = getState();
+    if (!reference || reference.referenceType !== 'group' ||
+        !['deductions', 'bonuses'].includes(reference.kind) ||
+        reference.periodStart !== String(state.exportConfig?.periodStart || '') ||
+        reference.periodEnd !== String(state.exportConfig?.periodEnd || '') ||
+        !Array.isArray(reference.members) || reference.members.length === 0) {
+        return notifyScheduledSelectionChanged();
+    }
+    const memberReferences = reference.members.map(member => ({
+        referenceType: 'plan',
+        kind: reference.kind,
+        planId: member.planId,
+        employeeId: member.employeeId,
+        periodStart: reference.periodStart,
+        periodEnd: reference.periodEnd,
+        projectionRevision: reference.projectionRevision
+    }));
+    if (memberReferences.some(member => !getScheduledSelectionPlan(state, member))) {
+        return notifyScheduledSelectionChanged();
+    }
+    let choice;
+    try {
+        choice = parsePayrollAdjustmentPeriodSelectionValue(value);
+    } catch (error) {
+        window.showNotification?.(error.message, 'error');
+        return false;
+    }
+    setPayrollAdjustmentPeriodRuntimeSelections(memberReferences, choice);
+    const { payrollAdjustmentPeriodSelections: _residue, ...exportConfig } =
+        state.exportConfig;
+    stateManager.setState({
+        exportConfig: {
+            ...exportConfig,
+            payrollPaidConfirmation: null
+        }
+    });
+    context.render();
+    return true;
+}
+
+function cancellationMembers(reference) {
+    if (reference?.referenceType === 'plan') {
+        return [{
+            employeeId: reference.employeeId,
+            planId: reference.planId,
+            groupId: reference.groupId,
+            updatedAt: reference.updatedAt,
+            currentPayrollTotal: reference.currentPayrollTotal
+        }];
+    }
+    if (reference?.referenceType === 'group') {
+        return Array.isArray(reference.cancellationMembers)
+            ? reference.cancellationMembers.map(member => ({ ...member }))
+            : [];
+    }
+    return [];
+}
+
+function prepareScheduledRemoval(state, reference) {
+    if (!reference || !['deductions', 'bonuses'].includes(reference.kind) ||
+        reference.periodStart !== String(state.exportConfig?.periodStart || '') ||
+        reference.periodEnd !== String(state.exportConfig?.periodEnd || '')) {
+        throw new Error('Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.');
+    }
+    const members = cancellationMembers(reference);
+    if (reference.referenceType === 'group') {
+        const actualMembers = (state.employees || []).flatMap(employee =>
+            (Array.isArray(employee?.[reference.kind]) ? employee[reference.kind] : [])
+                .filter(plan => isPayrollAdjustmentInstallmentPlan(plan) &&
+                    String(plan.groupId) === String(reference.groupId) &&
+                    ['active', 'paused', 'completed'].includes(plan.status)
+                )
+                .map(plan => `${String(plan.employeeId)}:${String(plan.id)}`)
+        ).sort();
+        const expectedMembers = members.map(member =>
+            `${String(member.employeeId)}:${String(member.planId)}`
+        ).sort();
+        if (JSON.stringify(actualMembers) !== JSON.stringify(expectedMembers)) {
+            throw new Error('La programación cambió. Ábrela nuevamente e inténtalo otra vez.');
+        }
+    }
+    if (members.length === 0) {
+        throw new Error('Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.');
+    }
+    const result = removeOrCancelPayrollAdjustmentPlans(state.employees || [], {
+        kind: reference.kind,
+        members,
+        now: Date.now(),
+        actor: settlementOperatorId()
+    });
+    const employeeById = new Map((state.employees || []).map(employee => [String(employee.id), employee]));
+    return {
+        ...result,
+        members,
+        employeeNames: members.map(member => employeeById.get(String(member.employeeId))?.name || 'Empleado'),
+        currentPayrollTotal: members.reduce(
+            (sum, member) => sum + (Number(member.currentPayrollTotal) || 0), 0
+        )
+    };
+}
+
+export async function removeScheduledAdjustment(referenceToken) {
+    const initialReference = resolveScheduledActionReference(referenceToken);
+    let initial;
+    try {
+        initial = prepareScheduledRemoval(getState(), initialReference);
+    } catch (error) {
+        window.showNotification?.(error?.message ||
+            'Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.', 'error');
+        return false;
+    }
+    const count = initial.members.length;
+    const retained = initial.cancelledCount;
+    const confirmed = await Modal.confirm({
+        title: count === 1 ? 'Quitar pago programado' : 'Quitar programación',
+        message: `${count === 1 ? initial.employeeNames[0] : `${count} empleados`}. ` +
+            `En esta nómina se quitarán ${formatCurrency(initial.currentPayrollTotal)}. ` +
+            (retained > 0
+                ? `Se conservarán los pagos ya registrados y el saldo de ${retained} ${retained === 1 ? 'empleado' : 'empleados'}. `
+                : 'No hay pagos anteriores que conservar. ') +
+            'Los demás datos de los empleados permanecerán sin cambios.',
+        confirmText: initial.cancelledCount > 0 ? 'Cancelar programación' : 'Eliminar programación',
+        cancelText: 'Volver',
+        type: 'warning'
+    });
+    if (!confirmed) return false;
+
+    const confirmedReference = resolveScheduledActionReference(referenceToken);
+    if (!confirmedReference || confirmedReference.projectionRevision !== initialReference.projectionRevision ||
+        confirmedReference.referenceType !== initialReference.referenceType ||
+        confirmedReference.kind !== initialReference.kind) {
+        return notifyScheduledSelectionChanged();
+    }
+
+    const state = getState();
+    const previousEmployees = state.employees;
+    let committed;
+    try {
+        committed = prepareScheduledRemoval(state, confirmedReference);
+        stateManager.setState({ employees: committed.employees });
+        const persistenceOutcome = await Promise.resolve(context.saveToLocalStorage({
+            immediate: true,
+            announce: false,
+            requireLocalSuccess: true
+        }));
+        if (persistenceOutcome?.localOk !== true) {
+            throw new Error('No se pudo guardar el cambio en este dispositivo. No se realizó ningún cambio.');
+        }
+    } catch (error) {
+        if (committed) stateManager.setState({ employees: previousEmployees });
+        window.showNotification?.(
+            error?.message || 'No se pudo quitar la programación. No se realizó ningún cambio.',
+            'error'
+        );
+        return false;
+    }
+
+    removePayrollAdjustmentPeriodRuntimeSelections(committed.members.map(member => ({
+        kind: confirmedReference.kind,
+        planId: member.planId,
+        employeeId: member.employeeId,
+        periodStart: confirmedReference.periodStart,
+        periodEnd: confirmedReference.periodEnd
+    })));
+    window.showNotification?.(
+        committed.cancelledCount > 0
+            ? 'Programación cancelada. Los pagos anteriores se conservaron.'
+            : 'Programación eliminada.',
+        'success'
+    );
+    context.render();
+    return true;
+}
+
+export async function setScheduledAdjustmentPaused(referenceToken, paused) {
+    const planReference = resolveScheduledActionReference(referenceToken);
+    if (!planReference) {
+        window.showNotification?.(
+            'Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.',
+            'error'
+        );
+        return false;
+    }
+    if (!['deductions', 'bonuses'].includes(planReference.kind)) return false;
+
+    if (paused) {
+        const confirmed = await Modal.confirm({
+            title: 'Pausar pago programado',
+            message: 'No se aplicará en la nómina hasta que lo reanudes.',
+            confirmText: 'Pausar',
+            cancelText: 'Cancelar',
+            type: 'warning'
+        });
+        if (!confirmed) return false;
+    }
+
+    const confirmedReference = resolveScheduledActionReference(referenceToken);
+    const sameCanonicalIdentity = confirmedReference &&
+        confirmedReference.kind === planReference.kind &&
+        confirmedReference.planId === planReference.planId &&
+        confirmedReference.employeeId === planReference.employeeId &&
+        confirmedReference.projectionRevision === planReference.projectionRevision;
+    if (!sameCanonicalIdentity) {
+        window.showNotification?.(
+            'Esta lista cambió. Abre nuevamente Programados e inténtalo otra vez.',
+            'error'
+        );
+        return false;
+    }
+
+    const { kind, employeeId, planId } = confirmedReference;
+    const state = getState();
+    const previousEmployees = state.employees;
+    const now = Date.now();
+    let changed = false;
+    let nextEmployees;
+    try {
+        nextEmployees = (state.employees || []).map(employee => {
+            if (String(employee.id) !== employeeId) return employee;
+            let employeeChanged = false;
+            const plans = (Array.isArray(employee[kind]) ? employee[kind] : []).map(plan => {
+                if (String(plan?.id) !== planId) return plan;
+                changed = true;
+                employeeChanged = true;
+                return setPayrollAdjustmentPlanPaused(plan, paused, now);
+            });
+            return employeeChanged ? { ...employee, [kind]: plans, updatedAt: now } : employee;
+        });
+        if (!changed) throw new Error('El pago programado ya no está disponible.');
+
+        stateManager.setState({ employees: nextEmployees });
+        const persistenceOutcome = await Promise.resolve(context.saveToLocalStorage({
+            immediate: true,
+            announce: false,
+            requireLocalSuccess: true
+        }));
+        if (persistenceOutcome?.localOk !== true) {
+            throw new Error(
+                (paused ? 'No se pudo pausar' : 'No se pudo reanudar') +
+                ' el pago programado en este dispositivo. No se realizó ningún cambio.'
+            );
+        }
+    } catch (error) {
+        if (changed) stateManager.setState({ employees: previousEmployees });
+        window.showNotification?.(
+            error?.message || 'No se pudo actualizar el pago programado. No se realizó ningún cambio.',
+            'error'
+        );
+        return false;
+    }
+
+    window.showNotification?.(
+        paused ? 'Pago programado pausado.' : 'Pago programado reanudado.',
+        'success'
+    );
+    context.render();
+    return true;
 }
 
 export function updateDesktopAdjustment(kind, target) {
@@ -1856,6 +2242,7 @@ export function removeEmployeePayrollLoans(employeeId) {
 
 export function updateExportPeriod(type, value) {
     const state = getState();
+    clearPayrollAdjustmentPeriodRuntime();
     stateManager.batchSetState(() => {
         if (type === 'start') state.exportConfig.periodStart = value;
         if (type === 'end') state.exportConfig.periodEnd = value;
@@ -1894,6 +2281,7 @@ export function togglePayrollPreviewCategory(category, checked) {
 
 export function setExportPreset(preset) {
     const state = getState();
+    clearPayrollAdjustmentPeriodRuntime();
     const today = new Date();
     let start, end = today;
 

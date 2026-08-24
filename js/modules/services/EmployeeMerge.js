@@ -29,6 +29,7 @@ import { fingerprintId } from './RecordKey.js';
 import { mergeTombstoneMaps, tombstoneSetFor, TOMBSTONE_FIELDS } from './NestedTombstones.js';
 import {
     ADJUSTMENT_PLAN_KIND,
+    ADJUSTMENT_PLAN_STATUS,
     isPayrollAdjustmentInstallmentPlan
 } from '../features/payroll/PayrollAdjustmentInstallmentPlan.js';
 
@@ -159,7 +160,14 @@ function mergePlanRecords(serverItems, localItems, sortRecords) {
 }
 
 function mergeAdjustmentPlan(serverPlan, localPlan) {
-    const winner = deterministicWinner(serverPlan, localPlan, ['history', 'installments']);
+    const cancelledPlans = [serverPlan, localPlan].filter(plan =>
+        plan?.status === ADJUSTMENT_PLAN_STATUS.CANCELLED
+    );
+    const winner = cancelledPlans.length > 0
+        ? cancelledPlans.reduce((selected, plan) =>
+            deterministicWinner(selected, plan, ['history', 'installments'])
+        )
+        : deterministicWinner(serverPlan, localPlan, ['history', 'installments']);
     return {
         ...winner,
         history: mergePlanRecords(

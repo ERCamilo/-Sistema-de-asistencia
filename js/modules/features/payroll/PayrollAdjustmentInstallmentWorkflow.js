@@ -12,8 +12,8 @@ function validateDraft(kind, draft) {
     if (!VALID_KINDS.has(kind)) {
         throw new Error('El ajuste debe ser una bonificación o una deducción');
     }
-    if (!draft?.installmentsEnabled) {
-        throw new Error('Activa la opción Dividir en cuotas');
+    if (!draft?.remembered) {
+        throw new Error('Activa Guardar para crear el pago programado');
     }
     if (draft.type !== 'fixed') {
         throw new Error('Dividir en cuotas solo está disponible para monto fijo');
@@ -37,16 +37,19 @@ export function buildPayrollAdjustmentInstallmentSave(input = {}, dependencies =
         employeeIds: draft.targetIds,
         name: draft.name,
         totalAmount: draft.value,
-        installmentCount: draft.installmentCount,
+        installmentCount: draft.installmentsEnabled ? draft.installmentCount : 1,
+        singlePayment: !draft.installmentsEnabled,
         firstPeriodStart: draft.firstPeriodStart,
         type: draft.type,
         scope: draft.scope,
         createdAt
     }, dependencies);
     const nextEmployees = attachPayrollAdjustmentPlans(employees, plans);
-    const noun = kind === ADJUSTMENT_PLAN_KIND.BONUS
-        ? (plans.length === 1 ? 'bonificación a cuotas' : 'bonificaciones a cuotas')
-        : (plans.length === 1 ? 'deducción a cuotas' : 'deducciones a cuotas');
+    const noun = draft.installmentsEnabled
+        ? kind === ADJUSTMENT_PLAN_KIND.BONUS
+            ? (plans.length === 1 ? 'bonificación a cuotas' : 'bonificaciones a cuotas')
+            : (plans.length === 1 ? 'deducción a cuotas' : 'deducciones a cuotas')
+        : (plans.length === 1 ? 'pago programado' : 'pagos programados');
 
     return {
         employees: nextEmployees,
