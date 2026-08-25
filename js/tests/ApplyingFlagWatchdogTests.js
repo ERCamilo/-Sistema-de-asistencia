@@ -65,16 +65,18 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
             'el catch debe clearTimeout el apply-timer para no correr validate+save sobre estado parcial (JD3-A)');
     },
 
-    "el catch de applyRemoteData restaura el loader en carga inicial (JD3-B)"() {
-        // Si applyRemoteData tira durante la carga inicial, el catch debe ocultar el
-        // loader y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
+    "el catch de applyRemoteData recupera el render sin manipular el boot loader (JD3-B)"() {
+        // Si applyRemoteData tira durante la carga inicial, el catch debe renderizar
+        // el estado local. El ciclo visual pertenece a boot-loader.js.
         const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,1400}/);
         testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
-        testRunner.assert(/isInitialLoad[\s\S]{0,140}?hideLoader/.test(block[0]),
-            'el catch debe restaurar el loader (hideLoader) si isInitialLoad (JD3-B)');
+        testRunner.assert(/isInitialLoad[\s\S]{0,180}?render\(\)/.test(block[0]),
+            'el catch debe renderizar una salida local si isInitialLoad (JD3-B)');
+        testRunner.assert(!/hideLoader|showLoader/.test(block[0]),
+            'el catch no debe manipular el DOM del boot loader');
     },
 
-    "el bloque de restauración del loader tiene su propio try/catch (JD4)"() {
+    "el bloque de recuperación del render tiene su propio try/catch (JD4)"() {
         // El bloque JD3-B corre DENTRO del catch de applyRemoteData, cuyo call site
         // (Firebase onSnapshot, ~L6716) no tiene try/catch envolvente. Si render()
         // tirara sobre estado parcial, escalaría a un unhandled rejection sin este
@@ -82,7 +84,7 @@ testRunner.addSuite("R3 — watchdog de _isApplyingRemoteData cableado en app.js
         const block = APP_SRC.match(/applyRemoteData falló[\s\S]{0,1400}/);
         testRunner.assert(!!block, 'debe existir el catch de applyRemoteData');
         testRunner.assert(/isInitialLoad[\s\S]{0,60}?try\s*\{[\s\S]{0,220}?render\(\)[\s\S]{0,220}?catch/.test(block[0]),
-            'el bloque hideLoader/render dentro del catch debe tener su propio try/catch (JD4)');
+            'el bloque render dentro del catch debe tener su propio try/catch (JD4)');
     },
 
     "el clear de cero-registros usa isActive, no hasScheduledFlush (JD2#1)"() {

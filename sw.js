@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0824.054041';
+const CACHE_VERSION = '2026.0825.071346';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -36,6 +36,7 @@ const APP_SHELL = [
     './css/settings.css',
 
     // JS principal
+    './js/boot-loader.js',
     './js/app.js',
 
     // Core

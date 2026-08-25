@@ -7009,71 +7009,15 @@ function _initOutgoingConflictGuard() {
     // Una pausa MANUAL del usuario (sin marcador de restauración) no se toca.
     healOrphanedRestorePause();
 
-    const loader = document.getElementById('app-loader');
+    // This flag coordinates the first cloud snapshot only. The boot loader has
+    // its own lifecycle in boot-loader.js and is controlled through app events.
     let isInitialLoad = true;
-
-    const showLoader = (isNavigation = false) => {
-        if (loader) {
-            if (isNavigation) window._isNavigating = true;
-            
-            // Solo actuar y loguear si no estaba ya visible
-            if (loader.classList.contains('hidden') || loader.style.display === 'none') {
-                debug.log(`🔄 Mostrando Loader... ${isNavigation ? '(Bloqueo de Navegación ACTIVO)' : ''}`);
-                loader.style.display = 'flex';
-                void loader.offsetWidth;
-                loader.classList.remove('hidden');
-            }
-        }
-    };
-
-    const hideLoader = (force = false) => {
-        if (loader) {
-            // Ignorar si hay una navegación en curso y no hemos forzado el cierre
-            if (window._isNavigating && !force) {
-                return;
-            }
-
-            // Solo actuar y loguear si estaba visible
-            if (!loader.classList.contains('hidden')) {
-                debug.log('✨ Ocultando Loader...');
-                loader.classList.add('hidden');
-                setTimeout(() => {
-                    if (loader.classList.contains('hidden')) {
-                        loader.style.display = 'none';
-                    }
-                }, 500);
-                return true; // Indicamos que realmente se ocultó
-            }
-        }
-        return false;
-    };
-
-    // Exponer globalmente para uso en navegación
-    window.showLoader = showLoader;
-    window.hideLoader = hideLoader;
-
-    // 📡 ESCUCHA AUTOMÁTICA: Ocultar loader cuando el render termine
-    eventBus.on('render:complete', () => {
-        const wasHidden = hideLoader();
-        if (wasHidden) {
-            debug.log('🎯 Render finalizado, loader ocultado.');
-        }
-    });
-
-    // Timeout de seguridad: Ocultar loader tras 2.5s como red de seguridad extrema
-    const loaderTimeout = setTimeout(() => {
-        if (isInitialLoad) {
-            console.warn('⚠️ Ocultando loader por timeout de seguridad.');
-            hideLoader(true);
-            isInitialLoad = false;
-        }
-    }, 2500);
 
     // 💾 Diálogo de recuperación cuando el almacenamiento local (IndexedDB) no
     // pudo abrirse en el arranque. Recibe el nombre del error tipado que produjo
     // IndexedDBService.init() y elige el copy correspondiente: bloqueado por otra
     // ventana vs timeout del almacenamiento. Sin este diálogo el caso moría en
-    // silencio (loader oculto por el safety timeout y consola casi limpia).
+    // silencio (ahora el controlador de arranque conserva una salida recuperable).
     async function showStorageFailureRecoveryDialog(errorName) {
         const isBlocked = errorName === 'IndexedDBOpenBlockedError';
         const shouldReload = await Modal.confirm({
@@ -7583,8 +7527,6 @@ function _initOutgoingConflictGuard() {
                     }, 500);
 
                     if (isInitialLoad) {
-                        clearTimeout(loaderTimeout);
-                        hideLoader();
                         isInitialLoad = false;
                         // Forzar render inicial con datos de la nube
                         render();
@@ -7604,20 +7546,19 @@ function _initOutgoingConflictGuard() {
                         if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
                         window._isApplyingRemoteData = false;
                         window._pendingRemoteSave = false;
-                        // JD3-B: si falló durante la carga inicial, restaurar el loader
-                        // y renderizar; si no, el spinner queda hasta el loaderTimeout (6s).
+                        // JD3-B: si falló durante la carga inicial, renderizar el
+                        // estado local disponible. El controlador de arranque se
+                        // completa únicamente mediante el evento app:ready.
                         // JD4: try/catch propio — este bloque corre DENTRO del catch de
                         // applyRemoteData, y el call site (Firebase onSnapshot, ~L6716)
                         // no tiene try/catch envolvente. Si render() tirara sobre estado
                         // parcial, escalaría a un unhandled rejection sin este guard.
                         if (isInitialLoad) {
                             try {
-                                clearTimeout(loaderTimeout);
-                                hideLoader();
                                 isInitialLoad = false;
                                 render();
                             } catch (renderErr) {
-                                console.warn('⚠️ applyRemoteData catch: render() falló restaurando el loader:', renderErr);
+                                console.warn('⚠️ applyRemoteData catch: render() falló recuperando el arranque:', renderErr);
                             }
                         }
                     }
@@ -7824,8 +7765,8 @@ function _initOutgoingConflictGuard() {
                 // cuenta anterior.
                 resetOutgoingWatermark(state, outgoingWatermarkCache, 0);
 
-                // Si no hay usuario, ocultamos el loader de inmediato (ya que no habrá sync)
-                hideLoader();
+                // Si no hay usuario, el render local completa el arranque sin
+                // esperar una sincronización de nube.
                 isInitialLoad = false;
                 render(); // Asegurar que la UI de settings/auth se limpie
                 // No hay sesión → no se puede subir a la nube, limpiar flag.
@@ -7871,19 +7812,21 @@ function _initOutgoingConflictGuard() {
 
         // 6. Renderizado Inicial
         debug.log('🎨 Renderizando interfaz...');
+        eventBus.once('render:complete', () => {
+            window.dispatchEvent(new CustomEvent('app:ready', {
+                detail: { source: 'initial-render' }
+            }));
+        });
         render();
 
         debug.log('✅ Aplicación iniciada correctamente');
-        clearTimeout(loaderTimeout);
         isInitialLoad = false;
-        hideLoader(true); // 🚀 Ocultar el loader al completar el primer render local
     } catch (error) {
         console.error('❌ Error fatal durante la inicialización:', error);
-        clearTimeout(loaderTimeout);
         isInitialLoad = false;
-        try {
-            hideLoader(true);
-        } catch (_) {}
+        window.dispatchEvent(new CustomEvent('app:error', {
+            detail: { reason: 'initialization-failed' }
+        }));
         // 💾 Almacenamiento local inaccesible en el arranque (upgrade bloqueado
         // por otra ventana u open colgado): ofrecer una salida accionable en
         // lugar del silencio. Fire-and-forget: el render de error sigue igual.
