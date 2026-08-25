@@ -98,11 +98,15 @@
                     <path class="loader-check" d="M 318.500 227.152 C 317.400 227.752, 300.286 244.388, 280.468 264.122 C 260.651 283.855, 243.817 300, 243.059 300 C 242.301 300, 233.950 292.350, 224.500 283 C 207.906 266.582, 207.179 266, 203.236 266 C 195.888 266, 190.410 273.242, 192.524 280.163 C 193.303 282.713, 221.388 311.642, 232.276 321.109 C 239.631 327.504, 243.285 328.491, 248.800 325.570 C 250.285 324.783, 270.063 305.533, 292.750 282.792 L 334 241.444 334 237.122 C 334 229.071, 325.273 223.457, 318.500 227.152"></path>
                 </svg>
             </div>
-            <div class="loader-text">Preparando tus datos...</div>
+            <div id="app-loader-status" class="loader-text">Preparando tus datos...</div>
+            <p id="app-loader-detail" class="loader-detail" hidden></p>
+            <button id="app-loader-retry" class="loader-retry" type="button" hidden>Recargar aplicación</button>
+            <button id="app-loader-simulation-close" class="loader-retry" type="button" hidden>Cerrar simulación</button>
         </div>
     </div>
 
     <div id="root"></div>
+    <script src="js/boot-loader.js"></script>
     <script type="module" src="js/app.js"></script>
     
     <!-- 🧪 Pruebas Unitarias (Carga bajo demanda con ?test=true) -->

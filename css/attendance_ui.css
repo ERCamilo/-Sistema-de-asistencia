@@ -137,6 +137,57 @@
     animation: loader-status-pulse 2.2s ease-in-out infinite;
 }
 
+.loader-detail {
+    order: 4;
+    max-width: 18rem;
+    margin: 0.75rem 0 0;
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.loader-retry {
+    order: 5;
+    min-height: 44px;
+    margin-top: 1rem;
+    padding: 0.7rem 1.1rem;
+    border: 1px solid rgba(34, 211, 238, 0.55);
+    border-radius: 0.7rem;
+    background: rgba(6, 182, 212, 0.14);
+    color: #ecfeff;
+    font: inherit;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.loader-retry:hover {
+    border-color: #22d3ee;
+    background: rgba(6, 182, 212, 0.24);
+}
+
+.loader-retry:focus-visible {
+    outline: 3px solid rgba(103, 232, 249, 0.75);
+    outline-offset: 3px;
+}
+
+.loader-detail[hidden],
+.loader-retry[hidden] {
+    display: none;
+}
+
+#app-loader[data-loader-state="error"] .loader-dots,
+#app-loader[data-loader-state="simulation-error"] .loader-dots {
+    animation-play-state: paused;
+}
+
+#app-loader[data-loader-state="error"] .loader-text,
+#app-loader[data-loader-state="simulation-error"] .loader-text {
+    color: #f8fafc;
+    animation: none;
+}
+
 @keyframes loader-ring-draw {
     0% {
         stroke-dashoffset: 326;
@@ -185,8 +236,10 @@
     .loader-dots,
     .loader-ring-progress,
     .loader-check,
-    .loader-text {
+    .loader-text,
+    .loader-retry {
         animation: none;
+        transition: none;
     }
 }
 
