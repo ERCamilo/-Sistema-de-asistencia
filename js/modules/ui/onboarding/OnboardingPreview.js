@@ -8,7 +8,7 @@
  * El progreso se persiste vía OnboardingCore (saveProgress), así que cerrar a
  * mitad de flujo permite retomarlo después.
  */
-import { defaultState, saveProgress, restoreProgress, clearProgress, navNext, SETUP_TOTAL } from './OnboardingCore.js';
+import { defaultState, saveProgress, restoreProgress, clearProgress, navNext, navBack, canAdvance, SETUP_TOTAL } from './OnboardingCore.js';
 import { renderOnboarding, handleAction } from './OnboardingView.js';
 import { executeChoiceAction } from './OnboardingActions.js';
 import { applySetup } from './OnboardingApply.js';
@@ -17,6 +17,21 @@ let overlayEl = null;
 let st = null;
 let escHandler = null;
 let running = false;
+let prevFocus = null;
+
+/* Accesibilidad del diálogo: foco atrapado dentro del overlay mientras está abierto. */
+const FOCUSABLE_SEL = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])';
+export function getOverlayFocusable(root) {
+    return Array.from(root.querySelectorAll(FOCUSABLE_SEL));
+}
+export function trapTabKey(e, root) {
+    const items = getOverlayFocusable(root);
+    if (!items.length || !root.contains(document.activeElement)) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
 
 const CHOICE_SOURCES = ['demo', 'scratch', 'backup', 'google'];
 const STATUS_OK = 'Ejecutando…';
@@ -129,14 +144,37 @@ function onOverlayInput(e) {
     renderPreview();
 }
 
+/* Teclado del diálogo: Escape cierra, Tab cicla dentro del overlay y las flechas
+ * navegan la guía solo cuando el foco no está en un control interactivo. */
+function onOverlayKeydown(e) {
+    if (!overlayEl || !st) return;
+    if (e.key === 'Escape') { closeOnboardingPreview(); return; }
+    if (e.key === 'Tab') { trapTabKey(e, overlayEl); return; }
+    const tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+    if ((e.key === 'ArrowRight' || e.key === 'ArrowDown') && canAdvance(st)) {
+        navNext(st);
+        saveProgress(localStorage, st);
+        renderPreview();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        navBack(st);
+        saveProgress(localStorage, st);
+        renderPreview();
+    }
+}
+
 function mountOverlay() {
     overlayEl = document.createElement('div');
     overlayEl.id = 'onboarding-preview-overlay';
+    overlayEl.setAttribute('role', 'dialog');
+    overlayEl.setAttribute('aria-modal', 'true');
+    overlayEl.setAttribute('aria-label', 'Configuración inicial de la aplicación');
     overlayEl.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.86);overflow:auto;';
     document.body.appendChild(overlayEl);
+    prevFocus = document.activeElement;
     overlayEl.addEventListener('click', onOverlayClick);
     overlayEl.addEventListener('input', onOverlayInput);
-    escHandler = e => { if (e.key === 'Escape') closeOnboardingPreview(); };
+    escHandler = onOverlayKeydown;
     document.addEventListener('keydown', escHandler);
 }
 
@@ -153,17 +191,26 @@ function unmountOverlay() {
     }
 }
 
+function focusInitial() {
+    const first = overlayEl && getOverlayFocusable(overlayEl)[0];
+    if (first) first.focus();
+}
+
 export function showOnboardingPreview() {
     if (overlayEl) { renderPreview(); return; }
     st = restoreProgress(localStorage, defaultState());
     mountOverlay();
     renderPreview();
+    focusInitial();
 }
 
 /* Cerrar a mitad de flujo conserva 'onboarding-pos': reabrir retoma desde ahí. */
 export function closeOnboardingPreview() {
+    const back = prevFocus && typeof prevFocus.focus === 'function' ? prevFocus : null;
     unmountOverlay();
+    prevFocus = null;
     st = null;
+    if (back && back.isConnected) back.focus();
 }
 
 export function resetOnboardingPreview() {

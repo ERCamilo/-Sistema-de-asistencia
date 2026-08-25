@@ -10,10 +10,10 @@ import {
     STEPS, SETUP, SETUP_TOTAL, DAY_LABELS, DAY_NAMES,
     canAdvance, navNext, navBack, goGuideStep, pick, toggleDay,
     setHours, hMinus, hPlus, setPosColor, setField,
-    addEmployee, removeEmployee
+    addEmployee, removeEmployee, cycleDemo, markAllPresent, cycleWeek
 } from './OnboardingCore.js';
 import { COLOR_PALETTE } from '../../utils/Constants.js';
-const C = { bg: '#0f172a', panel: '#1e293b', panel2: '#334155', border: '#334155', text: '#f8fafc', dim: '#94a3b8', faint: '#64748b', accent: '#06b6d4', onAccent: '#0f172a', good: '#10b981' };
+const C = { bg: '#0f172a', panel: '#1e293b', panel2: '#334155', border: '#334155', text: '#f8fafc', dim: '#94a3b8', faint: '#64748b', accent: '#06b6d4', onAccent: '#0f172a', good: '#10b981', warn: '#f59e0b', bad: '#ef4444' };
 const POS_COLORS = COLOR_PALETTE.slice(0, 4);
 const FIELD_STYLE = `width:100%;height:46px;padding:0 15px;border-radius:11px;border:1px solid ${C.border};background:${C.panel};font-size:15px;font-family:inherit;color:inherit;`;
 const LBL = `display:block;font-size:12px;font-weight:600;color:${C.dim};margin-bottom:8px;`;
@@ -23,15 +23,16 @@ export function esc(v) {
 const money = n => '$' + Math.round(n).toLocaleString('es-DO');
 const input = (id, field, value, placeholder, attrs = '') => `<input id="${id}" data-field="${field}" value="${esc(value)}" placeholder="${esc(placeholder)}" autocomplete="off" ${attrs}style="${FIELD_STYLE}">`;
 export const chip = (text, mb = 16) => `<div style="display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;border-radius:20px;background:${C.panel2};border:1px solid ${C.border};font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:${C.accent};margin-bottom:${mb}px;white-space:nowrap;">${text}</div>`;
-export function topbar(stepCounter, showSkip) {
+export function topbar(stepCounter, showSkip, progress = null) {
     const skip = showSkip ? `<button data-act="goLast" style="height:32px;padding:0 13px;border-radius:8px;border:none;background:transparent;color:${C.faint};cursor:pointer;font-size:12.5px;font-weight:500;">Omitir guía</button>` : '';
-    return `<div data-od-id="od-topbar" style="display:flex;align-items:center;justify-content:space-between;padding:18px 26px;border-bottom:1px solid ${C.border};"><div style="display:flex;align-items:center;gap:11px;"><img src="icon-512.png" alt="" width="30" height="30" onerror="this.style.display='none'" style="width:30px;height:30px;border-radius:8px;display:block;"><div style="line-height:1.15;"><div style="font-size:13.5px;font-weight:600;">Control de Asistencia</div><div style="font-size:11px;color:${C.faint};">Contrutek</div></div></div><div style="display:flex;align-items:center;gap:16px;"><span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:${C.faint};">${esc(stepCounter)}</span>${skip}</div></div>`;
+    const bar = progress ? `<div role="progressbar" aria-valuemin="1" aria-valuemax="${progress.max}" aria-valuenow="${progress.now}" aria-label="Progreso de la guía" style="position:absolute;left:0;bottom:-1px;height:2px;width:${Math.round(progress.now / progress.max * 100)}%;background:${C.accent};"></div>` : '';
+    return `<div data-od-id="od-topbar" style="position:relative;display:flex;align-items:center;justify-content:space-between;padding:18px 26px;border-bottom:1px solid ${C.border};"><div style="display:flex;align-items:center;gap:11px;"><img src="icon-512.png" alt="" width="30" height="30" onerror="this.style.display='none'" style="width:30px;height:30px;border-radius:8px;display:block;"><div style="line-height:1.15;"><div style="font-size:13.5px;font-weight:600;">Control de Asistencia</div><div style="font-size:11px;color:${C.faint};">Contrutek</div></div></div><div style="display:flex;align-items:center;gap:16px;"><span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:${C.faint};">${esc(stepCounter)}</span>${skip}</div>${bar}</div>`;
 }
 export function footer(s, showDots, hint, nextLabel, last) {
     let dots = '';
     if (showDots) {
         dots = '<div style="display:flex;align-items:center;gap:7px;">' + STEPS.map((st, n) =>
-            `<button data-act="dot" data-n="${n + 1}" title="${esc(st.title)}" style="width:${s.step === n + 1 ? 22 : 8}px;height:8px;border-radius:5px;border:none;cursor:pointer;padding:0;background:${s.step === n + 1 ? C.accent : C.border};"></button>`).join('') + '</div>';
+            `<button data-act="dot" data-n="${n + 1}" title="${esc(st.title)}" aria-label="Ir al paso ${n + 1}" style="width:${s.step === n + 1 ? 22 : 8}px;height:8px;border-radius:5px;border:none;cursor:pointer;padding:0;background:${s.step === n + 1 ? C.accent : C.border};"></button>`).join('') + '</div>';
     }
     const prevDisabled = (s.phase === 'guide' && s.step === 1) || s.phase === 'ready';
     return `<div data-od-id="od-footer" style="display:flex;align-items:center;justify-content:space-between;padding:16px 26px;border-top:1px solid ${C.border};"><button data-act="back" style="display:flex;align-items:center;gap:7px;height:40px;padding:0 16px;border-radius:10px;border:1px solid ${C.border};background:transparent;color:${C.dim};font-size:13.5px;font-weight:500;cursor:pointer;${prevDisabled ? 'opacity:.35;pointer-events:none;' : ''}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Atrás</button><div style="display:flex;align-items:center;gap:12px;">${dots}${hint ? `<span style="font-size:12px;color:${C.faint};">${esc(hint)}</span>` : ''}</div><button data-act="next" style="display:flex;align-items:center;gap:7px;height:40px;padding:0 20px;border-radius:10px;border:none;background:${C.accent};color:${C.onAccent};font-size:13.5px;font-weight:600;cursor:pointer;${canAdvance(s) ? '' : 'opacity:.4;pointer-events:none;'}">${esc(nextLabel)}${last ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>'}</button></div>`;
@@ -104,6 +105,90 @@ export function readySection(s) {
     const bodyTxt = scratch ? 'Tu espacio de trabajo quedó configurado. Puedes cambiar cualquier ajuste más adelante.' : 'Recuperamos tu información. Ya puedes seguir marcando la asistencia donde la dejaste.';
     return `<div data-od-id="od-ready" style="min-height:434px;padding:34px;max-width:620px;margin:0 auto;width:100%;display:flex;flex-direction:column;justify-content:center;"><div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;"><div style="width:52px;height:52px;flex:none;border-radius:50%;background:${C.good};color:${C.onAccent};display:flex;align-items:center;justify-content:center;"><svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg></div><div><h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.012em;">${esc(title)}</h1><p style="margin:6px 0 0;font-size:13.5px;color:${C.dim};line-height:1.5;">${esc(bodyTxt)}</p></div></div>${box}</div>`;
 }
+/* ---------- guía: panel demo derecho (portado del prototipo) ---------- */
+const SVG_CHK = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
+const SVG_CRX = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const DEMO_PEOPLE = [
+    { code: '001', name: 'Franklin Henrriquez', pos: 'Operador Ctk' },
+    { code: '002', name: 'Pauliny Buchamps', pos: 'Capataz' },
+    { code: '003', name: 'Varnet Gran Pierre', pos: 'Ayudante' }
+];
+const DEMO_ICONS = [
+    '<path d="M13 3L5.5 13H10l-1 8 8.5-11H13z"/>',
+    '<path d="M2.4 18a1 1 0 0 0 1 1h17.2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3.4a1 1 0 0 0-1 1z"/><path d="M10.3 4.8h3.4"/><path d="M10.3 4.8L9.1 9.4M13.7 4.8l1.2 4.6"/><path d="M4 15v-2.7a6.1 6.1 0 0 1 6.1-6.1"/><path d="M13.9 6.2a6.1 6.1 0 0 1 6.1 6.1V15"/>',
+    '<path d="M12 3.5l8 4v9l-8 4-8-4v-9z"/><path d="M4 7.5l8 4 8-4M12 11.5V20"/>'
+];
+const mono = "font-family:'IBM Plex Mono',monospace;";
+function demoWelcome() {
+    return `<div class="odv-glow" style="position:absolute;width:240px;height:240px;border-radius:50%;background:${C.accent};filter:blur(80px);"></div>`
+        + `<div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:20px;"><img src="icon-512.png" alt="" width="112" height="112" onerror="this.style.display='none'" style="width:112px;height:112px;border-radius:28px;display:block;"><div style="text-align:center;"><div style="font-size:17px;font-weight:700;">Control de Asistencia</div><div style="${mono}font-size:11.5px;color:${C.faint};margin-top:5px;">v1.7.0</div></div></div>`;
+}
+function demoAttendance(s) {
+    const present = s.demoStates.filter(v => v === 'p').length;
+    const hours = present * s.hours;
+    const rows = DEMO_PEOPLE.map((d, n) => {
+        const mark = s.demoStates[n] === 'p'
+            ? `<span style="position:absolute;inset:0;border-radius:10px;background:${C.good};color:${C.panel};display:flex;align-items:center;justify-content:center;">${SVG_CHK}</span>`
+            : s.demoStates[n] === 'a'
+                ? `<span style="position:absolute;inset:0;border-radius:10px;background:${C.bad};color:${C.panel};display:flex;align-items:center;justify-content:center;">${SVG_CRX}</span>` : '';
+        return `<button type="button" data-act="demoRow" data-n="${n}" title="Clic para alternar: presente · ausente · sin marcar" style="position:relative;overflow:hidden;display:flex;width:100%;align-items:center;gap:12px;padding:11px 13px;border:none;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;border-bottom:1px solid ${C.border};">`
+            + `<span style="position:absolute;right:56px;top:50%;transform:translateY(-50%);color:${POS_COLORS[n % POS_COLORS.length]};opacity:.12;pointer-events:none;"><svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">${DEMO_ICONS[n]}</svg></span>`
+            + `<span style="${mono}font-size:15px;font-weight:600;color:${POS_COLORS[n % POS_COLORS.length]};position:relative;">${esc(d.code)}</span>`
+            + `<span style="flex:1;min-width:0;position:relative;"><span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(d.name)}</span><span style="display:block;font-size:10.5px;color:${C.faint};">${esc(d.pos)}</span></span>`
+            + `<span style="position:relative;width:38px;height:38px;flex:none;"><span style="position:absolute;inset:0;border-radius:10px;border:1px dashed ${C.border};"></span>${mark}</span></button>`;
+    }).join('');
+    const stat = (label, value, barColor) => `<div style="flex:1;background:${C.panel};border:1px solid ${C.border};border-left:3px solid ${barColor};border-radius:10px;padding:11px 13px;"><div style="font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:${C.faint};font-weight:600;">${label}</div><div style="${mono}font-size:22px;font-weight:700;line-height:1;margin-top:4px;">${value}</div></div>`;
+    return `<div data-od-id="od-demo-attendance" style="position:relative;width:100%;max-width:330px;"><div style="display:flex;gap:9px;margin-bottom:14px;">${stat('Presentes', present, C.good)}${stat('Horas', hours + 'h', C.accent)}</div>`
+        + `<div style="background:${C.panel};border:1px solid ${C.border};border-radius:12px;overflow:hidden;">${rows}</div>`
+        + `<button type="button" data-act="markAll" title="Marca a los tres como presentes" style="margin-top:13px;display:flex;width:100%;align-items:center;justify-content:center;gap:8px;height:36px;border-radius:9px;border:none;background:${C.accent};color:${C.onAccent};font-size:12.5px;font-weight:600;cursor:pointer;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l4 4L14 8M12 16.5l2 2L20 10"/></svg>Marcar todos presentes</button></div>`;
+}
+function demoWeek(s) {
+    const ST = { p: { c: C.good, g: '✓' }, a: { c: C.bad, g: '✕' }, f: { c: C.warn, g: 'F' } };
+    const heads = ['L', 'M', 'X', 'J', 'V', 'S'].map(d => `<div style="text-align:center;font-size:9px;font-weight:600;color:${C.faint};">${d}</div>`).join('');
+    let total = 0;
+    const rows = s.weekData.map((r, rn) => {
+        const hrs = r.pattern.filter(x => x === 'p').length * s.hours;
+        total += hrs;
+        const cells = r.pattern.map((cs, cn) => {
+            const d = ST[cs];
+            const fill = d ? `<span style="position:absolute;inset:0;border-radius:6px;background:${d.c};color:${C.panel};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${d.g}</span>` : '';
+            return `<button type="button" data-act="weekCell" data-r="${rn}" data-c="${cn}" title="Alternar: presente · ausente · feriado · sin marcar" style="position:relative;height:26px;border-radius:6px;background:${C.panel2};border:1px solid ${C.border};cursor:pointer;padding:0;font:inherit;color:inherit;">${fill}</button>`;
+        }).join('');
+        return `<div style="display:grid;grid-template-columns:62px repeat(6,1fr) 34px;gap:5px;align-items:center;margin-bottom:5px;"><span style="${mono}font-size:11.5px;color:${C.faint};">${esc(r.code)}</span>${cells}<span style="${mono}font-size:11px;font-weight:600;text-align:right;">${hrs}h</span></div>`;
+    }).join('');
+    return `<div data-od-id="od-demo-week" style="width:100%;max-width:330px;background:${C.panel};border:1px solid ${C.border};border-radius:12px;padding:14px;">`
+        + `<div style="display:grid;grid-template-columns:62px repeat(6,1fr) 34px;gap:5px;margin-bottom:7px;"><div></div>${heads}<div style="text-align:right;font-size:9px;font-weight:600;color:${C.faint};">Tot</div></div>${rows}`
+        + `<div style="margin-top:11px;padding-top:9px;border-top:1px dashed ${C.border};display:flex;align-items:center;gap:12px;font-size:9.5px;color:${C.faint};flex-wrap:wrap;"><span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:3px;background:${C.good};"></span>Presente</span><span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:3px;background:${C.bad};"></span>Ausente</span><span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:3px;background:${C.warn};"></span>Feriado</span><span style="margin-left:auto;">Clic en una celda para alternar</span></div>`
+        + `<div style="margin-top:9px;display:flex;justify-content:space-between;font-size:11px;"><span style="color:${C.dim};">Total de la semana</span><span style="${mono}font-weight:700;color:${C.accent};">${total}h</span></div></div>`;
+}
+function demoPayroll() {
+    const rows = ['Período', 'Deducciones', 'Bonificaciones', 'Vista previa'].map((label, n) =>
+        `<div style="display:flex;align-items:center;gap:12px;background:${C.panel};border:1px solid ${C.border};border-radius:10px;padding:11px 13px;"><span style="width:22px;height:22px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;${mono}font-size:11px;font-weight:600;background:${C.good};color:${C.panel};">${n + 1}</span><span style="font-size:12.5px;font-weight:500;white-space:nowrap;">${label}</span><span style="margin-left:auto;width:20px;height:20px;border-radius:50%;background:${C.good};color:${C.panel};display:flex;align-items:center;justify-content:center;">${SVG_CHK.replace('17', '13')}</span></div>`).join('');
+    return `<div data-od-id="od-demo-payroll" style="width:100%;max-width:330px;"><div style="display:grid;gap:8px;margin-bottom:16px;">${rows}</div>`
+        + `<div style="background:${C.panel};border:1px solid ${C.border};border-radius:12px;padding:16px;"><div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:${C.faint};font-weight:600;">Neto a pagar</div><div id="cnt-net" style="${mono}font-size:26px;font-weight:700;color:${C.accent};margin-top:5px;line-height:1;">${money(48750)}</div><div style="font-size:11px;color:${C.faint};margin-top:6px;">7 empleados · 1 – 15 may 2026</div></div></div>`;
+}
+function demoPortfolio() {
+    const debts = [
+        { code: '004', name: 'Wadne Exilien', amount: 8660, pct: 100 },
+        { code: '014', name: 'Wilson Riche', amount: 8400, pct: 97 },
+        { code: '001', name: 'Franklin H.', amount: 8350, pct: 96 },
+        { code: '002', name: 'Pauliny Buchamps', amount: 6400, pct: 74 }
+    ];
+    const rows = debts.map((d, n) =>
+        `<div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;"><span style="display:flex;align-items:center;gap:7px;font-size:11.5px;"><span style="${mono}font-size:10.5px;color:${C.faint};">${d.code}</span><span style="color:${C.dim};">${esc(d.name)}</span></span><span style="${mono}font-size:11.5px;font-weight:600;">${money(d.amount)}</span></div>`
+        + `<div style="height:4px;border-radius:4px;background:${C.panel2};overflow:hidden;"><div style="height:100%;border-radius:4px;width:${d.pct}%;background:${n === 0 ? C.bad : (n < 3 ? C.warn : C.accent)};"></div></div></div>`).join('');
+    return `<div data-od-id="od-demo-portfolio" style="width:100%;max-width:330px;background:${C.panel};border:1px solid ${C.border};border-radius:12px;padding:16px;"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:15px;"><span style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:${C.faint};font-weight:600;">Saldo pendiente</span><span id="cnt-port" style="${mono}font-size:18px;font-weight:700;">${money(31810)}</span></div><div style="display:grid;gap:13px;">${rows}</div></div>`;
+}
+function demoReady() {
+    const items = ['Marcar asistencia diaria', 'Revisar y corregir la semana', 'Generar y exportar nómina', 'Controlar préstamos del personal'].map(text =>
+        `<div style="display:flex;align-items:center;gap:10px;background:${C.panel};border:1px solid ${C.border};border-radius:9px;padding:10px 13px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${C.good}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg><span style="font-size:12.5px;color:${C.dim};">${text}</span></div>`).join('');
+    return `<div class="odv-glow" style="position:absolute;width:210px;height:210px;border-radius:50%;background:${C.good};filter:blur(80px);"></div>`
+        + `<div style="position:relative;width:100%;max-width:300px;display:grid;gap:10px;"><div style="display:flex;justify-content:center;margin-bottom:6px;"><div style="width:62px;height:62px;border-radius:50%;background:${C.good};color:${C.panel};display:flex;align-items:center;justify-content:center;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg></div></div>${items}</div>`;
+}
+function demoPanel(s) {
+    const inner = [demoWelcome, demoAttendance, demoWeek, demoPayroll, demoPortfolio, demoReady][s.step - 1](s);
+    return `<div data-od-id="od-demo-${s.step}" class="odv-demo-panel" style="position:relative;border-left:1px solid ${C.border};background:${C.bg};display:flex;align-items:center;justify-content:center;padding:32px;min-height:280px;overflow:hidden;">${inner}</div>`;
+}
 export function renderOnboarding(s) {
     const stepCounter = s.phase === 'guide' ? `${s.step} / ${STEPS.length}`
         : s.phase === 'setup' ? `Configuración ${s.setupStep} / ${SETUP_TOTAL}`
@@ -115,12 +200,13 @@ export function renderOnboarding(s) {
         : s.phase === 'choice' ? 'Continuar'
         : s.phase === 'setup' ? (s.setupStep === SETUP_TOTAL ? 'Finalizar' : 'Siguiente')
         : 'Entrar a la app';
-    const demo = `<div data-od-id="od-demo-${s.step}" style="border-left:1px solid ${C.border};background:${C.bg};display:flex;align-items:center;justify-content:center;padding:32px;min-height:280px;"><div style="max-width:300px;text-align:center;padding:26px;border-radius:14px;border:1px dashed ${C.border};color:${C.faint};font-size:13px;line-height:1.5;">Demo interactiva del paso ${s.step} en camino<br><span style="font-size:11.5px;">Esta pieza visual llega en una fase posterior.</span></div></div>`;
-    const body = s.phase === 'guide' ? `<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:434px;">${guideCopy(s)}${demo}</div>`
+    const demo = demoPanel(s);
+    const body = s.phase === 'guide' ? `<div class="odv-guide-grid" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:434px;">${guideCopy(s)}${demo}</div>`
         : s.phase === 'choice' ? choiceSection(s)
         : s.phase === 'setup' ? setupSection(s)
         : readySection(s);
-    return `<div class="od-wrap" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px;background:${C.bg};color:${C.text};"><div style="width:100%;max-width:980px;background:${C.panel};border:1px solid ${C.border};border-radius:22px;overflow:hidden;">${topbar(stepCounter, s.phase === 'guide' && s.step < STEPS.length)}${body}${footer(s, s.phase === 'guide', hint, nextLabel, s.phase === 'ready')}</div></div>`;
+    const progress = (s.phase === 'guide' || s.phase === 'setup') ? { now: s.phase === 'guide' ? s.step : s.setupStep, max: STEPS.length } : null;
+    return `<div class="od-wrap odv-wrap" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px;background:${C.bg};color:${C.text};"><div style="width:100%;max-width:980px;background:${C.panel};border:1px solid ${C.border};border-radius:22px;overflow:hidden;">${topbar(stepCounter, s.phase === 'guide' && s.step < STEPS.length, progress)}${body}${footer(s, s.phase === 'guide', hint, nextLabel, s.phase === 'ready')}</div></div>`;
 }
 const ACTIONS = {
     next: s => navNext(s),
@@ -135,6 +221,9 @@ const ACTIONS = {
     swatch: (s, el) => setPosColor(s, parseInt(el.dataset.n, 10)),
     addEmp: s => addEmployee(s),
     rmEmp: (s, el) => removeEmployee(s, el.dataset.code),
+    demoRow: (s, el) => cycleDemo(s, parseInt(el.dataset.n, 10)),
+    markAll: s => markAllPresent(s),
+    weekCell: (s, el) => cycleWeek(s, parseInt(el.dataset.r, 10), parseInt(el.dataset.c, 10)),
     input: (s, el) => setField(s, el.dataset.field, el.value)
 };
 // Delegación para el host futuro: act = data-act (o 'input' para inputs[data-field]).

@@ -27,8 +27,32 @@ export function defaultState() {
     return {
         phase: 'guide', step: 1, setupStep: 1, source: null,
         company: '', days: [true, true, true, true, true, true, false], hours: 8,
-        posName: '', posRate: '', posColorIdx: 0, employees: [], newEmpName: '', newEmpCode: '', googleConnected: false
+        posName: '', posRate: '', posColorIdx: 0, employees: [], newEmpName: '', newEmpCode: '', googleConnected: false,
+        demoStates: ['p', 'p', 'p'],
+        weekData: [
+            { code: '001', pattern: ['p', 'p', 'p', 'p', 'p', null] },
+            { code: '002', pattern: ['p', 'p', 'p', 'p', 'p', 'p'] },
+            { code: '003', pattern: ['p', 'p', 'a', 'p', 'p', 'p'] },
+            { code: '004', pattern: ['p', 'p', 'f', 'p', 'p', null] }
+        ]
     };
+}
+/* Demos de la guía: ciclos con wrap-around; los contadores se derivan en la vista. */
+const DEMO_ORDER = [null, 'p', 'a'];
+const WEEK_ORDER = [null, 'p', 'a', 'f'];
+export function cycleDemo(s, n) {
+    const i = DEMO_ORDER.indexOf(s.demoStates[n] ?? null);
+    s.demoStates[n] = DEMO_ORDER[(i + 1) % DEMO_ORDER.length];
+    return s;
+}
+export function markAllPresent(s) {
+    s.demoStates = s.demoStates.map(() => 'p');
+    return s;
+}
+export function cycleWeek(s, r, c) {
+    const pat = s.weekData[r].pattern;
+    pat[c] = WEEK_ORDER[(WEEK_ORDER.indexOf(pat[c] ?? null) + 1) % WEEK_ORDER.length];
+    return s;
 }
 export function canAdvance(s) {
     if (s.phase === 'guide') return true;
