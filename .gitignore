@@ -30,6 +30,9 @@ HANDOFF*.md
 # Notas de diseño / futuras implementaciones — cuaderno local, nunca en el remoto
 futuras-implementaciones/
 
+# Backups reales con datos personales — solo locales, nunca trackeados (hallazgo H-04)
+backups_de_prueba/
+
 # Screenshots
 screenshots/screenshot_pruebas/
 
