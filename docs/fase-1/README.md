@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | ✅ **F1.0 CERRADA 100%** (aprobada con ajustes P3–P7 incorporados, 2026-08-25) · Control general: F0 100% · F1.0 100% · F1 desbloqueada hasta F1.3 (en ejecución; corte intencional antes de F1.4 — no tocar empleados/asistencia/nómina/caja) · Bloqueantes levantados: H-01 era bug real y quedó corregido, H-03 cerrada · Pre-F1.4 obligatorio: revisar diff paralelo de AppState.js |
+| Estado | 🔄 **Bloque F1.1–F1.3 EJECUTADO y REVISADO (segunda vuelta independiente)** — detenido esperando Dirección · Control general: F0 100% · F1.0 100% · F1 3/10 · Ejecución independiente: **345/345 suites · 3307 tests · 0 fallos** · Pre-F1.4 obligatorio: revisar AppState.js + resolver W1/W2 antes de wiring/flag ON (ver §Segunda vuelta) |
 | Punto de parada | **USABLE** — suite completa verde (342 suites / 3280 tests, 0 fallos) |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
@@ -18,6 +18,9 @@
 | F1.0.5 Fechas reales Project | [§P5](F1.0-precondiciones.md#p5--fechas-reales-del-proyecto-f105) | Propuesta lista | Antes de congelar Project v1 |
 | F1.0.6 Clonación de empleado | [§P6](F1.0-precondiciones.md#p6--significado-exacto-de-copiar-empleado-f106) | Propuesta lista | Antes de F2.7 |
 | F1.0.7 Mapping caja↔proyecto | [§P7](F1.0-precondiciones.md#p7--mapping-project-oficial--pettycashproject-f107-dep-sa-001) | Propuesta lista (DEP-SA-001) | Implementación antes de F2.8 |
+| **F1.1 ProjectRepository** | [`F1.1-project-repository.md`](F1.1-project-repository.md) | ✅ Ejecutado + revisado | — |
+| **F1.2 Proyecto predeterminado** | [`F1.2-default-project.md`](F1.2-default-project.md) | ✅ Ejecutado + revisado (wiring deferido) | Wiring+flag antes de criterio completo |
+| **F1.3 ProjectContext** | [`F1.3-project-context.md`](F1.3-project-context.md) | ✅ Ejecutado + revisado | — |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 
@@ -35,6 +38,42 @@ Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 | `6979829` | Fix H-01 (Employee.js) + test de protección |
 | `e69febe` | Orden F1.0 + roadmap v0.2 (ADRs/DEP/estados) |
 | `1e4c706` | Registro de resolución H-01 en hallazgos |
+
+### Commits del bloque F1.1–F1.3
+
+| SHA | Contenido |
+|---|---|
+| `fffdf9c` | Modelo Project + store local + IDB v17 (F1.1) |
+| `aae38be` | Default project bootstrap + ProjectContext (F1.2/F1.3) |
+| `d99df63` | Cierre documental F1.0 según veredictos de Dirección |
+
+## 🔍 Segunda vuelta independiente (2026-08-25)
+
+Revisión fresh-context (lente confiabilidad) sobre `fffdf9c`+`aae38be`, más ejecución independiente de la suite por el orquestador.
+
+| Verificación | Resultado |
+|---|---|
+| Modelo vs spec F0.3 §1-§2 (+P5 fechas) | ✅ PASS — transiciones 1:1, 8 casos inválidos fijados |
+| Serialización byte-estable (hasOwnProperty) | ✅ PASS |
+| Bump v16→v17 puramente aditivo (sin ruta de pérdida) | ✅ PASS |
+| Cero acoplamiento a dominios operativos; flag OFF intacto | ✅ PASS (bloque imports de app.js inspeccionado completo) |
+| Sitio TODO boot-wiring (~app.js:7047) | ✅ VERIFICADO exacto |
+| Calidad de tests (reinicio/recuperación/idempotencia) | ✅ reales, no tautológicos |
+| Ejecución independiente | ✅ **345/345 suites · 3307 tests · 0 fallos** (107s) |
+
+**Hallazgos — ninguno alcanza hoy (flag OFF + wiring deferido):**
+
+| ID | Sev. | Hallazgo | Disposición recomendada |
+|---|---|---|---|
+| W1 | 🟡 | Pointer-HIT de `ensureDefaultProject()` no valida status → un default cerrado/archivado entregaría id no-activo desde el contexto | Corregir ANTES de wiring/flag ON |
+| W2 | 🟡 | Carrera cross-tab crearía "Mi obra" duplicada si dos pestañas ven puntero ausente (CrossTabLock existe, no se usa aquí) | Ídem + test de concurrencia |
+| S3 | 🔵 | Constructor acepta closed/archived sin exigir closedAt/archivedAt (riesgo vía payloads futuros de sync) | Hardening próximo slice |
+| S4 | 🔵 | JSDoc "nunca rechaza" vs comportamiento real de getActiveProjectId | Ajustar contrato |
+| S5 | 🔵 | metadata retenida por referencia (mutación del caller filtra a payloads) | Clonar en frontera de entidad |
+
+**Backlog de tests sugeridos:** concurrencia de ensure(); pointer→default cerrado/archivado; apertura v16 real→upgrade v17 con registros preexistentes; toggle flag ON→OFF→ON en sesión; desempate listAll con createdAt igual.
+
+**Veredicto del revisor:** base SEGURA para F1.4+ una vez revisado `AppState.js` y resueltos W1/W2 antes de habilitar wiring/flag.
 
 ## ⚠️ Contexto para cualquier agente futuro
 
