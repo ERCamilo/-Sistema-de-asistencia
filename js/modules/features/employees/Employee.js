@@ -76,6 +76,9 @@ export class Employee {
         if (Object.prototype.hasOwnProperty.call(data, 'photo')) {
             this.photo = normalizeEmployeePhoto(data.photo);
         }
+        if (Object.prototype.hasOwnProperty.call(data, 'deletedAt')) {
+            this.deletedAt = data.deletedAt;
+        }
     }
 
     // Métodos de negocio
@@ -149,6 +152,9 @@ export class Employee {
         };
         if (Object.prototype.hasOwnProperty.call(this, 'photo')) {
             json.photo = this.photo;
+        }
+        if (Object.prototype.hasOwnProperty.call(this, 'deletedAt')) {
+            json.deletedAt = this.deletedAt;
         }
         return json;
     }
