@@ -606,7 +606,7 @@ Mantener esta tabla viva durante el desarrollo.
 
 | ID | Solicitante | Proveedor | Fase bloqueada | Necesidad | Prioridad | Estado |
 |---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — |
+| DEP-SA-001 | SA | SA (aprueba Dirección) | F2.8 / F2.9 (resumen mensual e informe final) + multiproyecto completo | Vínculo oficial Project ↔ PettyCashProject: campo `officialProjectId` en `pettyCashProjects`, backfill de los existentes al proyecto predeterminado. Decisión en F1.0.7; implementación NO bloquea F1.1–F1.6 | Alta | Decidida — implementación pendiente |
 
 ---
 
@@ -623,6 +623,10 @@ Cada decisión que afecte a más de un equipo debe registrarse para evitar que f
 | ADR-005 | `employeeId` != `authUid` != `employeeNumber` | Separar identidad laboral y cuenta | Todos | v0.1 |
 | ADR-006 | Grupo/Líder sustituye "cuadrilla" como término principal | Reflejar organización real del proyecto | SA, Mini | v0.1 |
 | ADR-007 | NFC complementa Mini inicialmente | Evitar automatizar decisiones prematuramente | SA, Integración | v0.1 |
+| ADR-008 | Asistencia multiproyecto: la ruta diaria `attendance/{dateKey}` SE CONSERVA; el `projectId` vive en cada registro dentro de `records`; toda escritura es read-merge-write filtrando por proyecto — jamás reemplazo total del documento del día | El documento cloud de un día es COMPARTIDO entre proyectos activos esa fecha | SA, Integración | v0.2 (2026-08-24) |
+| ADR-009 | El espejo `data/current` permanece a nivel CUENTA incluyendo todos los proyectos; el filtrado por proyecto lo hacen repositorios/UI vía `activeProjectId` | Evitar que cambiar de proyecto activo reemplace en cloud datos del proyecto anterior | SA, Integración | v0.2 |
+| ADR-010 | En Gen1 `employeeId` identifica la FICHA dentro del proyecto, no a la persona globalmente; copiar un empleado a otra obra genera NUEVO `employeeId` + metadata `copiedFromEmployeeId` (solo auditoría, sin sincronización entre copias) | Firestore no admite dos documentos con el mismo id en una colección; las obras deben ser independientes | SA, Mini, Integración | v0.2 |
+| ADR-011 | Project v1 añade `startDate` y `endDate` (fechas laborales/contractuales reales) separadas de `createdAt`/`closedAt` (administrativas) | El informe final necesita inicio y fin REALES de la obra, no la fecha de alta en SA | SA | v0.2 |
 
 ---
 
@@ -656,8 +660,9 @@ El primer objetivo técnico estable será:
 
 | Fase | Estado | Responsable principal | Dependencia principal |
 |---|---|---|---|
-| F0 Auditoría SA | Listo para empezar | SA | Ninguna |
-| F1 Contexto de proyecto | Bloqueado | SA | F0 aprobada |
+| F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
+| F1.0 Precondiciones del refactor | Listo para empezar | SA | F0 aprobada |
+| F1 Contexto de proyecto | Bloqueado | SA | F1.0 completada + informe aprobado |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |

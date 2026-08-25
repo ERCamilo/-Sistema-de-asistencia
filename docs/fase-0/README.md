@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 0 (roadmap v0.1) |
-| Estado | ✅ COMPLETADA (6/6 pasos) — pendiente aprobación de Dirección y commits |
+| Estado | ✅ COMPLETADA (6/6 pasos) — commiteada en rama `fase-0-auditoria` (SHAs 85b12ad..aefed64, incluye limpieza PII H-04). Pendiente: aprobación de Dirección para desbloquear F1 |
 | Fecha de cierre | 2026-08-24 |
 | Punto de parada | **USABLE** — la app no cambió ni una línea de comportamiento |
 
