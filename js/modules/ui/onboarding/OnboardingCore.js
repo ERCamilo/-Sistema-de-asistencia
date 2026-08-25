@@ -70,6 +70,9 @@ export function setHours(s, h) { s.hours = h; return s; }
 export function hMinus(s) { s.hours = Math.max(1, s.hours - 1); return s; }
 export function hPlus(s) { s.hours = Math.min(16, s.hours + 1); return s; }
 export function setPosColor(s, n) { s.posColorIdx = n; return s; }
+/* source acepta cualquier string; los valores del flujo son:
+ * null | 'scratch' | 'backup' | 'google' | 'demo'. Solo 'scratch' entra a setup;
+ * el resto va directo a listo (navNext). */
 export function pick(s, src) { s.source = src; return s; }
 /* Solo campos string del flujo: evita que un data-field del DOM toque colecciones. */
 export function setField(s, f, v) {

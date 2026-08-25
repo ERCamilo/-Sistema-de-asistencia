@@ -5878,9 +5878,13 @@ window.importData = function (event) {
 
 /**
  * 📂 PROCESAR ARCHIVO DE BACKUP (Global para PWA y Onboarding)
+ * `hooks` (opcional): { onSuccess, onError } para integraciones como el
+ * onboarding v2. Los callers existentes (1 argumento) no cambian de conducta.
  */
-window.loadBackupFromFile = function (file) {
+window.loadBackupFromFile = function (file, hooks = {}) {
     if (!file) return;
+    const onSuccess = typeof hooks.onSuccess === 'function' ? hooks.onSuccess : null;
+    const onError = typeof hooks.onError === 'function' ? hooks.onError : null;
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -5898,6 +5902,7 @@ window.loadBackupFromFile = function (file) {
                 // Opción 1: Restaurar Local (Offline)
                 onLocalRestore: async () => {
                     await applyBackupData(importedData);
+                    if (onSuccess) onSuccess();
                     setTimeout(() => location.reload(), 1200);
                 },
 
@@ -5906,6 +5911,7 @@ window.loadBackupFromFile = function (file) {
                     await FirebaseService.logout();
                     window.currentUser = null;
                     await applyBackupData(importedData);
+                    if (onSuccess) onSuccess();
                     showNotification('🚶 Sesión cerrada y backup restaurado localmente', 'info');
                     setTimeout(() => location.reload(), 1200);
                 },
@@ -5915,6 +5921,8 @@ window.loadBackupFromFile = function (file) {
                     // 1. Aplicar localmente primero
                     const ok = await applyBackupData(importedData);
                     if (!ok) return;
+                    // Datos ya restaurados en el dispositivo aunque la nube falle después.
+                    if (onSuccess) onSuccess();
 
                     // 2. Bloquear UI para proceso crítico
                     const syncLoader = document.createElement('div');
@@ -5952,6 +5960,7 @@ window.loadBackupFromFile = function (file) {
         } catch (err) {
             logError(err, 'leer el backup');
             showNotification('❌ Error al leer el backup: ' + translateError(err, { fallbackContext: 'leer el backup' }), 'error');
+            if (onError) onError(err);
         }
     };
     reader.readAsText(file);

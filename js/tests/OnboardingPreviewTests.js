@@ -19,7 +19,7 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         testRunner.assert(!!ov, 'overlay montado en document.body');
         testRunner.assert(!!ov.querySelector('[data-od-id="od-guide-copy"]'), 'paso bienvenida renderizado');
         testRunner.assert(ov.textContent.includes('Tu obra, bajo control'), 'título del paso 1 visible');
-        testRunner.assert(ov.textContent.includes('VISTA PREVIA · no toca datos reales'), 'badge siempre visible');
+        testRunner.assert(ov.textContent.includes('VISTA PREVIA · las acciones modifican datos reales'), 'badge refleja acciones reales');
         testRunner.assert(!!ov.querySelector('[data-act="closePreview"]'), 'botón de cierre presente');
     },
     'clic en Siguiente avanza al paso 2 de la guía'() {
@@ -54,6 +54,18 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         testRunner.assertEquals(overlay(), null, 'overlay cerrado con Escape');
         testRunner.assert(localStorage.getItem(KEY) !== null, 'progreso conservado tras Escape');
+    },
+    'la sección de elección muestra las cuatro opciones reales'() {
+        cleanup();
+        showOnboardingPreview();
+        for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
+        const ov = overlay();
+        testRunner.assert(!!ov.querySelector('[data-od-id="od-choice"]'), 'fase de elección alcanzada');
+        testRunner.assertEquals(ov.querySelectorAll('[data-act="pick"]').length, 4, 'cuatro tarjetas');
+        for (const v of ['scratch', 'backup', 'google', 'demo']) {
+            testRunner.assert(!!ov.querySelector(`[data-act="pick"][data-v="${v}"]`), `tarjeta ${v} presente`);
+        }
+        testRunner.assert(ov.textContent.includes('Explorar con datos de prueba'), 'tarjeta demo visible');
     },
     'SettingsTestsTab expone abrir y reiniciar la vista previa'() {
         const html = SettingsTestsTab({ state: { settings: {} } });
