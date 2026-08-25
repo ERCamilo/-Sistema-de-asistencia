@@ -28,7 +28,7 @@
 
 | ID | Resolución |
 |---|---|
-| (ninguno aún) | |
+| H-01 | ✅ CONFIRMADO y CORREGIDO en F1.0.2 (2026-08-25): el tombstone `deletedAt` se perdía en la re-inflación `new Employee(e)` (PersistenceService.js:1097). Fix mínimo condicional con `hasOwnProperty` en constructor+`toJSON` de Employee.js (payloads byte-idénticos para empleados nunca borrados). Protegido por `js/tests/EmployeeTombstoneSurvival.test.js` contra IDB real |
 
 ## Nota metodológica
 
