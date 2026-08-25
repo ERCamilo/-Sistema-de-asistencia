@@ -1,0 +1,58 @@
+# openspec/config.yaml
+schema: spec-driven
+
+context: |
+  Tech stack: Vanilla JS PWA (no framework, no build step); Firebase (Firestore/Auth/Storage,
+  SDK loaded at runtime from gstatic CDN v10.8.0) + Supabase edge functions for petty-cash PDF receipts.
+  Architecture: SPA at repo root (index.html, js/modules/*, sw.js, manifest.json); persistence behind
+  DataService/PersistenceService with IndexedDB + Firebase sync/outbox; legacy supabase/ migrations present.
+  Testing: Jest 29 + jsdom + babel-jest (~380 suites in js/tests/), Firebase mocked via moduleNameMapper.
+  Style: plain JS, no ESLint/Prettier/tsc; custom state-write guard (`npm run lint:state`) enforced in CI.
+  Current phase: Fase 0 of ROADMAP_BASE_SA_MINI_INTEGRACION.md - AUDIT ONLY, zero application behavior changes.
+
+strict_tdd: true # Defaulted: Jest runner present, no explicit marker found.
+
+testing:
+  test_command: npm test
+  coverage_command: npm run test:coverage
+  guard_command: npm run lint:state
+  framework: jest@29.7.0 + jest-environment-jsdom + babel-jest
+  layers:
+    unit: jest + jsdom
+    integration: jest + jsdom (wiring/coherence/sync suites)
+    e2e: none wired into pipeline (puppeteer-core used only by capture_screenshots.js)
+  coverage_dir: coverage/
+  notes:
+    - Firebase SDK is CDN-loaded at runtime and never an npm dependency; tests mock it via moduleNameMapper (__mocks__/).
+    - Windows cold start of npx jest is very slow (>90s); use npm test or node node_modules/jest/bin/jest.js directly.
+
+rules:
+  session:
+    - Execution mode: interactive; confirm before starting each SDD phase.
+    - Delivery strategy: ask-always - NEVER commit, push, or open a PR without explicit user approval.
+    - Review budget: keep each review slice under 400 changed lines.
+    - Artifact store: files-in-repo using the openspec/ layout (no Engram persistence this session).
+  proposal:
+    - Fase 0 is an audit phase - no application behavior changes allowed.
+    - Include rollback plan for risky changes.
+  specs:
+    - Use Given/When/Then for scenarios.
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY).
+  design:
+    - Document architecture decisions with rationale.
+  tasks:
+    - Group by phase, use hierarchical numbering.
+    - Keep tasks completable in one session.
+  apply:
+    guidelines:
+      - Follow existing code patterns; do not add dependencies without approval.
+      - During audit phases, touch only scaffolding/docs/tests unless a task explicitly allows code edits.
+    tdd: true
+    test_command: npm test
+  verify:
+    test_command: npm test
+    guard_command: npm run lint:state
+    build_command: "" # No build step; static assets served as-is (PWA).
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas.
