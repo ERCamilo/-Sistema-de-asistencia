@@ -3,7 +3,7 @@
  * running on fake-indexeddb (no mocks in the data path).
  *
  * Unlike the mocked sibling (PersistenceRoundTripIntegrity.test.js), this file
- * proves the real schema (attendance-app-db v16), the real dedup + batch
+ * proves the real schema (attendance-app-db v17), the real dedup + batch
  * writes, and the real loadFullState reconstruction — including employee
  * tombstones (`deletedAt`) and the `${employeeId}-${date}` attendance key
  * contract. Receipt/photo-blob stores are out of scope here.
@@ -70,10 +70,10 @@ function attendanceSeed() {
 }
 
 describe('Persistence round-trip integrity — REAL IndexedDB runtime (fake-indexeddb)', () => {
-    test('opens attendance-app-db at version 16 with the expected stores', async () => {
+    test('opens attendance-app-db at version 17 with the expected stores', async () => {
         const svc = new IndexedDBService();
         await svc.init();
-        expect(svc.db.version).toBe(16);
+        expect(svc.db.version).toBe(17);
         expect(Array.from(svc.db.objectStoreNames)).toEqual(expect.arrayContaining([
             'employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue',
             'pettyCashReceipts', 'pettyCashProjects', 'pettyCashPeriods', 'pettyCashMovements',

@@ -25,7 +25,7 @@ export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 16) {
+    constructor(dbName = 'attendance-app-db', version = 17) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -283,6 +283,13 @@ export class IndexedDBService {
                 // Store: employee avatar binaries (v16). It is intentionally
                 // separate from employee state and petty-cash receipts.
                 ensureEmployeePhotoStore(db);
+
+                // Store: proyectos oficiales (v17, F1.1) — entidad raíz del
+                // modelo multiproyecto (F0.3). Local-first en este slice:
+                // sin outbox ni publicación cloud.
+                if (!db.objectStoreNames.contains('projects')) {
+                    db.createObjectStore('projects', { keyPath: 'id' });
+                }
             };
         });
     }

@@ -114,7 +114,7 @@ class MemoryDB {
 
 describe('PayrollClosureStore', () => {
     test('schema creates an indexed payroll closure store and includes it in backup round trips', () => {
-        expect(IDB_SOURCE).toMatch(/version\s*=\s*16/);
+        expect(IDB_SOURCE).toMatch(/version\s*=\s*17/);
         const block = IDB_SOURCE.match(/payrollClosures['"][\s\S]{0,900}/)?.[0] || '';
         expect(block).toMatch(/keyPath:\s*['"]id['"]/);
         expect(block).toContain("createIndex('periodKey'");

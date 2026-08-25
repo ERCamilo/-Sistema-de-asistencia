@@ -120,8 +120,8 @@ describe('IndexedDB employee photo schema', () => {
         expect(db.createObjectStore).not.toHaveBeenCalled();
     });
 
-    test('version 16 invokes the employee-photo schema guard', () => {
-        expect(SRC).toMatch(/version\s*=\s*16/);
+    test('version 17 invokes the employee-photo schema guard', () => {
+        expect(SRC).toMatch(/version\s*=\s*17/);
         expect(SRC).toContain('ensureEmployeePhotoStore(db)');
         ['saveEmployeePhoto', 'getEmployeePhoto', 'replaceEmployeePhoto', 'deleteEmployeePhoto']
             .forEach(method => expect(SRC).toContain(`${method}(`));

@@ -3,6 +3,9 @@
  * Regex/readFileSync contract (moduleNameMapper intercepts IndexedDBService.js
  * at runtime — established pattern, see IndexedDBUpgradeResilienceTests).
  * employeePhotos is declared in EmployeePhotoCache.js via ensureEmployeePhotoStore(db).
+ *
+ * Renamed from IndexedDBSchemaV16Manifest.test.js (F1.1): version-pinned names
+ * forced a rename on every schema bump; the manifest is now version-agnostic.
  */
 
 import fs from 'fs';
@@ -33,14 +36,15 @@ const EXPECTED_STORES = {
     miniAttendanceAliases: 'aliasId',
     miniAttendanceAliasAudit: 'auditId',
     miniAttendanceInbox: 'eventId',
-    payrollClosures: 'id'
+    payrollClosures: 'id',
+    projects: 'id'
 };
 
 const AUTO_INCREMENT_STORES = ['sync_queue', 'pettyCashOutbox', 'mainSyncOutbox'];
 
-describe('IndexedDB schema v16 manifest (source contract)', () => {
-    test('opens database version 16', () => {
-        expect(IDB_SRC).toMatch(/version\s*=\s*16/);
+describe('IndexedDB schema v17 manifest (source contract)', () => {
+    test('opens database version 17', () => {
+        expect(IDB_SRC).toMatch(/version\s*=\s*17/);
     });
 
     test('creates exactly every known store with its current keyPath', () => {
