@@ -135,6 +135,7 @@ const initialState = {
     employeeSalaryView: 'month',
     selectedPersonnelEmployeeId: null,
     settings: {
+        companyName: '', // nombre de la empresa/proyecto: se lee en cabecera, reportes y exportaciones
         regularHoursPerDay: DEFAULT_REGULAR_HOURS_PER_DAY,
         syncEnabled: true,
         attendancePositionWatermarks: true,
