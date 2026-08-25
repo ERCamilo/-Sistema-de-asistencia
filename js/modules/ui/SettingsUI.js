@@ -72,6 +72,35 @@ const _SETTINGS_ACTION_MAP = {
         }
     },
     'run-browser-tests': () => window.runBrowserTests?.(),
+    'start-boot-loader-test': () => {
+        const delayInput = document.getElementById('bootLoaderTestDelaySeconds');
+        const errorInput = document.getElementById('bootLoaderTestErrorSeconds');
+        const reloadInput = document.getElementById('bootLoaderTestReloadEnabled');
+        const delaySeconds = Number(delayInput?.value);
+        const errorSeconds = Number(errorInput?.value);
+
+        if (!Number.isFinite(delaySeconds) || delaySeconds <= 0
+            || !Number.isFinite(errorSeconds) || errorSeconds <= delaySeconds) {
+            window.showNotification?.(
+                'El tiempo de error debe ser mayor que el aviso de demora, y ambos deben ser positivos.',
+                'warning'
+            );
+            return;
+        }
+
+        const started = window.appBootLoader?.startSimulation?.({
+            slowDelayMs: Math.round(delaySeconds * 1000),
+            failureDelayMs: Math.round(errorSeconds * 1000),
+            reloadEnabled: reloadInput?.checked === true
+        });
+
+        if (!started) {
+            window.showNotification?.(
+                'No se pudo iniciar la simulación mientras hay otra carga activa.',
+                'warning'
+            );
+        }
+    },
     'open-modal-preview': (kind) => openSafeModalPreview(kind),
     'open-notification-preview': (kind) => openSafeNotificationPreview(kind),
     'export-error-log': () => window.exportErrorLog?.(),

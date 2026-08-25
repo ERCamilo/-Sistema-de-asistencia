@@ -36,6 +36,33 @@ export function SettingsTestsTab(context) {
                 </div>
             </div>
 
+            <section class="stg-card" aria-labelledby="boot-loader-test-title" style="margin-top:20px;">
+                <h4 id="boot-loader-test-title" style="margin-top:0;">Simulación de pantalla de carga</h4>
+                <p id="boot-loader-test-help" style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
+                    Muestra el loader real y lo mantiene detenido para comprobar sus avisos. La simulación no guarda estos valores ni cambia el arranque normal.
+                </p>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px;">
+                    <label for="bootLoaderTestDelaySeconds" style="display:flex;flex-direction:column;gap:6px;font-size:.8rem;color:#cbd5e1;font-weight:600;">
+                        Aviso de demora (segundos)
+                        <input id="bootLoaderTestDelaySeconds" class="form-input" type="number" min="0.1" step="0.1" value="2" aria-describedby="boot-loader-test-help">
+                    </label>
+                    <label for="bootLoaderTestErrorSeconds" style="display:flex;flex-direction:column;gap:6px;font-size:.8rem;color:#cbd5e1;font-weight:600;">
+                        Aviso de error (segundos)
+                        <input id="bootLoaderTestErrorSeconds" class="form-input" type="number" min="0.2" step="0.1" value="5" aria-describedby="boot-loader-test-help">
+                    </label>
+                </div>
+                <label for="bootLoaderTestReloadEnabled" style="display:flex;align-items:center;gap:9px;margin-top:14px;color:#cbd5e1;font-size:.84rem;cursor:pointer;">
+                    <input id="bootLoaderTestReloadEnabled" type="checkbox" checked>
+                    Mostrar la opción «Recargar aplicación» al llegar al error
+                </label>
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;">
+                    <button type="button" class="btn btn-primary" data-settings-action="start-boot-loader-test">
+                        Mostrar loader detenido
+                    </button>
+                    <span style="color:#64748b;font-size:.78rem;">Podrás cerrarlo desde la propia pantalla de carga.</span>
+                </div>
+            </section>
+
             <!-- Integración SplitX en Pruebas / Desarrollo -->
             <section class="stg-card" aria-labelledby="splitx-integration-title" style="margin-top:20px;">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">

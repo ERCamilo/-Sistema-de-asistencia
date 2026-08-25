@@ -3,9 +3,8 @@
  *
  * Cuando otra ventana oculta retenía una conexión vieja durante un upgrade de
  * versión, indexedDB.open quedaba pendiente para siempre: el listener de auth
- * nunca se registraba, el loader se ocultaba por el safety timeout de 2.5s y
- * la consola quedaba limpia salvo UN warning enterrado. El usuario veía la app
- * "deslogueada" y vacía sin ninguna pista.
+ * nunca se registraba y el usuario quedaba sin una salida útil. El controlador
+ * de arranque ahora conserva el error visible y ofrece recargar la aplicación.
  *
  * Fix en dos capas (contratos acá):
  *   1. PersistenceService.loadApplicationData ya NO traga los errores tipados
@@ -89,8 +88,11 @@ testRunner.addSuite("app.js — catch de arranque: diálogo accionable ante fall
         testRunner.assert(renderIdx !== -1, 'el catch debe seguir renderizando el estado de error');
         testRunner.assert(dialogIdx !== -1 && dialogIdx < renderIdx,
             'el diálogo va ANTES del render (junto al log), sin reemplazar el flujo genérico');
-        testRunner.assert(catchBlock.includes('clearTimeout(loaderTimeout)'),
-            'el catch debe seguir limpiando el safety timeout del loader');
+        const errorEventIdx = catchBlock.indexOf("new CustomEvent('app:error'");
+        testRunner.assert(errorEventIdx !== -1 && errorEventIdx < renderIdx,
+            'el catch debe publicar app:error antes de intentar el render de recuperación');
+        testRunner.assert(!catchBlock.includes('loaderTimeout'),
+            'app.js no debe volver a ser dueño del timeout del loader');
     }
 
 });
