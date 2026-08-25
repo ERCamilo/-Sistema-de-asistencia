@@ -1,10 +1,10 @@
 {
   "comment": "El SDK de Firebase se carga en runtime desde el CDN gstatic (10.8.0) en js/modules/data/firebase.js — esa es la única fuente de verdad. No se declara 'firebase' como dependencia npm porque ningún módulo ni test lo importa; los tests lo mockean vía moduleNameMapper.",
-  "dependencies": {},
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/preset-env": "^7.29.5",
     "babel-jest": "^29.7.0",
+    "fake-indexeddb": "^6.2.5",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "puppeteer-core": "^25.0.4"

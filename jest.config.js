@@ -6,6 +6,12 @@ module.exports = {
         '^.+\\.js$': 'babel-jest'
     },
     moduleNameMapper: {
+        // F1.0.1: FIRST entry — opt-in escape hatch to the REAL modules.
+        // Tests import 'actual/services/IndexedDBService.js' etc. to exercise
+        // real runtime code over fake-indexeddb. Must stay BEFORE the mock
+        // patterns below: '(^|/)IndexedDBService\.js$' would otherwise match
+        // the tail of 'actual/...' imports and intercept them.
+        '^actual/(.*)$': '<rootDir>/js/modules/$1',
         // Mock Firebase SDK initialization (prevents network/config errors in tests)
         // Patterns match both absolute imports (from test files) and relative ones
         // (./IndexedDBService.js inside PersistenceService.js).
