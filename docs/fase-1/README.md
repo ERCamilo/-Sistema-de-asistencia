@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | 🔄 **Bloque F1.1–F1.3 EJECUTADO y REVISADO (segunda vuelta independiente)** — detenido esperando Dirección · Control general: F0 100% · F1.0 100% · F1 3/10 · Ejecución independiente: **345/345 suites · 3307 tests · 0 fallos** · Pre-F1.4 obligatorio: revisar AppState.js + resolver W1/W2 antes de wiring/flag ON (ver §Segunda vuelta) |
+| Estado | ✅ Bloque F1.1–F1.3 EJECUTADO, REVISADO y **W1/W2 CORREGIDOS** — detenido esperando Dirección · Control general: F0 100% · F1.0 100% · F1 3/10 · Suite: **345/345 suites · 3311 tests · 0 fallos** · Pre-F1.4 pendiente: revisar AppState.js (+ endurecimiento S3–S5 en próximo slice) |
 | Punto de parada | **USABLE** — suite completa verde (342 suites / 3280 tests, 0 fallos) |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
@@ -65,8 +65,8 @@ Revisión fresh-context (lente confiabilidad) sobre `fffdf9c`+`aae38be`, más ej
 
 | ID | Sev. | Hallazgo | Disposición recomendada |
 |---|---|---|---|
-| W1 | 🟡 | Pointer-HIT de `ensureDefaultProject()` no valida status → un default cerrado/archivado entregaría id no-activo desde el contexto | Corregir ANTES de wiring/flag ON |
-| W2 | 🟡 | Carrera cross-tab crearía "Mi obra" duplicada si dos pestañas ven puntero ausente (CrossTabLock existe, no se usa aquí) | Ídem + test de concurrencia |
+| W1 | 🟡→✅ | Pointer-HIT de `ensureDefaultProject()` no valida status → un default cerrado/archivado entregaría id no-activo desde el contexto | **RESUELTO**: dangling = inexistente O status≠active; contrato único con recovery (usa `PROJECT_STATUS.ACTIVE`) |
+| W2 | 🟡→✅ | Carrera cross-tab crearía "Mi obra" duplicada si dos pestañas ven puntero ausente (CrossTabLock existe, no se usa aquí) | **RESUELTO**: lease `default-project-init` envolviendo el cuerpo completo + promesa en vuelo compartida intra-pestaña (el lease IDB re-admite al mismo dueño al instante — hallazgo clave) |
 | S3 | 🔵 | Constructor acepta closed/archived sin exigir closedAt/archivedAt (riesgo vía payloads futuros de sync) | Hardening próximo slice |
 | S4 | 🔵 | JSDoc "nunca rechaza" vs comportamiento real de getActiveProjectId | Ajustar contrato |
 | S5 | 🔵 | metadata retenida por referencia (mutación del caller filtra a payloads) | Clonar en frontera de entidad |

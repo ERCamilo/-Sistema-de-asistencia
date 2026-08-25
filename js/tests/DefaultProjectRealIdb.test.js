@@ -110,4 +110,58 @@ describe('DefaultProjectService (F1.2)', () => {
         await expect(store.listAll()).resolves.toHaveLength(1);
         expect(localStorage.getItem(DEFAULT_PROJECT_LS_KEY)).toBe(a.id);
     });
+
+    test.each([
+        ['closed', p => p.close()],
+        ['archived', p => {
+            p.close();
+            p.archive();
+        }]
+    ])('pointer at a %s project is dangling: recovers earliest ACTIVE, never the non-active one', async (_status, transition) => {
+        const dbName = `attendance-app-db-default-pointer-${_status}`;
+        const { store, service } = makeHarness(dbName);
+        const older = Project.create({ name: 'Vieja', createdAt: 1000 });
+        const newer = Project.create({ name: 'Nueva', createdAt: 2000 });
+        await store.create(older);
+        await store.create(newer);
+        transition(older);
+        await store.update(older);
+        localStorage.setItem(DEFAULT_PROJECT_LS_KEY, older.id);
+
+        const resolved = await service.ensureDefaultProject();
+
+        expect(resolved.status).toBe(PROJECT_STATUS.ACTIVE);
+        expect(resolved.id).toBe(newer.id);
+        expect(localStorage.getItem(DEFAULT_PROJECT_LS_KEY)).toBe(newer.id);
+        await expect(store.listAll()).resolves.toHaveLength(2);
+    });
+
+    test('concurrent ensure() calls in one tab share a single creation', async () => {
+        const { store, service } = makeHarness('attendance-app-db-default-concurrent');
+
+        const [a, b, c] = await Promise.all([
+            service.ensureDefaultProject(),
+            service.ensureDefaultProject(),
+            service.ensureDefaultProject()
+        ]);
+
+        expect(a.id).toBe(b.id);
+        expect(b.id).toBe(c.id);
+        await expect(store.listAll()).resolves.toHaveLength(1);
+        expect(localStorage.getItem(DEFAULT_PROJECT_LS_KEY)).toBe(a.id);
+    });
+
+    test('two overlapping service instances (tab simulation) converge on one default', async () => {
+        const dbName = 'attendance-app-db-default-two-tabs';
+        const svc = new IndexedDBService(dbName);
+        const a = new DefaultProjectService({ store: new ProjectStore({ db: svc }) });
+        const b = new DefaultProjectService({ store: new ProjectStore({ db: svc }) });
+
+        const [ra, rb] = await Promise.all([a.ensureDefaultProject(), b.ensureDefaultProject()]);
+
+        expect(ra.id).toBe(rb.id);
+        expect(ra.name).toBe(DEFAULT_PROJECT_NAME);
+        await expect(svc.getAll('projects')).resolves.toHaveLength(1);
+        expect(localStorage.getItem(DEFAULT_PROJECT_LS_KEY)).toBe(ra.id);
+    });
 });
