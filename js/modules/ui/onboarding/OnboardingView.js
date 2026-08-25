@@ -90,6 +90,7 @@ export function setupSection(s) {
         /* Respaldo real llega en fase 3; por ahora solo se muestra la explicación. */
         b += `<div style="padding:16px;border-radius:12px;background:${C.panel2};border:1px dashed ${C.border};color:${C.dim};font-size:13px;line-height:1.55;">La vinculación con Google estará disponible más adelante. Sin ella, tus datos se guardan solo en este dispositivo; podrás hacerlo desde Ajustes → Datos.</div>`;
     }
+    if (s._setupError) b += `<div role="alert" style="margin-top:16px;padding:12px 15px;border-radius:11px;border:1px solid #ef4444;background:rgba(239,68,68,.09);color:#fca5a5;font-size:13px;line-height:1.5;">${esc(s._setupError)}</div>`;
     return b + '</div>';
 }
 export function readySection(s) {

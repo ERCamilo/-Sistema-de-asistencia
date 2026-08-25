@@ -8,9 +8,10 @@
  * El progreso se persiste vía OnboardingCore (saveProgress), así que cerrar a
  * mitad de flujo permite retomarlo después.
  */
-import { defaultState, saveProgress, restoreProgress, clearProgress } from './OnboardingCore.js';
+import { defaultState, saveProgress, restoreProgress, clearProgress, navNext, SETUP_TOTAL } from './OnboardingCore.js';
 import { renderOnboarding, handleAction } from './OnboardingView.js';
 import { executeChoiceAction } from './OnboardingActions.js';
+import { applySetup } from './OnboardingApply.js';
 
 let overlayEl = null;
 let st = null;
@@ -67,6 +68,36 @@ async function runChoice(value) {
     renderPreview();
 }
 
+/* "Finalizar" del setup: commit REAL vía applySetup (deps por defecto). Con
+ * éxito avanza a 'listo' y re-renderiza SIN cerrar (el cierre queda para
+ * "Entrar a la app"); en fallo muestra el error inline y se queda en setup. */
+async function runFinish() {
+    if (running || !st || !overlayEl) return;
+    running = true;
+    st._setupError = null;
+    st._busy = true;
+    renderPreview();
+    showStatus(STATUS_OK);
+    setButtonsDisabled(true);
+    let result;
+    try {
+        result = await applySetup(st);
+    } catch (err) {
+        result = { applied: false, error: String((err && err.message) || err) };
+    }
+    running = false;
+    if (!overlayEl || !st) return; // cerrado a mitad (Escape): nada más que tocar
+    st._busy = false;
+    if (result && result.applied) {
+        navNext(st);
+        saveProgress(localStorage, st);
+        renderPreview();
+        return;
+    }
+    st._setupError = (result && result.error) || 'No se pudo guardar la configuración.';
+    renderPreview();
+}
+
 function renderPreview() {
     if (!overlayEl || !st) return;
     overlayEl.innerHTML = CHROME_HTML + renderOnboarding(st);
@@ -82,6 +113,8 @@ function onOverlayClick(e) {
     if (act === 'next' && st.phase === 'ready') { closeOnboardingPreview(); return; }
     /* Opciones de elección: acción REAL asíncrona (deps por defecto), no solo pick(). */
     if (act === 'pick' && CHOICE_SOURCES.includes(el.dataset.v)) { runChoice(el.dataset.v); return; }
+    /* Último paso del setup ("Finalizar"): commit real antes de pasar a 'listo'. */
+    if (act === 'next' && st.phase === 'setup' && st.setupStep === SETUP_TOTAL) { runFinish(); return; }
     handleAction(act, el, st);
     saveProgress(localStorage, st);
     renderPreview();
