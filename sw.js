@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0825.091243';
+const CACHE_VERSION = '2026.0825.093519';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -119,6 +119,7 @@ const APP_SHELL = [
     './js/modules/ui/MiniAttendanceReviewViewModel.js',
     './js/modules/services/MiniAttendanceAliasStore.js',
     './js/modules/ui/modals/PositionModal.js',
+    './js/modules/ui/onboarding/OnboardingPreview.js',
     './js/modules/ui/settings/SettingsTestsTab.js',
 
     // Features

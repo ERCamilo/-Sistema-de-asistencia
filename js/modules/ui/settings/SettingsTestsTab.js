@@ -63,6 +63,24 @@ export function SettingsTestsTab(context) {
                 </div>
             </section>
 
+            <!-- Onboarding v2 — vista previa aislada -->
+            <section class="stg-card" aria-labelledby="onboarding-preview-title" style="margin-top:20px;">
+                <h4 id="onboarding-preview-title" style="margin-top:0;">Onboarding v2 (vista previa)</h4>
+                <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
+                    Recorre el nuevo flujo de configuración guiada sin tocar datos reales.
+                    El avance se guarda en este navegador hasta que termines o lo reinicies.
+                </p>
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;">
+                    <button type="button" class="btn btn-primary" data-settings-action="open-onboarding-preview">
+                        Abrir vista previa del onboarding
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-settings-action="reset-onboarding-preview" style="font-size:.8rem;padding:6px 12px;">
+                        Reiniciar progreso
+                    </button>
+                    <span style="color:#64748b;font-size:.78rem;">Ciérrala con Esc o con la × de la esquina superior.</span>
+                </div>
+            </section>
+
             <!-- Integración SplitX en Pruebas / Desarrollo -->
             <section class="stg-card" aria-labelledby="splitx-integration-title" style="margin-top:20px;">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
