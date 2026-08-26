@@ -8,6 +8,7 @@ import { collectPositionDays, reassignPositionDays } from '../../services/Attend
 import { escapeHTML } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
+import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
 import {
     attachEmployeePositionEditor,
     renderEmployeePositionEditor
@@ -22,9 +23,12 @@ export class EmployeeModal {
         const mainTitle = isEdit ? 'Editar Empleado' : 'Nuevo Empleado';
         const subtitle = isEdit ? emp.name : null;
 
-        // Lógica de número sugerido
+        // Lógica de número sugerido (F1.4: sólo empleados del proyecto activo)
+        const scope = peekEntityScope();
         const suggestedNumber = isEdit ? emp.number : (() => {
-            const maxNum = Math.max(0, ...state.employees.map(e => parseInt(e.number) || 0));
+            const maxNum = Math.max(0, ...state.employees
+                .filter(e => entityInScope(e, scope))
+                .map(e => parseInt(e.number) || 0));
             return String(maxNum + 1).padStart(3, '0');
         })();
 
@@ -197,6 +201,8 @@ export class EmployeeModal {
 
     static save(modalInstance, existingEmp) {
         const el = modalInstance.element;
+        // F1.4: alcance activo para sello de nacimiento y detección de duplicados.
+        const scope = peekEntityScope();
         const number = el.querySelector('#empNumber').value.trim();
         const name = el.querySelector('#empName').value.trim();
         const hireDate = el.querySelector('#empHireDate').value;
@@ -293,7 +299,10 @@ export class EmployeeModal {
                 statusHistory: [{ date: hireDate, active: true, timestamp: nowNew }],
                 // Empleado nuevo: sus puestos se asignan por primera vez ahora,
                 // así que positionsUpdatedAt arranca con el mismo timestamp.
-                updatedAt: nowNew, positionsUpdatedAt: nowNew, _isDirty: true
+                updatedAt: nowNew, positionsUpdatedAt: nowNew, _isDirty: true,
+                // F1.4: sello de nacimiento — sólo con flag ON; ausente ⇒
+                // proyecto predeterminado (F0.4 §2). Nunca se pisa al editar.
+                ...(scope.enabled ? { projectId: scope.projectId } : {})
             });
             return newId;
         };
@@ -319,8 +328,13 @@ export class EmployeeModal {
         const continueSave = () => {
             // 🔢 Conflicto de número: otro empleado ya tiene esta ficha.
             // En vez de bloquear, ofrecemos resolución: cancelar, intercambiar
-            // o fusionar (misma persona).
-            const duplicate = state.employees.find(e => e.number === number && (!existingEmp || e.id !== existingEmp.id));
+            // o fusionar (misma persona). F1.4: la colisión sólo cuenta dentro
+            // del mismo proyecto efectivo (#12 en A y #12 en B conviven).
+            const duplicate = state.employees.find(e =>
+                e.number === number
+                && (!existingEmp || e.id !== existingEmp.id)
+                && entityInScope(e, scope)
+            );
             if (duplicate) {
                 EmployeeModal._showNumberConflict({
                     intendedNumber: number, editingName: name, existingEmp, duplicate,

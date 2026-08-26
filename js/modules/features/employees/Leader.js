@@ -12,6 +12,11 @@ export class Leader {
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
+        // F1.4: proyecto propietario (F0.4 §2 — ausente/null ⇒ predeterminado).
+        // Sólo se conserva si la clave existe (byte-estable para legacy).
+        if (Object.prototype.hasOwnProperty.call(data, 'projectId')) {
+            this.projectId = data.projectId ?? null;
+        }
     }
 
     activate() {
@@ -39,7 +44,7 @@ export class Leader {
     }
 
     toJSON() {
-        return {
+        const json = {
             id: this.id,
             number: this.number,
             name: this.name,
@@ -53,8 +58,11 @@ export class Leader {
             statusHistory: this.statusHistory,
             updatedAt: this.updatedAt
         };
+        if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
+            json.projectId = this.projectId;
+        }
+        return json;
     }
-
     static fromJSON(json) {
         return new Leader(json);
     }

@@ -20,6 +20,11 @@ export class Position {
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
+        // F1.4: proyecto propietario (F0.4 §2 — ausente/null ⇒ predeterminado).
+        // Sólo se conserva si la clave existe (byte-estable para legacy).
+        if (Object.prototype.hasOwnProperty.call(data, 'projectId')) {
+            this.projectId = data.projectId ?? null;
+        }
     }
 
     activate() {
@@ -47,7 +52,7 @@ export class Position {
     }
 
     toJSON() {
-        return {
+        const json = {
             id: this.id,
             name: this.name,
             color: this.color,
@@ -63,8 +68,11 @@ export class Position {
             statusHistory: this.statusHistory,
             updatedAt: this.updatedAt
         };
+        if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
+            json.projectId = this.projectId;
+        }
+        return json;
     }
-
     static fromJSON(json) {
         return new Position(json);
     }

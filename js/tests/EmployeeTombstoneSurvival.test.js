@@ -104,4 +104,54 @@ describe('H-01: employee tombstone survives the REAL persistence round trip', ()
         const secondGeneration = await indexedDBService.getAll('employees');
         expect(secondGeneration.find(e => e.id === 'EMP-Y').deletedAt).toBe(DELETED_AT);
     });
+
+    // F1.4 — projectId follows the same hasOwnProperty pattern as deletedAt:
+    // present → preserved across every inflation point; absent → stays absent
+    // (legacy records must remain byte-stable through save/load generations).
+    test('F1.4: projectId survives the REAL round trip; absence stays absent', async () => {
+        await indexedDBService.clearAll();
+        await indexedDBService.batchUpdate('employees', [
+            {
+                id: 'EMP-PRJ', key: 'EMP-PRJ', number: '97', name: 'P',
+                positions: [], active: true, projectId: 'PRJ-K', updatedAt: 1
+            },
+            {
+                id: 'EMP-LEGACY', key: 'EMP-LEGACY', number: '96', name: 'L',
+                positions: [], active: true, updatedAt: 1
+            }
+        ]);
+        expect(await loadApplicationData()).toBe(true);
+
+        const stamped = state.employees.find(e => e.id === 'EMP-PRJ');
+        expect(stamped.projectId).toBe('PRJ-K');
+        const legacy = state.employees.find(e => e.id === 'EMP-LEGACY');
+        expect(Object.prototype.hasOwnProperty.call(legacy, 'projectId')).toBe(false);
+
+        await indexedDBService.saveState({
+            employees: state.employees,
+            positions: state.positions,
+            leaders: state.leaders,
+            attendance: {},
+            settings: state.settings
+        });
+        const secondGeneration = await indexedDBService.getAll('employees');
+        expect(secondGeneration.find(e => e.id === 'EMP-PRJ').projectId).toBe('PRJ-K');
+        expect(Object.prototype.hasOwnProperty.call(
+            secondGeneration.find(e => e.id === 'EMP-LEGACY'), 'projectId'
+        )).toBe(false);
+    });
+
+    test('F1.4: a tombstoned employee KEEPS its projectId (H-01 protection intact)', async () => {
+        await indexedDBService.clearAll();
+        await indexedDBService.batchUpdate('employees', [{
+            id: 'EMP-TOMB', key: 'EMP-TOMB', number: '95', name: 'T',
+            positions: [], active: false, deletedAt: DELETED_AT,
+            projectId: 'PRJ-K', updatedAt: DELETED_AT
+        }]);
+        expect(await loadApplicationData()).toBe(true);
+
+        const loaded = state.employees.find(e => e.id === 'EMP-TOMB');
+        expect(loaded.deletedAt).toBe(DELETED_AT);
+        expect(loaded.projectId).toBe('PRJ-K');
+    });
 });

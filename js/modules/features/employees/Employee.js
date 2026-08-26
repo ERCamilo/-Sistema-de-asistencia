@@ -79,6 +79,12 @@ export class Employee {
         if (Object.prototype.hasOwnProperty.call(data, 'deletedAt')) {
             this.deletedAt = data.deletedAt;
         }
+        // F1.4: proyecto propietario (F0.4 §2 — ausente/null ⇒ proyecto
+        // predeterminado). Igual que deletedAt/photo: sólo se conserva cuando
+        // la clave existe, para no alterar registros legacy en el round-trip.
+        if (Object.prototype.hasOwnProperty.call(data, 'projectId')) {
+            this.projectId = data.projectId ?? null;
+        }
     }
 
     // Métodos de negocio
@@ -155,6 +161,9 @@ export class Employee {
         }
         if (Object.prototype.hasOwnProperty.call(this, 'deletedAt')) {
             json.deletedAt = this.deletedAt;
+        }
+        if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
+            json.projectId = this.projectId;
         }
         return json;
     }

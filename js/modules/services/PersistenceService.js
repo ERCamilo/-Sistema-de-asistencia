@@ -30,6 +30,7 @@ import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
+import { peekEntityScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -1359,9 +1360,19 @@ export async function validateDataIntegrity() {
         }
     });
 
-    // 3. Limpiar líderes en posiciones
+    // 3. Limpiar líderes en posiciones. F1.4: con flag ON, un líder presente
+    //    pero de OTRO proyecto efectivo también es huérfano — la referencia
+    //    cross-proyecto no sobrevive (F0.4 §2: ausente ⇒ predeterminado).
+    //    La guardia anti-masacre de arriba sigue protegiendo ambos caminos.
+    const _entityScope = peekEntityScope();
     if (!leadersCatalogSuspicious) state.positions.forEach(pos => {
-        if (pos.leaderId && !leaderIds.has(pos.leaderId)) {
+        if (!pos.leaderId) return;
+        let orphan = !leaderIds.has(pos.leaderId);
+        if (!orphan && _entityScope.enabled) {
+            const leader = state.leaders.find(l => l.id === pos.leaderId);
+            orphan = leader ? !sameEffectiveProject(leader, pos, _entityScope) : true;
+        }
+        if (orphan) {
             pos.leaderId = null;
             pos.updatedAt = Date.now(); // misma regla — sin estampa no sube ni converge
             fixes++;
@@ -1883,10 +1894,17 @@ export function analyzeConflicts(opts = {}) {
     });
 
     // 2. Agrupar por número (igual que antes, pero sobre el set unido).
+    //    F1.4: con flag ON la colisión sólo cuenta dentro del mismo proyecto
+    //    efectivo — Proyecto A #12 y Proyecto B #12 conviven sin conflicto.
+    //    Flag OFF: clave idéntica a antes (paridad legacy exacta).
+    const _conflictScope = peekEntityScope();
     const groups = new Map();
     byId.forEach((emp) => {
-        if (!groups.has(emp.number)) groups.set(emp.number, []);
-        groups.get(emp.number).push(emp);
+        const key = _conflictScope.enabled
+            ? `${effectiveProjectId(emp, _conflictScope)}::${emp.number}`
+            : emp.number;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(emp);
     });
 
     const conflicts = [];

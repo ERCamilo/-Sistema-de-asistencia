@@ -1,5 +1,6 @@
 import { Modal } from '../../components/Modal.js';
 import { getState, context } from '../../features/employees/EmployeesUI.js';
+import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
 import icons from '../../ui/IconSystem.js';
 
 export class LeaderModal {
@@ -10,9 +11,12 @@ export class LeaderModal {
         const mainTitle = isEdit ? 'Editar Líder' : 'Nuevo Líder';
         const subtitle = isEdit ? ldr.name : null;
 
-        // Sugerencia de número para líder
+        // Sugerencia de número para líder (F1.4: sólo líderes del proyecto activo)
+        const scope = peekEntityScope();
         const suggestedNumber = isEdit ? ldr.number : (() => {
-            const maxNum = Math.max(10, ...state.leaders.map(l => parseInt(l.number) || 0));
+            const maxNum = Math.max(10, ...state.leaders
+                .filter(l => entityInScope(l, scope))
+                .map(l => parseInt(l.number) || 0));
             return String(maxNum + 1);
         })();
 
@@ -101,6 +105,8 @@ export class LeaderModal {
 
     static save(modalInstance, existingLdr) {
         const el = modalInstance.element;
+        // F1.4: alcance activo para el sello de nacimiento.
+        const scope = peekEntityScope();
         const number = el.querySelector('#ldrNumber').value.trim();
         const name = el.querySelector('#ldrName').value.trim();
         const phone = el.querySelector('#ldrPhone').value.trim();
@@ -139,7 +145,10 @@ export class LeaderModal {
                 notes: notes,
                 active: true,
                 updatedAt: Date.now(),
-                _isDirty: true
+                _isDirty: true,
+                // F1.4: sello de nacimiento — sólo con flag ON; ausente ⇒
+                // proyecto predeterminado (F0.4 §2).
+                ...(scope.enabled ? { projectId: scope.projectId } : {})
             });
             announce = `Líder ${name} creado`;
         }

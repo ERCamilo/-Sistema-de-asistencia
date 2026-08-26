@@ -11,6 +11,7 @@ import { PositionIconModal } from '../../ui/modals/PositionIconModal.js';
 import { LeaderIconModal } from '../../ui/modals/LeaderIconModal.js';
 import { EmployeeFloatingCard } from '../../ui/components/EmployeeFloatingCard.js';
 import { state as _appState, stateManager } from '../../core/AppState.js';
+import { peekEntityScope, entityInScope } from '../projects/ProjectContext.js';
 import { EmployeeCard, getEmployeeOpenFilter } from './EmployeesList.js';
 import { LeaderCard, scheduleLeaderCardGridLayout } from './LeadersList.js';
 import { PositionCard, schedulePositionCardGridLayout } from './PositionsList.js';
@@ -296,7 +297,9 @@ export function EmployeesTab() {
         const activeExtraFilters = (positionFilters.leaderId !== 'all' ? 1 : 0)
             + (statusFilter !== 'active' ? 1 : 0);
 
+        const positionScope = peekEntityScope();
         let filteredPositions = state.positions.filter(pos => {
+            if (!entityInScope(pos, positionScope)) return false;
             if (statusFilter === 'active') return pos.active;
             if (statusFilter === 'inactive') return !pos.active;
             return true;
@@ -365,8 +368,8 @@ export function EmployeesTab() {
                                 <label>
                                     <span>Líder</span>
                                     <select onchange="setPositionLeaderFilter(this.value)">
-                                        <option value="all" ${(positionFilters.leaderId || 'all') === 'all' ? 'selected' : ''}>Todos</option>
-                                        ${state.leaders.map(leader => `
+                                    <option value="all" ${(positionFilters.leaderId || 'all') === 'all' ? 'selected' : ''}>Todos</option>
+                                    ${state.leaders.filter(leader => entityInScope(leader, positionScope)).map(leader => `
                                             <option value="${escapeAttr(leader.id)}" ${positionFilters.leaderId === leader.id ? 'selected' : ''}>
                                                 ${escapeHTML(leader.name)}
                                             </option>
@@ -437,6 +440,10 @@ export function EmployeesTab() {
         leaderIds: [],
         status: 'active'
     };
+    // F1.4: los pickers de filtro también respetan el alcance activo.
+    const pickerScope = peekEntityScope();
+    const pickerPositions = state.positions.filter(p => entityInScope(p, pickerScope));
+    const pickerLeaders = state.leaders.filter(l => entityInScope(l, pickerScope));
 
     if (isLeaders) {
         const sortBy = state.leaderSortBy || 'employees';
@@ -527,7 +534,7 @@ export function EmployeesTab() {
                             kind: 'positions',
                             label: 'Puestos',
                             searchPlaceholder: 'Buscar puesto...',
-                            items: state.positions.slice().sort((a, b) => a.name.localeCompare(b.name)),
+                            items: pickerPositions.slice().sort((a, b) => a.name.localeCompare(b.name)),
                             selectedIds: positionFilters,
                             toggleHandler: 'toggleEmployeePositionFilter',
                             iconResolver: resolvePositionIcon,
@@ -537,7 +544,7 @@ export function EmployeesTab() {
                             kind: 'leaders',
                             label: 'Líderes',
                             searchPlaceholder: 'Buscar líder...',
-                            items: state.leaders.filter(leader => leader.active)
+                            items: pickerLeaders.filter(leader => leader.active)
                                 .sort((a, b) => a.name.localeCompare(b.name)),
                             selectedIds: leaderFilters,
                             toggleHandler: 'toggleEmployeeLeaderFilter',
@@ -740,8 +747,12 @@ function getFilteredEmployeesOrLeaders() {
     // exists. Collapse only equal stable identities; employees that merely
     // share a number or name remain visible for the conflict tools to resolve.
     const sourceItems = isEmployees ? state.employees : state.leaders;
+    // F1.4: con flag ON sólo se ven entidades del proyecto efectivo activo
+    // (ausente ⇒ predeterminado, F0.4 §2). Flag OFF ⇒ sin filtrado (legacy).
+    const scope = peekEntityScope();
     const seenStableIds = new Set();
     const items = (Array.isArray(sourceItems) ? sourceItems : []).filter(item => {
+        if (!entityInScope(item, scope)) return false;
         const stableId = item?.id ?? item?.key;
         if (stableId === undefined || stableId === null || stableId === '') return true;
         const normalizedId = String(stableId);

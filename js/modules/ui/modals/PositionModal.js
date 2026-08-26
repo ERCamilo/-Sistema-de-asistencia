@@ -7,6 +7,7 @@ import { HelpTooltip } from '../../components/HelpTooltip.js';
 import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
 import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
+import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -22,7 +23,10 @@ export class PositionModal {
         const subtitle = isEdit ? pos.name : null;
         const title = isEdit ? mainTitle : mainTitle; // Mantener variable title por si se usa abajo (en el objeto modal)
 
-        const activeLeaders = state.leaders.filter(l => l.active);
+        // F1.4: el picker de líder sólo ofrece líderes del proyecto efectivo
+        // del puesto (referencias cross-proyecto quedan bloqueadas en origen).
+        const scope = peekEntityScope();
+        const activeLeaders = state.leaders.filter(l => l.active && entityInScope(l, scope));
         const selectedColor = pos?.color || COLOR_PALETTE[0];
 
         const regularHours = normalizeRegularHoursPerDay(state.settings.regularHoursPerDay);
@@ -300,6 +304,8 @@ export class PositionModal {
 
     static save(modalInstance, existingPos) {
         const el = modalInstance.element;
+        // F1.4: alcance activo para el sello de nacimiento.
+        const scope = peekEntityScope();
         const name = el.querySelector('#posName').value.trim();
         const rawRate = parseFloat(el.querySelector('#posHourlyRate').value);
         const salaryMode = el.querySelector('#posSalaryMode')?.value === 'daily' ? 'daily' : 'hourly';
@@ -370,7 +376,10 @@ export class PositionModal {
                 icon: icon,
                 active: true,
                 updatedAt: Date.now(),
-                _isDirty: true
+                _isDirty: true,
+                // F1.4: sello de nacimiento — sólo con flag ON; ausente ⇒
+                // proyecto predeterminado (F0.4 §2).
+                ...(scope.enabled ? { projectId: scope.projectId } : {})
             });
             announce = `Posición "${name}" creada`;
         }
