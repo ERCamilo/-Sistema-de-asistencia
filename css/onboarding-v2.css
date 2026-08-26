@@ -1,0 +1,34 @@
+/* onboarding-v2.css — estilos y animaciones del onboarding v2 (fase 4).
+   Los paneles usan estilos inline; aquí viven solo keyframes, la pausa de
+   animaciones por accesibilidad y el colapso responsive de la guía. */
+
+@keyframes glowPulse {
+    0%, 100% { opacity: .22; transform: scale(1); }
+    50% { opacity: .42; transform: scale(1.1); }
+}
+
+.odv-glow { animation: glowPulse 3.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+    .odv-wrap *,
+    .odv-wrap *::before,
+    .odv-wrap *::after,
+    #onboarding-preview-overlay * {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
+
+/* La guía pasa a una columna en pantallas angostas (como el prototipo). */
+@media (max-width: 860px) {
+    .odv-guide-grid { grid-template-columns: minmax(0, 1fr) !important; }
+    .odv-demo-panel { border-left: none !important; border-top: 1px solid #334155; min-height: 240px; padding: 24px !important; }
+}
+
+/* Configuración: rejillas de dos columnas se apilan en móvil. */
+@media (max-width: 640px) {
+    #onboarding-preview-overlay [data-od-id="od-setup"] div[style*="grid-template-columns:minmax"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+}

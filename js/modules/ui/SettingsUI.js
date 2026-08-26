@@ -13,6 +13,7 @@ import {
 import { SettingsDataTab } from './settings/SettingsDataTab.js';
 import { SettingsTabCalendar } from './settings/SettingsCalendarTab.js';
 import { SettingsTestsTab } from './settings/SettingsTestsTab.js';
+import './onboarding/OnboardingPreview.js';
 import { openSafeModalPreview } from './ModalPreviewGallery.js';
 import { openSafeNotificationPreview } from './NotificationPreviewGallery.js';
 import { clearAppCaches } from '../services/CacheManager.js';
@@ -72,6 +73,8 @@ const _SETTINGS_ACTION_MAP = {
         }
     },
     'run-browser-tests': () => window.runBrowserTests?.(),
+    'open-onboarding-preview': () => window.showOnboardingPreview?.(),
+    'reset-onboarding-preview': () => window.resetOnboardingPreview?.(),
     'start-boot-loader-test': () => {
         const delayInput = document.getElementById('bootLoaderTestDelaySeconds');
         const errorInput = document.getElementById('bootLoaderTestErrorSeconds');

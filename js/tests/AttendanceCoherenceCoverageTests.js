@@ -33,7 +33,7 @@ const FILES = [
     'app.js',
     'modules/services/PersistenceService.js',
     'modules/services/DataService.js',
-    'modules/ui/Onboarding.js',
+    'modules/services/DomainResetService.js',
     'modules/ui/AttendanceHandlers.js',
     'modules/ui/modals/AdvancedAttendanceModal.js',
     'modules/features/notes/NotesController.js',
