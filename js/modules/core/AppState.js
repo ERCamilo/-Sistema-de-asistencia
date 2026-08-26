@@ -5,6 +5,7 @@
 
 import { getDateKey, wasEmployeeActiveOnDate, parseDate } from '../utils/DateUtils.js';
 import { DEFAULT_REGULAR_HOURS_PER_DAY, normalizeRegularHoursPerDay } from '../utils/AttendanceHours.js';
+import { peekEntityScope, entityInScope } from '../features/projects/ProjectContext.js';
 
 // 1. Clase Optimizador (Batch Rendering)
 class RenderOptimizer {
@@ -341,11 +342,19 @@ export function calculateStats() {
     }
 
     const dKey = getDateKey(state.selectedDate);
-    const todayAtt = state.attendanceByDate[dKey] || [];
+    // F1.5 (ADR-008): los números visibles del día se resuelven por proyecto
+    // efectivo (record.projectId ?? default === activo). Flag OFF o scope sin
+    // resolver ⇒ entityInScope es true ⇒ cero filtrado (paridad legacy). El
+    // ESTADO crudo y attendanceByDate siguen COMPLETOS: el filtro es de vista.
+    const scope = peekEntityScope();
+    const todayAtt = (state.attendanceByDate[dKey] || []).filter(a => entityInScope(a, scope));
     const present = todayAtt.filter(a => a.present).length;
-    
+
     // Filtrar empleados activos usando la utilidad centralizada
-    const activeEmps = state.employees.filter(e => wasEmployeeActiveOnDate(e, state.selectedDate, state.attendance)).length;
+    const activeEmps = state.employees.filter(e =>
+        entityInScope(e, scope) &&
+        wasEmployeeActiveOnDate(e, state.selectedDate, state.attendance)
+    ).length;
     const absent = Math.max(0, activeEmps - present);
     
     const totalHours = todayAtt.reduce((sum, a) => sum + (a.present ? (a.hoursWorked || 0) : 0), 0);

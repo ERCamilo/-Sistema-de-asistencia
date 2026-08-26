@@ -2,6 +2,7 @@ import icons from '../../ui/IconSystem.js';
 import { getDateKey, isDayHoliday } from '../../utils/DateUtils.js';
 import { getDeviceId } from '../../config/Config.js';
 import { invalidateEmployeeStats, buildAttendanceIndex } from '../../core/AppState.js';
+import { stampBirthProject } from './AttendanceRecordWriter.js';
 
 export class AttendanceService {
     constructor(state) {
@@ -46,7 +47,7 @@ export class AttendanceService {
             deviceId: getDeviceId()
         };
 
-        this.state.attendance[key] = record;
+        this.state.attendance[key] = stampBirthProject(record);
         this._maintainCoherence(employeeId, dateKey);
         return record;
     }

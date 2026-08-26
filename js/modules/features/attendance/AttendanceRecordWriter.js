@@ -17,6 +17,27 @@
  * con `now` destruiría la frescura que el merge LWW (U3) necesita comparar.
  */
 
+import { peekEntityScope } from '../projects/ProjectContext.js';
+
+/**
+ * F1.5 (ADR-008) — NACIMIENTO: estampa el proyecto activo en un registro
+ * NUEVO cuando el scope está habilitado. Flag OFF o scope sin resolver ⇒
+ * no-op exacto (paridad legacy). Un registro que YA tiene su propia clave
+ * `projectId` jamás se re-etiqueta: editar o tombstonear no cambia el
+ * dueño (el merge entrante y los registros ajenos conservan su tag).
+ *
+ * @param {object} record - registro recién creado (o buffer intermedio)
+ * @returns {object} el mismo registro, con projectId propio si correspondía
+ */
+export function stampBirthProject(record) {
+    if (!record) return record;
+    const scope = peekEntityScope();
+    if (!scope.enabled || !scope.projectId) return record;
+    if (Object.prototype.hasOwnProperty.call(record, 'projectId')) return record;
+    record.projectId = scope.projectId;
+    return record;
+}
+
 /**
  * Devuelve una copia del registro con `updatedAt` estampado al momento de la
  * escritura local. Preserva el resto de los campos tal cual.
@@ -33,7 +54,7 @@
  * @returns {object} copia con updatedAt fresco (y deletedAt=null si revive)
  */
 export function stampAttendanceWrite(record, now = Date.now()) {
-    const stamped = { ...record, updatedAt: now };
+    const stamped = stampBirthProject({ ...record, updatedAt: now });
     if (record.present === true) stamped.deletedAt = null; // revivir: presente ⇒ sin tombstone
     return stamped;
 }
@@ -57,7 +78,7 @@ export function stampAttendanceWrite(record, now = Date.now()) {
  * @returns {object} copia tombstoneada
  */
 export function tombstoneAttendanceWrite(record, now = Date.now()) {
-    return { ...record, present: false, deletedAt: now, updatedAt: now };
+    return stampBirthProject({ ...record, present: false, deletedAt: now, updatedAt: now });
 }
 
 export default stampAttendanceWrite;

@@ -6,6 +6,7 @@ export function createAttendanceCachePruner({
     writeAttendance,
     getProtectedDateKeys,
     deleteRecords,
+    getScope = () => null,
     onPruned = () => {},
     now = Date.now
 }) {
@@ -14,7 +15,8 @@ export function createAttendanceCachePruner({
             const protectedDateKeys = await getProtectedDateKeys();
             const plan = planAttendanceEviction(readAttendance(), {
                 now: now(),
-                protectedDateKeys
+                protectedDateKeys,
+                scope: getScope()
             });
 
             if (plan.evictKeys.length === 0) {

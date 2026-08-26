@@ -39,9 +39,14 @@ export function planAttendanceEviction(attendance, {
     protectedDateKeys = new Set(),
     retentionMonths = ATTENDANCE_RETENTION_MONTHS,
     accessRetentionMs = HISTORICAL_ACCESS_RETENTION_MS,
-    tombstoneRetentionMs = REQUIRED_TOMBSTONE_RETENTION_MS
+    tombstoneRetentionMs = REQUIRED_TOMBSTONE_RETENTION_MS,
+    // F1.5 (ADR-008): con scope activo, la retención es POR REGISTRO/POR
+    // PROYECTO — jamás evicta datos de otro proyecto efectivo. Null/OFF ⇒
+    // comportamiento whole-day legacy exacto.
+    scope = null
 } = {}) {
     const cutoffDate = attendanceRetentionStart(now, retentionMonths);
+    const scopeActive = !!(scope && scope.enabled && scope.projectId);
     const kept = {};
     const evictKeys = [];
 
@@ -51,8 +56,15 @@ export function planAttendanceEviction(attendance, {
             && now - record.lastAccessed <= accessRetentionMs;
         const requiredTombstone = Number.isFinite(record?.deletedAt)
             && now - record.deletedAt <= tombstoneRetentionMs;
-        const mustKeep = !date || date >= cutoffDate || protectedDateKeys.has(date)
+        let mustKeep = !date || date >= cutoffDate || protectedDateKeys.has(date)
             || recentlyAccessed || requiredTombstone;
+        if (!mustKeep && scopeActive) {
+            // Registro sin projectId ⇒ proyecto predeterminado (F0.4 §2). Si el
+            // default no se pudo resolver, eff queda null ≠ projectId ⇒ KEEP
+            // (conservador: nunca se poda lo que podría ser de otro proyecto).
+            const effectiveProjectId = record?.projectId ?? scope.defaultProjectId ?? null;
+            mustKeep = effectiveProjectId !== scope.projectId;
+        }
 
         if (mustKeep) kept[key] = record;
         else evictKeys.push(key);

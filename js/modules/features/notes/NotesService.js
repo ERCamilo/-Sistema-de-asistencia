@@ -9,6 +9,8 @@
  * sibling files; the UI will use these helpers instead of inlining the logic.
  */
 
+import { stampBirthProject } from '../attendance/AttendanceRecordWriter.js';
+
 /**
  * Insert or update a note for an employee on a given date.
  *
@@ -34,7 +36,9 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
     if (!emp) return null;
 
     const key = `${employeeId}-${dateKey}`;
-    const existing = state.attendance[key] || {
+    // F1.5: una nota que NACE con registro mínimo también nace project-aware;
+    // un registro preexistente conserva su propio dueño (jamás re-etiquetado).
+    const existing = state.attendance[key] || stampBirthProject({
         employeeId,
         date: dateKey,
         present: false,
@@ -45,7 +49,7 @@ export function upsertNote(state, employeeId, dateKey, text, opts = {}) {
         multiPosition: false,
         positionHours: [],
         notes: ''
-    };
+    });
 
     if (!existing.selectedPosition && emp.positions?.[0]) {
         existing.selectedPosition = emp.positions[0];

@@ -5,6 +5,7 @@
 
 import { state } from '../../core/AppState.js';
 import { getDateKey, getDaysInMonth, formatMonthYear, isDateInPayPeriod, isPayday, wasEmployeeActiveOnDate } from '../../utils/DateUtils.js';
+import { entityInScope } from '../../features/projects/ProjectContext.js';
 import { getCheckColor } from '../AttendanceUI.js';
 import icons from '../IconSystem.js';
 
@@ -174,8 +175,12 @@ export function CalendarView({
         const isInactiveByStatus = isCurrentMonth && !wasEmployeeActiveOnDate(employee, dKey, {});
         
         // Datos de asistencia
+        // F1.5: un registro de otro proyecto efectivo no se muestra acá — el
+        // día se ve vacío para este panel. Flag OFF ⇒ entityInScope true ⇒
+        // paridad legacy exacta.
         const attKey = `${employee.id}-${dKey}`;
-        const att = state.attendance[attKey];
+        const storedAtt = state.attendance[attKey];
+        const att = (storedAtt && entityInScope(storedAtt)) ? storedAtt : null;
         const isPresent = att && att.present;
         const checkColor = getCheckColor(att, d.date);
         const positionMarkers = _positionMarkerData(att, employee);

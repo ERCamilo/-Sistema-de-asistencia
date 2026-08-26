@@ -19,6 +19,13 @@ export class Attendance {
         // borrado marcado viaja como dato y no se confunde con "nunca existió".
         this.updatedAt = data.updatedAt || 0;
         this.deletedAt = (data.deletedAt !== undefined) ? data.deletedAt : null;
+        // F1.5 (ADR-008): proyecto propietario del registro dentro del documento
+        // diario compartido. Igual que deletedAt en Employee: sólo se conserva
+        // cuando la clave existe, para no alterar registros legacy en el
+        // round-trip (ausencia ⇒ proyecto predeterminado, F0.4 §2).
+        if (Object.prototype.hasOwnProperty.call(data, 'projectId')) {
+            this.projectId = data.projectId ?? null;
+        }
     }
 
     get key() {
@@ -54,7 +61,7 @@ export class Attendance {
     }
 
     toJSON() {
-        return {
+        const json = {
             employeeId: this.employeeId,
             date: this.date,
             present: this.present,
@@ -71,6 +78,10 @@ export class Attendance {
             updatedAt: this.updatedAt,
             deletedAt: this.deletedAt
         };
+        if (Object.prototype.hasOwnProperty.call(this, 'projectId')) {
+            json.projectId = this.projectId;
+        }
+        return json;
     }
 
     static fromJSON(json) {

@@ -5,6 +5,7 @@
 
 import { state, calculateStats, getEmployeeTotalHours } from '../core/AppState.js';
 import icons from './IconSystem.js';
+import { entityInScope, peekEntityScope } from '../features/projects/ProjectContext.js';
 import { formatDateShort, getDateKey, wasEmployeeActiveInRange, wasEmployeeActiveOnDate, isEmployeeVisibleOnDate, parseDate, isDayHoliday, getWeekRangeText, getPeriodRangeText, DateUtils } from '../utils/DateUtils.js';
 import { ScrollService } from '../services/ScrollService.js';
 import { componentMemo } from '../utils/MemoCache.js';
@@ -483,11 +484,14 @@ export function PositionFilters() {
         seenNames.add(normalizedName);
         return true;
     }).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    // F1.5: los contadores del catálogo respetan el alcance de proyecto activo.
+    const scopeForCatalog = peekEntityScope();
     const activeLeaders = state.leaders
-        .filter(leader => leader.active)
+        .filter(leader => leader.active && entityInScope(leader, scopeForCatalog))
         .sort((a, b) => a.name.localeCompare(b.name, 'es'));
     const activeEmployees = state.employees.filter(employee =>
         wasEmployeeActiveOnDate(employee, state.selectedDate)
+        && entityInScope(employee, scopeForCatalog)
     );
     const mode = state.attendanceFilterCatalog === 'leaders' ? 'leaders' : 'positions';
 
@@ -1064,7 +1068,12 @@ export function getFilteredEmployeesForDay() {
     // historial diga inactivo ese día — en ese caso se marca visualmente en la
     // tarjeta (ver _buildEmployeeRow). Pasamos state.attendance para que un día
     // con asistencia registrada cuente como activo.
-    let employees = state.employees.filter(emp => isEmployeeVisibleOnDate(emp, date, state.attendance).visible);
+    // F1.5: con el scope activo, la lista diaria sólo muestra empleados del
+    // proyecto efectivo (misma regla que la vista de empleados); flag OFF ⇒
+    // entityInScope es true ⇒ paridad legacy exacta.
+    let employees = state.employees.filter(emp =>
+        isEmployeeVisibleOnDate(emp, date, state.attendance).visible && entityInScope(emp)
+    );
 
     // Ordenar por número
     employees.sort((a, b) => (a.number || '').localeCompare(b.number || '', 'es', { numeric: true }));
@@ -1402,7 +1411,8 @@ export function WeekViewTotalsRow(datesArg = null) {
         const isH = isDayHoliday(date, state.settings?.holidays);
         const dKey = getDateKey(date);
         // ⚡ P3-OPT: Lookup O(1) en lugar de filter O(N) sobre todo el historial
-        const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present);
+        // F1.5: los totales del día cuentan sólo registros del proyecto efectivo.
+        const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present && entityInScope(a));
         const totalHours = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
         const presentCount = dayAttendance.length;
         return `
@@ -1428,6 +1438,7 @@ export function getFilteredEmployeesForWeek(week, positionMapArg = null) {
     const positionMap = positionMapArg || new Map(state.positions.map(p => [p.id, p]));
 
     let employees = state.employees.filter(emp => {
+        if (!entityInScope(emp)) return false; // F1.5: alcance de proyecto activo
         if (wasEmployeeActiveInRange(emp, startDate, endDate, state.attendance)) return true;
         // Activo HOY → aparece desde su ingreso, consistente con la vista diaria.
         if (emp.active === true) {

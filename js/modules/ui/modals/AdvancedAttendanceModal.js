@@ -10,6 +10,8 @@ import { Modal } from '../../components/Modal.js';
 import { debug } from '../../utils/Debug.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
+import { entityInScope } from '../../features/projects/ProjectContext.js';
+import { stampBirthProject } from '../../features/attendance/AttendanceRecordWriter.js';
 
 /**
  * ⚙️ CLASE: AdvancedAttendanceModal
@@ -28,7 +30,10 @@ export class AdvancedAttendanceModal {
 
         const dateKey = getDateKey(state.selectedDate);
         const key = `${emp.id}-${dateKey}`;
-        const att = state.attendance[key] || {};
+        // F1.5: un registro de OTRO proyecto efectivo se ve como día vacío
+        // (guardar aquí crea uno nuevo del proyecto activo, no pisa el ajeno).
+        const storedAtt = state.attendance[key];
+        const att = (storedAtt && entityInScope(storedAtt)) ? storedAtt : {};
         
         // Si se fuerza multi-posición, asegurar un formato coherente si no existe
         if (forceMultiPosition && (!att.positionHours || att.positionHours.length === 0)) {
@@ -244,6 +249,15 @@ export function saveAdvancedAttendance() {
         updatedAt: Date.now(),
         lastAccessed: Date.now()
     };
+    // F1.5 (ADR-008): el dueño del registro no cambia al editarlo. Si había
+    // registro con projectId propio, se conserva; si es un registro nuevo, se
+    // estampa el proyecto activo (no-op con flag OFF).
+    const previousAtt = state.attendance[key];
+    if (previousAtt && Object.prototype.hasOwnProperty.call(previousAtt, 'projectId')) {
+        attendanceRecord.projectId = previousAtt.projectId;
+    } else {
+        stampBirthProject(attendanceRecord);
+    }
 
     // ⚡ Fase 4 Paso 5: batchear el write + la coherencia → 1 render (antes eran 2: el
     // del set-trap + el render() explícito). FINANCIERO: hoursWorked/overtimeHours/present
