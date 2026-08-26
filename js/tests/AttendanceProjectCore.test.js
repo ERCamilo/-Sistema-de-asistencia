@@ -88,13 +88,13 @@ describe('F1.5 birth stamping through every local creation path', () => {
         expect(Object.prototype.hasOwnProperty.call(tombstoned, 'projectId')).toBe(false);
     });
 
-    test('scope ON ⇒ stamp/tombstone add scope.projectId when key absent', async () => {
+    test('scope ON ⇒ births stamp ACTIVE scope; LEGACY tombstones inherit DEFAULT (never active)', async () => {
         setProjectsEnabled(true);
         await primeScope(PRJ_A);
         const stamped = stampAttendanceWrite({ employeeId: 'e1', date: 'D', present: true }, 1);
         const tombstoned = tombstoneAttendanceWrite({ employeeId: 'e1', date: 'D' }, 2);
-        expect(stamped.projectId).toBe(PRJ_A);
-        expect(tombstoned.projectId).toBe(PRJ_A);
+        expect(stamped.projectId).toBe(PRJ_A);          // birth ⇒ active project
+        expect(tombstoned.projectId).toBe(PRJ_DEFAULT); // frozen rule: projectId ?? DEFAULT
         expect(tombstoned.deletedAt).toBe(2);
     });
 

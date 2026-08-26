@@ -78,7 +78,19 @@ export function stampAttendanceWrite(record, now = Date.now()) {
  * @returns {object} copia tombstoneada
  */
 export function tombstoneAttendanceWrite(record, now = Date.now()) {
-    return stampBirthProject({ ...record, present: false, deletedAt: now, updatedAt: now });
+    const tomb = { ...record, present: false, deletedAt: now, updatedAt: now };
+    // F1.5 micro-closure — regla congelada por Dirección: un tombstone hereda
+    // el proyecto EFECTIVO del registro que elimina (projectId propio ?? el
+    // Proyecto Predeterminado); JAMÁS se determina por activeProjectId a
+    // secas. Borrar un legado sin projectId con la obra B activa NO convierte
+    // el borrado en dato de B: viaja dueño del default para que el merge y el
+    // scope filtering lo lleven al alcance correcto. Flag OFF o default sin
+    // resolver ⇒ sin clave (paridad legacy exacta).
+    if (record && !Object.prototype.hasOwnProperty.call(record, 'projectId')) {
+        const scope = peekEntityScope();
+        if (scope.enabled && scope.defaultProjectId) tomb.projectId = scope.defaultProjectId;
+    }
+    return tomb;
 }
 
 export default stampAttendanceWrite;

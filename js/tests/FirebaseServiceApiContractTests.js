@@ -155,35 +155,38 @@ function saveDailyAttendanceBlock() {
     return FIREBASE_SRC.match(/async\s+saveDailyAttendance\s*\([\s\S]*?\n\s{4}\}/);
 }
 
-testRunner.addSuite("FirebaseService — Contrato saveDailyAttendance read-merge-write (Fase 1, U4)", {
+testRunner.addSuite("FirebaseService — Contrato saveDailyAttendance read-merge-write (Fase 1, U4; transacción F1.5)", {
 
-    "saveDailyAttendance lee el doc remoto (getDoc) antes de escribir"() {
+    "saveDailyAttendance lee el estado remoto ANTES de escribir en AMBAS rutas"() {
         const b = saveDailyAttendanceBlock();
         testRunner.assert(!!b, 'saveDailyAttendance debe existir');
-        testRunner.assert(/getDoc\s*\(/.test(b[0]), 'debe leer el doc remoto antes de mergear');
+        testRunner.assert(/tx\.get\s*\(/.test(b[0]),
+            'la vía conectada (flag ON) debe leer DENTRO de la transacción con tx.get');
+        testRunner.assert(/getDoc\s*\(/.test(b[0]),
+            'la vía legacy (flag OFF) debe seguir leyendo con getDoc');
     },
 
-    "saveDailyAttendance resuelve con mergeAttendanceRecords (LWW por-registro, U3)"() {
+    "la vía CONECTADA (flag ON) corre como transacción Firestore sobre el doc diario"() {
+        const b = saveDailyAttendanceBlock();
+        testRunner.assert(/runTransaction\s*\(/.test(b[0]),
+            'debe usar runTransaction — dos clientes que leyeron el mismo estado inicial se pisaban el merge clave-a-clave (F15MicroClosure)');
+        const txIdx = b[0].indexOf('tx.get(');
+        const txSetIdx = b[0].indexOf('tx.set(');
+        testRunner.assert(txIdx !== -1 && txSetIdx !== -1 && txIdx < txSetIdx,
+            'dentro del tx: primero tx.get (LATEST), después tx.set');
+    },
+
+    "resuelve por mergeAttendanceRecords (LWW por-registro) en el builder compartido"() {
         const b = saveDailyAttendanceBlock();
         testRunner.assert(/mergeAttendanceRecords\s*\(/.test(b[0]),
             'debe rutear por mergeAttendanceRecords en vez de un setDoc directo — evita el franken-merge de Firestore');
     },
 
-    "el getDoc va ANTES del mergeAttendanceRecords, y éste ANTES del setDoc final"() {
+    "el read de la vía legacy tiene su propio catch y NO re-lanza (fallback sin merge)"() {
         const b = saveDailyAttendanceBlock()[0];
         const getDocIdx = b.search(/getDoc\s*\(/);
-        const mergeIdx = b.search(/mergeAttendanceRecords\s*\(/);
-        const setDocIdx = b.lastIndexOf('setDoc(');
-        testRunner.assert(getDocIdx !== -1 && mergeIdx !== -1 && setDocIdx !== -1,
-            'deben existir las 3 llamadas');
-        testRunner.assert(getDocIdx < mergeIdx && mergeIdx < setDocIdx,
-            'orden incorrecto: debe ser getDoc → mergeAttendanceRecords → setDoc');
-    },
-
-    "el read remoto tiene su propio catch, y NO re-lanza (si falla, igual escribe sin merge)"() {
-        const b = saveDailyAttendanceBlock()[0];
-        const getDocIdx = b.search(/getDoc\s*\(/);
-        const setDocIdx = b.lastIndexOf('setDoc(');
+        const setDocIdx = b.indexOf('setDoc(', getDocIdx);
+        testRunner.assert(getDocIdx !== -1 && setDocIdx !== -1, 'deben existir getDoc y setDoc de la ruta OFF');
         const between = b.slice(getDocIdx, setDocIdx);
         testRunner.assert(/catch\s*\(/.test(between),
             'debe haber un catch entre el getDoc y el setDoc final (fallback al fast-path)');

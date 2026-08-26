@@ -3,8 +3,9 @@ import {
     signInWithPopup, signOut, onAuthStateChanged,
     doc, getDoc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp, 
     query, orderBy, limit, getDocs,
-    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob, deleteObject
+    ref, uploadString, getDownloadURL, onSnapshot, where, documentId, writeBatch, getBlob, deleteObject, runTransaction
 } from '../data/firebase.js';
+import { isProjectsEnabled } from '../config/FeatureFlags.js';
 import { getDeviceId } from '../config/Config.js';
 import { sanitizePettyCashForSnapshot } from './SnapshotSanitizer.js';
 import { selectSnapshotsToPrune } from './SnapshotRetention.js';
@@ -986,34 +987,65 @@ class FirebaseService {
             // un solo lado — nunca mezclada — y de paso preserva registros de
             // otros empleados/dispositivos ese mismo día que este dispositivo
             // no conoce localmente.
-            try {
-                const remoteSnap = await getDoc(docRef);
-                if (remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists()) {
-                    const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
-                    const remoteRecords = (remoteData && remoteData.records) || {};
-                    cleanAttendance = mergeAttendanceRecords(cleanAttendance, remoteRecords);
+            // Payload builder compartido por ambas rutas: merge LWW contra la
+            // base remota y recorte al alcance del remitente (los registros
+            // ajenos que el merge trajo NO viajan — {merge:true} preserva
+            // byte-intacta cualquier clave de `records` no mencionada).
+            const buildScopedPayload = latestRecords => {
+                const merged = mergeAttendanceRecords(cleanAttendance, latestRecords || {});
+                const scopedPayload = {};
+                Object.entries(merged).forEach(([key, record]) => {
+                    if (entityInScope(record, _scope)) scopedPayload[key] = record;
+                });
+                return {
+                    records: scopedPayload,
+                    updatedAt: serverTimestamp(),
+                    date: dateKey,
+                    deviceId: getDeviceId()
+                };
+            };
+
+            // F1.5 micro-closure (H-10) — carrera TRUE dos-clientes sobre el
+            // MISMO alcance: el patrón anterior (getDoc fuera de la escritura)
+            // dejaba que dos dispositivos que leyeron el mismo estado inicial
+            // reconstruyeran `records` desde bases stale; el segundo
+            // setDoc({merge:true}) pisaba clave-a-clave la edición del primero
+            // (lost update, ver F15MicroClosure.test.js). La transacción
+            // re-lee el doc LATEST dentro del tx y Firestore reintenta sola
+            // ante conflicto. Sólo la vía CONECTADA con flag ON lo usa:
+            // offline/enqueue/local quedan igual y flag OFF conserva la ruta
+            // legacy byte-exacta (paridad).
+            if (isProjectsEnabled()) {
+                await runTransaction(db, async (tx) => {
+                    let latestRecords = {};
+                    try {
+                        const snap = await tx.get(docRef);
+                        if (snap && typeof snap.exists === 'function' && snap.exists()) {
+                            const remoteData = typeof snap.data === 'function' ? snap.data() : null;
+                            latestRecords = (remoteData && remoteData.records) || {};
+                        }
+                    } catch (e) {
+                        // Read transaccional falló (offline/permisos): igual
+                        // que el fallback histórico, se escribe sin merge.
+                        console.warn(`⚠️ saveDailyAttendance(${dateKey}): lectura transaccional falló, escribiendo sin merge:`, e);
+                    }
+                    tx.set(docRef, buildScopedPayload(latestRecords), { merge: true });
+                });
+            } else {
+                let latestRecords = {};
+                try {
+                    const remoteSnap = await getDoc(docRef);
+                    if (remoteSnap && typeof remoteSnap.exists === 'function' && remoteSnap.exists()) {
+                        const remoteData = typeof remoteSnap.data === 'function' ? remoteSnap.data() : null;
+                        latestRecords = (remoteData && remoteData.records) || {};
+                    }
+                } catch (e) {
+                    // Si el read falla (offline, permisos), fallback al fast-path.
+                    // Mejor un save sin merge que perder el save del usuario.
+                    console.warn(`⚠️ saveDailyAttendance(${dateKey}): read remoto falló, escribiendo sin merge:`, e);
                 }
-            } catch (e) {
-                // Si el read falla (offline, permisos), fallback al fast-path.
-                // Mejor un save sin merge que perder el save del usuario.
-                console.warn(`⚠️ saveDailyAttendance(${dateKey}): read remoto falló, escribiendo sin merge:`, e);
+                await setDoc(docRef, buildScopedPayload(latestRecords), { merge: true });
             }
-
-            // El payload FINAL tampoco lleva registros ajenos: los que el
-            // merge trajo desde el doc remoto se omiten acá — {merge:true}
-            // preserva byte-intacta cualquier clave de `records` no mencionada,
-            // así que los proyectos extranjeros sobreviven sin re-subirlos.
-            const scopedPayload = {};
-            Object.entries(cleanAttendance).forEach(([key, record]) => {
-                if (entityInScope(record, _scope)) scopedPayload[key] = record;
-            });
-
-            await setDoc(docRef, {
-                records: scopedPayload,
-                updatedAt: serverTimestamp(),
-                date: dateKey,
-                deviceId: getDeviceId()
-            }, { merge: true });
             
             console.log(`☁️ Asistencia sincronizada: ${dateKey}`);
         } catch (error) {

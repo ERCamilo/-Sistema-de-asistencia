@@ -29,7 +29,16 @@ const DATE = '2026-06-15';
 const UID = 'u-test';
 
 class FakeCloud {
-    constructor() { this.docs = new Map(); }
+    constructor() { this.docs = new Map(); this.versions = new Map(); }
+    versionOf(k) { return this.versions.get(k) || 0; }
+    _applySet(k, inc) {
+        const next = JSON.parse(JSON.stringify(this.docs.get(k) || {}));
+        const patch = JSON.parse(JSON.stringify(inc));
+        if (patch.records) next.records = { ...(next.records || {}), ...patch.records };
+        for (const [f, v] of Object.entries(patch)) if (f !== 'records') next[f] = v;
+        this.docs.set(k, next);
+        this.versions.set(k, this.versionOf(k) + 1);
+    }
     install(fbd) {
         fbd.doc.mockImplementation((_db, ...segs) => ({ segs }));
         fbd.getDoc.mockImplementation(async ref => {
@@ -40,12 +49,33 @@ class FakeCloud {
         // setDoc({merge:true}): top-level fields replace; `records` merges
         // KEY-WISE — a record absent from the payload survives untouched.
         fbd.setDoc.mockImplementation(async (ref, data) => {
-            const k = ref.segs.join('/');
-            const next = JSON.parse(JSON.stringify(this.docs.get(k) || {}));
-            const inc = JSON.parse(JSON.stringify(data));
-            if (inc.records) next.records = { ...(next.records || {}), ...inc.records };
-            for (const [f, v] of Object.entries(inc)) if (f !== 'records') next[f] = v;
-            this.docs.set(k, next);
+            this._applySet(ref.segs.join('/'), data);
+        });
+        // F1.5 micro-closure: saveDailyAttendance flushes through a Firestore
+        // TRANSACTION when the projects flag is ON. Real SDK semantics:
+        // buffered writes, optimistic read validation at commit, transparent
+        // re-run of the update function on conflict.
+        fbd.runTransaction.mockImplementation(async (_db, operation) => {
+            for (let attempt = 0; attempt < 10; attempt++) {
+                const reads = [];
+                const writes = [];
+                await operation({
+                    get: async ref => {
+                        const k = ref.segs.join('/');
+                        reads.push([k, this.versionOf(k)]);
+                        const hit = this.docs.get(k);
+                        return hit
+                            ? { exists: () => true, data: () => JSON.parse(JSON.stringify(hit)) }
+                            : { exists: () => false, data: () => null };
+                    },
+                    set: (ref, data) => writes.push([ref.segs.join('/'), data])
+                });
+                if (!reads.some(([k, seen]) => this.versionOf(k) !== seen)) {
+                    for (const [k, d] of writes) this._applySet(k, d);
+                    return;
+                }
+            }
+            throw new Error('FakeCloud.runTransaction: exhausted retries');
         });
         fbd.writeBatch.mockImplementation(() => {
             const ops = [];
