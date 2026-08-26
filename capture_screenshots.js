@@ -1,10 +1,19 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('c:\\Users\\the_b\\OneDrive - Universidad Autonoma de Santo Domingo\\Educacion\\Independiente\\control de asistencia mini\\aplicacionFull\\node_modules\\puppeteer-core');
+
+/* Puppeteer-core: primero intenta el node_modules local; si no existe,
+ * cae a la ruta externa usada históricamente por esta herramienta de auditoría. */
+let puppeteer;
+try {
+  puppeteer = require('puppeteer-core');
+} catch (e) {
+  puppeteer = require('c:\\Users\\the_b\\OneDrive - Universidad Autonoma de Santo Domingo\\Educacion\\Independiente\\control de asistencia mini\\aplicacionFull\\node_modules\\puppeteer-core');
+}
 
 const PORT = 5502;
-const PUBLIC_DIR = 'c:\\Users\\the_b\\OneDrive - Universidad Autonoma de Santo Domingo\\Educacion\\Independiente\\control de asistencia mini\\aplicacionFull';
+/* Sirve ESTE repositorio (antes apuntaba a un proyecto viejo en OneDrive). */
+const PUBLIC_DIR = __dirname;
 const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const SCREENSHOT_DIR = path.join(__dirname, 'screenshots');
 
@@ -73,45 +82,42 @@ server.listen(PORT, async () => {
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
 
+    /* Contrato del onboarding v2 (overlay autocontenido):
+     * - Guía interactiva: botones [data-act="next"] avanzan pasos.
+     * - Elección: tarjetas [data-act="pick"][data-v="demo|scratch|backup|google"];
+     *   pick ejecuta la acción real y CIERRA el overlay al completar.
+     * - No existe paso "complete": cerrar el overlay entra directo al dashboard. */
+
     // --- FLUJO 1: ONBOARDING MOBILE (Pestaña Dedicada) ---
     console.log('Auditing Onboarding Mobile (Dedicated Tab)...');
     const mobilePage = await browser.newPage();
     await mobilePage.setViewport({ width: 375, height: 812, isMobile: true, hasTouch: true });
     await mobilePage.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle2' });
-    await delay(2000); // Dar tiempo al loader
+    await delay(2500); // Dar tiempo al loader + arranque del onboarding live
     await mobilePage.screenshot({ path: path.join(SCREENSHOT_DIR, 'onboarding_welcome_mobile.png') });
-
-    // Avanzar a Selección de Modo en Mobile
-    await mobilePage.click('[data-onb-action="next"]');
-    await delay(1000);
-    await mobilePage.screenshot({ path: path.join(SCREENSHOT_DIR, 'onboarding_mode_selection_mobile.png') });
     await mobilePage.close(); // Cerrar pestaña móvil para no interferir
 
-    // --- FLUJO 2: FLUX COMPLET DESKTOP ---
+    // --- FLUJO 2: FLUJO COMPLETO DESKTOP ---
     console.log('Auditing Desktop (Onboarding -> Dashboard -> Features)...');
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 900 });
     await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle2' });
-    await delay(2000); // Dar tiempo al loader
+    await delay(2500); // Dar tiempo al loader + arranque del onboarding live
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'onboarding_welcome_desktop.png') });
 
-    // Avanzar a Selección de Modo
-    await page.click('[data-onb-action="next"]');
-    await delay(1000);
-    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'onboarding_mode_selection_desktop.png') });
+    // Avanzar la guía hasta la fase de elección (6 pasos: bienvenida→listo)
+    console.log('Advancing guide to choice phase...');
+    for (let i = 0; i < 6; i++) {
+      await page.click('[data-act="next"]');
+      await delay(700);
+    }
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'onboarding_choice_desktop.png') });
 
-    // Seleccionar Modo Demo
+    // Seleccionar Modo Demo (ejecuta la carga real y cierra el overlay)
     console.log('Selecting Demo Mode...');
-    await page.click('[data-onb-action="select-mode"][data-value="demo"]');
-    await delay(5000); // Esperar a que se procesen los datos demo en IndexedDB
-
-    // Capturar Done
-    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'onboarding_done_desktop.png') });
-
-    // Completar Onboarding
-    console.log('Completing Onboarding and entering Dashboard...');
-    await page.click('[data-onb-action="complete"]');
-    await delay(3000); // Esperar renderización de la app
+    await page.click('[data-act="pick"][data-v="demo"]');
+    await page.waitForSelector('#onboarding-preview-overlay', { hidden: true, timeout: 30000 });
+    await delay(3000); // Esperar renderización del dashboard con datos demo
 
     // Capturar Dashboard Vista Diaria
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'dashboard_day_desktop.png') });
