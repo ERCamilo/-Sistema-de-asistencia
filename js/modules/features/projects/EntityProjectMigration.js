@@ -1,24 +1,24 @@
 /**
- * 🏷️ EntityProjectMigration (F1.4/M2) — sello local one-time de `projectId`
- * sobre empleados, puestos y líderes (docs/fase-0/F0.4-plan-migracion.md §3 M2).
+ * 🏷️ EntityProjectMigration (F1.4/M2 + F1.5 slice 2) — sello local one-time
+ * de `projectId` sobre empleados, puestos, líderes y asistencia
+ * (docs/fase-0/F0.4-plan-migracion.md §3 M2 + §enmienda de backup).
  *
  * Contrato:
  * - Flag OFF ⇒ { skipped:true } SIN tocar nada (guard primero; defensa en
  *   profundidad: ProjectsBoot ya corta antes bajo OFF).
- * - Backup-first (regla #9 del roadmap F0.4): intenta snapshot cloud con
- *   reason 'pre-migration' reusando EXACTAMENTE la API que usan RestoreUI y
+ * - Backup-first (regla #9 del roadmap F0.4, con la ENMIENDA de Dirección
+ *   2026-08-25: el sello es estrictamente aditivo/idempotente/reversible por
+ *   flag ⇒ puede continuar sin backup cloud cuando no esté disponible,
+ *   registrando el fallo). Reusa EXACTAMENTE la API que usan RestoreUI y
  *   MaintenanceUI (globalThis.createFirebaseSnapshot), estilo read-only y SOLO
  *   si hay sesión Firebase (window.currentUser). Sin sesión/offline/fallo ⇒
  *   backup:'unavailable' + console.warn y PROCEDE igual.
- *   Justificación documentada: el sello es puramente ADITIVO (agrega la clave
- *   projectId; nunca borra ni transforma datos) y reversible por flag (F0.4
- *   §6: flag off ⇒ sellos inertes). El peor caso es un campo extra que el
- *   código legacy ignora — eso no justifica bloquear el arranque.
  * - Idempotente + resumible: marca de progreso en LS `migration.projectStamp.v1`
- *   = {v:1, done:{employees,positions,leaders}}. Stores marcados done se
- *   saltan en re-corridas; si un store quedó a medio escribir (marker sin
- *   setear), la re-corrida re-escanea y el check de ausencia hace que los ya
- *   estampados se salten sin doble trabajo.
+ *   = {v:1, done:{employees,positions,leaders,attendance}}. Stores marcados
+ *   done se saltan en re-corridas; si un store quedó a medio escribir (marker
+ *   sin setear), la re-corrida re-escanea y el check de ausencia hace que los
+ *   ya estampados se salten sin doble trabajo. Marcadores viejos (F1.4, sin
+ *   `attendance`) migran solos: el spread sobre freshMarker() los completa.
  * - Batched: chunks de ~50 registros con yield entre chunks (no bloquear UI).
  */
 
@@ -29,12 +29,13 @@ import { defaultProjectService } from './DefaultProject.js';
 export const PROJECT_STAMP_MARKER_KEY = 'migration.projectStamp.v1';
 export const PROJECT_STAMP_CHUNK_SIZE = 50;
 
-// F0.4 §4: este slice M2 cubre empleados/puestos/líderes; asistencia y cierres
-// de nómina llevan su propio sello en sus fases específicas.
-const ENTITY_STORES = ['employees', 'positions', 'leaders'];
+// F1.5 slice 2: asistencia entra al sello M2 (los registros usan keyPath
+// `key` = `${employeeId}-${date}` en lugar de `id`; ver needsStamp). Cierres
+// de nómina llevan su propio sello en su fase específica.
+const ENTITY_STORES = ['employees', 'positions', 'leaders', 'attendance'];
 
 function freshMarker() {
-    return { v: 1, done: { employees: false, positions: false, leaders: false } };
+    return { v: 1, done: { employees: false, positions: false, leaders: false, attendance: false } };
 }
 
 function readMarker() {
@@ -55,11 +56,12 @@ function writeMarker(marker) {
     } catch (_) { /* sin persistencia: la re-corrida repite trabajo inofensivo */ }
 }
 
-// F0.4 §2: ausente/null ⇒ predeterminado. Sin id no hay keyPath posible.
+// F0.4 §2: ausente/null ⇒ predeterminado. Sin identidad no hay keyPath
+// posible: entidades usan `id`; la asistencia usa `key` (`empId-fecha`).
 function needsStamp(record) {
-    return !!record && typeof record === 'object'
-        && record.id != null
-        && record.projectId == null;
+    if (!record || typeof record !== 'object') return false;
+    const hasIdentity = record.id != null || record.key != null;
+    return hasIdentity && record.projectId == null;
 }
 
 const yieldToUi = () => new Promise(resolve => setTimeout(resolve, 0));

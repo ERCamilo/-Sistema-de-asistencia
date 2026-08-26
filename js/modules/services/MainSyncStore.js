@@ -78,7 +78,8 @@ function _resolveCloudCall(entry, guards) {
     if (entry.kind === 'daily') {
         // Sin gate de watermark: es un merge granular por día, no un
         // overwrite wholesale que el watermark tenga que proteger.
-        return () => guards.saveDaily(entry.dateKey, entry.records);
+        // F1.5: tercer argumento = scope del remitente estampado al encolar.
+        return () => guards.saveDaily(entry.dateKey, entry.records, entry.scope);
     }
     if (entry.kind === 'entities') {
         // Sin gate de watermark: cada saveOne per-entidad hace su propio LWW por
@@ -151,14 +152,20 @@ export const MainSyncStore = {
      *
      * `records` = mapa congelado {claveCanonica: registro} SOLO de ese día
      * (el caller ya filtra por dateKey, igual que hoy hace _executeSave).
+     *
+     * F1.5: `scope` es el estampa del remitente capturado AL ENCOLAR
+     * ({enabled, projectId, defaultProjectId}). Viaja en la entrada hasta el
+     * guard para que saveDailyAttendance filtre con el scope DEL REMITENTE y
+     * no con el scope vivo del flush (el usuario pudo cambiar de proyecto
+     * entre ambas — filtrar con el vivo perdería ediciones del anterior).
      */
-    async enqueueDaily(dateKey, records) {
+    async enqueueDaily(dateKey, records, scope = null) {
         const all = await _getAll();
         const stalePending = all.filter(e => e && e.kind === 'daily' && e.status === 'pending' && e.dateKey === dateKey);
         for (const e of stalePending) await _deleteQuiet(e.key);
 
         await indexedDBService.update(OUTBOX, {
-            kind: 'daily', dateKey, records, ts: Date.now(), status: 'pending'
+            kind: 'daily', dateKey, records, scope: scope || null, ts: Date.now(), status: 'pending'
         });
     },
 
@@ -268,7 +275,7 @@ export const MainSyncStore = {
      *   isPaused: () => boolean,
      *   cloudWatermark: () => number,
      *   saveMirror: (snapshot) => Promise,
-     *   saveDaily: (dateKey, records) => Promise,
+     *   saveDaily: (dateKey, records, scope) => Promise,
      *   saveEntities: (employees, positions, leaders, schemaVersion) => Promise,
      *   saveSettings: (settingsMap) => Promise,
      *   savePayrollEmployees: (employees, schemaVersion) => Promise,

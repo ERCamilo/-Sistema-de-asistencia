@@ -100,6 +100,7 @@ import {
     buildMarkVisiblePresentPlan
 } from './modules/features/attendance/AttendanceBulkActions.js';
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
+import { entityInScope } from './modules/features/projects/ProjectContext.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { normalizeRegularHoursPerDay, resolveDailyTargetHours } from './modules/utils/AttendanceHours.js';
@@ -4721,7 +4722,9 @@ window.updateWeekTotals = function () {
             ${week.map(date => {
         const dKey = getDateKey(date);
         // ⚡ P3-OPT: Lookup O(1) en lugar de filter O(N)
-        const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present);
+        // F1.5: los totales zonales cuentan sólo registros del proyecto efectivo
+        // (misma regla que WeekViewTotalsRow; paridad legacy con flag OFF).
+        const dayAttendance = (state.attendanceByDate[dKey] || []).filter(a => a.present && entityInScope(a));
         const totalH = dayAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
         const count = dayAttendance.length;
 

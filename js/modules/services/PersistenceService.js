@@ -30,7 +30,7 @@ import { debug } from '../utils/Debug.js';
 import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/attendance/AttendanceRecordWriter.js';
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
-import { peekEntityScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
+import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -67,6 +67,9 @@ const _attendanceCachePruner = createAttendanceCachePruner({
     readAttendance: () => state.attendance || {},
     writeAttendance: attendance => stateManager.silentSetState({ attendance }),
     getProtectedDateKeys: () => MainSyncStore.getUnconfirmedDailyDateKeys(),
+    // F1.5 (ADR-008): la retención respeta el alcance activo — nunca evicta
+    // registros de otro proyecto efectivo. peekEntityScope es sync y fail-open.
+    getScope: () => peekEntityScope(),
     deleteRecords: keys => indexedDBService.batchDelete('attendance', keys),
     onPruned: () => {
         invalidateAllStats();
@@ -385,7 +388,7 @@ function _mainSyncGuards() {
         // outbox (encolada aparte en _executeSave, sin gate de watermark) YA
         // las escribe por su cuenta; sin este flag se subirían dos veces.
         saveMirror: (snapshot) => FirebaseService.saveFullState(snapshot, { skipEntities: true }),
-        saveDaily: (dateKey, records) => FirebaseService.saveDailyAttendance(dateKey, records),
+        saveDaily: (dateKey, records, scope) => FirebaseService.saveDailyAttendance(dateKey, records, { scope }),
         saveEntities: (employees, positions, leaders, schemaVersion) => FirebaseService.saveEntities(employees, positions, leaders, schemaVersion),
         // Fase 2B U2: settings viaja por su propio kind del outbox
         // (MainSyncStore.enqueueSettings en _executeSave), sin gate de
@@ -917,6 +920,13 @@ async function _executeSave(options = {}) {
         const _dailyDateKeys = Array.isArray(options.dateKeys)
             ? options.dateKeys.filter(Boolean)
             : (options.dateKey ? [options.dateKey] : []);
+        // F1.5 (ADR-008 slice 2) — dueño del payload saliente por día: el
+        // snapshot síncrono de EntityScope se captura AHORA (momento del
+        // guardado) y viaja en la entrada del outbox, para que el flush filtre
+        // con el scope DEL REMITENTE aunque el usuario cambie de proyecto
+        // antes de que la cola se vacíe. Flag OFF ⇒ scope disabled ⇒
+        // entityInScope es identidad (paridad legacy exacta).
+        const _dailyScope = peekEntityScope();
         for (const dk of _dailyDateKeys) {
             const dayRecords = {};
             // Guion (-) y guion bajo (_): simétrico con IndexedDBService.saveState.
@@ -924,7 +934,7 @@ async function _executeSave(options = {}) {
             // pero jamás se encolaría a la nube (el mirror excluye attendance).
             const suffixes = [`-${dk}`, `_${dk}`];
             Object.entries(state.attendance).forEach(([key, record]) => {
-                if (suffixes.some(s => key.endsWith(s))) {
+                if (suffixes.some(s => key.endsWith(s)) && entityInScope(record, _dailyScope)) {
                     dayRecords[key] = record;
                 }
             });
@@ -940,7 +950,7 @@ async function _executeSave(options = {}) {
             } catch (e) {
                 console.warn('⚠️ No se pudo clonar la asistencia diaria para la nube; se sube la referencia viva:', e);
             }
-            _outboxEnqueues.push(MainSyncStore.enqueueDaily(dk, _dayRecords));
+            _outboxEnqueues.push(MainSyncStore.enqueueDaily(dk, _dayRecords, _dailyScope));
         }
         // Foto INMUTABLE capturada AHORA — MainSyncStore coalesce a una sola
         // entrada 'mirror' pendiente (la última gana). Judgment Day #6:

@@ -13,6 +13,7 @@ import { notifySnapshotCreated } from './SnapshotNotifier.js';
 import { runMigrationIfNeeded } from './SchemaMigrationRunner.js';
 import { EmployeeRepository } from './EmployeeRepository.js';
 import { mergeAttendanceRecords } from '../features/attendance/AttendanceMerge.js';
+import { entityInScope, peekEntityScope } from '../features/projects/ProjectContext.js';
 import { PositionRepository } from './PositionRepository.js';
 import { LeaderRepository } from './LeaderRepository.js';
 import { Notification } from '../components/Notification.js';
@@ -949,12 +950,30 @@ class FirebaseService {
      * Guarda un registro de asistencia específico para una fecha
      * @param {string} dateKey Formato YYYY-MM-DD
      * @param {object} dayAttendance Mapa de { empId: data } para ese día
+     * @param {object} [opts] F1.5: { scope } estampa del remitente capturada al
+     *   ENCOLAR (entry.scope) — evita filtrar con el scope vivo si el usuario
+     *   cambió de proyecto entre el enqueue y el flush. Sin estampa, fallback
+     *   al snapshot síncrono actual (peekEntityScope).
      */
-    async saveDailyAttendance(dateKey, dayAttendance) {
+    async saveDailyAttendance(dateKey, dayAttendance, opts = {}) {
         if (!auth.currentUser) return;
 
         try {
-            let cleanAttendance = JSON.parse(JSON.stringify(dayAttendance));
+            // F1.5 (ADR-008 slice 2) — DUEÑO DEL PAYLOAD SALIENTE: sólo viajan
+            // los registros del alcance efectivo del remitente (projectId
+            // propio ?? predeterminado === scope.projectId), incluidos SUS
+            // tombstones. Un registro ajeno que llegue acá (estado local
+            // completo o copia stale de otro contexto) se excluye ANTES del
+            // merge LWW: así jamás puede competir por frescura contra la
+            // verdad remota ni restaurar estado viejo (escenario de
+            // divergencia A/B con relojes desincronizados). Flag OFF o scope
+            // sin resolver ⇒ entityInScope es identidad (paridad legacy).
+            const _scope = opts?.scope || peekEntityScope();
+            const ownScopeRecords = {};
+            Object.entries(dayAttendance || {}).forEach(([key, record]) => {
+                if (entityInScope(record, _scope)) ownScopeRecords[key] = record;
+            });
+            let cleanAttendance = JSON.parse(JSON.stringify(ownScopeRecords));
             const docRef = doc(db, 'users', auth.currentUser.uid, 'attendance', dateKey);
 
             // Fase 1 (U4): read-merge-write por-registro (mismo patrón que
@@ -980,8 +999,17 @@ class FirebaseService {
                 console.warn(`⚠️ saveDailyAttendance(${dateKey}): read remoto falló, escribiendo sin merge:`, e);
             }
 
+            // El payload FINAL tampoco lleva registros ajenos: los que el
+            // merge trajo desde el doc remoto se omiten acá — {merge:true}
+            // preserva byte-intacta cualquier clave de `records` no mencionada,
+            // así que los proyectos extranjeros sobreviven sin re-subirlos.
+            const scopedPayload = {};
+            Object.entries(cleanAttendance).forEach(([key, record]) => {
+                if (entityInScope(record, _scope)) scopedPayload[key] = record;
+            });
+
             await setDoc(docRef, {
-                records: cleanAttendance,
+                records: scopedPayload,
                 updatedAt: serverTimestamp(),
                 date: dateKey,
                 deviceId: getDeviceId()
@@ -1006,11 +1034,16 @@ class FirebaseService {
         if (!auth.currentUser || !allAttendance) return;
 
         console.log('🚀 Iniciando sincronización masiva de historial con Batches...');
+        // F1.5 (ADR-008): el historial masivo también es payload saliente —
+        // sólo sube registros del alcance efectivo actual. Flag OFF ⇒ sin
+        // filtrado (paridad legacy exacta).
+        const _scope = peekEntityScope();
         const entries = Object.entries(allAttendance);
         const daysToSync = {};
 
         // 1. Agrupar por fecha
         entries.forEach(([key, record]) => {
+            if (!entityInScope(record, _scope)) return; // ajeno: no es nuestro payload
             const dateKey = record.date || key.split('-').slice(-3).join('-');
             if (!daysToSync[dateKey]) daysToSync[dateKey] = {};
             daysToSync[dateKey][key] = record;

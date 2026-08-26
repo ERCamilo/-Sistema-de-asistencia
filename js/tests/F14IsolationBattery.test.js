@@ -294,7 +294,9 @@ describe('F1.4 end-to-end isolation battery (M2 stamping + A/B isolation)', () =
 
             const partial = await g.migrate({ stores: ['employees'] });
             expect(partial.stamped).toBe(2);
-            expect(g.marker().done).toEqual({ employees: true, positions: false, leaders: false });
+            // F1.5 slice 2: el marker ganó la clave `attendance` (store extra);
+            // la semántica de reanudación por-store es la misma.
+            expect(g.marker().done).toEqual({ employees: true, positions: false, leaders: false, attendance: false });
         }
         const g = await freshGraph(DB);
         g.setFlag(true);
