@@ -40,6 +40,7 @@ import {
 } from './modules/services/LocalDataOwner.js';
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
+import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
@@ -7045,6 +7046,14 @@ function _initOutgoingConflictGuard() {
                 if (window.debug) window.debug.log(`Weather startup: ${err.message}`);
             }
         });
+
+        // F1.4 (E): infraestructura de proyectos, flag-guarded. INERTE con flag
+        // OFF y NUNCA lanza hacia afuera: ProjectsBoot traga sus propios errores
+        // (console.warn + { null, null }), así que este await no puede romper el
+        // arranque. Se elige AWAIT (no fire-and-forget) para orden determinista:
+        // el default existe antes de que cualquier código post-hydrate pregunte
+        // por el proyecto activo.
+        await initProjectsInfrastructure();
 
         // 1.0 Activar el guard de conflictos salientes (cloud más reciente que local).
         // Se registra AQUÍ (post-load) para que Modal y showNotification ya estén listos.
