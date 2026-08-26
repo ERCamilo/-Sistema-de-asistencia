@@ -19,7 +19,8 @@ import { Position as PositionClass } from '../modules/features/employees/Positio
 import { Leader as LeaderClass } from '../modules/features/employees/Leader.js';
 import { mergeEmployees } from '../modules/services/EmployeeMerge.js';
 import { mergeIncomingPositions } from '../modules/services/CatalogIncomingMerge.js';
-import { validateDataIntegrity, analyzeConflicts } from '../modules/services/PersistenceService.js';
+import { validateDataIntegrity, analyzeConflicts, sanitizePositions, clearPendingCloudPositionDeletes } from '../modules/services/PersistenceService.js';
+import { cleanupPositionReferences } from '../modules/features/employees/PositionsList.js';
 import {
     getEntityScope,
     peekEntityScope,
@@ -393,6 +394,102 @@ describe('F1.4 isolation battery (flag ON, projects A/B)', () => {
         state.positions[0].leaderId = 'LEAD-GHOST';
         await validateDataIntegrity();
         expect(state.positions.find(p => p.id === 'POS-A').leaderId).toBeNull();
+    });
+});
+
+describe('F1.4 position name-slug dedup is project-scoped', () => {
+    function seedSameNamePositions() {
+        state.leaders = [];
+        state.positions = [
+            { id: 'POS-ING-A', name: 'Ingeniero', hourlyRate: 100, salaryInputMode: 'hourly', color: '#111', icon: null, active: false, workingDays: [1], leaderId: null, statusHistory: [], updatedAt: 1, projectId: PRJ_A },
+            { id: 'POS-ING-B', name: 'Ingeniero', hourlyRate: 250, salaryInputMode: 'hourly', color: '#222', icon: null, active: false, workingDays: [2], leaderId: null, statusHistory: [], updatedAt: 1, projectId: PRJ_B }
+        ];
+        state.employees = [];
+    }
+
+    test('flag ON: creating "Ingeniero" in B succeeds while A already holds one', async () => {
+        setProjectsEnabled(true);
+        seedSameNamePositions();
+        state.positions = [state.positions[0]]; // only A's copy exists; B has none
+        await primeScope(PRJ_B);
+
+        window.showAlert.mockClear();
+        PositionModal.save(makeMockModal(positionFormHTML({ name: 'Ingeniero' })), null);
+
+        expect(window.showAlert).not.toHaveBeenCalled();
+        expect(state.positions).toHaveLength(2);
+        expect(state.positions.find(p => p.id !== 'POS-ING-A').projectId).toBe(PRJ_B);
+    });
+
+    test('flag ON: editing/deleting one namesake never touches the other', async () => {
+        setProjectsEnabled(true);
+        seedSameNamePositions();
+        await primeScope(PRJ_A);
+
+        const posA = state.positions.find(p => p.id === 'POS-ING-A');
+        PositionModal.save(makeMockModal(positionFormHTML({ name: 'Ingeniero' })), posA);
+        expect(posA.hourlyRate).toBe(150); // form rate applied to A only
+        expect(state.positions.find(p => p.id === 'POS-ING-B').hourlyRate).toBe(250);
+        expect(state.positions.find(p => p.id === 'POS-ING-B').workingDays).toEqual([2]);
+
+        // Real delete core (PositionsList onConfirm): id-keyed cleanup + filter.
+        cleanupPositionReferences('POS-ING-B');
+        state.positions = state.positions.filter(p => p.id !== 'POS-ING-B');
+        expect(state.positions.map(p => p.id)).toEqual(['POS-ING-A']);
+        expect(posA.name).toBe('Ingeniero'); // A survives intact
+    });
+
+    test('flag ON: true same-project duplicate keeps legacy handling (save blocked)', async () => {
+        setProjectsEnabled(true);
+        seedSameNamePositions(); // B already holds "Ingeniero"
+        await primeScope(PRJ_B);
+
+        window.showAlert.mockClear();
+        PositionModal.save(makeMockModal(positionFormHTML({ name: 'ingeniero' })), null); // slug-insensitive like legacy
+
+        expect(window.showAlert).toHaveBeenCalledWith('Ya existe una posición con este nombre', 'error');
+        expect(state.positions.filter(p => p.name.toLowerCase() === 'ingeniero')).toHaveLength(2);
+    });
+
+    test('flag ON: sanitize merges same-name duplicates only within a project', async () => {
+        setProjectsEnabled(true);
+        await primeScope(PRJ_A);
+        const st = {
+            positions: [
+                { id: 'P-A1', name: 'Ingeniero', projectId: PRJ_A },
+                { id: 'P-A2', name: 'Ingeniero', projectId: PRJ_A },
+                { id: 'P-B1', name: 'Ingeniero', projectId: PRJ_B }
+            ],
+            employees: [{ id: 'e1', positions: ['P-A2'], positionSalaries: { 'P-A2': 50 } }],
+            attendance: {}
+        };
+
+        expect(sanitizePositions(st)).toBe(true);
+        expect(st.positions.map(p => p.id).sort()).toEqual(['P-A1', 'P-B1']); // cross-project survivor untouched
+        expect(st.employees[0].positions).toEqual(['P-A1']); // refs remapped within A only
+        clearPendingCloudPositionDeletes();
+    });
+
+    test('flag OFF control: global slug identity exactly as today (block + merge)', () => {
+        setProjectsEnabled(false);
+        peekEntityScope();
+        seedSameNamePositions();
+        window.showAlert.mockClear();
+
+        PositionModal.save(makeMockModal(positionFormHTML({ name: 'Ingeniero' })), null);
+        expect(window.showAlert).toHaveBeenCalledWith('Ya existe una posición con este nombre', 'error');
+
+        const st = {
+            positions: [
+                { id: 'X1', name: 'Ingeniero', projectId: PRJ_A },
+                { id: 'X2', name: 'Ingeniero', projectId: PRJ_B }
+            ],
+            employees: [{ id: 'e9', positions: ['X2'], positionSalaries: {} }],
+            attendance: {}
+        };
+        expect(sanitizePositions(st)).toBe(true); // global merge ignores projectId stamps (legacy parity)
+        expect(st.positions.map(p => p.id)).toEqual(['X1']);
+        clearPendingCloudPositionDeletes();
     });
 });
 

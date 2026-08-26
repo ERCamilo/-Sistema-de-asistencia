@@ -7,7 +7,7 @@ import { HelpTooltip } from '../../components/HelpTooltip.js';
 import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryConversion.js';
 import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
-import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
+import { peekEntityScope, entityInScope, sameEffectiveProject } from '../../features/projects/ProjectContext.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -335,9 +335,15 @@ export class PositionModal {
         // La unicidad se valida por nombre (slug), pero el id es inmutable, así
         // que renombrar actualiza el MISMO documento en la nube (sin duplicar
         // ni dejar huérfanos en la subcolección positions/{id}).
+        // F1.4: con flag ON la identidad de dedup es `proyectoEfectivo::slug`
+        // — dos proyectos pueden tener un puesto homónimo sin interferirse
+        // (mismo patrón que analyzeConflicts). Flag OFF: paridad legacy exacta.
         const nameSlug = slugify(name);
+        const dedupAnchor = existingPos || { projectId: scope.enabled ? scope.projectId : undefined };
         const duplicate = state.positions.find(
-            p => slugify(p.name) === nameSlug && (!existingPos || p.id !== existingPos.id)
+            p => slugify(p.name) === nameSlug
+                && sameEffectiveProject(p, dedupAnchor, scope)
+                && (!existingPos || p.id !== existingPos.id)
         );
         if (duplicate) {
             window.showAlert('Ya existe una posición con este nombre', 'error');

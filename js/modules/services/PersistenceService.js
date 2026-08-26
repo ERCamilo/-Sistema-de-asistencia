@@ -1702,8 +1702,12 @@ export function sanitizePositions(state) {
     // (2) asignamos un id a puestos que no tengan ninguno.
     const idMap = new Map();          // ID_viejo (duplicado) -> ID_master estable
     const uniquePositions = [];
-    const masterIdBySlug = new Map(); // slug(nombre) -> ID_master estable
+    const masterIdByKey = new Map();  // clave de dedup -> ID_master estable
     let hasChanges = false;
+    // F1.4: con flag ON la identidad de dedup es `proyectoEfectivo::slug`
+    // — homónimos en proyectos distintos conviven (mismo patrón que
+    // analyzeConflicts). Flag OFF: slug crudo → paridad legacy exacta.
+    const _dedupScope = peekEntityScope();
 
     state.positions.forEach(pos => {
         const slug = slugify(pos.name);
@@ -1715,16 +1719,19 @@ export function sanitizePositions(state) {
             hasChanges = true;
         }
 
-        if (!masterIdBySlug.has(slug)) {
-            // Primer puesto con este nombre → master. Conserva su id estable.
-            masterIdBySlug.set(slug, pos.id);
+        const dedupKey = _dedupScope.enabled
+            ? `${effectiveProjectId(pos, _dedupScope)}::${slug}`
+            : slug;
+        if (!masterIdByKey.has(dedupKey)) {
+            // Primer puesto con este nombre (en su proyecto efectivo) → master.
+            masterIdByKey.set(dedupKey, pos.id);
             idMap.set(pos.id, pos.id); // identidad (no migra)
             uniquePositions.push(pos);
         } else {
             // Duplicado por NOMBRE → fusionar al master, conservando el id
             // estable del master. El doc del duplicado queda obsoleto → encolar
             // su borrado de la subcolección remota (positions/{id}).
-            const masterId = masterIdBySlug.get(slug);
+            const masterId = masterIdByKey.get(dedupKey);
             idMap.set(pos.id, masterId);
             if (pos.id && pos.id !== masterId) enqueueCloudPositionDelete(pos.id);
             hasChanges = true;
