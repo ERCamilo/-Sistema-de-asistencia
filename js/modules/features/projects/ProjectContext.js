@@ -46,7 +46,16 @@ export class ProjectContextService {
     }
 
     /**
-     * Id activo válido, o fallback al default, o null. Nunca rechaza.
+     * Resuelve ASÍNCRONAMENTE el id del proyecto activo (contrato real, S4):
+     * - Flag OFF ⇒ null inmediato, sin tocar nada (modo legacy).
+     * - Id guardado válido (existe en el store y status 'active') ⇒ ese id.
+     * - Si falta, cuelga o apunta a un proyecto inexistente/no activo ⇒
+     *   fallback en cascada: default almacenado → ensureDefaultProject() →
+     *   como último recurso null.
+     * - ⚠ PUEDE RECHAZAR: un fallo real de storage (IDB caído) propaga la
+     *   promesa rechazada — comportamiento fijado por el test
+     *   'genuine store failure during fallback propagates'. Sólo los datos
+     *   ausentes/inválidos caen limpios; los call-sites deben await/catch.
      */
     async getActiveProjectId() {
         if (!isProjectsEnabled()) return null;

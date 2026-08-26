@@ -21,12 +21,33 @@ function makeProjectId() {
     return `PRJ-${Date.now().toString(36)}-${token.slice(0, 4)}`;
 }
 
+// F0.3 §1/§2 (S3): closed exige closedAt; archived exige closedAt Y archivedAt.
+// Se valida en el constructor (único punto de paso de create() y fromJSON()),
+// así un payload corrupto jamás entra al modelo ni al store.
+function assertStatusTimestamps(status, data) {
+    if (status !== PROJECT_STATUS.CLOSED && status !== PROJECT_STATUS.ARCHIVED) return;
+    if (!Number.isFinite(data.closedAt)) {
+        throw new Error(`Proyecto inválido: estado "${status}" requiere closedAt (numérico) y falta o es inválido.`);
+    }
+    if (status === PROJECT_STATUS.ARCHIVED && !Number.isFinite(data.archivedAt)) {
+        throw new Error('Proyecto inválido: estado "archived" requiere archivedAt (numérico) y falta o es inválido.');
+    }
+}
+
+// S5: clon profundo de metadata en la frontera del modelo — mutaciones hechas
+// por el caller SOBRE EL OBJETO ENTREGADO no pueden filtrarse a toJSON()/store.
+function cloneMetadata(metadata) {
+    if (metadata === null || metadata === undefined) return metadata;
+    return JSON.parse(JSON.stringify(metadata));
+}
+
 export class Project {
     constructor(data = {}) {
         const now = Date.now();
         this.id = data.id || makeProjectId();
         this.name = data.name;
         this.status = data.status || PROJECT_STATUS.ACTIVE;
+        assertStatusTimestamps(this.status, data);
         this.schemaVersion = PROJECT_SCHEMA_VERSION;
         this.createdAt = data.createdAt || now;
         // Un proyecto recién creado no debe verse "más fresco" que sí mismo.
@@ -39,7 +60,7 @@ export class Project {
         if (Object.prototype.hasOwnProperty.call(data, 'startDate')) this.startDate = data.startDate;
         if (Object.prototype.hasOwnProperty.call(data, 'endDate')) this.endDate = data.endDate;
         if (Object.prototype.hasOwnProperty.call(data, 'createdBy')) this.createdBy = data.createdBy;
-        if (Object.prototype.hasOwnProperty.call(data, 'metadata')) this.metadata = data.metadata;
+        if (Object.prototype.hasOwnProperty.call(data, 'metadata')) this.metadata = cloneMetadata(data.metadata);
     }
 
     /** Fábrica canónica: estampa id + timestamps de nacimiento. */

@@ -111,3 +111,50 @@ describe('Project model (F0.3 v1)', () => {
         expect(json).toHaveProperty('endDate', null);
     });
 });
+
+describe('Project invariant enforcement (S3)', () => {
+    const base = { id: 'PRJ-rota-0000', createdAt: 1000, updatedAt: 1000 };
+
+    test.each([
+        ['closed sin closedAt', { ...base, name: 'Rota', status: 'closed' }, /closedAt/],
+        ['archived sin closedAt', { ...base, name: 'Rota', status: 'archived', archivedAt: 2000 }, /closedAt/],
+        ['archived sin archivedAt', { ...base, name: 'Rota', status: 'archived', closedAt: 1500 }, /archivedAt/]
+    ])('fromJSON rejects malformed payload: %s', (_label, json, pattern) => {
+        expect(() => Project.fromJSON(json)).toThrow(pattern);
+    });
+
+    test('create() rejects the same malformed statuses (single validation choke-point)', () => {
+        expect(() => Project.create({ name: 'Rota', status: 'closed' })).toThrow(/closedAt/);
+        expect(() => Project.create({ name: 'Rota', status: 'archived', archivedAt: 1 })).toThrow(/closedAt/);
+    });
+
+    test('legitimate guarded-transition projects round-trip WITHOUT throwing', () => {
+        const closed = Project.create({ name: 'Cerrada' }).close();
+        const revivedClosed = Project.fromJSON(JSON.parse(JSON.stringify(closed.toJSON())));
+        expect(revivedClosed.status).toBe(PROJECT_STATUS.CLOSED);
+
+        const archived = Project.create({ name: 'Archivada' }).close().archive();
+        const revivedArchived = Project.fromJSON(JSON.parse(JSON.stringify(archived.toJSON())));
+        expect(revivedArchived.status).toBe(PROJECT_STATUS.ARCHIVED);
+    });
+});
+
+describe('metadata boundary clone (S5)', () => {
+    test('caller-side mutation after create() never leaks into toJSON()', () => {
+        const metadata = { notes: 'original', clonedFrom: { sourceProjectId: 'PRJ-src-1111' } };
+        const project = Project.create({ name: 'Obra', metadata });
+        metadata.notes = 'MUTADO';
+        metadata.clonedFrom.sourceProjectId = 'PRJ-mut-2222';
+
+        const payload = project.toJSON();
+        expect(payload.metadata.notes).toBe('original');
+        expect(payload.metadata.clonedFrom.sourceProjectId).toBe('PRJ-src-1111');
+    });
+
+    test('caller-side mutation of the stored JSON after fromJSON never leaks', () => {
+        const stored = { name: 'Obra', metadata: { notes: 'original' } };
+        const project = Project.fromJSON(stored);
+        stored.metadata.notes = 'MUTADO';
+        expect(project.toJSON().metadata.notes).toBe('original');
+    });
+});
