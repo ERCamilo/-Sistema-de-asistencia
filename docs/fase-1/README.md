@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | ✅ **F1.4 COMPLETADA** (empleados/puestos/líderes project-aware + migración M2 + batería A/B) — detenido esperando autorización **F1.5 asistencia** · Control general: F0 100% · F1.0 100% · F1 4/10+cierre · Suite: **350/350 suites · 3358 tests · 0 fallos** |
-| Punto de parada | **USABLE** — suite completa verde (350 suites / 3358 tests, 0 fallos) |
+| Estado | ✅ **F1.4 CERRADA** (micro-slice de dedup de puestos incluido — hallazgo extra: el guard global bloqueaba también EDICIONES) · Solicitando autorización **F1.5 asistencia** (contrato ya preparado en §F1.5) · Control general: F0 100% · F1.0 100% · F1 4/10+cierre · Suite: **350/350 suites · 3363 tests · 0 fallos** |
+| Punto de parada | **USABLE** — suite completa verde (350 suites / 3363 tests, 0 fallos) |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
 ## Pasos
@@ -77,6 +77,27 @@ Revisión fresh-context (lente confiabilidad) sobre `fffdf9c`+`aae38be`, más ej
 
 **Veredicto del revisor:** base SEGURA para F1.4+. Cierre completado: W1/W2 corregidos, S3–S5 resueltos, wiring conectado tras flag, e invariantes de `AppState.js` validados 4/4 con tests concretos (ver [`F1-preF14-cierre.md`](F1-preF14-cierre.md)).
 
+## 📋 Contrato preparado para F1.5 (asistencia multiproyecto — requiere autorización)
+
+**Criterio fundamental (ADR-008):**
+> Guardar, editar, borrar, sincronizar o podar asistencia del Proyecto A NUNCA puede alterar la asistencia del Proyecto B aunque ambos compartan la misma fecha y el mismo documento Firestore diario.
+
+Cadena a revisar completa: creación → IDB → carga por rango → UI → merge → tombstones → limpieza/retención → outbox → documento diario Firestore → descarga/reconciliación.
+
+| Caso | Resultado exigido |
+|---|---|
+| A y B tienen asistencia el mismo día | Ambos sobreviven en el mismo documento cloud |
+| Se modifica A | B permanece byte-equivalente |
+| Se borra un registro de A | Ninguno de B desaparece |
+| Registro legacy sin `projectId` | Pertenece al Proyecto Predeterminado |
+| Cambio A→B→A | Cada vista recupera solo su asistencia |
+| Sync entrante de B mientras A está activo | Se guarda como B, no se reetiqueta A |
+| Retención/podador | Nunca elimina datos vivos de otro proyecto |
+| Tombstone | Conserva `employeeId`, fecha y proyecto correctos |
+| Flag OFF | Comportamiento anterior intacto |
+
+Restricciones: F1.5 NO arregla nómina (dependencia documentada para F1.6); flag sigue experimental/apagado por defecto. Pruebas concurrentes adicionales aprobadas en P3: eliminar/modificar empleado de A en una fecha no altera B; ciclo A→B→A con recarga.
+
 ## ⚠️ Contexto para cualquier agente futuro
 
 El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktree list`: onboarding-v2, employee-photos-preview, attendance-retention, etc.) y llega a esta rama vía sus propios commits de features. Los cambios históricamente sospechosos en `AppState.js` resultaron ser commits de features del dueño; los 4 invariantes de serialización/persistencia fueron validados CON TESTS contra el código actual ([`F1-preF14-cierre.md`](F1-preF14-cierre.md) §1). Ante trabajo paralelo futuro: NO tocarlo, reportarlo y validar invariantes si afecta capas de datos.
@@ -84,5 +105,5 @@ El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktre
 ## Cómo retomar
 
 1. Leer roadmap v0.2 (§13 ADRs nuevos) + este índice + [`F1.0-precondiciones.md`](F1.0-precondiciones.md).
-2. Estado: F1.0 cerrada · F1.1–F1.3 aprobados · cierre pre-F1.4 completado (wiring activo tras flag, flag OFF por defecto) · **F1.4 requiere autorización explícita de Dirección**.
+2. Estado: F1.0 cerrada · F1.1–F1.3 + cierre pre-F1.4 APROBADOS · **F1.4 COMPLETADA y CERRADA** (incluye micro-slice de dedup de puestos) · Pendiente: autorización F1.5 (contrato listo en §F1.5).
 3. Recordatorios vigentes para F1.4+: empleados project-aware con nuevo-id-al-copiar (ADR-010); asistencia queda para F1.5 aparte (ADR-008, documento diario compartido).
