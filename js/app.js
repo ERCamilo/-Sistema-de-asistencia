@@ -177,7 +177,7 @@ import { ensureJsPDFLoaded, ensureHtml2CanvasLoaded } from './modules/utils/Lazy
 
 //agregado manualmente
 import { eventBus } from './modules/core/Events.js';
-import { onboardingWizard } from './modules/ui/Onboarding.js';
+import { launchOnboardingV2 } from './modules/ui/onboarding/OnboardingPreview.js';
 import { ModalManager } from './modules/ui/ModalManager.js';
 import { VirtualScrollComponent } from './modules/components/VirtualScroll.js';
 import { ExportService } from './modules/services/ExportService.js';
@@ -6672,17 +6672,6 @@ window.exportImage = async function () {
 // ⚡ renderSkeleton movido a AttendanceUI.js
 
 function App() {
-    // Si está el onboarding activo, mostrar solo eso
-    if (state.showOnboarding) {
-        return `
-                    <div class="overlay" style="background: #0f172a; z-index: 10000;">
-                        <div style="max-width: 100%; height: 100vh; overflow-y: auto;">
-                            ${onboardingWizard.renderStep()}
-                        </div>
-                    </div>
-                `;
-    }
-
     // Banner de modo demo si está activo
     const demoBanner = state.usingDemoData ? `
                 <div style="background: linear-gradient(90deg, #f59e0b, #fbbf24); color: #000; padding: 12px 20px; text-align: center; font-weight: 700; font-size: 0.875rem; position: sticky; top: 0; z-index: 999; display: flex; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
@@ -6860,7 +6849,7 @@ window.addEventListener('scroll', () => {
     }
 });
 
-// [LEGACY ONBOARDING REMOVED - MOVED TO modules/ui/Onboarding.js]
+// [LEGACY ONBOARDING REMOVED — v2 live: ver modules/ui/onboarding/OnboardingPreview.js]
 
 // ============================================
 // 🛡️ PROMPT POST-SANEAMIENTO
@@ -7784,7 +7773,11 @@ function _initOutgoingConflictGuard() {
         });
 
         // 5. Preparar UI
-        onboardingWizard.show();
+        // Onboarding v2 como arranque real (overlay autocontenido, sin render gate):
+        // mismo gate que el wizard legacy — fuera de modo demo y sin flujo completado.
+        if (!state.usingDemoData && !localStorage.getItem('onboardingCompleted')) {
+            launchOnboardingV2({ mode: 'live' });
+        }
         initBackToTop();
 
         // ⚡ Refactorización Alpha: Exponer manejadores de EmployeesUI al scope global

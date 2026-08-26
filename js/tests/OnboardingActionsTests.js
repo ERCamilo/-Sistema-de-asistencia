@@ -1,4 +1,5 @@
 import { executeChoiceAction } from '../modules/ui/onboarding/OnboardingActions.js';
+import { stateManager } from '../modules/core/AppState.js';
 
 function fakeStorage() {
     const m = {};
@@ -114,6 +115,21 @@ testRunner.addSuite('Onboarding v2 — acciones reales de elección', {
             testRunner.assertEquals(res.completed, false, 'fallo no completa');
             testRunner.assert(!!res.error, 'error reportado');
             testRunner.assertEquals(deps.storage.getItem('onboardingCompleted'), null, 'flag sin marcar');
+        });
+    },
+    'scratch con deps por defecto resetea el dominio sin depender del wizard legacy'() {
+        delete window.onboardingWizard;
+        globalThis.resolveIconSet = () => 'emoji';
+        const prevConfirm = window.showConfirm;
+        window.showConfirm = opts => opts.onConfirm();
+        const raw = stateManager.getState();
+        raw.employees = [{ id: 'e1', name: 'A', positions: [], hireDate: '2020-01-01' }];
+        raw.attendance = { 'e1-2026-06-18': { employeeId: 'e1', date: '2026-06-18', present: true, hoursWorked: 8 } };
+        return executeChoiceAction('scratch', {}, {}).then(res => {
+            window.showConfirm = prevConfirm;
+            testRunner.assertEquals(res.completed, true, 'completa resolviendo deps por defecto');
+            testRunner.assertEquals(raw.employees.length, 0, 'personal reseteado');
+            testRunner.assertEquals(Object.keys(raw.attendance).length, 0, 'asistencia reseteada');
         });
     }
 });

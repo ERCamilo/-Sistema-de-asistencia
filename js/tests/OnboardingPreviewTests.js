@@ -1,14 +1,19 @@
 import {
-    showOnboardingPreview, closeOnboardingPreview, resetOnboardingPreview
+    showOnboardingPreview, closeOnboardingPreview, resetOnboardingPreview,
+    launchOnboardingV2, notifyCompleted
 } from '../modules/ui/onboarding/OnboardingPreview.js';
 import { SettingsTestsTab } from '../modules/ui/settings/SettingsTestsTab.js';
 
 const KEY = 'onboarding-pos';
+const DONE = 'onboardingCompleted';
 const overlay = () => document.getElementById('onboarding-preview-overlay');
 
 function cleanup() {
     closeOnboardingPreview();
-    try { localStorage.removeItem(KEY); } catch (e) { /* sin storage */ }
+    try {
+        localStorage.removeItem(KEY);
+        localStorage.removeItem(DONE);
+    } catch (e) { /* sin storage */ }
 }
 
 testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
@@ -67,11 +72,55 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         }
         testRunner.assert(ov.textContent.includes('Explorar con datos de prueba'), 'tarjeta demo visible');
     },
-    'SettingsTestsTab expone abrir y reiniciar la vista previa'() {
+    'launchOnboardingV2 es alias del arnés y el badge solo aparece en modo preview'() {
+        cleanup();
+        testRunner.assertEquals(launchOnboardingV2, showOnboardingPreview, 'misma función');
+        showOnboardingPreview({ mode: 'preview' });
+        testRunner.assert(overlay().textContent.includes('VISTA PREVIA'), 'badge visible en preview');
+        closeOnboardingPreview();
+        launchOnboardingV2({ mode: 'live' });
+        const ov = overlay();
+        testRunner.assert(!ov.textContent.includes('VISTA PREVIA'), 'badge oculto en live');
+        testRunner.assert(!!ov.querySelector('[data-act="closePreview"]'), 'cierre presente en live');
+    },
+    'completar el flujo y cerrar conserva onboardingCompleted'() {
+        cleanup();
+        showOnboardingPreview({ mode: 'live' });
+        notifyCompleted();
+        closeOnboardingPreview();
+        testRunner.assertEquals(localStorage.getItem(DONE), 'true', 'flag conservado tras completar');
+    },
+    'reabrir con flag previo y cerrar a mitad restaura el snapshot (sin resurrección)'() {
+        cleanup();
+        localStorage.setItem(DONE, 'true');
+        launchOnboardingV2({ mode: 'live' });
+        overlay().querySelector('[data-act="next"]').click();
+        closeOnboardingPreview();
+        testRunner.assertEquals(localStorage.getItem(DONE), 'true', 'snapshot previo restaurado');
+    },
+    'usuario nuevo que cierra a mitad no queda marcado como completado'() {
+        cleanup();
+        showOnboardingPreview();
+        overlay().querySelector('[data-act="next"]').click();
+        closeOnboardingPreview();
+        testRunner.assertEquals(localStorage.getItem(DONE), null, 'flag sigue ausente');
+    },
+    '"Saltar por ahora" marca completado, limpia progreso y cierra'() {
+        cleanup();
+        launchOnboardingV2({ mode: 'live' });
+        for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
+        testRunner.assert(!!overlay().querySelector('[data-od-id="od-choice"]'), 'fase de elección alcanzada');
+        overlay().querySelector('[data-act="skipOnboarding"]').click();
+        testRunner.assertEquals(overlay(), null, 'overlay cerrado al saltar');
+        testRunner.assertEquals(localStorage.getItem(DONE), 'true', 'flag marcado por skip');
+        testRunner.assertEquals(localStorage.getItem(KEY), null, 'progreso a mitad limpiado por skip');
+    },
+    'SettingsTestsTab presenta la guía real (sin copia de vista previa)'() {
         const html = SettingsTestsTab({ state: { settings: {} } });
         testRunner.assert(html.includes('data-settings-action="open-onboarding-preview"'), 'botón abrir');
         testRunner.assert(html.includes('data-settings-action="reset-onboarding-preview"'), 'botón reiniciar');
-        testRunner.assert(html.includes('Onboarding v2 (vista previa)'), 'título de la sección');
+        testRunner.assert(!html.includes('(vista previa)'), 'sin rotular vista previa');
+        testRunner.assert(html.includes('Guía de inicio'), 'título de guía real');
         testRunner.assert(html.indexOf('onboarding-preview-title') < html.indexOf('splitx-integration-title'), 'sección antes de SplitX');
     }
 });

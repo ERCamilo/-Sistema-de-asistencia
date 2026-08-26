@@ -63,19 +63,19 @@ export function SettingsTestsTab(context) {
                 </div>
             </section>
 
-            <!-- Onboarding v2 — vista previa aislada -->
+            <!-- Onboarding v2 — guía de inicio real -->
             <section class="stg-card" aria-labelledby="onboarding-preview-title" style="margin-top:20px;">
-                <h4 id="onboarding-preview-title" style="margin-top:0;">Onboarding v2 (vista previa)</h4>
+                <h4 id="onboarding-preview-title" style="margin-top:0;">Guía de inicio (Onboarding v2)</h4>
                 <p style="color:#94a3b8;font-size:.84rem;line-height:1.5;">
-                    Recorre el nuevo flujo de configuración guiada sin tocar datos reales.
-                    El avance se guarda en este navegador hasta que termines o lo reinicies.
+                    Abre la misma guía real que se muestra en el primer arranque, con acciones sobre datos reales.
+                    Úsala para repasarla o relanzarla; reiniciar borra el progreso guardado en este navegador.
                 </p>
                 <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;">
                     <button type="button" class="btn btn-primary" data-settings-action="open-onboarding-preview">
-                        Abrir vista previa del onboarding
+                        Abrir la guía de inicio
                     </button>
                     <button type="button" class="btn btn-secondary" data-settings-action="reset-onboarding-preview" style="font-size:.8rem;padding:6px 12px;">
-                        Reiniciar progreso
+                        Reiniciar progreso guardado
                     </button>
                     <span style="color:#64748b;font-size:.78rem;">Ciérrala con Esc o con la × de la esquina superior.</span>
                 </div>

@@ -7,14 +7,15 @@
  * Contrato: executeChoiceAction(source, state, deps?) → Promise<{completed, error?}>.
  */
 import { loadDemoDataIntoDB } from '../../services/PersistenceService.js';
+import { resetDomainData } from '../../services/DomainResetService.js';
 import FirebaseService from '../../services/FirebaseService.js';
 import { state } from '../../core/AppState.js';
 
 export const COMPLETED_KEY = 'onboardingCompleted';
 const GOOGLE_TIMEOUT_MS = 30000;
 
-/* Misma clave que lee el gate viejo (ui/Onboarding.js), para que el switch de
- * la fase 5 sea consistente con el flujo anterior. */
+/* Clave compartida con el arranque real (app.js) y el reopen-safety del host:
+ * marcarla equivale a "el usuario ya completó el onboarding". */
 export function markCompleted(storage) {
     try { storage.setItem(COMPLETED_KEY, 'true'); } catch (e) { /* storage no disponible */ }
 }
@@ -31,13 +32,10 @@ function resolveDeps(deps = {}) {
         hasAnyData: deps.hasAnyData || (() =>
             !!(state.employees.length || state.positions.length || state.leaders.length ||
                Object.keys(state.attendance || {}).length)),
-        /* Reutiliza el reset de dominio existente del onboarding viejo (positions/
-         * leaders/employees/attendance/settings + coherencia) en vez de duplicarlo. */
-        clearData: deps.clearData || (async () => {
-            const wizard = typeof window !== 'undefined' ? window.onboardingWizard : null;
-            if (!wizard || typeof wizard.clearAllData !== 'function') throw new Error('reset no disponible');
-            wizard.clearAllData();
-        }),
+        /* Reset total de dominio vía DomainResetService (positions/leaders/
+         * employees/attendance/settings + coherencia), el mismo comportamiento
+         * que tenía clearAllData en el wizard legacy. */
+        clearData: deps.clearData || (async () => { resetDomainData(); }),
         loadDemoData: deps.loadDemoData || (() => loadDemoDataIntoDB()),
         loginWithGoogle: deps.loginWithGoogle || (() => FirebaseService.loginWithGoogle()),
         onAuthStateChanged: deps.onAuthStateChanged || (cb => FirebaseService.onAuthStateChanged(cb)),

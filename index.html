@@ -76,7 +76,6 @@
     <link rel="stylesheet" href="css/navigation.css">
     <link rel="stylesheet" href="css/attendance_ui.css">
     <link rel="stylesheet" href="css/employee_profile.css?v=2">
-    <link rel="stylesheet" href="css/onboarding.css">
     <link rel="stylesheet" href="css/onboarding-v2.css">
     <link rel="stylesheet" href="css/maintenance.css">
     <link rel="stylesheet" href="css/sidebar-shell.css">
@@ -120,7 +119,6 @@
                 'js/tests/ModalTests.js',
                 'js/tests/DataIntegrityTests.js',
                 'js/tests/HelpTooltipTests.js',
-                'js/tests/OnboardingTests.js',
                 'js/tests/OnboardingCoreTests.js',
                 'js/tests/OnboardingActionsTests.js',
                 'js/tests/OnboardingPreviewTests.js',
@@ -174,7 +172,7 @@
                             newWorker.addEventListener('statechange', async () => {
                                 if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
                                     // Evitar molestar durante el onboarding
-                                    const isShowingOnboarding = window.state && window.state.showOnboarding;
+                                    const isShowingOnboarding = !!document.getElementById('onboarding-preview-overlay');
                                     if (isShowingOnboarding) return;
 
                                     // Hay una nueva versión activa — ofrecer recargar
