@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | ✅ Bloque F1.1–F1.3 EJECUTADO, REVISADO y **W1/W2 CORREGIDOS** — detenido esperando Dirección · Control general: F0 100% · F1.0 100% · F1 3/10 · Suite: **345/345 suites · 3311 tests · 0 fallos** · Pre-F1.4 pendiente: revisar AppState.js (+ endurecimiento S3–S5 en próximo slice) |
-| Punto de parada | **USABLE** — suite completa verde (342 suites / 3280 tests, 0 fallos) |
+| Estado | ✅ F1.1–F1.3 **APROBADOS por Dirección** · Slice de cierre pre-F1.4 EJECUTADO (S3–S5 + wiring tras flag + invariantes AppState 4/4 + upgrade real v16→v17) · Detenido esperando autorización F1.4 · Control general: F0 100% · F1.0 100% · F1 3/10 (+cierre) · Suite: **348/348 suites · 3329 tests · 0 fallos** |
+| Punto de parada | **USABLE** — suite completa verde (348 suites / 3329 tests, 0 fallos) |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
 ## Pasos
@@ -21,6 +21,7 @@
 | **F1.1 ProjectRepository** | [`F1.1-project-repository.md`](F1.1-project-repository.md) | ✅ Ejecutado + revisado | — |
 | **F1.2 Proyecto predeterminado** | [`F1.2-default-project.md`](F1.2-default-project.md) | ✅ Ejecutado + revisado (wiring deferido) | Wiring+flag antes de criterio completo |
 | **F1.3 ProjectContext** | [`F1.3-project-context.md`](F1.3-project-context.md) | ✅ Ejecutado + revisado | — |
+| **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 
@@ -67,20 +68,20 @@ Revisión fresh-context (lente confiabilidad) sobre `fffdf9c`+`aae38be`, más ej
 |---|---|---|---|
 | W1 | 🟡→✅ | Pointer-HIT de `ensureDefaultProject()` no valida status → un default cerrado/archivado entregaría id no-activo desde el contexto | **RESUELTO**: dangling = inexistente O status≠active; contrato único con recovery (usa `PROJECT_STATUS.ACTIVE`) |
 | W2 | 🟡→✅ | Carrera cross-tab crearía "Mi obra" duplicada si dos pestañas ven puntero ausente (CrossTabLock existe, no se usa aquí) | **RESUELTO**: lease `default-project-init` envolviendo el cuerpo completo + promesa en vuelo compartida intra-pestaña (el lease IDB re-admite al mismo dueño al instante — hallazgo clave) |
-| S3 | 🔵 | Constructor acepta closed/archived sin exigir closedAt/archivedAt (riesgo vía payloads futuros de sync) | Hardening próximo slice |
-| S4 | 🔵 | JSDoc "nunca rechaza" vs comportamiento real de getActiveProjectId | Ajustar contrato |
-| S5 | 🔵 | metadata retenida por referencia (mutación del caller filtra a payloads) | Clonar en frontera de entidad |
+| S3 | 🔵→✅ | Constructor aceptaba closed/archived sin exigir closedAt/archivedAt | **RESUELTO** en cierre pre-F1.4: `assertStatusTimestamps()` con errores descriptivos |
+| S4 | 🔵→✅ | JSDoc "nunca rechaza" vs comportamiento real de getActiveProjectId | **RESUELTO**: contrato verdadero documentado |
+| S5 | 🔵→✅ | metadata retenida por referencia (mutación del caller filtra a payloads) | **RESUELTO**: `cloneMetadata()` en frontera de entrada |
 
 **Backlog de tests sugeridos:** concurrencia de ensure(); pointer→default cerrado/archivado; apertura v16 real→upgrade v17 con registros preexistentes; toggle flag ON→OFF→ON en sesión; desempate listAll con createdAt igual.
 
-**Veredicto del revisor:** base SEGURA para F1.4+ una vez revisado `AppState.js` y resueltos W1/W2 antes de habilitar wiring/flag.
+**Veredicto del revisor:** base SEGURA para F1.4+. Cierre completado: W1/W2 corregidos, S3–S5 resueltos, wiring conectado tras flag, e invariantes de `AppState.js` validados 4/4 con tests concretos (ver [`F1-preF14-cierre.md`](F1-preF14-cierre.md)).
 
 ## ⚠️ Contexto para cualquier agente futuro
 
-Durante esta etapa apareció **trabajo paralelo del dueño del repo** en el mismo árbol (`index.html`, `js/modules/core/AppState.js`, `js/modules/ui/onboarding/`, suites `OnboardingCore*`; commit `5aecc21`). NO fue tocado por el Equipo SA. El cambio pendiente en **`AppState.js` merece revisión antes de F1.4**: ese archivo contiene el proxy que aplana entidades (hallazgo H-07), base de varios supuestos auditados.
+El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktree list`: onboarding-v2, employee-photos-preview, attendance-retention, etc.) y llega a esta rama vía sus propios commits de features. Los cambios históricamente sospechosos en `AppState.js` resultaron ser commits de features del dueño; los 4 invariantes de serialización/persistencia fueron validados CON TESTS contra el código actual ([`F1-preF14-cierre.md`](F1-preF14-cierre.md) §1). Ante trabajo paralelo futuro: NO tocarlo, reportarlo y validar invariantes si afecta capas de datos.
 
 ## Cómo retomar
 
 1. Leer roadmap v0.2 (§13 ADRs nuevos) + este índice + [`F1.0-precondiciones.md`](F1.0-precondiciones.md).
-2. Pendiente de Dirección: veredicto P3–P7 → recién ahí se emite autorización F1.1.1 (ProjectRepository).
-3. Pre-F1.4 recomendado: revisar diff de `AppState.js` paralelo.
+2. Estado: F1.0 cerrada · F1.1–F1.3 aprobados · cierre pre-F1.4 completado (wiring activo tras flag, flag OFF por defecto) · **F1.4 requiere autorización explícita de Dirección**.
+3. Recordatorios vigentes para F1.4+: empleados project-aware con nuevo-id-al-copiar (ADR-010); asistencia queda para F1.5 aparte (ADR-008, documento diario compartido).
