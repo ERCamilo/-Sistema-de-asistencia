@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | ✅ F1.1–F1.3 **APROBADOS por Dirección** · Slice de cierre pre-F1.4 EJECUTADO (S3–S5 + wiring tras flag + invariantes AppState 4/4 + upgrade real v16→v17) · Detenido esperando autorización F1.4 · Control general: F0 100% · F1.0 100% · F1 3/10 (+cierre) · Suite: **348/348 suites · 3329 tests · 0 fallos** |
-| Punto de parada | **USABLE** — suite completa verde (348 suites / 3329 tests, 0 fallos) |
+| Estado | ✅ **F1.4 COMPLETADA** (empleados/puestos/líderes project-aware + migración M2 + batería A/B) — detenido esperando autorización **F1.5 asistencia** · Control general: F0 100% · F1.0 100% · F1 4/10+cierre · Suite: **350/350 suites · 3358 tests · 0 fallos** |
+| Punto de parada | **USABLE** — suite completa verde (350 suites / 3358 tests, 0 fallos) |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
 ## Pasos
@@ -22,6 +22,7 @@
 | **F1.2 Proyecto predeterminado** | [`F1.2-default-project.md`](F1.2-default-project.md) | ✅ Ejecutado + revisado (wiring deferido) | Wiring+flag antes de criterio completo |
 | **F1.3 ProjectContext** | [`F1.3-project-context.md`](F1.3-project-context.md) | ✅ Ejecutado + revisado | — |
 | **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
+| **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | F1.5 pendiente de autorización |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 

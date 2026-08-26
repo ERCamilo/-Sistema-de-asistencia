@@ -662,7 +662,7 @@ El primer objetivo técnico estable será:
 |---|---|---|---|
 | F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
 | F1.0 Precondiciones del refactor | ✅ Completada y APROBADA (2026-08-25) | SA | F0 aprobada |
-| F1 Contexto de proyecto | 🔄 En ejecución — autorizado solo F1.1–F1.3 (corte antes de F1.4) | SA | F1.0 completada y aprobada |
+| F1 Contexto de proyecto | 🔄 En ejecución — F1.4 completada (empleados/puestos/líderes project-aware + M2); F1.5 asistencia pendiente de autorización | SA | cierre pre-F1.4 aprobado |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |

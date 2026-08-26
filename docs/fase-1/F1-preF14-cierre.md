@@ -9,7 +9,7 @@
 
 ## 1. Validación de invariantes de `AppState.js` (ex-requisito bloqueante)
 
-Contexto: el diff paralelo ya no existe en el árbol — el dueño lo resolvió vía sus propios commits de features (`feat(attendance): redesign employee cards`, etc., visibles en la historia del archivo). La validación se hizo igualmente contra el comportamiento ACTUAL, con tests concretos (no revisión visual):
+Contexto: el diff paralelo ya no existe en el árbol — el dueño lo resolvió vía sus propios commits de features (`feat(attendance): redesign employee cards`, etc., visibles en la historia del archivo). La validación se hizo igualmente contra el comportamiento ACTUAL, con tests concretos (no revisión visual). **Resultado: 6/6 invariantes se mantienen** (la orden original agrupaba seis comprobaciones en cuatro líneas; la tabla de abajo es la lista canónica):
 
 | Invariante pedido por Dirección | Veredicto | Evidencia |
 |---|---|---|

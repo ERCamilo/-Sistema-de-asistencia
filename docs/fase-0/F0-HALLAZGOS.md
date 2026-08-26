@@ -23,6 +23,7 @@
 | H-11 | 🔵 | Bucket de Firebase Storage históricamente NO aprovisionado (404 según comentario del código): snapshots grandes dependen de compresión inline | `FirebaseService.js:577-581, :597-599` | Si snapshot comprimido excede límites, backup grande falla silencioso | Verificar en Firebase Console si hoy existe; decidir provisionar o documentar límite | Pre-F4 (plataforma) |
 | H-12 | 🔵 | Dual lockfiles: `package-lock.json` Y `pnpm-lock.yaml` conviven; CI usa `npm ci` | Raíz del repo | Drift de dependencias entre entornos | Eliminar el lockfile no canónico y fijar el flujo en docs | Housekeeping |
 | H-13 | 🔵 | Contexto de fase solo local: `ROADMAP_BASE_SA_MINI_INTEGRACION.md`, `openspec/` y `docs/fase-0/` están SIN COMMITEAR | `git status` | Un incidente local pierde el mapa completo del proyecto | Commitear al aprobarse (pendiente decisión de Dirección) | Inmediato (con aprobación) |
+| H-14 | 🟡 **RIESGO VIVO** | Inestabilidad ocasional en tests de DataOps/PersistenceService: falló 1 vez en toda la historia observada y pasó siempre al reintentar (área intocada por Equipo SA) | Incidente registrado durante slice F1.2/F1.3 (rerun verde 345/345) | Puede enmascarar una regresión real si se normaliza "reintentar hasta verde" | Vigilar apariciones; si se repite ≥2 veces sin causa externa, abrir investigación propia con captura de estado | Permanente — NO tratarlo como ruido automático |
 
 ## Hallazgos resueltos
 
