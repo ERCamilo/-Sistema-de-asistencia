@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | ✅ **F1.5 COMPLETADA** (ADR-008 end-to-end + escenario de lectura divergente resuelto) — detenido esperando revisión/**autorización F1.6 nómina** · Control general: F0 100% · F1.0 100% · F1 5/10+cierre · Suite: **353/353 suites · 3395 tests · 0 fallos** |
-| Punto de parada | **USABLE** — suite completa verde (353 suites / 3395 tests, 0 fallos) |
+| Estado | ✅ **F1.5 + MICRO-CIERRE COMPLETADOS** (dos clientes cloud reales → transacción Firestore; tombstone heredado) — esperando cierre formal de Dirección y autorización **F1.6 nómina** · Control general: F0 100% · F1.0 100% · F1 5/10+cierre · Suite: **354/354 suites · 3401 tests · 0 fallos** |
+| Punto de parada | **USABLE** — suite completa verde (354 suites / 3401 tests, 0 fallos) |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
 ## Pasos
@@ -23,7 +23,7 @@
 | **F1.3 ProjectContext** | [`F1.3-project-context.md`](F1.3-project-context.md) | ✅ Ejecutado + revisado | — |
 | **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
 | **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | ✅ CERRADA |
-| **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Ejecutado (núcleo + cloud merge + M2 + batería S1-S9) | F1.6 pendiente de autorización |
+| **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Ejecutado (núcleo + cloud merge + M2 + batería S1-S9 + micro-cierre: transacción dos-clientes y tombstone heredado) | F1.6 pendiente de autorización |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 
