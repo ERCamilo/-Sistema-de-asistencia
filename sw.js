@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0827.075232';
+const CACHE_VERSION = '2026.0827.075858';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -28,7 +28,7 @@ const APP_SHELL = [
     './css/navigation.css',
     './css/attendance_ui.css',
     './css/employee_profile.css',
-    './css/onboarding.css',
+    './css/onboarding-v2.css',
     './css/maintenance.css',
     './css/sidebar-shell.css',
     './css/personnel.css',
@@ -53,7 +53,6 @@ const APP_SHELL = [
     './js/modules/config/Config.js',
 
     // Components
-    './js/modules/components/App.js',
     './js/modules/components/BadgeComponent.js',
     './js/modules/components/CalendarPickerComponent.js',
     './js/modules/components/ComponentBase.js',
@@ -103,7 +102,6 @@ const APP_SHELL = [
     './js/modules/ui/IconSystem.js',
     './js/modules/ui/MaintenanceUI.js',
     './js/modules/ui/ModalManager.js',
-    './js/modules/ui/Onboarding.js',
     './js/modules/ui/QuickViewComponents.js',
     './js/modules/ui/RestoreUI.js',
     './js/modules/ui/SettingsUI.js',
@@ -121,6 +119,7 @@ const APP_SHELL = [
     './js/modules/ui/MiniAttendanceReviewViewModel.js',
     './js/modules/services/MiniAttendanceAliasStore.js',
     './js/modules/ui/modals/PositionModal.js',
+    './js/modules/ui/onboarding/OnboardingPreview.js',
     './js/modules/ui/settings/SettingsTestsTab.js',
 
     // Features

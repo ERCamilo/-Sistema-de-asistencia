@@ -6,6 +6,7 @@ import {
     EmployeeRow,
     EmployeeRowCompact
 } from '../modules/ui/AttendanceUI.js';
+import { EmployeeCard } from '../modules/features/employees/EmployeesList.js';
 
 function source(relativePath) {
     return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf8');
@@ -23,7 +24,10 @@ describe('shared employee avatar surfaces', () => {
         expect(app).toMatch(/AttendanceDetailAvatar\(emp\)/);
         expect(app).toMatch(/usesAttendanceDetailPanel\(window\.innerWidth\)[\s\S]*AttendanceDetailPanel\(\)/);
         expect(app).toMatch(/employeePhotoService\.reconcileEmployeePhotoSignals\(state\.employees\)/);
-        expect(personnel).toMatch(/EmployeeAvatar\(emp/);
+        expect(personnel).not.toMatch(/EmployeeAvatar/);
+        expect(personnel).toMatch(
+            /employee-list-row__icon[\s\S]*renderPositionIconSvg\(resolvePositionIcon\(primaryPosition \|\| \{\}\), \{ size: 24 \}\)/
+        );
         expect(editor).toMatch(/EmployeeAvatar\(emp/);
         expect(editor).toMatch(/hydrateEmployeeAvatars\(body/);
         expect(editor).toMatch(/data-employee-photo-editor-actions/);
@@ -62,6 +66,27 @@ describe('shared employee avatar surfaces', () => {
             expect(fallback.textContent.trim()).toBe('');
         } finally {
             Object.assign(state, previous);
+            document.body.innerHTML = '';
+        }
+    });
+
+    test('renders the primary position icon instead of a photo in personnel employee rows', () => {
+        const previousPositions = state.positions;
+        state.positions = [{ id: 'position-crew', name: 'Ayudante', icon: 'crew', color: '#2563EB' }];
+        try {
+            document.body.innerHTML = EmployeeCard({
+                id: 'employee-row',
+                key: 'employee-row',
+                number: '7',
+                name: 'Empleado de prueba',
+                active: true,
+                positions: ['position-crew']
+            });
+            const identity = document.querySelector('.employee-list-row__identity');
+            expect(identity.querySelector('.employee-list-row__icon svg')).not.toBeNull();
+            expect(identity.querySelector('[data-employee-avatar]')).toBeNull();
+        } finally {
+            state.positions = previousPositions;
             document.body.innerHTML = '';
         }
     });

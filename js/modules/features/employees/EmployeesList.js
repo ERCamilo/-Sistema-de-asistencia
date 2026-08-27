@@ -24,7 +24,6 @@ import {
 } from './PositionVisuals.js';
 import { hourlyToDaily } from '../payroll/SalaryConversion.js';
 import { resolvePositionBaseHourlyRate } from './EmployeePositionMetrics.js';
-import { EmployeeAvatar } from '../../ui/components/EmployeeAvatar.js';
 
 const WEEKS_PER_MONTH = 52 / 12;
 let employeeOpenFilter = null;
@@ -111,7 +110,7 @@ export function EmployeeCard(emp, { selected = false } = {}) {
             </div>
             <div class="employee-list-row__identity">
                 <span class="employee-list-row__icon">
-                    ${EmployeeAvatar(emp, { variant: 'compact' })}
+                    ${renderPositionIconSvg(resolvePositionIcon(primaryPosition || {}), { size: 24 })}
                 </span>
                 <div>
                     <strong title="${escapeAttr(emp.name)}">${escapeHTML(emp.name)}</strong>
