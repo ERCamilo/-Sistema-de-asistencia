@@ -427,6 +427,92 @@ describe('A0.5 ProjectIdentity — flag OFF parity + offline + registry + adopti
         ]));
     });
 
+    test('MC1 — wipeAllLocalTraces purges canonical/alias prefix keys, offline no recover (WARNING-2)', async () => {
+        setProjectsEnabled(true);
+        // 1) canonicalize uid-A + 2 aliases (cache via ensureAlias / direct LS)
+        localStorage.setItem('asistencia_canonical_uid-A', 'PRJ-CANON-A');
+        localStorage.setItem('asistencia_alias_uid-A_PRJ-OLD1', 'PRJ-CANON-A');
+        localStorage.setItem('asistencia_alias_uid-A_PRJ-OLD2', 'PRJ-CANON-A');
+        localStorage.setItem('asistencia_canonical_uid-B', 'PRJ-CANON-B');
+        localStorage.setItem('keep-unrelated', 'keep-me');
+        localStorage.setItem('asistencia_default_project_id', 'PRJ-CANON-A');
+        // stay offline: Firestore throws / no doc
+        getDoc.mockRejectedValue(new Error('offline'));
+        // sanity before wipe: offline reads from cache
+        expect(await ProjectRegistry.getCanonicalId('uid-A')).toBe('PRJ-CANON-A');
+        expect(await ProjectRegistry.resolveCanonicalAlias('uid-A', 'PRJ-OLD1')).toBe('PRJ-CANON-A');
+        // 2) wipe
+        const { wipeAllLocalTraces } = await import('actual/services/LocalWipeService.js');
+        await wipeAllLocalTraces();
+        // 3) prefix keys gone, unrelated stays
+        expect(localStorage.getItem('asistencia_canonical_uid-A')).toBeNull();
+        expect(localStorage.getItem('asistencia_alias_uid-A_PRJ-OLD1')).toBeNull();
+        expect(localStorage.getItem('asistencia_alias_uid-A_PRJ-OLD2')).toBeNull();
+        expect(localStorage.getItem('asistencia_canonical_uid-B')).toBeNull();
+        expect(localStorage.getItem('keep-unrelated')).toBe('keep-me');
+        expect(localStorage.getItem('asistencia_default_project_id')).toBeNull();
+        // 4) offline must not recover
+        expect(await ProjectRegistry.getCanonicalId('uid-A')).toBeNull();
+        expect(await ProjectRegistry.resolveCanonicalAlias('uid-A', 'PRJ-OLD1')).toBe('PRJ-OLD1');
+        expect(await ProjectRegistry.resolveCanonicalAlias('uid-A', 'PRJ-OLD2')).toBe('PRJ-OLD2');
+    });
+
+    test('MC2 — dead outbox entries canonicalized without status change or requeue (WARNING-1)', async () => {
+        setProjectsEnabled(true);
+        const dbName = `${DB_PREFIX}mc2-dead`;
+        const { svc } = makeHarness(dbName);
+        await svc.update('mainSyncOutbox', { kind: 'mirror', snapshot: { employees: [{ id: 'E1', projectId: 'PRJ-OLD' }], positions: [], leaders: [], settings: {} }, status: 'dead', attempts: 5, lastError: 'perm' });
+        await svc.update('mainSyncOutbox', { kind: 'daily', dateKey: '2026-08-26', records: { 'E1-2026-08-26': { employeeId: 'E1', date: '2026-08-26', projectId: 'PRJ-OLD' } }, scope: { enabled: true, projectId: 'PRJ-OLD', defaultProjectId: 'PRJ-OLD' }, status: 'dead', attempts: 5, lastError: 'perm' });
+        await svc.update('mainSyncOutbox', { kind: 'entities', employees: [{ id: 'E1', projectId: 'PRJ-OLD' }], positions: [], leaders: [], schemaVersion: 3, status: 'dead', attempts: 5, lastError: 'perm' });
+        await svc.update('mainSyncOutbox', { kind: 'mirror', snapshot: { employees: [{ id: 'E2', projectId: 'PRJ-OLD' }], settings: {} }, status: 'pending' });
+        const beforeDead = (await svc.getAll('mainSyncOutbox')).filter(e => e.status === 'dead');
+        expect(beforeDead.length).toBe(3);
+        // bumpGeneration must be called before any outbox rewrite — spy via MainSyncStore object (patched) or standalone export
+        let bumpSpy = null;
+        let mod = null;
+        try {
+            mod = await import('actual/services/MainSyncStore.js');
+            if (mod.MainSyncStore && typeof mod.MainSyncStore.bumpGeneration === 'function') {
+                bumpSpy = jest.spyOn(mod.MainSyncStore, 'bumpGeneration').mockImplementation(() => {});
+            } else if (typeof mod.bumpGeneration === 'function') {
+                bumpSpy = jest.spyOn(mod, 'bumpGeneration').mockImplementation(() => {});
+            }
+        } catch (_) { /* spy optional for RED phase — functional assertions are primary */ }
+        const res = await ProjectAdoption.adoptProject({ legacyId: 'PRJ-OLD', canonicalId: 'PRJ-CANON', uid: 'uid-mc2', idb: svc, skipAlias: true });
+        expect(res.adopted).toBe(true);
+        const after = await svc.getAll('mainSyncOutbox');
+        const deadAfter = after.filter(e => e.status === 'dead');
+        expect(deadAfter.length).toBe(3);
+        for (const e of deadAfter) {
+            expect(e.status).toBe('dead');
+            if (e.kind === 'mirror') expect(e.snapshot.employees[0].projectId).toBe('PRJ-CANON');
+            if (e.kind === 'daily') {
+                expect(e.scope.projectId).toBe('PRJ-CANON');
+                expect(e.scope.defaultProjectId).toBe('PRJ-CANON');
+                expect(e.records['E1-2026-08-26'].projectId).toBe('PRJ-CANON');
+            }
+            if (e.kind === 'entities') expect(e.employees[0].projectId).toBe('PRJ-CANON');
+        }
+        if (bumpSpy) {
+            expect(bumpSpy).toHaveBeenCalled();
+            bumpSpy.mockRestore();
+        }
+        const pendingAfter = after.filter(e => e.status === 'pending');
+        expect(pendingAfter.length).toBe(1);
+        expect(pendingAfter[0].snapshot.employees[0].projectId).toBe('PRJ-CANON');
+        // optional requeue must egress canonical only
+        for (const e of deadAfter) {
+            await svc.update('mainSyncOutbox', { ...e, status: 'pending', attempts: 0, lastError: null });
+        }
+        const requeued = (await svc.getAll('mainSyncOutbox')).filter(e => e.status === 'pending');
+        expect(requeued.length).toBe(4);
+        for (const e of requeued) {
+            if (e.snapshot?.employees) expect(e.snapshot.employees[0].projectId).toBe('PRJ-CANON');
+            if (e.scope) expect(e.scope.projectId).toBe('PRJ-CANON');
+            if (e.employees) expect(e.employees[0].projectId).toBe('PRJ-CANON');
+        }
+    });
+
     test('firestore rules: new paths remain under users/{uid}/ wildcard (audit)', async () => {
         const rules = fs.readFileSync(path.resolve('firestore.rules'), 'utf8');
         expect(rules).toMatch(/match \/users\/\{userId\}\/\{document=\*\*}/);

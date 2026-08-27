@@ -415,6 +415,10 @@ export const MainSyncStore = {
 
 };
 
+// A0.5 MC2: expose generation bump on store object so adoptProject can cut flush in flight (also spyable)
+MainSyncStore.bumpGeneration = bumpGeneration;
+MainSyncStore._testBumpGeneration = _testBumpGeneration;
+
 let _lifecycleInitialized = false;
 
 /**

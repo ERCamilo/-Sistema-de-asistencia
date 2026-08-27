@@ -25,6 +25,7 @@ import { indexedDBService } from './IndexedDBService.js';
 import { storageService } from './StorageService.js';
 import { clearLocalOwnership } from './LocalDataOwner.js';
 import { beginLocalDataWipe, purgeAllPendingCloudWrites } from './PersistenceService.js';
+import { CANONICAL_CACHE_PREFIX, ALIAS_CACHE_PREFIX } from '../features/projects/ProjectRegistry.js';
 
 /**
  * Manifiesto explícito de TODO rastro local conocido fuera de la clave
@@ -51,6 +52,22 @@ export const LOCAL_TRACE_KEYS = [
 const SESSION_TRACE_KEYS = [
     'attendance-backup' // auto-backup redactado (salarios/préstamos) de sessionStorage
 ];
+
+// MC1 WARNING-2: purge canonical/alias prefix caches (unbounded legacyId set)
+function purgePrefixCaches(prefixes) {
+    try {
+        if (typeof localStorage === 'undefined' || !localStorage) return;
+        const keys = Object.keys(localStorage);
+        for (const k of keys) {
+            for (const p of prefixes) {
+                if (k.startsWith(p)) {
+                    try { localStorage.removeItem(k); } catch (_) { /* best-effort */ }
+                    break;
+                }
+            }
+        }
+    } catch (_) { /* best-effort */ }
+}
 
 /**
  * Elimina todo rastro local de datos de la aplicación.
@@ -102,6 +119,11 @@ export async function wipeAllLocalTraces(deps = {}) {
         });
     }
 
+    // 3b-bis. MC1 WARNING-2: purge canonical/alias prefix caches (global, uid-isolated via prefix)
+    await attempt('localStorage:prefix-canonical-alias', () => {
+        purgePrefixCaches([CANONICAL_CACHE_PREFIX, ALIAS_CACHE_PREFIX]);
+    });
+
     // 3c. Respaldo de sessionStorage.
     for (const key of SESSION_TRACE_KEYS) {
         await attempt(`sessionStorage:${key}`, () => {
@@ -144,6 +166,10 @@ export async function wipeMainLocalTraces(deps = {}) {
     await attempt('begin-wipe', () => beginWipe());
     await attempt('purge-pending-cloud-writes', () => purgePendingCloudWrites());
     await attempt('clear-main-storage', () => clearMainStorage());
+    // MC1: also purge prefix caches here (safe global purge, keeps unrelated LS keys)
+    await attempt('localStorage:prefix-canonical-alias', () => {
+        purgePrefixCaches([CANONICAL_CACHE_PREFIX, ALIAS_CACHE_PREFIX]);
+    });
     for (const store of ['employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue', 'mainSyncOutbox']) {
         await attempt('clear-indexeddb', () => clearStore(store));
     }
