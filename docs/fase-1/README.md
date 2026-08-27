@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | ✅ **F1.5 + MICRO-CIERRE COMPLETADOS** (dos clientes cloud reales → transacción Firestore; tombstone heredado) — esperando cierre formal de Dirección y autorización **F1.6 nómina** · Control general: F0 100% · F1.0 100% · F1 5/10+cierre · Suite: **354/354 suites · 3401 tests · 0 fallos** |
-| Punto de parada | **USABLE** — suite completa verde (354 suites / 3401 tests, 0 fallos) |
+| Estado | **F0 100%; F1.1–F1.5 cerradas** · arquitectura F1.6 aprobada con modificación · A0 técnicamente validado en `c7a9e0c`, pendiente de revisión formal de Dirección · A0.5 no iniciado · A1–A6 y F1.7 bloqueadas |
+| Punto de parada | F1.5: **354/354 suites · 3401 tests · 0 fallos**. Post-A0: **354/354 suites · 3409 tests · 0 fallos**; la evidencia técnica de A0 espera revisión formal |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
 ## Pasos
@@ -23,7 +23,9 @@
 | **F1.3 ProjectContext** | [`F1.3-project-context.md`](F1.3-project-context.md) | ✅ Ejecutado + revisado | — |
 | **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
 | **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | ✅ CERRADA |
-| **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Ejecutado (núcleo + cloud merge + M2 + batería S1-S9 + micro-cierre: transacción dos-clientes y tombstone heredado) | F1.6 pendiente de autorización |
+| **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Cerrada y aprobada por Dirección (incluye micro-cierre) · 354/354 suites, 3401 tests | ✅ CERRADA |
+| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | Arquitectura aprobada con modificación; A0 técnicamente validado (`c7a9e0c`, 354/354 suites · 3409 tests), pendiente revisión formal; A0.5 es la próxima puerta y A1–A6 están bloqueadas | F1.7 bloqueada hasta revisión/cierre F1.6 |
+| **F1.7 Caja chica multiproyecto** | Roadmap §7 | **BLOQUEADA** | Requiere F1.6 revisada y aprobada |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 
@@ -31,7 +33,8 @@ Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 
 - Hallazgo **H-01 RESUELTO** → [`../fase-0/F0-HALLAZGOS.md`](../fase-0/F0-HALLAZGOS.md) (tabla de resueltos)
 - **DEP-SA-001** registrada en roadmap §12
-- ADRs nuevos **008–011** en roadmap §13 (v0.2)
+- ADRs **008–011** implementados/documentados para etapas previas; decisiones F1.6 **012–016** registradas en roadmap §13
+- Dependencias F1.6 **DEP-SA-002/004** registradas en roadmap §12; DEP-SA-003 conserva la política de pagos pendiente de B4
 
 ## Commits de esta etapa
 
@@ -78,7 +81,7 @@ Revisión fresh-context (lente confiabilidad) sobre `fffdf9c`+`aae38be`, más ej
 
 **Veredicto del revisor:** base SEGURA para F1.4+. Cierre completado: W1/W2 corregidos, S3–S5 resueltos, wiring conectado tras flag, e invariantes de `AppState.js` validados 4/4 con tests concretos (ver [`F1-preF14-cierre.md`](F1-preF14-cierre.md)).
 
-## 📋 Contrato preparado para F1.5 (asistencia multiproyecto — requiere autorización)
+## Contrato histórico de F1.5 (cerrado y aprobado)
 
 **Criterio fundamental (ADR-008):**
 > Guardar, editar, borrar, sincronizar o podar asistencia del Proyecto A NUNCA puede alterar la asistencia del Proyecto B aunque ambos compartan la misma fecha y el mismo documento Firestore diario.
@@ -99,12 +102,12 @@ Cadena a revisar completa: creación → IDB → carga por rango → UI → merg
 
 Restricciones: F1.5 NO arregla nómina (dependencia documentada para F1.6); flag sigue experimental/apagado por defecto. Pruebas concurrentes adicionales aprobadas en P3: eliminar/modificar empleado de A en una fecha no altera B; ciclo A→B→A con recarga.
 
-## ⚠️ Contexto para cualquier agente futuro
+## Contexto para cualquier agente futuro
 
 El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktree list`: onboarding-v2, employee-photos-preview, attendance-retention, etc.) y llega a esta rama vía sus propios commits de features. Los cambios históricamente sospechosos en `AppState.js` resultaron ser commits de features del dueño; los 4 invariantes de serialización/persistencia fueron validados CON TESTS contra el código actual ([`F1-preF14-cierre.md`](F1-preF14-cierre.md) §1). Ante trabajo paralelo futuro: NO tocarlo, reportarlo y validar invariantes si afecta capas de datos.
 
 ## Cómo retomar
 
-1. Leer roadmap v0.2 (§13 ADRs nuevos) + este índice + [`F1.0-precondiciones.md`](F1.0-precondiciones.md).
-2. Estado: F1.0 cerrada · F1.1–F1.3 + cierre pre-F1.4 APROBADOS · **F1.4 COMPLETADA y CERRADA** (incluye micro-slice de dedup de puestos) · Pendiente: autorización F1.5 (contrato listo en §F1.5).
-3. Recordatorios vigentes para F1.4+: empleados project-aware con nuevo-id-al-copiar (ADR-010); asistencia queda para F1.5 aparte (ADR-008, documento diario compartido).
+1. Leer roadmap §12–§16, este índice y [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md).
+2. Estado: F0 al 100%; F1.1–F1.5 cerradas; **F1.6 con arquitectura aprobada y A0 técnicamente validado**, pendiente de revisión formal; no hay comportamiento funcional de nómina aceptado.
+3. Próxima acción: Dirección debe revisar la evidencia A0; después, iniciar únicamente A0.5. No iniciar A1–A6 ni F1.7 antes de validar A0.5.

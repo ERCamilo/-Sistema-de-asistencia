@@ -260,13 +260,15 @@ Ejemplo:
 | F1.3 | SA | Introducir `activeProjectId` | 10% | Project Context | Toda operación puede obtener proyecto activo | F1.1 | `project-context` |
 | F1.4 | SA | Asociar empleados/grupos | 12% | Datos project-aware | Empleados actuales pertenecen al proyecto inicial | F1.3 | `scope-employees` |
 | F1.5 | SA | Asociar asistencia | 14% | Historial project-aware | Asistencia conserva datos y relaciones | F1.3 | `scope-attendance` |
-| F1.6 | SA | Asociar nómina | 12% | Nómina project-aware | Cálculos actuales siguen iguales | F1.5 | `scope-payroll` |
+| F1.6 | SA | Asociar nómina | 12% | Nómina project-aware | Cálculos actuales siguen iguales | F1.5 + orden A0 → A0.5 → A1 → A2 → A3 → A4 → A5 → A6 | `scope-payroll` |
 | F1.7 | SA | Asociar caja chica | 12% | Caja project-aware | Movimientos aislados por proyecto | F1.3 | `scope-petty-cash` |
 | F1.8 | SA | Asociar préstamos/adelantos/notas relacionados | 8% | Datos secundarios project-aware | Sin registros huérfanos | F1.3 | `scope-related-data` |
 | F1.9 | SA | Adaptar backup/exportación | 7% | Backup project-aware | Restore conserva asociación a proyecto | F1.4–F1.8 | `project-aware-backup` |
 | F1.10 | SA | Pruebas de aislamiento A/B | 10% | Suite de aislamiento | Datos de A jamás aparecen en B | F1.4–F1.9 | `project-isolation-tests` |
 
 **Al terminar la fase:** SA es internamente project-aware. Se puede crear un proyecto de prueba vacío y comprobar aislamiento aunque todavía no exista UI completa.
+
+**Actualización F1.6 (2026-08-26):** la arquitectura de nómina multiproyecto está aprobada con la modificación bloqueante DEP-SA-004. A0 está técnicamente validado en `c7a9e0c` y pendiente de revisión formal de Dirección; A0.5 es el siguiente gate y no debe comenzar antes de esa revisión. A1–A6 y F1.7 permanecen bloqueadas; F1.6 no está completa y no hay comportamiento funcional de nómina aceptado.
 
 **Punto de parada usable:** SA sigue siendo utilizable como antes con un único proyecto visible.
 
@@ -607,6 +609,9 @@ Mantener esta tabla viva durante el desarrollo.
 | ID | Solicitante | Proveedor | Fase bloqueada | Necesidad | Prioridad | Estado |
 |---|---|---|---|---|---|---|
 | DEP-SA-001 | SA | SA (aprueba Dirección) | F2.8 / F2.9 (resumen mensual e informe final) + multiproyecto completo | Vínculo oficial Project ↔ PettyCashProject con relación **1:N**: campo `officialProjectId` en `pettyCashProjects`, backfill al predeterminado; UN Project oficial puede tener VARIOS proyectos de caja vinculados y los reportes suman TODOS (veredicto P7). Implementación NO bloquea F1.1–F1.6 | Alta | Decidida — implementación pendiente |
+| DEP-SA-002 | SA | SA + Integración (valida Dirección) | F1.6 configuración cloud | Dependencia específica de configuración cloud: `payrollConfigsV1/{projectId}` requiere identidad/registro de proyecto estable; su resolución operativa queda detrás de DEP-SA-004 | Bloqueante para config cloud | Pendiente — no resolver dentro de F1.6-A |
+| DEP-SA-003 | SA | SA (implementa ADR-016) | F1.6-B4 cierres/pagos | Implementar la política canónica fijada para `ProfileController.markAsPaid`: delegar al cierre de nómina o deshabilitar con proyectos ON; `employee.paymentHistory` se conserva como histórico y no como ledger nuevo | Bloqueante para B4 | Pendiente — ADR-016 fijado; implementación pendiente |
+| DEP-SA-004 | SA | SA (valida Dirección) | F1.6-A1–A6, estado económico durable por `projectId` y F1.6-B cloud | Identidad canónica de `Project` entre dispositivos: la misma cuenta/obra debe compartir un único `projectId`; `activeProjectId` sigue siendo local. Registro, adopción/promoción y protección contra carreras mínimos y SA-only; no incluye organizaciones, roles, membresías, Mini ni Integración | Bloqueante | Pendiente — A0.5 no iniciado; no comenzar antes de la revisión formal de A0 |
 
 ---
 
@@ -627,6 +632,11 @@ Cada decisión que afecte a más de un equipo debe registrarse para evitar que f
 | ADR-009 | El espejo `data/current` permanece a nivel CUENTA incluyendo todos los proyectos; el filtrado por proyecto lo hacen repositorios/UI vía `activeProjectId`; PROHIBIDO sobrescribir entidades de otro proyecto con una copia local obsoleta (guard anti-stale obligatoria en saveFullState/merge) | Evitar que cambiar de proyecto activo o sincronizar con datos viejos reemplace en cloud datos del proyecto anterior | SA, Integración | v0.2 (ajustada por veredicto P4, 2026-08-25) |
 | ADR-010 | En Gen1 `employeeId` identifica la FICHA dentro del proyecto, no a la persona globalmente; copiar un empleado a otra obra genera NUEVO `employeeId` + metadata `copiedFromEmployeeId` (solo auditoría, sin sincronización entre copias) | Firestore no admite dos documentos con el mismo id en una colección; las obras deben ser independientes | SA, Mini, Integración | v0.2 |
 | ADR-011 | Project v1 añade `startDate` y `endDate` (fechas laborales/contractuales reales) separadas de `createdAt`/`closedAt` (administrativas) | El informe final necesita inicio y fin REALES de la obra, no la fecha de alta en SA | SA | v0.2 |
+| ADR-012 | **F1.6 seleccionada, pendiente de implementación:** nómina consume un `PayrollProjectContext` capturado con empleados, posiciones, líderes, asistencia y configuración scoped; `buildAttendanceIndex` permanece RAW; toda operación async congela un snapshot antes del primer `await` | El estado global mutable y los índices compartidos no son una frontera de aislamiento económico | SA | v0.3 (2026-08-26) |
+| ADR-013 | **F1.6 seleccionada, pendiente de implementación:** configuración canónica en IDB `projectPayrollConfigs`, clave `projectId`, con campos operativos mínimos versionados; semilla atómica del default; flag OFF usa legacy sin dual-write. Cloud `payrollConfigsV1/{projectId}` se difiere detrás de DEP-SA-004; DEP-SA-002 queda como dependencia específica de esa configuración. F2.7 copiará solo esta configuración, no movimientos | Una fuente durable por proyecto evita divergencia; IDs locales no son todavía identidad cloud estable | SA, Integración | v0.3 (2026-08-26) |
+| ADR-014 | **F1.6 seleccionada, pendiente de implementación:** `exportConfig` es transitorio y se elimina de espejo, replace cloud, snapshots, DataOps local→cloud e ingresos legacy cloud/snapshot; `settings.payrollDefaults` continúa durable hasta su migración canónica | Resolver H-05 y evitar recuperar ajustes/selecciones incompletos como estado oficial | SA | v0.3 (2026-08-26) |
+| ADR-015 | **F1.6-B seleccionada, pendiente de implementación:** cierres nuevos usan schema 3 con `projectId` inmutable; promoción schema 2→3/default explícita y solo de metadata; IDs, fingerprints, lotes, repositorios, índices, cachés y consultas serán project-aware | Todo cierre, ajuste, préstamo, exportación y recuperación debe tener propietario económico inequívoco | SA, Integración | v0.3 (2026-08-26) |
+| ADR-016 | **F1.6-B bloqueante, pendiente de implementación:** `PayrollClosure` es la autoridad canónica del estado económico de una nómina pagada; las nuevas operaciones `markAsPaid()` deben delegar al cierre canónico o quedar deshabilitadas con proyectos ON. `employee.paymentHistory` se conserva como dato histórico y no como ledger autoritativo nuevo | Evitar una segunda contabilidad divergente y mantener una única autoridad de pago | SA | v0.4 (2026-08-26) |
 
 ---
 
@@ -646,9 +656,13 @@ Una vez implementado un contrato por dos equipos:
 
 **No comenzar Firebase ni Mini todavía.**
 
-La próxima orden de trabajo debería entregarse al **Equipo SA**:
+La orden histórica de inicialización entregada al **Equipo SA** fue:
 
 > Inspeccionar el estado actual del repositorio SA y ejecutar únicamente la Fase 0. No modificar todavía el comportamiento productivo. Entregar mapa de datos, propuesta de Project v1, plan de migración, riesgos y dependencias encontradas. No comenzar Fase 1 hasta que Dirección/Coordinación apruebe el informe.
+
+Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual es:
+
+> Dirección debe revisar formalmente la evidencia técnica de A0 y el commit `c7a9e0c`. Solo después de esa revisión, el Equipo SA puede iniciar A0.5 para resolver DEP-SA-004. No iniciar A1–A6, estado económico durable por `projectId`, cloud de F1.6-B ni F1.7 hasta validar la identidad canónica entre dispositivos.
 
 El primer objetivo técnico estable será:
 
@@ -662,7 +676,7 @@ El primer objetivo técnico estable será:
 |---|---|---|---|
 | F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
 | F1.0 Precondiciones del refactor | ✅ Completada y APROBADA (2026-08-25) | SA | F0 aprobada |
-| F1 Contexto de proyecto | 🔄 En ejecución — F1.4, F1.5 (+micro-cierre: transacción diario/tombstones) completadas; F1.6 nómina pendiente de autorización | SA | cierre pre-F1.4 aprobado |
+| F1 Contexto de proyecto | En ejecución — **F1.5 cerrada y aprobada** (354/354 suites, 3401 tests, 0 fallos); F1.6 con arquitectura aprobada y modificación DEP-SA-004; A0 técnicamente validado (`c7a9e0c`, 354/354 suites, 3409 tests, 0 fallos), pendiente revisión formal; A0.5 no iniciado; **F1.7 bloqueada** | SA | Revisar formalmente A0; luego validar A0.5 antes de A1–A6, estado económico durable o cloud F1.6-B |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |
