@@ -3,8 +3,8 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | **F0 100%; F1.1–F1.5 cerradas** · arquitectura F1.6 aprobada con modificación · A0 técnicamente validado en `c7a9e0c`, pendiente de revisión formal de Dirección · A0.5 no iniciado · A1–A6 y F1.7 bloqueadas |
-| Punto de parada | F1.5: **354/354 suites · 3401 tests · 0 fallos**. Post-A0: **354/354 suites · 3409 tests · 0 fallos**; la evidencia técnica de A0 espera revisión formal |
+| Estado | **F0 100%; F1.1–F1.5 cerradas** · arquitectura F1.6 aprobada con modificación DEP-SA-004 · **A0 ✅ Cerrado y aprobado por Dirección el 2026-08-26** (`c7a9e0c` + `333a516`; RecordKey 13/13, 12/12, 76 acotados, 354/354 · 3409 PASS, fresh ALLOW; contrato `explicit > default autoritativo > legacy-unresolved:*`) · **A0.5 / DEP-SA-004 🟢 Autorizado / en ejecución (exclusivamente)** — `activeProjectId` local, `projectId` canónico account-level · **A1–A6 y F1.7 bloqueadas hasta validar A0.5** |
+| Punto de parada | F1.5: **354/354 suites · 3401 tests · 0 fallos** (cerrada y aprobada). Post-A0: **354/354 suites · 3409 tests · 0 fallos · 189.372 s · sin reintentos** — **A0 ✅ Cerrado y aprobado por Dirección 2026-08-26** (RecordKey 13/13, F1.4+A0 12/12, 76 acotados, fresh ALLOW); **A0.5 🟢 Autorizado / en ejecución exclusivamente**; **A1–A6 y F1.7 bloqueadas hasta validar A0.5** |
 | Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
 
 ## Pasos
@@ -24,8 +24,8 @@
 | **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
 | **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | ✅ CERRADA |
 | **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Cerrada y aprobada por Dirección (incluye micro-cierre) · 354/354 suites, 3401 tests | ✅ CERRADA |
-| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | Arquitectura aprobada con modificación; A0 técnicamente validado (`c7a9e0c`, 354/354 suites · 3409 tests), pendiente revisión formal; A0.5 es la próxima puerta y A1–A6 están bloqueadas | F1.7 bloqueada hasta revisión/cierre F1.6 |
-| **F1.6-A0 Bitácora IDB por proyecto** | [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) | ✅ Bitácora evaluable — 3 ciclos RED→GREEN, contrato final `legacy-unresolved:*` y frontera de rollback; validación `c7a9e0c` / 354/354 · 3409 | Lectura obligatoria antes de A0.5 |
+| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | Arquitectura aprobada con modificación DEP-SA-004; **A0 ✅ Cerrado y aprobado por Dirección el 2026-08-26** (`c7a9e0c` + `333a516`; 354/354 · 3409, RecordKey 13/13, 76 acotados, fresh ALLOW) · **A0.5 / DEP-SA-004 🟢 Autorizado / en ejecución (exclusivamente)** — `activeProjectId` local, `projectId` canónico; **A1–A6 bloqueadas hasta validar A0.5** | F1.7 bloqueada hasta cierre F1.6 (A0.5 → A1–A6) |
+| **F1.6-A0 Bitácora IDB por proyecto** | [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-26** — bitácora evaluable 3 ciclos RED→GREEN (§2.1), contrato `explicit > default autoritativo > legacy-unresolved:*` (§2.2), verificación §3 (RecordKey 13/13, 12/12, 76 acotados, 354/354 · 3409, ALLOW); frontera rollback `c7a9e0c` | Lectura obligatoria — **A0.5 es la única puerta habilitada** |
 | **F1.7 Caja chica multiproyecto** | Roadmap §7 | **BLOQUEADA** | Requiere F1.6 revisada y aprobada |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
@@ -111,5 +111,5 @@ El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktre
 ## Cómo retomar
 
 1. Leer roadmap §12–§16, este índice, [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) y la bitácora evaluable [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md).
-2. Estado: F0 al 100%; F1.1–F1.5 cerradas; **F1.6 con arquitectura aprobada y A0 técnicamente validado**, pendiente de revisión formal; no hay comportamiento funcional de nómina aceptado.
-3. Próxima acción: Dirección debe revisar la evidencia A0; después, iniciar únicamente A0.5. No iniciar A1–A6 ni F1.7 antes de validar A0.5.
+2. Estado: F0 al 100%; F1.1–F1.5 cerradas; **F1.6 con arquitectura aprobada con modificación DEP-SA-004, A0 ✅ Cerrado y aprobado por Dirección el 2026-08-26** (`c7a9e0c` + `333a516`; RecordKey 13/13, 76 acotados, 354/354 · 3409, fresh ALLOW; contrato `explicit > default autoritativo > legacy-unresolved:*`) y **A0.5 🟢 Autorizado / en ejecución (exclusivamente)** — `activeProjectId` local, `projectId` canónico account-level; no hay comportamiento funcional de nómina aceptado (A1–A6 bloqueadas).
+3. Próxima acción: **Ejecutar A0.5 / DEP-SA-004 exclusivamente** (identidad canónica `Project` cross-device — `activeProjectId` local, `projectId` canónico account-level; registro/adopción/promoción SA-only + guard contra carreras). Mantener **A1–A6 y F1.7 bloqueadas hasta validar A0.5**; no implementar todavía configuración cloud ni comportamiento económico F1.6-B. **A0 ya está cerrado — no requiere nueva revisión.**
