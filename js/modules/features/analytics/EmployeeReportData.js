@@ -23,6 +23,7 @@
  */
 
 import { getDateKey, wasEmployeeActiveInRange } from '../../utils/DateUtils.js';
+import { resolveRestDayFactor } from '../payroll/PayrollFactors.js';
 
 /** ¿El registro (vivo y presente) referencia la posición? */
 function recordReferencesPosition(att, positionId) {
@@ -43,14 +44,19 @@ function recordReferencesPosition(att, positionId) {
  * @param {string} args.endDate
  * @param {number} args.regularHours horas de un día regular
  * @param {number} args.holidayFactor multiplicador de feriado
+ * @param {Array<object>} [args.leaders] catálogo de líderes
+ * @param {object} [args.settings] configuración global
+ * @param {number} [args.restDayFactor] fallback directo de factor de día libre
  * @returns {{days: Array, positions: Array<{position, employees}>}}
  */
 export function buildEmployeeReportData({
     employees, positions, attendance, days,
-    startDate, endDate, regularHours, holidayFactor
+    startDate, endDate, regularHours, holidayFactor,
+    leaders = [], settings = {}, restDayFactor
 }) {
     const allEmployees = Array.isArray(employees) ? employees : [];
     const allPositions = Array.isArray(positions) ? positions : [];
+    const allLeaders = Array.isArray(leaders) ? leaders : [];
     const att = attendance && typeof attendance === 'object' ? attendance : {};
     const range = Array.isArray(days) ? days : [];
 
@@ -77,6 +83,13 @@ export function buildEmployeeReportData({
         empsByPosition.forEach(emp => {
             const dayValues = {};
             let total = 0;
+            const workingDays = emp.customWorkingDays?.[position.id] || position.workingDays || [1, 2, 3, 4, 5];
+            const leader = position.leaderId ? allLeaders.find(l => l.id === position.leaderId) : null;
+            const effectiveSettings = settings && Number(settings.restDayFactor) > 0
+                ? settings
+                : { restDayFactor: restDayFactor || 1.5 };
+            const resolvedFactor = resolveRestDayFactor(position, leader, effectiveSettings);
+
             range.forEach(day => {
                 const dateKey = getDateKey(day.date);
                 const record = att[`${emp.id}-${dateKey}`];
@@ -91,7 +104,15 @@ export function buildEmployeeReportData({
                         dayValue = (record.hoursWorked || 0) / regularHours;
                     }
 
-                    if (day.isHoliday || record.isHoliday) dayValue *= (holidayFactor || 1);
+                    const isHoliday = day.isHoliday || record.isHoliday;
+                    const isRestDay = !workingDays.includes(day.date.getDay());
+
+                    if (isHoliday) {
+                        dayValue *= (holidayFactor || 1);
+                    } else if (isRestDay) {
+                        dayValue *= (resolvedFactor || 1);
+                    }
+
                     if (!isNaN(dayValue)) { dayValues[dateKey] = dayValue; total += dayValue; }
                 }
             });

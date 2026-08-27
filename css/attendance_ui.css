@@ -1025,6 +1025,12 @@
     color: #94a3b8;
 }
 
+.attendance-status-pill.is-rest-day {
+    border-color: rgba(168, 85, 247, 0.55);
+    background: rgba(168, 85, 247, 0.12);
+    color: #c084fc;
+}
+
 .employee-compact-name {
     min-width: 0;
     overflow: hidden;

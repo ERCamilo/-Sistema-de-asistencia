@@ -55,6 +55,7 @@ export const SETTINGS_DRAFT_FIELD_IDS = [
     'regularHoursPerDay',
     'overtimeFactor',
     'holidayFactor',
+    'restDayFactor',
     'defaultDeductionPercentage'
 ];
 

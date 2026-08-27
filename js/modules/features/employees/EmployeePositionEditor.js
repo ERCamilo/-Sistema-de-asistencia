@@ -50,6 +50,8 @@ export function renderAssignedPositionCard({
                  data-regular-hours="${Number(metrics.regularHours) || 0}"
                  data-overtime-hours="${Number(metrics.overtimeHours) || 0}"
                  data-holiday-hours="${Number(metrics.holidayHours) || 0}"
+                 data-rest-day-hours="${Number(metrics.restDayHours) || 0}"
+                 data-rest-day-factor="${Number(metrics.restDayFactor) || 1.5}"
                  style="--position-accent: ${color};">
             <input type="checkbox" name="empPosition" value="${escapeAttr(positionId)}" checked hidden>
             <header class="employee-position-assignment__header">
@@ -167,7 +169,9 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
         const metrics = {
             regularHours: Number(card.dataset.regularHours) || 0,
             overtimeHours: Number(card.dataset.overtimeHours) || 0,
-            holidayHours: Number(card.dataset.holidayHours) || 0
+            holidayHours: Number(card.dataset.holidayHours) || 0,
+            restDayHours: Number(card.dataset.restDayHours) || 0,
+            restDayFactor: Number(card.dataset.restDayFactor) || (state.settings?.restDayFactor || 1.5)
         };
         const accrued = calculatePositionAccrued(metrics, hourlyRate, state.settings);
         const output = card.querySelector('[data-position-accrued]');

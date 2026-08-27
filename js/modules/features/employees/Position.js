@@ -17,6 +17,9 @@ export class Position {
         // cómo se MUESTRA/edita; lo guardado en hourlyRate sigue siendo por hora.
         this.salaryInputMode = data.salaryInputMode === 'daily' ? 'daily' : 'hourly';
         this.leaderId = data.leaderId || null; // ⚡ NUEVO: ID del líder responsable
+        this.restDayFactor = (data.restDayFactor !== undefined && data.restDayFactor !== null && data.restDayFactor !== '')
+            ? (Number.isFinite(parseFloat(data.restDayFactor)) ? parseFloat(data.restDayFactor) : null)
+            : null;
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
         this.updatedAt = data.updatedAt || Date.now();
@@ -63,6 +66,7 @@ export class Position {
             hourlyRate: this.hourlyRate,
             salaryInputMode: this.salaryInputMode,
             leaderId: this.leaderId,
+            restDayFactor: this.restDayFactor,
             workingDays: this.workingDays,
             lastStatusChange: this.lastStatusChange,
             statusHistory: this.statusHistory,

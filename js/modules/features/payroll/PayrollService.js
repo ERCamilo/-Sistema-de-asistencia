@@ -1,6 +1,7 @@
 import { getDateKey } from '../../utils/DateUtils.js';
 import { calculateScopedAdjustments } from './PayrollAdjustments.js';
 import { buildPayrollAdjustmentInstallmentPreview } from './PayrollAdjustmentInstallmentSettlement.js';
+import { resolveRestDayFactor } from './PayrollFactors.js';
 
 const WEEKS_PER_MONTH = 52 / 12; // 4.333333333333333
 
@@ -177,16 +178,22 @@ export class PayrollService {
                         days: 0,
                         regularHours: 0,
                         overtimeHours: 0,
-                        holidayHours: 0
+                        holidayHours: 0,
+                        restDayHours: 0
                     };
                 }
 
                 positionData[pw.positionId].days++;
 
                 const isHoliday = att.isHoliday || (this.state.settings.holidays || []).includes(dateKey);
+                const posObj = this.state.positions.find(p => p.id === pw.positionId);
+                const workingDays = emp.customWorkingDays?.[pw.positionId] || posObj?.workingDays || [1, 2, 3, 4, 5];
+                const isRestDay = !workingDays.includes(new Date(d).getDay());
 
                 if (isHoliday) {
                     positionData[pw.positionId].holidayHours += pw.hours;
+                } else if (isRestDay) {
+                    positionData[pw.positionId].restDayHours += pw.hours;
                 } else {
                     positionData[pw.positionId].regularHours += pw.hours;
                 }
@@ -221,18 +228,23 @@ export class PayrollService {
                 hourlyRate = pos.salaryConfig.amount / 30 / this.state.settings.regularHoursPerDay;
             }
 
-            // 4. Calcular tarifas con factores globales
+            // 4. Calcular tarifas con factores globales y jerárquicos
             const overtimeFactor = this.state.settings.overtimeFactor || 1;
             const holidayFactor = this.state.settings.holidayFactor || 2;
+            const leaders = Array.isArray(this.state?.leaders) ? this.state.leaders : [];
+            const leader = pos.leaderId ? leaders.find(l => l.id === pos.leaderId) : null;
+            const restDayFactor = resolveRestDayFactor(pos, leader, this.state?.settings);
 
             const overtimeRate = hourlyRate * overtimeFactor;
             const holidayRate = hourlyRate * holidayFactor;
+            const restDayRate = hourlyRate * restDayFactor;
 
             // 5. Calcular montos (TODO ES MULTIPLICACIÓN DIRECTA)
             const regularAmount = data.regularHours * hourlyRate;
             const overtimeAmount = data.overtimeHours * overtimeRate;
             const holidayAmount = data.holidayHours * holidayRate;
-            const subtotal = regularAmount + overtimeAmount + holidayAmount;
+            const restDayAmount = (data.restDayHours || 0) * restDayRate;
+            const subtotal = regularAmount + overtimeAmount + holidayAmount + restDayAmount;
 
             // 6. Calcular sueldo mensual equivalente (para mostrar)
             const workDaysCount = (pos.workingDays && pos.workingDays.length > 0) ? pos.workingDays.length : 6;
@@ -248,11 +260,15 @@ export class PayrollService {
                 regularHours: data.regularHours,
                 overtimeHours: data.overtimeHours,
                 holidayHours: data.holidayHours,
+                restDayHours: data.restDayHours || 0,
                 overtimeRate: overtimeRate,
                 holidayRate: holidayRate,
+                restDayRate: restDayRate,
+                restDayFactor: restDayFactor,
                 regularAmount: regularAmount,
                 overtimeAmount: overtimeAmount,
                 holidayAmount: holidayAmount,
+                restDayAmount: restDayAmount,
                 subtotal: subtotal
             });
 

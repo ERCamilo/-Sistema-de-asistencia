@@ -24,6 +24,7 @@ import {
     formatAttendanceDayNumber,
     formatAttendanceDeficit
 } from '../features/attendance/AttendanceCardMetrics.js';
+import { resolveRestDayFactor } from '../features/payroll/PayrollFactors.js';
 import { EmployeeAvatar } from './components/EmployeeAvatar.js';
 
 // Componentes y utilerías locales
@@ -862,10 +863,12 @@ export function EmployeeRow(emp) {
             dateKey,
             att?.updatedAt ?? 0,
             emp.updatedAt ?? 0,
+            att?.present ?? false,
             state.listDisplayMode,
             normalizeRegularHoursPerDay(state.settings?.regularHoursPerDay),
             getDayHours(state.selectedDate),
             (state.settings.holidays || []).join(','),
+            state.settings?.restDayFactor ?? 1.5,
             state.tempPositionSelection?.[attKey] || '',
             att?.selectedPosition || '',
             isDetailSelected,
@@ -905,7 +908,37 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
         : [];
     const isDetailSelected = getEffectiveAttendanceDetailEmployeeId() === emp.id;
 
-    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${state.listDisplayMode}-${cardStatus.kind}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkModel?.fingerprint || 'hidden'}`;
+    const isHoliday = isDayHoliday(state.selectedDate, state.settings?.holidays) || att?.isHoliday;
+    const activePos = selPos ? state.positions.find(p => p.id === selPos) : null;
+    const workingDays = emp.customWorkingDays?.[selPos] || activePos?.workingDays || [1, 2, 3, 4, 5];
+    const selectedDayOfWeek = parseDate(state.selectedDate).getDay();
+    const isRestDay = !workingDays.includes(selectedDayOfWeek);
+
+    let restDayPill = '';
+    if (isChecked && !isHoliday) {
+        if (isMultiPosition && Array.isArray(att.positionHours) && att.positionHours.length > 0) {
+            const restDayFactors = [];
+            for (const ph of att.positionHours) {
+                const pos = state.positions.find(p => p.id === ph.positionId);
+                const posWorkingDays = emp.customWorkingDays?.[ph.positionId] || pos?.workingDays || [1, 2, 3, 4, 5];
+                if (!posWorkingDays.includes(selectedDayOfWeek)) {
+                    const leader = pos?.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
+                    restDayFactors.push(resolveRestDayFactor(pos, leader, state.settings));
+                }
+            }
+            if (restDayFactors.length > 0) {
+                const uniqueFactors = [...new Set(restDayFactors)];
+                const factorLabel = uniqueFactors.length === 1 ? `${uniqueFactors[0]}x` : uniqueFactors.map(f => `${f}x`).join(', ');
+                restDayPill = `<span class="attendance-status-pill is-rest-day" role="status" title="Asistencia en día de descanso">${icons.get('calendar', { size: 12 })}<span>Día libre (${factorLabel})</span></span>`;
+            }
+        } else if (isRestDay) {
+            const leader = activePos?.leaderId ? state.leaders.find(l => l.id === activePos.leaderId) : null;
+            const restDayFactor = resolveRestDayFactor(activePos, leader, state.settings);
+            restDayPill = `<span class="attendance-status-pill is-rest-day" role="status" title="Asistencia en día de descanso (${restDayFactor}x)">${icons.get('calendar', { size: 12 })}<span>Día libre (${restDayFactor}x)</span></span>`;
+        }
+    }
+
+    const fingerprint = `${dateKey}-${att?.updatedAt || 0}-${emp.updatedAt || 0}-${isChecked ? 'present' : 'absent'}-${state.listDisplayMode}-${cardStatus.kind}-${isDetailSelected ? 'selected' : 'idle'}-${watermarkModel?.fingerprint || 'hidden'}-${isRestDay ? 'rest' : 'work'}`;
     return `<div id="emp-row-${emp.id}" class="employee-row ${isDetailSelected ? 'is-detail-selected' : ''}${cardStatus.kind === 'not-active-on-date' ? ' inactive-on-date' : ''}" data-memo-f="${fingerprint}">
                 ${renderAttendanceWatermark(watermarkModel)}
                 <div class="employee-info">
@@ -914,7 +947,7 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
                             <span class="employee-number-badge" aria-label="Empleado número ${escapeHTML(String(emp.number ?? ''))}">${escapeHTML(String(emp.number ?? ''))}</span>
                             <div class="employee-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
                         </div>
-                        <div class="employee-status-slot">${renderAttendanceCardStatus(cardStatus)}</div>
+                        <div class="employee-status-slot">${renderAttendanceCardStatus(cardStatus)}${restDayPill}</div>
                     </div>
                     <div class="position-toggles" style="margin-top: 2px;">
                         ${emp.positions.map(pid => {
@@ -931,8 +964,8 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
                                                    type="button"
                                                    style="${neonStyle}"
                                                    data-att-action="${posAction}" data-emp-id="${emp.id}" data-pos-id="${pid}">
-                                        <span class="pos-dot" style="background:${posColor};"></span>${pos.name || "Posición"}
-                                      </button>`;
+                                         <span class="pos-dot" style="background:${posColor};"></span>${pos.name || "Posición"}
+                                       </button>`;
     }).join('')}
                     </div>
                     ${isMultiPosition ? `
@@ -940,10 +973,21 @@ function _buildEmployeeRow(emp, dateKey, key, att, watermarkModel, periodMetrics
                             <div style="font-size: 0.75rem; color: #06b6d4; margin-bottom: 4px; font-weight: 600;">🔄 Múltiples Posiciones:</div>
                             ${att.positionHours.map(ph => {
         const pos = state.positions.find(p => p.id === ph.positionId);
+        const posWorkingDays = emp.customWorkingDays?.[ph.positionId] || pos?.workingDays || [1, 2, 3, 4, 5];
+        const isPhRestDay = !isHoliday && !posWorkingDays.includes(selectedDayOfWeek);
+        let phFactorBadge = '';
+        if (isPhRestDay) {
+            const leader = pos?.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
+            const posFactor = resolveRestDayFactor(pos, leader, state.settings);
+            phFactorBadge = `<span class="attendance-status-pill is-rest-day" style="font-size: 0.65rem; padding: 2px 6px; margin-left: 6px;" title="Día no laborable (${posFactor}x)">${icons.get('calendar', { size: 10 })}<span>Día libre (${posFactor}x)</span></span>`;
+        }
         return `<div style="display: flex; align-items: center; gap: 8px; font-size: 0.875rem; margin-bottom: 4px;">
                                               <span style="width: 8px; height: 8px; border-radius: 50%; background: ${pos?.color || '#64748b'};"></span>
-                                              <span style="flex: 1; color: #f1f5f9;">${pos?.name || '?'}</span>
-                                              <span style="color: #10b981; font-weight: 600;">${ph.hours}h${ph.overtimeHours > 0 ? ` +${ph.overtimeHours}h` : ''}</span>
+                                              <span style="flex: 1; color: #f1f5f9;">${escapeHTML(pos?.name || '?')}</span>
+                                              <div style="display: flex; align-items: center;">
+                                                  <span style="color: #10b981; font-weight: 600;">${ph.hours}h${ph.overtimeHours > 0 ? ` +${ph.overtimeHours}h` : ''}</span>
+                                                  ${phFactorBadge}
+                                              </div>
                                           </div>`;
     }).join('')}
                         </div>
@@ -997,6 +1041,20 @@ export function EmployeeRowCompact(emp) {
     // 👆 Tocar registro para caché LRU
     if (att && typeof attendanceService !== 'undefined') attendanceService.touchRecord(emp.id, getDateKey(state.selectedDate));
 
+    const isHoliday = isDayHoliday(state.selectedDate, state.settings?.holidays) || att?.isHoliday;
+    const activePosId = att?.selectedPosition || emp.positions?.[0] || null;
+    const activePos = activePosId ? state.positions.find(p => p.id === activePosId) : null;
+    const workingDays = emp.customWorkingDays?.[activePosId] || activePos?.workingDays || [1, 2, 3, 4, 5];
+    const selectedDayOfWeek = parseDate(state.selectedDate).getDay();
+    const isRestDay = !workingDays.includes(selectedDayOfWeek);
+
+    let restDayPill = '';
+    if (isChecked && !isHoliday && isRestDay) {
+        const leader = activePos?.leaderId ? state.leaders.find(l => l.id === activePos.leaderId) : null;
+        const restDayFactor = resolveRestDayFactor(activePos, leader, state.settings);
+        restDayPill = `<span class="attendance-status-pill is-rest-day" role="status" title="Asistencia en día de descanso (${restDayFactor}x)">${icons.get('calendar', { size: 12 })}<span>Día libre (${restDayFactor}x)</span></span>`;
+    }
+
     return `<div id="emp-row-${emp.id}" class="employee-row compact-mode employee-row-compact ${isDetailSelected ? 'is-detail-selected' : ''}${cardStatus.kind === 'not-active-on-date' ? ' inactive-on-date' : ''}">
                 ${renderAttendanceWatermark(watermarkModel)}
                 <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
@@ -1005,7 +1063,7 @@ export function EmployeeRowCompact(emp) {
                             <span class="employee-number-badge" aria-label="Empleado número ${escapeHTML(String(emp.number ?? ''))}">${escapeHTML(String(emp.number ?? ''))}</span>
                             <div class="employee-compact-name" role="button" tabindex="0" data-att-action="view-employee-details" data-id="${emp.id}" aria-label="Ver detalles de ${escapeHTML(emp.name)}">${escapeHTML(emp.name)}</div>
                         </div>
-                        <div class="employee-status-slot">${renderAttendanceCardStatus(cardStatus)}</div>
+                        <div class="employee-status-slot">${renderAttendanceCardStatus(cardStatus)}${restDayPill}</div>
                     </div>
                     <div style="font-size: 0.7rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         ${emp.positions.map(pid => state.positions.find(p => p.id === pid)?.name).join(', ')}

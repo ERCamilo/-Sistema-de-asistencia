@@ -108,6 +108,27 @@ export function SettingsTabCalendar(context) {
                                 Ejemplo: Factor 2 = doble pago, Factor 1.5 = pago y medio
                             </div>
                         </div>
+                        <div class="form-group">
+                            <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
+                                Factor Día No Laborable
+                                <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
+                                      title="Multiplicador por defecto para horas trabajadas en días fuera de horario / días libres">i</span>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <input type="number" inputmode="decimal" 
+                                       id="restDayFactor" 
+                                       value="${state.settings.restDayFactor || 1.5}" 
+                                       min="1" 
+                                       max="5" 
+                                       step="0.25"
+                                       class="form-input"
+                                       style="flex: 1;">
+                                <span style="color: #94a3b8; font-size: 0.875rem;">x (multiplicador)</span>
+                            </div>
+                            <div style="font-size: 0.73rem; color: #64748b; margin-top: 8px;">
+                                Multiplicador base si la posición o el líder no definen uno propio
+                            </div>
+                        </div>
                     </div>
                 </div>
 

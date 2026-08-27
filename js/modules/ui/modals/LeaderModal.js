@@ -36,6 +36,23 @@ export class LeaderModal {
                     <label class="form-label">📝 Nombre Completo *</label>
                     <input type="text" id="ldrName" class="form-input" value="${ldr?.name || ''}" placeholder="Ej: Carlos López" required>
                 </div>
+
+                <div class="form-group">
+                    <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                        <span>Factor Día No Laborable (Opcional)</span>
+                        <span style="font-size: 0.7rem; color: #64748b;">Aplica a sus posiciones</span>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <input type="number" inputmode="decimal" id="ldrRestDayFactor" class="form-input"
+                               value="${ldr?.restDayFactor != null ? ldr.restDayFactor : ''}"
+                               placeholder="Hereda de Ajustes: ${state.settings?.restDayFactor || 1.5}x"
+                               min="1" max="5" step="0.25" style="flex: 1;">
+                        <span style="color: #94a3b8; font-size: 0.875rem;">x</span>
+                    </div>
+                    <div style="font-size: 0.7rem; color: #64748b; margin-top: 4px;">
+                        Si se deja vacío, las posiciones bajo este líder usarán el factor global de Ajustes.
+                    </div>
+                </div>
                 
                 <!-- Botón para expandir campos opcionales -->
                 <div style="margin: 20px 0;">
@@ -112,6 +129,10 @@ export class LeaderModal {
         const phone = el.querySelector('#ldrPhone').value.trim();
         const email = el.querySelector('#ldrEmail').value.trim();
         const notes = el.querySelector('#ldrNotes').value.trim();
+        const restDayFactorRaw = el.querySelector('#ldrRestDayFactor')?.value?.trim();
+        const restDayFactor = restDayFactorRaw && Number.isFinite(parseFloat(restDayFactorRaw)) && parseFloat(restDayFactorRaw) > 0
+            ? parseFloat(restDayFactorRaw)
+            : null;
 
         if (!number || !name) {
             window.showAlert('El número y nombre son obligatorios', 'error');
@@ -131,6 +152,7 @@ export class LeaderModal {
                 ldrToEdit.phone = phone;
                 ldrToEdit.email = email;
                 ldrToEdit.notes = notes;
+                ldrToEdit.restDayFactor = restDayFactor;
                 ldrToEdit.updatedAt = Date.now();
                 ldrToEdit._isDirty = true;
                 announce = `Líder ${name} actualizado`;
@@ -143,6 +165,7 @@ export class LeaderModal {
                 phone: phone,
                 email: email,
                 notes: notes,
+                restDayFactor: restDayFactor,
                 active: true,
                 updatedAt: Date.now(),
                 _isDirty: true,

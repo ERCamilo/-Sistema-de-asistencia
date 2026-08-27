@@ -8,6 +8,9 @@ export class Leader {
         this.phone = data.phone || '';
         this.email = data.email || '';
         this.notes = data.notes || '';
+        this.restDayFactor = (data.restDayFactor !== undefined && data.restDayFactor !== null && data.restDayFactor !== '')
+            ? (Number.isFinite(parseFloat(data.restDayFactor)) ? parseFloat(data.restDayFactor) : null)
+            : null;
         this.createdDate = data.createdDate || new Date().toISOString();
         this.lastStatusChange = data.lastStatusChange || null;
         this.statusHistory = data.statusHistory || [];
@@ -53,6 +56,7 @@ export class Leader {
             phone: this.phone,
             email: this.email,
             notes: this.notes,
+            restDayFactor: this.restDayFactor,
             createdDate: this.createdDate,
             lastStatusChange: this.lastStatusChange,
             statusHistory: this.statusHistory,

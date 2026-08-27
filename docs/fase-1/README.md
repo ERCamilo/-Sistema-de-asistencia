@@ -25,6 +25,7 @@
 | **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | ✅ CERRADA |
 | **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Cerrada y aprobada por Dirección (incluye micro-cierre) · 354/354 suites, 3401 tests | ✅ CERRADA |
 | **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | Arquitectura aprobada con modificación; A0 técnicamente validado (`c7a9e0c`, 354/354 suites · 3409 tests), pendiente revisión formal; A0.5 es la próxima puerta y A1–A6 están bloqueadas | F1.7 bloqueada hasta revisión/cierre F1.6 |
+| **F1.6-A0 Bitácora IDB por proyecto** | [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) | ✅ Bitácora evaluable — 3 ciclos RED→GREEN, contrato final `legacy-unresolved:*` y frontera de rollback; validación `c7a9e0c` / 354/354 · 3409 | Lectura obligatoria antes de A0.5 |
 | **F1.7 Caja chica multiproyecto** | Roadmap §7 | **BLOQUEADA** | Requiere F1.6 revisada y aprobada |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
@@ -35,6 +36,7 @@ Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 - **DEP-SA-001** registrada en roadmap §12
 - ADRs **008–011** implementados/documentados para etapas previas; decisiones F1.6 **012–016** registradas en roadmap §13
 - Dependencias F1.6 **DEP-SA-002/004** registradas en roadmap §12; DEP-SA-003 conserva la política de pagos pendiente de B4
+- **A0 bitácora evaluable** → [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) — deduplicación IDB por proyecto, 3 ciclos RED→GREEN y contrato `legacy-unresolved:*`
 
 ## Commits de esta etapa
 
@@ -108,6 +110,6 @@ El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktre
 
 ## Cómo retomar
 
-1. Leer roadmap §12–§16, este índice y [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md).
+1. Leer roadmap §12–§16, este índice, [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) y la bitácora evaluable [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md).
 2. Estado: F0 al 100%; F1.1–F1.5 cerradas; **F1.6 con arquitectura aprobada y A0 técnicamente validado**, pendiente de revisión formal; no hay comportamiento funcional de nómina aceptado.
 3. Próxima acción: Dirección debe revisar la evidencia A0; después, iniciar únicamente A0.5. No iniciar A1–A6 ni F1.7 antes de validar A0.5.

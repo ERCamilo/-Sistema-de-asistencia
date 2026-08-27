@@ -8,6 +8,7 @@ import { toStoredHourly, fromStoredHourly } from '../../features/payroll/SalaryC
 import { resolvePositionIcon } from '../../features/employees/PositionVisuals.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject } from '../../features/projects/ProjectContext.js';
+import { resolveRestDayFactor } from '../../features/payroll/PayrollFactors.js';
 
 // Texto de ayuda según el modo de carga del salario.
 const salaryHintFor = (mode, hours) => mode === 'daily'
@@ -37,6 +38,10 @@ export class PositionModal {
             : '';
         const overtimeFactor = state.settings.overtimeFactor || 1.5;
         const holidayFactor = state.settings.holidayFactor || 2;
+        const selectedLeader = pos?.leaderId ? state.leaders.find(l => l.id === pos.leaderId) : null;
+        const inheritedPlaceholder = selectedLeader?.restDayFactor != null && Number(selectedLeader.restDayFactor) > 0
+            ? `Hereda de Líder (${selectedLeader.name}): ${selectedLeader.restDayFactor}x`
+            : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
 
         const contentHTML = `
             <div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;">
@@ -106,8 +111,19 @@ export class PositionModal {
                             `;
                         }).join('')}
                     </div>
-                    <div style="font-size: 0.7rem; color: #64748b; margin-top: 12px;">
-                        💡 Esto se usa para calcular el salario mensual estimado (días/sem × 4.333 × horas/día)
+
+                    <div class="form-group" style="margin-top: 14px; margin-bottom: 0;">
+                        <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span>Factor Día No Laborable (Opcional)</span>
+                            <span style="font-size: 0.7rem; color: #64748b;">Override de este puesto</span>
+                        </label>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <input type="number" inputmode="decimal" id="posRestDayFactor" class="form-input"
+                                   value="${pos?.restDayFactor != null ? pos.restDayFactor : ''}"
+                                   placeholder="${inheritedPlaceholder}"
+                                   min="1" max="5" step="0.25" style="flex: 1;">
+                            <span style="color: #94a3b8; font-size: 0.875rem;">x</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -222,6 +238,29 @@ export class PositionModal {
             });
         });
 
+        const restDayInput = modal.element.querySelector('#posRestDayFactor');
+        const leaderSelect = modal.element.querySelector('#posLeader');
+
+        const updatePlaceholder = () => {
+            const selectedLdrId = leaderSelect?.value;
+            const ldr = selectedLdrId ? state.leaders.find(l => l.id === selectedLdrId) : null;
+            if (restDayInput) {
+                restDayInput.placeholder = ldr?.restDayFactor != null && Number(ldr.restDayFactor) > 0
+                    ? `Hereda de Líder (${ldr.name}): ${ldr.restDayFactor}x`
+                    : `Hereda Global: ${state.settings?.restDayFactor || 1.5}x`;
+            }
+        };
+
+        if (restDayInput) {
+            restDayInput.addEventListener('input', updatePreviewHandler);
+        }
+        if (leaderSelect) {
+            leaderSelect.addEventListener('change', () => {
+                updatePlaceholder();
+                updatePreviewHandler();
+            });
+        }
+
         colorRadios.forEach(radio => {
             radio.addEventListener('change', (e) => {
                 modal.element.querySelectorAll('.color-swatch').forEach(sw => sw.style.borderColor = 'transparent');
@@ -244,6 +283,11 @@ export class PositionModal {
         const hourlyRate = toStoredHourly(Number.parseFloat(hourlyRateInput.value) || 0, mode, regularHours);
         const overtimeFactor = state.settings.overtimeFactor || 1.5;
         const holidayFactor = state.settings.holidayFactor || 2;
+        const currentLeaderId = modalEl.querySelector('#posLeader')?.value;
+        const currentLeader = currentLeaderId ? state.leaders.find(l => l.id === currentLeaderId) : null;
+        const rawRestDayFactor = parseFloat(modalEl.querySelector('#posRestDayFactor')?.value);
+        const currentPos = { restDayFactor: Number.isFinite(rawRestDayFactor) && rawRestDayFactor > 0 ? rawRestDayFactor : null };
+        const restDayFactor = resolveRestDayFactor(currentPos, currentLeader, state.settings);
         
         const workingDaysInputs = modalEl.querySelectorAll('input[name="workingDay"]:checked');
         const daysPerWeek = workingDaysInputs.length || 5;
@@ -255,6 +299,7 @@ export class PositionModal {
         const threeWeeksRate = WeeksRate * 3;
         const overtimeRate = hourlyRate * overtimeFactor;
         const holidayRate = hourlyRate * holidayFactor;
+        const restDayRate = hourlyRate * restDayFactor;
 
         const previewContainer = modalEl.querySelector('#hourlyRatePreview');
         if (previewContainer) {
@@ -291,12 +336,16 @@ export class PositionModal {
                         <span style="color: #3b82f6; font-weight: 600;">$${Math.round(overtimeRate).toLocaleString()}/h</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #94a3b8;">⭐ Días no laborables (${restDayFactor}x):</span>
+                        <span style="color: #8b5cf6; font-weight: 600;">$${Math.round(restDayRate).toLocaleString()}/h</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
                         <span style="color: #94a3b8;">☀️ Días festivos (${holidayFactor}x):</span>
                         <span style="color: #f59e0b; font-weight: 600;">$${Math.round(holidayRate).toLocaleString()}/h</span>
                     </div>
                 </div>
                 <div style="font-size: 0.7rem; color: #64748b; margin-top: 8px;">
-                    💡 Los factores se configuran en Ajustes
+                    💡 Los factores se configuran en Ajustes o en el Líder asignado
                 </div>
             `;
         }
@@ -310,6 +359,10 @@ export class PositionModal {
         const rawRate = parseFloat(el.querySelector('#posHourlyRate').value);
         const salaryMode = el.querySelector('#posSalaryMode')?.value === 'daily' ? 'daily' : 'hourly';
         const leaderId = el.querySelector('#posLeader').value;
+        const restDayFactorRaw = el.querySelector('#posRestDayFactor')?.value?.trim();
+        const restDayFactor = restDayFactorRaw && Number.isFinite(parseFloat(restDayFactorRaw)) && parseFloat(restDayFactorRaw) > 0
+            ? parseFloat(restDayFactorRaw)
+            : null;
         const color = el.querySelector('input[name="posColor"]:checked')?.value || COLOR_PALETTE[0];
         const icon = existingPos?.icon || resolvePositionIcon({ name });
         const workingDays = Array.from(el.querySelectorAll('input[name="workingDay"]:checked')).map(cb => parseInt(cb.value));
@@ -362,6 +415,7 @@ export class PositionModal {
                 posToEdit.hourlyRate = rate;
                 posToEdit.salaryInputMode = salaryMode;
                 posToEdit.leaderId = leaderId || null;
+                posToEdit.restDayFactor = restDayFactor;
                 posToEdit.color = color;
                 posToEdit.icon = icon;
                 posToEdit.workingDays = workingDays;
@@ -378,6 +432,7 @@ export class PositionModal {
                 salaryInputMode: salaryMode,
                 workingDays: workingDays,
                 leaderId: leaderId || null,
+                restDayFactor: restDayFactor,
                 color: color,
                 icon: icon,
                 active: true,

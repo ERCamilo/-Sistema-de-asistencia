@@ -5,7 +5,9 @@ const EMPTY_METRICS = Object.freeze({
     days: 0,
     regularHours: 0,
     overtimeHours: 0,
-    holidayHours: 0
+    holidayHours: 0,
+    restDayHours: 0,
+    restDayFactor: 1.5
 });
 
 export function buildEmployeePositionPeriodSnapshot(state, employee, today = new Date()) {
@@ -27,7 +29,9 @@ export function buildEmployeePositionPeriodSnapshot(state, employee, today = new
             days: Number(item.days) || 0,
             regularHours: Number(item.regularHours) || 0,
             overtimeHours: Number(item.overtimeHours) || 0,
-            holidayHours: Number(item.holidayHours) || 0
+            holidayHours: Number(item.holidayHours) || 0,
+            restDayHours: Number(item.restDayHours) || 0,
+            restDayFactor: Number(item.restDayFactor) || 1.5
         }])
     );
 
@@ -45,18 +49,22 @@ export function calculatePositionAccrued(metrics, hourlyRate, settings = {}) {
     const regularHours = Number(metrics?.regularHours) || 0;
     const overtimeHours = Number(metrics?.overtimeHours) || 0;
     const holidayHours = Number(metrics?.holidayHours) || 0;
+    const restDayHours = Number(metrics?.restDayHours) || 0;
     const overtimeFactor = Number(settings.overtimeFactor) || 1;
     const holidayFactor = Number(settings.holidayFactor) || 2;
+    const restDayFactor = Number(metrics?.restDayFactor) || Number(settings.restDayFactor) || 1.5;
 
     return (regularHours * rate)
         + (overtimeHours * rate * overtimeFactor)
-        + (holidayHours * rate * holidayFactor);
+        + (holidayHours * rate * holidayFactor)
+        + (restDayHours * rate * restDayFactor);
 }
 
 export function getPositionTotalHours(metrics) {
     return (Number(metrics?.regularHours) || 0)
         + (Number(metrics?.overtimeHours) || 0)
-        + (Number(metrics?.holidayHours) || 0);
+        + (Number(metrics?.holidayHours) || 0)
+        + (Number(metrics?.restDayHours) || 0);
 }
 
 export function resolvePositionBaseHourlyRate(position, regularHoursPerDay = 8) {

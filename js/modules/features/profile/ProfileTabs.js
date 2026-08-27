@@ -35,7 +35,7 @@ export function ProfileTabNomina(emp) {
     const endFormatted = endDate.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
 
     const workedDays = payroll.breakdown.reduce((sum, b) => sum + b.days, 0);
-    const totalHours = payroll.breakdown.reduce((sum, b) => sum + b.regularHours + b.holidayHours, 0);
+    const totalHours = payroll.breakdown.reduce((sum, b) => sum + b.regularHours + (b.restDayHours || 0) + b.holidayHours, 0);
     const totalOvertime = payroll.breakdown.reduce((sum, b) => sum + b.overtimeHours, 0);
 
     const pp = state.settings?.payPeriod;
@@ -164,6 +164,11 @@ export function ProfileTabNomina(emp) {
                             <div style="display: flex; justify-content: space-between;">
                                 <span style="color: #64748b;">• Horas extras (${state.settings.overtimeFactor}x):</span>
                                 <span style="color: #3b82f6; font-weight: 600;">${b.overtimeHours.toFixed(1)}h × ${formatCurrency(b.overtimeRate)}/h = ${formatCurrency(b.overtimeAmount)}</span>
+                            </div>` : ''}
+                            ${(b.restDayHours || 0) > 0 ? `
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #64748b;">• Horas día libre (${b.restDayFactor || 1.5}x):</span>
+                                <span style="color: #8b5cf6; font-weight: 600;">${b.restDayHours.toFixed(1)}h × ${formatCurrency(b.restDayRate)}/h = ${formatCurrency(b.restDayAmount)}</span>
                             </div>` : ''}
                             ${b.holidayHours > 0 ? `
                             <div style="display: flex; justify-content: space-between;">

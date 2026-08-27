@@ -90,7 +90,7 @@
     }
 
     function completeBoot() {
-        if (state !== 'loading' && state !== 'delayed') return false;
+        if (state === 'ready' || isSimulationState()) return false;
         clearBootTimers();
         state = 'ready';
         loader.dataset.loaderState = state;

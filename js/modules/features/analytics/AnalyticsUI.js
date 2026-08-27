@@ -680,12 +680,14 @@ export function EmployeeReportGeneralTable(employees, days) {
         const val = emp.dayValues[getDateKey(d.date)];
         let color = '#334155';
         let text = '-';
+        let cellTitle = '';
         if (val > 0) {
             text = Number(val.toFixed(3));
             color = Math.abs(val - 1) < 0.01 ? (d.isHoliday ? '#f59e0b' : '#10b981') : (val < 1 ? '#ef4444' : '#3b82f6');
             if (Math.abs(val - 1) < 0.01) text = `${icons.get('check')}`;
+            cellTitle = d.isHoliday ? `Día festivo (${val}d)` : (val > 1 ? `Día no laborable / recargo (${val}d)` : `Jornada regular (${val}d)`);
         }
-        return `<td style="padding: 10px 4px; text-align: center; color: ${color}; border-bottom: 1px solid #1e293b; font-weight: 700;">${text}</td>`;
+        return `<td style="padding: 10px 4px; text-align: center; color: ${color}; border-bottom: 1px solid #1e293b; font-weight: 700;" ${cellTitle ? `title="${cellTitle}"` : ''}>${text}</td>`;
     }).join('')}
                             <td style="padding: 10px 8px; text-align: center; color: #10b981; border-bottom: 1px solid #1e293b;">${Number(emp.totalDays.toFixed(3))}</td>
                             <td style="padding: 10px 8px; text-align: center; color: #3b82f6; border-bottom: 1px solid #1e293b;">${emp.totalHours.toFixed(2)}</td>
@@ -763,7 +765,10 @@ function calculateEmployeeReportData() {
         startDate,
         endDate,
         regularHours: state.settings.regularHoursPerDay,
-        holidayFactor: state.settings.holidayFactor
+        holidayFactor: state.settings.holidayFactor,
+        leaders: state.leaders,
+        settings: state.settings,
+        restDayFactor: state.settings.restDayFactor
     });
 }
 

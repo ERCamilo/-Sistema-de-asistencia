@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0826.210409';
+const CACHE_VERSION = '2026.0827.075232';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -113,7 +113,9 @@ const APP_SHELL = [
     './js/modules/ui/components/EmployeeFloatingCard.js',
     './js/modules/ui/modals/AdvancedAttendanceModal.js',
     './js/modules/ui/modals/EmployeeModal.js',
-    './js/modules/ui/modals/EmployeeProfileModal.js',
+    './js/modules/features/profile/EmployeeProfileModal.js',
+    './js/modules/features/profile/ProfileTabs.js',
+    './js/modules/features/profile/index.js',
     './js/modules/ui/modals/LeaderModal.js',
     './js/modules/ui/modals/MiniAttendanceImportModal.js',
     './js/modules/ui/MiniAttendanceReviewViewModel.js',
@@ -134,6 +136,7 @@ const APP_SHELL = [
     './js/modules/features/employees/EmployeesUI.js',
     './js/modules/features/employees/Leader.js',
     './js/modules/features/employees/Position.js',
+    './js/modules/features/payroll/PayrollFactors.js',
     './js/modules/features/payroll/PayrollService.js',
     './js/modules/features/payroll/PayrollUI.js',
     './js/modules/features/stats/EmployeeStatsService.js',

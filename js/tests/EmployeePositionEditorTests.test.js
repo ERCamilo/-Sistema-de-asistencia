@@ -80,12 +80,15 @@ describe('métricas de puestos dentro del editor de empleado', () => {
         });
         expect(operator).toEqual({
             days: 3,
-            regularHours: 12,
+            regularHours: 8,
+            restDayHours: 4,
+            restDayFactor: 1.5,
             overtimeHours: 3,
             holidayHours: 8
         });
         expect(getPositionTotalHours(operator)).toBe(23);
-        expect(foreman.regularHours).toBe(4);
+        expect(foreman.regularHours).toBe(0);
+        expect(foreman.restDayHours).toBe(4);
     });
 
     test('el acumulado aplica los factores de extras y feriados', () => {
@@ -93,7 +96,7 @@ describe('métricas de puestos dentro del editor de empleado', () => {
         const snapshot = buildEmployeePositionPeriodSnapshot(state, state.employees[0]);
         const metrics = getPositionPeriodMetrics(snapshot, 'p1');
 
-        expect(calculatePositionAccrued(metrics, 100, state.settings)).toBe(3250);
+        expect(calculatePositionAccrued(metrics, 100, state.settings)).toBe(3450);
     });
 
     test('la tarifa base conserva el fallback usado por puestos antiguos', () => {
@@ -130,7 +133,7 @@ describe('tarjetas de puestos del editor', () => {
         operator.querySelector('[data-salary-mode="daily"]').click();
         expect(operator.querySelector('.custom-salary-mode').value).toBe('daily');
         expect(operator.querySelector('.custom-salary-input').value).toBe('800');
-        expect(operator.querySelector('[data-position-accrued]').textContent).toBe('$3,250');
+        expect(operator.querySelector('[data-position-accrued]').textContent).toBe('$3,450');
 
         root.querySelector('[data-position-assignment="p2"] [data-remove-position]').click();
         expect(root.querySelectorAll('[data-position-assignment]')).toHaveLength(1);

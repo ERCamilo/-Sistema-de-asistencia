@@ -5610,6 +5610,8 @@ window.saveSettings = function () {
 
     const holidayFactorElement = document.getElementById('holidayFactor');
     const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : state.settings.holidayFactor;
+    const restDayFactorElement = document.getElementById('restDayFactor');
+    const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor || 1.5);
 
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
@@ -5658,6 +5660,11 @@ window.saveSettings = function () {
         return;
     }
 
+    if (restDayFactor < 1 || restDayFactor > 5) {
+        showNotification('❌ El factor de día no laborable debe estar entre 1 y 5', 'error');
+        return;
+    }
+
     if (defaultDeductionPercentage < 0 || defaultDeductionPercentage > 100) {
         showNotification('❌ El porcentaje de deducción debe estar entre 0 y 100', 'error');
         return;
@@ -5685,18 +5692,17 @@ window.saveSettings = function () {
     }
 
     // Guardar configuración
-    state.settings.companyName = companyName;
-    state.settings.regularHoursPerDay = regularHoursPerDay;
-    state.settings.overtimeFactor = overtimeFactor;
-    state.settings.holidayFactor = holidayFactor;
-
-    // ⚡ Guardar configuración de nómina
-    state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
-    state.settings.scrollbarMode = scrollbarMode;
     stateManager.batchSetState(() => {
+        state.settings.companyName = companyName;
+        state.settings.regularHoursPerDay = regularHoursPerDay;
+        state.settings.overtimeFactor = overtimeFactor;
+        state.settings.holidayFactor = holidayFactor;
+        state.settings.restDayFactor = restDayFactor;
+        state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
+        state.settings.scrollbarMode = scrollbarMode;
         state.settings.showAttendanceCardDeficit = showAttendanceCardDeficit;
+        state.settings.attendanceDeficitUnit = attendanceDeficitUnit;
     });
-    state.settings.attendanceDeficitUnit = attendanceDeficitUnit;
     // legacyNavigation, hideDuplicateAlerts, weatherEnabled y
     // attendancePositionWatermarks NO se reasignan
     // acá: ya están comprometidos en state por commitAutoSaveSwitch. Tampoco
@@ -7824,12 +7830,17 @@ function _initOutgoingConflictGuard() {
 
         // 6. Renderizado Inicial
         debug.log('🎨 Renderizando interfaz...');
-        eventBus.once('render:complete', () => {
+        let hasDispatchedReady = false;
+        const dispatchReady = () => {
+            if (hasDispatchedReady) return;
+            hasDispatchedReady = true;
             window.dispatchEvent(new CustomEvent('app:ready', {
                 detail: { source: 'initial-render' }
             }));
-        });
+        };
+        eventBus.once('render:complete', dispatchReady);
         render();
+        setTimeout(dispatchReady, 250);
 
         debug.log('✅ Aplicación iniciada correctamente');
         isInitialLoad = false;
