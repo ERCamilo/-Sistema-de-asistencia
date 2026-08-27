@@ -42,7 +42,10 @@ export const LOCAL_TRACE_KEYS = [
     'asistencia_cloud_download_paused',   // pausa de descarga (device-local)
     '_pettycash_local_v2',                // caché legacy de caja chica
     '_pettycash_sel_v1',                  // selección de UI de caja chica
-    'icon-set'                            // JD-F9: set de íconos elegido — es un AJUSTE del usuario (app.js ICON_SET_STORAGE_KEY)
+    'icon-set',                           // JD-F9: set de íconos elegido — es un AJUSTE del usuario (app.js ICON_SET_STORAGE_KEY)
+    'asistencia_default_project_id',      // G1: puntero default local (DEP-SA-004 A0.5)
+    'asistencia_active_project_id',       // G1: puntero active local (DEP-SA-004 A0.5)
+    'migration.projectAdoption.v1'        // G1: marker de adopción canónica (separado de migration.projectStamp.v1)
 ];
 
 const SESSION_TRACE_KEYS = [

@@ -35,6 +35,9 @@ const OUTBOX_LOCK = 'attendance-app-main-sync-outbox';
 // seguía subiéndose, re-creando exactamente lo que la purga debía impedir.
 let _purgeGeneration = 0;
 
+// A0.5: bump dedicado para cortar flush en vuelo durante adopción (sin purgar).
+export function bumpGeneration() { _purgeGeneration++; }
+export function _testBumpGeneration() { _purgeGeneration++; }
 // Espeja PettyCashStore.MAX_FLUSH_ATTEMPTS: tras este número de intentos
 // fallidos, la entrada pasa a 'dead' y deja de bloquear el resto de la cola.
 export const MAX_FLUSH_ATTEMPTS = 5;

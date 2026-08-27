@@ -39,7 +39,7 @@ function positionSeed(overrides = {}) {
         id: 'pos-1', name: 'Operadora', color: '#123456', icon: 'gear', active: true,
         salaryConfig: { amount: 120, period: 'day', workDays: [1, 2, 3, 4, 5] },
         baseSalary: 120, hourlyRate: 15, salaryInputMode: 'hourly',
-        leaderId: null, workingDays: [1, 2, 3, 4, 5],
+        leaderId: null, restDayFactor: null, workingDays: [1, 2, 3, 4, 5],
         lastStatusChange: null, statusHistory: [], updatedAt: T0, ...overrides
     };
 }

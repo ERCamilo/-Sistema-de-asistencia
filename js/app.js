@@ -41,6 +41,8 @@ import {
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
+import { resetEntityScope } from './modules/features/projects/EntityProjectScope.js';
+import { MainSyncStore } from './modules/services/MainSyncStore.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
@@ -7017,6 +7019,11 @@ function _initOutgoingConflictGuard() {
     // Una pausa MANUAL del usuario (sin marcador de restauración) no se toca.
     healOrphanedRestorePause();
 
+    // A0.5 G2–G5: trackers for uid isolation and listener cleanup (SA-only)
+    let _lastAuthUid = null;
+    let _mirrorUnsub = null;
+    let _settingsUnsub = null;
+
     // This flag coordinates the first cloud snapshot only. The boot loader has
     // its own lifecycle in boot-loader.js and is controlled through app events.
     let isInitialLoad = true;
@@ -7172,7 +7179,8 @@ function _initOutgoingConflictGuard() {
                     state.modalType = null;
                 });
             }
-
+            // A0.5 G2–G5: aislamiento por uid — limpiar scope/colas/listeners al cambiar de cuenta o cerrar sesión
+            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; }
             state.syncStatus = user ? 'synced' : 'idle';
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
@@ -7213,8 +7221,7 @@ function _initOutgoingConflictGuard() {
                     await handleLocalOwnerMismatch(user);
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
-                claimLocalOwnership(user.uid);
-
+                claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){}
                 // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que
                 // el usuario haga otro cambio cualquiera para disparar la sync.
@@ -7255,8 +7262,10 @@ function _initOutgoingConflictGuard() {
                 // state._lastKnownCloudUpdatedAt cuando el usuario elige
                 // "local wins" en el conflicto saliente.
 
+                // A0.5 G4: limpiar listener previo antes de re-suscribir (evita fugas cross-cuenta)
+                if (typeof _mirrorUnsub === 'function') { try { _mirrorUnsub(); } catch (_) {} }
                 // Suscribirse a cambios en el estado (Mirror Sync)
-                FirebaseService.subscribeToChanges(async (remoteData) => {
+                _mirrorUnsub = FirebaseService.subscribeToChanges(async (remoteData) => {
                     debug.log('📡 Cambio detectado en la nube...');
 
                     // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
@@ -7581,12 +7590,14 @@ function _initOutgoingConflictGuard() {
                     } // ← cierra applyRemoteData()
                 });
 
+                // A0.5 G4: idem settings
+                if (typeof _settingsUnsub === 'function') { try { _settingsUnsub(); } catch (_) {} }
                 // 📡 Fase 2B U2: suscripción en vivo al doc per-registro de
                 // settings (users/{uid}/data/settings) — DESACOPLADA del
                 // espejo. El filtro de eco (lastChangedBy === deviceId) ya
                 // ocurre DENTRO de FirebaseService.subscribeToSettings, mismo
                 // criterio que subscribeToChanges.
-                FirebaseService.subscribeToSettings((settingsDoc) => {
+                _settingsUnsub = FirebaseService.subscribeToSettings((settingsDoc) => {
                     if (!settingsDoc) return;
                     debug.log('📡 Cambio detectado en settings (doc per-registro)...');
 

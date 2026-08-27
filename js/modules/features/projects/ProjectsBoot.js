@@ -18,10 +18,13 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { defaultProjectService } from './DefaultProject.js';
 import { projectContext, getEntityScope } from './ProjectContext.js';
 import { migrateEntityProjectStamps } from './EntityProjectMigration.js';
+import { ensureCanonicalProject } from './ProjectRegistry.js';
+import { adoptProject } from './ProjectAdoption.js';
 
 export async function initProjectsInfrastructure({
     defaults = defaultProjectService,
-    context = projectContext
+    context = projectContext,
+    uid = null
 } = {}) {
     if (!isProjectsEnabled()) {
         return { defaultProjectId: null, activeProjectId: null };
@@ -29,6 +32,25 @@ export async function initProjectsInfrastructure({
 
     try {
         const defaultProject = await defaults.ensureDefaultProject();
+        // A0.5: si hay uid, promover/adoptar identidad canónica antes de resolver active (para que active resuelva sobre el canónico)
+        let canonicalId = defaultProject ? defaultProject.id : null;
+        const effectiveUid = uid || (typeof window !== 'undefined' && window.currentUser?.uid) || (typeof globalThis !== 'undefined' && globalThis.currentUser?.uid) || null;
+        if (effectiveUid && defaultProject?.id) {
+            try {
+                const reg = await ensureCanonicalProject({ uid: String(effectiveUid), localProject: defaultProject });
+                if (reg?.canonicalId && reg.canonicalId !== defaultProject.id) {
+                    await adoptProject({ legacyId: defaultProject.id, canonicalId: reg.canonicalId, uid: String(effectiveUid) });
+                    canonicalId = reg.canonicalId;
+                    // Re-resolver default tras adopción (el puntero LS ahora apunta al canónico)
+                    const refreshedDefault = await defaults.ensureDefaultProject();
+                    if (refreshedDefault?.id) canonicalId = refreshedDefault.id;
+                } else if (reg?.canonicalId) {
+                    canonicalId = reg.canonicalId;
+                }
+            } catch (e) {
+                console.warn('⚠️ ProjectsBoot: identidad canónica no disponible en este arranque (provisional):', e?.message || e);
+            }
+        }
         const activeProjectId = await context.getActiveProjectId();
         // F1.4: ceba el snapshot síncrono de EntityScope (render/save paths).
         // Sólo con los singletons por defecto: con deps inyectadas (tests)
@@ -49,7 +71,7 @@ export async function initProjectsInfrastructure({
             }
         }
         return {
-            defaultProjectId: defaultProject ? defaultProject.id : null,
+            defaultProjectId: canonicalId,
             activeProjectId
         };
     } catch (error) {
