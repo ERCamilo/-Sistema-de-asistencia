@@ -49,6 +49,7 @@ async function freshGraph(dbName) {
         setFlag: enabled => flags.setProjectsEnabled(enabled),
         store: storeMod.projectStore,
         Project: projMod.Project,
+        defaultKey: defMod.DEFAULT_PROJECT_LS_KEY,
         ensureDefault: () => defMod.defaultProjectService.ensureDefaultProject(),
         setActiveProject: id => ctxMod.setActiveProjectId(id),
         getScope: ctxMod.getEntityScope,
@@ -201,6 +202,139 @@ describe('F1.4 end-to-end isolation battery (M2 stamping + A/B isolation)', () =
             expect(idsOf(viewB)).toEqual(['E-B']);
             expect(viewB[0].phone).toBe('222'); // untouched by A-side edit
         }
+    });
+
+    test('S2b: full save/reload preserves same employee and leader numbers independently in A/B', async () => {
+        const DB = 'f14-battery-s2b';
+        {
+            const g = await freshGraph(DB);
+            g.setFlag(true);
+            await g.ensureDefault();
+            const projA = await g.store.create(g.Project.create({ name: 'Obra A' }));
+            const projB = await g.store.create(g.Project.create({ name: 'Obra B' }));
+            await g.getScope();
+
+            await g.db.saveState({
+                employees: [
+                    emp('E-A', '12', 'Juan', { projectId: projA.id, updatedAt: 1 }),
+                    emp('E-B', '12', 'Pedro', { projectId: projB.id, updatedAt: 2 })
+                ],
+                positions: [],
+                leaders: [
+                    lead('L-A', 'Capataz A', { number: '7', projectId: projA.id, updatedAt: 1 }),
+                    lead('L-B', 'Capataz B', { number: '7', projectId: projB.id, updatedAt: 2 })
+                ],
+                attendance: {}, settings: {}
+            });
+        }
+
+        const reloaded = await freshGraph(DB);
+        reloaded.setFlag(true);
+        await reloaded.getScope();
+        const loaded = await reloaded.db.loadFullState();
+        expect(idsOf(loaded.employees)).toEqual(['E-A', 'E-B']);
+        expect(idsOf(loaded.leaders)).toEqual(['L-A', 'L-B']);
+    });
+
+    test('S2c: same-graph OFF→ON save uses current flag and maps unstamped records to default', async () => {
+        const g = await freshGraph('f14-battery-s2c');
+        g.setFlag(true);
+        const def = await g.ensureDefault();
+        const projA = await g.store.create(g.Project.create({ name: 'Obra A' }));
+        const projB = await g.store.create(g.Project.create({ name: 'Obra B' }));
+        await g.setActiveProject(projB.id);
+        await g.getScope();
+
+        g.setFlag(false);
+        await g.getScope(); // cache deliberately disabled
+        g.setFlag(true); // no getScope() before save
+
+        const stats = await g.db.saveState({
+            employees: [
+                emp('E-A', '12', 'Juan', { projectId: projA.id, updatedAt: 1 }),
+                emp('E-B', '12', 'Pedro', { projectId: projB.id, updatedAt: 2 }),
+                emp('E-DEF', '13', 'Default', { projectId: def.id, updatedAt: 1 }),
+                emp('E-B13', '13', 'B explícito', { projectId: projB.id, updatedAt: 2 }),
+                emp('E-LEG', '13', 'Legacy', { updatedAt: 3 })
+            ],
+            positions: [],
+            leaders: [
+                lead('L-A', 'Capataz A', { number: '7', projectId: projA.id, updatedAt: 1 }),
+                lead('L-B', 'Capataz B', { number: '7', projectId: projB.id, updatedAt: 2 })
+            ],
+            attendance: {}, settings: {}
+        });
+
+        const loaded = await g.db.loadFullState();
+        expect(idsOf(loaded.employees)).toEqual(['E-A', 'E-B', 'E-B13', 'E-LEG']);
+        expect(idsOf(loaded.leaders)).toEqual(['L-A', 'L-B']);
+        expect(stats.deduplicated).toBe(1);
+    });
+
+    test('S2d: same-graph ON→OFF save restores exact global legacy dedup', async () => {
+        const g = await freshGraph('f14-battery-s2d');
+        g.setFlag(true);
+        await g.ensureDefault();
+        const projA = await g.store.create(g.Project.create({ name: 'Obra A' }));
+        const projB = await g.store.create(g.Project.create({ name: 'Obra B' }));
+        await g.getScope(); // cache deliberately enabled
+        g.setFlag(false); // no getScope() before save
+
+        const stats = await g.db.saveState({
+            employees: [
+                emp('E-A', '12', 'Juan', { projectId: projA.id, updatedAt: 1 }),
+                emp('E-B', '12', 'Pedro', { projectId: projB.id, updatedAt: 2 })
+            ],
+            positions: [],
+            leaders: [
+                lead('L-A', 'Capataz A', { number: '7', projectId: projA.id, updatedAt: 1 }),
+                lead('L-B', 'Capataz B', { number: '7', projectId: projB.id, updatedAt: 2 })
+            ],
+            attendance: {}, settings: {}
+        });
+
+        const loaded = await g.db.loadFullState();
+        expect(idsOf(loaded.employees)).toEqual(['E-B']);
+        expect(idsOf(loaded.leaders)).toEqual(['L-B']);
+        expect(stats.deduplicated).toBe(2);
+    });
+
+    test('S2e: unresolved legacy records never deduplicate with explicit project records', async () => {
+        const g = await freshGraph('f14-battery-s2e');
+        g.setFlag(true);
+        await g.store.create(g.Project.create({ id: 'PRJ-OLD', name: 'Old project' }));
+        localStorage.setItem(g.defaultKey, 'PRJ-OLD');
+
+        const cached = await g.getScope();
+        expect(cached.defaultProjectId).toBe('PRJ-OLD');
+        localStorage.removeItem(g.defaultKey); // current authoritative pointer is absent
+
+        const stats = await g.db.saveState({
+            employees: [
+                emp('E-LEGACY', '12', 'Legacy'),
+                emp('E-EXPLICIT', '12', 'Explicit', { projectId: 'PRJ-OLD', updatedAt: 2 })
+            ],
+            positions: [],
+            leaders: [
+                lead('L-LEGACY', 'Legacy leader', { number: '12' }),
+                lead('L-EXPLICIT', 'Explicit leader', { number: '12', projectId: 'PRJ-OLD', updatedAt: 2 })
+            ],
+            attendance: {}, settings: {}
+        });
+
+        const employees = await g.db.getAll('employees');
+        const leaders = await g.db.getAll('leaders');
+        expect(employees.map(r => r.id).sort()).toEqual(['E-EXPLICIT', 'E-LEGACY']);
+        expect(leaders.map(r => r.id).sort()).toEqual(['L-EXPLICIT', 'L-LEGACY']);
+        expect(employees.find(r => r.id === 'E-EXPLICIT').projectId).toBe('PRJ-OLD');
+        expect(leaders.find(r => r.id === 'L-EXPLICIT').projectId).toBe('PRJ-OLD');
+        expect(Object.prototype.hasOwnProperty.call(
+            employees.find(r => r.id === 'E-LEGACY'), 'projectId'
+        )).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(
+            leaders.find(r => r.id === 'L-LEGACY'), 'projectId'
+        )).toBe(false);
+        expect(stats.deduplicated).toBe(0);
     });
 
     test('S3: tombstone in A hides him everywhere; H-01 holds WITH projectId; Pedro in B unaffected', async () => {

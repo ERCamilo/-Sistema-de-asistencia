@@ -6,6 +6,7 @@
 import { Notification } from '../components/Notification.js';
 import { computeSaveStatsExtras } from './SaveStatsExtras.js';
 import { dedupKeyForRecord } from './RecordKey.js';
+import { captureEntityProjectScope } from '../features/projects/EntityProjectScope.js';
 import {
     deleteEmployeePhotoCache,
     ensureEmployeePhotoStore,
@@ -890,6 +891,7 @@ export class IndexedDBService {
      */
     async saveState(state, options = {}) {
         const stats = { employees: 0, positions: 0, leaders: 0, attendance: 0, deduplicated: 0 };
+        const entityScope = captureEntityProjectScope();
         try {
             // Granular = una fecha (dateKey) o un lote de fechas (dateKeys, el
             // canal unificado multi-fecha del purge). Sin reconocer dateKeys,
@@ -925,7 +927,7 @@ export class IndexedDBService {
                 // llegaba a IndexedDB — pérdida de datos local tras un F5.
                 const empMap = new Map();
                 (state.employees || []).forEach(emp => {
-                    const key = dedupKeyForRecord(emp);
+                    const key = dedupKeyForRecord(emp, entityScope);
                     if (!key) return; // sin number NI id: nada que persistir
                     const existing = empMap.get(key);
                     if (!existing || (emp.updatedAt || 0) > (existing.updatedAt || 0)) {
@@ -938,7 +940,7 @@ export class IndexedDBService {
 
                 const leadMap = new Map();
                 (state.leaders || []).forEach(l => {
-                    const key = dedupKeyForRecord(l);
+                    const key = dedupKeyForRecord(l, entityScope);
                     if (!key) return;
                     const existing = leadMap.get(key);
                     if (!existing || (l.updatedAt || 0) > (existing.updatedAt || 0)) {

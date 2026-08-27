@@ -52,6 +52,49 @@ testRunner.addSuite("RecordKey — dedupKeyForRecord (behavioral, H1)", {
         const a = dedupKeyForRecord({ id: 'a' });
         const b = dedupKeyForRecord({ id: 'b' });
         testRunner.assert(a !== b, 'ids distintos → claves distintas');
+    },
+
+    "flag OFF conserva exactamente las claves legacy aunque exista projectId"() {
+        const scope = { enabled: false, projectId: 'PRJ-B', defaultProjectId: 'PRJ-D' };
+        testRunner.assertEquals(dedupKeyForRecord({ number: '42', projectId: 'PRJ-A' }, scope), 'num:42');
+        testRunner.assertEquals(dedupKeyForRecord({ id: 'emp-9', projectId: 'PRJ-A' }, scope), 'id:emp-9');
+    },
+
+    "flag ON incluye proyecto efectivo en claves por number e id"() {
+        const scope = { enabled: true, projectId: 'PRJ-B', defaultProjectId: 'PRJ-D' };
+        testRunner.assertEquals(
+            dedupKeyForRecord({ number: '42', projectId: 'PRJ-A' }, scope),
+            'project:PRJ-A:num:42'
+        );
+        testRunner.assertEquals(
+            dedupKeyForRecord({ id: 'leader-9', projectId: 'PRJ-B' }, scope),
+            'project:PRJ-B:id:leader-9'
+        );
+        testRunner.assert(
+            dedupKeyForRecord({ id: 'leader-9', projectId: 'PRJ-A' }, scope)
+                !== dedupKeyForRecord({ id: 'leader-9', projectId: 'PRJ-B' }, scope),
+            'el fallback id también debe quedar aislado por proyecto'
+        );
+    },
+
+    "flag ON resuelve registros legacy sin projectId al default, nunca al activo"() {
+        const scope = { enabled: true, projectId: 'PRJ-B', defaultProjectId: 'PRJ-D' };
+        testRunner.assertEquals(
+            dedupKeyForRecord({ number: '42' }, scope),
+            'project:PRJ-D:num:42'
+        );
+    },
+
+    "flag ON sin default conserva la precedencia del projectId explícito"() {
+        const scope = { enabled: true, projectId: null, defaultProjectId: null };
+        testRunner.assertEquals(
+            dedupKeyForRecord({ number: '12', projectId: 'PRJ-A' }, scope),
+            'project:PRJ-A:num:12'
+        );
+        testRunner.assertEquals(
+            dedupKeyForRecord({ number: '12' }, scope),
+            'legacy-unresolved:num:12'
+        );
     }
 
 });

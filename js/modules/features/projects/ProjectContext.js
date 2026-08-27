@@ -22,6 +22,15 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectStore } from './ProjectStore.js';
 import { PROJECT_STATUS } from './Project.js';
 import { DefaultProjectService } from './DefaultProject.js';
+import {
+    replaceEntityScope,
+    peekEntityScope,
+    effectiveProjectId,
+    entityInScope,
+    sameEffectiveProject
+} from './EntityProjectScope.js';
+
+export { peekEntityScope, effectiveProjectId, entityInScope, sameEffectiveProject };
 
 export const ACTIVE_PROJECT_LS_KEY = 'asistencia_active_project_id';
 
@@ -84,11 +93,11 @@ export class ProjectContextService {
         writeStoredId(candidate.id);
         // F1.4: el snapshot síncrono queda al día para los renders/save
         // handlers que corran antes de la próxima resolución async.
-        _resolvedScope = {
+        replaceEntityScope({
             enabled: isProjectsEnabled(),
             projectId: candidate.id,
-            defaultProjectId: _resolvedScope.defaultProjectId
-        };
+            defaultProjectId: peekEntityScope().defaultProjectId
+        });
         return candidate.id;
     }
 
@@ -99,7 +108,7 @@ export class ProjectContextService {
         } catch (_) { /* nada que limpiar */ }
         // F1.4: sin proyecto activo resuelto el scope queda fail-open hasta
         // la próxima getEntityScope() (que caerá al default).
-        _resolvedScope = { ..._resolvedScope, projectId: null };
+        replaceEntityScope({ ...peekEntityScope(), projectId: null });
     }
 }
 
@@ -122,14 +131,10 @@ export const clearActiveProjectId = () => projectContext.clearActiveProjectId();
 //   Fail-open: flag OFF o projectId null ⇒ sin filtrado (legacy exacto).
 // ═══════════════════════════════════════════════════════════════════
 
-const EMPTY_SCOPE = Object.freeze({ enabled: false, projectId: null, defaultProjectId: null });
-let _resolvedScope = { ...EMPTY_SCOPE };
-
 /** Resuelve el alcance actual (y ceba el snapshot síncrono para renders). */
 export async function getEntityScope() {
     if (!isProjectsEnabled()) {
-        _resolvedScope = { ...EMPTY_SCOPE };
-        return { ..._resolvedScope };
+        return replaceEntityScope();
     }
     const projectId = await projectContext.getActiveProjectId();
     let defaultProjectId = null;
@@ -137,31 +142,5 @@ export async function getEntityScope() {
         const fallback = await projectContext.defaults.ensureDefaultProject();
         defaultProjectId = fallback ? fallback.id : null;
     } catch (_) { /* fail-open: sin default conocido no se filtra por §2 */ }
-    _resolvedScope = { enabled: true, projectId, defaultProjectId };
-    return { ..._resolvedScope };
-}
-
-/** Snapshot sincrónico del último alcance resuelto (cebado por boot/switch). */
-export function peekEntityScope() {
-    return { ..._resolvedScope };
-}
-
-/** Proyecto efectivo de una entidad según la regla F0.4 §2. */
-export function effectiveProjectId(entity, scope = _resolvedScope) {
-    return entity?.projectId ?? scope.defaultProjectId ?? null;
-}
-
-/**
- * true si la entidad debe verse en el alcance dado. Flag OFF o scope sin
- * projectId resuelto ⇒ true (cero filtrado: paridad legacy / fail-open).
- */
-export function entityInScope(entity, scope = _resolvedScope) {
-    if (!scope.enabled || !scope.projectId) return true;
-    return effectiveProjectId(entity, scope) === scope.projectId;
-}
-
-/** Comparación par-a-par de proyectos efectivos (guardia referencial). */
-export function sameEffectiveProject(a, b, scope = _resolvedScope) {
-    if (!scope?.enabled) return true;
-    return effectiveProjectId(a, scope) === effectiveProjectId(b, scope);
+    return replaceEntityScope({ enabled: true, projectId, defaultProjectId });
 }

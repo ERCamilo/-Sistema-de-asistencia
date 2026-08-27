@@ -24,8 +24,9 @@ import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import { projectStore } from './ProjectStore.js';
 import { Project, PROJECT_STATUS } from './Project.js';
 import { createCrossTabLock } from '../../services/CrossTabLock.js';
+import { DEFAULT_PROJECT_LS_KEY } from './EntityProjectScope.js';
 
-export const DEFAULT_PROJECT_LS_KEY = 'asistencia_default_project_id';
+export { DEFAULT_PROJECT_LS_KEY };
 export const DEFAULT_PROJECT_NAME = 'Mi obra';
 export const DEFAULT_PROJECT_INIT_LEASE = 'default-project-init';
 

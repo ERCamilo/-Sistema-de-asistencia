@@ -12,22 +12,27 @@
  * garantiza que el registro se persista) → null (sin nada que lo
  * identifique, único caso descartable).
  *
- * Módulo puro, sin IO — testeable de verdad (IndexedDBService está
- * mockeado en Jest).
+ * La clave acepta un scope capturado para mantener una operación completa
+ * determinista aunque el flag cambie mientras se guardan sus registros.
  */
+
+import { captureEntityProjectScope, effectiveProjectId } from '../features/projects/EntityProjectScope.js';
 
 /**
  * @param {object|null|undefined} record - empleado o líder
  * @returns {string|null} clave de dedup con prefijo de espacio de nombres,
  *   o null si el registro no tiene ni number ni id.
  */
-export function dedupKeyForRecord(record) {
+export function dedupKeyForRecord(record, scope = captureEntityProjectScope()) {
     if (!record || typeof record !== 'object') return null;
     const num = String(record.number ?? '').trim();
-    if (num) return `num:${num}`;
     const id = String(record.id ?? '').trim();
-    if (id) return `id:${id}`;
-    return null;
+    const recordKey = num ? `num:${num}` : (id ? `id:${id}` : null);
+    if (!recordKey || !scope.enabled) return recordKey;
+    const projectId = effectiveProjectId(record, scope);
+    return projectId
+        ? `project:${projectId}:${recordKey}`
+        : `legacy-unresolved:${recordKey}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
