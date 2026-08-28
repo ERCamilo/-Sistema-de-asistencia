@@ -20,6 +20,8 @@ import { projectContext, getEntityScope } from './ProjectContext.js';
 import { migrateEntityProjectStamps } from './EntityProjectMigration.js';
 import { ensureCanonicalProject } from './ProjectRegistry.js';
 import { adoptProject } from './ProjectAdoption.js';
+import { indexedDBService } from '../../services/IndexedDBService.js';
+import { ensureDefaultSeed } from '../payroll/ProjectPayrollConfigStore.js';
 
 export async function initProjectsInfrastructure({
     defaults = defaultProjectService,
@@ -52,6 +54,22 @@ export async function initProjectsInfrastructure({
             }
         }
         const activeProjectId = await context.getActiveProjectId();
+        // F1.6-A2: semilla atómica de payroll config para el proyecto default
+        // canónico (local-only, idempotente, sin dual-write). Flag OFF nunca
+        // llega acá (corta arriba) pero ensureDefaultSeed re-valida el flag.
+        // Never-throw: cualquier fallo se degrada a warn y el boot continúa.
+        if (canonicalId) {
+            try {
+                let legacySettings = {};
+                try {
+                    const raw = await indexedDBService.get('settings', 'app');
+                    if (raw && typeof raw === 'object') legacySettings = raw;
+                } catch (_) {}
+                await ensureDefaultSeed(canonicalId, legacySettings).catch(() => {});
+            } catch (e) {
+                console.warn('⚠️ ProjectsBoot: payroll config seed no disponible en este arranque:', e?.message || e);
+            }
+        }
         // F1.4: ceba el snapshot síncrono de EntityScope (render/save paths).
         // Sólo con los singletons por defecto: con deps inyectadas (tests)
         // el snapshot del módulo no se toca.

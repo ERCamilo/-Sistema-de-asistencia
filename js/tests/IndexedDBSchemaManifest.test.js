@@ -37,14 +37,15 @@ const EXPECTED_STORES = {
     miniAttendanceAliasAudit: 'auditId',
     miniAttendanceInbox: 'eventId',
     payrollClosures: 'id',
-    projects: 'id'
+    projects: 'id',
+    projectPayrollConfigs: 'projectId'
 };
 
 const AUTO_INCREMENT_STORES = ['sync_queue', 'pettyCashOutbox', 'mainSyncOutbox'];
 
-describe('IndexedDB schema v17 manifest (source contract)', () => {
-    test('opens database version 17', () => {
-        expect(IDB_SRC).toMatch(/version\s*=\s*17/);
+describe('IndexedDB schema v18 manifest (source contract)', () => {
+    test('opens database version 18', () => {
+        expect(IDB_SRC).toMatch(/version\s*=\s*18/);
     });
 
     test('creates exactly every known store with its current keyPath', () => {

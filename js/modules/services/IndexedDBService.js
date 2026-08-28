@@ -26,7 +26,7 @@ export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 17) {
+    constructor(dbName = 'attendance-app-db', version = 18) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -290,6 +290,13 @@ export class IndexedDBService {
                 // sin outbox ni publicación cloud.
                 if (!db.objectStoreNames.contains('projects')) {
                     db.createObjectStore('projects', { keyPath: 'id' });
+                }
+
+                // Store: payroll configs por proyecto (v18, F1.6-A2) — config
+                // operativa/económica versionada por projectId canónico.
+                // Local-only en A2 (sin outbox ni publicación cloud).
+                if (!db.objectStoreNames.contains('projectPayrollConfigs')) {
+                    db.createObjectStore('projectPayrollConfigs', { keyPath: 'projectId' });
                 }
             };
         });
@@ -1027,6 +1034,7 @@ export class IndexedDBService {
             pettyCashPeriods: await this.getAll('pettyCashPeriods').catch(() => []),
             pettyCashMovements: await this.getAll('pettyCashMovements').catch(() => []),
             payrollClosures: await this.getAll('payrollClosures'),
+            projectPayrollConfigs: await this.getAll('projectPayrollConfigs').catch(() => []),
             exportedAt: new Date().toISOString(),
             version: this.version
         };
@@ -1083,6 +1091,7 @@ export class IndexedDBService {
             await this.clear('attendance');
             await this.clear('settings');
             await this.clear('payrollClosures');
+            await this.clear('projectPayrollConfigs').catch(() => {});
 
             // L5: escritura por lotes (batchUpdate) en vez de update() uno-por-uno;
             // mucho más rápido al restaurar backups grandes.
@@ -1093,6 +1102,9 @@ export class IndexedDBService {
             if (Array.isArray(data.settings))  await this.batchUpdate('settings', data.settings);
             if (Array.isArray(data.payrollClosures)) {
                 await this.batchUpdate('payrollClosures', data.payrollClosures);
+            }
+            if (Array.isArray(data.projectPayrollConfigs)) {
+                await this.batchUpdate('projectPayrollConfigs', data.projectPayrollConfigs);
             }
 
             return true;
