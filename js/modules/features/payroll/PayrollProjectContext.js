@@ -35,6 +35,39 @@ function frozenMap(obj) {
     return Object.freeze({ ...obj });
 }
 
+function deepClone(value) {
+    if (value == null || typeof value !== 'object') return value;
+    try {
+        if (typeof globalThis.structuredClone === 'function') return globalThis.structuredClone(value);
+    } catch (_) {}
+    return JSON.parse(JSON.stringify(value));
+}
+
+function frozenArrayDeep(arr) {
+    const cloned = arr.map(item => {
+        const c = deepClone(item);
+        if (c && typeof c === 'object') Object.freeze(c);
+        return c;
+    });
+    return Object.freeze(cloned);
+}
+
+function frozenAttendanceMap(obj) {
+    const cloned = {};
+    for (const [k, v] of Object.entries(obj)) {
+        const c = deepClone(v);
+        if (c && typeof c === 'object') Object.freeze(c);
+        cloned[k] = c;
+    }
+    return Object.freeze(cloned);
+}
+
+function frozenSettingsDeep(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    const c = deepClone(obj);
+    return Object.freeze(c);
+}
+
 /**
  * Core factory: synchronously captures scope and freezes collections.
  * Call this BEFORE first await of any payroll operation.
@@ -83,13 +116,13 @@ export function createPayrollProjectContext({ state, scope: explicitScope } = {}
     const rawLeaders = safeState.leaders || [];
     const rawAttendance = safeState.attendance || {};
 
-    const employees = frozenArray(rawEmployees.filter(e => entityInScope(e, scopeSnapshot)));
-    const positions = frozenArray(rawPositions.filter(p => entityInScope(p, scopeSnapshot)));
-    const leaders = frozenArray(rawLeaders.filter(l => entityInScope(l, scopeSnapshot)));
+    const employees = frozenArrayDeep(rawEmployees.filter(e => entityInScope(e, scopeSnapshot)));
+    const positions = frozenArrayDeep(rawPositions.filter(p => entityInScope(p, scopeSnapshot)));
+    const leaders = frozenArrayDeep(rawLeaders.filter(l => entityInScope(l, scopeSnapshot)));
 
-    // attendance snapshot frozen at capture — prevents live-reference drift
-    const attendanceSnapshot = frozenMap(rawAttendance);
-    const settingsSnapshot = safeState.settings ? frozenMap(safeState.settings) : safeState.settings;
+    // attendance snapshot deep-frozen at capture — prevents live-reference drift and in-place mutation
+    const attendanceSnapshot = frozenAttendanceMap(rawAttendance);
+    const settingsSnapshot = safeState.settings ? frozenSettingsDeep(safeState.settings) : safeState.settings;
 
     // fast membership for asserts / attendance guard
     const employeeIdSet = new Set(employees.map(e => String(e.id)));
