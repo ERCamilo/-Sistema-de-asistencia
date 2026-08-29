@@ -111,7 +111,7 @@ export class HolidayService {
     /**
      * Genera el HTML del calendario de festivos/pagos para la sección de Configuración.
      */
-    renderSettingsCalendar() {
+    renderSettingsCalendar(settings = this.state.settings) {
         const month = this.state.settingsCalendarMonth;
         const year = month.getFullYear();
         const monthIndex = month.getMonth();
@@ -140,7 +140,7 @@ export class HolidayService {
         }
 
         // Rango del período de pago
-        const pp = this.state.settings?.payPeriod;
+        const pp = settings?.payPeriod;
         let pStart = null, pEnd = null;
         if (pp?.periodStart && pp?.periodLength) {
             pStart = new Date(pp.periodStart + 'T00:00:00');
@@ -207,7 +207,7 @@ export class HolidayService {
                         <!-- Días -->
                         ${days.map(({ date, currentMonth }) => {
         const dateKey = getDateKey(date);
-        const isHoliday = this.state.settings.holidays.includes(dateKey);
+        const isHoliday = settings.holidays.includes(dateKey);
         const isToday = dateKey === getDateKey(new Date());
         
         let inPeriod = false;

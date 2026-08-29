@@ -91,6 +91,8 @@ import {
 
 let context = null;
 let payrollService = null;
+let payrollRuntime = null;
+let unsubscribeRuntimeInvalidation = null;
 let latestPayrollPreviewRows = [];
 let payrollClosureInProgress = false;
 let payrollPeriodClosureCache = {
@@ -224,7 +226,8 @@ const _ACTION_MAP = {
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'export-payroll-pdf': () => window.PayrollUI?.exportPayrollPDF?.(),
     'send-to-splitx': () => window.PayrollUI?.sendToSplitX?.(),
-    'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
+    'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode),
+    'refresh-scoped-payroll-preview': () => window.PayrollUI?.refreshScopedPayrollPreview?.().catch?.(() => {})
 };
 
 function _handlePayrollClick(e) {
@@ -287,8 +290,14 @@ function _handlePayrollAdjustmentInput(e) {
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
+    unsubscribeRuntimeInvalidation?.();
     context = ctx;
     payrollService = ctx.services.payroll;
+    payrollRuntime = ctx.services.payrollRuntime || null;
+    unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(() => {
+        latestPayrollPreviewRows = [];
+        context?.render?.();
+    }) || null;
     if (ctx.state?.exportConfig) {
         delete ctx.state.exportConfig.payrollAdjustmentPeriodSelections;
     }
@@ -403,6 +412,8 @@ function getLeaderFilteredEmployees(state) {
  * generator and the new Cuentas-por-Cobrar (loans ledger).
  */
 export function PayrollTab() {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) return ScopedPayrollTab(scopedView);
     const state = getState();
     const mode = state.payrollViewMode || 'generator';
 
@@ -435,6 +446,94 @@ export function PayrollTab() {
                 : (mode === 'history' ? PayrollHistoryTab() : PayrollGeneratorTab())}
         </div>
     `;
+}
+
+function ScopedPayrollTab(view) {
+    if (view.status === 'idle') {
+        queueMicrotask(() => refreshScopedPayrollPreview().catch(() => {}));
+    }
+    const errorMessage = view.error?.message || `Payroll config unavailable for project "${view.projectId}"`;
+    if (view.status === 'unavailable') {
+        return `
+            <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+                <h2>Nómina del proyecto</h2>
+                <div role="alert">${escapeHTML(errorMessage)}</div>
+            </section>
+        `;
+    }
+    if (view.status !== 'ready') {
+        return `
+            <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+                <h2>Nómina del proyecto</h2>
+                <p>Cargando configuración de nómina para ${escapeHTML(view.projectId)}...</p>
+            </section>
+        `;
+    }
+    const period = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
+    const rows = view.previewRows || [];
+    const total = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+    return `
+        <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+            <header>
+                <h2>Nómina del proyecto</h2>
+                <p>Configuración disponible · ${escapeHTML(view.projectId)}</p>
+            </header>
+            <div class="payroll-project-preview__period">
+                <label>Desde
+                    <input type="date" value="${escapeHTML(period.periodStart)}"
+                           onchange="PayrollUI.updateScopedPeriod('start', this.value)">
+                </label>
+                <label>Hasta
+                    <input type="date" value="${escapeHTML(period.periodEnd)}"
+                           onchange="PayrollUI.updateScopedPeriod('end', this.value)">
+                </label>
+                <button type="button" data-payroll-action="refresh-scoped-payroll-preview">
+                    Actualizar vista previa
+                </button>
+            </div>
+            <div class="responsive-table-wrapper" role="region" aria-label="Vista previa base de nómina" tabindex="0">
+                <table class="payroll-review-table">
+                    <thead><tr><th>#</th><th>Empleado</th><th>Bruto</th><th>Neto</th></tr></thead>
+                    <tbody>
+                        ${rows.map(row => `
+                            <tr>
+                                <td>${escapeHTML(String(row._number || row.id))}</td>
+                                <td>${escapeHTML(row._employeeName)}</td>
+                                <td>${formatCurrency(row._brutoOriginal)}</td>
+                                <td>${formatCurrency(row.monto)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                    <tfoot><tr><td colspan="3">Total base</td><td>${formatCurrency(total)}</td></tr></tfoot>
+                </table>
+            </div>
+        </section>
+    `;
+}
+
+export async function refreshScopedPayrollPreview(options = {}) {
+    if (!payrollRuntime) throw new Error('Project payroll UI runtime unavailable');
+    try {
+        const result = await payrollRuntime.generatePreview(options);
+        if (result.current) {
+            latestPayrollPreviewRows = result.rows;
+            context?.render?.();
+        }
+        return result;
+    } catch (error) {
+        context?.render?.();
+        throw error;
+    }
+}
+
+export function updateScopedPeriod(type, value) {
+    const view = payrollRuntime?.getCurrentView?.();
+    if (!view?.enabled || view.status !== 'ready') return Promise.resolve(null);
+    const resolved = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
+    return refreshScopedPayrollPreview({
+        periodStart: type === 'start' ? value : resolved.periodStart,
+        periodEnd: type === 'end' ? value : resolved.periodEnd
+    });
 }
 
 /** Setter wired through data-payroll-action="change-payroll-view-mode". */

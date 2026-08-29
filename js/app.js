@@ -103,6 +103,7 @@ import {
 } from './modules/features/attendance/AttendanceBulkActions.js';
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { entityInScope } from './modules/features/projects/ProjectContext.js';
+import { isProjectsEnabled } from './modules/config/FeatureFlags.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { normalizeRegularHoursPerDay, resolveDailyTargetHours } from './modules/utils/AttendanceHours.js';
@@ -124,6 +125,7 @@ import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
 import { HolidayService } from './modules/features/attendance/HolidayService.js';
 import { PayrollService } from './modules/features/payroll/PayrollService.js';
+import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayrollUIRuntime.js';
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
@@ -1052,6 +1054,7 @@ const holidayService = new HolidayService(state);
 
 // 💰 CLASE PAYROLLSERVICE
 const payrollService = new PayrollService(state);
+const payrollUIRuntime = new ProjectPayrollUIRuntime({ state });
 
 // 📈 CLASE CHARTSERVICE
 const chartService = new ChartService(state);
@@ -1063,6 +1066,8 @@ initSettingsUI({
     state,
     icons,
     holidayService,
+    payrollRuntime: payrollUIRuntime,
+    render,
     get currentUser() { return window.currentUser; },
     get autoSyncEnabled() { return autoSyncEnabled; },
     calculateStorageStats: () => calculateStorageStats()
@@ -1100,6 +1105,7 @@ const moduleContext = {
     state,
     services: {
         payroll: payrollService,
+        payrollRuntime: payrollUIRuntime,
         attendance: attendanceService,
         storage: storageService,
         data: dataService,
@@ -5226,6 +5232,20 @@ window.changeSettingsCalendarMonth = function (delta) {
 
 // ═══ SISTEMA DE TOGGLE BUTTONS PARA CALENDARIO ═══
 window.handleCalendarDayClick = function (dateKey) {
+    if (isProjectsEnabled()) {
+        payrollUIRuntime.updateConfig(config => {
+            const next = { ...config, holidays: [...config.holidays], payPeriod: { ...config.payPeriod } };
+            const mode = state.settingsCalendarMode || 'holiday';
+            if (mode === 'holiday') {
+                next.holidays = next.holidays.includes(dateKey)
+                    ? next.holidays.filter(value => value !== dateKey)
+                    : [...next.holidays, dateKey].sort();
+            } else if (mode === 'periodStart') next.payPeriod.periodStart = dateKey;
+            else if (mode === 'payDay') next.payPeriod.payDay = dateKey;
+            return next;
+        }).then(() => render()).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        return;
+    }
     holidayService.handleCalendarDayClick(dateKey, () => saveApplicationData());
     render();
 };
@@ -5243,6 +5263,17 @@ window.changeSettingsCalendarMode = function (mode) {
 // ============================================
 
 window.updatePayPeriod = function (field, value) {
+    if (isProjectsEnabled()) {
+        payrollUIRuntime.updateConfig(config => {
+            const payPeriod = { ...config.payPeriod };
+            if (field === 'periodLength') {
+                const num = parseInt(value, 10);
+                if (Number.isInteger(num) && num >= 1 && num <= 60) payPeriod.periodLength = num;
+            } else if (field === 'periodStart' || field === 'payDay') payPeriod[field] = value || null;
+            return { ...config, payPeriod };
+        }).then(() => render()).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        return;
+    }
     if (!state.settings.payPeriod) {
         state.settings.payPeriod = { periodStart: null, periodLength: 21, payDay: null };
     }
@@ -5259,6 +5290,25 @@ window.updatePayPeriod = function (field, value) {
 };
 
 window.advancePayPeriod = function () {
+    if (isProjectsEnabled()) {
+        const pp = payrollUIRuntime.getCurrentView().config?.payPeriod;
+        if (!pp?.periodStart || !pp?.periodLength) {
+            showNotification('❌ Configura el inicio y duración del período primero', 'error');
+            return;
+        }
+        const start = new Date(`${pp.periodStart}T00:00:00`);
+        start.setDate(start.getDate() + pp.periodLength);
+        const payPeriod = { ...pp, periodStart: getDateKey(start) };
+        if (pp.payDay) {
+            const payDay = new Date(`${pp.payDay}T00:00:00`);
+            payDay.setDate(payDay.getDate() + pp.periodLength);
+            payPeriod.payDay = getDateKey(payDay);
+        }
+        payrollUIRuntime.updateConfig(config => ({ ...config, payPeriod }))
+            .then(() => render())
+            .catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        return;
+    }
     const pp = state.settings.payPeriod;
     if (!pp?.periodStart || !pp?.periodLength) {
         showNotification('❌ Configura el inicio y duración del período primero', 'error');
@@ -5600,24 +5650,33 @@ window.commitIconSet = function (value) {
     saveApplicationData();
 };
 window.saveSettings = function () {
+    const projectsEnabled = isProjectsEnabled();
+    const projectView = projectsEnabled ? payrollUIRuntime.getCurrentView() : null;
+    const projectSettings = projectsEnabled
+        ? projectView.config
+        : state.settings;
+    if (projectsEnabled && !projectSettings) {
+        showNotification(`❌ Payroll config unavailable for project "${projectView.projectId}"`, 'error');
+        return;
+    }
     // Leer valores del formulario
     const companyNameElement = document.getElementById('companyName');
     const companyName = companyNameElement ? companyNameElement.value.trim() : state.settings.companyName;
 
     const regularHoursPerDayElement = document.getElementById('regularHoursPerDay');
-    const regularHoursPerDay = regularHoursPerDayElement ? parseFloat(regularHoursPerDayElement.value) : state.settings.regularHoursPerDay;
+    const regularHoursPerDay = regularHoursPerDayElement ? parseFloat(regularHoursPerDayElement.value) : projectSettings.regularHoursPerDay;
 
     const overtimeFactorElement = document.getElementById('overtimeFactor');
-    const overtimeFactor = overtimeFactorElement ? parseFloat(overtimeFactorElement.value) : state.settings.overtimeFactor;
+    const overtimeFactor = overtimeFactorElement ? parseFloat(overtimeFactorElement.value) : projectSettings.overtimeFactor;
 
     const holidayFactorElement = document.getElementById('holidayFactor');
-    const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : state.settings.holidayFactor;
+    const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : projectSettings.holidayFactor;
     const restDayFactorElement = document.getElementById('restDayFactor');
     const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor || 1.5);
 
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
-    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (state.settings.defaultDeductionPercentage || 2);
+    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (projectSettings.defaultDeductionPercentage || 2);
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
@@ -5694,13 +5753,24 @@ window.saveSettings = function () {
     }
 
     // Guardar configuración
+    const scopedConfigSave = projectsEnabled
+        ? payrollUIRuntime.updateConfig(config => ({
+            ...config,
+            regularHoursPerDay,
+            overtimeFactor,
+            holidayFactor,
+            defaultDeductionPercentage
+        }))
+        : null;
     stateManager.batchSetState(() => {
         state.settings.companyName = companyName;
-        state.settings.regularHoursPerDay = regularHoursPerDay;
-        state.settings.overtimeFactor = overtimeFactor;
-        state.settings.holidayFactor = holidayFactor;
+        if (!projectsEnabled) {
+            state.settings.regularHoursPerDay = regularHoursPerDay;
+            state.settings.overtimeFactor = overtimeFactor;
+            state.settings.holidayFactor = holidayFactor;
+        }
         state.settings.restDayFactor = restDayFactor;
-        state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
+        if (!projectsEnabled) state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
         state.settings.scrollbarMode = scrollbarMode;
         state.settings.showAttendanceCardDeficit = showAttendanceCardDeficit;
         state.settings.attendanceDeficitUnit = attendanceDeficitUnit;
@@ -5731,6 +5801,12 @@ window.saveSettings = function () {
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
+    if (scopedConfigSave) {
+        return scopedConfigSave.then(() => {
+            saveApplicationData({ announce: 'Configuración guardada' });
+            render();
+        }).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+    }
     // Toast honesto: verde solo si de verdad se guardó (local + nube).
     saveApplicationData({ announce: 'Configuración guardada' });
     render();
