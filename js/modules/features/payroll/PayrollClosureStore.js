@@ -98,6 +98,7 @@ export class PayrollClosureStore {
     }
 
     async getById(id) {
+        assertTandaBBlockedWhenScoped('PayrollClosureStore.getById');
         return clone(await this.db.get(PAYROLL_CLOSURE_STORE, String(id || '')) || null);
     }
 
@@ -194,6 +195,7 @@ export class PayrollClosureStore {
     }
 
     async getSyncStates(closureIds = []) {
+        assertTandaBBlockedWhenScoped('PayrollClosureStore.getSyncStates');
         const ids = [...new Set((closureIds || []).map(String).filter(Boolean))];
         const states = Object.fromEntries(ids.map(id => [id, 'synced']));
         if (ids.length === 0) return states;

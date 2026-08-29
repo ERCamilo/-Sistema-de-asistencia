@@ -48,6 +48,7 @@ async function expectGateErrorAsync(fn) {
     try { await fn(); } catch (e) { err = e; }
     expect(err).toBeInstanceOf(ProjectScopedGateError);
     expect(err.message).toMatch(/^Tanda B blocked:/);
+    expect(err.code).toBe('TANDA_B_BLOCKED_WHEN_SCOPED');
 }
 
 describe('Tanda B gates — with projects ON all B operations blocked before mutation', () => {
@@ -85,6 +86,20 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         await expectGateErrorAsync(() => store.getByPeriod('2026-01-01', '2026-01-15'));
         expect(db.query).not.toHaveBeenCalled();
         expect(db.getPageByIndex).not.toHaveBeenCalled();
+    });
+
+    test('PayrollClosureStore.getById blocked before IDB get', async () => {
+        const db = fakeDb();
+        const store = new PayrollClosureStore({ db });
+        await expectGateErrorAsync(() => store.getById('some-id'));
+        expect(db.get).toHaveBeenCalledTimes(0);
+    });
+
+    test('PayrollClosureStore.getSyncStates blocked before IDB getAll', async () => {
+        const db = fakeDb();
+        const store = new PayrollClosureStore({ db });
+        await expectGateErrorAsync(() => store.getSyncStates(['id1', 'id2']));
+        expect(db.getAll).toHaveBeenCalledTimes(0);
     });
 
     test('PayrollClosureRepository.saveOne blocked before transaction', async () => {
@@ -209,6 +224,30 @@ describe('Tanda B gates — with flag OFF legacy behavior preserved', () => {
         const saved = await store.save({ id: 'PAYROLL-CLOSURE-off', fingerprint: 'fp-off', status: 'closed', periodStart: '2026-01-01', periodEnd: '2026-01-15', rows: closureDraftRows(), totals: {}, employeeCount: 1, closedAt: Date.now() });
         expect(saved.id).toBe('PAYROLL-CLOSURE-off');
         expect(db.atomicMutate).toHaveBeenCalled();
+    });
+
+    test('OFF: PayrollClosureStore.getById pass-through (mock db.get returns closure)', async () => {
+        const db = fakeDb();
+        const fakeClosure = { id: 'C-OFF', fingerprint: 'fp-off-b', status: 'closed', periodStart: '2026-01-01', periodEnd: '2026-01-15', closedAt: Date.now() };
+        db.get.mockResolvedValue(fakeClosure);
+        const store = new PayrollClosureStore({ db });
+        const result = await store.getById('C-OFF');
+        expect(result).toEqual(fakeClosure);
+        expect(db.get).toHaveBeenCalledWith('payrollClosures', 'C-OFF');
+        expect(db.get).toHaveBeenCalledTimes(1);
+    });
+
+    test('OFF: PayrollClosureStore.getSyncStates pass-through (mock db.getAll returns states)', async () => {
+        const db = fakeDb();
+        db.getAll.mockResolvedValue([
+            { closureId: 'pending-id', kind: 'payrollClosureBundle', status: 'pending' },
+            { closureId: 'dead-id', kind: 'payrollClosure', status: 'dead' }
+        ]);
+        const store = new PayrollClosureStore({ db });
+        const states = await store.getSyncStates(['pending-id', 'dead-id', 'synced-id']);
+        expect(states).toEqual({ 'pending-id': 'pending', 'dead-id': 'dead', 'synced-id': 'synced' });
+        expect(db.getAll).toHaveBeenCalledWith('mainSyncOutbox');
+        expect(db.getAll).toHaveBeenCalledTimes(1);
     });
 
     test('OFF: attachPayrollAdjustmentPlans not gated (validation runs)', () => {
