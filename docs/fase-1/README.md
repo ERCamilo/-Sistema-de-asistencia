@@ -3,9 +3,9 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | **F0 100%; F1.1–F1.5 cerradas** · F1.6 con arquitectura aprobada · **A0–A3 ✅ cerrados y aprobados** (`1bd02b3`; A3: 10/10 nuevos, 27/27 A1+A2+A3, 363/363 suites · 3512/3512 tests · 0 fallos, fresh-context ALLOW · 0 findings) · **A4 🟢 autorizado** · **A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒** |
-| Punto de parada | Ejecutar exclusivamente A4 UI/configuración/preview scoped con el orden congelado de este índice; completar tests + fresh review y detenerse antes de A5. |
-| Rama de trabajo | `feature/factor-dias-no-laborables` · commit de referencia `1bd02b3` · árbol limpio antes de esta reconciliación documental |
+| Estado | **F0 100%; F1.1–F1.5 cerradas** · F1.6 con arquitectura aprobada · **A0–A3 ✅ cerrados y aprobados** (`1bd02b3`; 10/10 nuevos, 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) · **A4 🟡 implementado y validado técnicamente, pendiente de aprobación formal** (`6c1cb2c`; 12/12 nuevos, 49/49 A4+A1+A2+A3, 365/365 suites · 3525/3525 tests · 0 fallos, ALLOW · 0 findings) · **A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒** |
+| Punto de parada | **Solicitar veredicto formal de A4** sobre `6c1cb2c`; no iniciar A5–A6, B1–B5 ni F1.7 hasta aprobación explícita. A4 ya completó tests + fresh review y se detiene antes de A5. |
+| Rama de trabajo | `feature/factor-dias-no-laborables` · commit de referencia `6c1cb2c` · árbol limpio antes de esta reconciliación documental |
 
 ## Pasos
 
@@ -24,12 +24,13 @@
 | **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
 | **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | ✅ CERRADA |
 | **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Cerrada y aprobada por Dirección (incluye micro-cierre) · 354/354 suites, 3401 tests | ✅ CERRADA |
-| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | **A0–A3 ✅ cerrados y aprobados**; A3 conserva caveats helper-level y sin UI/runtime end-to-end completo como follow-on aceptado; **A4 🟢 autorizado**; **A5–A6 🔒 y B1–B5 🔒** | F1.7 🔒 requiere F1.6-A y F1.6-B implementadas, verificadas, revisadas y aprobadas |
+| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | **A0–A3 ✅ cerrados y aprobados**; **A4 🟡 implementado y validado técnicamente, pendiente de aprobación formal** (`6c1cb2c`; 12/12 nuevos, 49/49, 365/365 · 3525, ALLOW · 0 findings); **A5–A6 🔒 y B1–B5 🔒** | F1.7 🔒 requiere F1.6-A y F1.6-B implementadas, verificadas, revisadas y aprobadas; A5 bloqueado hasta veredicto A4 |
 | **F1.6-A0 Bitácora IDB por proyecto** | [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-26** — bitácora evaluable 3 ciclos RED→GREEN (§2.1), contrato `explicit > default autoritativo > legacy-unresolved:*` (§2.2), verificación §3 (RecordKey 13/13, 12/12, 76 acotados, 354/354 · 3409, ALLOW); frontera rollback `c7a9e0c` | Lectura obligatoria — A0 cerrado |
 | **F1.6-A0.5 Bitácora identidad canónica** | [`F1.6-A0.5-bitacora.md`](F1.6-A0.5-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-27** — `51a7611` + `50343ee` (20/20, 360/360 · 3485, ALLOW 0 findings; DEP-SA-004 cerrado) | Registro histórico; estado vivo en este índice y en el documento F1.6 |
 | **F1.6-A1 Bitácora PayrollProjectContext** | [`F1.6-A1-bitacora.md`](F1.6-A1-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-28** — `185e1cd` (10/10, 55/55 · 361/361 · 3495, ALLOW 0 findings) | Registro histórico; A3 ya conecta parte de sus consumidores |
 | **F1.6-A2 Bitácora projectPayrollConfigs** | [`F1.6-A2-bitacora.md`](F1.6-A2-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-28** — `d5858dc` (7/7, 62/62 · 362/362 · 3502, ALLOW 0 findings) | Registro histórico; A3 ya consume configuración donde está conectado |
-| **F1.6-A3 Bitácora cálculo scoped** | [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) | ✅ **Cerrado y aprobado formalmente por Dirección 2026-08-28** — `1bd02b3` (6 archivos, +630/-9; 10/10 nuevos; 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) | Próxima acción: **A4 🟢 UI/configuración/preview scoped** |
+| **F1.6-A3 Bitácora cálculo scoped** | [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) | ✅ **Cerrado y aprobado formalmente por Dirección 2026-08-28** — `1bd02b3` (6 archivos, +630/-9; 10/10 nuevos; 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) | Registro histórico; A4 implementado sobre `6c1cb2c` pendiente de aprobación formal |
+| **F1.6-A4 Bitácora UI/configuración/preview scoped** | [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md) | 🟡 **Implementado y validado técnicamente, pendiente de aprobación formal de Dirección 2026-08-28** — `6c1cb2c` (12 archivos, +1144/-26; 12/12 nuevos; 49/49, 365/365 · 3525, ALLOW · 0 findings) | Próxima acción: **veredicto formal de Dirección antes de A5** |
 | **F1.7 Caja chica multiproyecto** | Roadmap §7 | **BLOQUEADA** | Requiere F1.6 revisada y aprobada |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
@@ -44,20 +45,23 @@ Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 - **A0.5 bitácora evaluable** → [`F1.6-A0.5-bitacora.md`](F1.6-A0.5-bitacora.md) — identidad canónica cross-device, registro/promoción/adopción SA-only, 20 tests (15+3-device + 2 micro-cierre MC1/MC2) y 2 WARNINGS ✅ resueltos en `50343ee` (ALLOW 0 findings)
 - **A1 bitácora evaluable** → [`F1.6-A1-bitacora.md`](F1.6-A1-bitacora.md) — frontera única `PayrollProjectContext`, captura antes de `await`, OFF paridad exacta, freeze, `#12` por `employeeId`, attendance snapshot, 10/10 + 55/55 · 361/361 · 3495, ALLOW 0 findings, sin wiring, `buildAttendanceIndex` intacto
 - **A2 bitácora evaluable** → [`F1.6-A2-bitacora.md`](F1.6-A2-bitacora.md) — store versionado `projectPayrollConfigs` por `projectId`, 10 campos, semilla atómica idempotente, flag OFF sin dual-write, A/B isolation, reload, canónico vs active, local-only sin cloud/wiring, 7/7 + 62/62 agrupada · 362/362 · 3502, ALLOW 0 findings, **✅ Cerrado y aprobado por Dirección 2026-08-28**
-- **A3 bitácora evaluable** → [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) — cálculo scoped en `PayrollService`, helpers contextuales en `PayrollPeriod`, snapshot deep-cloned con congelamiento de primer nivel, fail-closed, OFF síncrono, 10 tests nuevos; **✅ cerrado y aprobado formalmente: 27/27 · 363/363 · 3512 · ALLOW 0 findings**
+- **A3 bitácora evaluable** → [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) — cálculo scoped en `PayrollService`, helpers contextuales en `PayrollPeriod`, snapshot con congelamiento de primer nivel, fail-closed, OFF síncrono, 10 tests nuevos; **✅ cerrado y aprobado formalmente: 27/27 · 363/363 · 3512 · ALLOW 0 findings**
+- **A4 bitácora evaluable** → [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md) — UI de configuración y preview scoped con `ProjectPayrollUIRuntime` + `ProjectPayrollConfigStore`, `config.payPeriod` productivo, invalidación sincrónica A→B y rebuild B→A, stale preview guard, OFF byte-idéntico, 12 tests nuevos; **🟡 implementado y validado técnicamente, pendiente de aprobación formal: 49/49 · 365/365 · 3525 · ALLOW 0 findings**
 
-## Contrato A4 autorizado
+## Contrato A4 — implementado y validado técnicamente, pendiente de aprobación formal
 
-1. Con flag ON, UI de configuración y preview usan el `projectId` capturado y `projectPayrollConfigs`.
-2. Los callers productivos de período usan `config.payPeriod` scoped.
+> A4 fue ejecutado exactamente en el orden congelado siguiente y ya completó tests + fresh review; no se afirma cierre ni aprobación formal hasta veredicto de Dirección.
+
+1. Con flag ON, UI de configuración y preview usan el `projectId` capturado y `projectPayrollConfigs` vía `ProjectPayrollUIRuntime`.
+2. Los callers productivos de período del preview usan `config.payPeriod` scoped.
 3. A→B invalida selección temporal, preview, período y caché de sesión; B→A reconstruye A.
 4. Una preview async iniciada en A permanece en A mientras una preview nueva usa B.
-5. Con flag OFF, la UI legacy permanece exacta.
+5. Con flag OFF, la UI legacy permanece byte-idéntica.
 6. No se habilitan cierres, préstamos, ajustes persistidos, historial ni exportación final.
-7. No se trabaja H-05 ni se amplía la persistencia de `exportConfig`.
-8. Ejecutar tests + fresh review y detenerse antes de A5.
+7. No se trabaja H-05 completo ni se amplía la persistencia de `exportConfig`.
+8. Tests + fresh review completados sobre `6c1cb2c` (49/49, 365/365 · 3525, ALLOW · 0 findings); detenerse antes de A5.
 
-GitHub todavía no resuelve `1bd02b3`; el cierre formal de A3 se basa en la bitácora local, la evidencia reportada y la revisión, no en inspección remota del diff.
+Evidencia A4: `6c1cb2c` (12 archivos, +1144/-26; 12/12 nuevos, 49/49, 365/365 · 3525, ALLOW · 0 findings). El cierre formal de A3 (`1bd02b3`) se basa en bitácora local, evidencia reportada y revisión.
 
 ## Commits de esta etapa
 
@@ -131,6 +135,6 @@ El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktre
 
 ## Cómo retomar
 
-1. Leer roadmap §12–§16, este índice, [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) y las bitácoras evaluables A0–A3, especialmente [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md).
-2. Estado exacto: **A0–A3 ✅ · A4 🟢 · A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒**. DEP-SA-004 permanece cerrado.
-3. Próxima acción: ejecutar únicamente el contrato A4 de este índice, completar tests + fresh review y detenerse antes de A5.
+1. Leer roadmap §12–§16, este índice, [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) y las bitácoras evaluables A0–A4, especialmente [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md) como estado vivo de A4 y [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) como cierre formal previo.
+2. Estado exacto: **A0–A3 ✅ · A4 🟡 implementado y validado técnicamente, pendiente de aprobación formal · A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒**. DEP-SA-004 permanece cerrado.
+3. Próxima acción: **solicitar veredicto formal de Dirección sobre A4 (`6c1cb2c` + [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md))**; no iniciar A5 hasta obtenerlo.

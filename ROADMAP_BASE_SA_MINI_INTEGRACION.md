@@ -268,18 +268,18 @@ Ejemplo:
 
 **Al terminar la fase:** SA es internamente project-aware. Se puede crear un proyecto de prueba vacío y comprobar aislamiento aunque todavía no exista UI completa.
 
-**Actualización F1.6 (2026-08-28):** **A0–A3 ✅ están cerrados y aprobados**. Dirección cerró formalmente A3 sobre `1bd02b3` (10/10 nuevos, 27/27 A1+A2+A3, 363/363 suites · 3512/3512 tests · 0 fallos, fresh-context ALLOW · 0 findings; ver [`docs/fase-1/F1.6-A3-bitacora.md`](docs/fase-1/F1.6-A3-bitacora.md)) y autorizó exclusivamente **A4 🟢 UI/configuración/preview scoped**. La resolución de período helper-level y la falta de wiring UI/runtime end-to-end completo permanecen como caveats aceptados para A4, no como reapertura de A3. **A5–A6 🔒, B1–B5 🔒 y F1.7 🔒 permanecen bloqueados.** DEP-SA-004 está cerrado desde A0.5. GitHub todavía no resuelve `1bd02b3`; el cierre formal se basa en la bitácora local, la evidencia reportada y la revisión, no en inspección remota del diff.
+**Actualización F1.6 (2026-08-28):** **A0–A3 ✅ están cerrados y aprobados** (`1bd02b3`; 10/10 nuevos, 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings; ver [`docs/fase-1/F1.6-A3-bitacora.md`](docs/fase-1/F1.6-A3-bitacora.md)). **A4 🟡 está implementado y validado técnicamente, pendiente de aprobación formal de Dirección** sobre `6c1cb2c` (12/12 nuevos, 49/49 A4+A1+A2+A3, 365/365 · 3525, ALLOW · 0 findings; ver [`docs/fase-1/F1.6-A4-bitacora.md`](docs/fase-1/F1.6-A4-bitacora.md)). ON usa `capturedProjectId` + `ProjectPayrollUIRuntime` + `ProjectPayrollConfigStore`, período productivo vía `config.payPeriod`, invalidación sincrónica A→B y rebuild B→A, stale guard; OFF byte-idéntico; sin cierres/préstamos/ajustes/historial/exportación ni H-05 completo. **A5–A6 🔒, B1–B5 🔒 y F1.7 🔒 permanecen bloqueados hasta veredicto formal de A4.** DEP-SA-004 permanece cerrado.
 
-**Orden congelado de A4:**
+**Orden ejecutado de A4 (validado técnicamente, pendiente de aprobación formal):**
 
-1. Con flag ON, UI de configuración y preview usan el `projectId` capturado y `projectPayrollConfigs`.
-2. Los callers productivos de período usan `config.payPeriod` scoped.
+1. Con flag ON, UI de configuración y preview usan el `projectId` capturado y `projectPayrollConfigs` vía `ProjectPayrollUIRuntime`.
+2. Los callers productivos de período del preview usan `config.payPeriod` scoped.
 3. A→B invalida selección temporal, preview, período y caché de sesión; B→A reconstruye A.
 4. Una preview async iniciada en A permanece en A mientras una preview nueva usa B.
-5. Con flag OFF, la UI legacy permanece exacta.
+5. Con flag OFF, la UI legacy permanece byte-idéntica.
 6. No se habilitan cierres, préstamos, ajustes persistidos, historial ni exportación final.
-7. No se trabaja H-05 ni se amplía la persistencia de `exportConfig`.
-8. Ejecutar tests + fresh review y detenerse antes de A5.
+7. No se trabaja H-05 completo ni se amplía la persistencia de `exportConfig`.
+8. Tests + fresh review completados sobre `6c1cb2c` (49/49, 365/365 · 3525, ALLOW · 0 findings); detenerse antes de A5 hasta veredicto formal.
 
 **Punto de parada usable:** SA sigue siendo utilizable como antes con un único proyecto visible.
 
@@ -673,7 +673,7 @@ La orden histórica de inicialización entregada al **Equipo SA** fue:
 
 Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual, actualizada el 2026-08-28, es:
 
-> **Estado exacto: A0–A3 ✅ · A4 🟢 · A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒.** Ejecutar exclusivamente A4 UI/configuración/preview scoped con el orden congelado de §7; completar tests + fresh review y detenerse antes de A5. DEP-SA-004 permanece cerrado y no debe mostrarse como bloqueo vigente.
+> **Estado exacto: A0–A3 ✅ · A4 🟡 implementado y validado técnicamente, pendiente de aprobación formal · A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒.** Solicitar veredicto formal de Dirección sobre A4 (`6c1cb2c` + [`docs/fase-1/F1.6-A4-bitacora.md`](docs/fase-1/F1.6-A4-bitacora.md)); no iniciar A5–A6, B1–B5 ni F1.7 hasta aprobación explícita. DEP-SA-004 permanece cerrado.
 
 El primer objetivo técnico estable será:
 
@@ -687,7 +687,7 @@ El primer objetivo técnico estable será:
 |---|---|---|---|
 | F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
 | F1.0 Precondiciones del refactor | ✅ Completada y APROBADA (2026-08-25) | SA | F0 aprobada |
-| F1 Contexto de proyecto | En ejecución — F1.5 cerrada y aprobada; F1.6 en estado **A0–A3 ✅ · A4 🟢 · A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒** (`1bd02b3`; A3 10/10 nuevos, 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) | SA | Ejecutar A4, completar tests + fresh review y detenerse antes de A5. DEP-SA-004 está cerrado |
+| F1 Contexto de proyecto | En ejecución — F1.5 cerrada y aprobada; F1.6 en estado **A0–A3 ✅ · A4 🟡 implementado y validado técnicamente, pendiente de aprobación formal · A5–A6 🔒 · B1–B5 🔒 · F1.7 🔒** (`6c1cb2c`; A4 12/12 nuevos, 49/49, 365/365 · 3525, ALLOW · 0 findings) | SA | Solicitar veredicto formal de A4 y detenerse antes de A5. DEP-SA-004 permanece cerrado |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |
