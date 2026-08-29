@@ -268,7 +268,7 @@ Ejemplo:
 
 **Al terminar la fase:** SA es internamente project-aware. Se puede crear un proyecto de prueba vacío y comprobar aislamiento aunque todavía no exista UI completa.
 
-**Actualización F1.6 (2026-08-28):** **A0–A4 ✅ están cerrados y aprobados** — A3 `1bd02b3` (10/10 nuevos, 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) y **A4 2026-08-28 `6c1cb2c`** (12/12 nuevos, 49/49 A4+A1+A2+A3, 365/365 · 3525, ALLOW · 0 findings; ver [`docs/fase-1/F1.6-A4-bitacora.md`](docs/fase-1/F1.6-A4-bitacora.md)). ON usa `capturedProjectId` + `ProjectPayrollUIRuntime` + `ProjectPayrollConfigStore`, período productivo vía `config.payPeriod`, invalidación sincrónica A→B y rebuild B→A, stale guard; OFF byte-idéntico; sin cierres/préstamos/ajustes/historial/exportación ni H-05 completo. **A5 🟢 autorizado exclusivamente (H-05); A6 🔒, B1–B5 🔒 y F1.7 🔒 permanecen bloqueados.** DEP-SA-004 permanece cerrado.
+**Actualización F1.6 (2026-08-29):** **A0–A4 ✅ están cerrados y aprobados** — A3 `1bd02b3` (10/10 nuevos, 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) y **A4 2026-08-28 `6c1cb2c`** (12/12 nuevos, 49/49 A4+A1+A2+A3, 365/365 · 3525, ALLOW · 0 findings; ver [`docs/fase-1/F1.6-A4-bitacora.md`](docs/fase-1/F1.6-A4-bitacora.md)). ON usa `capturedProjectId` + `ProjectPayrollUIRuntime` + `ProjectPayrollConfigStore`, período productivo vía `config.payPeriod`, invalidación sincrónica A→B y rebuild B→A, stale guard; OFF byte-idéntico; sin cierres/préstamos/ajustes/historial/exportación ni H-05 completo. **A5 🟡 Implementado y validado técnicamente, pendiente de aprobación formal 2026-08-29 sobre `ae66121`** (8 archivos, +243/-4; helper 24 líneas `ExportConfigSanitizer`; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix `Object.assign`); helper elimina solo `exportConfig` y preserva `payrollDefaults`/`projectPayrollConfigs`; sanea mirror/replace/snapshot + `getSnapshot`/`getFullState` + `PersistenceService` `_mirrorSnapshot` + `DataOps` frozen/`cleanCloud` + `app.js` `applyRemoteData`/`applyBackupData`/`prepareRestoredState`; verifica no resurrección tras sync/restore/snapshot con A→B→A y OFF preservadas. **A6 🔒, B1–B5 🔒 y F1.7 🔒 permanecen bloqueados previo a veredicto formal de A5.** DEP-SA-004 permanece cerrado.
 
 **Orden ejecutado de A4 (✅ cerrado y aprobado 2026-08-28):**
 
@@ -280,6 +280,15 @@ Ejemplo:
 6. No se habilitan cierres, préstamos, ajustes persistidos, historial ni exportación final.
 7. No se trabaja H-05 completo ni se amplía la persistencia de `exportConfig`.
 8. Tests + fresh review completados sobre `6c1cb2c` (49/49, 365/365 · 3525, ALLOW · 0 findings); **A4 ✅ cerrado y aprobado — A5 🟢 autorizado exclusivamente (H-05)**.
+
+**Orden ejecutado de A5 (🟡 pendiente de aprobación formal 2026-08-29 — `ae66121`):**
+
+1. Tratar `exportConfig` como estado transitorio de UI/sesión y sanitizar simétricamente en ALL egress/ingress frontiers: mirror/data/current, cloud replace, snapshots, DataOps local→cloud y restores/legacy ingresses.
+2. Verificar que un `exportConfig` viejo no resucite tras sync/restore/snapshot load.
+3. No eliminar configuración durable legítima (`settings.payrollDefaults`, `projectPayrollConfigs`).
+4. Preservar garantías A→B→A de A4 (invalidación sincrónica + rebuild sin stale).
+5. No tocar `PayrollClosure`, cierres, préstamos, ajustes económicos, PDF, SplitX, economic cloud ni petty cash.
+6. Tests + fresh review completados (**17/17 nuevos, 56/56 agrupada, 366/366 suites · 3542/3542 tests · 0 fallos, ALLOW · 0 findings** tras fix de WARNING `Object.assign`); **A5 pendiente de veredicto formal antes de A6**.
 
 **Punto de parada usable:** SA sigue siendo utilizable como antes con un único proyecto visible.
 
@@ -622,7 +631,7 @@ Mantener esta tabla viva durante el desarrollo.
 | DEP-SA-001 | SA | SA (aprueba Dirección) | F2.8 / F2.9 (resumen mensual e informe final) + multiproyecto completo | Vínculo oficial Project ↔ PettyCashProject con relación **1:N**: campo `officialProjectId` en `pettyCashProjects`, backfill al predeterminado; UN Project oficial puede tener VARIOS proyectos de caja vinculados y los reportes suman TODOS (veredicto P7). Implementación NO bloquea F1.1–F1.6 | Alta | Decidida — implementación pendiente |
 | DEP-SA-002 | SA | SA + Integración (valida Dirección) | F1.6 configuración cloud | Dependencia específica de configuración cloud: `payrollConfigsV1/{projectId}` requiere identidad/registro de proyecto estable; su resolución operativa queda detrás de DEP-SA-004 | Bloqueante para config cloud | Pendiente — no resolver dentro de F1.6-A |
 | DEP-SA-003 | SA | SA (implementa ADR-016) | F1.6-B4 cierres/pagos | Implementar la política canónica fijada para `ProfileController.markAsPaid`: delegar al cierre de nómina o deshabilitar con proyectos ON; `employee.paymentHistory` se conserva como histórico y no como ledger nuevo | Bloqueante para B4 | Pendiente — ADR-016 fijado; implementación pendiente |
-| DEP-SA-004 | SA | SA (valida Dirección) | Gate histórico de identidad canónica para F1.6 | Identidad canónica de `Project` entre dispositivos: misma cuenta/obra comparte un único `projectId`; `activeProjectId` sigue local. Implementación mínima SA-only sin organizaciones, roles, membresías, Mini ni Integración | Cerrada; no es bloqueo actual | **✅ Cerrado y aprobado por Dirección el 2026-08-27** — `51a7611` + `50343ee` (20/20, 360/360 · 3485, ALLOW 0 findings; ver [`docs/fase-1/F1.6-A0.5-bitacora.md`](docs/fase-1/F1.6-A0.5-bitacora.md)). A4 ✅ cerrado 2026-08-28; A5 🟢 autorizado exclusivamente; A6 y B/F1.7 siguen bloqueados por la secuencia formal y sus dependencias específicas, no por DEP-SA-004. |
+| DEP-SA-004 | SA | SA (valida Dirección) | Gate histórico de identidad canónica para F1.6 | Identidad canónica de `Project` entre dispositivos: misma cuenta/obra comparte un único `projectId`; `activeProjectId` sigue local. Implementación mínima SA-only sin organizaciones, roles, membresías, Mini ni Integración | Cerrada; no es bloqueo actual | **✅ Cerrado y aprobado por Dirección el 2026-08-27** — `51a7611` + `50343ee` (20/20, 360/360 · 3485, ALLOW 0 findings; ver [`docs/fase-1/F1.6-A0.5-bitacora.md`](docs/fase-1/F1.6-A0.5-bitacora.md)). A4 ✅ cerrado 2026-08-28; A5 🟡 Implementado y validado técnicamente, pendiente de aprobación formal 2026-08-29 sobre `ae66121` (17/17, 56/56, 366/366 · 3542, ALLOW tras fix); A6 y B/F1.7 siguen bloqueados por la secuencia formal y sus dependencias específicas, no por DEP-SA-004. |
 
 ---
 
@@ -673,7 +682,7 @@ La orden histórica de inicialización entregada al **Equipo SA** fue:
 
 Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual, actualizada el 2026-08-28, es:
 
-> **Estado exacto: A0–A4 ✅ · A5 🟢 · A6 🔒 · B1–B5 🔒 · F1.7 🔒.** A4 ✅ cerrado y aprobado 2026-08-28 sobre `6c1cb2c` (`docs/fase-1/F1.6-A4-bitacora.md`); A5 🟢 autorizado exclusivamente — H-05 `exportConfig` sanitización simétrica ALL frontiers (mirror/data/current, cloud replace, snapshots, DataOps local→cloud, restores/legacy ingresses); no borrar `payrollDefaults`/`projectPayrollConfigs`; preservar A→B→A; no tocar PayrollClosure/closures/loans/economic adjustments/PDF/SplitX/economic cloud/petty cash. A6 🔒, B1–B5 🔒 y F1.7 🔒 permanecen bloqueados. DEP-SA-004 permanece cerrado.
+> **Estado exacto: A0–A4 ✅ · A5 🟡 Implementado y validado técnicamente, pendiente de aprobación formal 2026-08-29 sobre `ae66121` (`docs/fase-1/F1.6-A5-bitacora.md`; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix) · A6 🔒 · B1–B5 🔒 · F1.7 🔒.** A4 ✅ cerrado y aprobado 2026-08-28 sobre `6c1cb2c` (`docs/fase-1/F1.6-A4-bitacora.md`); A5 🟡 pendiente de veredicto formal — H-05 `exportConfig` sanitizado simétricamente en ALL frontiers (mirror/data/current, cloud replace, snapshots, DataOps local→cloud, restores/legacy ingresses); no borra `payrollDefaults`/`projectPayrollConfigs`; preserva A→B→A; no toca PayrollClosure/closures/loans/economic adjustments/PDF/SplitX/economic cloud/petty cash. **A6 🔒, B1–B5 🔒 y F1.7 🔒 permanecen bloqueados previo a veredicto formal de A5.** DEP-SA-004 permanece cerrado.
 
 El primer objetivo técnico estable será:
 
@@ -687,7 +696,7 @@ El primer objetivo técnico estable será:
 |---|---|---|---|
 | F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
 | F1.0 Precondiciones del refactor | ✅ Completada y APROBADA (2026-08-25) | SA | F0 aprobada |
-| F1 Contexto de proyecto | En ejecución — F1.5 cerrada y aprobada; F1.6 en estado **A0–A4 ✅ · A5 🟢 · A6 🔒 · B1–B5 🔒 · F1.7 🔒** (`6c1cb2c`; A4 12/12 nuevos, 49/49, 365/365 · 3525, ALLOW · 0 findings — ✅ cerrado 2026-08-28; A5 🟢 autorizado H-05) | SA | Ejecutar exclusivamente A5 (H-05) — sanitización simétrica ALL frontiers; A6, B1–B5 y F1.7 bloqueados. DEP-SA-004 permanece cerrado |
+| F1 Contexto de proyecto | En ejecución — F1.5 cerrada y aprobada; F1.6 en estado **A0–A4 ✅ · A5 🟡 Implementado y validado técnicamente, pendiente de aprobación formal (`ae66121`; 17/17, 56/56, 366/366 · 3542, ALLOW tras fix) · A6 🔒 · B1–B5 🔒 · F1.7 🔒** (`6c1cb2c`; A4 12/12 nuevos, 49/49, 365/365 · 3525, ALLOW · 0 findings — ✅ cerrado 2026-08-28; A5 🟡 pendiente de veredicto formal 2026-08-29 sobre `ae66121`) | SA | Solicitar **veredicto formal de A5** antes de A6; A6, B1–B5 y F1.7 bloqueados. DEP-SA-004 permanece cerrado |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |
