@@ -88,6 +88,7 @@ import {
     setPayrollAdjustmentPeriodRuntimeSelection,
     setPayrollAdjustmentPeriodRuntimeSelections
 } from './PayrollAdjustmentPeriodSelection.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 let context = null;
 let payrollService = null;
@@ -1429,6 +1430,7 @@ function persistAdjustmentDefault(kind, previous, next) {
 }
 
 export async function addDesktopAdjustment(kind, target) {
+    assertTandaBBlockedWhenScoped('PayrollUI.addDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
     const form = target?.closest('.payroll-adjustment-form');
     const draft = readAdjustmentForm(form);
@@ -1674,6 +1676,7 @@ function prepareScheduledRemoval(state, reference) {
 }
 
 export async function removeScheduledAdjustment(referenceToken) {
+    assertTandaBBlockedWhenScoped('PayrollUI.removeScheduledAdjustment');
     const initialReference = resolveScheduledActionReference(referenceToken);
     let initial;
     try {
@@ -1747,6 +1750,7 @@ export async function removeScheduledAdjustment(referenceToken) {
 }
 
 export async function setScheduledAdjustmentPaused(referenceToken, paused) {
+    assertTandaBBlockedWhenScoped('PayrollUI.setScheduledAdjustmentPaused');
     const planReference = resolveScheduledActionReference(referenceToken);
     if (!planReference) {
         window.showNotification?.(
@@ -2301,6 +2305,7 @@ export function addEmployeeBonusFromForm() {
 // ---------------------- PRÉSTAMOS TEMPORALES DE NÓMINA ----------------------
 
 export function addPayrollLoansToExport() {
+    assertTandaBBlockedWhenScoped('PayrollUI.addPayrollLoansToExport');
     const state = getState();
     const eligibleEmployees = getLeaderFilteredEmployees(state);
     const selection = buildPayrollLoanSelection(eligibleEmployees, state.exportConfig.periodEnd);
@@ -2445,6 +2450,7 @@ function getSplitXExportData() {
 }
 
 export function copyExportJSON() {
+    assertTandaBBlockedWhenScoped('PayrollUI.copyExportJSON');
     const data = getSplitXExportData();
     if (!data) return;
     const json = JSON.stringify(data, null, 2);
@@ -2456,6 +2462,7 @@ export function copyExportJSON() {
 }
 
 export function downloadExportJSON() {
+    assertTandaBBlockedWhenScoped('PayrollUI.downloadExportJSON');
     const data = getSplitXExportData();
     if (!data) return;
     const json = JSON.stringify(data, null, 2);
@@ -2470,6 +2477,7 @@ export function downloadExportJSON() {
 }
 
 export async function exportPayrollPDF() {
+    assertTandaBBlockedWhenScoped('PayrollUI.exportPayrollPDF');
     const previewRows = generateExportData();
     if (!previewRows || previewRows.length === 0) {
         if (window.showNotification) {
@@ -2680,6 +2688,7 @@ export async function exportPayrollPDF() {
 }
 
 export function sendToSplitX(targetUrl) {
+    assertTandaBBlockedWhenScoped('PayrollUI.sendToSplitX');
     const data = getSplitXExportData();
     if (!data || data.length === 0) return null;
 
@@ -2998,6 +3007,7 @@ async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {})
 }
 
 export function togglePayrollPaidConfirmation(checked) {
+    assertTandaBBlockedWhenScoped('PayrollUI.togglePayrollPaidConfirmation');
     const current = currentPayrollClosureState();
     if (!checked) {
         stateManager.setState({
@@ -3049,6 +3059,7 @@ function payrollHistorySummary(item = {}) {
 }
 
 export async function loadPayrollHistory({ direction = 'current', force = false } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollUI.loadPayrollHistory');
     if (payrollHistoryState.loading && !force) return;
     if (direction === 'previous') {
         const previousIndex = payrollHistoryState.pageIndex - 1;
@@ -3200,6 +3211,7 @@ function focusPayrollHistoryControl(action, id = null) {
 }
 
 export async function openPayrollHistoryDetail(closureId) {
+    assertTandaBBlockedWhenScoped('PayrollUI.openPayrollHistoryDetail');
     const id = String(closureId || '');
     if (!id) return;
     stateManager.setState({ payrollViewMode: 'history' });
@@ -3278,6 +3290,7 @@ export function preparePayrollCorrection(closureId) {
 }
 
 export async function openPayrollClosure() {
+    assertTandaBBlockedWhenScoped('PayrollUI.openPayrollClosure');
     if (payrollClosureInProgress) return;
     payrollClosureInProgress = true;
     try {
@@ -3371,6 +3384,7 @@ export async function openPayrollClosure() {
 }
 
 export async function undoPayrollClosure(closureId) {
+    assertTandaBBlockedWhenScoped('PayrollUI.undoPayrollClosure');
     if (payrollClosureInProgress) return;
     payrollClosureInProgress = true;
     try {

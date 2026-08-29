@@ -25,6 +25,7 @@
  */
 
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -233,6 +234,7 @@ export function migrateAdvancesToLoans(emp) {
  * @returns {object} the created loan
  */
 export function createLoan(emp, params) {
+    assertTandaBBlockedWhenScoped('LoansService.createLoan');
     if (!emp) throw new Error('Empleado no proporcionado');
     if (!Array.isArray(emp.loans)) emp.loans = [];
 
@@ -307,6 +309,7 @@ export function generateInstallmentSchedule({ principal, interestRate, interestI
 
 /** Record a payment (abono) against a loan. Throws on validation error. */
 export function recordPayment(emp, loanId, params) {
+    assertTandaBBlockedWhenScoped('LoansService.recordPayment');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     if (loan.status !== LOAN_STATUS.ACTIVE) {
@@ -380,6 +383,7 @@ export function recordPayment(emp, loanId, params) {
 
 /** Restore a soft-voided payment without creating a duplicate merge identity. */
 export function restorePayment(emp, loanId, paymentId, restoredBy = null, restoredAt = Date.now()) {
+    assertTandaBBlockedWhenScoped('LoansService.restorePayment');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     const payment = (loan.payments || []).find(p => String(p.id) === String(paymentId));
@@ -426,6 +430,7 @@ export function restorePayment(emp, loanId, paymentId, restoredBy = null, restor
  * @returns {object} the refinancing event appended to loan.refinancings[]
  */
 export function refinanceLoan(emp, loanId, params = {}) {
+    assertTandaBBlockedWhenScoped('LoansService.refinanceLoan');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     if (loan.status !== LOAN_STATUS.ACTIVE) {
@@ -500,6 +505,7 @@ export function refinanceLoan(emp, loanId, params = {}) {
  * nivel datos. Refresca updatedAt para que la anulación gane el merge.
  */
 export function voidRefinancing(emp, loanId, refinId, voidedBy = null) {
+    assertTandaBBlockedWhenScoped('LoansService.voidRefinancing');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     const event = (loan.refinancings || []).find(r => r.id === refinId);
@@ -525,6 +531,7 @@ export function voidRefinancing(emp, loanId, refinId, voidedBy = null) {
 
 /** Mark a previously recorded payment as voided. Preserves audit trail. */
 export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
+    assertTandaBBlockedWhenScoped('LoansService.voidPayment');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     const payment = loan.payments.find(p => p.id === paymentId);
@@ -551,6 +558,7 @@ export function voidPayment(emp, loanId, paymentId, voidedBy = null) {
 
 /** Soft-delete: mark the loan as written-off. Preserves all data. */
 export function writeOffLoan(emp, loanId, writtenOffBy = null) {
+    assertTandaBBlockedWhenScoped('LoansService.writeOffLoan');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     loan.status = LOAN_STATUS.WRITTEN_OFF;
@@ -563,6 +571,7 @@ export function writeOffLoan(emp, loanId, writtenOffBy = null) {
 
 /** Reverse a write-off (un-archive). */
 export function reopenLoan(emp, loanId) {
+    assertTandaBBlockedWhenScoped('LoansService.reopenLoan');
     const loan = (emp.loans || []).find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);
     if (loan.status !== LOAN_STATUS.WRITTEN_OFF) return loan;
@@ -588,6 +597,7 @@ export function reopenLoan(emp, loanId) {
  * @throws si el préstamo no existe o no está anulado
  */
 export function deleteLoan(emp, loanId) {
+    assertTandaBBlockedWhenScoped('LoansService.deleteLoan');
     const loans = emp.loans || [];
     const loan = loans.find(l => l.id === loanId);
     if (!loan) throw new Error(`Préstamo no encontrado: ${loanId}`);

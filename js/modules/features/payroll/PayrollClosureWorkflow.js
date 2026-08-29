@@ -11,6 +11,7 @@ import {
     applyPayrollAdjustmentInstallmentsForClosure,
     undoPayrollAdjustmentInstallmentsForClosure
 } from './PayrollAdjustmentInstallmentSettlement.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 function money(value) {
     return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
@@ -99,6 +100,7 @@ export function buildPayrollClosureDraft({
     deductions = [],
     supersedesId = null
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.buildPayrollClosureDraft');
     const fingerprint = buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
     const hasLoans = rows.some(item => money(item?._loans) > 0);
     const loanBatch = hasLoans ? buildPayrollLoanSettlementBatch({
@@ -137,6 +139,7 @@ export function applyPayrollClosureEffects(employees, draft, {
     now = Date.now(),
     recordedBy = null
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.applyPayrollClosureEffects');
     if (!draft?.closure?.id) throw new Error('El cierre de Nómina no es válido');
     let loanResult = null;
     if (draft.batch) {
@@ -170,6 +173,7 @@ export function undoPayrollClosureEffects(employees, closure, {
     voidReason = 'Cierre anulado',
     activeClosures = []
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.undoPayrollClosureEffects');
     if (!closure?.id) throw new Error('El cierre de Nómina no es válido');
     if (closure.status !== PAYROLL_CLOSURE_STATUS.CLOSED) {
         throw new Error('El cierre ya fue anulado y no se puede deshacer nuevamente');

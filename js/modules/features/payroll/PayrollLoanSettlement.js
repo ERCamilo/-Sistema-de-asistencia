@@ -8,6 +8,7 @@ import {
     voidPayment
 } from '../loans/LoansService.js';
 import { buildPayrollClosureSnapshot } from './PayrollClosure.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 export const PAYROLL_LOAN_UNDO_WINDOW_MS = 30_000;
 
@@ -151,6 +152,7 @@ export function buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows } 
 }
 
 export function confirmPayrollPaid(fingerprint, confirmedAt = Date.now()) {
+    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.confirmPayrollPaid');
     if (!fingerprint || typeof fingerprint !== 'string') {
         throw new Error('No se puede confirmar una nómina sin vista previa');
     }
@@ -202,6 +204,7 @@ export function buildPayrollLoanSettlementBatch({
     recordedBy = null,
     undoWindowMs = PAYROLL_LOAN_UNDO_WINDOW_MS
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.buildPayrollLoanSettlementBatch');
     if (!periodStart || !periodEnd) throw new Error('El período de Nómina es obligatorio');
     const employeeById = new Map(employees.map(employee => [text(employee.id), employee]));
     const previewFingerprint = buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
@@ -406,6 +409,7 @@ function relinkPayrollPayment(payment, operation, batch, firstPaymentId, now) {
 }
 
 export function applyPayrollLoanSettlementBatch(employees, batch, { now = Date.now(), recordedBy } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.applyPayrollLoanSettlementBatch');
     const operations = preflightPayrollBatch(employees, batch);
     const firstPaymentId = batch.paymentRefs?.[0]?.paymentId;
     let createdCount = 0;
@@ -552,6 +556,7 @@ export function undoPayrollLoanSettlementBatch(employees, batchId, {
     now = Date.now(),
     voidedBy = null
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollLoanSettlement.undoPayrollLoanSettlementBatch');
     const batch = findPayrollLoanSettlementBatch(employees, { batchId });
     if (!batch) throw new Error('No se encontró el lote de pagos');
     if (batch.incomplete) {

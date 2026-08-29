@@ -23,6 +23,7 @@ import {
 import {
     buildEmployeeScheduledAdjustmentPlans
 } from '../payroll/PayrollAdjustmentScheduled.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -156,6 +157,7 @@ export function cancelManualAdjustmentMovement() {
 }
 
 export async function recordManualAdjustmentMovement(kind, planId, input = {}) {
+    assertTandaBBlockedWhenScoped('ProfileController.recordManualAdjustmentMovement');
     const target = activeEmployeePlan(kind, planId);
     if (!target) {
         notify('Este plan no pertenece al empleado seleccionado.', 'error');
@@ -453,6 +455,7 @@ export function togglePositionBreakdown(positionId) {
 // ─── Mark as paid ────────────────────────────────────────────────────────────
 
 export function markAsPaid() {
+    assertTandaBBlockedWhenScoped('ProfileController.markAsPaid');
     const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
     if (!emp) return;
 

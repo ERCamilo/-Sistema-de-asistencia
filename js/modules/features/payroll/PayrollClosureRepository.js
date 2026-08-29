@@ -17,6 +17,7 @@ import {
 import { PAYROLL_CLOSURE_STATUS } from './PayrollClosure.js';
 import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 const COLLECTION = 'payrollClosures';
 
@@ -102,6 +103,7 @@ function pageQuery({ limit = 10, cursor = null, status = null } = {}) {
 
 export const PayrollClosureRepository = {
     async saveOne(closure) {
+        assertTandaBBlockedWhenScoped('PayrollClosureRepository.saveOne');
         assertClosure(closure);
         assertPayrollClosureSize(closure);
         const incoming = clone(closure);
@@ -119,6 +121,7 @@ export const PayrollClosureRepository = {
     },
 
     async loadPage(options = {}) {
+        assertTandaBBlockedWhenScoped('PayrollClosureRepository.loadPage');
         const pageSize = normalizedLimit(options.limit);
         const snapshot = await getDocs(pageQuery(options));
         const loaded = snapshotItems(snapshot);
@@ -133,12 +136,14 @@ export const PayrollClosureRepository = {
     },
 
     async loadById(id) {
+        assertTandaBBlockedWhenScoped('PayrollClosureRepository.loadById');
         const snapshot = await getDoc(requireSessionRef(currentDocument(id)));
         if (!snapshot?.exists?.()) return null;
         return { ...clone(snapshot.data()), id: String(snapshot.id || id) };
     },
 
     async loadByPeriod(periodStart, periodEnd) {
+        assertTandaBBlockedWhenScoped('PayrollClosureRepository.loadByPeriod');
         const snapshot = await getDocs(query(
             requireSessionRef(currentCollection()),
             where('periodStart', '==', String(periodStart || '')),
@@ -148,6 +153,7 @@ export const PayrollClosureRepository = {
     },
 
     subscribeRecent(onChange, { limit = 10, onError = null } = {}) {
+        assertTandaBBlockedWhenScoped('PayrollClosureRepository.subscribeRecent');
         if (typeof onChange !== 'function') return () => {};
         const ref = pageQuery({ limit });
         return onSnapshot(ref, snapshot => {

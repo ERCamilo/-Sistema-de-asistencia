@@ -11,6 +11,7 @@ import {
     getPayrollAdjustmentPendingInstallments,
     resolvePayrollAdjustmentPeriodApplication
 } from './PayrollAdjustmentPeriodSelection.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 export const ADJUSTMENT_INSTALLMENT_APPLICATION_RECORD_TYPE =
     'payroll-adjustment-installment-application';
@@ -316,6 +317,7 @@ export function applyPayrollAdjustmentInstallmentsForClosure(employees, closure,
     now = Date.now(),
     recordedBy = null
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollAdjustmentInstallmentSettlement.applyPayrollAdjustmentInstallmentsForClosure');
     const operations = preflightApplication(employees, closure);
     const timestamp = Number(now) || Date.now();
     const affected = new Set();
@@ -375,6 +377,7 @@ export function undoPayrollAdjustmentInstallmentsForClosure(employees, closure, 
     now = Date.now(),
     voidedBy = null
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollAdjustmentInstallmentSettlement.undoPayrollAdjustmentInstallmentsForClosure');
     if (!closure?.id) throw new Error('El cierre de Nómina no es válido');
     const employeeById = new Map((employees || []).map(item => [text(item?.id), item]));
     const operations = closureDetails(closure).map(detail => {

@@ -7,6 +7,7 @@ import {
     isPayrollAdjustmentInstallmentPlan,
     recomputePayrollAdjustmentInstallmentPlan
 } from './PayrollAdjustmentInstallmentPlan.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 export const MANUAL_ADJUSTMENT_MOVEMENT_RECORD_TYPE =
     'payroll-adjustment-manual-movement';
@@ -72,6 +73,7 @@ function validatePlan(employee, input) {
 export function applyManualAdjustmentMovement(employee, input = {}, {
     now = Date.now()
 } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollAdjustmentManualMovement.applyManualAdjustmentMovement');
     if (!employee?.id) throw new Error('El empleado no es válido');
     const { kind, planId, plan } = validatePlan(employee, input);
     const movementId = text(input.id);
