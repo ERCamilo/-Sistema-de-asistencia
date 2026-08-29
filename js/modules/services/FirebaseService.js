@@ -23,6 +23,7 @@ import { checkMirrorDocSize } from './MirrorSizeGuard.js';
 import { createEntityUploadTracker } from './EntityUploadTracker.js';
 import { supportsGzipCodec, gzipToBase64, gunzipFromBase64 } from './SnapshotCodec.js';
 import { resolveSettingsWrite } from './SettingsWriteGuard.js';
+import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
 
 // Fix crítico post-Fase-2-U1 (test de campo, 2026-07-05): saveEntities() subía
 // TODAS las entidades en CADA guardado, aunque el guardado fuera por algo no
@@ -158,6 +159,9 @@ class FirebaseService {
                 delete snapshotContext.positions;
                 delete snapshotContext.leaders;
             }
+
+            // H-05 A5: exportConfig es estado transitorio de UI/sesión — nunca al espejo
+            sanitizeExportConfig(snapshotContext);
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
             const settingsMap = cleanState.settings;
@@ -500,6 +504,9 @@ class FirebaseService {
             delete snapshotContext.pettyCash;
             if (isMigrated) delete snapshotContext.employees;
 
+            // H-05 A5: exportConfig transitorio — nunca al doc replace
+            sanitizeExportConfig(snapshotContext);
+
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
             // --- 3. Write WITHOUT merge:true (true overwrite) ---
@@ -562,6 +569,9 @@ class FirebaseService {
             // backup completo), pero saneados: sin form/fotos base64/estado UI.
             snapshotContext.pettyCash = sanitizePettyCashForSnapshot(snapshotContext.pettyCash);
             if (snapshotContext.pettyCash === null) delete snapshotContext.pettyCash;
+
+            // H-05 A5: snapshots no persisten estado transitorio de exportConfig
+            sanitizeExportConfig(snapshotContext);
 
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
 
@@ -815,6 +825,9 @@ class FirebaseService {
                 state = JSON.parse(text);
             }
             
+            // H-05 A5: ingress legacy — snapshot puede traer exportConfig viejo, sanear antes de entregar
+            if (state && typeof state === 'object') sanitizeExportConfig(state);
+
             return {
                 state: state,
                 metadata: data.metadata || {}
@@ -940,7 +953,11 @@ class FirebaseService {
         const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
         try {
             const docSnap = await getDoc(docRef);
-            return docSnap.exists() ? docSnap.data() : null;
+            if (!docSnap.exists()) return null;
+            const data = docSnap.data();
+            // H-05 A5: ingress legacy — nube puede traer exportConfig transitorio, sanear antes de entregar
+            if (data && typeof data === 'object') sanitizeExportConfig(data);
+            return data;
         } catch (error) {
             console.error('❌ Error cargando estado desde Firebase:', error);
             throw error;

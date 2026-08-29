@@ -35,6 +35,7 @@ import { LeaderRepository } from './LeaderRepository.js';
 import { Employee } from '../features/employees/Employee.js';
 import { Position } from '../features/employees/Position.js';
 import { Leader } from '../features/employees/Leader.js';
+import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
 
 // Metadata del doc espejo que NUNCA debe filtrarse al state (el flujo viejo
 // hacía Object.assign(state, cloudState) y arrastraba estos campos).
@@ -159,6 +160,8 @@ async function _replaceLocalWithCloud(deps = {}) {
         delete cleanCloud.positions;
         delete cleanCloud.leaders;
         delete cleanCloud.attendance;
+        // H-05 A5: ingress legacy — nube puede traer exportConfig transitorio, sanear antes de aplicar
+        sanitizeExportConfig(cleanCloud);
 
         // batchSetState: convención del repo para mutaciones múltiples — un
         // solo render agendado al cerrar, con la coherencia TOTAL (Familia
@@ -329,6 +332,8 @@ async function _replaceCloudWithLocal(deps = {}) {
             ...state,
             snapshots: undefined, isLoadingSnapshots: undefined, currentUser: undefined
         }));
+        // H-05 A5: egress local→cloud — exportConfig transitorio nunca a la nube
+        sanitizeExportConfig(frozen);
     } catch (error) {
         console.error('❌ replaceCloudWithLocal: no se pudo congelar el estado local — no se tocó la nube:', error);
         return { ok: false, reason: 'freeze-failed', error };

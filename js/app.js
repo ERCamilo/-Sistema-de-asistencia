@@ -44,6 +44,7 @@ import { initProjectsInfrastructure } from './modules/features/projects/Projects
 import { resetEntityScope } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
+import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
@@ -1923,6 +1924,8 @@ window.restoreSnapshot = async (snapshotId) => {
                 // flujo de restauración vivo nunca los leía. Y reinstanciar
                 // las clases: los objetos planos del snapshot rompen los
                 // métodos de Employee/Position/Leader en el resto de la app.
+                // H-05 A5: sanitize legacy snapshot ingress before prepare
+                if (snapshot.state && typeof snapshot.state === 'object') sanitizeExportConfig(snapshot.state);
                 const prepared = prepareRestoredState(snapshot.state);
                 state.employees = prepared.employees.map(e => new Employee(e));
                 state.positions = prepared.positions.map(p => new Position(p));
@@ -5887,6 +5890,11 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
 async function applyBackupData(importedData) {
     try {
         const data = importedData.data;
+        // H-05 A5: ingress legacy backup/snapshot — sanear exportConfig transitorio antes de aplicar
+        if (data && typeof data === 'object') sanitizeExportConfig(data);
+        if (importedData && typeof importedData === 'object') sanitizeExportConfig(importedData);
+        // Also sanitize .state if snapshot shape { state: {...} }
+        if (data && data.state && typeof data.state === 'object') sanitizeExportConfig(data.state);
 
         // Sobrescribir estado (Atomicity local)
         state.settings = data.settings || state.settings;
@@ -7451,6 +7459,9 @@ function _initOutgoingConflictGuard() {
                     // Cuerpo del apply real, extraído como función local para que
                     // tanto el flujo silencioso como el modal puedan invocarlo.
                     async function applyRemoteData() {
+
+                    // H-05 A5: ingress mirror — sanear exportConfig transitorio legacy antes de aplicar
+                    if (remoteData && typeof remoteData === 'object') sanitizeExportConfig(remoteData);
 
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
