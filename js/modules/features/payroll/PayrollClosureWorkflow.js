@@ -98,10 +98,15 @@ export function buildPayrollClosureDraft({
     closedBy = null,
     bonuses = [],
     deductions = [],
-    supersedesId = null
+    supersedesId = null,
+    projectId
 } = {}) {
     assertTandaBBlockedWhenScoped('PayrollClosureWorkflow.buildPayrollClosureDraft');
-    const fingerprint = buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
+    const closureProjectId = projectId;
+    const projectAware = projectId !== undefined;
+    const fingerprint = projectAware
+        ? buildPayrollPreviewFingerprint({ projectId: closureProjectId, periodStart, periodEnd, rows })
+        : buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows });
     const hasLoans = rows.some(item => money(item?._loans) > 0);
     const loanBatch = hasLoans ? buildPayrollLoanSettlementBatch({
         employees,
@@ -111,7 +116,7 @@ export function buildPayrollClosureDraft({
         createdAt: closedAt,
         recordedBy: closedBy
     }) : null;
-    const closure = buildPayrollClosure({
+    const closureOptions = {
         periodStart,
         periodEnd,
         periodSource,
@@ -123,7 +128,9 @@ export function buildPayrollClosureDraft({
         paymentRefs: loanBatch?.paymentRefs || [],
         adjustments: buildPayrollAdjustmentSnapshot({ rows, bonuses, deductions }),
         supersedesId
-    });
+    };
+    if (projectAware) closureOptions.projectId = closureProjectId;
+    const closure = buildPayrollClosure(closureOptions);
     assertPayrollClosureSize(closure);
     return {
         closure,

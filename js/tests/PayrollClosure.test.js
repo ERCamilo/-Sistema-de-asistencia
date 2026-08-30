@@ -4,6 +4,8 @@ import {
     isSamePayrollClosureContent,
     voidPayrollClosure
 } from '../modules/features/payroll/PayrollClosure.js';
+import { resolvePayrollClosureMutation } from '../modules/features/payroll/PayrollClosureMerge.js';
+import { buildPayrollPreviewFingerprint } from '../modules/features/payroll/PayrollLoanSettlement.js';
 
 function payrollRow(overrides = {}) {
     return {
@@ -210,5 +212,133 @@ describe('PayrollClosure', () => {
 
         expect(correction.id).not.toBe(original.id);
         expect(correction.supersedesId).toBe(original.id);
+    });
+
+    test('builds schema 3 closures with normalized project-aware identity', () => {
+        const rows = [payrollRow()];
+        const fingerprint = buildPayrollPreviewFingerprint({
+            projectId: ' project-a ',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows
+        });
+        const closure = buildPayrollClosure({
+            projectId: ' project-a ',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows,
+            fingerprint
+        });
+
+        expect(JSON.parse(fingerprint).projectId).toBe('project-a');
+        expect(closure).toMatchObject({
+            schemaVersion: 3,
+            projectId: 'project-a',
+            id: buildPayrollClosureId(fingerprint, null, 'project-a')
+        });
+    });
+
+    test('makes reordered content stable within a project and distinct across projects', () => {
+        const firstRow = payrollRow({ _employeeId: 'a', _number: '1' });
+        const secondRow = payrollRow({ _employeeId: 'b', _number: '2' });
+        const fingerprint = (projectId, rows) => buildPayrollPreviewFingerprint({
+            projectId,
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows
+        });
+        const aFirst = fingerprint('project-a', [firstRow, secondRow]);
+        const aRetry = fingerprint('project-a', [secondRow, firstRow]);
+        const b = fingerprint('project-b', [firstRow, secondRow]);
+
+        expect(aRetry).toBe(aFirst);
+        expect(buildPayrollClosureId(aRetry, null, 'project-a'))
+            .toBe(buildPayrollClosureId(aFirst, null, 'project-a'));
+        expect(b).not.toBe(aFirst);
+        expect(buildPayrollClosureId(b, null, 'project-b'))
+            .not.toBe(buildPayrollClosureId(aFirst, null, 'project-a'));
+    });
+
+    test.each([undefined, '', '   ', 'legacy-unresolved:payroll-1']) (
+        'rejects a non-canonical projectId for schema 3: %p',
+        projectId => {
+            expect(() => buildPayrollClosure({
+                schemaVersion: 3,
+                projectId,
+                periodStart: '2026-08-01',
+                periodEnd: '2026-08-15',
+                rows: [payrollRow()],
+                fingerprint: 'project-aware'
+            })).toThrow(/projectId/i);
+        }
+    );
+
+    test('preserves project ownership through deterministic corrections and voids', () => {
+        const build = (rows, supersedesId = null) => {
+            const options = {
+                projectId: 'project-a',
+                periodStart: '2026-08-01',
+                periodEnd: '2026-08-15',
+                rows
+            };
+            return buildPayrollClosure({
+                ...options,
+                fingerprint: buildPayrollPreviewFingerprint(options),
+                supersedesId
+            });
+        };
+        const original = build([payrollRow()]);
+        const correctedRows = [payrollRow({ _bonuses: 25, monto: 1275 })];
+        const correction = build(correctedRows, original.id);
+        const retry = build(correctedRows, original.id);
+        const voided = voidPayrollClosure(correction, { voidedAt: 200 });
+
+        expect(correction.id).toBe(retry.id);
+        expect(correction.projectId).toBe(original.projectId);
+        expect(voided.projectId).toBe(original.projectId);
+    });
+
+    test('treats retagging as conflicting content and rejects it during void', () => {
+        const input = {
+            projectId: ' project-a ',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()]
+        };
+        const closure = buildPayrollClosure({
+            ...input,
+            fingerprint: buildPayrollPreviewFingerprint(input)
+        });
+        input.projectId = 'project-b';
+        const retagged = {
+            ...closure,
+            projectId: 'project-b',
+            id: buildPayrollClosureId(closure.fingerprint, closure.supersedesId, 'project-b')
+        };
+
+        expect(closure.projectId).toBe('project-a');
+        expect(isSamePayrollClosureContent(closure, retagged)).toBe(false);
+        expect(() => resolvePayrollClosureMutation(closure, retagged)).toThrow(/conflict/i);
+        expect(() => voidPayrollClosure(retagged)).toThrow(/pertenencia/i);
+    });
+
+    test('preserves exact legacy schema, payload identity, and ID bytes', () => {
+        const fingerprint = buildPayrollPreviewFingerprint({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()]
+        });
+        const closure = buildPayrollClosure({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()],
+            fingerprint: 'preview-fingerprint'
+        });
+
+        expect(fingerprint.startsWith('{"periodStart"')).toBe(true);
+        expect(JSON.parse(fingerprint)).not.toHaveProperty('projectId');
+        expect(closure.schemaVersion).toBe(2);
+        expect(closure).not.toHaveProperty('projectId');
+        expect(closure.id).toBe('PAYROLL-CLOSURE-1gpn0v27ta2h5');
     });
 });

@@ -147,8 +147,12 @@ function sameCharge(expected, actual) {
  * hash: equality is the only operation and accounting state must not rely on a
  * probabilistic collision boundary.
  */
-export function buildPayrollPreviewFingerprint({ periodStart, periodEnd, rows } = {}) {
-    return JSON.stringify(buildPayrollClosureSnapshot({ periodStart, periodEnd, rows }));
+export function buildPayrollPreviewFingerprint(options = {}) {
+    const { periodStart, periodEnd, rows } = options;
+    const snapshot = Object.prototype.hasOwnProperty.call(options, 'projectId')
+        ? buildPayrollClosureSnapshot({ projectId: options.projectId, periodStart, periodEnd, rows })
+        : buildPayrollClosureSnapshot({ periodStart, periodEnd, rows });
+    return JSON.stringify(snapshot);
 }
 
 export function confirmPayrollPaid(fingerprint, confirmedAt = Date.now()) {

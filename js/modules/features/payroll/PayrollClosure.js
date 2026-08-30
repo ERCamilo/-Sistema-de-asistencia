@@ -1,4 +1,5 @@
-export const PAYROLL_CLOSURE_SCHEMA_VERSION = 2;
+export const LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION = 2;
+export const PAYROLL_CLOSURE_SCHEMA_VERSION = 3;
 export const PAYROLL_CLOSURE_STATUS = Object.freeze({
     CLOSED: 'closed',
     VOIDED: 'voided'
@@ -7,6 +8,21 @@ export const PAYROLL_CLOSURE_UNDO_WINDOW_MS = 30_000;
 
 function text(value) {
     return value === null || value === undefined ? '' : String(value);
+}
+
+function hasOwn(value, key) {
+    return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function canonicalProjectId(value) {
+    if (typeof value !== 'string') {
+        throw new TypeError('El projectId canónico del cierre de Nómina es obligatorio');
+    }
+    const normalized = value.trim();
+    if (!normalized || normalized.startsWith('legacy-unresolved:')) {
+        throw new TypeError('El projectId canónico del cierre de Nómina no es válido');
+    }
+    return normalized;
 }
 
 function money(value) {
@@ -74,8 +90,9 @@ function compactRow(row = {}) {
     };
 }
 
-export function buildPayrollClosureSnapshot({ periodStart, periodEnd, rows = [] } = {}) {
-    return {
+export function buildPayrollClosureSnapshot(options = {}) {
+    const { periodStart, periodEnd, rows = [] } = options;
+    const snapshot = {
         periodStart: text(periodStart),
         periodEnd: text(periodEnd),
         rows: (rows || [])
@@ -83,11 +100,17 @@ export function buildPayrollClosureSnapshot({ periodStart, periodEnd, rows = [] 
             .sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber, 'es', { numeric: true }) ||
                 a.employeeId.localeCompare(b.employeeId))
     };
+    if (!hasOwn(options, 'projectId')) return snapshot;
+    return {
+        projectId: canonicalProjectId(options.projectId),
+        ...snapshot
+    };
 }
 
 function closureContent(closure = {}) {
-    return {
-        schemaVersion: Number(closure.schemaVersion) || PAYROLL_CLOSURE_SCHEMA_VERSION,
+    const schemaVersion = Number(closure.schemaVersion) || LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION;
+    const content = {
+        schemaVersion,
         id: text(closure.id),
         fingerprint: text(closure.fingerprint),
         periodStart: text(closure.periodStart),
@@ -101,17 +124,25 @@ function closureContent(closure = {}) {
         paymentRefs: clone(closure.paymentRefs || []),
         supersedesId: closure.supersedesId || null
     };
+    if (schemaVersion === PAYROLL_CLOSURE_SCHEMA_VERSION || hasOwn(closure, 'projectId')) {
+        content.projectId = text(closure.projectId).trim();
+    }
+    return content;
 }
 
-export function buildPayrollClosureId(fingerprint, supersedesId = null) {
+export function buildPayrollClosureId(fingerprint, supersedesId = null, projectId) {
     const normalized = text(fingerprint);
     if (!normalized) throw new Error('La identidad de la Nómina es obligatoria');
     const predecessor = text(supersedesId);
-    const identity = predecessor ? `${normalized}|after:${predecessor}` : normalized;
+    const projectIdentity = arguments.length >= 3
+        ? `${normalized}|project:${canonicalProjectId(projectId)}`
+        : normalized;
+    const identity = predecessor ? `${projectIdentity}|after:${predecessor}` : projectIdentity;
     return `PAYROLL-CLOSURE-${stableToken(identity)}`;
 }
 
-export function buildPayrollClosure({
+export function buildPayrollClosure(options = {}) {
+    const {
     periodStart,
     periodEnd,
     periodSource = 'custom',
@@ -124,7 +155,14 @@ export function buildPayrollClosure({
     paymentRefs = [],
     adjustments = { bonuses: [], deductions: [] },
     supersedesId = null
-} = {}) {
+    } = options;
+    const projectAware = hasOwn(options, 'projectId') ||
+        Number(options.schemaVersion) === PAYROLL_CLOSURE_SCHEMA_VERSION;
+    const projectId = projectAware ? canonicalProjectId(options.projectId) : null;
+    if (projectAware && hasOwn(options, 'schemaVersion') &&
+        Number(options.schemaVersion) !== PAYROLL_CLOSURE_SCHEMA_VERSION) {
+        throw new TypeError('Un cierre con projectId debe usar schemaVersion 3');
+    }
     if (!text(periodStart) || !text(periodEnd)) {
         throw new Error('El período de Nómina es obligatorio');
     }
@@ -137,6 +175,17 @@ export function buildPayrollClosure({
     }
     if (rows.some(row => money(row?.monto) < 0)) {
         throw new Error('Ningún empleado puede terminar con un pago neto negativo');
+    }
+    if (projectAware) {
+        const expectedFingerprint = JSON.stringify(buildPayrollClosureSnapshot({
+            projectId,
+            periodStart,
+            periodEnd,
+            rows
+        }));
+        if (text(fingerprint) !== expectedFingerprint) {
+            throw new Error('La identidad del cierre no corresponde a su projectId y contenido');
+        }
     }
 
     const compactRows = buildPayrollClosureSnapshot({ periodStart, periodEnd, rows }).rows;
@@ -157,9 +206,13 @@ export function buildPayrollClosure({
     }), { gross: 0, bonuses: 0, deductions: 0, loans: 0, net: 0 });
     const normalizedClosedAt = Number(closedAt) || Date.now();
 
-    return {
-        schemaVersion: PAYROLL_CLOSURE_SCHEMA_VERSION,
-        id: buildPayrollClosureId(fingerprint, supersedesId),
+    const closure = {
+        schemaVersion: projectAware
+            ? PAYROLL_CLOSURE_SCHEMA_VERSION
+            : LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION,
+        id: projectAware
+            ? buildPayrollClosureId(fingerprint, supersedesId, projectId)
+            : buildPayrollClosureId(fingerprint, supersedesId),
         fingerprint: text(fingerprint),
         periodStart: text(periodStart),
         periodEnd: text(periodEnd),
@@ -180,6 +233,8 @@ export function buildPayrollClosure({
         voidedBy: null,
         voidReason: null
     };
+    if (projectAware) closure.projectId = projectId;
+    return closure;
 }
 
 export function isSamePayrollClosureContent(first, second) {
@@ -195,6 +250,26 @@ export function voidPayrollClosure(closure, {
 } = {}) {
     if (!closure?.id || !closure?.fingerprint) {
         throw new Error('El cierre de Nómina no es válido');
+    }
+    if (Number(closure.schemaVersion) === PAYROLL_CLOSURE_SCHEMA_VERSION ||
+        hasOwn(closure, 'projectId')) {
+        const projectId = canonicalProjectId(closure.projectId);
+        const expectedId = buildPayrollClosureId(
+            closure.fingerprint,
+            closure.supersedesId,
+            projectId
+        );
+        const expectedFingerprint = JSON.stringify({
+            projectId,
+            periodStart: text(closure.periodStart),
+            periodEnd: text(closure.periodEnd),
+            rows: clone(closure.rows || [])
+        });
+        if (closure.schemaVersion !== PAYROLL_CLOSURE_SCHEMA_VERSION ||
+            closure.projectId !== projectId || closure.id !== expectedId ||
+            closure.fingerprint !== expectedFingerprint) {
+            throw new Error('La pertenencia del cierre de Nómina no es válida');
+        }
     }
     if (closure.status === PAYROLL_CLOSURE_STATUS.VOIDED) return clone(closure);
     const normalizedVoidedAt = Number(voidedAt) || Date.now();
