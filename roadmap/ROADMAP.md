@@ -268,7 +268,7 @@ Ejemplo:
 
 **Al terminar la fase:** SA es internamente project-aware. Se puede crear un proyecto de prueba vacío y comprobar aislamiento aunque todavía no exista UI completa.
 
-**Actualización F1.6 (2026-08-29):** **A0–A6 ✅ están aprobados y Tanda A ✅ está completa.** Dirección no aprobó inicialmente A6 principal `b286d70` porque `PayrollClosureStore.getById` y `getSyncStates` permitían lecturas locales directas sin gate. **MC1 `f735dd6` resolvió ambos bypasses** antes de `db.get`/`db.getAll`, agregó 4 tests y completó la auditoría de los 8 métodos públicos. Evidencia final: **24/24 TandaBGates + 9/9 matriz, agrupada 62/62, full 368/368 suites · 3575/3575 tests, fresh review MC1 ALLOW 0 findings**. SHA funcional actual `f735dd6`, rango `792793a..f735dd6`. **B1 🟢 está autorizada exclusivamente; B2–B5 🔒 y F1.7 🔒.**
+**Actualización F1.6 (2026-08-30):** **A0–A6 ✅ están aprobados y Tanda A ✅ está completa. B1 🟡 está publicada en `193273e` bajo `EXC-REVIEW-B1-001`, pendiente de aprobación formal de Dirección.** B1 implementa schema 3 project-aware con ON y conserva schema 2 exacto con OFF; evidencia 41/41, 129/129 y 3586/3586. `origin/feature/factor-dias-no-laborables` resuelve exactamente al SHA publicado. **B2–B5 🔒 y F1.7 🔒; no iniciar B2.**
 
 **Orden ejecutado de A4 (✅ cerrado y aprobado 2026-08-28):**
 
@@ -294,7 +294,9 @@ Ejemplo:
 
 1. Gates que bloqueen **efectivamente** con proyectos ON: cierres de nómina, ajustes económicos persistidos/programados, operaciones de préstamo, historial económico, pago definitivo, exportaciones finales — no solo botones ocultos en `ScopedPayrollTab`, también llamadas directas programáticas deben fallar explícita y seguramente sin mutaciones parciales (helper `TandaBGate.js` 27 líneas, `ProjectScopedGateError`/`assertTandaBBlockedWhenScoped` en 10 archivos antes de mutación; 2 CRITICAL UI bypasses `addDesktopAdjustment`/`removeScheduledAdjustment`/`setScheduledAdjustmentPaused` corregidos pre-commit); OFF preserva legacy.
 2. Matriz consolidada A/B de toda la Tanda A: mismo `#12` `employeeId` distinto, configs/períodos/feriados/horas distintos, asistencia aislada, A→B→A, async A mientras se cambia a B, H-05 sin resurrección de `exportConfig`, `buildAttendanceIndex` RAW detrás de fronteras scoped (9 tests).
-3. Dirección encontró tras la entrega que `getById` y `getSyncStates` eran entrypoints públicos ungated; MC1 `f735dd6` los gateó como primera línea ejecutable. Estado: **A6 ✅ aprobada y Tanda A completa — 24/24 + 9/9, 62/62, 368/368 · 3575, MC1 ALLOW 0 findings. B1 🟢 autorizada exclusivamente.**
+3. Dirección encontró tras la entrega que `getById` y `getSyncStates` eran entrypoints públicos ungated; MC1 `f735dd6` los gateó como primera línea ejecutable. Resultado histórico: **A6 ✅ aprobada y Tanda A completa — 24/24 + 9/9, 62/62, 368/368 · 3575, MC1 ALLOW 0 findings; esa decisión habilitó B1.**
+
+**Entrega B1 (🟡 publicada bajo excepción; aprobación formal pendiente):** `193273e` implementa schema 3 para construcción explícita con proyectos ON, `projectId` obligatorio y semánticamente inmutable, identidad/fingerprint project-aware, correcciones deterministas y void owner-preserving. OFF conserva schema 2 exacto sin `projectId` ni dual-write. Evidencia 41/41, 129/129 y 3586/3586; `R3-001` fue corregido en 15 líneas. `EXC-REVIEW-B1-001` aplica solo a este commit y no autoriza B2.
 
 **Punto de parada usable:** SA sigue siendo utilizable como antes con un único proyecto visible.
 
@@ -637,7 +639,7 @@ Mantener esta tabla viva durante el desarrollo.
 | DEP-SA-001 | SA | SA (aprueba Dirección) | F2.8 / F2.9 (resumen mensual e informe final) + multiproyecto completo | Vínculo oficial Project ↔ PettyCashProject con relación **1:N**: campo `officialProjectId` en `pettyCashProjects`, backfill al predeterminado; UN Project oficial puede tener VARIOS proyectos de caja vinculados y los reportes suman TODOS (veredicto P7). Implementación NO bloquea F1.1–F1.6 | Alta | Decidida — implementación pendiente |
 | DEP-SA-002 | SA | SA + Integración (valida Dirección) | F1.6 configuración cloud | Dependencia específica de configuración cloud: `payrollConfigsV1/{projectId}` requiere identidad/registro de proyecto estable; su resolución operativa queda detrás de DEP-SA-004 | Bloqueante para config cloud | Pendiente — no resolver dentro de F1.6-A |
 | DEP-SA-003 | SA | SA (implementa ADR-016) | F1.6-B4 cierres/pagos | Implementar la política canónica fijada para `ProfileController.markAsPaid`: delegar al cierre de nómina o deshabilitar con proyectos ON; `employee.paymentHistory` se conserva como histórico y no como ledger nuevo | Bloqueante para B4 | Pendiente — ADR-016 fijado; implementación pendiente |
-| DEP-SA-004 | SA | SA (valida Dirección) | Gate histórico de identidad canónica para F1.6 | Identidad canónica de `Project` entre dispositivos: misma cuenta/obra comparte un único `projectId`; `activeProjectId` sigue local. Implementación mínima SA-only sin organizaciones, roles, membresías, Mini ni Integración | Cerrada; no es bloqueo actual | **✅ Cerrado y aprobado 2026-08-27.** A6 + MC1 `b286d70`/`f735dd6` también están aprobados (24/24, 9/9, 368/368 · 3575, ALLOW 0 findings); B1 está autorizada exclusivamente y B2–B5/F1.7 siguen bloqueados por su secuencia formal, no por DEP-SA-004. |
+| DEP-SA-004 | SA | SA (valida Dirección) | Gate histórico de identidad canónica para F1.6 | Identidad canónica de `Project` entre dispositivos: misma cuenta/obra comparte un único `projectId`; `activeProjectId` sigue local. Implementación mínima SA-only sin organizaciones, roles, membresías, Mini ni Integración | Cerrada; no es bloqueo actual | **✅ Cerrado y aprobado 2026-08-27.** B1 está publicada y pendiente de aprobación formal; B2–B5/F1.7 siguen bloqueados por su secuencia formal, no por DEP-SA-004. |
 
 ---
 
@@ -661,7 +663,7 @@ Cada decisión que afecte a más de un equipo debe registrarse para evitar que f
 | ADR-012 | **Implementada en A1 y conectada parcialmente en A3 cerrado:** nómina usa `PayrollProjectContext` capturado con empleados, posiciones, líderes, asistencia y settings; `buildAttendanceIndex` permanece RAW y Service/Period usan `ctx.getAttendance()` en las rutas A3. Snapshot deep-cloned con congelamiento de primer nivel antes del primer `await`; no es congelamiento recursivo ni wiring UI/runtime completo. | El estado global mutable y los índices compartidos no son una frontera de aislamiento económico | SA | v0.3, A3 cerrado 2026-08-28 |
 | ADR-013 | **Implementada en A2 y consumida donde A3 cerrado está conectado:** configuración canónica IDB `projectPayrollConfigs`, clave `projectId`, semilla atómica y flag OFF sin dual-write. A3 consume horas/factores/feriados y período a nivel helper; `payrollDefaults` y `defaultDeductionPercentage` aún no se consumen. Cloud sigue diferida por DEP-SA-002; DEP-SA-004 está cerrado. | Una fuente durable por proyecto evita divergencia sin anticipar cloud ni UI | SA, Integración | v0.3, A3 cerrado 2026-08-28 |
 | ADR-014 | **✅ Implementada y cerrada en A5 2026-08-29:** `exportConfig` es transitorio y se elimina de espejo, replace cloud, snapshots, DataOps local→cloud e ingresos legacy cloud/snapshot (`ae66121`; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix WARNING `Object.assign`); `settings.payrollDefaults` continúa durable hasta su migración canónica | Resolver H-05 y evitar recuperar ajustes/selecciones incompletos como estado oficial | SA | v0.4 (2026-08-29) |
-| ADR-015 | **B1 autorizada exclusivamente:** cierres nuevos usan schema 3 con `projectId` inmutable e identidades/fingerprints/IDs de cierres project-aware. La promoción schema 2→3/default, lotes, repositorios, índices, cachés y consultas permanecen en B2–B5 🔒 | Todo cierre, ajuste, préstamo, exportación y recuperación debe tener propietario económico inequívoco | SA, Integración | v0.4 (2026-08-29) |
+| ADR-015 | **Implementada en B1 `193273e`, pendiente de aprobación formal:** con proyectos ON los cierres nuevos usan schema 3 con `projectId` semánticamente inmutable e identidades/fingerprints/IDs project-aware; OFF conserva schema 2 exacto sin `projectId` ni dual-write. La promoción, stores, repositorios, índices, cachés y consultas permanecen en B2–B5 🔒 | Todo cierre, ajuste, préstamo, exportación y recuperación debe tener propietario económico inequívoco | SA, Integración | v0.5 (2026-08-30) |
 | ADR-016 | **F1.6-B bloqueante, pendiente de implementación:** `PayrollClosure` es la autoridad canónica del estado económico de una nómina pagada; las nuevas operaciones `markAsPaid()` deben delegar al cierre canónico o quedar deshabilitadas con proyectos ON. `employee.paymentHistory` se conserva como dato histórico y no como ledger autoritativo nuevo | Evitar una segunda contabilidad divergente y mantener una única autoridad de pago | SA | v0.4 (2026-08-26) |
 
 ---
@@ -686,9 +688,9 @@ La orden histórica de inicialización entregada al **Equipo SA** fue:
 
 > Inspeccionar el estado actual del repositorio SA y ejecutar únicamente la Fase 0. No modificar todavía el comportamiento productivo. Entregar mapa de datos, propuesta de Project v1, plan de migración, riesgos y dependencias encontradas. No comenzar Fase 1 hasta que Dirección/Coordinación apruebe el informe.
 
-Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual, actualizada el 2026-08-29, es:
+Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual, actualizada el 2026-08-30, es:
 
-> **Estado exacto: A0–A6 ✅; Tanda A ✅ completa; 24/24, 9/9, 62/62, 368/368 · 3575, MC1 ALLOW 0 findings; B1 🟢 exclusiva; B2–B5 🔒 · F1.7 🔒.** Ejecutar solo `PayrollClosure` schema 3, `projectId` inmutable e identidades/fingerprints/IDs de cierres project-aware; detenerse antes de B2.
+> **Estado exacto: A0–A6 ✅; Tanda A ✅ completa; B1 🟡 publicada en `193273e` bajo `EXC-REVIEW-B1-001`, pendiente de aprobación formal; B2–B5 🔒 · F1.7 🔒.** Esperar revisión remota de Dirección; no iniciar B2.
 
 El primer objetivo técnico estable será:
 
@@ -702,7 +704,7 @@ El primer objetivo técnico estable será:
 |---|---|---|---|
 | F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
 | F1.0 Precondiciones del refactor | ✅ Completada y APROBADA (2026-08-25) | SA | F0 aprobada |
-| F1 Contexto de proyecto | En ejecución — F1.5 cerrada; F1.6: **A0–A6 ✅ · Tanda A ✅ completa · B1 🟢 exclusiva · B2–B5 🔒 · F1.7 🔒** | SA | **Ejecutar solo B1; detenerse antes de B2** |
+| F1 Contexto de proyecto | En ejecución — F1.5 cerrada; F1.6: **A0–A6 ✅ · Tanda A ✅ completa · B1 🟡 publicada bajo excepción, pendiente de aprobación · B2–B5 🔒 · F1.7 🔒** | SA | **Esperar Dirección; no iniciar B2** |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |
