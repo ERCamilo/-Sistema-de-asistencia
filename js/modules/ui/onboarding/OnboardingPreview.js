@@ -151,7 +151,7 @@ async function runFinish() {
 
 function renderPreview() {
     if (!overlayEl || !st) return;
-    overlayEl.innerHTML = buildChrome() + renderOnboarding(st);
+    overlayEl.innerHTML = renderOnboarding(st, buildChrome());
 }
 
 function onOverlayClick(e) {
