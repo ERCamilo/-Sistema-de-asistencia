@@ -49,12 +49,32 @@ if [ -z "$CHANGED_ASSETS" ]; then
     exit 0
 fi
 
-# ── 3. Generate new version (date + time with seconds) ───────────────────────
+# ── 3. Reuse a complete prepared pair, otherwise generate one version ────────
 # TZ fijo a hora de Rep. Dominicana (AST, UTC-4, sin horario de verano) para que
 # el build muestre SIEMPRE la hora local del usuario, sin importar dónde se haga
 # el commit (a veces el entorno del agente corre en UTC → estampaba +4h de más).
 # 'AST4' es un spec POSIX portable que no necesita la base de datos de zonas.
-NEW_VERSION=$(TZ='AST4' date +"%Y.%m%d.%H%M%S")
+BUILD_FILE="js/modules/config/BuildInfo.js"
+STAGED_SW_VERSION=$(git show :"$SW_FILE" 2>/dev/null \
+    | sed -n "s/.*const CACHE_VERSION = '\([^']*\)'.*/\1/p")
+STAGED_BUILD_VERSION=$(git show :"$BUILD_FILE" 2>/dev/null \
+    | sed -n "s/.*const BUILD = '\([^']*\)'.*/\1/p")
+HEAD_SW_VERSION=$(git show HEAD:"$SW_FILE" 2>/dev/null \
+    | sed -n "s/.*const CACHE_VERSION = '\([^']*\)'.*/\1/p")
+HEAD_BUILD_VERSION=$(git show HEAD:"$BUILD_FILE" 2>/dev/null \
+    | sed -n "s/.*const BUILD = '\([^']*\)'.*/\1/p")
+VERSION_RE='^[0-9]{4}\.(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])\.([01][0-9]|2[0-3])[0-5][0-9][0-5][0-9]$'
+
+if ! git diff --cached --quiet -- "$SW_FILE" \
+    && ! git diff --cached --quiet -- "$BUILD_FILE" \
+    && [ "$STAGED_SW_VERSION" = "$STAGED_BUILD_VERSION" ] \
+    && [ "$STAGED_SW_VERSION" != "$HEAD_SW_VERSION" ] \
+    && [ "$STAGED_BUILD_VERSION" != "$HEAD_BUILD_VERSION" ] \
+    && printf '%s\n' "$STAGED_SW_VERSION" | grep -Eq "$VERSION_RE"; then
+    NEW_VERSION=$STAGED_SW_VERSION
+else
+    NEW_VERSION=$(TZ='AST4' date +"%Y.%m%d.%H%M%S")
+fi
 
 # ── 4. Read old version for the log message ──────────────────────────────────
 OLD_VERSION=$(grep "const CACHE_VERSION = '" "$SW_FILE" \
@@ -91,7 +111,6 @@ echo "  ↺  sw.js cache: ${OLD_VERSION:-<unknown>} → $NEW_VERSION"
 # Una sola fuente de fecha: el footer y el cache-buster del Service Worker
 # quedan siempre en el mismo número. Mismo truco de parchear el index sin
 # tocar el working tree.
-BUILD_FILE="js/modules/config/BuildInfo.js"
 if [ -f "$BUILD_FILE" ]; then
     BUILD_MODE=$(git ls-files -s "$BUILD_FILE" | awk '{print $1}')
     if [ -n "$BUILD_MODE" ]; then
