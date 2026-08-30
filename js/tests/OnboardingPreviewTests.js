@@ -122,5 +122,68 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         testRunner.assert(!html.includes('(vista previa)'), 'sin rotular vista previa');
         testRunner.assert(html.includes('Guía de inicio'), 'título de guía real');
         testRunner.assert(html.indexOf('onboarding-preview-title') < html.indexOf('splitx-integration-title'), 'sección antes de SplitX');
+    },
+    'elegir scratch y pulsar Continuar avanza a Configuración 1 / 6'() {
+        cleanup();
+        launchOnboardingV2({ mode: 'live' });
+        for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
+        const ov = overlay();
+        testRunner.assert(!!ov.querySelector('[data-od-id="od-choice"]'), 'fase elección alcanzada');
+        
+        ov.querySelector('[data-act="pick"][data-v="scratch"]').click();
+        const nextBtn = ov.querySelector('[data-act="next"]');
+        testRunner.assert(!nextBtn.style.pointerEvents, 'botón Continuar habilitado al elegir scratch');
+        
+        nextBtn.click();
+        testRunner.assert(!!overlay().querySelector('[data-od-id="od-setup"]'), 'entró al flujo de configuración desde cero');
+        const topbar = overlay().querySelector('[data-od-id="od-topbar"]');
+        testRunner.assert(topbar.textContent.includes('Configuración 1 / 6'), 'primer paso de setup mostrado');
+    },
+    'escribir en input preserva el elemento activo y actualiza mirrors sin destruir DOM'() {
+        cleanup();
+        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 1 }));
+        showOnboardingPreview();
+        const ov = overlay();
+        const input = ov.querySelector('#f-company');
+        input.focus();
+        testRunner.assertEquals(document.activeElement, input, 'input tiene foco inicial');
+        
+        input.value = 'Constructora Alpha';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        testRunner.assertEquals(document.activeElement, input, 'el input conservó el foco tras el evento input');
+        const nextBtn = ov.querySelector('[data-act="next"]');
+        testRunner.assert(!nextBtn.style.pointerEvents, 'botón siguiente habilitado');
+    },
+    'presionar Enter en nombre de empleado agrega a la lista y mantiene foco en el input'() {
+        cleanup();
+        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 5 }));
+        showOnboardingPreview();
+        const ov = overlay();
+        const nameInput = ov.querySelector('#f-empname');
+        nameInput.focus();
+        nameInput.value = 'Carlos Perez';
+        nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        nameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        
+        testRunner.assert(ov.textContent.includes('Carlos Perez'), 'empleado Carlos Perez agregado a la lista');
+        const activeNow = document.activeElement;
+        testRunner.assert(activeNow && activeNow.id === 'f-empname', 'foco mantenido en el campo de nombre para seguir escribiendo');
+    },
+    'presionar Enter en empresa avanza al siguiente paso si es válida'() {
+        cleanup();
+        localStorage.setItem(KEY, JSON.stringify({ phase: 'setup', setupStep: 1 }));
+        showOnboardingPreview();
+        const ov = overlay();
+        const compInput = ov.querySelector('#f-company');
+        compInput.value = 'Constructora Beta';
+        compInput.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        compInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        
+        const topbar = overlay().querySelector('[data-od-id="od-topbar"]');
+        testRunner.assert(topbar.textContent.includes('Configuración 2 / 6'), 'avanzó al paso 2 de configuración con Enter');
     }
 });
+

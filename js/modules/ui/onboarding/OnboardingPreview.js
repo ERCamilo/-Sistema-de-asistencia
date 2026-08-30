@@ -113,7 +113,13 @@ async function runChoice(value) {
     running = false;
     if (!overlayEl || !st) return; // cerrado a mitad (Escape): nada más que tocar
     st._busy = false;
-    if (result && result.completed) { notifyCompleted(); closeOnboardingPreview(); return; }
+    if (result && result.completed) {
+        notifyCompleted();
+        st.phase = 'ready';
+        saveProgress(localStorage, st);
+        renderPreview();
+        return;
+    }
     st._choiceError = (result && result.error) || 'No se pudo completar la acción.';
     renderPreview();
 }
@@ -171,36 +177,108 @@ function onOverlayClick(e) {
     }
     /* En fase 'listo', "Entrar a la app" cierra el arnés (el core ya limpió storage). */
     if (act === 'next' && st.phase === 'ready') { closeOnboardingPreview(); return; }
-    /* Opciones de elección: acción REAL asíncrona (deps por defecto), no solo pick(). */
-    if (act === 'pick' && CHOICE_SOURCES.includes(el.dataset.v)) { runChoice(el.dataset.v); return; }
+
+    /* En fase 'choice': al presionar Continuar (act === 'next'):
+     * Si eligió 'scratch': navNext pasa al paso 1 de setup (Configuración 1 / 6).
+     * Si eligió demo / backup / google: ejecuta la acción async real y pasa a listo. */
+    if (act === 'next' && st.phase === 'choice') {
+        if (st.source && st.source !== 'scratch') {
+            runChoice(st.source);
+            return;
+        }
+    }
+
     /* Último paso del setup ("Finalizar"): commit real antes de pasar a 'listo'. */
     if (act === 'next' && st.phase === 'setup' && st.setupStep === SETUP_TOTAL) { runFinish(); return; }
+
     handleAction(act, el, st);
     saveProgress(localStorage, st);
     renderPreview();
+}
+
+function syncInputMirrors(inputEl, s) {
+    if (!overlayEl || !inputEl || !s) return;
+    const field = inputEl.dataset.field;
+    const val = inputEl.value;
+    handleAction('input', inputEl, s);
+    saveProgress(localStorage, s);
+
+    if (field === 'company') {
+        const mirror = overlayEl.querySelector('[data-mirror="company"]');
+        if (mirror) mirror.textContent = val.trim() || 'Constructora Horizon';
+    } else if (field === 'posName') {
+        const mirror = overlayEl.querySelector('[data-mirror="posName"]');
+        if (mirror) mirror.textContent = val.trim() || 'Ayudante';
+    } else if (field === 'posRate') {
+        const mirror = overlayEl.querySelector('[data-mirror="dayRate"]');
+        if (mirror) mirror.textContent = '$' + Math.round((parseFloat(val) || 0) * s.hours).toLocaleString('es-DO');
+    }
+
+    const hintMap = { 1: 'Escribe un nombre para continuar', 2: 'Selecciona al menos un día', 3: '', 4: 'Ponle nombre a la posición', 5: 'Agrega al menos un empleado', 6: '' };
+    const hint = s.phase === 'setup' && !canAdvance(s) ? (hintMap[s.setupStep] || '')
+        : (s.phase === 'choice' && !canAdvance(s) ? 'Elige una opción para continuar' : '');
+    const hintEl = overlayEl.querySelector('[data-od-hint]');
+    if (hintEl) hintEl.textContent = hint;
+
+    const nextBtn = overlayEl.querySelector('[data-act="next"]');
+    if (nextBtn) {
+        const ok = canAdvance(s);
+        nextBtn.style.opacity = ok ? '' : '.4';
+        nextBtn.style.pointerEvents = ok ? '' : 'none';
+    }
 }
 
 function onOverlayInput(e) {
     if (!overlayEl || !st) return;
     const el = e.target.closest('input[data-field]');
     if (!el || !overlayEl.contains(el)) return;
-    handleAction('input', el, st);
-    saveProgress(localStorage, st);
-    renderPreview();
+    syncInputMirrors(el, st);
 }
 
 /* Teclado del diálogo: Escape cierra, Tab cicla dentro del overlay y las flechas
  * navegan la guía solo cuando el foco no está en un control interactivo. */
 function onOverlayKeydown(e) {
     if (!overlayEl || !st) return;
-    if (e.key === 'Escape') { closeOnboardingPreview(); return; }
+    if (e.key === 'Escape') {
+        if (running) return;
+        closeOnboardingPreview();
+        return;
+    }
     if (e.key === 'Tab') { trapTabKey(e, overlayEl); return; }
     const tag = e.target && e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+    const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (e.key === 'Enter' && isInput) {
+        e.preventDefault();
+        if (st.phase === 'setup' && st.setupStep === 5 && st.newEmpName.trim()) {
+            handleAction('addEmp', null, st);
+            saveProgress(localStorage, st);
+            renderPreview();
+            const nameEl = overlayEl.querySelector('#f-empname');
+            if (nameEl) nameEl.focus();
+        } else if (canAdvance(st)) {
+            if (st.phase === 'choice' && st.source && st.source !== 'scratch') {
+                runChoice(st.source);
+            } else if (st.phase === 'setup' && st.setupStep === SETUP_TOTAL) {
+                runFinish();
+            } else {
+                navNext(st);
+                saveProgress(localStorage, st);
+                renderPreview();
+            }
+        }
+        return;
+    }
+    if (isInput || tag === 'BUTTON') return;
     if ((e.key === 'ArrowRight' || e.key === 'ArrowDown') && canAdvance(st)) {
-        navNext(st);
-        saveProgress(localStorage, st);
-        renderPreview();
+        if (st.phase === 'choice' && st.source && st.source !== 'scratch') {
+            runChoice(st.source);
+        } else if (st.phase === 'setup' && st.setupStep === SETUP_TOTAL) {
+            runFinish();
+        } else {
+            navNext(st);
+            saveProgress(localStorage, st);
+            renderPreview();
+        }
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         navBack(st);
         saveProgress(localStorage, st);
