@@ -2,7 +2,7 @@
 
 ## Estado final
 
-> **B1 — 🟡 PUBLICADA BAJO `EXC-REVIEW-B1-001`; APROBACIÓN FORMAL DE DIRECCIÓN PENDIENTE**
+> **INCIDENTE RESUELTO — B1 ✅ CERRADA Y APROBADA FORMALMENTE POR DIRECCIÓN**
 
 | Área | Estado |
 | --- | --- |
@@ -13,9 +13,10 @@
 | Commit funcional | `193273e804b1f21aca46939bfc2ad631282e4c15` |
 | Publicación remota | ✅ `origin/feature/factor-dias-no-laborables` resuelve exactamente a `193273e804b1f21aca46939bfc2ad631282e4c15` |
 | Excepción | `EXC-REVIEW-B1-001`, autorizada formalmente por Dirección |
-| Aprobación formal de B1 | Pendiente de revisión remota de Dirección |
+| Aprobación formal de B1 | ✅ Otorgada remotamente sobre `193273e` |
+| Estado del incidente | ✅ Resuelto por excepción de publicación aceptada y aprobación formal remota posterior |
 
-Este registro acredita la publicación remota, pero **no declara B1 cerrada ni autoriza B2**. B1 permanece 🟡 hasta el veredicto formal de Dirección; B2–B5 y F1.7 continúan bloqueadas.
+Este registro conserva la cronología del bloqueo. Dirección aceptó `EXC-REVIEW-B1-001` solo para publicar B1 y luego aprobó formalmente `193273e` por revisión remota. B1 quedó cerrada. Un veredicto separado autorizó exclusivamente B2; B3–B5 y F1.7 continúan bloqueadas.
 
 ## Alcance de la excepción
 
@@ -25,7 +26,7 @@ Dirección autorizó publicar exclusivamente el commit `193273e` bajo la políti
 - no deshabilita Gentle AI globalmente ni modifica el protocolo de unidades futuras;
 - no transfiere ni inventa un receipt;
 - no cubre B2–B5, F1.7 ni cambios ajenos;
-- no sustituye la aprobación formal pendiente de Dirección.
+- no sustituía la aprobación formal de Dirección, que fue otorgada después por revisión remota.
 
 ## Diagnóstico preservado
 
@@ -46,7 +47,7 @@ Gentle AI `2.4.0` con contrato `gentle-ai.review-integration/v2` exigía una rev
 | Disposition sobre target comprometido | `scope_changed` |
 | Causa del cambio de scope | Solo timestamps regenerados en `BuildInfo.js` y `sw.js` |
 | Recuperación requerida por v2 | Lineage sucesora y nuevo ciclo; transferencia de aprobación no permitida |
-| Resolución de Dirección | `EXC-REVIEW-B1-001` + publicación Git ordinaria de `193273e` |
+| Resolución de Dirección | `EXC-REVIEW-B1-001` aceptada para la publicación B1 + aprobación formal remota posterior de `193273e` |
 
 ## Evidencia funcional
 
@@ -60,11 +61,12 @@ Gentle AI `2.4.0` con contrato `gentle-ai.review-integration/v2` exigía una rev
 
 ## Límites y punto de parada
 
-- No existe trabajo B2 de store, migración, consultas, índices, cachés ni historial.
+- Al resolver este incidente no existía trabajo B2 de store, migración, consultas, índices, cachés ni historial; la autorización B2 posterior no implica que su implementación haya iniciado.
 - No existe trabajo B3 cloud.
 - No existe expansión B4 de préstamos o ajustes.
 - No existe trabajo B5 de exportación o recuperación.
 - No existe trabajo F1.7.
-- La persistencia productiva y la migración permanecen bloqueadas para B2; todos los gates A6 siguen vigentes y no hay B2 remoto.
+- B2 queda limitada al aislamiento local obligatorio por `projectId` de store, consultas, cachés, historial, paginación, búsqueda por período, `getById`, estado de sync y migración, incluido un stamper schema 2→3 reanudable, idempotente y por lotes pequeños. Legacy schema 2 puede promoverse por metadata al proyecto predeterminado bajo contrato de migración, sin reescrituras económicas históricas indiscriminadas.
 - Rollback: revertir únicamente `193273e`; B1 no creó ninguna migración de schema persistido.
-- **Punto de parada: esperar revisión remota y aprobación formal de Dirección. No iniciar B2.**
+- Quedan excluidos Firestore/cloud/sync B3; préstamos/ajustes/cuotas/`markAsPaid` B4; PDF/JSON/SplitX/recuperación final B5; y F1.7.
+- Gentle AI vuelve al protocolo ordinario. Si el defecto de infraestructura se repite, se debe detener el trabajo y reportarlo; `EXC-REVIEW-B1-001` no se reutiliza ni se extiende.
