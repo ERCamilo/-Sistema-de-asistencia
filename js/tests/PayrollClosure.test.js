@@ -2,6 +2,8 @@ import {
     buildPayrollClosure,
     buildPayrollClosureId,
     isSamePayrollClosureContent,
+    PAYROLL_CLOSURE_IDENTITY_KIND,
+    promoteLegacyPayrollClosure,
     voidPayrollClosure
 } from '../modules/features/payroll/PayrollClosure.js';
 import { resolvePayrollClosureMutation } from '../modules/features/payroll/PayrollClosureMerge.js';
@@ -339,6 +341,99 @@ describe('PayrollClosure', () => {
         expect(JSON.parse(fingerprint)).not.toHaveProperty('projectId');
         expect(closure.schemaVersion).toBe(2);
         expect(closure).not.toHaveProperty('projectId');
+        expect(closure).not.toHaveProperty('identityKind');
+        expect(closure).not.toHaveProperty('ownershipToken');
         expect(closure.id).toBe('PAYROLL-CLOSURE-1gpn0v27ta2h5');
+    });
+
+    test('promotes legacy ownership without rewriting identity or economic history', () => {
+        const legacy = buildPayrollClosure({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            periodSource: 'configured',
+            rows: [payrollRow()],
+            fingerprint: 'historical-fingerprint',
+            closedAt: 1234,
+            closedBy: 'operator-1',
+            loanSettlementBatchId: 'loan-batch-1',
+            paymentRefs: [{ employeeId: 'emp-7', paymentId: 'payment-1' }],
+            adjustments: { bonuses: [{ id: 'bonus-1' }], deductions: [] },
+            supersedesId: 'previous-closure'
+        });
+        const historical = JSON.parse(JSON.stringify(legacy));
+        const promoted = promoteLegacyPayrollClosure(legacy, ' project-a ');
+
+        expect(promoted).toMatchObject({
+            schemaVersion: 3,
+            projectId: 'project-a',
+            identityKind: PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY,
+            ownershipToken: expect.any(String)
+        });
+        expect(promoted.id).toBe(legacy.id);
+        expect(promoted.fingerprint).toBe(legacy.fingerprint);
+        const { schemaVersion, projectId, identityKind, ownershipToken, ...unchanged } = promoted;
+        const { schemaVersion: legacySchemaVersion, ...historicalContent } = historical;
+        expect(unchanged).toEqual(historicalContent);
+        expect(legacy).toEqual(historical);
+    });
+
+    test('makes same-owner promotion idempotent and rejects retagging as conflict', () => {
+        const legacy = buildPayrollClosure({
+            periodStart: '2026-08-01', periodEnd: '2026-08-15',
+            rows: [payrollRow()], fingerprint: 'legacy-owner'
+        });
+        const promoted = promoteLegacyPayrollClosure(legacy, 'project-a');
+        const retry = promoteLegacyPayrollClosure(promoted, ' project-a ');
+        const retagged = { ...promoted, projectId: 'project-b' };
+
+        expect(retry).toEqual(promoted);
+        expect(retry).not.toBe(promoted);
+        expect(() => promoteLegacyPayrollClosure(promoted, 'project-b')).toThrow(/cambiar/i);
+        expect(isSamePayrollClosureContent(promoted, retagged)).toBe(false);
+        expect(() => resolvePayrollClosureMutation(promoted, retagged)).toThrow(/conflict/i);
+        expect(() => voidPayrollClosure(retagged)).toThrow(/promovida/i);
+    });
+
+    test('voids promoted legacy records without changing owner or legacy identity', () => {
+        const legacy = buildPayrollClosure({
+            periodStart: '2026-08-01', periodEnd: '2026-08-15',
+            rows: [payrollRow()], fingerprint: 'legacy-to-void'
+        });
+        const promoted = promoteLegacyPayrollClosure(legacy, 'project-a');
+        const voided = voidPayrollClosure(promoted, { voidedAt: 200 });
+
+        expect(voided).toMatchObject({
+            status: 'voided',
+            projectId: 'project-a',
+            identityKind: 'promoted-legacy',
+            id: legacy.id,
+            fingerprint: legacy.fingerprint
+        });
+        expect(voided.rows).toEqual(legacy.rows);
+        expect(voided.totals).toEqual(legacy.totals);
+    });
+
+    test('rejects malformed legacy records and native schema 3 misuse', () => {
+        const legacy = buildPayrollClosure({
+            periodStart: '2026-08-01', periodEnd: '2026-08-15',
+            rows: [payrollRow()], fingerprint: 'eligible-legacy'
+        });
+        const nativeInput = {
+            projectId: 'project-a', periodStart: '2026-08-01', periodEnd: '2026-08-15',
+            rows: [payrollRow()]
+        };
+        const native = buildPayrollClosure({
+            ...nativeInput,
+            fingerprint: buildPayrollPreviewFingerprint(nativeInput)
+        });
+
+        expect(() => promoteLegacyPayrollClosure({ ...legacy, id: 'wrong' }, 'project-a'))
+            .toThrow(/schema 2 válido/i);
+        expect(() => promoteLegacyPayrollClosure({ ...legacy, schemaVersion: '2' }, 'project-a'))
+            .toThrow(/schema 2 válido/i);
+        expect(() => promoteLegacyPayrollClosure(native, 'project-a'))
+            .toThrow(/schema 2 válido/i);
+        expect(native).not.toHaveProperty('identityKind');
+        expect(() => voidPayrollClosure(native)).not.toThrow();
     });
 });

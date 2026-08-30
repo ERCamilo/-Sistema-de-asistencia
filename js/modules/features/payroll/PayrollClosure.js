@@ -4,6 +4,9 @@ export const PAYROLL_CLOSURE_STATUS = Object.freeze({
     CLOSED: 'closed',
     VOIDED: 'voided'
 });
+export const PAYROLL_CLOSURE_IDENTITY_KIND = {
+    PROMOTED_LEGACY: 'promoted-legacy'
+};
 export const PAYROLL_CLOSURE_UNDO_WINDOW_MS = 30_000;
 
 function text(value) {
@@ -127,6 +130,8 @@ function closureContent(closure = {}) {
     if (schemaVersion === PAYROLL_CLOSURE_SCHEMA_VERSION || hasOwn(closure, 'projectId')) {
         content.projectId = text(closure.projectId).trim();
     }
+    if (hasOwn(closure, 'identityKind')) content.identityKind = text(closure.identityKind);
+    if (hasOwn(closure, 'ownershipToken')) content.ownershipToken = text(closure.ownershipToken);
     return content;
 }
 
@@ -237,6 +242,49 @@ export function buildPayrollClosure(options = {}) {
     return closure;
 }
 
+function assertPromotedLegacyClosure(closure) {
+    const projectId = canonicalProjectId(closure?.projectId);
+    const expectedId = buildPayrollClosureId(closure?.fingerprint, closure?.supersedesId);
+    const expectedOwnershipToken = stableToken(
+        `${closure?.id}|${closure?.fingerprint}|project:${projectId}`
+    );
+    if (closure?.schemaVersion !== PAYROLL_CLOSURE_SCHEMA_VERSION ||
+        closure.identityKind !== PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY ||
+        closure.projectId !== projectId || closure.id !== expectedId ||
+        closure.ownershipToken !== expectedOwnershipToken) {
+        throw new Error('La identidad promovida del cierre de Nómina no es válida');
+    }
+    return projectId;
+}
+
+export function promoteLegacyPayrollClosure(closure, projectId) {
+    const canonicalOwner = canonicalProjectId(projectId);
+    if (closure?.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+        const currentOwner = assertPromotedLegacyClosure(closure);
+        if (currentOwner !== canonicalOwner) {
+            throw new Error('No se puede cambiar el projectId de un cierre promovido');
+        }
+        return clone(closure);
+    }
+    if (closure?.schemaVersion !== LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION ||
+        hasOwn(closure || {}, 'projectId') || hasOwn(closure || {}, 'identityKind') ||
+        !closure?.id || !closure?.fingerprint ||
+        closure.id !== buildPayrollClosureId(closure.fingerprint, closure.supersedesId) ||
+        !text(closure.periodStart) || !text(closure.periodEnd) ||
+        !Array.isArray(closure.rows) || closure.rows.length === 0) {
+        throw new Error('Sólo se puede promover un cierre histórico schema 2 válido');
+    }
+    return {
+        ...clone(closure),
+        schemaVersion: PAYROLL_CLOSURE_SCHEMA_VERSION,
+        projectId: canonicalOwner,
+        identityKind: PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY,
+        ownershipToken: stableToken(
+            `${closure.id}|${closure.fingerprint}|project:${canonicalOwner}`
+        )
+    };
+}
+
 export function isSamePayrollClosureContent(first, second) {
     if (!first || !second) return false;
     return JSON.stringify(canonicalValue(closureContent(first))) ===
@@ -251,7 +299,9 @@ export function voidPayrollClosure(closure, {
     if (!closure?.id || !closure?.fingerprint) {
         throw new Error('El cierre de Nómina no es válido');
     }
-    if (Number(closure.schemaVersion) === PAYROLL_CLOSURE_SCHEMA_VERSION ||
+    if (closure.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+        assertPromotedLegacyClosure(closure);
+    } else if (Number(closure.schemaVersion) === PAYROLL_CLOSURE_SCHEMA_VERSION ||
         hasOwn(closure, 'projectId')) {
         const projectId = canonicalProjectId(closure.projectId);
         const expectedId = buildPayrollClosureId(
@@ -288,5 +338,6 @@ export default {
     buildPayrollClosureId,
     buildPayrollClosureSnapshot,
     isSamePayrollClosureContent,
+    promoteLegacyPayrollClosure,
     voidPayrollClosure
 };
