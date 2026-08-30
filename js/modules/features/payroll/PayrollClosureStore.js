@@ -7,7 +7,6 @@ import {
     resolvePayrollClosureMutation
 } from './PayrollClosureMerge.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
-import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 export { PayrollClosureConflictError } from './PayrollClosureMerge.js';
 
@@ -40,7 +39,6 @@ export class PayrollClosureStore {
     }
 
     async save(closure) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.save');
         assertClosure(closure);
         assertPayrollClosureSize(closure);
         const incoming = {
@@ -60,7 +58,6 @@ export class PayrollClosureStore {
         queuedAt = Date.now(),
         schemaVersion = null
     } = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.saveWithEmployees');
         assertClosure(closure);
         assertPayrollClosureSize(closure);
         if (enqueueCloud && Number(schemaVersion) < PAYROLL_EMPLOYEE_SCHEMA_MIN) {
@@ -98,19 +95,16 @@ export class PayrollClosureStore {
     }
 
     async getById(id) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.getById');
         return clone(await this.db.get(PAYROLL_CLOSURE_STORE, String(id || '')) || null);
     }
 
     async void(id, audit = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.void');
         const existing = await this.getById(id);
         if (!existing) throw new Error(`Payroll closure not found: ${id}`);
         return this.save(voidPayrollClosure(existing, audit));
     }
 
     async getByPeriod(periodStart, periodEnd) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.getByPeriod');
         const records = await this.db.query(
             PAYROLL_CLOSURE_STORE,
             'periodKey',
@@ -122,7 +116,6 @@ export class PayrollClosureStore {
     }
 
     async getActiveByPeriod(periodStart, periodEnd) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.getActiveByPeriod');
         const records = await this.getByPeriod(periodStart, periodEnd);
         return records.filter(item => item.status === PAYROLL_CLOSURE_STATUS.CLOSED);
     }
@@ -134,7 +127,6 @@ export class PayrollClosureStore {
         periodStart = null,
         periodEnd = null
     } = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.listPage');
         const normalizedLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 20)));
         const indexName = status ? 'statusClosedAtId' : 'closedAtId';
         const normalizedCursor = cursor ? {
@@ -195,7 +187,6 @@ export class PayrollClosureStore {
     }
 
     async getSyncStates(closureIds = []) {
-        assertTandaBBlockedWhenScoped('PayrollClosureStore.getSyncStates');
         const ids = [...new Set((closureIds || []).map(String).filter(Boolean))];
         const states = Object.fromEntries(ids.map(id => [id, 'synced']));
         if (ids.length === 0) return states;

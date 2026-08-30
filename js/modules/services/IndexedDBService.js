@@ -26,7 +26,7 @@ export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 18) {
+    constructor(dbName = 'attendance-app-db', version = 19) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -279,6 +279,12 @@ export class IndexedDBService {
                         ['status', 'closedAt', 'id'],
                         { unique: false }
                     );
+                    closureStore.createIndex('projectId', 'projectId', { unique: false });
+                } else if (event.oldVersion < 19) {
+                    const closureStore = transaction.objectStore('payrollClosures');
+                    if (!closureStore.indexNames.contains('projectId')) {
+                        closureStore.createIndex('projectId', 'projectId', { unique: false });
+                    }
                 }
 
                 // Store: employee avatar binaries (v16). It is intentionally

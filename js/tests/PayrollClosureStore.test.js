@@ -114,12 +114,13 @@ class MemoryDB {
 
 describe('PayrollClosureStore', () => {
     test('schema creates an indexed payroll closure store and includes it in backup round trips', () => {
-        expect(IDB_SOURCE).toMatch(/version\s*=\s*18/);
-        const block = IDB_SOURCE.match(/payrollClosures['"][\s\S]{0,900}/)?.[0] || '';
+        expect(IDB_SOURCE).toMatch(/version\s*=\s*19/);
+        const block = IDB_SOURCE.match(/payrollClosures['"][\s\S]{0,1200}/)?.[0] || '';
         expect(block).toMatch(/keyPath:\s*['"]id['"]/);
         expect(block).toContain("createIndex('periodKey'");
         expect(block).toContain("createIndex('closedAtId'");
         expect(block).toMatch(/createIndex\(\s*['"]statusClosedAtId['"]/);
+        expect(block).toMatch(/createIndex\(\s*['"]projectId['"]/);
         expect(IDB_SOURCE).toMatch(/payrollClosures:\s*await this\.getAll\(['"]payrollClosures['"]\)/);
         expect(IDB_SOURCE).toMatch(/batchUpdate\(['"]payrollClosures['"],\s*data\.payrollClosures\)/);
         expect(IDB_SOURCE).toMatch(/async atomicMutate\(/);
