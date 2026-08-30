@@ -70,10 +70,10 @@ function attendanceSeed() {
 }
 
 describe('Persistence round-trip integrity — REAL IndexedDB runtime (fake-indexeddb)', () => {
-    test('opens attendance-app-db at version 19 with the expected stores', async () => {
+    test('opens attendance-app-db at version 20 with the expected stores', async () => {
         const svc = new IndexedDBService();
         await svc.init();
-        expect(svc.db.version).toBe(19);
+        expect(svc.db.version).toBe(20);
         expect(Array.from(svc.db.objectStoreNames)).toEqual(expect.arrayContaining([
             'employees', 'positions', 'leaders', 'attendance', 'settings', 'sync_queue',
             'pettyCashReceipts', 'pettyCashProjects', 'pettyCashPeriods', 'pettyCashMovements',

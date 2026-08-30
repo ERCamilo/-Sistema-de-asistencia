@@ -16,14 +16,14 @@ if (typeof globalThis.structuredClone !== 'function') {
 }
 
 describe('ProjectStore — REAL IndexedDB runtime (fake-indexeddb)', () => {
-    test('create → get → listAll → update round-trip on the v19 schema', async () => {
+    test('create → get → listAll → update round-trip on the v20 schema', async () => {
         const t0 = 1723000000000;
         const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
         const svc = new IndexedDBService('attendance-app-db-projectstore');
         const store = new ProjectStore({ db: svc });
 
         await svc.init();
-        expect(svc.db.version).toBe(19);
+        expect(svc.db.version).toBe(20);
         expect(Array.from(svc.db.objectStoreNames)).toContain('projects');
 
         const created = await store.create(Project.create({ name: 'Obra Norte' }));

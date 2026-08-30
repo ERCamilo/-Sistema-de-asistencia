@@ -76,8 +76,8 @@ class MemoryDB {
 }
 
 describe('B2.1 local project-aware closure persistence', () => {
-    test('IndexedDB evolution: version 19 and projectId index present, no data migration', () => {
-        expect(IDB_SOURCE).toMatch(/version\s*=\s*19/);
+    test('IndexedDB evolution: version 20 and projectId index present, no data migration', () => {
+        expect(IDB_SOURCE).toMatch(/version\s*=\s*20/);
         const block = IDB_SOURCE.match(/payrollClosures[\s\S]{0,1200}/)?.[0] || '';
         expect(block).toMatch(/createIndex\(\s*['"]projectId['"]/);
         // keep original indexes

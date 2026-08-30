@@ -26,7 +26,7 @@ export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 19) {
+    constructor(dbName = 'attendance-app-db', version = 20) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -282,7 +282,7 @@ export class IndexedDBService {
                     closureStore.createIndex('projectId', 'projectId', { unique: false });
                     closureStore.createIndex('projectClosedAtId', ['projectId', 'closedAt', 'id'], { unique: false });
                     closureStore.createIndex('projectStatusClosedAtId', ['projectId', 'status', 'closedAt', 'id'], { unique: false });
-                } else {
+                } else if (event.oldVersion < 20) {
                     const closureStore = transaction.objectStore('payrollClosures');
                     if (!closureStore.indexNames.contains('projectId')) {
                         closureStore.createIndex('projectId', 'projectId', { unique: false });

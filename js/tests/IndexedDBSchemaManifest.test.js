@@ -43,9 +43,9 @@ const EXPECTED_STORES = {
 
 const AUTO_INCREMENT_STORES = ['sync_queue', 'pettyCashOutbox', 'mainSyncOutbox'];
 
-describe('IndexedDB schema v19 manifest (source contract)', () => {
-    test('opens database version 19', () => {
-        expect(IDB_SRC).toMatch(/version\s*=\s*19/);
+describe('IndexedDB schema v20 manifest (source contract)', () => {
+    test('opens database version 20', () => {
+        expect(IDB_SRC).toMatch(/version\s*=\s*20/);
     });
 
     test('creates exactly every known store with its current keyPath', () => {
