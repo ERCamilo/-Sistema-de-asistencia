@@ -280,10 +280,18 @@ export class IndexedDBService {
                         { unique: false }
                     );
                     closureStore.createIndex('projectId', 'projectId', { unique: false });
-                } else if (event.oldVersion < 19) {
+                    closureStore.createIndex('projectClosedAtId', ['projectId', 'closedAt', 'id'], { unique: false });
+                    closureStore.createIndex('projectStatusClosedAtId', ['projectId', 'status', 'closedAt', 'id'], { unique: false });
+                } else {
                     const closureStore = transaction.objectStore('payrollClosures');
                     if (!closureStore.indexNames.contains('projectId')) {
                         closureStore.createIndex('projectId', 'projectId', { unique: false });
+                    }
+                    if (!closureStore.indexNames.contains('projectClosedAtId')) {
+                        closureStore.createIndex('projectClosedAtId', ['projectId', 'closedAt', 'id'], { unique: false });
+                    }
+                    if (!closureStore.indexNames.contains('projectStatusClosedAtId')) {
+                        closureStore.createIndex('projectStatusClosedAtId', ['projectId', 'status', 'closedAt', 'id'], { unique: false });
                     }
                 }
 

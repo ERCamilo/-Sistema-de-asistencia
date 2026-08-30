@@ -79,27 +79,36 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         expect(db.atomicMutateWithBatches).not.toHaveBeenCalled();
     });
 
-    test('PayrollClosureStore history blocked (listPage / getByPeriod)', async () => {
+    test('PayrollClosureStore history scoped via project-aware indexes (B2.2) — not blocked', async () => {
         const db = fakeDb();
         const store = new PayrollClosureStore({ db });
-        await expectGateErrorAsync(() => store.listPage({}));
-        await expectGateErrorAsync(() => store.getByPeriod('2026-01-01', '2026-01-15'));
-        expect(db.query).not.toHaveBeenCalled();
-        expect(db.getPageByIndex).not.toHaveBeenCalled();
+        await store.listPage({});
+        await store.getByPeriod('2026-01-01', '2026-01-15');
+        expect(db.getPageByIndex).toHaveBeenCalled();
+        expect(db.getPageByIndex.mock.calls[0][1]).toMatch(/project/);
+        expect(db.query).toHaveBeenCalledWith('payrollClosures', 'projectId', A);
     });
 
-    test('PayrollClosureStore.getById blocked before IDB get', async () => {
+    test('PayrollClosureStore.getById scoped (B from A returns null) — B2.2 not blocked', async () => {
         const db = fakeDb();
+        db.get.mockResolvedValue({ id: 'some-id', projectId: B, status: 'closed', periodStart: '2026-01-01', periodEnd: '2026-01-15' });
         const store = new PayrollClosureStore({ db });
-        await expectGateErrorAsync(() => store.getById('some-id'));
-        expect(db.get).toHaveBeenCalledTimes(0);
+        await expect(store.getById('some-id')).resolves.toBeNull();
+        expect(db.get).toHaveBeenCalledWith('payrollClosures', 'some-id');
+        db.get.mockResolvedValue({ id: 'some-id', projectId: A, status: 'closed', periodStart: '2026-01-01', periodEnd: '2026-01-15' });
+        await expect(store.getById('some-id')).resolves.toMatchObject({ projectId: A });
     });
 
-    test('PayrollClosureStore.getSyncStates blocked before IDB getAll', async () => {
+    test('PayrollClosureStore.getSyncStates scoped via owned lookup (B2.2) — not blocked', async () => {
         const db = fakeDb();
+        db.query.mockResolvedValue([{ id: 'id1', projectId: A }]);
+        db.getAll.mockResolvedValue([{ closureId: 'id1', kind: 'payrollClosureBundle', status: 'pending' }, { closureId: 'id2', kind: 'payrollClosureBundle', status: 'pending' }]);
         const store = new PayrollClosureStore({ db });
-        await expectGateErrorAsync(() => store.getSyncStates(['id1', 'id2']));
-        expect(db.getAll).toHaveBeenCalledTimes(0);
+        const states = await store.getSyncStates(['id1', 'id2']);
+        expect(db.query).toHaveBeenCalledWith('payrollClosures', 'projectId', A);
+        expect(db.getAll).toHaveBeenCalled();
+        expect(states['id1']).toBe('pending');
+        expect(states['id2']).toBe('synced');
     });
 
     test('PayrollClosureRepository.saveOne blocked before transaction', async () => {
