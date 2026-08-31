@@ -202,4 +202,73 @@ describe('PayrollClosureStamper B2.3', () => {
         expect(svc.db.version).toBe(20);
         svc.db.close();
     });
+
+    test('MC1 deferred-by-owner remains pending and retries without reset (null owner)', async () => {
+        setProjectsEnabled(true);
+        const svc = new IndexedDBService(`stamper-mc1-null-${Date.now()}-${Math.random()}`);
+        await svc.init();
+        const c = legacyClosure(40);
+        await svc.update('payrollClosures', { ...c, periodKey: `${c.periodStart}:${c.periodEnd}` });
+        const stamperNull = new PayrollClosureStamper({ db: svc, resolveOwner: () => null });
+        const first = await stamperNull.run({ chunkSize: 10 });
+        expect(first.promoted).toBe(0);
+        expect(first.deferred).toBe(1);
+        expect(first.completed).toBe(false);
+        const afterFirst = await svc.get('payrollClosures', c.id);
+        expect(afterFirst.schemaVersion).toBe(2);
+        expect(afterFirst).not.toHaveProperty('projectId');
+        const state1 = await svc.get('settings', STAMPER_STATE_KEY);
+        expect(state1.completed).toBe(false);
+        expect(state1.deferredIds).toContain(String(c.id));
+
+        const stamperCanon = new PayrollClosureStamper({ db: svc, resolveOwner: () => 'PRJ-CANON' });
+        const second = await stamperCanon.run({ chunkSize: 10 });
+        expect(second.promoted).toBe(1);
+        expect(second.completed).toBe(true);
+        const afterSecond = await svc.get('payrollClosures', c.id);
+        expect(afterSecond.schemaVersion).toBe(3);
+        expect(afterSecond.projectId).toBe('PRJ-CANON');
+        expect(afterSecond.identityKind).toBe('promoted-legacy');
+        expect(afterSecond.id).toBe(c.id);
+        expect(afterSecond.fingerprint).toBe(c.fingerprint);
+        expect(afterSecond.rows).toEqual(c.rows);
+        expect(afterSecond.totals).toEqual(c.totals);
+        svc.db.close();
+    });
+
+    test('MC1 deferred handles empty and legacy-unresolved:* same way and never retags promoted', async () => {
+        setProjectsEnabled(true);
+        const svc = new IndexedDBService(`stamper-mc1-legacy-${Date.now()}-${Math.random()}`);
+        await svc.init();
+        const c1 = legacyClosure(41);
+        const c2 = legacyClosure(42);
+        await svc.update('payrollClosures', { ...c1, periodKey: `${c1.periodStart}:${c1.periodEnd}` });
+        await svc.update('payrollClosures', { ...c2, periodKey: `${c2.periodStart}:${c2.periodEnd}` });
+        const legacy = legacyClosure(43);
+        const promoted = promoteLegacyPayrollClosure(legacy, 'PRJ-ORIG');
+        await svc.update('payrollClosures', { ...promoted, periodKey: `${promoted.periodStart}:${promoted.periodEnd}` });
+
+        // first pass: c1 empty string, c2 legacy-unresolved, both deferred; promoted record stays
+        let ownerMap = { [c1.id]: '', [c2.id]: 'legacy-unresolved:payroll-1', [promoted.id]: 'PRJ-NEW' };
+        let stamper = new PayrollClosureStamper({ db: svc, resolveOwner: rec => ownerMap[rec.id] ?? null });
+        const first = await stamper.run({ chunkSize: 10 });
+        expect(first.deferred).toBe(2);
+        expect(first.completed).toBe(false);
+        expect((await svc.get('payrollClosures', c1.id)).schemaVersion).toBe(2);
+        expect((await svc.get('payrollClosures', c2.id)).schemaVersion).toBe(2);
+        expect((await svc.get('payrollClosures', promoted.id)).projectId).toBe('PRJ-ORIG');
+
+        // second pass without reset: now canonical owner available for c1/c2
+        stamper = new PayrollClosureStamper({ db: svc, resolveOwner: () => 'PRJ-NOW' });
+        const second = await stamper.run({ chunkSize: 10 });
+        expect(second.promoted).toBe(2);
+        expect(second.completed).toBe(true);
+        expect((await svc.get('payrollClosures', c1.id)).projectId).toBe('PRJ-NOW');
+        expect((await svc.get('payrollClosures', c2.id)).projectId).toBe('PRJ-NOW');
+        // never retag promoted
+        expect((await svc.get('payrollClosures', promoted.id)).projectId).toBe('PRJ-ORIG');
+        // errors remain separate (no errors in deferred path)
+        expect(second.errors).toBe(0);
+        svc.db.close();
+    });
 });
