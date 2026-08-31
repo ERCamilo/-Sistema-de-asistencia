@@ -13,7 +13,10 @@ import { MainSyncStore } from '../modules/services/MainSyncStore.js';
 import { buildPayrollClosure, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
 import { PayrollClosureConflictError } from '../modules/features/payroll/PayrollClosureStore.js';
 import { PayrollClosureRepository } from '../modules/features/payroll/PayrollClosureRepository.js';
+import { _payrollClosureRepositoryInternals } from '../modules/features/payroll/PayrollClosureRepository.js';
 import { PayrollClosureSync } from '../modules/features/payroll/PayrollClosureSync.js';
+import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
+import { replaceEntityScope, resetEntityScope } from '../modules/features/projects/EntityProjectScope.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -366,5 +369,70 @@ describe('Payroll closure outbox and pull sync', () => {
     test('does not hydrate closure history or start a broad listener at login', () => {
         expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.start(');
         expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.stop(');
+    });
+});
+
+describe('Payroll closure B3.3 scoped seams', () => {
+    const A = 'PRJ-B33-A';
+    const B = 'PRJ-B33-B';
+    const scopeA = { projectId: A, defaultProjectId: A };
+
+    beforeEach(() => {
+        auth.currentUser = { uid: 'user-1' };
+        localStorage.setItem('asistencia_default_project_id', A);
+        setProjectsEnabled(true); replaceEntityScope({ enabled: true, projectId: A, defaultProjectId: A });
+        getDocs.mockReset(); getDoc.mockReset(); runTransaction.mockReset(); where.mockClear();
+    });
+
+    afterEach(() => {
+        setProjectsEnabled(false); resetEntityScope(); localStorage.clear(); delete auth.currentUser;
+    });
+
+    test('scopes page queries and promotes default legacy rows before returning summaries', async () => {
+        const native = { ...closure('native-b33'), schemaVersion: 3, projectId: A };
+        const legacy = closure('legacy-b33', { supersedesId: 'previous-b33' });
+        const set = jest.fn();
+        getDocs.mockResolvedValueOnce({ docs: [docSnapshot(native)] })
+            .mockResolvedValueOnce({ docs: [docSnapshot(legacy)] });
+        runTransaction.mockImplementation(async (_db, operation) => operation({ get: jest.fn(async () => docSnapshot(legacy)), set }));
+
+        const page = await _payrollClosureRepositoryInternals.loadPageScoped({ limit: 10 }, scopeA);
+        expect(page.items).toHaveLength(2);
+        expect(page.items.every(item => !item.rows)).toBe(true);
+        expect(where).toHaveBeenCalledWith('projectId', '==', A);
+        expect(set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ schemaVersion: 3, projectId: A, identityKind: 'promoted-legacy', id: legacy.id, fingerprint: legacy.fingerprint, rows: legacy.rows, totals: legacy.totals, supersedesId: legacy.supersedesId }));
+    });
+
+    test('period queries never discover schema2 for a non-default project', async () => {
+        const scopeB = { projectId: B, defaultProjectId: A };
+        replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
+        getDocs.mockResolvedValue({ docs: [docSnapshot(closure('hidden-b33'))] });
+        await expect(_payrollClosureRepositoryInternals.loadByPeriodScoped(
+            '2026-08-01', '2026-08-15', scopeB
+        )).resolves.toEqual([]);
+        expect(getDocs).toHaveBeenCalledTimes(1);
+        expect(where).toHaveBeenCalledWith('projectId', '==', B);
+        expect(where).not.toHaveBeenCalledWith('schemaVersion', '==', 2);
+    });
+
+    test('deferred pullDetail completion becomes stale and never saves a cross-owner result', async () => {
+        const save = jest.fn();
+        const nativeA = { ...closure('detail-a-b33'), schemaVersion: 3, projectId: A };
+        getDoc.mockResolvedValue(docSnapshot({ ...nativeA, projectId: B })); await expect(_payrollClosureRepositoryInternals.loadByIdScoped('cross-owner-b33', scopeA)).resolves.toBeNull();
+        let resolveDetail;
+        const remoteRepository = {
+            loadById: jest.fn()
+                .mockResolvedValueOnce({ ...nativeA, projectId: B })
+                .mockImplementationOnce(() => new Promise(resolve => { resolveDetail = resolve; }))
+        };
+        const sync = new PayrollClosureSync({ localStore: { save, saveWithEmployees: jest.fn() }, remoteRepository });
+
+        await expect(sync.pullDetail('cross-owner-b33')).resolves.toBeNull();
+        expect(save).not.toHaveBeenCalled();
+        const pending = sync.pullDetail('stale-b33');
+        replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
+        resolveDetail(nativeA);
+        await expect(pending).rejects.toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
+        expect(save).not.toHaveBeenCalled();
     });
 });

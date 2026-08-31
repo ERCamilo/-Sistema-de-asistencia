@@ -1,7 +1,13 @@
 import { MainSyncStore } from '../../services/MainSyncStore.js';
 import payrollClosureStore from './PayrollClosureStore.js';
 import { PayrollClosureConflictError } from './PayrollClosureMerge.js';
-import { PayrollClosureRepository } from './PayrollClosureRepository.js';
+import {
+    _payrollClosureRepositoryInternals,
+    PayrollClosureRepository
+} from './PayrollClosureRepository.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+
+const { captureScopedScope, ensureNotStale } = _payrollClosureRepositoryInternals;
 
 function normalizedPageSize(value) {
     return Math.max(1, Math.min(10, Math.trunc(Number(value) || 10)));
@@ -22,6 +28,17 @@ function cursorToken(cursor) {
     return cursor ? `${Number(cursor.closedAt) || 0}:${String(cursor.id || '')}` : '';
 }
 
+function isOwnedScopedClosure(closure, projectId) {
+    return Number(closure?.schemaVersion) === 3 &&
+        String(closure?.projectId || '') === String(projectId);
+}
+
+function scopedPageItems(items, projectId) {
+    return (items || []).filter(item => Number(item?.schemaVersion) !== 2 &&
+        (!Object.prototype.hasOwnProperty.call(item || {}, 'projectId') ||
+            String(item.projectId) === String(projectId)));
+}
+
 export class PayrollClosureSync {
     constructor({
         localStore = payrollClosureStore,
@@ -35,19 +52,27 @@ export class PayrollClosureSync {
 
     /** Closure, affected employees, and cloud intent share one local transaction. */
     async record(closure, { employees = [], schemaVersion = null, queuedAt = Date.now() } = {}) {
-        return this.localStore.saveWithEmployees(closure, employees, {
+        const scope = isProjectsEnabled() ? captureScopedScope() : null;
+        const result = await this.localStore.saveWithEmployees(closure, employees, {
             enqueueCloud: true,
             schemaVersion,
             queuedAt
         });
+        if (scope) ensureNotStale(scope);
+        return result;
     }
 
     async pullPage(options = {}) {
+        const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const pageSize = normalizedPageSize(options.limit);
         const periodStart = String(options.periodStart || '');
         const periodEnd = String(options.periodEnd || '');
         if (!periodStart && !periodEnd) {
-            return this.remoteRepository.loadPage({ ...options, limit: pageSize });
+            const page = await this.remoteRepository.loadPage({ ...options, limit: pageSize });
+            if (scope) ensureNotStale(scope);
+            return scope
+                ? { ...page, items: scopedPageItems(page?.items, scope.projectId) }
+                : page;
         }
 
         const items = [];
@@ -65,7 +90,10 @@ export class PayrollClosureSync {
                 limit: pageSize,
                 cursor
             });
-            const remoteItems = Array.isArray(page?.items) ? page.items : [];
+            if (scope) ensureNotStale(scope);
+            const remoteItems = scope
+                ? scopedPageItems(page?.items, scope.projectId)
+                : (Array.isArray(page?.items) ? page.items : []);
             if (remoteItems.length === 0) return { items, nextCursor: null };
 
             for (let index = 0; index < remoteItems.length; index++) {
@@ -91,24 +119,43 @@ export class PayrollClosureSync {
     }
 
     async pullDetail(id) {
+        const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const closure = await this.remoteRepository.loadById(id);
+        if (scope) ensureNotStale(scope);
         if (!closure) return null;
-        return this.localStore.save(closure);
+        if (!scope) return this.localStore.save(closure);
+        if (!isOwnedScopedClosure(closure, scope.projectId)) return null;
+        const saved = await this.localStore.save(closure);
+        ensureNotStale(scope);
+        return saved;
     }
 
     async pullPeriod(periodStart, periodEnd) {
+        const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const closures = await this.remoteRepository.loadByPeriod(periodStart, periodEnd);
-        return { closures, ...await this.importClosures(closures) };
+        if (scope) ensureNotStale(scope);
+        const scopedClosures = scope
+            ? (closures || []).filter(closure => isOwnedScopedClosure(closure, scope.projectId))
+            : closures;
+        const imported = await this.importClosures(scopedClosures, { scope });
+        if (scope) ensureNotStale(scope);
+        return { closures: scopedClosures, ...imported };
     }
 
-    async importClosures(closures = []) {
+    async importClosures(closures = [], { scope = undefined } = {}) {
+        const capturedScope = scope === undefined
+            ? (isProjectsEnabled() ? captureScopedScope() : null)
+            : scope;
         const conflicts = [];
         let imported = 0;
         for (const closure of closures || []) {
+            if (capturedScope && !isOwnedScopedClosure(closure, capturedScope.projectId)) continue;
             try {
                 await this.localStore.save(closure);
+                if (capturedScope) ensureNotStale(capturedScope);
                 imported++;
             } catch (error) {
+                if (capturedScope) ensureNotStale(capturedScope);
                 if (!(error instanceof PayrollClosureConflictError)) throw error;
                 conflicts.push({ id: closure?.id || null, error });
             }
@@ -117,11 +164,18 @@ export class PayrollClosureSync {
     }
 
     subscribeRecent(onApply = null, options = {}) {
+        const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const onError = typeof options.onError === 'function'
             ? options.onError
             : error => console.error('Payroll closure live sync failed:', error);
         return this.remoteRepository.subscribeRecent(closures => {
-            this.importClosures(closures)
+            if (scope) {
+                try { ensureNotStale(scope); } catch (error) {
+                    onError(error);
+                    return;
+                }
+            }
+            this.importClosures(closures, { scope })
                 .then(result => {
                     if (typeof onApply === 'function') onApply(result);
                 })

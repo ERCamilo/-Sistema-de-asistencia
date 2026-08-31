@@ -28,24 +28,25 @@ const CONTRACT = fs.readFileSync(
 );
 
 describe('B3.0 contract audit — no behavior change', () => {
-    test('repository queries are currently global (no projectId filter) — B3.3 will scope', () => {
+    test('repository keeps global OFF queries and defines a gated scoped query path', () => {
         expect(REPO).toContain("where('status'");
         expect(REPO).toContain("where('periodStart'");
         expect(REPO).toContain("where('periodEnd'");
-        expect(REPO).not.toMatch(/where\(\s*['"]projectId['"]/);
+        expect(REPO).toContain("where('projectId', '==', capturedPid)");
+        expect(REPO).toContain('assertTandaBBlockedWhenScoped');
     });
 
-    test('loadById is direct document access without owner check — leaks B->A via pullDetail', () => {
+    test('loadById retains its gate and now validates scoped ownership before returning detail', () => {
         expect(REPO).toMatch(/async loadById\(id\)/);
-        const loadByIdBlock = REPO.slice(REPO.indexOf('async loadById'));
-        expect(loadByIdBlock).not.toMatch(/projectId/);
-        expect(loadByIdBlock).not.toMatch(/ownsClosure|captureScopedProjectId|ensureNotStale/);
+        expect(REPO).toContain('loadByIdScoped');
+        expect(REPO).toContain('isScopedClosure');
+        expect(REPO).toContain('promoteLegacyCloudClosure');
         expect(SYNC).toContain('pullDetail');
         expect(SYNC).toContain('remoteRepository.loadById');
         expect(SYNC).toContain('localStore.save(closure)');
     });
 
-    test('closureSummary lacks projectId/identityKind/ownershipToken — LiveSync dormant until B3.5', () => {
+    test('closureSummary still lacks project metadata — LiveSync remains dormant until B3.5', () => {
         const summary = REPO.match(/function closureSummary[\s\S]*?return \{[\s\S]*?\n\}/)?.[0] || '';
         expect(summary).not.toContain('projectId');
         expect(summary).not.toContain('identityKind');

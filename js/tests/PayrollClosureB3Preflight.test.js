@@ -14,12 +14,11 @@ const CONTRACT = fs.readFileSync(
 const RULES = fs.readFileSync(path.resolve(__dirname, '../../firestore.rules'), 'utf8');
 
 describe('B3.2 preflight — provisional index & Rules verifiability (no productive change)', () => {
-    test('loadByPeriod is still equality-only (periodStart== + periodEnd==, no orderBy) — no composite required', () => {
+    test('scoped loadByPeriod adds project equality and remains equality-only — no period composite required', () => {
         expect(REPO).toContain("where('periodStart'");
         expect(REPO).toContain("where('periodEnd'");
-        // No projectId filter yet (B3.3 will add), no orderBy in loadByPeriod
-        const loadByPeriodBlock = REPO.slice(REPO.indexOf('async loadByPeriod'));
-        expect(loadByPeriodBlock).not.toMatch(/where\(\s*['"]projectId['"]/);
+        expect(REPO).toContain("where('projectId', '==', capturedPid)");
+        const loadByPeriodBlock = REPO.slice(REPO.indexOf('async function loadByPeriodScoped'));
         expect(loadByPeriodBlock).not.toMatch(/orderBy\(/);
     });
 
@@ -75,7 +74,8 @@ describe('B3.2 preflight — provisional index & Rules verifiability (no product
         expect(CONTRACT).toMatch(/B3\.4.*pagination|pagination.*B3\.4/i);
     });
 
-    test('no production query code added in B3.2 — repo still global, no projectId where', () => {
-        expect(REPO).not.toMatch(/where\(\s*['"]projectId['"]/);
+    test('B3.3 scoped query code stays behind the existing public gate', () => {
+        expect(REPO).toContain('if (isProjectsEnabled()) return loadByPeriodScoped');
+        expect(REPO).toContain('assertTandaBBlockedWhenScoped');
     });
 });
