@@ -36,7 +36,7 @@ describe('B3.0 contract audit — no behavior change', () => {
         expect(REPO).toContain('assertTandaBBlockedWhenScoped');
     });
 
-    test('loadById retains its gate and now validates scoped ownership before returning detail', () => {
+    test('loadById validates scoped ownership before returning detail', () => {
         expect(REPO).toMatch(/async loadById\(id\)/);
         expect(REPO).toContain('loadByIdScoped');
         expect(REPO).toContain('isScopedClosure');
@@ -44,6 +44,29 @@ describe('B3.0 contract audit — no behavior change', () => {
         expect(SYNC).toContain('pullDetail');
         expect(SYNC).toContain('remoteRepository.loadById');
         expect(SYNC).toContain('localStore.save(closure)');
+    });
+
+    test('B3.4 Unit 3 releases only protected Repository entrypoints', () => {
+        const publicRepo = REPO.slice(REPO.indexOf('export const PayrollClosureRepository'));
+        const methodSource = (name, nextName) => {
+            const start = publicRepo.indexOf(`async ${name}`);
+            const end = publicRepo.indexOf(`async ${nextName}`, start);
+            return publicRepo.slice(start, end < 0 ? undefined : end);
+        };
+        for (const method of ['saveOne', 'loadPage', 'loadById', 'loadByPeriod']) {
+            expect(methodSource(method, method === 'loadByPeriod' ? 'subscribeRecent' : {
+                saveOne: 'loadPage',
+                loadPage: 'loadById',
+                loadById: 'loadByPeriod'
+            }[method])).not.toContain(`PayrollClosureRepository.${method}`);
+        }
+        const subscription = publicRepo.slice(publicRepo.indexOf('subscribeRecent'));
+        expect(subscription).toContain('assertTandaBBlockedWhenScoped');
+        expect(subscription).toContain('PayrollClosureRepository.subscribeRecent');
+        expect(CLOSURE).toContain('validatePayrollClosureForScopedWrite');
+        for (const method of ['record', 'pullPage', 'pullDetail', 'pullPeriod', 'importClosures', 'subscribeRecent']) {
+            expect(SYNC).toContain(`PayrollClosureSync.${method}`);
+        }
     });
 
     test('closureSummary still lacks project metadata — LiveSync remains dormant until B3.5', () => {
@@ -168,6 +191,14 @@ describe('B3.4 Unit 1 truth-table enforcement — Rules boundary only', () => {
         expect(summary).not.toContain('projectId');
         expect(summary).not.toContain('identityKind');
         expect(summary).not.toContain('ownershipToken');
+    });
+
+    test('Unit 3 completion boundary leaves B3.5 as the only pending slice', () => {
+        expect(CONTRACT).toContain('B3.4 Units 1-3 implemented');
+        expect(CONTRACT).toContain('B3.4 complete boundary');
+        expect(CONTRACT).toContain('B3.5 remains pending');
+        expect(CONTRACT).toContain('Unit 3 removes the Repository saveOne/loadPage/loadByPeriod/loadById gates');
+        expect(CONTRACT).toContain('Sync and LiveSync gates remain blocked');
     });
 
     test('ON/OFF matrix and B3.0 freezes remain intact in B3.4 Unit 1', () => {

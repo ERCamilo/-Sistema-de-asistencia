@@ -415,24 +415,25 @@ describe('Payroll closure B3.3 scoped seams', () => {
         expect(where).not.toHaveBeenCalledWith('schemaVersion', '==', 2);
     });
 
-    test('deferred pullDetail completion becomes stale and never saves a cross-owner result', async () => {
+    test('repository detail rejects stale completion while public Sync remains gated', async () => {
         const save = jest.fn();
         const nativeA = { ...closure('detail-a-b33'), schemaVersion: 3, projectId: A };
         getDoc.mockResolvedValue(docSnapshot({ ...nativeA, projectId: B })); await expect(_payrollClosureRepositoryInternals.loadByIdScoped('cross-owner-b33', scopeA)).resolves.toBeNull();
         let resolveDetail;
-        const remoteRepository = {
-            loadById: jest.fn()
-                .mockResolvedValueOnce({ ...nativeA, projectId: B })
-                .mockImplementationOnce(() => new Promise(resolve => { resolveDetail = resolve; }))
-        };
-        const sync = new PayrollClosureSync({ localStore: { save, saveWithEmployees: jest.fn() }, remoteRepository });
-
-        await expect(sync.pullDetail('cross-owner-b33')).resolves.toBeNull();
-        expect(save).not.toHaveBeenCalled();
-        const pending = sync.pullDetail('stale-b33');
+        getDoc.mockImplementationOnce(() => new Promise(resolve => { resolveDetail = resolve; }));
+        const pending = _payrollClosureRepositoryInternals.loadByIdScoped('stale-b33', scopeA);
         replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
-        resolveDetail(nativeA);
+        resolveDetail(docSnapshot(nativeA));
         await expect(pending).rejects.toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
+        expect(save).not.toHaveBeenCalled();
+
+        const sync = new PayrollClosureSync({
+            localStore: { save, saveWithEmployees: jest.fn() },
+            remoteRepository: { loadById: jest.fn() }
+        });
+        await expect(sync.pullDetail('cross-owner-b33')).rejects.toMatchObject({
+            code: 'TANDA_B_BLOCKED_WHEN_SCOPED'
+        });
         expect(save).not.toHaveBeenCalled();
     });
 });

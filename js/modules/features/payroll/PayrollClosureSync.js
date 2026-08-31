@@ -6,6 +6,7 @@ import {
     PayrollClosureRepository
 } from './PayrollClosureRepository.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 const { captureScopedScope, ensureNotStale } = _payrollClosureRepositoryInternals;
 
@@ -52,6 +53,7 @@ export class PayrollClosureSync {
 
     /** Closure, affected employees, and cloud intent share one local transaction. */
     async record(closure, { employees = [], schemaVersion = null, queuedAt = Date.now() } = {}) {
+        assertTandaBBlockedWhenScoped('PayrollClosureSync.record');
         const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const result = await this.localStore.saveWithEmployees(closure, employees, {
             enqueueCloud: true,
@@ -63,6 +65,7 @@ export class PayrollClosureSync {
     }
 
     async pullPage(options = {}) {
+        assertTandaBBlockedWhenScoped('PayrollClosureSync.pullPage');
         const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const pageSize = normalizedPageSize(options.limit);
         const periodStart = String(options.periodStart || '');
@@ -119,6 +122,7 @@ export class PayrollClosureSync {
     }
 
     async pullDetail(id) {
+        assertTandaBBlockedWhenScoped('PayrollClosureSync.pullDetail');
         const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const closure = await this.remoteRepository.loadById(id);
         if (scope) ensureNotStale(scope);
@@ -131,6 +135,7 @@ export class PayrollClosureSync {
     }
 
     async pullPeriod(periodStart, periodEnd) {
+        assertTandaBBlockedWhenScoped('PayrollClosureSync.pullPeriod');
         const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const closures = await this.remoteRepository.loadByPeriod(periodStart, periodEnd);
         if (scope) ensureNotStale(scope);
@@ -143,6 +148,7 @@ export class PayrollClosureSync {
     }
 
     async importClosures(closures = [], { scope = undefined } = {}) {
+        assertTandaBBlockedWhenScoped('PayrollClosureSync.importClosures');
         const capturedScope = scope === undefined
             ? (isProjectsEnabled() ? captureScopedScope() : null)
             : scope;
@@ -164,6 +170,7 @@ export class PayrollClosureSync {
     }
 
     subscribeRecent(onApply = null, options = {}) {
+        assertTandaBBlockedWhenScoped('PayrollClosureSync.subscribeRecent');
         const scope = isProjectsEnabled() ? captureScopedScope() : null;
         const onError = typeof options.onError === 'function'
             ? options.onError

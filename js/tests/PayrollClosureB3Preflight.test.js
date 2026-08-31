@@ -5,6 +5,14 @@ const REPO = fs.readFileSync(
     path.resolve(__dirname, '../modules/features/payroll/PayrollClosureRepository.js'),
     'utf8'
 );
+const SYNC = fs.readFileSync(
+    path.resolve(__dirname, '../modules/features/payroll/PayrollClosureSync.js'),
+    'utf8'
+);
+const CLOSURE = fs.readFileSync(
+    path.resolve(__dirname, '../modules/features/payroll/PayrollClosure.js'),
+    'utf8'
+);
 const INDEXES_RAW = fs.readFileSync(path.resolve(__dirname, '../../firestore.indexes.json'), 'utf8');
 const INDEXES = JSON.parse(INDEXES_RAW);
 const CONTRACT = fs.readFileSync(
@@ -75,8 +83,23 @@ describe('B3.2 preflight — provisional index & Rules verifiability', () => {
         expect(CONTRACT).toMatch(/B3\.4 Unit 2.*indexes/i);
     });
 
-    test('B3.3 scoped query code stays behind the existing public gate', () => {
+    test('B3.4 Unit 3 releases protected Repository methods but keeps Sync blocked', () => {
         expect(REPO).toContain('if (isProjectsEnabled()) return loadByPeriodScoped');
         expect(REPO).toContain('assertTandaBBlockedWhenScoped');
+        expect(REPO).toContain('validatePayrollClosureForScopedWrite');
+        for (const method of ['saveOne', 'loadPage', 'loadById', 'loadByPeriod']) {
+            const start = REPO.indexOf(`async ${method}`);
+            const next = method === 'loadByPeriod' ? 'subscribeRecent' : {
+                saveOne: 'loadPage', loadPage: 'loadById', loadById: 'loadByPeriod'
+            }[method];
+            const end = REPO.indexOf(`async ${next}`, start);
+            expect(REPO.slice(start, end < 0 ? undefined : end))
+                .not.toContain(`PayrollClosureRepository.${method}`);
+        }
+        expect(REPO.slice(REPO.indexOf('subscribeRecent(onChange')))
+            .toContain('PayrollClosureRepository.subscribeRecent');
+        expect(CLOSURE).toContain('validatePayrollClosureForScopedWrite');
+        expect(SYNC).toContain('assertTandaBBlockedWhenScoped');
+        expect(SYNC).toContain('PayrollClosureSync.subscribeRecent');
     });
 });

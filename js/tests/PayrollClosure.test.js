@@ -4,6 +4,7 @@ import {
     isSamePayrollClosureContent,
     PAYROLL_CLOSURE_IDENTITY_KIND,
     promoteLegacyPayrollClosure,
+    validatePayrollClosureForScopedWrite,
     voidPayrollClosure
 } from '../modules/features/payroll/PayrollClosure.js';
 import { resolvePayrollClosureMutation } from '../modules/features/payroll/PayrollClosureMerge.js';
@@ -240,6 +241,33 @@ describe('PayrollClosure', () => {
         });
     });
 
+    test('validates native scoped identity and rejects coercible numeric fields', () => {
+        const input = {
+            projectId: 'project-a',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()]
+        };
+        const fingerprint = buildPayrollPreviewFingerprint(input);
+        const native = buildPayrollClosure({ ...input, fingerprint, closedAt: 100 });
+
+        expect(validatePayrollClosureForScopedWrite(native, ' project-a ')).toBe(native);
+        for (const [field, value] of [
+            ['schemaVersion', '3'],
+            ['closedAt', '100'],
+            ['updatedAt', null],
+            ['undoUntil', '101'],
+            ['employeeCount', '1']
+        ]) {
+            expect(() => validatePayrollClosureForScopedWrite({ ...native, [field]: value }, 'project-a'))
+                .toThrow();
+        }
+        expect(() => validatePayrollClosureForScopedWrite({ ...native, projectId: 'project-b' }, 'project-a'))
+            .toThrow(/proyecto/i);
+        expect(() => validatePayrollClosureForScopedWrite({ ...native, identityKind: 'promoted-legacy' }, 'project-a'))
+            .toThrow();
+    });
+
     test('makes reordered content stable within a project and distinct across projects', () => {
         const firstRow = payrollRow({ _employeeId: 'a', _number: '1' });
         const secondRow = payrollRow({ _employeeId: 'b', _number: '2' });
@@ -375,6 +403,35 @@ describe('PayrollClosure', () => {
         const { schemaVersion: legacySchemaVersion, ...historicalContent } = historical;
         expect(unchanged).toEqual(historicalContent);
         expect(legacy).toEqual(historical);
+    });
+
+    test('validates promoted legacy metadata and exact source payload before scoped writes', () => {
+        const legacy = buildPayrollClosure({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()],
+            fingerprint: 'historical-scoped-write',
+            supersedesId: 'previous-closure'
+        });
+        const promoted = promoteLegacyPayrollClosure(legacy, 'project-a');
+
+        expect(validatePayrollClosureForScopedWrite(promoted, 'project-a')).toBe(promoted);
+        expect(validatePayrollClosureForScopedWrite(promoted, 'project-a', { legacySource: legacy }))
+            .toBe(promoted);
+        for (const candidate of [
+            { ...promoted, id: 'forged-id' },
+            { ...promoted, fingerprint: 'forged-fingerprint' },
+            { ...promoted, supersedesId: 'forged-predecessor' },
+            { ...promoted, ownershipToken: 'forged-token' },
+            { ...promoted, employeeCount: '1' },
+            { ...promoted, totals: { ...promoted.totals, net: 999 } },
+            { ...promoted, rows: [] }
+        ]) {
+            expect(() => validatePayrollClosureForScopedWrite(candidate, 'project-a', { legacySource: legacy }))
+                .toThrow();
+        }
+        expect(() => validatePayrollClosureForScopedWrite({ ...promoted, projectId: 'project-b' }, 'project-a'))
+            .toThrow(/proyecto/i);
     });
 
     test('makes same-owner promotion idempotent and rejects retagging as conflict', () => {

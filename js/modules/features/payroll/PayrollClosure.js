@@ -17,6 +17,13 @@ function hasOwn(value, key) {
     return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+const SCOPED_CLOSURE_REQUIRED_FIELDS = [
+    'schemaVersion', 'id', 'fingerprint', 'periodStart', 'periodEnd',
+    'status', 'closedAt', 'updatedAt', 'undoUntil', 'employeeCount',
+    'rows', 'totals', 'paymentRefs'
+];
+const CLOSURE_MONEY_FIELDS = ['gross', 'bonuses', 'deductions', 'loans', 'net'];
+
 function canonicalProjectId(value) {
     if (typeof value !== 'string') {
         throw new TypeError('El projectId canónico del cierre de Nómina es obligatorio');
@@ -31,6 +38,99 @@ function canonicalProjectId(value) {
 function money(value) {
     const numeric = Number(value) || 0;
     return Math.round((numeric + Number.EPSILON) * 100) / 100;
+}
+
+function isRecord(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertFiniteNumber(value, field) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new TypeError(`El campo numérico ${field} debe ser finito`);
+    }
+}
+
+function assertFiniteInteger(value, field) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || !Number.isFinite(value)) {
+        throw new TypeError(`El campo entero ${field} debe ser un entero finito`);
+    }
+}
+
+function assertStringOrNull(value, field) {
+    if (value !== null && typeof value !== 'string') {
+        throw new TypeError(`El campo ${field} debe ser texto o null`);
+    }
+}
+
+function assertScopedClosureShape(closure) {
+    if (!isRecord(closure)) throw new TypeError('El cierre de Nómina debe ser un objeto');
+    for (const field of SCOPED_CLOSURE_REQUIRED_FIELDS) {
+        if (!hasOwn(closure, field) || closure[field] === undefined) {
+            throw new TypeError(`Falta el campo obligatorio ${field} del cierre de Nómina`);
+        }
+    }
+    for (const field of ['id', 'fingerprint', 'periodStart', 'periodEnd']) {
+        if (typeof closure[field] !== 'string' || !closure[field]) {
+            throw new TypeError(`El campo ${field} del cierre de Nómina debe ser texto no vacío`);
+        }
+    }
+    if (![PAYROLL_CLOSURE_STATUS.CLOSED, PAYROLL_CLOSURE_STATUS.VOIDED].includes(closure.status)) {
+        throw new TypeError(`Estado de cierre de Nómina no válido: ${closure.status}`);
+    }
+    for (const field of ['closedAt', 'updatedAt', 'undoUntil', 'employeeCount']) {
+        assertFiniteInteger(closure[field], field);
+    }
+    if (closure.employeeCount < 0 || !Array.isArray(closure.rows) || closure.rows.length === 0 ||
+        closure.employeeCount !== closure.rows.length) {
+        throw new TypeError('La cantidad de empleados no coincide con las filas del cierre de Nómina');
+    }
+    if (!isRecord(closure.totals) || !Array.isArray(closure.paymentRefs)) {
+        throw new TypeError('Los totales y referencias de pago del cierre no son válidos');
+    }
+    if (hasOwn(closure, 'closedBy')) assertStringOrNull(closure.closedBy, 'closedBy');
+    if (hasOwn(closure, 'periodSource') && typeof closure.periodSource !== 'string') {
+        throw new TypeError('El campo periodSource del cierre debe ser texto');
+    }
+    if (hasOwn(closure, 'loanSettlementBatchId')) {
+        assertStringOrNull(closure.loanSettlementBatchId, 'loanSettlementBatchId');
+    }
+    if (hasOwn(closure, 'supersedesId')) assertStringOrNull(closure.supersedesId, 'supersedesId');
+    if (hasOwn(closure, 'voidedAt') && closure.voidedAt !== null) {
+        assertFiniteInteger(closure.voidedAt, 'voidedAt');
+    }
+    if (hasOwn(closure, 'voidedBy')) assertStringOrNull(closure.voidedBy, 'voidedBy');
+    if (hasOwn(closure, 'voidReason') && closure.voidReason !== null &&
+        typeof closure.voidReason !== 'string') {
+        throw new TypeError('El campo voidReason del cierre debe ser texto o null');
+    }
+    if (closure.status === PAYROLL_CLOSURE_STATUS.VOIDED &&
+        (!Number.isInteger(closure.voidedAt) || typeof closure.voidReason !== 'string' || !closure.voidReason)) {
+        throw new TypeError('Un cierre anulado debe conservar su auditoría de anulación');
+    }
+}
+
+function assertNativeClosurePayload(closure) {
+    for (const row of closure.rows) {
+        if (!isRecord(row)) throw new TypeError('Las filas del cierre de Nómina no son válidas');
+        for (const field of ['employeeId', 'employeeNumber', 'employeeName', 'employeePosition']) {
+            if (typeof row[field] !== 'string') throw new TypeError(`El campo ${field} de la fila no es válido`);
+        }
+        for (const field of CLOSURE_MONEY_FIELDS) assertFiniteNumber(row[field], `rows[].${field}`);
+    }
+    for (const field of CLOSURE_MONEY_FIELDS) assertFiniteNumber(closure.totals[field], `totals.${field}`);
+
+    const expectedTotals = closure.rows.reduce((sum, row) => ({
+        gross: money(sum.gross + row.gross),
+        bonuses: money(sum.bonuses + row.bonuses),
+        deductions: money(sum.deductions + row.deductions),
+        loans: money(sum.loans + row.loans),
+        net: money(sum.net + row.net)
+    }), { gross: 0, bonuses: 0, deductions: 0, loans: 0, net: 0 });
+    for (const field of CLOSURE_MONEY_FIELDS) {
+        if (closure.totals[field] !== expectedTotals[field]) {
+            throw new TypeError(`El total ${field} no coincide con las filas del cierre`);
+        }
+    }
 }
 
 function clone(value) {
@@ -257,6 +357,62 @@ function assertPromotedLegacyClosure(closure) {
     return projectId;
 }
 
+function assertLegacyPayloadPreserved(closure, legacySource, projectId) {
+    if (!legacySource || Number(legacySource.schemaVersion) !== LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION) {
+        throw new TypeError('La promoción del cierre histórico requiere un origen schema 2');
+    }
+    const source = {
+        ...clone(legacySource),
+        id: legacySource.id || closure.id
+    };
+    const expected = promoteLegacyPayrollClosure(source, projectId);
+    if (JSON.stringify(canonicalValue(expected)) !== JSON.stringify(canonicalValue(closure))) {
+        throw new Error('La promoción no conserva la identidad y el payload históricos');
+    }
+}
+
+/**
+ * Validates only schema 3 documents admitted to the scoped cloud repository.
+ * Legacy schema 2 discovery keeps its deliberately permissive historical path.
+ */
+export function validatePayrollClosureForScopedWrite(
+    closure,
+    expectedProjectId,
+    { legacySource = null } = {}
+) {
+    const expectedOwner = canonicalProjectId(expectedProjectId);
+    assertScopedClosureShape(closure);
+    if (closure.schemaVersion !== PAYROLL_CLOSURE_SCHEMA_VERSION) {
+        throw new TypeError('Los cierres scoped deben usar schemaVersion 3');
+    }
+    const projectId = canonicalProjectId(closure.projectId);
+    if (closure.projectId !== projectId || projectId !== expectedOwner) {
+        throw new Error('El cierre de Nómina no pertenece al proyecto canónico capturado');
+    }
+
+    if (closure.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+        assertPromotedLegacyClosure(closure);
+        if (legacySource) assertLegacyPayloadPreserved(closure, legacySource, projectId);
+        return closure;
+    }
+
+    if (hasOwn(closure, 'identityKind') || hasOwn(closure, 'ownershipToken')) {
+        throw new TypeError('Un cierre nativo no puede incluir metadata de promoción legacy');
+    }
+    assertNativeClosurePayload(closure);
+    const expectedFingerprint = JSON.stringify({
+        projectId,
+        periodStart: closure.periodStart,
+        periodEnd: closure.periodEnd,
+        rows: clone(closure.rows)
+    });
+    const expectedId = buildPayrollClosureId(closure.fingerprint, closure.supersedesId, projectId);
+    if (closure.fingerprint !== expectedFingerprint || closure.id !== expectedId) {
+        throw new Error('La identidad nativa del cierre no corresponde a su projectId y payload');
+    }
+    return closure;
+}
+
 export function promoteLegacyPayrollClosure(closure, projectId) {
     const canonicalOwner = canonicalProjectId(projectId);
     if (closure?.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
@@ -339,5 +495,6 @@ export default {
     buildPayrollClosureSnapshot,
     isSamePayrollClosureContent,
     promoteLegacyPayrollClosure,
+    validatePayrollClosureForScopedWrite,
     voidPayrollClosure
 };

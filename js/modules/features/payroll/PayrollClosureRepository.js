@@ -19,7 +19,8 @@ import {
     PAYROLL_CLOSURE_IDENTITY_KIND,
     PAYROLL_CLOSURE_SCHEMA_VERSION,
     PAYROLL_CLOSURE_STATUS,
-    promoteLegacyPayrollClosure
+    promoteLegacyPayrollClosure,
+    validatePayrollClosureForScopedWrite
 } from './PayrollClosure.js';
 import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
@@ -200,19 +201,41 @@ async function promoteLegacyCloudClosure(legacy, scope) {
 
 async function saveOneScoped(closure, scope = captureScopedScope()) {
     if (!scope) throw new Error('A canonical project is required for scoped payroll closure writes');
-    assertClosure(closure);
-    assertPayrollClosureSize(closure);
     const incoming = clone(closure);
-    if (!isScopedClosure(incoming, scope.projectId)) {
-        throw new Error('Payroll closure does not belong to the captured project');
-    }
+    validatePayrollClosureForScopedWrite(incoming, scope.projectId);
+    assertPayrollClosureSize(incoming);
     const ref = requireSessionRef(currentDocument(incoming.id));
+    if (incoming.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+        const preflight = await getDoc(ref);
+        ensureNotStale(scope);
+        if (!preflight?.exists?.()) {
+            throw new Error('A promoted legacy closure must already exist as schema 2');
+        }
+        const source = { ...clone(preflight.data()), id: String(preflight.id || incoming.id) };
+        if (isRawLegacyClosure(source)) {
+            validatePayrollClosureForScopedWrite(incoming, scope.projectId, {
+                legacySource: source
+            });
+        }
+    }
     const result = await runTransaction(db, async transaction => {
         const snapshot = await transaction.get(ref);
         ensureNotStale(scope);
-        const existing = snapshot.exists() ? snapshot.data() : null;
+        const existing = snapshot.exists()
+            ? { ...clone(snapshot.data()), id: String(snapshot.id || incoming.id) }
+            : null;
         if (existing?.projectId && !isScopedClosure(existing, scope.projectId)) {
             throw new Error('Payroll closure belongs to another project');
+        }
+        if (incoming.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+            if (!existing) throw new Error('A promoted legacy closure must already exist as schema 2');
+            if (isRawLegacyClosure(existing)) {
+                validatePayrollClosureForScopedWrite(incoming, scope.projectId, {
+                    legacySource: existing
+                });
+                transaction.set(ref, incoming);
+                return { written: true, closure: clone(incoming) };
+            }
         }
         const mutation = resolvePayrollClosureMutation(existing, incoming);
         if (mutation.write) transaction.set(ref, mutation.value);
@@ -304,7 +327,6 @@ function subscribeRecentScoped(onChange, { limit = 10, onError = null } = {}, sc
 
 export const PayrollClosureRepository = {
     async saveOne(closure) {
-        assertTandaBBlockedWhenScoped('PayrollClosureRepository.saveOne');
         if (isProjectsEnabled()) return saveOneScoped(closure);
         assertClosure(closure);
         assertPayrollClosureSize(closure);
@@ -323,7 +345,6 @@ export const PayrollClosureRepository = {
     },
 
     async loadPage(options = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureRepository.loadPage');
         if (isProjectsEnabled()) return loadPageScoped(options);
         const pageSize = normalizedLimit(options.limit);
         const snapshot = await getDocs(pageQuery(options));
@@ -339,7 +360,6 @@ export const PayrollClosureRepository = {
     },
 
     async loadById(id) {
-        assertTandaBBlockedWhenScoped('PayrollClosureRepository.loadById');
         if (isProjectsEnabled()) return loadByIdScoped(id);
         const snapshot = await getDoc(requireSessionRef(currentDocument(id)));
         if (!snapshot?.exists?.()) return null;
@@ -347,7 +367,6 @@ export const PayrollClosureRepository = {
     },
 
     async loadByPeriod(periodStart, periodEnd) {
-        assertTandaBBlockedWhenScoped('PayrollClosureRepository.loadByPeriod');
         if (isProjectsEnabled()) return loadByPeriodScoped(periodStart, periodEnd);
         const snapshot = await getDocs(query(
             requireSessionRef(currentCollection()),
@@ -372,7 +391,7 @@ export const PayrollClosureRepository = {
     }
 };
 
-// Public ON gates remain in place until B3.4; these seams keep B3.3 testable.
+// The public subscription remains gated until B3.5; these seams keep B3.3 testable.
 export const _payrollClosureRepositoryInternals = Object.freeze({
     captureScopedScope,
     ensureNotStale,
