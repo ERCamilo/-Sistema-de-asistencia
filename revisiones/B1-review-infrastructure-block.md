@@ -16,7 +16,7 @@
 | Aprobación formal de B1 | ✅ Otorgada remotamente sobre `193273e` |
 | Estado del incidente | ✅ Resuelto por excepción de publicación aceptada y aprobación formal remota posterior |
 
-Este registro conserva la cronología del bloqueo. Dirección aceptó `EXC-REVIEW-B1-001` solo para publicar B1 y luego aprobó formalmente `193273e` por revisión remota. B1 quedó cerrada. Un veredicto separado autorizó exclusivamente B2; B3–B5 y F1.7 continúan bloqueadas.
+Este registro conserva la cronología del bloqueo. Dirección aceptó `EXC-REVIEW-B1-001` solo para publicar B1 y luego aprobó formalmente `193273e` por revisión remota. B1 quedó cerrada. Veredicto posterior cerró y aprobó formalmente B2 completa (B2.0 `580227a`, B2.1 `114f041`+`c9da41e`, B2.2 `4734403`+`d563055`, B2.3 `5c3e419`+`64421a4`, B2.4 `fd8dc7e`/`d5a6f8e`, hook `0fc54df`, 374/3620 con flake `ProjectStoreRealIdb` 1ms retry verde; B3 🟢 exclusiva cloud/sync por proyecto; B4–B5 y F1.7 continúan 🔒. Ver [`F1.6-B2-bitacora.md`](../fase-1/F1.6-B2-bitacora.md).
 
 ## Alcance de la excepción
 
@@ -59,14 +59,11 @@ Gentle AI `2.4.0` con contrato `gentle-ai.review-integration/v2` exigía una rev
 - Inventario funcional exacto: `js/modules/config/BuildInfo.js`, `js/modules/features/payroll/PayrollClosure.js`, `js/modules/features/payroll/PayrollClosureWorkflow.js`, `js/modules/features/payroll/PayrollLoanSettlement.js`, `js/tests/PayrollClosure.test.js`, `js/tests/PayrollClosureWorkflow.test.js`, `sw.js`.
 - Resultados: `41/41` enfocados, `129/129` agrupados A6/B1 y `3586/3586` suite completa.
 
-## Límites y punto de parada
+## Límites y punto de parada (actualizado tras cierre B2 `fd8dc7e`/`d5a6f8e`)
 
-- Al resolver este incidente no existía trabajo B2 de store, migración, consultas, índices, cachés ni historial; la autorización B2 posterior no implica que su implementación haya iniciado.
-- No existe trabajo B3 cloud.
-- No existe expansión B4 de préstamos o ajustes.
-- No existe trabajo B5 de exportación o recuperación.
-- No existe trabajo F1.7.
-- B2 queda limitada al aislamiento local obligatorio por `projectId` de store, consultas, cachés, historial, paginación, búsqueda por período, `getById`, estado de sync y migración, incluido un stamper schema 2→3 reanudable, idempotente y por lotes pequeños. Legacy schema 2 puede promoverse por metadata al proyecto predeterminado bajo contrato de migración, sin reescrituras económicas históricas indiscriminadas.
-- Rollback: revertir únicamente `193273e`; B1 no creó ninguna migración de schema persistido.
-- Quedan excluidos Firestore/cloud/sync B3; préstamos/ajustes/cuotas/`markAsPaid` B4; PDF/JSON/SplitX/recuperación final B5; y F1.7.
-- Gentle AI vuelve al protocolo ordinario. Si el defecto de infraestructura se repite, se debe detener el trabajo y reportarlo; `EXC-REVIEW-B1-001` no se reutiliza ni se extiende.
+- Este incidente B1 no bloquea B2: **B2 ✅ cerrada y aprobada formalmente** (hook `0fc54df`; B2.0 `580227a`, B2.1 `114f041`+`c9da41e`, B2.2 `4734403`+`d563055`, B2.3 `5c3e419`+`64421a4`, B2.4 `fd8dc7e`/`d5a6f8e`; 374/3620 con flake `ProjectStoreRealIdb` 1ms retry verde; OFF→new legacy→ON reentry resuelto).
+- **B2 queda cerrada** con aislamiento local obligatorio por `projectId` de store, consultas, cachés, historial, paginación, búsqueda por período, `getById`, estado de sync y migración, incluido stamper schema 2→3 reanudable/idempotente por lotes pequeños; legacy schema 2 promovido por metadata al default sin reescritura económica; lazy promotion preservando id/fingerprint/supersedesId.
+- B3 🟢 autorizada exclusivamente para repositorio/sync cloud por proyecto con promoción lazy preservando id/fingerprint/supersedesId (native vs promoted-legacy, sin rediseño de identidad económica).
+- No existe expansión B4 de préstamos/ajustes/cuotas/`markAsPaid` (🔒); no existe trabajo B5 de exportación/recuperación (🔒); no existe trabajo F1.7 (🔒).
+- Rollback B1: revertir únicamente `193273e`; B1 no creó migración de schema persistido. Rollback B2: `fd8dc7e` → `64421a4`/`5c3e419` → `d563055`/`4734403` → `c9da41e`/`114f041` → `580227a`.
+- Gentle AI volvió al protocolo ordinario tras B1. Si el defecto de infraestructura se repite, se debe detener el trabajo y reportarlo; `EXC-REVIEW-B1-001` no se reutiliza ni se extiende.
