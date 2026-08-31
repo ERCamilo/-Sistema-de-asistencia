@@ -54,9 +54,9 @@ describe('B3.0 contract audit — no behavior change', () => {
         expect(REPO).toContain('closureSummary');
     });
 
-    test('firestore.rules wildcard still covers payrollClosures — must be excluded in B3.4', () => {
-        expect(RULES).toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
-        expect(RULES).not.toMatch(/payrollClosures/);
+    test('firestore.rules gives payrollClosures a separate non-overlapping match', () => {
+        expect(RULES).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
+        expect(RULES).toMatch(/match \/users\/\{userId\}\/payrollClosures\/\{closureId\}/);
     });
 
     test('OFF legacy path remains global — no projectId index required when flag off', () => {
@@ -107,9 +107,9 @@ describe('B3.0 contract audit — no behavior change', () => {
     });
 });
 
-describe('B3.1 truth-table freeze — doc-only hardening (no Rules enforcement yet)', () => {
-    test('contract freezes explicit 8-row truth table as doc, not as Rules code', () => {
-        expect(CONTRACT).toContain('truth table frozen in B3.1');
+describe('B3.4 Unit 1 truth-table enforcement — Rules boundary only', () => {
+    test('contract freezes the explicit 8-row truth table and Rules enforce its server-visible parts', () => {
+        expect(CONTRACT).toContain('B3.1 freeze');
         expect(CONTRACT).toContain('4.1 Firestore Rules truth table');
         expect(CONTRACT).toContain('create — schema2 legacy');
         expect(CONTRACT).toContain('create — schema3');
@@ -119,21 +119,19 @@ describe('B3.1 truth-table freeze — doc-only hardening (no Rules enforcement y
         expect(CONTRACT).toContain('closed → voided');
         expect(CONTRACT).toContain('voided → closed');
         expect(CONTRACT).toContain('wildcard bypass');
-        // Still doc-only: firestore.rules itself remains unhardened in B3.1
-        expect(RULES).toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
-        expect(RULES).not.toMatch(/payrollClosures/);
+        expect(RULES).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
+        expect(RULES).toContain('match /users/{userId}/payrollClosures/{closureId}');
     });
 
     test('create rows: schema2 allowed preserving OFF, schema3 requires canonical projectId', () => {
         expect(CONTRACT).toMatch(/create — schema2 legacy[\s\S]*?ALLOW[\s\S]*?Preserve OFF contract/);
-        expect(CONTRACT).toMatch(/create — schema3[\s\S]*?ALLOW only if canonical/);
-        expect(CONTRACT).toMatch(/canonical valid/);
-        // Current Rules have not yet enforced canonical check — B3.1 is doc-only
-        expect(RULES).not.toMatch(/canonicalProjectId|isValidProjectId/);
+        expect(CONTRACT).toMatch(/create — schema3[\s\S]*?ALLOW only if canonical-shaped/);
+        expect(CONTRACT).toMatch(/canonical-shaped/);
+        expect(RULES).toContain('isCanonicalProjectId');
     });
 
     test('promotion vs downgrade: schema2→promoted-legacy preserves identity, schema3→schema2 rejected, owner immutable', () => {
-        expect(CONTRACT).toMatch(/schema2 → promoted-legacy[\s\S]*?preserves `id`\/`fingerprint`/);
+        expect(CONTRACT).toMatch(/schema2 → promoted-legacy[\s\S]*?preserves identity\/payload fields/);
         expect(CONTRACT).toMatch(/schema3 → schema2[\s\S]*?REJECT[\s\S]*?Downgrade never allowed/);
         expect(CONTRACT).toMatch(/schema3 owner change[\s\S]*?REJECT[\s\S]*?Owner immutable/);
         expect(CONTRACT).toContain('request.resource.data.projectId == resource.data.projectId');
@@ -155,8 +153,8 @@ describe('B3.1 truth-table freeze — doc-only hardening (no Rules enforcement y
     test('wildcard must not grant alternative allow to payrollClosures — restructure required', () => {
         expect(CONTRACT).toMatch(/wildcard bypass[\s\S]*?MUST NOT/);
         expect(CONTRACT).toMatch(/exclude `payrollClosures`|restructured so `payrollClosures` has its own/);
-        // Current code still has the bypass — B3.1 documents but does not fix it
-        expect(RULES).toMatch(/\{document=\*\*\}/);
+        expect(RULES).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
+        expect(RULES).toContain('match /users/{userId}/payrollClosures/{closureId}');
     });
 
     test('closureSummary frozen target: projectId, identityKind, ownershipToken must survive for B3.5', () => {
@@ -170,11 +168,11 @@ describe('B3.1 truth-table freeze — doc-only hardening (no Rules enforcement y
         expect(summary).not.toContain('ownershipToken');
     });
 
-    test('ON/OFF matrix and B3.0 freezes remain intact in B3.1', () => {
+    test('ON/OFF matrix and B3.0 freezes remain intact in B3.4 Unit 1', () => {
         expect(CONTRACT).toContain('ON/OFF matrix');
         expect(CONTRACT).toContain('Schema variants:');
         expect(CONTRACT).toContain('Legacy discovery strategy');
         expect(CONTRACT).toContain('Transition rules');
-        expect(CONTRACT).toContain('B3.1-B3.5');
+        expect(CONTRACT).toContain('B3.1 -> B3.5');
     });
 });

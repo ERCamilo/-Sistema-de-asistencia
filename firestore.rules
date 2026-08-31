@@ -1,13 +1,166 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Reglas para la colección de usuarios
-    // Solo el dueño de la cuenta puede leer y escribir sus propios datos
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isAccountOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
-    
-    // Denegar todo lo demás por defecto (Principio de menor privilegio)
+
+    function hasNonEmptyString(data, field) {
+      return data.keys().hasAll([field]) &&
+        data[field] is string && data[field].size() > 0;
+    }
+
+    function isCanonicalProjectId(value) {
+      // Rules cannot normalize client identifiers; reject only the invalid
+      // sentinel and empty/non-string values that are server-visible here.
+      return value is string && value.size() > 0 &&
+        !value.matches('^legacy-unresolved:.*');
+    }
+
+    function hasClosureShape(data) {
+      return data.keys().hasAll([
+        'schemaVersion', 'id', 'fingerprint', 'periodStart', 'periodEnd',
+        'status', 'closedAt', 'updatedAt', 'undoUntil', 'employeeCount',
+        'rows', 'totals', 'paymentRefs'
+      ]) &&
+        hasNonEmptyString(data, 'id') &&
+        hasNonEmptyString(data, 'fingerprint') &&
+        hasNonEmptyString(data, 'periodStart') &&
+        hasNonEmptyString(data, 'periodEnd') &&
+        data.closedAt is int && data.updatedAt is int &&
+        data.undoUntil is int && data.employeeCount is int &&
+        data.rows is list && data.totals is map && data.paymentRefs is list;
+    }
+
+    function hasValidStatus(data) {
+      return data.status == 'closed' ||
+        (data.status == 'voided' &&
+          data.keys().hasAll(['voidedAt', 'voidedBy', 'voidReason']) &&
+          data.voidedAt is int &&
+          (data.voidedBy == null || data.voidedBy is string) &&
+          hasNonEmptyString(data, 'voidReason'));
+    }
+
+    function isLegacyClosure(data) {
+      return hasClosureShape(data) && data.schemaVersion == 2 &&
+        !data.keys().hasAny(['projectId', 'identityKind', 'ownershipToken']) &&
+        hasValidStatus(data);
+    }
+
+    function isNativeClosure(data) {
+      return hasClosureShape(data) && data.schemaVersion == 3 &&
+        hasNonEmptyString(data, 'projectId') &&
+        isCanonicalProjectId(data.projectId) &&
+        !data.keys().hasAny(['identityKind', 'ownershipToken']) &&
+        hasValidStatus(data);
+    }
+
+    function isPromotedLegacyClosure(data) {
+      return hasClosureShape(data) && data.schemaVersion == 3 &&
+        hasNonEmptyString(data, 'projectId') &&
+        isCanonicalProjectId(data.projectId) &&
+        hasNonEmptyString(data, 'identityKind') &&
+        data.identityKind == 'promoted-legacy' &&
+        hasNonEmptyString(data, 'ownershipToken') &&
+        hasValidStatus(data);
+    }
+
+    function isClosure(data) {
+      return isLegacyClosure(data) || isNativeClosure(data) ||
+        isPromotedLegacyClosure(data);
+    }
+
+    function preservesProjectOwner() {
+      return !resource.data.keys().hasAny(['projectId'])
+        ? !request.resource.data.keys().hasAny(['projectId'])
+        : request.resource.data.keys().hasAll(['projectId']) &&
+          request.resource.data.projectId == resource.data.projectId;
+    }
+
+    function isLegacyPromotion() {
+      return isLegacyClosure(resource.data) &&
+        isPromotedLegacyClosure(request.resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'schemaVersion', 'projectId', 'identityKind', 'ownershipToken'
+        ]);
+    }
+
+    function isClosedToVoided() {
+      return resource.data.status == 'closed' &&
+        request.resource.data.status == 'voided' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'voidedAt', 'voidedBy', 'voidReason', 'updatedAt'
+        ]);
+    }
+
+    function isStableClosedUpdate() {
+      return resource.data.status == 'closed' &&
+        request.resource.data.status == 'closed' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'updatedAt'
+        ]);
+    }
+
+    function isAllowedClosureUpdate() {
+      return isClosure(resource.data) && isClosure(request.resource.data) &&
+        resource.data.schemaVersion == request.resource.data.schemaVersion &&
+        resource.data.id == request.resource.data.id &&
+        resource.data.fingerprint == request.resource.data.fingerprint &&
+        preservesProjectOwner() &&
+        (isClosedToVoided() || isStableClosedUpdate());
+    }
+
+    // This specific match must not overlap an account-wide allow. Rules
+    // matches are additive, so the generic user paths below are explicit.
+    match /users/{userId}/payrollClosures/{closureId} {
+      allow read: if isAccountOwner(userId);
+      allow create: if isAccountOwner(userId) &&
+        (isLegacyClosure(request.resource.data) ||
+          isNativeClosure(request.resource.data));
+      allow update: if isAccountOwner(userId) &&
+        (isLegacyPromotion() || isAllowedClosureUpdate());
+      allow delete: if isAccountOwner(userId);
+    }
+
+    // These are the application's current direct Firestore subcollections.
+    // Unknown and nested user paths remain denied by the default rule below.
+    match /users/{userId}/data/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/employees/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/positions/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/leaders/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/attendance/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/snapshots/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/projects/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/cashPeriods/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/pettyCash/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/projectRegistryV1/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/projectsV1/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+    match /users/{userId}/projectAliasesV1/{documentId} {
+      allow read, write: if isAccountOwner(userId);
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

@@ -13,7 +13,7 @@ const CONTRACT = fs.readFileSync(
 );
 const RULES = fs.readFileSync(path.resolve(__dirname, '../../firestore.rules'), 'utf8');
 
-describe('B3.2 preflight — provisional index & Rules verifiability (no productive change)', () => {
+describe('B3.2 preflight — provisional index & Rules verifiability', () => {
     test('scoped loadByPeriod adds project equality and remains equality-only — no period composite required', () => {
         expect(REPO).toContain("where('periodStart'");
         expect(REPO).toContain("where('periodEnd'");
@@ -61,9 +61,9 @@ describe('B3.2 preflight — provisional index & Rules verifiability (no product
         expect(CONTRACT).toContain('defaultCanonical/ownershipToken');
         expect(CONTRACT).toMatch(/only.*Firestore-expressible|only if.*verifiable/i);
         expect(CONTRACT).toContain('stableToken');
-        // Rules still untouched in B3.2 — wildcard bypass remains, no payrollClosures hardening yet
-        expect(RULES).toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
-        expect(RULES).not.toMatch(/payrollClosures/);
+        // B3.4 Unit 1 now applies the preserved Rules boundary without changing indexes.
+        expect(RULES).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
+        expect(RULES).toContain('match /users/{userId}/payrollClosures/{closureId}');
     });
 
     test('contract states scoped pagination indexes are B3.4 (not B3.2) and equality-only period index needs no composite', () => {

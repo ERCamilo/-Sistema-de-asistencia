@@ -513,11 +513,12 @@ describe('A0.5 ProjectIdentity — flag OFF parity + offline + registry + adopti
         }
     });
 
-    test('firestore rules: new paths remain under users/{uid}/ wildcard (audit)', async () => {
+    test('firestore rules: known project paths are explicitly owner-scoped (audit)', async () => {
         const rules = fs.readFileSync(path.resolve('firestore.rules'), 'utf8');
-        expect(rules).toMatch(/match \/users\/\{userId\}\/\{document=\*\*}/);
-        // No widening: still only that wildcard, no new allow without auth check
-        expect(rules).not.toMatch(/projectRegistry|projectsV1|projectAliases/);
-        // Documented: wildcard covers all subcollections under users/{uid}
+        expect(rules).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*}/);
+        for (const collection of ['projectRegistryV1', 'projectsV1', 'projectAliasesV1']) {
+            expect(rules).toContain(`match /users/{userId}/${collection}/{documentId}`);
+        }
+        expect(rules).toContain('allow read, write: if isAccountOwner(userId)');
     });
 });
