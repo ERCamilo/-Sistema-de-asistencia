@@ -112,7 +112,19 @@ export class PayrollClosureStamper {
         }
         const hasDeferred = deferredIds.length > 0;
         if (prev?.completed && !hasDeferred) {
-            return { processed, promoted, skipped, deferred, errors, completed: true, lastId, deferredIds: [...deferredIds] };
+            // B2.4: completed must not hide new legacy inserted while OFF.
+            // Fast-path return only if no legacy schema2 remains; otherwise reset cursor
+            // so records with id < lastId are detected. Idempotent checks keep already
+            // promoted records untouched, preserving cursor resumability.
+            let hasPendingLegacy = false;
+            try {
+                const all = await this.db.getAll('payrollClosures').catch(() => []);
+                hasPendingLegacy = (all || []).some(r => Number(r?.schemaVersion) === 2 && !r?.projectId && !r?.identityKind);
+            } catch (_) {}
+            if (!hasPendingLegacy) {
+                return { processed, promoted, skipped, deferred, errors, completed: true, lastId, deferredIds: [...deferredIds] };
+            }
+            lastId = null;
         }
 
         // Drain deferred queue from previous pass before cursor scan
