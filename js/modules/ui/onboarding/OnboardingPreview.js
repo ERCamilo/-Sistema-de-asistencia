@@ -225,6 +225,7 @@ function syncInputMirrors(inputEl, s) {
         const ok = canAdvance(s);
         nextBtn.style.opacity = ok ? '' : '.4';
         nextBtn.style.pointerEvents = ok ? '' : 'none';
+        nextBtn.setAttribute('aria-disabled', ok ? 'false' : 'true');
     }
 }
 

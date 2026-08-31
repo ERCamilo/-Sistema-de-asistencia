@@ -115,6 +115,47 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         testRunner.assertEquals(localStorage.getItem(DONE), 'true', 'flag marcado por skip');
         testRunner.assertEquals(localStorage.getItem(KEY), null, 'progreso a mitad limpiado por skip');
     },
+    'elección scratch avanza al paso 1 de setup y permite completar el flujo de 6 pasos'() {
+        cleanup();
+        launchOnboardingV2({ mode: 'live' });
+        for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
+        testRunner.assert(!!overlay().querySelector('[data-od-id="od-choice"]'), 'fase de elección');
+        overlay().querySelector('[data-act="pick"][data-v="scratch"]').click();
+        overlay().querySelector('[data-act="next"]').click();
+        testRunner.assert(!!overlay().querySelector('[data-od-id="od-setup"]'), 'fase de setup alcanzada');
+        testRunner.assert(!!overlay().querySelector('input[data-field="company"]'), 'paso 1 de setup (empresa)');
+        const companyInput = overlay().querySelector('input[data-field="company"]');
+        companyInput.value = 'Mi Constructora';
+        companyInput.dispatchEvent(new Event('input', { bubbles: true }));
+        overlay().querySelector('[data-act="next"]').click();
+        testRunner.assert(!!overlay().querySelector('[data-act="day"]'), 'paso 2 de setup (días laborables)');
+    },
+    'syncInputMirrors actualiza texto espejo e inline hint sin desmontar el input activo'() {
+        cleanup();
+        launchOnboardingV2({ mode: 'live' });
+        for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
+        overlay().querySelector('[data-act="pick"][data-v="scratch"]').click();
+        overlay().querySelector('[data-act="next"]').click();
+        const input = overlay().querySelector('input[data-field="company"]');
+        input.focus();
+        input.value = 'Acme Corp';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const mirror = overlay().querySelector('[data-mirror="company"]');
+        testRunner.assertEquals(mirror.textContent, 'Acme Corp', 'espejo actualizado');
+        testRunner.assertEquals(document.activeElement, input, 'input no perdió el foco');
+    },
+    'Enter en input avanza al siguiente paso si canAdvance es true'() {
+        cleanup();
+        launchOnboardingV2({ mode: 'live' });
+        for (let i = 0; i < 6; i++) overlay().querySelector('[data-act="next"]').click();
+        overlay().querySelector('[data-act="pick"][data-v="scratch"]').click();
+        overlay().querySelector('[data-act="next"]').click();
+        const input = overlay().querySelector('input[data-field="company"]');
+        input.value = 'Constructora Test';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        testRunner.assert(!!overlay().querySelector('[data-act="day"]'), 'Enter avanzó a setup 2');
+    },
     'SettingsTestsTab presenta la guía real (sin copia de vista previa)'() {
         const html = SettingsTestsTab({ state: { settings: {} } });
         testRunner.assert(html.includes('data-settings-action="open-onboarding-preview"'), 'botón abrir');
