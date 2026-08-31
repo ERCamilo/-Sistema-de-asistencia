@@ -22,22 +22,23 @@ describe('B3.2 preflight — provisional index & Rules verifiability', () => {
         expect(loadByPeriodBlock).not.toMatch(/orderBy\(/);
     });
 
-    test('firestore.indexes.json stays legacy-only — no projectId composite added speculatively in B3.2', () => {
-        expect(INDEXES.indexes).toHaveLength(1);
-        const fields = INDEXES.indexes[0]?.fields || [];
-        expect(fields).toEqual(expect.arrayContaining([
-            { fieldPath: 'status', order: 'ASCENDING' },
-            { fieldPath: 'closedAt', order: 'DESCENDING' },
-            { fieldPath: '__name__', order: 'DESCENDING' }
+    test('firestore.indexes.json has the four scoped composites plus the legacy index', () => {
+        expect(INDEXES.indexes).toHaveLength(5);
+        expect(INDEXES.indexes.every(index =>
+            index.collectionGroup === 'payrollClosures' && index.queryScope === 'COLLECTION'
+        )).toBe(true);
+        const shapes = INDEXES.indexes.map(index => (index.fields || [])
+            .map(field => `${field.fieldPath}:${field.order}`).join('|'));
+        expect(shapes).toEqual(expect.arrayContaining([
+            'projectId:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'projectId:ASCENDING|status:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'schemaVersion:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'schemaVersion:ASCENDING|status:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'status:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING'
         ]));
-        const hasProjectIdIndex = INDEXES.indexes.some(idx =>
-            (idx.fields || []).some(f => f.fieldPath === 'projectId')
-        );
-        expect(hasProjectIdIndex).toBe(false);
         // Provisional period index absent — raw JSON must not invent it "just in case"
         expect(INDEXES_RAW).not.toContain('periodStart');
         expect(INDEXES_RAW).not.toContain('periodEnd');
-        expect(INDEXES_RAW).not.toContain('projectId');
     });
 
     test('emulator does not reliably enforce composite-index FAILED_PRECONDITION — provisional decision documented', () => {
@@ -49,7 +50,7 @@ describe('B3.2 preflight — provisional index & Rules verifiability', () => {
         // Provisional index explicitly kept out, only added after real repro
         expect(CONTRACT).toMatch(/provisional.*NOT added|provisional.*absent/i);
         expect(CONTRACT).toContain('projectId+periodStart+periodEnd');
-        expect(CONTRACT).toContain('provisional, absent from `firestore.indexes.json`');
+        expect(CONTRACT).toContain('provisional and absent from `firestore.indexes.json`');
     });
 
     test('contract preserves Rules verifiability nuance for B3.4 — flag not server-visible, token only if expressible', () => {
@@ -71,7 +72,7 @@ describe('B3.2 preflight — provisional index & Rules verifiability', () => {
         expect(CONTRACT).toMatch(/merge.*single-field indexes|re-use existing indexes/i);
         expect(CONTRACT).toContain('projectId ASC, closedAt DESC');
         expect(CONTRACT).toContain('projectId ASC, status ASC, closedAt DESC');
-        expect(CONTRACT).toMatch(/B3\.4.*pagination|pagination.*B3\.4/i);
+        expect(CONTRACT).toMatch(/B3\.4 Unit 2.*indexes/i);
     });
 
     test('B3.3 scoped query code stays behind the existing public gate', () => {

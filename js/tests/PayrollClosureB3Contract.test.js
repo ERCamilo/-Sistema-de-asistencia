@@ -76,17 +76,19 @@ describe('B3.0 contract audit — no behavior change', () => {
         expect(SYNC).toContain('importClosures');
     });
 
-    test('firestore indexes: only legacy status+closedAt+__name__, projectId composites not yet added', () => {
-        const fields = INDEXES.indexes[0]?.fields || [];
-        expect(fields).toEqual(expect.arrayContaining([
-            { fieldPath: 'status', order: 'ASCENDING' },
-            { fieldPath: 'closedAt', order: 'DESCENDING' },
-            { fieldPath: '__name__', order: 'DESCENDING' }
+    test('firestore indexes preserve legacy and contain the four scoped composites', () => {
+        expect(INDEXES.indexes).toHaveLength(5);
+        const shapes = INDEXES.indexes.map(index => (index.fields || [])
+            .map(field => `${field.fieldPath}:${field.order}`).join('|'));
+        expect(shapes).toEqual(expect.arrayContaining([
+            'projectId:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'projectId:ASCENDING|status:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'schemaVersion:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'schemaVersion:ASCENDING|status:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING',
+            'status:ASCENDING|closedAt:DESCENDING|__name__:DESCENDING'
         ]));
-        const hasProjectIdIndex = INDEXES.indexes.some(idx =>
-            (idx.fields || []).some(f => f.fieldPath === 'projectId')
-        );
-        expect(hasProjectIdIndex).toBe(false);
+        expect(JSON.stringify(INDEXES)).not.toContain('periodStart');
+        expect(JSON.stringify(INDEXES)).not.toContain('periodEnd');
     });
 
     test('capture-before-await / stale completion contract exists in store', () => {
