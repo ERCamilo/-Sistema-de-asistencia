@@ -575,6 +575,7 @@ export function ExcelExportOptionsModal() {
         dualTotalColumns: true,
         leadersFirst: true,
         mergeHeaders: true,
+        enableAutoFilter: true,
         ...(state.excelExportOptions || {})
     };
 
@@ -603,6 +604,11 @@ export function ExcelExportOptionsModal() {
             key: 'mergeHeaders',
             title: 'Combinar encabezados multinivel',
             desc: 'Combina verticalmente los títulos de columnas entre la fila 1 y la fila 2 de fechas.'
+        },
+        {
+            key: 'enableAutoFilter',
+            title: 'Filtro automático de tablas (AutoFilter)',
+            desc: 'Activa las flechas de filtro de Excel en la fila de encabezados para filtrar y ordenar columnas.'
         }
     ];
 
@@ -1113,6 +1119,14 @@ export async function exportEmployeeReportExcel() {
                     });
                 }
             });
+
+            // Auto-filtro en la fila 2 de encabezados (si está habilitado)
+            if (opts.enableAutoFilter !== false) {
+                sheet.autoFilter = {
+                    from: { row: 2, column: 1 },
+                    to: { row: 2, column: sheet.columnCount }
+                };
+            }
         };
 
         const dayColumns = reportData.days.map(d => ({
@@ -1615,7 +1629,8 @@ export function openExportExcelModal() {
                 includeHiddenInactive: true,
                 dualTotalColumns: true,
                 leadersFirst: true,
-                mergeHeaders: true
+                mergeHeaders: true,
+                enableAutoFilter: true
             };
         }
     });
@@ -1639,7 +1654,8 @@ export function toggleExportOption(optKey) {
                 includeHiddenInactive: true,
                 dualTotalColumns: true,
                 leadersFirst: true,
-                mergeHeaders: true
+                mergeHeaders: true,
+                enableAutoFilter: true
             };
         }
         if (optKey && state.excelExportOptions[optKey] !== undefined) {

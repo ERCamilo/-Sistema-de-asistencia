@@ -241,4 +241,16 @@ describe('Employee Report Excel Export', () => {
         expect(juanRow.values.totalCalculated.formula).toContain('SUM(');
         expect(juanRow.values.totalCalculated.result).toBe(1.5);
     });
+
+    test('enables autoFilter on data sheets', async () => {
+        await AnalyticsUI.exportEmployeeReportExcel();
+
+        const leaderSheet = addedWorksheets.find(ws => ws.name === 'Líder - Líder Uno');
+        expect(leaderSheet.autoFilter).toBeDefined();
+        expect(leaderSheet.autoFilter.from.row).toBe(2);
+
+        const posSheet = addedWorksheets.find(ws => ws.name === 'Albañil');
+        expect(posSheet.autoFilter).toBeDefined();
+        expect(posSheet.autoFilter.from.row).toBe(2);
+    });
 });
