@@ -30,6 +30,7 @@ export function getNotificationActionSvg(iconKey) {
 export function sanitizeNotificationMessage(msg) {
     if (typeof msg !== 'string') return msg;
     return msg
+        .replace(/<span\b[^>]*>.*?<\/span>/gi, '')
         .replace(/^[\s\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{200D}\u{2300}-\u{23FF}\u{2B50}\u{2B55}\u{2705}\u{274C}\u{26A0}\u{2139}\u{2714}\u{2716}\u{1F4E5}\u{1F4E4}\u{1F5D1}\u{1F4F8}\u{1F680}\u{21A9}\u{1F504}\u{1F4A1}\u{1F6A8}\u{1F4CB}\u{1F4C5}\u{1F4C4}\u{1F514}\u{1F4B0}]+/u, '')
         .trim();
 }

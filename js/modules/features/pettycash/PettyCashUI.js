@@ -1609,7 +1609,7 @@ export function registerPettyCashGlobals() {
         const proj = currentProject();
         const period = currentPeriod();
         if (!proj || !period) return;
-        const loading = (typeof window.showNotification === 'function') ? window.showNotification('📊 Generando Excel...', 'loading') : null;
+        const loading = (typeof window.showNotification === 'function') ? window.showNotification('Generando Excel...', 'loading') : null;
         try {
             await ensureExcelJSLoaded();
             const ExcelJS = window.ExcelJS;
@@ -1617,9 +1617,71 @@ export function registerPettyCashGlobals() {
             const movs = movementsOfPeriod(pc().movements, period.id);
             const sheets = buildPeriodSheets(proj, period, movs);
             const wb = new ExcelJS.Workbook();
-            wb.addWorksheet('Resumen').addRows(sheets.resumen);
-            wb.addWorksheet('Movimientos').addRows(sheets.movimientos);
-            if (sheets.items.length > 1) wb.addWorksheet('Artículos').addRows(sheets.items);
+
+            // Estilos comunes
+            const tableHeaderStyle = {
+                font: { bold: true, color: { argb: 'FFFFFFFF' } },
+                fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } },
+                alignment: { vertical: 'middle', horizontal: 'center' }
+            };
+
+            // Hoja 1: Resumen
+            const resumenSheet = wb.addWorksheet('Resumen');
+            resumenSheet.addRows(sheets.resumen);
+            resumenSheet.getColumn(1).width = 24;
+            resumenSheet.getColumn(2).width = 30;
+            resumenSheet.getRow(1).font = { bold: true, size: 14, color: { argb: 'FF0F172A' } };
+
+            // Hoja 2: Beneficiarios (Fecha, Beneficiario/Comercio, Categoría, Monto)
+            const benefSheet = wb.addWorksheet('Beneficiarios');
+            benefSheet.addRows(sheets.beneficiarios);
+            benefSheet.columns = [
+                { width: 14 }, // Fecha
+                { width: 36 }, // Beneficiario/Comercio
+                { width: 22 }, // Categoría
+                { width: 18 }  // Monto
+            ];
+            benefSheet.getRow(1).height = 24;
+            benefSheet.getRow(1).eachCell(c => { c.style = tableHeaderStyle; });
+
+            // Hoja 3: Movimientos completos
+            const movSheet = wb.addWorksheet('Movimientos');
+            movSheet.addRows(sheets.movimientos);
+            movSheet.columns = [
+                { width: 14 }, // Fecha
+                { width: 14 }, // Tipo
+                { width: 30 }, // Tienda/Proveedor
+                { width: 18 }, // Categoría
+                { width: 35 }, // Descripción
+                { width: 16 }, // NCF
+                { width: 16 }, // RNC emisor
+                { width: 22 }, // Cliente
+                { width: 16 }, // RNC cliente
+                { width: 14 }, // Subtotal
+                { width: 14 }, // ITBIS
+                { width: 14 }, // Total
+                { width: 14 }, // Monto
+                { width: 14 }, // Comprobante
+                { width: 12 }  // Por revisar
+            ];
+            movSheet.getRow(1).height = 24;
+            movSheet.getRow(1).eachCell(c => { c.style = tableHeaderStyle; });
+
+            // Hoja 4: Artículos (si existen)
+            if (sheets.items && sheets.items.length > 1) {
+                const itemsSheet = wb.addWorksheet('Artículos');
+                itemsSheet.addRows(sheets.items);
+                itemsSheet.columns = [
+                    { width: 14 }, // Fecha
+                    { width: 28 }, // Tienda
+                    { width: 32 }, // Artículo
+                    { width: 12 }, // Cantidad
+                    { width: 14 }  // Precio
+                ];
+                itemsSheet.getRow(1).height = 24;
+                itemsSheet.getRow(1).eachCell(c => { c.style = tableHeaderStyle; });
+            }
+
             const buffer = await wb.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             const safe = (s) => String(s || '').replace(/[^\w\-]+/g, '_').slice(0, 40);

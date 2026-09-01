@@ -5,16 +5,30 @@
 
 import { resumenPeriodo } from './PettyCashCalc.js';
 
+const BENEFICIARIOS_HEADER = ['Fecha', 'Beneficiario/Comercio', 'Categoría', 'Monto'];
 const MOV_HEADER = ['Fecha', 'Tipo', 'Tienda/Proveedor', 'Categoría', 'Descripción', 'NCF', 'RNC emisor', 'Cliente', 'RNC cliente', 'Subtotal', 'ITBIS', 'Total', 'Monto', 'Comprobante', 'Por revisar'];
 const ITEMS_HEADER = ['Fecha', 'Tienda', 'Artículo', 'Cantidad', 'Precio'];
 
 const numOrBlank = (v) => (v === null || v === undefined || v === '' ? '' : Number(v));
 
 /**
+ * Formatea una fecha ISO (YYYY-MM-DD) a formato día/mes/año (DD/MM/YYYY)
+ * @param {string} value 
+ * @returns {string}
+ */
+export function formatExportDate(value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
+    if (!match) return text;
+    return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+/**
  * @param {object} project
  * @param {object} period
  * @param {Array} periodMovements  movimientos YA filtrados del periodo
- * @returns {{ resumen: any[][], movimientos: any[][], items: any[][] }}
+ * @returns {{ resumen: any[][], beneficiarios: any[][], movimientos: any[][], items: any[][] }}
  */
 export function buildPeriodSheets(project, period, periodMovements) {
     const movs = (Array.isArray(periodMovements) ? periodMovements.slice() : [])
@@ -26,8 +40,8 @@ export function buildPeriodSheets(project, period, periodMovements) {
         [],
         ['Proyecto', (project && project.name) || ''],
         ['Periodo', (period && period.label) || ''],
-        ['Apertura', (period && period.openingDate) || ''],
-        ['Cierre', (period && period.closingDate) || ''],
+        ['Apertura', formatExportDate(period && period.openingDate)],
+        ['Cierre', formatExportDate(period && period.closingDate)],
         ['Estado', (period && period.status) || ''],
         [],
         ['Reposiciones', r.reposiciones],
@@ -39,13 +53,28 @@ export function buildPeriodSheets(project, period, periodMovements) {
         resumen.push([], ['Efectivo contado', Number(period.efectivoContado)], ['Diferencia', Number(period.diferencia || 0)]);
     }
 
+    const beneficiarios = [BENEFICIARIOS_HEADER.slice()];
     const movimientos = [MOV_HEADER.slice()];
     const items = [ITEMS_HEADER.slice()];
+
     for (const m of movs) {
         if (!m) continue;
         const isGasto = m.type === 'gasto';
+        const formattedDate = formatExportDate(m.date);
+        const beneficiary = isGasto ? (m.paidTo || '') : (m.paidTo || m.description || 'Reposición');
+        const category = isGasto ? (m.category || '') : 'Reposición';
+
+        // Hoja 2: Fecha, Beneficiario/Comercio, Categoría, Monto
+        beneficiarios.push([
+            formattedDate,
+            beneficiary,
+            category,
+            Number(m.amount) || 0
+        ]);
+
+        // Hoja 3: Movimientos detallados
         movimientos.push([
-            m.date || '',
+            formattedDate,
             isGasto ? 'Gasto' : 'Reposición',
             m.paidTo || '',
             isGasto ? (m.category || '') : '',
@@ -61,15 +90,17 @@ export function buildPeriodSheets(project, period, periodMovements) {
             isGasto ? (m.hasReceipt ? 'Sí' : 'No') : '',
             m.reviewPending ? 'Sí' : 'No'
         ]);
+
+        // Hoja 4: Desglose de ítems/artículos
         if (Array.isArray(m.items)) {
             for (const it of m.items) {
                 if (!it) continue;
-                items.push([m.date || '', m.paidTo || '', it.descripcion || '', numOrBlank(it.cantidad), numOrBlank(it.precio)]);
+                items.push([formattedDate, m.paidTo || '', it.descripcion || '', numOrBlank(it.cantidad), numOrBlank(it.precio)]);
             }
         }
     }
 
-    return { resumen, movimientos, items };
+    return { resumen, beneficiarios, movimientos, items };
 }
 
-export default { buildPeriodSheets };
+export default { buildPeriodSheets, formatExportDate };

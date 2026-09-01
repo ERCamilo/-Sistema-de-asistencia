@@ -13,7 +13,11 @@ const _ANALYTICS_ACTION_MAP = {
     'set-dashboard-last-30-days': () => window.AnalyticsUI?.setDashboardLast30Days?.(),
     'set-dashboard-pay-period': () => window.AnalyticsUI?.setDashboardPayPeriod?.(),
     'change-report-view-mode': (mode) => window.AnalyticsUI?.changeReportViewMode?.(mode),
-    'export-employee-report-excel': () => window.AnalyticsUI?.exportEmployeeReportExcel?.(),
+    'open-export-excel-modal': () => window.AnalyticsUI?.openExportExcelModal?.(),
+    'close-export-excel-modal': () => window.AnalyticsUI?.closeExportExcelModal?.(),
+    'toggle-export-option': (option) => window.AnalyticsUI?.toggleExportOption?.(option),
+    'confirm-export-excel': () => window.AnalyticsUI?.confirmExportExcel?.(),
+    'export-employee-report-excel': () => window.AnalyticsUI?.openExportExcelModal?.(),
     'toggle-employee-report-start-picker': () => window.AnalyticsUI?.toggleEmployeeReportStartPicker?.(),
     'toggle-employee-report-end-picker': () => window.AnalyticsUI?.toggleEmployeeReportEndPicker?.(),
     'set-employee-report-this-week': () => window.AnalyticsUI?.setEmployeeReportThisWeek?.(),
@@ -56,6 +60,7 @@ function _attachAnalyticsDelegation() {
 _attachAnalyticsDelegation();
 
 import { memoCache } from '../../utils/MemoCache.js';
+import { stateManager } from '../../core/AppState.js';
 import { getDateKey, parseDate, formatDate, formatDateShort, isDayHoliday, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveInRange, isDateInPayPeriod, isPayday } from '../../utils/DateUtils.js';
 import { buildEmployeeReportData } from './EmployeeReportData.js';
 import { DashboardDateManagerV2, EmployeeReportDateManagerV2 } from '../../utils/DateManagers.js';
@@ -552,7 +557,118 @@ export function ReportsTab() {
 
 function EmployeeReportTab() {
     if (employeeReportDateManagerV2) employeeReportDateManagerV2.initializeDates();
-    return `<div style="max-width: 100%; margin: 0 auto;">${ EmployeeReportControls() }${ EmployeeReportContent() }</div>`;
+    const state = getState();
+    return `
+        <div style="max-width: 100%; margin: 0 auto;">
+            ${ EmployeeReportControls() }
+            ${ EmployeeReportContent() }
+            ${ state?.showExcelExportModal ? ExcelExportOptionsModal() : '' }
+        </div>
+    `;
+}
+
+export function ExcelExportOptionsModal() {
+    const state = getState();
+    const opts = {
+        useFormulas: true,
+        includeHiddenInactive: true,
+        dualTotalColumns: true,
+        leadersFirst: true,
+        mergeHeaders: true,
+        ...(state.excelExportOptions || {})
+    };
+
+    const optionsList = [
+        {
+            key: 'useFormulas',
+            title: 'Fórmulas dinámicas de Excel (=SUM)',
+            desc: 'Calcula los totales usando fórmulas nativas en lugar de valores fijos quemados.'
+        },
+        {
+            key: 'includeHiddenInactive',
+            title: 'Filas ocultas para inactivos (Líderes)',
+            desc: 'Incluye a empleados inactivos con 0 días en su orden numérico pero con fila oculta en Excel.'
+        },
+        {
+            key: 'dualTotalColumns',
+            title: 'Columnas duales de total (Exportado / Calculado)',
+            desc: 'Muestra dos columnas de totales para auditoría en vez de una sola columna.'
+        },
+        {
+            key: 'leadersFirst',
+            title: 'Hojas de Líderes antes que Posiciones',
+            desc: 'Coloca las pestañas de líderes primero en la jerarquía del libro de cálculo.'
+        },
+        {
+            key: 'mergeHeaders',
+            title: 'Combinar encabezados multinivel',
+            desc: 'Combina verticalmente los títulos de columnas entre la fila 1 y la fila 2 de fechas.'
+        }
+    ];
+
+    return `
+        <div class="modal-backdrop" style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px;">
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; max-width: 540px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); overflow: hidden;">
+                
+                <!-- Modal Header -->
+                <div style="padding: 20px 24px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; background: #0f172a;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 8px; border-radius: 10px;">
+                            ${icons.get('export', { size: 22 })}
+                        </div>
+                        <div>
+                            <h3 style="margin: 0; color: #f8fafc; font-size: 1.125rem; font-weight: 700;">Configurar Exportación Excel</h3>
+                            <p style="margin: 2px 0 0 0; color: #94a3b8; font-size: 0.75rem;">Diagnóstico y personalización del reporte .xlsx</p>
+                        </div>
+                    </div>
+                    <button type="button" data-analytics-action="close-export-excel-modal" style="background: transparent; border: none; color: #94a3b8; cursor: pointer; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                        ${icons.get('x', { size: 20 })}
+                    </button>
+                </div>
+
+                <!-- Modal Body: Switches -->
+                <div style="padding: 20px 24px; max-height: 60vh; overflow-y: auto;">
+                    <p style="margin: 0 0 16px 0; color: #cbd5e1; font-size: 0.8125rem; line-height: 1.4;">
+                        Activa o desactiva opciones de forma individual para probar compatibilidad con tu versión de Microsoft Excel:
+                    </p>
+
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        ${optionsList.map(opt => {
+                            const isChecked = opts[opt.key] !== false;
+                            return `
+                                <div style="background: #0f172a; border: 1px solid ${isChecked ? '#059669' : '#334155'}; border-radius: 10px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; transition: border-color 0.2s;">
+                                    <div style="flex: 1;">
+                                        <div style="font-size: 0.875rem; font-weight: 600; color: #f1f5f9; margin-bottom: 2px;">
+                                            ${opt.title}
+                                        </div>
+                                        <div style="font-size: 0.75rem; color: #94a3b8; line-height: 1.3;">
+                                            ${opt.desc}
+                                        </div>
+                                    </div>
+                                    <button type="button" data-analytics-action="toggle-export-option" data-value="${opt.key}"
+                                        style="background: ${isChecked ? '#10b981' : '#334155'}; border: none; width: 48px; height: 26px; border-radius: 13px; position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s;">
+                                        <span style="position: absolute; top: 3px; ${isChecked ? 'right: 3px;' : 'left: 3px;'} width: 20px; height: 20px; border-radius: 10px; background: white; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></span>
+                                    </button>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div style="padding: 16px 24px; border-top: 1px solid #334155; display: flex; justify-content: flex-end; gap: 12px; background: #0f172a;">
+                    <button type="button" data-analytics-action="close-export-excel-modal"
+                        style="background: #334155; border: none; color: #cbd5e1; padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 0.875rem; cursor: pointer;">
+                        Cancelar
+                    </button>
+                    <button type="button" data-analytics-action="confirm-export-excel"
+                        style="background: linear-gradient(135deg, #10b981, #059669); border: none; color: white; padding: 10px 22px; border-radius: 8px; font-weight: 600; font-size: 0.875rem; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+                        ${icons.get('download', { size: 16 })} Descargar Excel
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function EmployeeReportControls() {
@@ -889,10 +1005,10 @@ export async function exportEmployeeReportExcel() {
     }
     const reportData = calculateEmployeeReportData();
     if (reportData.positions.length === 0) {
-        if (window.showNotification) window.showNotification(`${ icons.get('info') } No hay datos para exportar`, 'error');
+        if (window.showNotification) window.showNotification('No hay datos para exportar', 'error');
         return;
     }
-    if (window.showNotification) window.showNotification(`${ icons.get('info') } Generando Excel...`, 'info');
+    if (window.showNotification) window.showNotification('Generando Excel...', 'info');
 
     // ⚡ Lazy-load ExcelJS on demand (Sprint 5 — saves ~5s from initial page load).
     // First call downloads & parses the ~2 MB UMD bundle; subsequent calls are instant.
@@ -912,6 +1028,14 @@ export async function exportEmployeeReportExcel() {
         workbook.created = new Date();
         const startLabel = formatDateShort(state.employeeReportStartDate);
         const endLabel = formatDateShort(state.employeeReportEndDate);
+        const opts = {
+            useFormulas: true,
+            includeHiddenInactive: true,
+            dualTotalColumns: true,
+            leadersFirst: true,
+            mergeHeaders: true,
+            ...(state.excelExportOptions || {})
+        };
 
         // -------- CONFIGURACIÓN DE ESTILOS --------
         const headerStyle = {
@@ -925,6 +1049,18 @@ export async function exportEmployeeReportExcel() {
 
         const sundayStyle = {
             fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E1' } } // MistyRose (un rojo muy suave)
+        };
+
+        const dimmedFont = { color: { argb: 'FF94A3B8' }, italic: true };
+
+        const getColumnLetter = (colIndex) => {
+            let temp, letter = '';
+            while (colIndex > 0) {
+                temp = (colIndex - 1) % 26;
+                letter = String.fromCharCode(temp + 65) + letter;
+                colIndex = Math.floor((colIndex - temp - 1) / 26);
+            }
+            return letter;
         };
 
         const spanishDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -955,21 +1091,23 @@ export async function exportEmployeeReportExcel() {
                 }
             });
 
-            // Congelar Paneles (Filas: 2, Columnas: 2)
-            sheet.views = [{ state: 'frozen', xSplit: 2, ySplit: 2 }];
-
-            // Auto-filtro (en la fila 2 de fechas)
-            sheet.autoFilter = {
-                from: { row: 2, column: 1 },
-                to: { row: 2, column: sheet.columnCount }
-            };
+            // Congelar Paneles (fijando fila 1 y 2 de encabezados y columnas de identificación)
+            sheet.views = [
+                {
+                    state: 'frozen',
+                    xSplit: dateStartIndex - 1,
+                    ySplit: 2,
+                    topLeftCell: getColumnLetter(dateStartIndex) + '3',
+                    activePane: 'bottomRight'
+                }
+            ];
 
             // Formato de celdas de datos
             sheet.eachRow((row, rowNumber) => {
                 if (rowNumber > 2) {
                     row.eachCell((cell, colNumber) => {
-                        cell.alignment = { vertical: 'middle', horizontal: colNumber <= 2 ? 'left' : 'center' };
-                        if (typeof cell.value === 'number') {
+                        cell.alignment = { vertical: 'middle', horizontal: colNumber <= (dateStartIndex - 1) ? 'left' : 'center' };
+                        if (typeof cell.value === 'number' || (cell.value && typeof cell.value === 'object' && cell.value.formula)) {
                             cell.numFmt = '0.00####';
                         }
                     });
@@ -983,24 +1121,28 @@ export async function exportEmployeeReportExcel() {
             width: 8
         }));
 
-        const addSubHeader = (sheet, startCol, endCol, extraColsBefore = 2, extraColsAfter = 2) => {
-            // Insertar la fila de números de fecha como fila 2
+        const setupSheetHeaders = (sheet, extraColsBefore = 2, extraColsAfter = 2) => {
+            const totalCols = extraColsBefore + reportData.days.length + extraColsAfter;
+
+            // Fila 2: Sub-encabezado de números de fecha (ej. 1/8, 2/8...)
             const subHeaderRow = [];
             for (let i = 0; i < extraColsBefore; i++) subHeaderRow.push('');
             reportData.days.forEach(d => subHeaderRow.push(`${d.date.getDate()}/${d.date.getMonth() + 1}`));
             for (let i = 0; i < extraColsAfter; i++) subHeaderRow.push('');
             
-            sheet.insertRow(2, subHeaderRow);
+            sheet.addRow(subHeaderRow);
             
-            // Mergear celdas del encabezado izquierdo
-            sheet.mergeCells(1, 1, 2, 1); // #
-            sheet.mergeCells(1, 2, 2, 2); // Nombre
-            
-            // Mergear celdas del encabezado derecho (Totales)
-            const lastCol = sheet.columnCount;
-            for (let i = 0; i < extraColsAfter; i++) {
-                const col = lastCol - i;
-                sheet.mergeCells(1, col, 2, col);
+            if (opts.mergeHeaders) {
+                // Combinar celdas del encabezado izquierdo (filas 1 y 2)
+                for (let i = 1; i <= extraColsBefore; i++) {
+                    sheet.mergeCells(1, i, 2, i);
+                }
+                
+                // Combinar celdas del encabezado derecho de Totales (filas 1 y 2)
+                for (let i = 0; i < extraColsAfter; i++) {
+                    const col = totalCols - i;
+                    sheet.mergeCells(1, col, 2, col);
+                }
             }
         };
 
@@ -1150,15 +1292,28 @@ export async function exportEmployeeReportExcel() {
             });
         }
 
-        // -------- HOJA: RESUMEN GENERAL (EXISTENTE) --------
+        // -------- HOJA: RESUMEN GENERAL --------
         const summarySheet = workbook.addWorksheet('Resumen General');
+        const summaryTotalCols = opts.dualTotalColumns
+            ? [
+                { header: 'Días Exportado', key: 'totalDaysExported', width: 16 },
+                { header: 'Días Calculado', key: 'totalDaysCalculated', width: 16 },
+                { header: 'Horas Total', key: 'totalHours', width: 12 }
+            ]
+            : [
+                { header: 'Días Total', key: 'totalDays', width: 14 },
+                { header: 'Horas Total', key: 'totalHours', width: 12 }
+            ];
+
         summarySheet.columns = [
             { header: '#', key: 'number', width: 8 },
             { header: 'Empleado', key: 'name', width: 32 },
             ...dayColumns,
-            { header: 'Días Total', key: 'totalDays', width: 12 },
-            { header: 'Horas Total', key: 'totalHours', width: 12 }
+            ...summaryTotalCols
         ];
+
+        const extraColsAfterSummary = opts.dualTotalColumns ? 3 : 2;
+        setupSheetHeaders(summarySheet, 2, extraColsAfterSummary);
 
         const allEmployeesMap = new Map();
         reportData.positions.forEach(posData => {
@@ -1181,15 +1336,34 @@ export async function exportEmployeeReportExcel() {
                 if (att && att.present) emp.totalHours += (att.hoursWorked || 0);
             });
         });
-        allEmployees.sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
+        allEmployees.sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
 
-        allEmployees.forEach(emp => {
+        const summaryDaysStartLetter = getColumnLetter(3);
+        const summaryDaysEndLetter = getColumnLetter(2 + reportData.days.length);
+
+        allEmployees.forEach((emp, index) => {
+            const rowNum = 3 + index;
             const row = {
                 number: emp.number,
                 name: emp.name,
-                totalDays: emp.totalDays,
                 totalHours: emp.totalHours
             };
+            if (opts.dualTotalColumns) {
+                row.totalDaysExported = emp.totalDays;
+                row.totalDaysCalculated = opts.useFormulas
+                    ? {
+                        formula: `SUM(${summaryDaysStartLetter}${rowNum}:${summaryDaysEndLetter}${rowNum})`,
+                        result: emp.totalDays
+                    }
+                    : emp.totalDays;
+            } else {
+                row.totalDays = opts.useFormulas
+                    ? {
+                        formula: `SUM(${summaryDaysStartLetter}${rowNum}:${summaryDaysEndLetter}${rowNum})`,
+                        result: emp.totalDays
+                    }
+                    : emp.totalDays;
+            }
             reportData.days.forEach(day => {
                 const key = getDateKey(day.date);
                 row[key] = emp.dayValues[key] !== undefined ? emp.dayValues[key] : null;
@@ -1197,100 +1371,224 @@ export async function exportEmployeeReportExcel() {
             summarySheet.addRow(row);
         });
 
-        addSubHeader(summarySheet, 3, reportData.days.length + 2, 2, 2);
         applyTableStyles(summarySheet, 3, reportData.days.length + 2);
 
-        // -------- HOJAS POR POSICIÓN --------
-        reportData.positions.forEach(posData => {
-            const sheetName = (posData.position?.name || 'Posición').replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
-            const sheet = workbook.addWorksheet(sheetName);
-            sheet.columns = [
-                { header: '#', key: 'number', width: 8 },
-                { header: 'Nombre', key: 'name', width: 32 },
-                ...dayColumns,
-                { header: 'Total Días', key: 'total', width: 12 }
-            ];
+        // -------- GENERADORES DE HOJAS POR LÍDER Y POR POSICIÓN --------
+        const generateLeaderSheets = () => {
+            state.leaders.forEach(leader => {
+                const leaderPositions = reportData.positions.filter(p => p.position.leaderId === leader.id);
+                const allLeaderPositionsCatalog = (state.positions || []).filter(p => p.leaderId === leader.id);
+                if (leaderPositions.length === 0 && allLeaderPositionsCatalog.length === 0) return;
 
-            posData.employees
-                .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }))
-                .forEach(emp => {
+                const sheetName = (`Líder - ${leader.name}`).replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
+                const sheet = workbook.addWorksheet(sheetName);
+                
+                const leaderTotalCols = opts.dualTotalColumns
+                    ? [
+                        { header: 'Total Días (Exportado)', key: 'totalExported', width: 20 },
+                        { header: 'Total Días (Calculado)', key: 'totalCalculated', width: 20 }
+                    ]
+                    : [
+                        { header: 'Total Días', key: 'days', width: 14 }
+                    ];
+
+                sheet.columns = [
+                    { header: 'No.', key: 'idx', width: 8 },
+                    { header: 'Descripción/Nombre', key: 'name', width: 32 },
+                    { header: 'Ocupación/Posición', key: 'position', width: 25 },
+                    ...dayColumns,
+                    ...leaderTotalCols
+                ];
+
+                const extraColsAfterLeader = opts.dualTotalColumns ? 2 : 1;
+                setupSheetHeaders(sheet, 3, extraColsAfterLeader);
+
+                const employeeMap = new Map();
+                leaderPositions.forEach(posData => {
+                    posData.employees.forEach(emp => {
+                        if (!employeeMap.has(emp.id)) {
+                            employeeMap.set(emp.id, {
+                                id: emp.id,
+                                number: emp.number,
+                                name: emp.name,
+                                active: true,
+                                items: []
+                            });
+                        }
+                        employeeMap.get(emp.id).items.push({
+                            positionName: posData.position.name,
+                            total: emp.total,
+                            dayValues: emp.dayValues,
+                            inactive: false
+                        });
+                    });
+                });
+
+                if (opts.includeHiddenInactive) {
+                    const leaderPosIdSet = new Set([
+                        ...leaderPositions.map(p => p.position.id),
+                        ...allLeaderPositionsCatalog.map(p => p.id)
+                    ]);
+
+                    (state.employees || []).forEach(emp => {
+                        const assignedPosList = allLeaderPositionsCatalog.filter(pos => 
+                            leaderPosIdSet.has(pos.id) && (
+                                (Array.isArray(emp.positions) && emp.positions.includes(pos.id)) ||
+                                emp.position === pos.id
+                            )
+                        );
+
+                        if (assignedPosList.length === 0) return;
+
+                        if (!employeeMap.has(emp.id)) {
+                            const items = assignedPosList.map(pos => ({
+                                positionName: pos.name,
+                                total: 0,
+                                dayValues: {},
+                                inactive: emp.active === false || emp.active === 0 || !emp.active
+                            }));
+                            employeeMap.set(emp.id, {
+                                id: emp.id,
+                                number: emp.number,
+                                name: emp.name,
+                                active: emp.active !== false && emp.active !== 0 && !!emp.active,
+                                items
+                            });
+                        }
+                    });
+                }
+
+                if (employeeMap.size === 0) return;
+
+                const sortedEmployees = Array.from(employeeMap.values())
+                    .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
+
+                const leaderDaysStartLetter = getColumnLetter(4);
+                const leaderDaysEndLetter = getColumnLetter(3 + reportData.days.length);
+
+                let currentRowNumber = 3;
+
+                sortedEmployees.forEach(emp => {
+                    emp.items.forEach((item, j) => {
+                        const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1));
+                        const row = {
+                            idx: `${emp.number || ''}${suffix}`,
+                            name: emp.name,
+                            position: item.positionName
+                        };
+                        if (opts.dualTotalColumns) {
+                            row.totalExported = item.total || 0;
+                            row.totalCalculated = opts.useFormulas
+                                ? {
+                                    formula: `SUM(${leaderDaysStartLetter}${currentRowNumber}:${leaderDaysEndLetter}${currentRowNumber})`,
+                                    result: item.total || 0
+                                }
+                                : item.total || 0;
+                        } else {
+                            row.days = opts.useFormulas
+                                ? {
+                                    formula: `SUM(${leaderDaysStartLetter}${currentRowNumber}:${leaderDaysEndLetter}${currentRowNumber})`,
+                                    result: item.total || 0
+                                }
+                                : item.total || 0;
+                        }
+
+                        reportData.days.forEach(day => {
+                            const key = getDateKey(day.date);
+                            row[key] = item.dayValues[key] !== undefined ? item.dayValues[key] : null;
+                        });
+                        
+                        const addedRow = sheet.addRow(row);
+
+                        const isInactive = emp.active === false || item.inactive === true;
+                        const isZeroDays = !item.total || item.total === 0;
+
+                        if (opts.includeHiddenInactive && isInactive && isZeroDays) {
+                            addedRow.hidden = true;
+                            addedRow.eachCell(cell => {
+                                cell.font = dimmedFont;
+                            });
+                        }
+
+                        currentRowNumber++;
+                    });
+                });
+                
+                applyTableStyles(sheet, 4, reportData.days.length + 3);
+            });
+        };
+
+        const generatePositionSheets = () => {
+            reportData.positions.forEach(posData => {
+                const sheetName = (posData.position?.name || 'Posición').replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
+                const sheet = workbook.addWorksheet(sheetName);
+                
+                const posTotalCols = opts.dualTotalColumns
+                    ? [
+                        { header: 'Total Días (Exportado)', key: 'totalExported', width: 20 },
+                        { header: 'Total Días (Calculado)', key: 'totalCalculated', width: 20 }
+                    ]
+                    : [
+                        { header: 'Total Días', key: 'total', width: 14 }
+                    ];
+
+                sheet.columns = [
+                    { header: '#', key: 'number', width: 8 },
+                    { header: 'Nombre', key: 'name', width: 32 },
+                    ...dayColumns,
+                    ...posTotalCols
+                ];
+
+                const extraColsAfterPos = opts.dualTotalColumns ? 2 : 1;
+                setupSheetHeaders(sheet, 2, extraColsAfterPos);
+
+                const posDaysStartLetter = getColumnLetter(3);
+                const posDaysEndLetter = getColumnLetter(2 + reportData.days.length);
+
+                const sortedPosEmployees = [...posData.employees]
+                    .sort((a, b) => String(a.number || '').localeCompare(String(b.number || ''), 'es', { numeric: true }));
+
+                sortedPosEmployees.forEach((emp, index) => {
+                    const rowNum = 3 + index;
                     const row = {
                         number: emp.number,
-                        name: emp.name,
-                        total: emp.total
+                        name: emp.name
                     };
+                    if (opts.dualTotalColumns) {
+                        row.totalExported = emp.total;
+                        row.totalCalculated = opts.useFormulas
+                            ? {
+                                formula: `SUM(${posDaysStartLetter}${rowNum}:${posDaysEndLetter}${rowNum})`,
+                                result: emp.total
+                            }
+                            : emp.total;
+                    } else {
+                        row.total = opts.useFormulas
+                            ? {
+                                formula: `SUM(${posDaysStartLetter}${rowNum}:${posDaysEndLetter}${rowNum})`,
+                                result: emp.total
+                            }
+                            : emp.total;
+                    }
+
                     reportData.days.forEach(day => {
                         const key = getDateKey(day.date);
                         row[key] = emp.dayValues[key] !== undefined ? emp.dayValues[key] : null;
                     });
                     sheet.addRow(row);
                 });
-            
-            addSubHeader(sheet, 3, reportData.days.length + 2, 2, 1);
-            applyTableStyles(sheet, 3, reportData.days.length + 2);
-        });
-
-        // -------- HOJAS POR LÍDER (OPTIMIZADO) --------
-        state.leaders.forEach(leader => {
-            const leaderPositions = reportData.positions.filter(p => p.position.leaderId === leader.id);
-            if (leaderPositions.length === 0) return;
-
-            const sheetName = (`Líder - ${leader.name}`).replace(/[*?:\\/\[\]]/g, '').slice(0, 31);
-            const sheet = workbook.addWorksheet(sheetName);
-            
-            sheet.columns = [
-                { header: 'No.', key: 'idx', width: 8 },
-                { header: 'Descripción/Nombre', key: 'name', width: 32 },
-                { header: 'Ocupación/Posición', key: 'position', width: 25 },
-                ...dayColumns,
-                { header: 'Total Días', key: 'days', width: 12 }
-            ];
-
-            const employeeMap = new Map();
-            leaderPositions.forEach(posData => {
-                posData.employees.forEach(emp => {
-                    if (!employeeMap.has(emp.id)) {
-                        employeeMap.set(emp.id, {
-                            id: emp.id,
-                            number: emp.number,
-                            name: emp.name,
-                            items: []
-                        });
-                    }
-                    employeeMap.get(emp.id).items.push({
-                        positionName: posData.position.name,
-                        total: emp.total,
-                        dayValues: emp.dayValues
-                    });
-                });
+                
+                applyTableStyles(sheet, 3, reportData.days.length + 2);
             });
+        };
 
-            const sortedEmployees = Array.from(employeeMap.values())
-                .sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true }));
-
-            sortedEmployees.forEach(emp => {
-                emp.items.forEach((item, j) => {
-                    // Número de FICHA del empleado (como en las hojas por
-                    // posición), con sufijo de letra cuando tiene más de una
-                    // posición con el mismo líder (042, 042b, ...).
-                    const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1));
-                    const row = {
-                        idx: `${emp.number}${suffix}`,
-                        name: emp.name,
-                        position: item.positionName,
-                        days: item.total
-                    };
-                    reportData.days.forEach(day => {
-                        const key = getDateKey(day.date);
-                        row[key] = item.dayValues[key] !== undefined ? item.dayValues[key] : null;
-                    });
-                    sheet.addRow(row);
-                });
-            });
-            
-            addSubHeader(sheet, 4, reportData.days.length + 3, 3, 1);
-            applyTableStyles(sheet, 4, reportData.days.length + 3);
-        });
+        if (opts.leadersFirst) {
+            generateLeaderSheets();
+            generatePositionSheets();
+        } else {
+            generatePositionSheets();
+            generateLeaderSheets();
+        }
 
         // -------- GUARDAR Y DESCARGAR --------
         const buffer = await workbook.xlsx.writeBuffer();
@@ -1301,8 +1599,61 @@ export async function exportEmployeeReportExcel() {
         link.download = fileName;
         link.click();
         
-        if (window.showNotification) window.showNotification(`${icons.get('reports')} Excel exportado correctamente`, 'success');
+        if (window.showNotification) window.showNotification('Excel exportado correctamente', 'success');
     } else {
         if (window.showNotification) window.showNotification('Error: ExcelJS no está cargado', 'error');
     }
+}
+
+export function openExportExcelModal() {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.showExcelExportModal = true;
+        if (!state.excelExportOptions) {
+            state.excelExportOptions = {
+                useFormulas: true,
+                includeHiddenInactive: true,
+                dualTotalColumns: true,
+                leadersFirst: true,
+                mergeHeaders: true
+            };
+        }
+    });
+    context.render();
+}
+
+export function closeExportExcelModal() {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.showExcelExportModal = false;
+    });
+    context.render();
+}
+
+export function toggleExportOption(optKey) {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        if (!state.excelExportOptions) {
+            state.excelExportOptions = {
+                useFormulas: true,
+                includeHiddenInactive: true,
+                dualTotalColumns: true,
+                leadersFirst: true,
+                mergeHeaders: true
+            };
+        }
+        if (optKey && state.excelExportOptions[optKey] !== undefined) {
+            state.excelExportOptions[optKey] = !state.excelExportOptions[optKey];
+        }
+    });
+    context.render();
+}
+
+export async function confirmExportExcel() {
+    const state = getState();
+    stateManager.batchSetState(() => {
+        state.showExcelExportModal = false;
+    });
+    context.render();
+    await exportEmployeeReportExcel();
 }
