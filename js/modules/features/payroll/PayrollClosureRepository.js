@@ -20,6 +20,7 @@ import {
     PAYROLL_CLOSURE_SCHEMA_VERSION,
     PAYROLL_CLOSURE_STATUS,
     promoteLegacyPayrollClosure,
+    validatePayrollClosureSummaryForScopedRead,
     validatePayrollClosureForScopedWrite
 } from './PayrollClosure.js';
 import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
@@ -127,6 +128,20 @@ function compareByClosedAt(left, right) {
 
 function closureSummary(closure = {}) {
     const source = clone(closure);
+    const isSchema3 = source.schemaVersion === PAYROLL_CLOSURE_SCHEMA_VERSION;
+    const hasIdentityKind = Object.prototype.hasOwnProperty.call(source, 'identityKind');
+    const hasOwnershipToken = Object.prototype.hasOwnProperty.call(source, 'ownershipToken');
+    const identity = isSchema3
+        ? {
+            projectId: source.projectId,
+            identityKind: hasIdentityKind ? source.identityKind : null,
+            ownershipToken: hasOwnershipToken ? source.ownershipToken : null
+        }
+        : {
+            projectId: null,
+            identityKind: null,
+            ownershipToken: null
+        };
     return {
         schemaVersion: source.schemaVersion,
         id: source.id,
@@ -144,8 +159,14 @@ function closureSummary(closure = {}) {
         supersedesId: source.supersedesId,
         voidedAt: source.voidedAt,
         voidedBy: source.voidedBy,
-        voidReason: source.voidReason
+        voidReason: source.voidReason,
+        ...identity
     };
+}
+
+function scopedClosureSummary(closure, projectId) {
+    const summary = closureSummary(closure);
+    return validatePayrollClosureSummaryForScopedRead(summary, projectId);
 }
 
 function pageQuery({ limit = 10, cursor = null, status = null } = {}, capturedPid = null, legacy = false) {
@@ -264,7 +285,8 @@ async function loadPageScoped(options = {}, scope = captureScopedScope()) {
     }
 
     loaded.sort(compareByClosedAt);
-    const items = loaded.slice(0, pageSize).map(closureSummary);
+    const items = loaded.slice(0, pageSize)
+        .map(item => scopedClosureSummary(item, scope.projectId));
     const last = items.at(-1);
     return {
         items,
@@ -315,7 +337,7 @@ function subscribeRecentScoped(onChange, { limit = 10, onError = null } = {}, sc
             if (snapshot?.metadata?.hasPendingWrites) return;
             onChange(snapshotItems(snapshot)
                 .filter(item => isScopedClosure(item, scope.projectId))
-                .map(closureSummary));
+                .map(item => scopedClosureSummary(item, scope.projectId)));
         } catch (error) {
             if (typeof onError === 'function') onError(error);
         }
@@ -391,9 +413,10 @@ export const PayrollClosureRepository = {
     }
 };
 
-// The public subscription remains gated until B3.5; these seams keep B3.3 testable.
+// The public subscription remains gated until B3.5 Units 2-3; these seams keep scoped reads testable.
 export const _payrollClosureRepositoryInternals = Object.freeze({
     captureScopedScope,
+    closureSummary,
     ensureNotStale,
     loadByIdScoped,
     loadByPeriodScoped,

@@ -69,12 +69,14 @@ describe('B3.0 contract audit — no behavior change', () => {
         }
     });
 
-    test('closureSummary still lacks project metadata — LiveSync remains dormant until B3.5', () => {
+    test('closureSummary carries scoped identity metadata while LiveSync remains dormant', () => {
         const summary = REPO.match(/function closureSummary[\s\S]*?return \{[\s\S]*?\n\}/)?.[0] || '';
-        expect(summary).not.toContain('projectId');
-        expect(summary).not.toContain('identityKind');
-        expect(summary).not.toContain('ownershipToken');
+        expect(summary).toContain('projectId');
+        expect(summary).toContain('identityKind');
+        expect(summary).toContain('ownershipToken');
         expect(REPO).toContain('closureSummary');
+        expect(REPO).toContain('validatePayrollClosureSummaryForScopedRead');
+        expect(APP).not.toContain('PayrollClosureLiveSync.start(');
     });
 
     test('firestore.rules gives payrollClosures a separate non-overlapping match', () => {
@@ -182,21 +184,22 @@ describe('B3.4 Unit 1 truth-table enforcement — Rules boundary only', () => {
         expect(RULES).toContain('match /users/{userId}/payrollClosures/{closureId}');
     });
 
-    test('closureSummary frozen target: projectId, identityKind, ownershipToken must survive for B3.5', () => {
+    test('B3.5 Unit 1 implements the frozen closureSummary target', () => {
         expect(CONTRACT).toContain('closureSummary frozen target');
-        expect(CONTRACT).toContain('at minimum `projectId`, `identityKind`, `ownershipToken`');
-        expect(CONTRACT).toMatch(/Current code \*\*omits them as found in B3\.0 audit/);
-        // Current implementation still omits them — B3.1 is doc-only, test stays green
+        expect(CONTRACT).toContain('at minimum `projectId`, `identityKind`, and `ownershipToken`');
+        expect(CONTRACT).toContain('validatePayrollClosureSummaryForScopedRead()');
+        expect(CONTRACT).toContain('It deliberately does not inspect rows or totals');
         const summary = REPO.match(/function closureSummary[\s\S]*?return \{[\s\S]*?\n\}/)?.[0] || '';
-        expect(summary).not.toContain('projectId');
-        expect(summary).not.toContain('identityKind');
-        expect(summary).not.toContain('ownershipToken');
+        expect(summary).toContain('projectId');
+        expect(summary).toContain('identityKind');
+        expect(summary).toContain('ownershipToken');
     });
 
-    test('Unit 3 completion boundary leaves B3.5 as the only pending slice', () => {
-        expect(CONTRACT).toContain('B3.4 Units 1-3 implemented');
+    test('Unit 3 completion boundary leaves only B3.5 Units 2-3 pending', () => {
+        expect(CONTRACT).toContain('B3.4 Units 1-3');
         expect(CONTRACT).toContain('B3.4 complete boundary');
-        expect(CONTRACT).toContain('B3.5 remains pending');
+        expect(CONTRACT).toContain('B3.5 Unit 1 now enriches and validates remote summaries');
+        expect(CONTRACT).toContain('B3.5 Units 2-3 remain pending');
         expect(CONTRACT).toContain('Unit 3 removes the Repository saveOne/loadPage/loadByPeriod/loadById gates');
         expect(CONTRACT).toContain('Sync and LiveSync gates remain blocked');
     });

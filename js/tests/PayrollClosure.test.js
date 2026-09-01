@@ -4,6 +4,7 @@ import {
     isSamePayrollClosureContent,
     PAYROLL_CLOSURE_IDENTITY_KIND,
     promoteLegacyPayrollClosure,
+    validatePayrollClosureSummaryForScopedRead,
     validatePayrollClosureForScopedWrite,
     voidPayrollClosure
 } from '../modules/features/payroll/PayrollClosure.js';
@@ -266,6 +267,49 @@ describe('PayrollClosure', () => {
             .toThrow(/proyecto/i);
         expect(() => validatePayrollClosureForScopedWrite({ ...native, identityKind: 'promoted-legacy' }, 'project-a'))
             .toThrow();
+    });
+
+    test('validates remote summary ownership without requiring closure detail', () => {
+        const nativeSummary = {
+            schemaVersion: 3,
+            id: buildPayrollClosureId('summary-fingerprint', null, 'project-a'),
+            fingerprint: 'summary-fingerprint',
+            projectId: 'project-a',
+            identityKind: null,
+            ownershipToken: null,
+            supersedesId: null
+        };
+        expect(validatePayrollClosureSummaryForScopedRead(nativeSummary, ' project-a '))
+            .toBe(nativeSummary);
+
+        const legacy = buildPayrollClosure({
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-15',
+            rows: [payrollRow()],
+            fingerprint: 'summary-promoted'
+        });
+        const promoted = promoteLegacyPayrollClosure(legacy, 'project-a');
+        const { rows, totals, ...promotedSummary } = promoted;
+        expect(rows).toBeDefined();
+        expect(totals).toBeDefined();
+        expect(validatePayrollClosureSummaryForScopedRead(promotedSummary, 'project-a'))
+            .toBe(promotedSummary);
+
+        expect(() => validatePayrollClosureSummaryForScopedRead(
+            { ...nativeSummary, schemaVersion: 2 }, 'project-a'
+        )).toThrow(/schemaVersion 3/i);
+        expect(() => validatePayrollClosureSummaryForScopedRead(
+            { ...nativeSummary, projectId: 'project-b' }, 'project-a'
+        )).toThrow(/proyecto/i);
+        expect(() => validatePayrollClosureSummaryForScopedRead(
+            { ...nativeSummary, id: 'forged-id' }, 'project-a'
+        )).toThrow();
+        expect(() => validatePayrollClosureSummaryForScopedRead(
+            { ...nativeSummary, ownershipToken: 'forged-token' }, 'project-a'
+        )).toThrow();
+        expect(() => validatePayrollClosureSummaryForScopedRead(
+            { ...promotedSummary, ownershipToken: 'forged-token' }, 'project-a'
+        )).toThrow();
     });
 
     test('makes reordered content stable within a project and distinct across projects', () => {

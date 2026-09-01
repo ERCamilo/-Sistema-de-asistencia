@@ -1,16 +1,20 @@
 import {
     auth,
+    documentId,
     getDocs,
     getDoc,
     limit as firestoreLimit,
     onSnapshot,
+    orderBy,
+    query,
     runTransaction,
     startAfter,
     where
 } from '../modules/data/firebase.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
-import { buildPayrollClosure, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
+import { buildPayrollClosure, buildPayrollClosureId, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
+import { buildPayrollPreviewFingerprint } from '../modules/features/payroll/PayrollLoanSettlement.js';
 import { PayrollClosureConflictError } from '../modules/features/payroll/PayrollClosureStore.js';
 import { PayrollClosureRepository } from '../modules/features/payroll/PayrollClosureRepository.js';
 import { _payrollClosureRepositoryInternals } from '../modules/features/payroll/PayrollClosureRepository.js';
@@ -44,6 +48,29 @@ function closure(fingerprint, overrides = {}) {
     });
 }
 
+function scopedClosure(projectId, marker = 'scoped', overrides = {}) {
+    const rows = [{
+        id: 1,
+        _employeeId: `employee-${marker}`,
+        _employeeName: 'Ada',
+        _number: '1',
+        _brutoOriginal: 1000,
+        monto: 1000
+    }];
+    const input = {
+        projectId,
+        periodStart: '2026-08-01',
+        periodEnd: '2026-08-15',
+        rows
+    };
+    return buildPayrollClosure({
+        ...input,
+        fingerprint: buildPayrollPreviewFingerprint(input),
+        closedAt: 100,
+        ...overrides
+    });
+}
+
 function docSnapshot(value) {
     return {
         id: value?.id,
@@ -60,6 +87,9 @@ describe('PayrollClosureRepository', () => {
         getDoc.mockReset();
         firestoreLimit.mockClear();
         onSnapshot.mockReset();
+        orderBy.mockClear();
+        query.mockClear();
+        documentId.mockClear();
         startAfter.mockClear();
         where.mockClear();
     });
@@ -372,7 +402,7 @@ describe('Payroll closure outbox and pull sync', () => {
     });
 });
 
-describe('Payroll closure B3.3 scoped seams', () => {
+describe('Payroll closure B3.3/B3.5 scoped seams', () => {
     const A = 'PRJ-B33-A';
     const B = 'PRJ-B33-B';
     const scopeA = { projectId: A, defaultProjectId: A };
@@ -382,6 +412,7 @@ describe('Payroll closure B3.3 scoped seams', () => {
         localStorage.setItem('asistencia_default_project_id', A);
         setProjectsEnabled(true); replaceEntityScope({ enabled: true, projectId: A, defaultProjectId: A });
         getDocs.mockReset(); getDoc.mockReset(); runTransaction.mockReset(); where.mockClear();
+        onSnapshot.mockReset(); orderBy.mockClear(); query.mockClear(); documentId.mockClear();
     });
 
     afterEach(() => {
@@ -389,7 +420,7 @@ describe('Payroll closure B3.3 scoped seams', () => {
     });
 
     test('scopes page queries and promotes default legacy rows before returning summaries', async () => {
-        const native = { ...closure('native-b33'), schemaVersion: 3, projectId: A };
+        const native = scopedClosure(A, 'native-b33');
         const legacy = closure('legacy-b33', { supersedesId: 'previous-b33' });
         const set = jest.fn();
         getDocs.mockResolvedValueOnce({ docs: [docSnapshot(native)] })
@@ -399,8 +430,90 @@ describe('Payroll closure B3.3 scoped seams', () => {
         const page = await _payrollClosureRepositoryInternals.loadPageScoped({ limit: 10 }, scopeA);
         expect(page.items).toHaveLength(2);
         expect(page.items.every(item => !item.rows)).toBe(true);
+        expect(page.items.every(item => item.projectId === A)).toBe(true);
+        expect(page.items.every(item => Object.prototype.hasOwnProperty.call(item, 'identityKind'))).toBe(true);
         expect(where).toHaveBeenCalledWith('projectId', '==', A);
         expect(set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ schemaVersion: 3, projectId: A, identityKind: 'promoted-legacy', id: legacy.id, fingerprint: legacy.fingerprint, rows: legacy.rows, totals: legacy.totals, supersedesId: legacy.supersedesId }));
+    });
+
+    test('strips scoped metadata from schema2 summaries', () => {
+        const legacy = closure('legacy-summary-shape-b33');
+        const summary = _payrollClosureRepositoryInternals.closureSummary({
+            ...legacy,
+            projectId: A,
+            identityKind: 'promoted-legacy',
+            ownershipToken: 'forged-token'
+        });
+
+        expect(summary).toMatchObject({
+            schemaVersion: 2,
+            projectId: null,
+            identityKind: null,
+            ownershipToken: null
+        });
+    });
+
+    test('subscribes with the captured project query and drops stale callbacks', () => {
+        const native = scopedClosure(A, 'recent-b33');
+        const onChange = jest.fn();
+        const onError = jest.fn();
+        let notify;
+        onSnapshot.mockImplementation((_ref, callback) => {
+            notify = callback;
+            return 'unsubscribe';
+        });
+
+        expect(_payrollClosureRepositoryInternals.subscribeRecentScoped(
+            onChange, { limit: 3, onError }, scopeA
+        )).toBe('unsubscribe');
+        expect(where).toHaveBeenCalledWith('projectId', '==', A);
+        expect(orderBy).toHaveBeenCalledWith('closedAt', 'desc');
+        expect(firestoreLimit).toHaveBeenCalledWith(3);
+
+        notify({ docs: [docSnapshot(native)], metadata: { hasPendingWrites: false } });
+        expect(onChange).toHaveBeenCalledTimes(1);
+        expect(onChange).toHaveBeenCalledWith([
+            expect.objectContaining({
+                projectId: A,
+                identityKind: null,
+                ownershipToken: null
+            })
+        ]);
+
+        replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
+        notify({ docs: [docSnapshot(native)], metadata: { hasPendingWrites: false } });
+        setProjectsEnabled(false);
+        notify({ docs: [docSnapshot(native)], metadata: { hasPendingWrites: false } });
+
+        expect(onChange).toHaveBeenCalledTimes(1);
+        expect(onError).toHaveBeenCalledTimes(2);
+        expect(onError.mock.calls[0][0]).toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
+        expect(onError.mock.calls[1][0]).toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
+    });
+
+    test('rejects forged scoped summaries and never presents schema2 as scoped', () => {
+        const native = scopedClosure(A, 'forged-b33');
+        const legacy = closure('legacy-summary-b33');
+        const onChange = jest.fn();
+        const onError = jest.fn();
+        let notify;
+        onSnapshot.mockImplementation((_ref, callback) => {
+            notify = callback;
+            return () => {};
+        });
+        _payrollClosureRepositoryInternals.subscribeRecentScoped(onChange, { onError }, scopeA);
+
+        notify({
+            docs: [
+                docSnapshot(legacy),
+                docSnapshot({ ...native, ownershipToken: 'forged-token' })
+            ],
+            metadata: { hasPendingWrites: false }
+        });
+
+        expect(onChange).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
     });
 
     test('period queries never discover schema2 for a non-default project', async () => {

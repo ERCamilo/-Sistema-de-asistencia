@@ -4,9 +4,9 @@ export const PAYROLL_CLOSURE_STATUS = Object.freeze({
     CLOSED: 'closed',
     VOIDED: 'voided'
 });
-export const PAYROLL_CLOSURE_IDENTITY_KIND = {
+export const PAYROLL_CLOSURE_IDENTITY_KIND = Object.freeze({
     PROMOTED_LEGACY: 'promoted-legacy'
-};
+});
 export const PAYROLL_CLOSURE_UNDO_WINDOW_MS = 30_000;
 
 function text(value) {
@@ -357,6 +357,22 @@ function assertPromotedLegacyClosure(closure) {
     return projectId;
 }
 
+function assertNativeClosureIdentity(closure, projectId, { summary = false } = {}) {
+    if (summary) {
+        if (closure.identityKind !== null ||
+            closure.ownershipToken !== null) {
+            throw new TypeError('La metadata de identidad nativa del resumen no es válida');
+        }
+    } else if (hasOwn(closure, 'identityKind') || hasOwn(closure, 'ownershipToken')) {
+        throw new TypeError('Un cierre nativo no puede incluir metadata de promoción legacy');
+    }
+
+    const expectedId = buildPayrollClosureId(closure.fingerprint, closure.supersedesId, projectId);
+    if (closure.id !== expectedId) {
+        throw new Error('La identidad nativa del cierre no corresponde a su projectId');
+    }
+}
+
 function assertLegacyPayloadPreserved(closure, legacySource, projectId) {
     if (!legacySource || Number(legacySource.schemaVersion) !== LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION) {
         throw new TypeError('La promoción del cierre histórico requiere un origen schema 2');
@@ -396,9 +412,7 @@ export function validatePayrollClosureForScopedWrite(
         return closure;
     }
 
-    if (hasOwn(closure, 'identityKind') || hasOwn(closure, 'ownershipToken')) {
-        throw new TypeError('Un cierre nativo no puede incluir metadata de promoción legacy');
-    }
+    assertNativeClosureIdentity(closure, projectId);
     assertNativeClosurePayload(closure);
     const expectedFingerprint = JSON.stringify({
         projectId,
@@ -406,11 +420,40 @@ export function validatePayrollClosureForScopedWrite(
         periodEnd: closure.periodEnd,
         rows: clone(closure.rows)
     });
-    const expectedId = buildPayrollClosureId(closure.fingerprint, closure.supersedesId, projectId);
-    if (closure.fingerprint !== expectedFingerprint || closure.id !== expectedId) {
+    if (closure.fingerprint !== expectedFingerprint) {
         throw new Error('La identidad nativa del cierre no corresponde a su projectId y payload');
     }
     return closure;
+}
+
+/**
+ * Validates the identity boundary of a remote summary without requiring closure detail.
+ * Schema 2 summaries are intentionally not admissible as scoped records.
+ */
+export function validatePayrollClosureSummaryForScopedRead(summary, expectedProjectId) {
+    const expectedOwner = canonicalProjectId(expectedProjectId);
+    if (!isRecord(summary)) throw new TypeError('El resumen del cierre de Nómina debe ser un objeto');
+    if (summary.schemaVersion !== PAYROLL_CLOSURE_SCHEMA_VERSION) {
+        throw new TypeError('Los resúmenes scoped deben usar schemaVersion 3');
+    }
+    for (const field of ['id', 'fingerprint']) {
+        if (typeof summary[field] !== 'string' || !summary[field]) {
+            throw new TypeError(`El campo ${field} del resumen no es válido`);
+        }
+    }
+    const projectId = canonicalProjectId(summary.projectId);
+    if (summary.projectId !== projectId || projectId !== expectedOwner) {
+        throw new Error('El resumen del cierre no pertenece al proyecto canónico capturado');
+    }
+    if (hasOwn(summary, 'supersedesId')) assertStringOrNull(summary.supersedesId, 'supersedesId');
+
+    if (summary.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+        assertPromotedLegacyClosure(summary);
+        return summary;
+    }
+
+    assertNativeClosureIdentity(summary, projectId, { summary: true });
+    return summary;
 }
 
 export function promoteLegacyPayrollClosure(closure, projectId) {
@@ -495,6 +538,7 @@ export default {
     buildPayrollClosureSnapshot,
     isSamePayrollClosureContent,
     promoteLegacyPayrollClosure,
+    validatePayrollClosureSummaryForScopedRead,
     validatePayrollClosureForScopedWrite,
     voidPayrollClosure
 };
