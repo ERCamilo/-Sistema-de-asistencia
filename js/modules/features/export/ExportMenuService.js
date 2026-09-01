@@ -70,3 +70,67 @@ export function canShareFiles() {
         return false;
     }
 }
+
+/**
+ * Builds the compact JSON payload for "Mini" companion app.
+ * Output format per employee:
+ * {
+ *   number: "1",
+ *   name: "Ana García",
+ *   position: "Oficial Albañil",
+ *   sueldo: "2500",      // Optional: included when available and includeSalary !== false
+ *   paused: true         // Included only when employee is inactive (emp.active === false)
+ * }
+ *
+ * @param {Array<object>} employees
+ * @param {Array<object>} positions
+ * @param {object} [settings]
+ * @param {object} [options]
+ * @param {boolean} [options.includeSalary=true]
+ * @returns {Array<object>}
+ */
+export function buildMiniExportPayload(employees = [], positions = [], settings = {}, options = {}) {
+    const { includeSalary = true } = options;
+    const regularHours = Number(settings?.regularHoursPerDay) || 8;
+
+    return (employees || [])
+        .filter(emp => !emp.deletedAt)
+        .map(emp => {
+            const posId = emp.positions && emp.positions.length ? emp.positions[0] : null;
+            const pos = posId ? positions.find(p => p.id === posId) : null;
+
+            const item = {
+                number: `${emp.number ?? ''}`,
+                name: emp.name || '',
+                position: pos ? (pos.name || '') : ''
+            };
+
+            if (includeSalary) {
+                const customRate = (posId && emp.positionSalaries) ? Number(emp.positionSalaries[posId]) : NaN;
+                let hourlyRate = Number.isFinite(customRate) && customRate > 0
+                    ? customRate
+                    : (Number.isFinite(Number(emp.customSalary)) && Number(emp.customSalary) > 0
+                        ? Number(emp.customSalary)
+                        : (pos ? Number(pos.hourlyRate) : 0));
+
+                if ((!Number.isFinite(hourlyRate) || hourlyRate <= 0) && pos?.salaryConfig?.amount) {
+                    const legacyAmount = Number(pos.salaryConfig.amount);
+                    if (Number.isFinite(legacyAmount) && legacyAmount > 0) {
+                        hourlyRate = legacyAmount / 30 / regularHours;
+                    }
+                }
+
+                if (Number.isFinite(hourlyRate) && hourlyRate > 0) {
+                    const dailyRate = Math.round(hourlyRate * regularHours);
+                    item.sueldo = String(dailyRate);
+                }
+            }
+
+            if (emp.active === false) {
+                item.paused = true;
+            }
+
+            return item;
+        });
+}
+

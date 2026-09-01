@@ -9,6 +9,7 @@ export {
     openExportMenu,
     closeExportMenu,
     canShareFiles,
+    buildMiniExportPayload,
     EMPTY_EXPORT_DATA
 } from './ExportMenuService.js';
 

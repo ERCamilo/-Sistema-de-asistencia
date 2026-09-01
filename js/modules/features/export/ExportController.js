@@ -15,7 +15,7 @@
 import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '../../core/AppState.js';
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, sanitizePositions } from '../../services/PersistenceService.js';
-import { openExportMenu, closeExportMenu } from './ExportMenuService.js';
+import { openExportMenu, closeExportMenu, buildMiniExportPayload } from './ExportMenuService.js';
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -165,22 +165,18 @@ export async function shareExportFull() {
     }
 }
 
-// ─── Share via clipboard: MINI (just #, name, position) ──────────────────────
-
-export async function shareExportMini() {
+// ─── Share via clipboard: MINI (format compatible with Mini app) ────────────
+export async function shareExportMini(options = {}) {
     try {
         state.isExporting = true;
         render();
 
-        const mini = state.employees.map(emp => {
-            const posId = emp.positions && emp.positions.length ? emp.positions[0] : null;
-            const pos = posId ? state.positions.find(p => p.id === posId) : null;
-            return {
-                number: `${emp.number ?? ''}`,
-                name: emp.name || '',
-                position: pos ? pos.name : ''
-            };
-        });
+        const mini = buildMiniExportPayload(
+            state.employees,
+            state.positions,
+            state.settings,
+            options
+        );
 
         const json = JSON.stringify(mini, null, 2);
         const copied = await copyTextToClipboard(json);

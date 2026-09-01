@@ -124,7 +124,7 @@ export function ExportMenu() {
                                             onmouseover="this.style.borderColor='#06b6d4'"
                                             onmouseout="this.style.borderColor='#334155'">
                                         <span style="color:#10b981; font-weight:700;">MINI</span>
-                                        <span style="font-size:0.75rem;color:#94a3b8;">Solo #, nombre y posición</span>
+                                        <span style="font-size:0.75rem;color:#94a3b8;">Formato compatible con Mini</span>
                                     </button>
                                 </div>
                             ` : ''}
