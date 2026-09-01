@@ -25,7 +25,6 @@ import {
 } from './PayrollClosure.js';
 import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
-import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 import {
     captureEntityProjectScope,
@@ -85,7 +84,9 @@ function captureScopedScope() {
     if (!isProjectsEnabled()) return null;
     const scope = captureEntityProjectScope();
     const projectId = normalizedProjectId(scope?.projectId);
-    if (!scope?.enabled || !projectId) return null;
+    if (!scope?.enabled || !projectId) {
+        throw new Error('A canonical project is required for scoped payroll closure access');
+    }
     return {
         projectId,
         defaultProjectId: normalizedProjectId(scope.defaultProjectId)
@@ -271,8 +272,7 @@ async function loadPageScoped(options = {}, scope = captureScopedScope()) {
     const pageSize = normalizedLimit(options.limit);
     const nativeSnapshot = await getDocs(pageQuery(options, scope.projectId));
     ensureNotStale(scope);
-    let loaded = snapshotItems(nativeSnapshot)
-        .filter(item => isScopedClosure(item, scope.projectId));
+    let loaded = snapshotItems(nativeSnapshot);
 
     if (scope.defaultProjectId === scope.projectId) {
         const legacySnapshot = await getDocs(pageQuery(options, null, true));
@@ -302,10 +302,14 @@ async function loadByIdScoped(id, scope = captureScopedScope()) {
     ensureNotStale(scope);
     if (!snapshot?.exists?.()) return null;
     const record = { ...clone(snapshot.data()), id: String(snapshot.id || id) };
-    if (isScopedClosure(record, scope.projectId)) return record;
+    if (isScopedClosure(record, scope.projectId)) {
+        validatePayrollClosureForScopedWrite(record, scope.projectId);
+        return record;
+    }
     if (scope.defaultProjectId !== scope.projectId || !isRawLegacyClosure(record)) return null;
     const promoted = await promoteLegacyCloudClosure(record, scope);
     ensureNotStale(scope);
+    if (promoted) validatePayrollClosureForScopedWrite(promoted, scope.projectId);
     return promoted;
 }
 
@@ -313,8 +317,7 @@ async function loadByPeriodScoped(periodStart, periodEnd, scope = captureScopedS
     if (!scope) return [];
     const nativeSnapshot = await getDocs(periodQuery(periodStart, periodEnd, scope.projectId));
     ensureNotStale(scope);
-    const loaded = snapshotItems(nativeSnapshot)
-        .filter(item => isScopedClosure(item, scope.projectId));
+    const loaded = snapshotItems(nativeSnapshot);
 
     if (scope.defaultProjectId === scope.projectId) {
         const legacySnapshot = await getDocs(periodQuery(periodStart, periodEnd, null, true));
@@ -324,6 +327,9 @@ async function loadByPeriodScoped(periodStart, periodEnd, scope = captureScopedS
             ensureNotStale(scope);
             if (promoted) loaded.push(promoted);
         }
+    }
+    for (const closure of loaded) {
+        validatePayrollClosureForScopedWrite(closure, scope.projectId);
     }
     return loaded;
 }
@@ -336,7 +342,6 @@ function subscribeRecentScoped(onChange, { limit = 10, onError = null } = {}, sc
             ensureNotStale(scope);
             if (snapshot?.metadata?.hasPendingWrites) return;
             onChange(snapshotItems(snapshot)
-                .filter(item => isScopedClosure(item, scope.projectId))
                 .map(item => scopedClosureSummary(item, scope.projectId)));
         } catch (error) {
             if (typeof onError === 'function') onError(error);
@@ -367,9 +372,12 @@ export const PayrollClosureRepository = {
     },
 
     async loadPage(options = {}) {
-        if (isProjectsEnabled()) return loadPageScoped(options);
-        const pageSize = normalizedLimit(options.limit);
-        const snapshot = await getDocs(pageQuery(options));
+        const { scope = undefined, ...queryOptions } = options;
+        if (isProjectsEnabled()) {
+            return loadPageScoped(queryOptions, scope || captureScopedScope());
+        }
+        const pageSize = normalizedLimit(queryOptions.limit);
+        const snapshot = await getDocs(pageQuery(queryOptions));
         const loaded = snapshotItems(snapshot);
         const items = loaded.slice(0, pageSize).map(closureSummary);
         const last = items.at(-1);
@@ -381,15 +389,17 @@ export const PayrollClosureRepository = {
         };
     },
 
-    async loadById(id) {
-        if (isProjectsEnabled()) return loadByIdScoped(id);
+    async loadById(id, { scope = undefined } = {}) {
+        if (isProjectsEnabled()) return loadByIdScoped(id, scope || captureScopedScope());
         const snapshot = await getDoc(requireSessionRef(currentDocument(id)));
         if (!snapshot?.exists?.()) return null;
         return { ...clone(snapshot.data()), id: String(snapshot.id || id) };
     },
 
-    async loadByPeriod(periodStart, periodEnd) {
-        if (isProjectsEnabled()) return loadByPeriodScoped(periodStart, periodEnd);
+    async loadByPeriod(periodStart, periodEnd, { scope = undefined } = {}) {
+        if (isProjectsEnabled()) {
+            return loadByPeriodScoped(periodStart, periodEnd, scope || captureScopedScope());
+        }
         const snapshot = await getDocs(query(
             requireSessionRef(currentCollection()),
             where('periodStart', '==', String(periodStart || '')),
@@ -399,8 +409,10 @@ export const PayrollClosureRepository = {
     },
 
     subscribeRecent(onChange, { limit = 10, onError = null } = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureRepository.subscribeRecent');
-        if (isProjectsEnabled()) return subscribeRecentScoped(onChange, { limit, onError });
+        if (isProjectsEnabled()) {
+            const scope = captureScopedScope();
+            return subscribeRecentScoped(onChange, { limit, onError }, scope);
+        }
         if (typeof onChange !== 'function') return () => {};
         const ref = pageQuery({ limit });
         return onSnapshot(ref, snapshot => {
@@ -413,7 +425,6 @@ export const PayrollClosureRepository = {
     }
 };
 
-// The public subscription remains gated until B3.5 Units 2-3; these seams keep scoped reads testable.
 export const _payrollClosureRepositoryInternals = Object.freeze({
     captureScopedScope,
     closureSummary,

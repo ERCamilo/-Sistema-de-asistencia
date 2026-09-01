@@ -2,6 +2,10 @@ import { MainSyncStore } from '../../services/MainSyncStore.js';
 import payrollClosureStore from './PayrollClosureStore.js';
 import { PayrollClosureConflictError } from './PayrollClosureMerge.js';
 import {
+    validatePayrollClosureSummaryForScopedRead,
+    validatePayrollClosureForScopedWrite
+} from './PayrollClosure.js';
+import {
     _payrollClosureRepositoryInternals,
     PayrollClosureRepository
 } from './PayrollClosureRepository.js';
@@ -29,15 +33,32 @@ function cursorToken(cursor) {
     return cursor ? `${Number(cursor.closedAt) || 0}:${String(cursor.id || '')}` : '';
 }
 
-function isOwnedScopedClosure(closure, projectId) {
-    return Number(closure?.schemaVersion) === 3 &&
-        String(closure?.projectId || '') === String(projectId);
+function captureRemoteScope() {
+    return isProjectsEnabled() ? captureScopedScope() : null;
 }
 
-function scopedPageItems(items, projectId) {
-    return (items || []).filter(item => Number(item?.schemaVersion) !== 2 &&
-        (!Object.prototype.hasOwnProperty.call(item || {}, 'projectId') ||
-            String(item.projectId) === String(projectId)));
+function validateAll(items, scope, validator) {
+    const details = Array.isArray(items) ? items : [];
+    if (scope) {
+        for (const detail of details) validator(detail, scope.projectId);
+    }
+    return details;
+}
+
+function identityValue(closure, field) {
+    return closure?.[field] ?? null;
+}
+
+function assertSummaryMatchesDetail(summary, detail) {
+    const immutableFields = [
+        'schemaVersion', 'id', 'fingerprint', 'projectId', 'identityKind',
+        'ownershipToken', 'periodStart', 'periodEnd', 'supersedesId'
+    ];
+    for (const field of immutableFields) {
+        if (identityValue(summary, field) !== identityValue(detail, field)) {
+            throw new Error(`Payroll closure summary/detail identity mismatch: ${field}`);
+        }
+    }
 }
 
 export class PayrollClosureSync {
@@ -65,17 +86,14 @@ export class PayrollClosureSync {
     }
 
     async pullPage(options = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureSync.pullPage');
-        const scope = isProjectsEnabled() ? captureScopedScope() : null;
+        const scope = captureRemoteScope();
         const pageSize = normalizedPageSize(options.limit);
         const periodStart = String(options.periodStart || '');
         const periodEnd = String(options.periodEnd || '');
         if (!periodStart && !periodEnd) {
-            const page = await this.remoteRepository.loadPage({ ...options, limit: pageSize });
+            const page = await this.remoteRepository.loadPage({ ...options, limit: pageSize, scope });
             if (scope) ensureNotStale(scope);
-            return scope
-                ? { ...page, items: scopedPageItems(page?.items, scope.projectId) }
-                : page;
+            return { ...page, items: validateAll(page?.items, scope, validatePayrollClosureSummaryForScopedRead) };
         }
 
         const items = [];
@@ -91,12 +109,11 @@ export class PayrollClosureSync {
             const page = await this.remoteRepository.loadPage({
                 ...options,
                 limit: pageSize,
-                cursor
+                cursor,
+                scope
             });
             if (scope) ensureNotStale(scope);
-            const remoteItems = scope
-                ? scopedPageItems(page?.items, scope.projectId)
-                : (Array.isArray(page?.items) ? page.items : []);
+            const remoteItems = validateAll(page?.items, scope, validatePayrollClosureSummaryForScopedRead);
             if (remoteItems.length === 0) return { items, nextCursor: null };
 
             for (let index = 0; index < remoteItems.length; index++) {
@@ -122,42 +139,47 @@ export class PayrollClosureSync {
     }
 
     async pullDetail(id) {
-        assertTandaBBlockedWhenScoped('PayrollClosureSync.pullDetail');
-        const scope = isProjectsEnabled() ? captureScopedScope() : null;
-        const closure = await this.remoteRepository.loadById(id);
+        const scope = captureRemoteScope();
+        const closure = await this.remoteRepository.loadById(id, { scope });
         if (scope) ensureNotStale(scope);
         if (!closure) return null;
-        if (!scope) return this.localStore.save(closure);
-        if (!isOwnedScopedClosure(closure, scope.projectId)) return null;
-        const saved = await this.localStore.save(closure);
+        if (scope) {
+            validatePayrollClosureForScopedWrite(closure, scope.projectId);
+            if (String(closure.id) !== String(id)) {
+                throw new Error('Payroll closure detail does not match the requested id');
+            }
+        }
+        const saved = await this.localStore.importRemote(closure, { scope });
         ensureNotStale(scope);
         return saved;
     }
 
     async pullPeriod(periodStart, periodEnd) {
-        assertTandaBBlockedWhenScoped('PayrollClosureSync.pullPeriod');
-        const scope = isProjectsEnabled() ? captureScopedScope() : null;
-        const closures = await this.remoteRepository.loadByPeriod(periodStart, periodEnd);
+        const scope = captureRemoteScope();
+        const closures = await this.remoteRepository.loadByPeriod(periodStart, periodEnd, { scope });
         if (scope) ensureNotStale(scope);
-        const scopedClosures = scope
-            ? (closures || []).filter(closure => isOwnedScopedClosure(closure, scope.projectId))
-            : closures;
-        const imported = await this.importClosures(scopedClosures, { scope });
+        const admitted = validateAll(closures, scope, validatePayrollClosureForScopedWrite);
+        if (scope && admitted.some(closure =>
+            closure.periodStart !== String(periodStart || '') ||
+            closure.periodEnd !== String(periodEnd || ''))) {
+            throw new Error('Payroll closure detail does not match the requested period');
+        }
+        const imported = await this.importClosures(admitted, { scope });
         if (scope) ensureNotStale(scope);
-        return { closures: scopedClosures, ...imported };
+        return { closures: admitted, ...imported };
     }
 
     async importClosures(closures = [], { scope = undefined } = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureSync.importClosures');
-        const capturedScope = scope === undefined
-            ? (isProjectsEnabled() ? captureScopedScope() : null)
-            : scope;
+        const capturedScope = isProjectsEnabled()
+            ? (scope === undefined ? captureScopedScope() : scope)
+            : null;
+        if (capturedScope) ensureNotStale(capturedScope);
+        const admitted = validateAll(closures, capturedScope, validatePayrollClosureForScopedWrite);
         const conflicts = [];
         let imported = 0;
-        for (const closure of closures || []) {
-            if (capturedScope && !isOwnedScopedClosure(closure, capturedScope.projectId)) continue;
+        for (const closure of admitted) {
             try {
-                await this.localStore.save(closure);
+                await this.localStore.importRemote(closure, { scope: capturedScope });
                 if (capturedScope) ensureNotStale(capturedScope);
                 imported++;
             } catch (error) {
@@ -170,24 +192,28 @@ export class PayrollClosureSync {
     }
 
     subscribeRecent(onApply = null, options = {}) {
-        assertTandaBBlockedWhenScoped('PayrollClosureSync.subscribeRecent');
-        const scope = isProjectsEnabled() ? captureScopedScope() : null;
+        const scope = captureRemoteScope();
         const onError = typeof options.onError === 'function'
             ? options.onError
             : error => console.error('Payroll closure live sync failed:', error);
+        let pending = Promise.resolve();
         return this.remoteRepository.subscribeRecent(closures => {
-            if (scope) {
-                try { ensureNotStale(scope); } catch (error) {
-                    onError(error);
-                    return;
+            pending = pending.then(async () => {
+                if (scope) ensureNotStale(scope);
+                const summaries = validateAll(closures, scope, validatePayrollClosureSummaryForScopedRead);
+                const details = [];
+                for (const summary of summaries) {
+                    const detail = await this.remoteRepository.loadById(summary.id, { scope });
+                    if (scope) ensureNotStale(scope);
+                    if (!detail) throw new Error(`Payroll closure detail not found: ${summary.id}`);
+                    validateAll([detail], scope, validatePayrollClosureForScopedWrite);
+                    assertSummaryMatchesDetail(summary, detail);
+                    details.push(detail);
                 }
-            }
-            this.importClosures(closures, { scope })
-                .then(result => {
-                    if (typeof onApply === 'function') onApply(result);
-                })
-                .catch(onError);
-        }, options);
+                const result = await this.importClosures(details, { scope });
+                if (typeof onApply === 'function') onApply(result);
+            }).catch(onError);
+        }, { ...options, onError });
     }
 }
 

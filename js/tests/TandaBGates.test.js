@@ -111,8 +111,8 @@ describe('Tanda B gates — with projects ON all B operations blocked before mut
         expect(states['id2']).toBe('synced');
     });
 
-    test('PayrollClosureRepository.subscribeRecent remains blocked until B3.5', async () => {
-        await expectGateErrorAsync(() => PayrollClosureRepository.subscribeRecent(() => {}));
+    test('PayrollClosureRepository.subscribeRecent is the protected B3.5 manual read seam', () => {
+        expect(() => PayrollClosureRepository.subscribeRecent(() => {})).toThrow('sesión');
     });
 
     test('PayrollClosureWorkflow buildPayrollClosureDraft blocked without mutation', async () => {

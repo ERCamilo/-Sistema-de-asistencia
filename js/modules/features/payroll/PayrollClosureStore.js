@@ -1,6 +1,7 @@
 import indexedDBService from '../../services/IndexedDBService.js';
 import {
     PAYROLL_CLOSURE_STATUS,
+    validatePayrollClosureForScopedWrite,
     voidPayrollClosure
 } from './PayrollClosure.js';
 import {
@@ -89,6 +90,29 @@ export class PayrollClosureStore {
             incoming.id,
             existing => resolvePayrollClosureMutation(existing, incoming)
         );
+        return clone(saved);
+    }
+
+    async importRemote(closure, { scope = undefined } = {}) {
+        if (!isProjectsEnabled()) return this.save(closure);
+        const capturedPid = scope === undefined ? captureScopedProjectId() :
+            String(scope?.projectId || '').trim() || null;
+        if (capturedPid == null) {
+            throw new Error('A canonical project is required for scoped payroll closure imports');
+        }
+        ensureNotStale(capturedPid);
+        validatePayrollClosureForScopedWrite(closure, capturedPid);
+        assertPayrollClosureSize(closure);
+        const incoming = { ...clone(closure), periodKey: periodKey(closure.periodStart, closure.periodEnd) };
+        const saved = await this.db.atomicMutate(
+            PAYROLL_CLOSURE_STORE,
+            incoming.id,
+            existing => {
+                ensureNotStale(capturedPid);
+                return resolvePayrollClosureMutation(existing, incoming);
+            }
+        );
+        ensureNotStale(capturedPid);
         return clone(saved);
     }
 

@@ -13,7 +13,7 @@ import {
 } from '../modules/data/firebase.js';
 import indexedDBService from '../modules/services/IndexedDBService.js';
 import { MainSyncStore } from '../modules/services/MainSyncStore.js';
-import { buildPayrollClosure, buildPayrollClosureId, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
+import { buildPayrollClosure, buildPayrollClosureId, promoteLegacyPayrollClosure, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
 import { buildPayrollPreviewFingerprint } from '../modules/features/payroll/PayrollLoanSettlement.js';
 import { PayrollClosureConflictError } from '../modules/features/payroll/PayrollClosureStore.js';
 import { PayrollClosureRepository } from '../modules/features/payroll/PayrollClosureRepository.js';
@@ -328,7 +328,7 @@ describe('Payroll closure outbox and pull sync', () => {
         const first = closure('sync-first');
         const second = closure('sync-second', { closedAt: 200 });
         const localStore = {
-            save: jest.fn(async value => value),
+            importRemote: jest.fn(async value => value),
             saveWithEmployees: jest.fn(async value => value)
         };
         const remoteRepository = {
@@ -352,9 +352,9 @@ describe('Payroll closure outbox and pull sync', () => {
             items: [{ id: second.id }],
             nextCursor: null
         });
-        expect(localStore.save).not.toHaveBeenCalled();
+        expect(localStore.importRemote).not.toHaveBeenCalled();
         await expect(sync.pullDetail(second.id)).resolves.toEqual(second);
-        expect(localStore.save).toHaveBeenLastCalledWith(second);
+        expect(localStore.importRemote).toHaveBeenLastCalledWith(second, { scope: null });
         await expect(sync.pullPeriod(second.periodStart, second.periodEnd)).resolves.toMatchObject({
             imported: 1,
             conflicts: []
@@ -381,7 +381,7 @@ describe('Payroll closure outbox and pull sync', () => {
                 .mockResolvedValueOnce({ items: [matching], nextCursor: null })
         };
         const sync = new PayrollClosureSync({
-            localStore: { save: jest.fn(async value => value) },
+            localStore: { importRemote: jest.fn(async value => value) },
             remoteRepository,
             outbox: MainSyncStore
         });
@@ -516,20 +516,19 @@ describe('Payroll closure B3.3/B3.5 scoped seams', () => {
         expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
     });
 
-    test('period queries never discover schema2 for a non-default project', async () => {
+    test('period queries reject schema2 as scoped for a non-default project', async () => {
         const scopeB = { projectId: B, defaultProjectId: A };
         replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
         getDocs.mockResolvedValue({ docs: [docSnapshot(closure('hidden-b33'))] });
         await expect(_payrollClosureRepositoryInternals.loadByPeriodScoped(
             '2026-08-01', '2026-08-15', scopeB
-        )).resolves.toEqual([]);
+        )).rejects.toBeInstanceOf(Error);
         expect(getDocs).toHaveBeenCalledTimes(1);
         expect(where).toHaveBeenCalledWith('projectId', '==', B);
         expect(where).not.toHaveBeenCalledWith('schemaVersion', '==', 2);
     });
 
-    test('repository detail rejects stale completion while public Sync remains gated', async () => {
-        const save = jest.fn();
+    test('repository detail rejects stale completion', async () => {
         const nativeA = { ...closure('detail-a-b33'), schemaVersion: 3, projectId: A };
         getDoc.mockResolvedValue(docSnapshot({ ...nativeA, projectId: B })); await expect(_payrollClosureRepositoryInternals.loadByIdScoped('cross-owner-b33', scopeA)).resolves.toBeNull();
         let resolveDetail;
@@ -538,15 +537,86 @@ describe('Payroll closure B3.3/B3.5 scoped seams', () => {
         replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
         resolveDetail(docSnapshot(nativeA));
         await expect(pending).rejects.toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
-        expect(save).not.toHaveBeenCalled();
+    });
 
-        const sync = new PayrollClosureSync({
-            localStore: { save, saveWithEmployees: jest.fn() },
-            remoteRepository: { loadById: jest.fn() }
+    test('rejects a mixed valid and hostile scoped batch before any local import', async () => {
+        const valid = scopedClosure(A, 'valid-b35');
+        const promoted = promoteLegacyPayrollClosure(closure('promoted-b35'), A);
+        const hostile = [
+            scopedClosure(B, 'owner-b35'),
+            { ...scopedClosure(A, 'native-id-b35'), id: 'PAYROLL-CLOSURE-forged' },
+            closure('schema2-b35'),
+            { ...promoted, ownershipToken: 'forged-token' }
+        ];
+        for (const forged of hostile) {
+            const localStore = { importRemote: jest.fn() };
+            const sync = new PayrollClosureSync({ localStore, remoteRepository: {} });
+            await expect(sync.importClosures([valid, forged])).rejects.toBeInstanceOf(Error);
+            expect(localStore.importRemote).not.toHaveBeenCalled();
+        }
+        const pageSync = new PayrollClosureSync({
+            localStore: { importRemote: jest.fn() },
+            remoteRepository: {
+                loadPage: jest.fn().mockResolvedValue({
+                    items: [valid, hostile[0]].map(_payrollClosureRepositoryInternals.closureSummary),
+                    nextCursor: null
+                })
+            }
         });
-        await expect(sync.pullDetail('cross-owner-b33')).rejects.toMatchObject({
-            code: 'TANDA_B_BLOCKED_WHEN_SCOPED'
+        await expect(pageSync.pullPage()).rejects.toBeInstanceOf(Error);
+    });
+    test('rejects cross-owner and stale detail completion before persistence', async () => {
+        const nativeA = scopedClosure(A, 'detail-a-b35');
+        const nativeB = scopedClosure(B, 'detail-b-b35', {
+            periodStart: nativeA.periodStart,
+            periodEnd: nativeA.periodEnd
         });
-        expect(save).not.toHaveBeenCalled();
+        const localStore = { importRemote: jest.fn(async value => value) };
+        const remoteRepository = { loadById: jest.fn().mockResolvedValue(nativeB) };
+        const sync = new PayrollClosureSync({ localStore, remoteRepository });
+        await expect(sync.pullDetail(nativeA.id)).rejects.toBeInstanceOf(Error);
+        expect(localStore.importRemote).not.toHaveBeenCalled();
+        let resolveDetail;
+        remoteRepository.loadById.mockImplementationOnce(() => new Promise(resolve => { resolveDetail = resolve; }));
+        const pending = sync.pullDetail(nativeA.id);
+        replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: A });
+        resolveDetail(nativeA);
+        await expect(pending).rejects.toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
+        expect(localStore.importRemote).not.toHaveBeenCalled();
+    });
+
+    test('manual subscription hydrates matching detail and permits a newer voided status', async () => {
+        const native = scopedClosure(A, 'subscription-b35');
+        const summary = _payrollClosureRepositoryInternals.closureSummary(native);
+        const detail = voidPayrollClosure(native, { voidedAt: 200, voidedBy: 'remote' });
+        let notify;
+        const localStore = { importRemote: jest.fn(async value => value) };
+        const remoteRepository = {
+            subscribeRecent: jest.fn(callback => { notify = callback; return 'unsubscribe'; }),
+            loadById: jest.fn().mockResolvedValue(detail)
+        };
+        const sync = new PayrollClosureSync({ localStore, remoteRepository });
+        const applied = new Promise((resolve, reject) =>
+            expect(sync.subscribeRecent(resolve, { onError: reject })).toBe('unsubscribe'));
+        notify([summary]);
+        await expect(applied).resolves.toMatchObject({ imported: 1, conflicts: [] });
+        expect(remoteRepository.loadById).toHaveBeenCalledWith(native.id, { scope: scopeA });
+        expect(localStore.importRemote).toHaveBeenCalledWith(detail, { scope: scopeA });
+    });
+
+    test('manual subscription rejects summary A resolving to detail B', async () => {
+        const nativeA = scopedClosure(A, 'subscription-a-b35');
+        const nativeB = scopedClosure(B, 'subscription-b-b35');
+        let notify;
+        const localStore = { importRemote: jest.fn() };
+        const remoteRepository = {
+            subscribeRecent: jest.fn(callback => { notify = callback; return () => {}; }),
+            loadById: jest.fn().mockResolvedValue(nativeB)
+        };
+        const sync = new PayrollClosureSync({ localStore, remoteRepository });
+        const failed = new Promise(resolve => sync.subscribeRecent(null, { onError: resolve }));
+        notify([_payrollClosureRepositoryInternals.closureSummary(nativeA)]);
+        await expect(failed).resolves.toBeInstanceOf(Error);
+        expect(localStore.importRemote).not.toHaveBeenCalled();
     });
 });

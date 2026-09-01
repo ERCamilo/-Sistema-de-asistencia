@@ -83,9 +83,9 @@ describe('B3.2 preflight — provisional index & Rules verifiability', () => {
         expect(CONTRACT).toMatch(/B3\.4 Unit 2.*indexes/i);
     });
 
-    test('B3.4 Unit 3 releases protected Repository methods but keeps Sync blocked', () => {
-        expect(REPO).toContain('if (isProjectsEnabled()) return loadByPeriodScoped');
-        expect(REPO).toContain('assertTandaBBlockedWhenScoped');
+    test('B3.5 Unit 2 opens protected remote reads while economic writes stay blocked', () => {
+        expect(REPO).toContain('return loadByPeriodScoped');
+        expect(REPO).not.toContain('assertTandaBBlockedWhenScoped');
         expect(REPO).toContain('validatePayrollClosureForScopedWrite');
         for (const method of ['saveOne', 'loadPage', 'loadById', 'loadByPeriod']) {
             const start = REPO.indexOf(`async ${method}`);
@@ -97,9 +97,9 @@ describe('B3.2 preflight — provisional index & Rules verifiability', () => {
                 .not.toContain(`PayrollClosureRepository.${method}`);
         }
         expect(REPO.slice(REPO.indexOf('subscribeRecent(onChange')))
-            .toContain('PayrollClosureRepository.subscribeRecent');
+            .not.toContain('PayrollClosureRepository.subscribeRecent');
         expect(CLOSURE).toContain('validatePayrollClosureForScopedWrite');
-        expect(SYNC).toContain('assertTandaBBlockedWhenScoped');
-        expect(SYNC).toContain('PayrollClosureSync.subscribeRecent');
+        expect(SYNC).toContain("assertTandaBBlockedWhenScoped('PayrollClosureSync.record')");
+        expect(SYNC).not.toContain('PayrollClosureSync.subscribeRecent');
     });
 });

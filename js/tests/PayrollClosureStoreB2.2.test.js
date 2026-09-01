@@ -1,6 +1,6 @@
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import { replaceEntityScope, resetEntityScope } from '../modules/features/projects/EntityProjectScope.js';
-import { buildPayrollClosure, promoteLegacyPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
+import { buildPayrollClosure, promoteLegacyPayrollClosure, voidPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
 import { PayrollClosureStore } from '../modules/features/payroll/PayrollClosureStore.js';
 
 const A = 'PRJ-A-B22';
@@ -153,6 +153,33 @@ describe('B2.2 project-scoped closure reads', () => {
         await expect(store.getById(promoted.id)).resolves.toMatchObject({ projectId: A, id: legacy.id });
         replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: DEFAULT });
         await expect(store.getById(promoted.id)).resolves.toBeNull();
+    });
+
+    test('remote import rejects stale persistence before its atomic write', async () => {
+        const db = new MemoryDBB22();
+        db.delayMs = 30;
+        const store = new PayrollClosureStore({ db });
+        const nativeA = closure(A, { rows: [row('emp-import-a', '1')] });
+        const scope = { projectId: A, defaultProjectId: DEFAULT };
+        await expect(store.importRemote({ ...nativeA, id: 'PAYROLL-CLOSURE-forged-store' }, { scope }))
+            .rejects.toBeInstanceOf(Error);
+        const pending = store.importRemote(nativeA, { scope });
+        replaceEntityScope({ enabled: true, projectId: B, defaultProjectId: DEFAULT });
+        await expect(pending).rejects.toMatchObject({ code: 'PAYROLL_CLOSURE_STALE_READ' });
+        expect(db.records.size).toBe(0);
+    });
+
+    test('remote import is retry-safe and stale closed data cannot revive voided state', async () => {
+        const db = new MemoryDBB22();
+        const store = new PayrollClosureStore({ db });
+        const native = closure(A, { rows: [row('emp-monotonic-a', '1')] });
+        const voided = voidPayrollClosure(native, { voidedAt: 200, voidedBy: 'operator' });
+        const scope = { projectId: A, defaultProjectId: DEFAULT };
+        await store.importRemote(native, { scope });
+        await store.importRemote(native, { scope });
+        await store.importRemote(voided, { scope });
+        await store.importRemote(native, { scope });
+        expect(db.records.get(native.id)).toMatchObject({ status: 'voided', voidedBy: 'operator' });
     });
 
     test('OFF exact legacy behavior preserved (no isolation)', async () => {
