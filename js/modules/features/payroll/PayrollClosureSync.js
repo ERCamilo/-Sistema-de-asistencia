@@ -193,27 +193,51 @@ export class PayrollClosureSync {
 
     subscribeRecent(onApply = null, options = {}) {
         const scope = captureRemoteScope();
+        const isCurrent = typeof options.isCurrent === 'function' ? options.isCurrent : () => true;
         const onError = typeof options.onError === 'function'
             ? options.onError
             : error => console.error('Payroll closure live sync failed:', error);
+        const { isCurrent: _isCurrent, ...restOptions } = options;
+        function cancelledError() {
+            const error = new Error('Payroll closure sync cancelled');
+            error.code = 'PAYROLL_CLOSURE_SYNC_CANCELLED';
+            error.name = 'PayrollClosureSyncCancelledError';
+            return error;
+        }
+        function isSilent(error) {
+            return error && (error.code === 'PAYROLL_CLOSURE_SYNC_CANCELLED' || error.code === 'PAYROLL_CLOSURE_STALE_READ');
+        }
+        function throwIfCancelled() {
+            if (!isCurrent()) throw cancelledError();
+        }
+        const wrappedOnError = error => {
+            if (isSilent(error)) return;
+            onError(error);
+        };
         let pending = Promise.resolve();
         return this.remoteRepository.subscribeRecent(closures => {
             pending = pending.then(async () => {
+                throwIfCancelled();
                 if (scope) ensureNotStale(scope);
                 const summaries = validateAll(closures, scope, validatePayrollClosureSummaryForScopedRead);
                 const details = [];
                 for (const summary of summaries) {
                     const detail = await this.remoteRepository.loadById(summary.id, { scope });
+                    throwIfCancelled();
                     if (scope) ensureNotStale(scope);
                     if (!detail) throw new Error(`Payroll closure detail not found: ${summary.id}`);
                     validateAll([detail], scope, validatePayrollClosureForScopedWrite);
                     assertSummaryMatchesDetail(summary, detail);
                     details.push(detail);
                 }
+                throwIfCancelled();
                 const result = await this.importClosures(details, { scope });
+                throwIfCancelled();
+                if (scope) ensureNotStale(scope);
+                throwIfCancelled();
                 if (typeof onApply === 'function') onApply(result);
-            }).catch(onError);
-        }, { ...options, onError });
+            }).catch(wrappedOnError);
+        }, { ...restOptions, onError: wrappedOnError });
     }
 }
 

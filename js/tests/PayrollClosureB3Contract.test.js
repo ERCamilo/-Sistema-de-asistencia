@@ -77,7 +77,8 @@ describe('B3.0 contract audit — no behavior change', () => {
         expect(summary).toContain('ownershipToken');
         expect(REPO).toContain('closureSummary');
         expect(REPO).toContain('validatePayrollClosureSummaryForScopedRead');
-        expect(APP).not.toContain('PayrollClosureLiveSync.start(');
+        expect(APP).toContain('PayrollClosureLiveSync.start(');
+        expect(APP).toContain('projectContext.subscribe');
     });
 
     test('firestore.rules gives payrollClosures a separate non-overlapping match', () => {
@@ -95,9 +96,11 @@ describe('B3.0 contract audit — no behavior change', () => {
     });
 
     test('LiveSync is dormant — app never autostarts recent subscription', () => {
-        expect(APP).not.toContain('PayrollClosureLiveSync.start(');
-        expect(APP).not.toContain('payrollClosureSync.subscribeRecent');
-        // Summary items fed to live path also lack projectId so gating impossible today
+        expect(APP).toContain('PayrollClosureLiveSync.start(');
+        expect(APP).toContain('PayrollClosureLiveSync.stop(');
+        expect(APP).toContain('isProjectsEnabled');
+        expect(APP).toContain('captureScopedScope');
+        expect(APP).toContain('projectContext.subscribe');
         expect(SYNC).toContain('subscribeRecent');
         expect(SYNC).toContain('importClosures');
     });

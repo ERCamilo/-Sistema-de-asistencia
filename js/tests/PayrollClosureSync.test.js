@@ -397,8 +397,11 @@ describe('Payroll closure outbox and pull sync', () => {
     });
 
     test('does not hydrate closure history or start a broad listener at login', () => {
-        expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.start(');
-        expect(APP_SOURCE).not.toContain('PayrollClosureLiveSync.stop(');
+        expect(APP_SOURCE).toContain('PayrollClosureLiveSync.start(');
+        expect(APP_SOURCE).toContain('PayrollClosureLiveSync.stop(');
+        expect(APP_SOURCE).toContain('isProjectsEnabled');
+        expect(APP_SOURCE).toContain('captureScopedScope');
+        expect(APP_SOURCE).toContain('projectContext.subscribe');
     });
 });
 

@@ -43,6 +43,10 @@ import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
 import { resetEntityScope } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
+import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
+import { projectContext } from './modules/features/projects/ProjectContext.js';
+import { auth } from './modules/data/firebase.js';
+import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
@@ -7112,6 +7116,27 @@ function _initOutgoingConflictGuard() {
     // its own lifecycle in boot-loader.js and is controlled through app events.
     let isInitialLoad = true;
 
+    function _canStartPayrollLiveSync() {
+        if (!auth?.currentUser) return false;
+        if (!isProjectsEnabled()) return false;
+        try { _payrollClosureRepositoryInternals.captureScopedScope(); return true; } catch (_) { return false; }
+    }
+    function _attemptPayrollLiveSync() {
+        if (_canStartPayrollLiveSync()) {
+            try { PayrollClosureLiveSync.start({ onApply: () => window.render?.(), onError: e => console.error('Payroll closure live sync failed:', e) }); } catch (e) { console.warn('Payroll LiveSync start failed:', e); }
+        } else { PayrollClosureLiveSync.stop(); }
+    }
+    try {
+        projectContext.subscribe(({ previousProjectId, projectId }) => {
+            const changed = String(previousProjectId || '') !== String(projectId || '');
+            if (!changed && PayrollClosureLiveSync.isActive()) return;
+            PayrollClosureLiveSync.stop();
+            if (_canStartPayrollLiveSync()) {
+                try { PayrollClosureLiveSync.start({ onApply: () => window.render?.(), onError: e => console.error('Payroll closure live sync failed:', e) }); } catch (_) {}
+            }
+        });
+    } catch (_) {}
+
     // 💾 Diálogo de recuperación cuando el almacenamiento local (IndexedDB) no
     // pudo abrirse en el arranque. Recibe el nombre del error tipado que produjo
     // IndexedDBService.init() y elige el copy correspondiente: bloqueado por otra
@@ -7264,7 +7289,7 @@ function _initOutgoingConflictGuard() {
                 });
             }
             // A0.5 G2–G5: aislamiento por uid — limpiar scope/colas/listeners al cambiar de cuenta o cerrar sesión
-            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; }
+            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{PayrollClosureLiveSync.stop()}catch(_){} try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; if(!user) try{PayrollClosureLiveSync.stop()}catch(_){} }
             state.syncStatus = user ? 'synced' : 'idle';
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
@@ -7306,6 +7331,7 @@ function _initOutgoingConflictGuard() {
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
                 claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){}
+                try{ _attemptPayrollLiveSync(); }catch(_){}
                 // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que
                 // el usuario haga otro cambio cualquiera para disparar la sync.
