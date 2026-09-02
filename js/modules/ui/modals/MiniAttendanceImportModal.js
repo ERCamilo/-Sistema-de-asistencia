@@ -16,15 +16,15 @@ import {
 } from '../../features/attendance/MiniAttendanceDraft.js';
 import { applyMiniAttendancePlan } from '../../features/attendance/MiniAttendanceImportService.js';
 import { buildMiniAttendanceReviewViewModel } from '../MiniAttendanceReviewViewModel.js';
-import { getState, stateManager } from '../../core/AppState.js';
+import { state, stateManager } from '../../core/AppState.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 
 let nextControlId = 1;
 
 function defaultReactivateEmployee(employeeId) {
-    const state = getState();
-    const emp = state?.employees?.find(e => e.id === employeeId || e.key === employeeId);
+    const currentState = stateManager?.getState() || state;
+    const emp = currentState?.employees?.find(e => e.id === employeeId || e.key === employeeId);
     if (!emp) throw new Error(`Empleado no encontrado en SA: ${employeeId}`);
     const changeDate = getDateKey(new Date());
     stateManager.batchSetState(() => {
