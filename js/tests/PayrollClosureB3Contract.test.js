@@ -199,14 +199,14 @@ describe('B3.4 Unit 1 truth-table enforcement — Rules boundary only', () => {
         expect(summary).toContain('ownershipToken');
     });
 
-    test('B3.5 Unit 2 is frozen separately while Unit 3 remains pending', () => {
+    test('B3.5 Unit 2 is frozen separately while Unit 3 is closed', () => {
         expect(CONTRACT).toContain('B3.4 Units 1-3');
         expect(CONTRACT).toContain('B3.4 complete boundary');
-        expect(CONTRACT).toContain('B3.5 Unit 1 validates summaries');
+        expect(CONTRACT).toContain('B3.5 Unit 1 validated summaries');
         expect(CONTRACT).toContain('B3.5 Unit 2 — protected remote admission');
-        expect(CONTRACT).toContain('B3.5 Unit 3 remains pending');
+        expect(CONTRACT).toContain('B3.5 Unit 3 is closed');
         expect(CONTRACT).toContain('Unit 3 removes the Repository saveOne/loadPage/loadByPeriod/loadById gates');
-        expect(CONTRACT).toContain('LiveSync stays dormant');
+        expect(CONTRACT).toContain('LiveSync lifecycle — closed');
     });
 
     test('ON/OFF matrix and B3.0 freezes remain intact in B3.4 Unit 1', () => {

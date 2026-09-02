@@ -7331,11 +7331,11 @@ function _initOutgoingConflictGuard() {
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
                 claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){}
-                try{ _attemptPayrollLiveSync(); }catch(_){}
                 // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que
                 // el usuario haga otro cambio cualquiera para disparar la sync.
                 drainMainSyncOutbox().catch(e => console.warn('⚠️ Error drenando outbox al iniciar sesión:', e));
+                try{ _attemptPayrollLiveSync(); }catch(_){}
 
                 // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
                 window.startPettyCashSync?.();
