@@ -1126,9 +1126,11 @@ export class MiniAttendanceImportModal {
             const position = item.targetPositionOptions.find(option =>
                 option.id === item.targetPositionId
             ) || item.targetPositionOptions[0];
-            const readyReason = element('span', item.readyReason.label, {
-                className: `mini-import-ready-reason is-${item.readyReason.type}`,
-                dataset: { miniReadyReason: item.readyReason.type }
+            const readyType = item.readyReason?.type || (item.confirmed ? 'confirmed' : 'ready');
+            const readyLabel = item.readyReason?.label || (item.confirmed ? 'Confirmado' : 'Listo');
+            const readyReason = element('span', readyLabel, {
+                className: `mini-import-ready-reason is-${readyType}`,
+                dataset: { miniReadyReason: readyType }
             });
             const decision = element('div', null, {
                 className: 'mini-import-segmented mini-import-auto-choice',
@@ -1299,16 +1301,19 @@ export class MiniAttendanceImportModal {
                     miniProblemSeverity: item.problemSummary.severity
                 }
             });
+            const isInactiveUnconfirmed = item.isInactive && !item.confirmed;
             const action = actionButton(
-                item.confirmed ? 'Modificar' : item.canIgnore ? 'Ignorar' : 'Resolver',
+                item.confirmed ? 'Modificar' : isInactiveUnconfirmed ? 'Resolver' : item.canIgnore ? 'Ignorar' : 'Resolver',
                 item.confirmed
                     ? 'edit-resolved-attention'
-                    : item.canIgnore ? 'ignore-attention' : 'edit-attention'
+                    : isInactiveUnconfirmed ? 'edit-attention' : item.canIgnore ? 'ignore-attention' : 'edit-attention'
             );
-            action.classList.add(item.canIgnore && !item.confirmed
+            action.classList.add(item.canIgnore && !item.confirmed && !isInactiveUnconfirmed
                 ? 'mini-import-action-secondary'
                 : 'mini-import-action-primary');
             if (item.confirmed) {
+                action.addEventListener('click', () => this.openIndividualReview([key]));
+            } else if (isInactiveUnconfirmed) {
                 action.addEventListener('click', () => this.openIndividualReview([key]));
             } else if (item.canIgnore) {
                 action.addEventListener('click', () => this.requestIgnoreReviewUnit(item));
