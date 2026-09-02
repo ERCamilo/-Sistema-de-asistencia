@@ -572,6 +572,7 @@ export function ExcelExportOptionsModal() {
     const opts = {
         useFormulas: true,
         includeHiddenInactive: true,
+        padNumericalGaps: true,
         dualTotalColumns: true,
         leadersFirst: true,
         mergeHeaders: true,
@@ -589,6 +590,11 @@ export function ExcelExportOptionsModal() {
             key: 'includeHiddenInactive',
             title: 'Filas ocultas para inactivos (Líderes)',
             desc: 'Incluye a empleados inactivos con 0 días en su orden numérico pero con fila oculta en Excel.'
+        },
+        {
+            key: 'padNumericalGaps',
+            title: 'Rellenar huecos numéricos en fichas (Líderes)',
+            desc: 'Inserta filas vacías ocultas para números de ficha sin registrar entre el primer y último empleado.'
         },
         {
             key: 'dualTotalColumns',
@@ -1481,8 +1487,49 @@ export async function exportEmployeeReportExcel() {
                 const leaderDaysEndLetter = getColumnLetter(3 + reportData.days.length);
 
                 let currentRowNumber = 3;
+                let lastLeaderNumber = null;
 
                 sortedEmployees.forEach(emp => {
+                    const rawNum = String(emp.number || '').trim();
+                    const parsedNum = parseInt(rawNum, 10);
+
+                    // Relleno de huecos numéricos: insertar filas vacías para números no registrados
+                    if (opts.padNumericalGaps !== false && Number.isFinite(parsedNum)) {
+                        if (lastLeaderNumber !== null && parsedNum > lastLeaderNumber + 1) {
+                            for (let gap = lastLeaderNumber + 1; gap < parsedNum; gap++) {
+                                const padLen = rawNum.length;
+                                const formattedGapIdx = (padLen > 1 && String(gap).length < padLen)
+                                    ? String(gap).padStart(padLen, '0')
+                                    : String(gap);
+
+                                const gapRow = {
+                                    idx: formattedGapIdx,
+                                    name: '',
+                                    position: ''
+                                };
+                                if (opts.dualTotalColumns) {
+                                    gapRow.totalExported = 0;
+                                    gapRow.totalCalculated = 0;
+                                } else {
+                                    gapRow.days = 0;
+                                }
+                                reportData.days.forEach(day => {
+                                    const key = getDateKey(day.date);
+                                    gapRow[key] = null;
+                                });
+
+                                const addedGapRow = sheet.addRow(gapRow);
+                                addedGapRow.hidden = true;
+                                addedGapRow.eachCell(cell => {
+                                    cell.font = dimmedFont;
+                                });
+
+                                currentRowNumber++;
+                            }
+                        }
+                        lastLeaderNumber = parsedNum;
+                    }
+
                     emp.items.forEach((item, j) => {
                         const suffix = j === 0 ? '' : String.fromCharCode(96 + (j + 1));
                         const row = {
@@ -1627,6 +1674,7 @@ export function openExportExcelModal() {
             state.excelExportOptions = {
                 useFormulas: true,
                 includeHiddenInactive: true,
+                padNumericalGaps: true,
                 dualTotalColumns: true,
                 leadersFirst: true,
                 mergeHeaders: true,
@@ -1652,6 +1700,7 @@ export function toggleExportOption(optKey) {
             state.excelExportOptions = {
                 useFormulas: true,
                 includeHiddenInactive: true,
+                padNumericalGaps: true,
                 dualTotalColumns: true,
                 leadersFirst: true,
                 mergeHeaders: true,

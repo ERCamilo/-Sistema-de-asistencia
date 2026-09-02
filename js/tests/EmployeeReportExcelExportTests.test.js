@@ -146,11 +146,19 @@ describe('Employee Report Excel Export', () => {
                     name: 'Pedro Ruiz',
                     positions: ['pos-1'],
                     active: true
+                },
+                {
+                    id: 'emp-4',
+                    number: '6',
+                    name: 'Ana Lopez',
+                    positions: ['pos-1'],
+                    active: true
                 }
             ],
             attendance: {
                 'emp-1-2026-08-01': { present: true, hoursWorked: 8, selectedPosition: 'pos-1' },
-                'emp-3-2026-08-01': { present: true, hoursWorked: 8, selectedPosition: 'pos-1' }
+                'emp-3-2026-08-01': { present: true, hoursWorked: 8, selectedPosition: 'pos-1' },
+                'emp-4-2026-08-01': { present: true, hoursWorked: 8, selectedPosition: 'pos-1' }
             }
         };
 
@@ -214,9 +222,9 @@ describe('Employee Report Excel Export', () => {
 
         // Find data rows in leader sheet
         const dataRows = leaderSheet.rows.filter(r => r.values && r.values.idx !== undefined);
-        expect(dataRows.length).toBe(3);
+        expect(dataRows.length).toBe(6);
 
-        // Verify order: Juan (#1), Maria (#2), Pedro (#3)
+        // Verify order: Juan (#1), Maria (#2), Pedro (#3), Gap (#4), Gap (#5), Ana (#6)
         expect(dataRows[0].values.idx).toBe('1');
         expect(dataRows[0].values.name).toBe('Juan Perez');
         expect(dataRows[0].hidden).toBe(false);
@@ -228,6 +236,19 @@ describe('Employee Report Excel Export', () => {
         expect(dataRows[2].values.idx).toBe('3');
         expect(dataRows[2].values.name).toBe('Pedro Ruiz');
         expect(dataRows[2].hidden).toBe(false);
+
+        // Gap rows
+        expect(dataRows[3].values.idx).toBe('4');
+        expect(dataRows[3].values.name).toBe('');
+        expect(dataRows[3].hidden).toBe(true); // Gap row is hidden!
+
+        expect(dataRows[4].values.idx).toBe('5');
+        expect(dataRows[4].values.name).toBe('');
+        expect(dataRows[4].hidden).toBe(true); // Gap row is hidden!
+
+        expect(dataRows[5].values.idx).toBe('6');
+        expect(dataRows[5].values.name).toBe('Ana Lopez');
+        expect(dataRows[5].hidden).toBe(false);
     });
 
     test('includes dual total columns with formula for Total Días (Calculado)', async () => {
