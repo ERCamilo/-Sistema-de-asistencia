@@ -32,7 +32,7 @@ function project(state, filter = 'all') {
     return buildMiniAttendanceReviewViewModel({ ...state, employees, positions, filter });
 }
 describe('Mini attendance review projection', () => {
-    test('hides inactive employees from every selector in the review projection', () => {
+    test('surfaces inactive employees with inactive issue while keeping selector roster active-only', () => {
         const roster = [
             ...employees,
             { id: 'inactive', number: '6', name: 'Empleado Inactivo', positions: ['p1'],
@@ -50,9 +50,16 @@ describe('Mini attendance review projection', () => {
         });
 
         expect(draft.rows[0]).toMatchObject({
-            excluded: true, exclusionReason: 'inactive_employee'
+            inactiveIdentity: true,
+            inactiveEmployeeId: 'inactive'
         });
-        expect(view.items).toEqual([]);
+        expect(view.items.length).toBe(1);
+        expect(view.items[0]).toMatchObject({
+            isInactive: true,
+            issue: 'inactive',
+            canReactivate: true
+        });
+        expect(view.items[0].employeeOptions.map(opt => opt.id)).not.toContain('inactive');
     });
 
     test('joins draft occurrences to conflicts and derives stable summaries and filters', () => {

@@ -112,12 +112,18 @@ function matchesSourceIdentity(sourceRow, employee) {
         normalizeName(sourceRow.rawName) === normalizeName(employee.name);
 }
 
-function matchesOnlyInactiveEmployee(sourceRow, employees, eligibleEmployees) {
+function findUniqueInactiveMatch(sourceRow, employees, eligibleEmployees) {
     const hasEligibleIdentity = eligibleEmployees.some(employee =>
         matchesSourceIdentity(sourceRow, employee));
-    return !hasEligibleIdentity && employees.some(employee =>
-        !isMiniAttendanceEmployeeEligible(employee) &&
+    if (hasEligibleIdentity) return null;
+    const inactiveMatches = employees.filter(employee =>
+        employee?.active === false && employee?.deletedAt == null &&
         matchesSourceIdentity(sourceRow, employee));
+    return inactiveMatches.length === 1 ? inactiveMatches[0] : null;
+}
+
+function matchesOnlyInactiveEmployee(sourceRow, employees, eligibleEmployees) {
+    return Boolean(findUniqueInactiveMatch(sourceRow, employees, eligibleEmployees));
 }
 
 function rememberedEmployee(sourceRow, employees, aliases, scope) {
@@ -251,8 +257,11 @@ function rowBlockers(row) {
     if (row.excluded === true) return [];
     const blockers = [];
     if (row.sourceRow.errors.length) blockers.push('source_hours_invalid');
+    if (row.inactiveIdentity && !row.reviewed && !row.match?.employeeId) {
+        blockers.push('inactive_employee');
+    }
     if (row.match.status === 'ambiguous') blockers.push('employee_ambiguous');
-    if (row.match.status === 'unmatched') blockers.push('employee_unmatched');
+    if (row.match.status === 'unmatched' && !row.inactiveIdentity) blockers.push('employee_unmatched');
     if (row.match.requiresConfirmation) blockers.push('employee_confirmation_required');
     const conflictingDuplicateResolved = row.duplicateStatus === 'conflicting_duplicate' &&
         row.reviewed === true &&
@@ -349,19 +358,23 @@ export function createMiniAttendanceDraft({
     const allocationMode = 'all_normal';
     const eligibleEmployees = employees.filter(isMiniAttendanceEmployeeEligible);
     const rows = parsed.rows.map(sourceRow => {
-        const inactiveIdentity = matchesOnlyInactiveEmployee(
+        const inactiveMatch = findUniqueInactiveMatch(
             sourceRow,
             employees,
             eligibleEmployees
         );
+        const inactiveIdentity = Boolean(inactiveMatch);
         return {
             sourceRow,
             match: matchEmployee(sourceRow, eligibleEmployees, aliases, aliasScope),
             allocation: allocate(sourceRow.totalHours, allocationMode, regularLimit),
             duplicateStatus: null,
-            excluded: inactiveIdentity,
-            exclusionReason: inactiveIdentity ? 'inactive_employee' : null,
-            reviewed: inactiveIdentity,
+            inactiveIdentity,
+            inactiveEmployee: inactiveMatch ? employeeCandidate(inactiveMatch) : null,
+            inactiveEmployeeId: inactiveMatch?.id ?? null,
+            excluded: false,
+            exclusionReason: null,
+            reviewed: false,
             approved: false
         };
     });
@@ -376,6 +389,45 @@ export function createMiniAttendanceDraft({
         allocationMode,
         employeeOptions: eligibleEmployees.map(employeeCandidate),
         rows: rows.map((row, index) => ({ ...row, duplicateStatus: duplicateStatuses[index] }))
+    });
+}
+
+export function reactivateMiniAttendanceDraftEmployee(draft, employee) {
+    if (!employee || !employee.id) throw new TypeError('Invalid employee for draft reactivation');
+    const candidate = employeeCandidate(employee);
+    const existingIndex = draft.employeeOptions.findIndex(item => item.employeeId === employee.id);
+    const employeeOptions = existingIndex >= 0
+        ? draft.employeeOptions.map((item, index) => index === existingIndex ? candidate : item)
+        : [...draft.employeeOptions, candidate];
+
+    const rows = draft.rows.map(row => {
+        if (row.inactiveIdentity && row.inactiveEmployeeId === employee.id) {
+            return {
+                ...row,
+                inactiveIdentity: false,
+                inactiveEmployee: null,
+                inactiveEmployeeId: null,
+                match: {
+                    ...row.match,
+                    status: 'confirmed',
+                    employeeId: employee.id,
+                    positionIds: candidate.positionIds,
+                    requiresConfirmation: false,
+                    candidateIds: [employee.id],
+                    candidatePositions: [{ employeeId: employee.id, positionIds: candidate.positionIds }]
+                },
+                reviewed: true,
+                approved: true
+            };
+        }
+        return row;
+    });
+
+    return finalize({
+        ...draft,
+        revision: draft.revision + 1,
+        employeeOptions,
+        rows
     });
 }
 
@@ -524,6 +576,9 @@ function positionAllocationBlockers(row) {
 }
 
 function conflictBlockers(row) {
+    if (row.draftBlockers.includes('inactive_employee')) {
+        return ['inactive_employee', ...row.draftBlockers.filter(blocker => blocker !== 'inactive_employee')];
+    }
     const blockers = row.decision.action === 'keep_existing'
         ? row.draftBlockers.filter(blocker => blocker !== 'conflicting_duplicate')
         : [...row.draftBlockers];
@@ -553,7 +608,8 @@ function groupDraftRows(draft) {
     const groups = new Map();
     draft.rows.forEach((row, sourceIndex) => {
         if (row.excluded === true) return;
-        const key = row.match.employeeId || `unresolved:${sourceIndex}`;
+        const key = row.match.employeeId ||
+            (row.inactiveIdentity ? `inactive:${row.inactiveEmployeeId || sourceIndex}` : `unresolved:${sourceIndex}`);
         const group = groups.get(key) || [];
         group.push({ row, sourceIndex });
         groups.set(key, group);
@@ -564,8 +620,9 @@ function groupDraftRows(draft) {
 export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
     const rows = groupDraftRows(draft).map(group => {
         const representative = group[0].row;
-        const employeeId = representative.match.employeeId;
-        const employee = draft.employeeOptions.find(option => option.employeeId === employeeId);
+        const employeeId = representative.match.employeeId || representative.inactiveEmployeeId || null;
+        const employee = draft.employeeOptions.find(option => option.employeeId === employeeId) ||
+            (representative.inactiveEmployee ? representative.inactiveEmployee : null);
         const key = employeeId && draft.confirmedDate
             ? `${employeeId}-${draft.confirmedDate}`
             : null;
@@ -592,20 +649,21 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
         return {
             key,
             employeeId,
-            employeePositionIds: [...positionIds],
+            inactiveEmployee: representative.inactiveEmployee || null,
+            inactiveIdentity: representative.inactiveIdentity || false,
             sourceIndexes: group.map(item => item.sourceIndex),
             sourceRows: group.map(item => item.row.sourceRow),
+            draftBlockers: [...new Set(draftBlockers)],
             allReviewed: group.every(item => item.row.reviewed),
             allApproved: group.every(item => item.row.approved),
             imported,
             existing,
-            targetPositionId: positionIds.length === 1 ? positionIds[0] : null,
-            positionAllocations,
             decision: existing
                 ? { action: 'keep_existing', acknowledged: false }
                 : { action: 'use_imported', acknowledged: true },
-            draftBlockers: [...new Set(draftBlockers)],
-            blockers: []
+            targetPositionId: positionIds.length === 1 ? positionIds[0] : null,
+            employeePositionIds: positionIds,
+            positionAllocations
         };
     });
     return finalizeConflictPlan({

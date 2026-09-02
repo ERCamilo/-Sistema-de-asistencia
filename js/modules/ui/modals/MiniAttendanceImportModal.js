@@ -8,6 +8,7 @@ import {
     editMiniAttendanceDraftRow,
     excludeMiniAttendanceDraftRow,
     isMiniAttendanceEmployeeEligible,
+    reactivateMiniAttendanceDraftEmployee,
     reviewMiniAttendanceConflict,
     reviewMiniAttendanceDraftRow,
     setMiniAttendanceAllocationMode,
@@ -15,8 +16,32 @@ import {
 } from '../../features/attendance/MiniAttendanceDraft.js';
 import { applyMiniAttendancePlan } from '../../features/attendance/MiniAttendanceImportService.js';
 import { buildMiniAttendanceReviewViewModel } from '../MiniAttendanceReviewViewModel.js';
+import { getState, stateManager } from '../../core/AppState.js';
+import { saveApplicationData } from '../../services/PersistenceService.js';
+import { getDateKey } from '../../utils/DateUtils.js';
 
 let nextControlId = 1;
+
+function defaultReactivateEmployee(employeeId) {
+    const state = getState();
+    const emp = state?.employees?.find(e => e.id === employeeId || e.key === employeeId);
+    if (!emp) throw new Error(`Empleado no encontrado en SA: ${employeeId}`);
+    const changeDate = getDateKey(new Date());
+    stateManager.batchSetState(() => {
+        emp.active = true;
+        emp.lastStatusChange = changeDate;
+        emp.updatedAt = Date.now();
+        emp._isDirty = true;
+        if (!Array.isArray(emp.statusHistory)) emp.statusHistory = [];
+        emp.statusHistory.push({
+            date: changeDate,
+            active: true,
+            timestamp: Date.now()
+        });
+    });
+    saveApplicationData();
+    return emp;
+}
 
 function element(tag, text = null, attributes = {}) {
     const node = document.createElement(tag);
@@ -81,11 +106,13 @@ export class MiniAttendanceImportModal {
         regularLimit = 8,
         onContinue = null,
         applyPlan = applyMiniAttendancePlan,
+        reactivateEmployee = null,
         aliases = [],
         aliasScope = null,
         aliasStore = null,
         actorUid = null,
-        confirmIgnore = null
+        confirmIgnore = null,
+        confirmReactivate = null
     } = {}) {
         this.employees = employees;
         this.attendance = attendance;
@@ -95,6 +122,8 @@ export class MiniAttendanceImportModal {
         this.regularLimit = regularLimit;
         this.onContinue = onContinue;
         this.applyPlan = applyPlan;
+        this.reactivateEmployee = reactivateEmployee || ((id) => defaultReactivateEmployee(id));
+        this.confirmReactivate = confirmReactivate;
         this.aliases = aliases;
         this.aliasScope = aliasScope;
         this.aliasStore = aliasStore;
@@ -621,6 +650,93 @@ export class MiniAttendanceImportModal {
             return;
         }
         if (window.confirm?.(message)) proceed();
+    }
+
+    async handleReactivateAndApply(item, container) {
+        const empId = item.inactiveEmployee?.id || item.employee?.id;
+        const empName = item.inactiveEmployee?.name || item.employee?.name || 'Empleado';
+        const empNumber = item.inactiveEmployee?.number || item.employee?.number || '';
+        const totalHours = item.allocation.normalHours + item.allocation.overtimeHours;
+
+        const proceed = async () => {
+            try {
+                const reactivatedEmp = await this.reactivateEmployee(empId);
+                const existingIdx = this.employees.findIndex(e => e.id === empId);
+                if (existingIdx >= 0) {
+                    this.employees[existingIdx] = { ...this.employees[existingIdx], ...reactivatedEmp, active: true };
+                } else {
+                    this.employees.push({ ...reactivatedEmp, active: true });
+                }
+                this.draft = reactivateMiniAttendanceDraftEmployee(this.draft, reactivatedEmp);
+                item.sourceIndexes.forEach(sourceIndex => {
+                    this.draft = reviewMiniAttendanceDraftRow(this.draft, sourceIndex, {
+                        employeeId: empId,
+                        approved: true
+                    });
+                });
+                this.resetApplyState();
+                this.rebuildConflictPlan();
+
+                const rowIndex = this.conflictPlan.rows.findIndex(row =>
+                    row.sourceIndexes.some(index => item.sourceIndexes.includes(index))
+                );
+                if (rowIndex >= 0) {
+                    const row = this.conflictPlan.rows[rowIndex];
+                    const positionAllocations = row.positionAllocations.length
+                        ? row.positionAllocations
+                        : (row.employeePositionIds.length === 1 ? [{
+                            positionId: row.employeePositionIds[0],
+                            normalHours: item.allocation.normalHours,
+                            overtimeHours: item.allocation.overtimeHours
+                        }] : []);
+                    this.conflictPlan = reviewMiniAttendanceConflict(this.conflictPlan, rowIndex, {
+                        action: 'use_imported',
+                        acknowledged: true,
+                        positionAllocations
+                    });
+                }
+
+                window.showNotification?.(
+                    `Empleado ${empNumber ? `#${empNumber} ` : ''}${empName} reactivado en SA y asistencia lista para aplicar.`,
+                    'success'
+                );
+
+                if (this.individualReviewMode === 'single') {
+                    this.showAutomaticReview();
+                    return;
+                }
+                this.advanceReviewPageAfter(item.sourceIndexes);
+                this.render();
+                this.resetReviewViewport();
+            } catch (err) {
+                console.error('Error reactivando empleado:', err);
+                window.showNotification?.(
+                    `Error reactivando empleado: ${err?.message || 'error desconocido'}`,
+                    'error'
+                );
+            }
+        };
+
+        const message = `¿Deseas reactivar a ${empNumber ? `#${empNumber} ` : ''}${empName} en SA y aplicar su asistencia de ${totalHours} h?`;
+        if (typeof this.confirmReactivate === 'function') {
+            const confirmed = await this.confirmReactivate({ item, message });
+            if (confirmed) await proceed();
+            return;
+        }
+        if (window.showConfirm) {
+            window.showConfirm({
+                title: 'Reactivar empleado en SA',
+                message,
+                confirmText: 'Sí, reactivar y aplicar',
+                cancelText: 'Cancelar',
+                type: 'info',
+                onConfirm: proceed
+            });
+            return;
+        }
+        if (window.confirm?.(message)) {
+            await proceed();
+        }
     }
 
     updateConflictUnit(item, container, transition) {
@@ -2031,6 +2147,39 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-unit-actions'
         });
         actions.append(confirm, ignore);
+
+        if (model.isInactive) {
+            const inactiveBanner = element('div', null, {
+                className: 'mini-import-inactive-banner',
+                dataset: { miniInactiveBanner: '' },
+                style: 'margin: 12px 0; padding: 12px 16px; background: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 6px;'
+            });
+            inactiveBanner.append(
+                element('strong', 'Empleado inactivo en SA', { style: 'display: block; color: #92400e; font-size: 0.95rem; margin-bottom: 4px;' }),
+                element('p', 'Este empleado coincide de forma inequívoca con un registro inactivo en SA. Elige cómo deseas resolverlo:', { style: 'margin: 0; color: #78350f; font-size: 0.85rem;' })
+            );
+            const reactivateBtn = actionButton('Reactivar y aplicar asistencia', 'reactivate-apply');
+            reactivateBtn.classList.add('mini-import-action-primary');
+            reactivateBtn.addEventListener('click', () => this.handleReactivateAndApply(model, container));
+
+            const ignoreInactiveBtn = actionButton('Ignorar esta asistencia', 'ignore-inactive');
+            ignoreInactiveBtn.classList.add('mini-import-action-secondary');
+            ignoreInactiveBtn.addEventListener('click', () => this.requestIgnoreReviewUnit(model));
+
+            const postponeBtn = actionButton('Resolver después', 'postpone-inactive');
+            postponeBtn.classList.add('mini-import-action-secondary');
+            postponeBtn.addEventListener('click', () => {
+                if (this.individualReviewMode === 'single') {
+                    this.showAutomaticReview();
+                    return;
+                }
+                this.setReviewPage(this.reviewPageIndex + 1);
+            });
+
+            actions.replaceChildren(reactivateBtn, ignoreInactiveBtn, postponeBtn);
+            container.prepend(inactiveBanner);
+        }
+
         container.append(
             identityMap,
             reviewControls,

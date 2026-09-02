@@ -1084,4 +1084,63 @@ describe('Mini attendance import review slice', () => {
         expect(overlay.scrollTop).toBe(0);
         expect(unit.querySelector('[data-mini-collapse-warning]').hidden).toBe(false);
     });
+
+    test('renders inactive employee resolution card and reactivates employee upon confirmation', async () => {
+        const inactiveRoster = [
+            ...employees,
+            { id: 'e_inact', number: '77', name: 'Pedro Pausado', positions: ['p1'], active: false }
+        ];
+        const reactivateSpy = jest.fn(async (id) => ({
+            id,
+            number: '77',
+            name: 'Pedro Pausado',
+            positions: ['p1'],
+            active: true
+        }));
+        const { controller, host } = enterReview(
+            '077. Pedro Pausado *8h*',
+            {},
+            inactiveRoster,
+            {
+                reactivateEmployee: reactivateSpy,
+                confirmReactivate: jest.fn(async () => true)
+            }
+        );
+
+        expect(host.querySelector('[data-mini-inactive-banner]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-action="reactivate-apply"]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-action="ignore-inactive"]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-action="postpone-inactive"]')).not.toBeNull();
+
+        host.querySelector('[data-mini-action="reactivate-apply"]').click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(reactivateSpy).toHaveBeenCalledWith('e_inact');
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+        expect(controller.draft.rows[0].approved).toBe(true);
+    });
+
+    test('can ignore inactive employee attendance without reactivating in SA', async () => {
+        const inactiveRoster = [
+            ...employees,
+            { id: 'e_inact', number: '77', name: 'Pedro Pausado', positions: ['p1'], active: false }
+        ];
+        const reactivateSpy = jest.fn();
+        const { controller, host } = enterReview(
+            '077. Pedro Pausado *8h*',
+            {},
+            inactiveRoster,
+            {
+                reactivateEmployee: reactivateSpy,
+                confirmIgnore: jest.fn(async () => true)
+            }
+        );
+
+        expect(host.querySelector('[data-mini-action="ignore-inactive"]')).not.toBeNull();
+        await host.querySelector('[data-mini-action="ignore-inactive"]').click();
+
+        expect(reactivateSpy).not.toHaveBeenCalled();
+        expect(controller.draft.rows[0].excluded).toBe(true);
+        expect(controller.conflictPlan.hasBlockingIssues).toBe(false);
+    });
 });

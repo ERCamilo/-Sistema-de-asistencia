@@ -1,6 +1,6 @@
 import { parseMiniAttendanceReport } from '../modules/features/attendance/MiniAttendanceParser.js';
 import { confirmMiniAttendanceDraftDate, createMiniAttendanceDraft, editMiniAttendanceDraftRow,
-    excludeMiniAttendanceDraftRow,
+    excludeMiniAttendanceDraftRow, reactivateMiniAttendanceDraftEmployee,
     reviewMiniAttendanceDraftRow, setMiniAttendanceAllocationMode, suggestMiniAttendanceDate
 } from '../modules/features/attendance/MiniAttendanceDraft.js';
 
@@ -160,7 +160,7 @@ describe('MiniAttendanceDraft employee reconciliation', () => {
         expect(row.blockers).toContain('employee_ambiguous');
     });
 
-    test('never matches or exposes inactive and deleted employees as import targets', () => {
+    test('never matches or exposes inactive and deleted employees as import targets by default', () => {
         const roster = [
             { id: 'active', number: '1', name: 'Persona Activa', positions: ['p1'] },
             { id: 'inactive', number: '2', name: 'Persona Inactiva', positions: ['p1'],
@@ -178,16 +178,35 @@ describe('MiniAttendanceDraft employee reconciliation', () => {
             expect.objectContaining({ status: 'unmatched', employeeId: null }),
             expect.objectContaining({ status: 'unmatched', employeeId: null })
         ]);
-        expect(draft.rows).toEqual([
-            expect.objectContaining({
-                excluded: true, reviewed: true, exclusionReason: 'inactive_employee'
-            }),
-            expect.objectContaining({
-                excluded: true, reviewed: true, exclusionReason: 'inactive_employee'
-            })
-        ]);
+        expect(draft.rows[0]).toMatchObject({
+            inactiveIdentity: true,
+            inactiveEmployeeId: 'inactive',
+            blockers: ['inactive_employee']
+        });
+        expect(draft.rows[1]).toMatchObject({
+            inactiveIdentity: false,
+            blockers: ['employee_unmatched']
+        });
         expect(() => reviewMiniAttendanceDraftRow(draft, 0, { employeeId: 'inactive' }))
             .toThrow('Employee is not in the draft roster: inactive');
+    });
+
+    test('reactivates an inactive employee and allows explicit assignment and approval in draft', () => {
+        const roster = [
+            { id: 'active', number: '1', name: 'Persona Activa', positions: ['p1'] },
+            { id: 'inactive', number: '2', name: 'Persona Inactiva', positions: ['p1'],
+                active: false }
+        ];
+        let draft = draftFor('002. Persona Inactiva *8h*', { employees: roster });
+        expect(draft.rows[0].blockers).toContain('inactive_employee');
+
+        // Explicit reactivation adds to draft.employeeOptions
+        draft = reactivateMiniAttendanceDraftEmployee(draft, { ...roster[1], active: true });
+        expect(draft.employeeOptions.map(option => option.employeeId)).toEqual(['active', 'inactive']);
+
+        draft = reviewMiniAttendanceDraftRow(draft, 0, { employeeId: 'inactive', approved: true });
+        expect(draft.rows[0].blockers).not.toContain('inactive_employee');
+        expect(draft.rows[0].match.status).toBe('confirmed');
     });
 
     test('does not auto-ignore an inactive identity when an active duplicate exists', () => {

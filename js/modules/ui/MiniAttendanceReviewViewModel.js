@@ -68,6 +68,7 @@ function presentationRows(draft, conflictPlan) {
 const ISSUE_GROUPS = {
     source: new Set(['unparsed_source', 'source_hours_invalid']),
     date: new Set(['invalid_iso_date', 'date_hint_mismatch', 'date_confirmation_required']),
+    inactive: new Set(['inactive_employee']),
     identity: new Set(['employee_ambiguous', 'employee_unmatched', 'employee_confirmation_required']),
     duplicate: new Set(['conflicting_duplicate']),
     hours: new Set([
@@ -89,6 +90,7 @@ const ACTIONS = {
     date: ['Confirma una fecha válida para continuar.', 'confirm_date', 'Confirmar fecha', false],
     stale: ['Actualiza la revisión después de los cambios del borrador.', 'refresh_review',
         'Actualizar revisión', false],
+    inactive: ['Empleado inactivo. Elige si reactivarlo para aplicar su asistencia o ignorarlo.', 'reactivate_employee', 'Reactivar empleado', false],
     identity: ['Selecciona o confirma el empleado.', 'select_employee', 'Revisar empleado', false],
     duplicate: ['Confirma que las apariciones duplicadas corresponden a la misma persona.',
         'review_duplicate', 'Revisar duplicado', false],
@@ -124,6 +126,9 @@ function resolveIssue({ blockers, globalBlockers, probableDuplicate, reviewed, a
         return 'date';
     }
     if (stale) return 'stale';
+    if (blockers.includes('inactive_employee') || hasAny(blockers, ISSUE_GROUPS.inactive)) {
+        return 'inactive';
+    }
     if (hasAny(blockers, ISSUE_GROUPS.identity)) return 'identity';
     if (hasAny(blockers, ISSUE_GROUPS.duplicate) ||
         (probableDuplicate && (!reviewed || !approved))) {
@@ -226,7 +231,10 @@ function buildProblems({
     if (stale) {
         addProblem(problems, 'stale', 'critical', 'La revisión quedó desactualizada.');
     }
-    if (!employee || hasAny(blockers, ISSUE_GROUPS.identity)) {
+    if (blockers.includes('inactive_employee') || hasAny(blockers, ISSUE_GROUPS.inactive)) {
+        addProblem(problems, 'inactive', 'critical', 'El empleado se encuentra inactivo en SA.');
+    }
+    if ((!employee && !blockers.includes('inactive_employee')) || hasAny(blockers, ISSUE_GROUPS.identity)) {
         addProblem(problems, 'employee', 'critical', 'Falta asignar o confirmar el empleado.');
     }
     if (hasAny(blockers, ISSUE_GROUPS.duplicate) || probableDuplicate) {
@@ -280,6 +288,7 @@ export function buildMiniAttendanceReviewViewModel({
 }) {
     const eligibleEmployees = employees.filter(isMiniAttendanceEmployeeEligible);
     const employeeById = new Map(eligibleEmployees.map(employee => [employee.id, employee]));
+    const allEmployeesById = new Map(employees.map(employee => [employee.id, employee]));
     const positionById = new Map(positions.map(position => [position.id, position]));
     const employeeOptions = eligibleEmployees.map(employeeView).sort(compareEmployeeOrder);
     const globalBlockers = [
@@ -305,7 +314,14 @@ export function buildMiniAttendanceReviewViewModel({
             approved: row.allApproved, stale
         });
         const confirmed = issue === 'complete';
-        const employee = employeeById.get(row.employeeId);
+        const isInactive = issue === 'inactive' || blockers.includes('inactive_employee') ||
+            draftRows.some(draftRow => draftRow.inactiveIdentity);
+        const inactiveEmpCandidate = isInactive
+            ? allEmployeesById.get(row.employeeId || draftRows.find(r => r.inactiveEmployeeId)?.inactiveEmployeeId) ||
+              row.inactiveEmployee ||
+              null
+            : null;
+        const employee = employeeById.get(row.employeeId) || (isInactive ? inactiveEmpCandidate : null);
         const matchStatuses = draftRows.map(draftRow => draftRow.match?.status);
         const { nextAction, confirmation } = actionView(issue);
         const positionAllocations = (row.positionAllocations || []).map(allocation => ({
@@ -318,7 +334,7 @@ export function buildMiniAttendanceReviewViewModel({
             overtimeHours: summary.overtimeHours + allocation.overtimeHours
         }), { normalHours: 0, overtimeHours: 0 });
         const safeBulk = isSafeBulkItem({
-            row, draftRows, probableDuplicate, stale, employee, confirmed
+            row, draftRows, probableDuplicate, stale, employee: employeeById.get(row.employeeId), confirmed
         });
         const problems = buildProblems({
             row,
@@ -339,6 +355,9 @@ export function buildMiniAttendanceReviewViewModel({
             sourceIndexes,
             occurrences: sourceIndexes.map(sourceIndex => occurrenceView(draft, sourceIndex)),
             employee: employeeView(employee),
+            isInactive,
+            inactiveEmployee: employeeView(inactiveEmpCandidate),
+            canReactivate: isInactive && Boolean(inactiveEmpCandidate),
             employeeOptions,
             allocation: {
                 normalHours: row.imported?.normalHours ?? 0,
@@ -361,8 +380,8 @@ export function buildMiniAttendanceReviewViewModel({
             canRememberMatch: matchStatuses.some(status =>
                 ['ambiguous', 'unmatched', 'name_suggestion', 'confirmed'].includes(status)
             ),
-            canIgnore: matchStatuses.length > 0 &&
-                matchStatuses.every(status => status === 'unmatched'),
+            canIgnore: (matchStatuses.length > 0 &&
+                matchStatuses.every(status => status === 'unmatched')) || isInactive,
             probableDuplicate,
             issue,
             confirmed,
