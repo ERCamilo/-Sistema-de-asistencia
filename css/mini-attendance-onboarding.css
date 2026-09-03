@@ -1,0 +1,354 @@
+/* ==========================================================================
+   MINI ATTENDANCE IMPORT · DESIGN SYSTEM (ONBOARDING V2 SPECIFICATION)
+   Inspirado en Onboarding-funcional.html y especificado en design.md
+   ========================================================================== */
+
+:root {
+    --mini-bg: oklch(0.185 0.012 245);
+    --mini-panel: oklch(0.228 0.013 245);
+    --mini-panel-2: oklch(0.268 0.014 245);
+    --mini-hover: oklch(0.310 0.015 245);
+    --mini-border: oklch(0.330 0.014 245);
+    --mini-text: oklch(0.960 0.004 245);
+    --mini-text-dim: oklch(0.740 0.010 245);
+    --mini-text-faint: oklch(0.560 0.012 245);
+    --mini-accent: oklch(0.760 0.110 205);
+    --mini-on-accent: oklch(0.160 0.020 240);
+    --mini-good: oklch(0.740 0.120 158);
+    --mini-warn: oklch(0.820 0.110 78);
+    --mini-bad: oklch(0.680 0.160 25);
+    --mini-shadow: 0 1px 2px rgba(0,0,0,0.35), 0 24px 60px -24px rgba(0,0,0,0.8);
+}
+
+/* ---------------- Animaciones canónicas de Onboarding ---------------- */
+@keyframes miniRiseIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes miniPopIn {
+    0%   { opacity: 0; transform: scale(0.6); }
+    60%  { transform: scale(1.06); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes miniSlideRow {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes miniGlowPulse {
+    0%, 100% { opacity: 0.22; transform: scale(1); }
+    50%      { opacity: 0.42; transform: scale(1.1); }
+}
+
+@keyframes miniBreathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.04); }
+}
+
+/* ---------------- Contenedor Shell del Modal ---------------- */
+.modal-container.mini-attendance-review-shell {
+    background: var(--mini-panel) !important;
+    border: 1px solid var(--mini-border) !important;
+    border-radius: 22px !important;
+    box-shadow: var(--mini-shadow) !important;
+    color: var(--mini-text) !important;
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif !important;
+    overflow: hidden !important;
+}
+
+.mini-attendance-import {
+    animation: miniRiseIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ---------------- Kicker Chip ---------------- */
+.mini-import-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 11px;
+    border-radius: 20px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--mini-accent);
+    margin-bottom: 14px;
+    white-space: nowrap;
+}
+
+/* ---------------- Topbar con progreso ---------------- */
+.mini-import-topbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--mini-border);
+    margin-bottom: 20px;
+}
+
+.mini-import-topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+
+.mini-import-topbar-brand img {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+}
+
+.mini-import-topbar-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--mini-text);
+    line-height: 1.2;
+}
+
+.mini-import-topbar-subtitle {
+    font-size: 11px;
+    color: var(--mini-text-faint);
+}
+
+.mini-import-topbar-step {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: var(--mini-text-faint);
+}
+
+.mini-import-progress-bar {
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    height: 2.5px;
+    background: var(--mini-accent);
+    transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ---------------- Tarjeta Ejecutiva de Conciliación ---------------- */
+.mini-import-executive-card {
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    border-radius: 16px;
+    padding: 22px;
+    margin-bottom: 20px;
+    display: grid;
+    gap: 16px;
+}
+
+.mini-import-executive-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+}
+
+.mini-import-stat-box {
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.2s;
+}
+
+.mini-import-stat-box.is-ready {
+    border-left: 3px solid var(--mini-good);
+}
+
+.mini-import-stat-box.is-attention {
+    border-left: 3px solid var(--mini-warn);
+}
+
+.mini-import-stat-icon {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.is-ready .mini-import-stat-icon {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--mini-good);
+}
+
+.is-attention .mini-import-stat-icon {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--mini-warn);
+}
+
+.mini-import-stat-number {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--mini-text);
+}
+
+.mini-import-stat-label {
+    font-size: 11.5px;
+    color: var(--mini-text-dim);
+    margin-top: 4px;
+}
+
+.mini-import-inspect-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--mini-border);
+    background: transparent;
+    color: var(--mini-text-dim);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mini-import-inspect-btn:hover {
+    background: var(--mini-hover);
+    color: var(--mini-text);
+    border-color: var(--mini-text-dim);
+}
+
+/* ---------------- Botones Táctiles (Actions) ---------------- */
+.mini-import-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 42px;
+    min-height: 42px;
+    padding: 0 20px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    transition: filter 0.15s, transform 0.1s, opacity 0.2s;
+}
+
+.mini-import-action-primary {
+    background: var(--mini-accent);
+    color: var(--mini-on-accent);
+}
+
+.mini-import-action-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.mini-import-action-secondary {
+    background: transparent;
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text-dim);
+}
+
+.mini-import-action-secondary:hover:not(:disabled) {
+    background: var(--mini-hover);
+    color: var(--mini-text);
+    border-color: var(--mini-text-dim);
+}
+
+.mini-import-action:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* ---------------- Tarjetas de Radio / Selección Táctil ---------------- */
+.mini-import-radio-card {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+    padding: 14px 16px;
+    min-height: 48px;
+    border-radius: 14px;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text);
+    transition: all 0.2s;
+}
+
+.mini-import-radio-card.is-active,
+.mini-import-radio-card input:checked ~ * {
+    background: var(--mini-panel-2);
+    border-color: var(--mini-accent);
+}
+
+.mini-import-radio-card-icon {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text-dim);
+}
+
+.mini-import-radio-card.is-active .mini-import-radio-card-icon {
+    background: var(--mini-accent);
+    color: var(--mini-on-accent);
+    border-color: var(--mini-accent);
+}
+
+/* ---------------- Textarea y Campos ---------------- */
+.mini-import-paste textarea {
+    width: 100%;
+    min-height: 180px;
+    border-radius: 12px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    padding: 14px 16px;
+    color: var(--mini-text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.5;
+    box-sizing: border-box;
+    transition: border-color 0.2s, outline 0.2s;
+}
+
+.mini-import-paste textarea:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+    border-color: var(--mini-accent);
+}
+
+/* ---------------- Footer de Navegación Estándar ---------------- */
+.mini-import-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-top: 1px solid var(--mini-border);
+    margin-top: 24px;
+}
+
+.mini-import-footer-hint {
+    font-size: 12px;
+    color: var(--mini-text-faint);
+}
+
+/* ---------------- Utilidades Hover ---------------- */
+.mini-hv-bg:hover     { background: var(--mini-hover) !important; }
+.mini-hv-bright:hover { filter: brightness(1.08); }
+.mini-hv-text:hover   { color: var(--mini-text) !important; }

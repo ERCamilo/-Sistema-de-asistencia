@@ -64,6 +64,30 @@ function actionButton(text, action, disabled = false) {
     });
 }
 
+function renderChip(text) {
+    return element('div', text, { className: 'mini-import-chip' });
+}
+
+function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = 'Contrutek') {
+    const bar = element('div', null, { className: 'mini-import-topbar' });
+    const brand = element('div', null, { className: 'mini-import-topbar-brand' });
+    const img = element('img', null, { src: 'icon-512.png', alt: '', width: '30', height: '30' });
+    img.addEventListener('error', () => { img.style.display = 'none'; });
+    const brandText = element('div');
+    brandText.append(
+        element('div', title, { className: 'mini-import-topbar-title' }),
+        element('div', subtitle, { className: 'mini-import-topbar-subtitle' })
+    );
+    brand.append(img, brandText);
+    const stepEl = element('div', `Paso ${step} / ${totalSteps}`, { className: 'mini-import-topbar-step' });
+    const progress = element('div', null, {
+        className: 'mini-import-progress-bar',
+        style: `width: ${Math.round((step / totalSteps) * 100)}%;`
+    });
+    bar.append(brand, stepEl, progress);
+    return bar;
+}
+
 function dateBlockerText(code) {
     const messages = {
         date_confirmation_required: 'Confirma la fecha completa antes de continuar.',
@@ -283,15 +307,19 @@ export class MiniAttendanceImportModal {
 
     renderPaste() {
         const section = element('div', null, { className: 'mini-import-paste' });
+        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado'));
+        section.append(renderChip('IMPORTACIÓN DE ASISTENCIA'));
         const id = `mini-attendance-source-${this.controlId}`;
         const label = element('label', 'Pega el reporte de Mini enviado por WhatsApp', { htmlFor: id });
         const textarea = element('textarea', null, {
             id,
             rows: 10,
+            placeholder: 'Pega aquí el reporte copiado desde WhatsApp o la app Mini...',
             value: this.source,
             dataset: { miniSource: '' }
         });
         const analyze = actionButton('Analizar reporte', 'analyze', !this.source.trim());
+        analyze.classList.add('mini-import-action-primary');
         textarea.addEventListener('input', () => {
             this.source = textarea.value;
             analyze.disabled = !this.source.trim();
@@ -303,7 +331,10 @@ export class MiniAttendanceImportModal {
 
     renderSetup() {
         const section = element('div', null, { className: 'mini-import-setup' });
+        section.append(renderTopbar(2, 4, 'Importar asistencia desde Mini', 'Paso 2 · Validación'));
+        section.append(renderChip('VALIDACIÓN'));
         const back = actionButton('Volver al texto', 'back');
+        back.classList.add('mini-import-action-secondary');
         back.addEventListener('click', () => {
             this.stage = 'paste';
             this.render();
@@ -1068,12 +1099,46 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-automatic-review',
             dataset: { miniAutomaticReview: '' }
         });
+        panel.append(renderTopbar(3, 4, 'Importar asistencia desde Mini', 'Paso 3 · Conciliación'));
+        panel.append(renderChip('CONCILIACIÓN DEL REPORTE'));
+
         const automaticItems = this.automaticReviewItems(view);
         const attentionItems = this.attentionReviewItems(view);
         const pendingAttentionItems = attentionItems.filter(item => !item.confirmed);
         const resolvedAttentionCount = attentionItems.length - pendingAttentionItems.length;
+
+        const execCard = element('div', null, {
+            className: 'mini-import-executive-card',
+            dataset: { miniExecutiveReconciliation: '' }
+        });
+        const stats = element('div', null, { className: 'mini-import-executive-stats' });
+
+        const readyBox = element('div', null, { className: 'mini-import-stat-box is-ready' });
+        const readyIcon = element('div', null, { className: 'mini-import-stat-icon' });
+        readyIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>`;
+        const readyContent = element('div');
+        readyContent.append(
+            element('div', String(automaticItems.length), { className: 'mini-import-stat-number' }),
+            element('div', 'Empleados listos para aplicar', { className: 'mini-import-stat-label' })
+        );
+        readyBox.append(readyIcon, readyContent);
+
+        const attentionBox = element('div', null, { className: 'mini-import-stat-box is-attention' });
+        const attentionIcon = element('div', null, { className: 'mini-import-stat-icon' });
+        attentionIcon.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+        const attentionContent = element('div');
+        attentionContent.append(
+            element('div', String(pendingAttentionItems.length), { className: 'mini-import-stat-number' }),
+            element('div', pendingAttentionItems.length === 0 ? 'Sin advertencias pendientes' : 'Requieren atención', { className: 'mini-import-stat-label' })
+        );
+        attentionBox.append(attentionIcon, attentionContent);
+
+        stats.append(readyBox, attentionBox);
+        execCard.append(stats);
+        panel.append(execCard);
+
         panel.append(
-            element('h3', 'Conciliar asistencia de Mini'),
+            element('h3', 'Listado detallado de conciliación'),
             element(
                 'p',
                 'Primero confirma las coincidencias claras. Después resuelve únicamente ' +
@@ -1640,6 +1705,8 @@ export class MiniAttendanceImportModal {
         });
         const miniTotal = rowSummaries.reduce((total, row) => total + row.miniTotal, 0);
         const saTotal = rowSummaries.reduce((total, row) => total + row.saTotal, 0);
+        section.append(renderTopbar(4, 4, 'Importar asistencia desde Mini', 'Paso 4 · Resumen final'));
+        section.append(renderChip('TODO LISTO PARA IMPORTAR'));
         section.append(
             element('h3', 'Resumen final'),
             element(
