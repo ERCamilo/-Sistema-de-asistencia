@@ -1747,6 +1747,13 @@ export class MiniAttendanceImportModal {
             `${view.summary.confirmed} confirmadas · ${view.summary.ignored} ignoradas`;
 
         if (visibleItems.length) {
+            const scrollContent = element('div', null, {
+                className: 'mini-import-review-scroll-content'
+            });
+
+            const statusBar = element('div', null, {
+                className: 'mini-import-review-status-bar'
+            });
             const progress = element('div', null, {
                 className: 'mini-import-review-progress',
                 dataset: { miniReviewProgress: '' }
@@ -1760,11 +1767,10 @@ export class MiniAttendanceImportModal {
                 ),
                 element('span', currentItem.confirmed ? 'Completo' : 'Pendiente')
             );
-            section.append(
-                progress,
-                summary,
-                this.renderReviewUnit(currentItem)
-            );
+
+            statusBar.append(progress, summary);
+            scrollContent.append(statusBar, this.renderReviewUnit(currentItem));
+            section.append(scrollContent);
 
             const footer = element('nav', null, {
                 className: 'mini-import-footer mini-import-review-navigation',
@@ -2335,37 +2341,81 @@ export class MiniAttendanceImportModal {
             decisionSegments.append(label);
         });
         decisionField.append(decisionSegments);
+        const importedTotalHours = model.allocation.normalHours + model.allocation.overtimeHours;
         const imported = element('div', null, {
             className: 'mini-import-source-record mini-import-source-record-mini',
             dataset: { miniImportedBreakdown: '' },
             hidden: model.existingBreakdown.length === 0
         });
+        const importedHeader = element('div', null, { className: 'mini-import-card-header' });
+        importedHeader.append(
+            element('strong', 'Horas de Mini (Reporte)'),
+            element('span', '', { className: 'mini-import-card-indicator' })
+        );
         imported.append(
-            element('strong', 'Registro actual de Mini'),
+            importedHeader,
+            element('div', `${importedTotalHours}.00 h`, { className: 'mini-import-card-metric' }),
             element(
                 'p',
                 duplicateHourTotals.length > 1
                     ? `Valores detectados: ${duplicateHourTotals.map(total => `${total} h`).join(' · ')}`
-                    : `Total: ${model.allocation.normalHours} normales · ` +
-                        `${model.allocation.overtimeHours} extra`
+                    : `Total: ${model.allocation.normalHours} normales · ${model.allocation.overtimeHours} extra`
             )
         );
+
+        const existingTotalHours = model.existingBreakdown.reduce((total, part) =>
+            total + (part.hours || 0) + (part.overtimeHours || 0), 0);
         const existing = element('div', null, {
             className: 'mini-import-source-record mini-import-source-record-sa',
             dataset: { miniExistingBreakdown: '' },
             hidden: model.existingBreakdown.length === 0
         });
-        if (model.existingBreakdown.length) existing.append(element('strong', 'Registro actual de SA'));
+        const existingHeader = element('div', null, { className: 'mini-import-card-header' });
+        existingHeader.append(
+            element('strong', 'Registro actual en SA'),
+            element('span', '', { className: 'mini-import-card-indicator' })
+        );
+        existing.append(
+            existingHeader,
+            element('div', `${existingTotalHours}.00 h`, { className: 'mini-import-card-metric' })
+        );
         model.existingBreakdown.forEach(part => existing.append(element('p',
             `${part.position?.name || part.positionId}: ${part.hours} normales · ` +
             `${part.overtimeHours} extra`
         )));
+
         const recordComparison = element('div', null, {
             className: 'mini-import-record-comparison',
             dataset: { miniRecordComparison: '' },
             hidden: model.existingBreakdown.length === 0
         });
         recordComparison.append(imported, existing);
+
+        const syncDecisionCards = () => {
+            const currentSource = decisionSegments
+                .querySelector('[data-mini-attendance-source]:checked')?.value;
+            imported.classList.toggle('is-selected', currentSource === 'use_imported');
+            existing.classList.toggle('is-selected', currentSource === 'keep_existing');
+        };
+
+        imported.addEventListener('click', () => {
+            const radio = decisionSegments.querySelector('[data-mini-attendance-source][value="use_imported"]');
+            if (radio && !radio.checked) {
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+
+        existing.addEventListener('click', () => {
+            const radio = decisionSegments.querySelector('[data-mini-attendance-source][value="keep_existing"]');
+            if (radio && !radio.checked) {
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+
+        syncDecisionCards();
+
         const collapse = element('p',
             'Al aceptar Mini se reemplazará la distribución actual por las horas indicadas.', {
             className: 'mini-import-warning',
@@ -2384,6 +2434,7 @@ export class MiniAttendanceImportModal {
             if (modalBody && Number.isFinite(previousScrollTop)) {
                 modalBody.scrollTop = previousScrollTop;
             }
+            syncDecisionCards();
             syncCompletion();
         });
         const remember = element('label', null, {
