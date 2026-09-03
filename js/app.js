@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
 import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOrchestrator.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
@@ -44,6 +44,8 @@ import { initProjectsInfrastructure } from './modules/features/projects/Projects
 import { resetEntityScope } from './modules/features/projects/EntityProjectScope.js';
 import { MainSyncStore } from './modules/services/MainSyncStore.js';
 import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
+import { startPayrollLiveSyncAfterOutboxDrain } from './modules/features/payroll/PayrollClosureLiveSyncStartup.js';
+import { createAuthStartupGuard, runAuthStartupAfterDrain } from './modules/services/AuthStartupGuard.js';
 import { projectContext } from './modules/features/projects/ProjectContext.js';
 import { auth } from './modules/data/firebase.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
@@ -7111,6 +7113,9 @@ function _initOutgoingConflictGuard() {
     let _lastAuthUid = null;
     let _mirrorUnsub = null;
     let _settingsUnsub = null;
+    const _authStartupGuard = createAuthStartupGuard({
+        getCurrentUid: () => auth.currentUser?.uid ?? null
+    });
 
     // This flag coordinates the first cloud snapshot only. The boot loader has
     // its own lifecycle in boot-loader.js and is controlled through app events.
@@ -7232,7 +7237,7 @@ function _initOutgoingConflictGuard() {
         // los datos locales de este dispositivo. Dos salidas seguras:
         //   - Borrar lo local y recargar (la nube de ESTA cuenta será la verdad).
         //   - Cerrar sesión y dejar lo local intacto.
-        async function handleLocalOwnerMismatch(user) {
+        async function handleLocalOwnerMismatch(user, isCurrent = () => true) {
             console.warn('🔐 Datos locales pertenecen a otra cuenta. Sincronización bloqueada hasta resolver.');
             const wipeAndContinue = await Modal.confirm({
                 title: '🔐 Este dispositivo tiene datos de otra cuenta',
@@ -7248,6 +7253,8 @@ function _initOutgoingConflictGuard() {
                 type: 'danger'
             });
 
+            if (!isCurrent()) return false;
+
             if (wipeAndContinue) {
                 // JD-F6 (ALTO, hallazgo mutuo de ambos jueces): la limpieza
                 // manual vieja (3 claves sueltas + clearAll) no purgaba el
@@ -7259,6 +7266,7 @@ function _initOutgoingConflictGuard() {
                 // nueva. wipeAllLocalTraces cubre ambas cosas + el manifiesto
                 // completo (la pausa de subida heredada, caché de caja chica…).
                 const wipeResult = await wipeAllLocalTraces();
+                if (!isCurrent()) return false;
                 if (!wipeResult.ok) {
                     console.warn('⚠️ Wipe de cambio de cuenta parcial:', wipeResult.errors);
                 }
@@ -7267,6 +7275,7 @@ function _initOutgoingConflictGuard() {
                 setTimeout(() => location.reload(), 900);
             } else {
                 await FirebaseService.logout();
+                if (!isCurrent()) return false;
                 window.currentUser = null;
                 showNotification('🔒 Sesión cerrada. Los datos locales quedaron intactos.', 'info');
                 render();
@@ -7275,6 +7284,9 @@ function _initOutgoingConflictGuard() {
 
         // 4. Inicializar Auth y Sincronización (Tiempo Real)
         FirebaseService.onAuthStateChanged(async (user) => {
+            const _authCallback = _authStartupGuard.begin(user);
+            const _isCurrentAuthCallback = _authCallback.isCurrent;
+
             // Estandarización de Scope Global
             window.currentUser = user;
             if (window.App) window.App.currentUser = user;
@@ -7289,7 +7301,7 @@ function _initOutgoingConflictGuard() {
                 });
             }
             // A0.5 G2–G5: aislamiento por uid — limpiar scope/colas/listeners al cambiar de cuenta o cerrar sesión
-            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{PayrollClosureLiveSync.stop()}catch(_){} try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; if(!user) try{PayrollClosureLiveSync.stop()}catch(_){} }
+            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{PayrollClosureLiveSync.stop()}catch(_){} try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} if(!_isCurrentAuthCallback())return; try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; if(!user) try{PayrollClosureLiveSync.stop()}catch(_){} }
             state.syncStatus = user ? 'synced' : 'idle';
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
@@ -7327,41 +7339,56 @@ function _initOutgoingConflictGuard() {
                     localHasData: !localStateIsEmpty(state)
                 });
                 if (_ownership === 'mismatch') {
-                    await handleLocalOwnerMismatch(user);
+                    await handleLocalOwnerMismatch(user, _isCurrentAuthCallback);
+                    if (!_isCurrentAuthCallback()) return;
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
                 claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){}
+                if (!_isCurrentAuthCallback()) return;
                 // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que
                 // el usuario haga otro cambio cualquiera para disparar la sync.
-                drainMainSyncOutbox().catch(e => console.warn('⚠️ Error drenando outbox al iniciar sesión:', e));
-                try{ _attemptPayrollLiveSync(); }catch(_){}
+                await runAuthStartupAfterDrain({
+                    isCurrent: _isCurrentAuthCallback,
+                    startAfterDrain: () => startPayrollLiveSyncAfterOutboxDrain({
+                        drainOutbox: () => drainMainSyncOutboxUntilEmpty(),
+                        attemptLiveSync: _attemptPayrollLiveSync,
+                        isCurrent: _isCurrentAuthCallback
+                    }),
+                    continueStartup: async ({ isCurrent }) => {
+                        if (!isCurrent()) return;
 
-                // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
-                window.startPettyCashSync?.();
+                        // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
+                        window.startPettyCashSync?.();
+                        if (!isCurrent()) return;
 
-                // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2 - no bloqueante) ---
-                if (state.isDataLoaded) {
-                    (async () => {
-                        try {
-                            const cloudData = await FirebaseService.getFullState();
-                            // Si no hay datos en la nube pero sí locales, migramos de inmediato
-                            if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
-                                debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
-                                await FirebaseService.saveFullState(state);
-                                if (Object.keys(state.attendance).length > 0) {
-                                    await FirebaseService.syncHistory(state.attendance);
+                        // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2 - no bloqueante) ---
+                        if (state.isDataLoaded && isCurrent()) {
+                            (async () => {
+                                try {
+                                    if (!isCurrent()) return;
+                                    const cloudData = await FirebaseService.getFullState();
+                                    if (!isCurrent()) return;
+                                    // Si no hay datos en la nube pero sí locales, migramos de inmediato
+                                    if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
+                                        debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
+                                        await FirebaseService.saveFullState(state);
+                                        if (!isCurrent()) return;
+                                        if (Object.keys(state.attendance).length > 0) {
+                                            await FirebaseService.syncHistory(state.attendance);
+                                            if (!isCurrent()) return;
+                                        }
+                                        showNotification('✅ Datos migrados a la nube', 'success');
+                                    }
+                                } catch (e) {
+                                    if (isCurrent()) console.error('Error en migración inicial:', e);
                                 }
-                                showNotification('✅ Datos migrados a la nube', 'success');
-                            }
-                        } catch (e) {
-                            console.error('Error en migración inicial:', e);
+                            })();
                         }
-                    })();
-                }
+                        if (!isCurrent()) return;
 
-                // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
-                // per-registro de settings) recuerda su ÚLTIMO ts conocido;
+                        // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
+                        // per-registro de settings) recuerda su ÚLTIMO ts conocido;
                 // mergeCloudWatermark los combina por MAX cada vez que
                 // CUALQUIERA de los dos dispara, para que ninguno "atrase" al
                 // otro (la cadencia del espejo se reduce en Change B).
@@ -7376,6 +7403,7 @@ function _initOutgoingConflictGuard() {
                 if (typeof _mirrorUnsub === 'function') { try { _mirrorUnsub(); } catch (_) {} }
                 // Suscribirse a cambios en el estado (Mirror Sync)
                 _mirrorUnsub = FirebaseService.subscribeToChanges(async (remoteData) => {
+                    if (!_isCurrentAuthCallback()) return;
                     debug.log('📡 Cambio detectado en la nube...');
 
                     // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
@@ -7481,6 +7509,7 @@ function _initOutgoingConflictGuard() {
                     // Sin cambios significativos (o es initial load) → aplicar
                     // directo como siempre.
                     await applyRemoteData();
+                    if (!_isCurrentAuthCallback()) return;
 
                     // Cuerpo del apply real, extraído como función local para que
                     // tanto el flujo silencioso como el modal puedan invocarlo.
@@ -7498,7 +7527,7 @@ function _initOutgoingConflictGuard() {
                     // el watchdog liberaría el flag a mitad de un apply legítimo →
                     // loop/sobrescritura. El mirror se libera solo vía su setTimeout.
                     window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
-
+                    const _applyOwner = _authCallback.generation;
                     // JD2#3: envolver el apply en try/catch. Si una lectura de
                     // migración u otra operación async rechaza, el flag debe
                     // liberarse igual; si no, queda trabado toda la sesión (el
@@ -7521,6 +7550,14 @@ function _initOutgoingConflictGuard() {
                         loadPositions: (rd) => FirebaseService.loadPositionsIfMigrated(rd),
                         loadLeaders: (rd) => FirebaseService.loadLeadersIfMigrated(rd)
                     });
+                    if (!_isCurrentAuthCallback()) {
+                        if (_applyOwner === _authStartupGuard.getGeneration()) {
+                            window._isApplyingRemoteData = false;
+                            window._pendingRemoteSave = false;
+                            if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
+                        }
+                        return;
+                    }
                     if (loaderResult.migrated) {
                         debug.log(`✅ Migración v2 completada: ${loaderResult.count} empleado(s)`);
                     }
@@ -7635,11 +7672,8 @@ function _initOutgoingConflictGuard() {
                         debug.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
-                    // Desactivar flag después de un tick para que el render/save no suba de vuelta.
-                    // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
-                    // Judgment Day Fase 1 R1: validateDataIntegrity() es ahora async (U2d consulta
-                    // el outbox antes de compactar tombstones) — el callback pasa a async/await.
                     _applyMirrorTimer = setTimeout(async () => {
+                        if (_applyOwner !== _authStartupGuard.getGeneration()) return;
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
@@ -7679,11 +7713,11 @@ function _initOutgoingConflictGuard() {
                         // setTimeout; acá cubrimos la rama de error que antes quedaba
                         // sin red tras quitar el watchdog del mirror (JD#1).
                         console.warn('⚠️ applyRemoteData falló; liberando _isApplyingRemoteData:', err);
-                        // JD3-A: cancelar el timer post-apply si ya se encoló, para NO
-                        // correr validate+save sobre un estado parcialmente mergeado.
                         if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
-                        window._isApplyingRemoteData = false;
-                        window._pendingRemoteSave = false;
+                        if (_applyOwner === _authStartupGuard.getGeneration()) {
+                            window._isApplyingRemoteData = false;
+                            window._pendingRemoteSave = false;
+                        }
                         // JD3-B: si falló durante la carga inicial, renderizar el
                         // estado local disponible. El controlador de arranque se
                         // completa únicamente mediante el evento app:ready.
@@ -7711,6 +7745,7 @@ function _initOutgoingConflictGuard() {
                 // ocurre DENTRO de FirebaseService.subscribeToSettings, mismo
                 // criterio que subscribeToChanges.
                 _settingsUnsub = FirebaseService.subscribeToSettings((settingsDoc) => {
+                    if (!_isCurrentAuthCallback()) return;
                     if (!settingsDoc) return;
                     debug.log('📡 Cambio detectado en settings (doc per-registro)...');
 
@@ -7741,6 +7776,7 @@ function _initOutgoingConflictGuard() {
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
                 window.updateAttendanceSubscription = function () {
+                    if (!_isCurrentAuthCallback()) return;
                     if (window._attendanceUnsubscribe) {
                         window._attendanceUnsubscribe();
                     }
@@ -7765,6 +7801,7 @@ function _initOutgoingConflictGuard() {
                         // callback pasa a async/await. subscribeToAttendanceZonal invoca
                         // onInitialLoad(allAttendance) fire-and-forget (no espera su retorno).
                         onInitialLoad: async (allAttendance) => {
+                            if (!_isCurrentAuthCallback()) return;
                             if (isDownloadPaused()) {
                                 debug.log('⏸️ Descarga pausada — carga inicial de asistencia ignorada.');
                                 return;
@@ -7805,6 +7842,10 @@ function _initOutgoingConflictGuard() {
                             // fix R2 cerró. Re-armar acá le da presupuesto completo.
                             armApplyingFlagWatchdog();
                             const attendanceFixes = await validateDataIntegrity();
+                            if (!_isCurrentAuthCallback()) {
+                                window._isApplyingRemoteData = false;
+                                return;
+                            }
                             if (attendanceFixes > 0) {
                                 debug.log(`🛡️ Zonal initial load: ${attendanceFixes} orphan(s) sanitized in attendance`);
                                 // Use a one-tick delay so the flag clears first via BatchedSaver
@@ -7842,6 +7883,7 @@ function _initOutgoingConflictGuard() {
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
+                            if (!_isCurrentAuthCallback()) return;
                             if (isDownloadPaused()) {
                                 debug.log(`⏸️ Descarga pausada — modificación de asistencia [${dateKey}] ignorada.`);
                                 return;
@@ -7892,8 +7934,12 @@ function _initOutgoingConflictGuard() {
 
                 // Iniciar primera suscripción
                 window.updateAttendanceSubscription();
+                    }
+                });
+                if (!_isCurrentAuthCallback()) return;
             } else {
                 await window.stopPettyCashSync?.();
+                if (!_isCurrentAuthCallback()) return;
                 // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
                 // Ronda 3: resetear TANTO el cache compartido de watermarks
                 // como state._lastKnownCloudUpdatedAt (vía

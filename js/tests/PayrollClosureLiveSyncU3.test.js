@@ -2,6 +2,7 @@ import { auth } from '../modules/data/firebase.js';
 import { setProjectsEnabled } from '../modules/config/FeatureFlags.js';
 import { replaceEntityScope, resetEntityScope } from '../modules/features/projects/EntityProjectScope.js';
 import { PayrollClosureLiveSync } from '../modules/features/payroll/PayrollClosureLiveSync.js';
+import { startPayrollLiveSyncAfterOutboxDrain } from '../modules/features/payroll/PayrollClosureLiveSyncStartup.js';
 import { PayrollClosureSync } from '../modules/features/payroll/PayrollClosureSync.js';
 import { _payrollClosureRepositoryInternals } from '../modules/features/payroll/PayrollClosureRepository.js';
 import { buildPayrollClosure } from '../modules/features/payroll/PayrollClosure.js';
@@ -308,5 +309,54 @@ describe('U3-B generation and cancellation', () => {
         expect(onApply).toHaveBeenCalled();
         // Should have 5 isCurrent checks
         expect(checkIndex).toBeGreaterThanOrEqual(5);
+    });
+});
+
+describe('MC-U3-E-001 outbox drained before LiveSync — async order guarantee', () => {
+    test('LiveSync does NOT start while drain is pending — only after drain resolves', async () => {
+        let resolveDrain;
+        const events = [];
+        const drainMock = jest.fn(() => new Promise(resolve => {
+            resolveDrain = value => { events.push('drain-settled'); resolve(value); };
+        }));
+        const liveSyncMock = jest.fn(() => events.push('live-sync-started'));
+        const promise = startPayrollLiveSyncAfterOutboxDrain({
+            drainOutbox: drainMock,
+            attemptLiveSync: liveSyncMock,
+            warn: jest.fn()
+        });
+        expect(drainMock).toHaveBeenCalledTimes(1);
+        expect(liveSyncMock).not.toHaveBeenCalled();
+        expect(events).toEqual([]);
+        resolveDrain(true);
+        await promise;
+        expect(liveSyncMock).toHaveBeenCalledTimes(1);
+        expect(events).toEqual(['drain-settled', 'live-sync-started']);
+    });
+
+    test('partial drain warns and LiveSync is still attempted', async () => {
+        const warning = jest.fn();
+        const liveSyncMock = jest.fn();
+        await startPayrollLiveSyncAfterOutboxDrain({
+            drainOutbox: jest.fn(() => Promise.resolve(false)),
+            attemptLiveSync: liveSyncMock,
+            warn: warning
+        });
+        expect(warning).toHaveBeenCalledWith(expect.stringContaining('drenado parcial'));
+        expect(liveSyncMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('drain rejection is logged and LiveSync still attempted with no unhandled rejection', async () => {
+        const error = new Error('drain failed');
+        const drainMock = jest.fn(() => Promise.reject(error));
+        const liveSyncMock = jest.fn();
+        const warning = jest.fn();
+        await expect(startPayrollLiveSyncAfterOutboxDrain({
+            drainOutbox: drainMock,
+            attemptLiveSync: liveSyncMock,
+            warn: warning
+        })).resolves.toBeUndefined();
+        expect(warning).toHaveBeenCalledWith(expect.stringContaining('Error drenando outbox al iniciar sesión:'), error);
+        expect(liveSyncMock).toHaveBeenCalledTimes(1);
     });
 });

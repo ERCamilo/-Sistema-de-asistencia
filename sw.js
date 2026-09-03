@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0902.043831';
+const CACHE_VERSION = '2026.0903.053127';
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -78,6 +78,7 @@ const APP_SHELL = [
     './js/modules/services/ScrollService.js',
     './js/modules/services/StorageService.js',
     './js/modules/services/ValidationService.js',
+    './js/modules/services/AuthStartupGuard.js',
     './js/modules/services/index.js',
 
     // Utils
@@ -138,6 +139,7 @@ const APP_SHELL = [
     './js/modules/features/payroll/PayrollFactors.js',
     './js/modules/features/payroll/PayrollService.js',
     './js/modules/features/payroll/PayrollUI.js',
+    './js/modules/features/payroll/PayrollClosureLiveSyncStartup.js',
     './js/modules/features/stats/EmployeeStatsService.js',
 
     // Data

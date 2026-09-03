@@ -1,0 +1,2 @@
+export function createAuthStartupGuard({getCurrentUid}){let g=0;return{begin(u){const e=u?.uid==null?null:String(u.uid),c=++g;return{expectedUid:e,generation:c,isCurrent:()=>c===g&&getCurrentUid()===e}},getGeneration:()=>g};}
+export async function runAuthStartupAfterDrain({isCurrent,startAfterDrain,continueStartup}){if(!isCurrent())return false;await startAfterDrain();if(!isCurrent())return false;if(typeof continueStartup==='function'){await continueStartup({isCurrent});if(!isCurrent())return false;}return true;}

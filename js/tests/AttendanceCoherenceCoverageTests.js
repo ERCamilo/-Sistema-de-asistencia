@@ -44,7 +44,7 @@ const COHERENCE = /invalidate(EmployeeStats|AllStats)\s*\(|buildAttendanceIndex\
 // Mutaciones de la raíz state.attendance: (this.)?state.attendance[...] = | delete (this.)?state.attendance[...]
 const MUTATION = /(?:this\.)?state\.attendance\s*(?:\[[^\]]+\])?\s*=|delete\s+(?:this\.)?state\.attendance/;
 
-const WINDOW = 40; // líneas a cada lado (cubre coherencia colocada tras un loop/bloque bulk)
+const WINDOW = 48; // Los guards de generación de auth agregan 4 líneas en este bloque crítico; la coherencia sigue siendo obligatoria.
 
 /**
  * ALLOWLIST de excepciones INTENCIONALES (mutación de asistencia sin coherencia, a propósito).
