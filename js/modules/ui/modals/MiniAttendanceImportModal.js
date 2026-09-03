@@ -327,9 +327,9 @@ export class MiniAttendanceImportModal {
     syncModalLayout() {
         const shell = this.modal?.element?.querySelector('[data-modal-container]');
         const reviewing = this.stage === 'review';
-        shell?.classList.toggle('mini-attendance-review-shell', reviewing);
+        shell?.classList.add('mini-attendance-review-shell');
         shell?.classList.toggle('is-detailed-table', reviewing && this.showDetailedTable);
-        this.modal?.element?.classList.toggle('mini-attendance-review-overlay', reviewing);
+        this.modal?.element?.classList.add('mini-attendance-review-overlay');
         if (reviewing && this.modal?.element) this.modal.element.scrollTop = 0;
     }
 
@@ -367,7 +367,9 @@ export class MiniAttendanceImportModal {
             analyze.disabled = !this.source.trim();
         });
         analyze.addEventListener('click', () => this.analyze());
-        section.append(label, textarea, analyze);
+        const footer = element('div', null, { className: 'mini-import-footer mini-import-footer-end' });
+        footer.append(analyze);
+        section.append(label, textarea, footer);
         return section;
     }
 

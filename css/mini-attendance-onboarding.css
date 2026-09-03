@@ -62,6 +62,8 @@
     max-height: 90vh !important;
     margin: 0 auto !important;
     overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
     transition: max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
 
@@ -75,10 +77,13 @@
 
 .mini-attendance-review-shell > .modal-body {
     height: auto !important;
-    min-height: auto !important;
-    max-height: calc(90vh - 40px) !important;
+    min-height: 0 !important;
+    max-height: calc(90vh - 20px) !important;
     overflow-y: auto !important;
     padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
 }
 
 .mini-attendance-review-shell > .modal-header {
@@ -101,6 +106,10 @@
     animation: miniRiseIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
     max-width: 620px;
     margin: 0 auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
 }
 
 .is-detailed-table .mini-attendance-import {
@@ -118,17 +127,19 @@
     background: var(--mini-panel-2);
     border: 1px solid var(--mini-border);
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .05em;
+    font-weight: 700;
+    letter-spacing: .08em;
     text-transform: uppercase;
     color: var(--mini-accent);
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     white-space: nowrap;
 }
 
-/* ---------------- Topbar con progreso ---------------- */
+/* ---------------- Barra Superior Unificada (Topbar) ---------------- */
 .mini-import-topbar {
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 30;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -418,17 +429,27 @@
 
 /* ---------------- Footer de Navegación Estándar ---------------- */
 .mini-import-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 25;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 24px;
+    gap: 12px;
+    padding: 14px 20px;
     border-top: 1px solid var(--mini-border);
-    margin-top: 24px;
+    margin-top: auto;
+    background: var(--mini-panel);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
 }
 
 .mini-import-footer-hint {
     font-size: 12px;
     color: var(--mini-text-faint);
+}
+
+.mini-import-footer-end {
+    justify-content: flex-end;
 }
 
 /* ---------------- Utilidades Hover ---------------- */
@@ -438,8 +459,10 @@
 
 /* ---------------- Setup Screen Enhancements (Onboarding v2) ---------------- */
 .mini-import-setup {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 14px;
+    min-height: 100%;
 }
 
 /* Tarjeta de Encabezado y Resumen (Card 1 en la captura) */
