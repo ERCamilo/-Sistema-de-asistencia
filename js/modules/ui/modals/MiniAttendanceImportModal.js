@@ -463,15 +463,18 @@ export class MiniAttendanceImportModal {
         const header = element('div', null, { className: 'mini-import-substep-header' });
         header.addEventListener('click', () => {
             this.dateCardCollapsed = !this.dateCardCollapsed;
-            this.render();
+            card.classList.toggle('is-collapsed', this.dateCardCollapsed);
+            card.classList.toggle('is-active', !this.dateCardCollapsed);
         });
 
         const titleWrap = element('div', null, { className: 'mini-import-substep-title-wrap' });
         titleWrap.append(element('span', '1. Confirmar fecha', { className: 'mini-import-substep-title' }));
         if (this.draft?.confirmedDate) {
-            titleWrap.append(element('span', `✓ ${displayDate(this.draft.confirmedDate)}`, {
+            const dateBadge = element('span', null, {
                 className: 'mini-import-substep-badge is-confirmed'
-            }));
+            });
+            dateBadge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px"><polyline points="20 6 9 17 4 12"/></svg>${displayDate(this.draft.confirmedDate)}`;
+            titleWrap.append(dateBadge);
         }
         header.append(titleWrap, chevronSvg());
         card.append(header);
@@ -514,7 +517,10 @@ export class MiniAttendanceImportModal {
             dateRow,
             blockers
         );
-        card.append(body);
+
+        const wrapper = element('div', null, { className: 'mini-import-substep-collapse-wrapper' });
+        wrapper.append(body);
+        card.append(wrapper);
         return card;
     }
 
@@ -527,7 +533,8 @@ export class MiniAttendanceImportModal {
         const header = element('div', null, { className: 'mini-import-substep-header' });
         header.addEventListener('click', () => {
             this.allocationCardCollapsed = !this.allocationCardCollapsed;
-            this.render();
+            card.classList.toggle('is-collapsed', this.allocationCardCollapsed);
+            card.classList.toggle('is-active', !this.allocationCardCollapsed);
         });
 
         const titleWrap = element('div', null, { className: 'mini-import-substep-title-wrap' });
@@ -573,7 +580,10 @@ export class MiniAttendanceImportModal {
             options.append(optCard);
         }
         body.append(options);
-        card.append(body);
+
+        const wrapper = element('div', null, { className: 'mini-import-substep-collapse-wrapper' });
+        wrapper.append(body);
+        card.append(wrapper);
         return card;
     }
 
