@@ -169,6 +169,7 @@ export class MiniAttendanceImportModal {
         this.parsed = null;
         this.draft = null;
         this.controlId = nextControlId++;
+        this.showDetailedTable = false;
     }
 
     mount(host) {
@@ -286,6 +287,7 @@ export class MiniAttendanceImportModal {
         const shell = this.modal?.element?.querySelector('[data-modal-container]');
         const reviewing = this.stage === 'review';
         shell?.classList.toggle('mini-attendance-review-shell', reviewing);
+        shell?.classList.toggle('is-detailed-table', reviewing && this.showDetailedTable);
         this.modal?.element?.classList.toggle('mini-attendance-review-overlay', reviewing);
         if (reviewing && this.modal?.element) this.modal.element.scrollTop = 0;
     }
@@ -341,8 +343,8 @@ export class MiniAttendanceImportModal {
         });
         const header = element('header', null, { className: 'mini-import-setup-header' });
         header.append(
-            element('h2', 'Preparar importación'),
-            element('p', 'Comprueba la fecha, las horas y las coincidencias antes de continuar.')
+            element('h2', 'Comprueba la fecha y jornada'),
+            element('p', 'Verifica los datos generales detectados antes de conciliar.')
         );
         const summary = element('dl', null, {
             className: 'mini-import-setup-summary',
@@ -362,19 +364,26 @@ export class MiniAttendanceImportModal {
             );
         });
         header.append(summary);
-        section.append(back, header, this.renderSourceSummary(), this.renderDateSetup(),
-            this.renderAllocationSetup(), this.renderRows());
+
+        const footer = element('div', null, { className: 'mini-import-footer' });
         const continueButton = actionButton('Continuar a revisión', 'continue', !this.canContinue());
         continueButton.classList.add('mini-import-action-primary');
         continueButton.addEventListener('click', () => this.startReview());
+        footer.append(back, continueButton);
+
         section.append(
+            header,
+            this.renderDateSetup(),
+            this.renderAllocationSetup(),
+            this.renderSourceSummary(),
+            this.renderRows(),
             element('p', this.canContinue()
-                ? 'La preparación está completa.'
+                ? 'La preparación está completa. Haz clic para avanzar a la conciliación.'
                 : 'Confirma la fecha y corrige las advertencias antes de continuar.', {
                 className: 'mini-import-help',
                 dataset: { miniContinueHelp: '' }
             }),
-            continueButton
+            footer
         );
         return section;
     }
@@ -416,7 +425,7 @@ export class MiniAttendanceImportModal {
     }
 
     renderDateSetup() {
-        const section = element('fieldset');
+        const section = element('fieldset', null, { className: 'mini-import-date-card' });
         section.append(element('legend', '1. Confirmar fecha'));
         section.append(element(
             'p',
@@ -438,12 +447,15 @@ export class MiniAttendanceImportModal {
         });
         input.addEventListener('input', () => { this.pendingDate = input.value; });
         const confirm = actionButton('Confirmar fecha', 'confirm-date');
+        confirm.classList.add('mini-import-action-primary');
         confirm.addEventListener('click', () => this.confirmDate());
         const blockers = element('div', this.draft.dateBlockers.map(dateBlockerText).join(' '), {
             dataset: { miniDateBlockers: '' },
             role: 'status'
         });
-        section.append(element('label', 'Fecha completa', { htmlFor: id }), input, confirm, blockers);
+        const dateRow = element('div', null, { className: 'mini-import-date-row' });
+        dateRow.append(input, confirm);
+        section.append(element('label', 'Fecha completa', { htmlFor: id }), dateRow, blockers);
         return section;
     }
 
@@ -455,8 +467,13 @@ export class MiniAttendanceImportModal {
             `Puedes mantener todo como normal o separar el excedente sobre el límite regular de ${this.regularLimit} horas.`,
             { className: 'mini-import-help', dataset: { miniAllocationHelp: '' } }
         ));
+        const options = element('div', null, { className: 'mini-import-allocation-options' });
         for (const mode of ['all_normal', 'split_at_regular_limit']) {
             const id = `mini-mode-${mode}-${this.controlId}`;
+            const card = element('label', null, {
+                htmlFor: id,
+                className: `mini-import-allocation-card ${this.draft.allocationMode === mode ? 'is-selected' : ''}`
+            });
             const radio = element('input', null, {
                 id,
                 type: 'radio',
@@ -467,8 +484,15 @@ export class MiniAttendanceImportModal {
             radio.addEventListener('change', () => {
                 if (radio.checked) this.setAllocationMode(mode);
             });
-            section.append(radio, element('label', modeLabel(mode), { htmlFor: id }));
+            const textWrap = element('div');
+            textWrap.append(
+                element('div', modeLabel(mode), { style: 'font-weight: 600; font-size: 14px;' }),
+                element('div', mode === 'all_normal' ? 'Asigna todas las horas como jornada ordinaria' : `Separa las horas que pasen de ${this.regularLimit}h como extra`, { style: 'font-size: 12px; color: var(--mini-text-dim);' })
+            );
+            card.append(radio, textWrap);
+            options.append(card);
         }
+        section.append(options);
         section.append(element('p', modeLabel(this.draft.allocationMode), {
             dataset: { miniCurrentMode: '' }
         }));
@@ -1135,9 +1159,32 @@ export class MiniAttendanceImportModal {
 
         stats.append(readyBox, attentionBox);
         execCard.append(stats);
+
+        const toggleWrap = element('div', null, { className: 'mini-import-detailed-view-toggle' });
+        const openDetailedBtn = actionButton(
+            this.showDetailedTable
+                ? '← Volver a la vista ejecutiva'
+                : `Ver listado detallado en tabla (${view.items.length}) →`,
+            this.showDetailedTable ? 'close-detailed-table' : 'open-detailed-table'
+        );
+        openDetailedBtn.classList.add(this.showDetailedTable ? 'mini-import-action-secondary' : 'mini-import-inspect-btn');
+        openDetailedBtn.addEventListener('click', () => {
+            this.showDetailedTable = !this.showDetailedTable;
+            this.render();
+        });
+        toggleWrap.append(openDetailedBtn);
+        execCard.append(toggleWrap);
         panel.append(execCard);
 
-        panel.append(
+        const detailedSection = element('div', null, {
+            className: 'mini-import-detailed-section'
+        });
+        if (!this.showDetailedTable) {
+            detailedSection.hidden = true;
+        }
+
+        const detailedHeading = element('div', null, { className: 'mini-import-step-header' });
+        detailedHeading.append(
             element('h3', 'Listado detallado de conciliación'),
             element(
                 'p',
@@ -1146,6 +1193,7 @@ export class MiniAttendanceImportModal {
                 { className: 'mini-import-help' }
             )
         );
+        detailedSection.append(detailedHeading);
         const readyHeading = element('div', null, {
             className: 'mini-import-reconciliation-heading'
         });
@@ -1166,7 +1214,7 @@ export class MiniAttendanceImportModal {
             this.acceptAllReadyMatches(panel)
         );
         readyHeading.append(readyHeadingCopy, acceptAllReady);
-        panel.append(readyHeading);
+        detailedSection.append(readyHeading);
         const table = element('table', null, {
             className: 'mini-import-rows mini-import-auto-table',
             dataset: { miniAutomaticTable: '' }
@@ -1238,10 +1286,10 @@ export class MiniAttendanceImportModal {
             body.append(row);
         });
         table.append(head, body);
-        panel.append(table);
+        detailedSection.append(table);
         if (!automaticItems.length) {
             table.hidden = true;
-            panel.append(element(
+            detailedSection.append(element(
                 'p',
                 'No hay filas que puedan confirmarse automáticamente.',
                 { className: 'mini-import-empty-table' }
@@ -1262,10 +1310,11 @@ export class MiniAttendanceImportModal {
                 { dataset: { miniAttentionResolution: '' } }
             )
         );
-        panel.append(
+        detailedSection.append(
             attentionHeading,
             this.renderAttentionReviewTable(attentionItems, pendingAttentionItems)
         );
+        panel.append(detailedSection);
 
         const attentionCount = pendingAttentionItems.length;
         const note = element(

@@ -55,11 +55,26 @@
     box-shadow: var(--mini-shadow) !important;
     color: var(--mini-text) !important;
     font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif !important;
+    max-width: 640px !important;
+    width: 95% !important;
+    margin: 0 auto !important;
     overflow: hidden !important;
+    transition: max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+/* Solo se expande a 980px cuando se abre la tabla detallada de auditoría */
+.modal-container.mini-attendance-review-shell.is-detailed-table {
+    max-width: 980px !important;
 }
 
 .mini-attendance-import {
     animation: miniRiseIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    max-width: 620px;
+    margin: 0 auto;
+}
+
+.is-detailed-table .mini-attendance-import {
+    max-width: 960px;
 }
 
 /* ---------------- Kicker Chip ---------------- */
@@ -352,3 +367,113 @@
 .mini-hv-bg:hover     { background: var(--mini-hover) !important; }
 .mini-hv-bright:hover { filter: brightness(1.08); }
 .mini-hv-text:hover   { color: var(--mini-text) !important; }
+
+/* ---------------- Setup Screen Enhancements (Onboarding v2) ---------------- */
+.mini-import-setup {
+    display: grid;
+    gap: 16px;
+}
+
+.mini-import-setup-header h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--mini-text);
+}
+
+.mini-import-setup-header p {
+    margin: 6px 0 16px;
+    font-size: 13.5px;
+    color: var(--mini-text-dim);
+    line-height: 1.5;
+}
+
+.mini-import-setup-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 0 0 16px;
+}
+
+.mini-import-summary-item {
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    border-radius: 12px;
+    padding: 11px 13px;
+}
+
+.mini-import-summary-item dt {
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--mini-text-faint);
+    margin-bottom: 4px;
+}
+
+.mini-import-summary-item dd {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--mini-text);
+}
+
+.mini-import-setup fieldset {
+    border: 1px solid var(--mini-border);
+    background: var(--mini-panel-2);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin: 0 0 14px;
+    display: grid;
+    gap: 10px;
+}
+
+.mini-import-setup legend {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--mini-accent);
+    padding: 0 6px;
+}
+
+.mini-import-date-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.mini-import-setup input[type="date"] {
+    flex: 1;
+    height: 42px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--mini-border);
+    background: var(--mini-panel);
+    color: var(--mini-text);
+    font-family: inherit;
+    font-size: 14px;
+}
+
+.mini-import-preview {
+    border: 1px solid var(--mini-border);
+    background: var(--mini-panel-2);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-top: 6px;
+}
+
+.mini-import-preview summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mini-text-dim);
+}
+
+.mini-import-detailed-view-toggle {
+    display: flex;
+    justify-content: center;
+    margin: 14px 0;
+}
