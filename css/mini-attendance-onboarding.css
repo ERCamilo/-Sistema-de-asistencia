@@ -26,7 +26,18 @@
     to   { opacity: 1; transform: none; }
 }
 
+@keyframes riseIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: none; }
+}
+
 @keyframes miniPopIn {
+    0%   { opacity: 0; transform: scale(0.6); }
+    60%  { transform: scale(1.06); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes popIn {
     0%   { opacity: 0; transform: scale(0.6); }
     60%  { transform: scale(1.06); }
     100% { opacity: 1; transform: scale(1); }
@@ -80,7 +91,7 @@
     min-height: 0 !important;
     max-height: calc(90vh - 20px) !important;
     overflow-y: auto !important;
-    overflow-x: hidden !important;
+    overflow-x: clip !important;
     padding: 0 !important;
     display: flex !important;
     flex-direction: column !important;
@@ -107,12 +118,19 @@
 
 .mini-attendance-import {
     animation: miniRiseIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-    max-width: 620px;
+    max-width: 100%;
     margin: 0 auto;
     width: 100%;
     display: flex;
     flex-direction: column;
     min-height: 100%;
+    box-sizing: border-box;
+}
+
+.mini-import-review {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .is-detailed-table .mini-attendance-import {
@@ -254,6 +272,11 @@
     align-items: center;
     gap: 14px;
     transition: border-color 0.2s;
+    animation: miniSlideRow 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mini-import-stat-box:nth-child(2) {
+    animation-delay: 0.08s;
 }
 
 .mini-import-stat-box.is-ready {
@@ -272,6 +295,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: miniPopIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .is-ready .mini-import-stat-icon {
@@ -586,6 +610,7 @@
     background: oklch(0.74 0.12 158 / 0.12);
     border-color: oklch(0.74 0.12 158 / 0.4);
     font-weight: 600;
+    animation: miniPopIn 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .mini-import-substep-chevron {
@@ -709,7 +734,6 @@
     flex-direction: column;
     width: 100%;
     box-sizing: border-box;
-    overflow-x: hidden;
 }
 
 .mini-import-review-scroll-content {
@@ -719,7 +743,6 @@
     padding: 14px 20px 20px;
     width: 100%;
     box-sizing: border-box;
-    overflow-x: hidden;
 }
 
 .mini-import-review-status-bar {
@@ -773,7 +796,7 @@
     gap: 14px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     transition: border-color 0.2s, box-shadow 0.2s;
-    animation: riseIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: miniRiseIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
     box-sizing: border-box;
     width: 100%;
 }
@@ -785,19 +808,23 @@
 /* Comparación de Identidad: Mini -> SA */
 .mini-import-identity-map {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr);
     align-items: center;
     gap: 12px;
     background: var(--mini-panel);
     border: 1px solid var(--mini-border);
     border-radius: 14px;
     padding: 14px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .mini-import-identity-card {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .mini-import-identity-card strong {
@@ -818,6 +845,9 @@
     padding: 6px 10px;
     border-radius: 8px;
     border: 1px solid var(--mini-border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .mini-import-identity-arrow {
@@ -826,6 +856,7 @@
     justify-content: center;
     width: 30px;
     height: 30px;
+    flex-shrink: 0;
     border-radius: 50%;
     background: var(--mini-panel-2);
     border: 1px solid var(--mini-border);
@@ -843,8 +874,13 @@
     font-size: 12.5px;
     font-family: inherit;
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     cursor: pointer;
     transition: border-color 0.15s;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
 }
 
 .mini-import-identity-local select:focus {
@@ -902,9 +938,11 @@
 /* Grilla de Decisión Táctil: Mini vs SA */
 .mini-import-record-comparison {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
     margin-top: 6px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .mini-import-source-record {
@@ -918,6 +956,8 @@
     flex-direction: column;
     gap: 6px;
     user-select: none;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .mini-import-source-record:hover {
@@ -1229,3 +1269,352 @@
     padding-top: 14px;
     border-top: 1px solid var(--mini-border);
 }
+
+/* Restricción estricta de ancho y prevención de desborde horizontal */
+.mini-attendance-import,
+.mini-import-review,
+.mini-import-individual-review,
+.mini-import-review-scroll-content,
+.mini-import-review-unit,
+.mini-import-identity-map,
+.mini-import-identity-card,
+.mini-import-identity-source,
+.mini-import-identity-local,
+.mini-import-record-comparison,
+.mini-import-source-record,
+.mini-import-position-allocation-field,
+.mini-import-next-action,
+.mini-import-unit-actions,
+.mini-import-topbar,
+.mini-import-footer {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.mini-import-identity-source p {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.mini-import-identity-local select {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    text-overflow: ellipsis !important;
+}
+
+.mini-import-identity-map {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr) !important;
+}
+
+.mini-import-record-comparison {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+}
+
+/* ==========================================================================
+   OPTIMIZACIONES PARA RESOLUCIONES LAPTOP (1366x768 y pantallas <= 800px)
+   ========================================================================== */
+@media (max-height: 820px), (max-width: 1366px) {
+    .modal-container.mini-attendance-review-shell {
+        max-width: 680px !important;
+        width: min(680px, 95vw) !important;
+        max-height: 94vh !important;
+        border-radius: 18px !important;
+    }
+
+    .mini-attendance-review-shell > .modal-body {
+        max-height: calc(94vh - 10px) !important;
+    }
+
+    .modal-container.mini-attendance-review-shell.is-detailed-table {
+        max-width: 95vw !important;
+        height: min(92vh, 720px) !important;
+    }
+
+    .mini-import-topbar {
+        padding: 10px 18px !important;
+    }
+
+    .mini-import-topbar-title {
+        font-size: 13px !important;
+    }
+
+    .mini-import-topbar-subtitle {
+        font-size: 10.5px !important;
+    }
+
+    .mini-import-review-scroll-content {
+        padding: 8px 16px 12px !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-review-unit {
+        padding: 10px 14px !important;
+        gap: 8px !important;
+        border-radius: 14px !important;
+    }
+
+    .mini-import-identity-map {
+        padding: 8px 12px !important;
+        gap: 8px !important;
+        border-radius: 12px !important;
+    }
+
+    .mini-import-identity-source p {
+        font-size: 12.5px !important;
+        padding: 4px 8px !important;
+    }
+
+    .mini-import-identity-local select {
+        padding: 4px 8px !important;
+        font-size: 12px !important;
+    }
+
+    .mini-import-record-comparison {
+        gap: 8px !important;
+        margin-top: 4px !important;
+    }
+
+    .mini-import-source-record {
+        padding: 8px 12px !important;
+        gap: 4px !important;
+        border-radius: 12px !important;
+    }
+
+    .mini-import-card-metric {
+        font-size: 18px !important;
+    }
+
+    .mini-import-position-allocation {
+        padding: 6px 10px !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-hour-stepper {
+        height: 28px !important;
+    }
+
+    .mini-import-hour-step {
+        width: 26px !important;
+        height: 28px !important;
+    }
+
+    .mini-import-hour-stepper input[type="number"] {
+        width: 44px !important;
+        height: 28px !important;
+        font-size: 12px !important;
+    }
+
+    .mini-import-unit-actions {
+        margin-top: 6px !important;
+        padding-top: 6px !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-unit-actions button {
+        height: 34px !important;
+        font-size: 12px !important;
+    }
+
+    .mini-import-footer {
+        padding: 8px 18px !important;
+    }
+
+    .mini-import-footer button {
+        height: 34px !important;
+        font-size: 12px !important;
+    }
+
+    /* Pantalla 2: Setup */
+    .mini-import-intro-card {
+        padding: 12px 16px !important;
+        margin-bottom: 8px !important;
+        border-radius: 14px !important;
+    }
+
+    .mini-import-intro-card h3 {
+        font-size: 15px !important;
+        margin-bottom: 2px !important;
+    }
+
+    .mini-import-substep-header {
+        padding: 10px 14px !important;
+    }
+
+    .mini-import-substep-body {
+        padding: 0 14px 12px !important;
+    }
+
+    /* Pantalla 3: Conciliación ejecutiva */
+    .mini-import-executive-card {
+        padding: 14px 16px !important;
+        margin-bottom: 10px !important;
+    }
+
+    .mini-import-stat-number {
+        font-size: 24px !important;
+    }
+}
+
+/* ==========================================================================
+   OPTIMIZACIONES PARA PANTALLAS PEQUEÑAS / MÓVILES (<= 640px)
+   Ajuste ergonómico de botones, menús, grillas y tipografías táctiles
+   ========================================================================== */
+@media (max-width: 640px) {
+    .modal-container.mini-attendance-review-shell {
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100% !important;
+        max-height: 100dvh !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        border: none !important;
+    }
+
+    .mini-attendance-review-shell > .modal-body {
+        max-height: 100dvh !important;
+        height: 100% !important;
+    }
+
+    /* Topbar */
+    .mini-import-topbar {
+        padding: 10px 14px !important;
+        margin-bottom: 8px !important;
+    }
+
+    .mini-import-topbar-subtitle {
+        display: none !important;
+    }
+
+    .mini-import-topbar-title {
+        font-size: 13px !important;
+        max-width: 140px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+
+    .mini-import-topbar-right {
+        gap: 8px !important;
+    }
+
+    .mini-import-topbar-chip {
+        padding: 0 6px !important;
+        font-size: 9.5px !important;
+    }
+
+    /* Grilla de Identidad (Mini -> SA) en columna única */
+    .mini-import-identity-map {
+        grid-template-columns: 1fr !important;
+        gap: 6px !important;
+        padding: 10px 12px !important;
+    }
+
+    .mini-import-identity-arrow {
+        transform: rotate(90deg) !important;
+        margin: 2px auto !important;
+        width: 24px !important;
+        height: 24px !important;
+        font-size: 13px !important;
+    }
+
+    /* Comparación de Horas (Mini vs SA) en columna única */
+    .mini-import-record-comparison {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-source-record {
+        padding: 10px 12px !important;
+    }
+
+    /* Opciones de distribución de horas en columna única */
+    .mini-import-allocation-options {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+    }
+
+    /* Footer y navegación de revisión en grilla responsiva */
+    .mini-import-footer {
+        padding: 10px 14px !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-footer.mini-import-review-navigation {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+        padding: 10px 14px !important;
+    }
+
+    .mini-import-footer .mini-import-queue-status {
+        grid-column: 1 / -1 !important;
+        order: -1 !important;
+        width: 100% !important;
+        text-align: center !important;
+        font-size: 11px !important;
+        padding: 0 !important;
+        white-space: normal !important;
+    }
+
+    .mini-import-footer button {
+        white-space: normal !important;
+        width: 100% !important;
+        justify-content: center !important;
+        font-size: 12px !important;
+        padding: 0 8px !important;
+        height: 38px !important;
+    }
+
+    .mini-import-footer.mini-import-review-navigation > div:last-child {
+        display: flex !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+
+    .mini-import-footer.mini-import-review-navigation > div:last-child button {
+        flex: 1 !important;
+    }
+
+    /* Acciones de la unidad de revisión (botones confirmar, omitir, etc.) */
+    .mini-import-unit-actions {
+        flex-wrap: wrap !important;
+        justify-content: stretch !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-unit-actions button {
+        flex: 1 1 calc(50% - 4px) !important;
+        min-width: 110px !important;
+        height: 38px !important;
+        font-size: 12px !important;
+    }
+
+    .mini-import-position-allocation {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-hour-field {
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+
+    /* Tarjetas del Resumen Final */
+    .mini-import-summary-cards {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+    }
+
+    .mini-import-total-comparison {
+        flex-direction: column !important;
+        gap: 4px !important;
+        align-items: flex-start !important;
+    }
+}
+

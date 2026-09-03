@@ -9,6 +9,7 @@ const readSource = relativePath =>
 const appSource = readSource('app.js');
 const serviceWorkerSource = readSource('../sw.js');
 const attendanceStyles = readSource('../css/attendance_ui.css');
+const miniOnboardingStyles = readSource('../css/mini-attendance-onboarding.css');
 const modalSource = readSource('modules/ui/modals/MiniAttendanceImportModal.js');
 const aliasStoreSource = readSource('modules/services/MiniAttendanceAliasStore.js');
 
@@ -67,7 +68,8 @@ describe('Mini attendance day-view integration', () => {
             './js/modules/features/attendance/MiniAttendanceDraft.js',
             './js/modules/features/attendance/MiniAttendanceImportService.js',
             './js/modules/ui/modals/MiniAttendanceImportModal.js',
-            './js/modules/services/MiniAttendanceAliasStore.js'
+            './js/modules/services/MiniAttendanceAliasStore.js',
+            './css/mini-attendance-onboarding.css'
         ];
 
         requiredModules.forEach(modulePath => {
@@ -122,4 +124,31 @@ describe('Mini attendance day-view integration', () => {
             /@media\s*\(max-width:\s*480px\)[\s\S]*?\.attendance-bulk-actions/
         );
     });
+
+    test('mini attendance onboarding stylesheet supports mobile viewports and design system animations', () => {
+        // Keyframe definitions
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+miniRiseIn\s*\{/);
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+riseIn\s*\{/);
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+miniPopIn\s*\{/);
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+popIn\s*\{/);
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+miniSlideRow\s*\{/);
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+miniGlowPulse\s*\{/);
+        expect(miniOnboardingStyles).toMatch(/@keyframes\s+miniBreathe\s*\{/);
+
+        // Mobile media query (<= 640px)
+        expect(miniOnboardingStyles).toMatch(/@media\s*\(max-width:\s*640px\)\s*\{/);
+        expect(miniOnboardingStyles).toMatch(
+            /@media\s*\(max-width:\s*640px\)[\s\S]*?\.mini-import-identity-map\s*\{[\s\S]*?grid-template-columns:\s*1fr\s*!important;/
+        );
+        expect(miniOnboardingStyles).toMatch(
+            /@media\s*\(max-width:\s*640px\)[\s\S]*?\.mini-import-record-comparison\s*\{[\s\S]*?grid-template-columns:\s*1fr\s*!important;/
+        );
+        expect(miniOnboardingStyles).toMatch(
+            /@media\s*\(max-width:\s*640px\)[\s\S]*?\.mini-import-allocation-options\s*\{[\s\S]*?grid-template-columns:\s*1fr\s*!important;/
+        );
+        expect(miniOnboardingStyles).toMatch(
+            /@media\s*\(max-width:\s*640px\)[\s\S]*?\.mini-import-footer\.mini-import-review-navigation\s*\{[\s\S]*?display:\s*grid\s*!important;/
+        );
+    });
 });
+

@@ -362,7 +362,12 @@ export class MiniAttendanceImportModal {
         shell?.classList.add('mini-attendance-review-shell');
         shell?.classList.toggle('is-detailed-table', reviewing && this.showDetailedTable);
         this.modal?.element?.classList.add('mini-attendance-review-overlay');
-        if (reviewing && this.modal?.element) this.modal.element.scrollTop = 0;
+        if (this.modal?.element) {
+            this.modal.element.scrollLeft = 0;
+            if (reviewing) this.modal.element.scrollTop = 0;
+        }
+        if (this.host) this.host.scrollLeft = 0;
+        if (shell) shell.scrollLeft = 0;
     }
 
     render() {
@@ -378,6 +383,7 @@ export class MiniAttendanceImportModal {
             : this.stage === 'setup' ? this.renderSetup() : this.renderReview();
         root.append(content);
         this.host.replaceChildren(root);
+        this.host.scrollLeft = 0;
     }
 
     renderPaste() {
