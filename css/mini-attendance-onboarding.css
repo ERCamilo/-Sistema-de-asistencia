@@ -699,3 +699,395 @@
     justify-content: center;
     margin: 14px 0;
 }
+
+/* ---------------- Pantalla de Revisión Individual de Conflictos ---------------- */
+.mini-import-individual-review {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+}
+
+.mini-import-review-summary-line {
+    font-size: 12px;
+    color: var(--mini-text-dim);
+    margin: -6px 0 10px;
+}
+
+.mini-import-review-progress {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+.mini-import-review-progress strong {
+    color: var(--mini-text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+}
+
+.mini-import-review-progress span {
+    color: var(--mini-accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: .05em;
+}
+
+/* Tarjeta Principal de la Unidad en Revisión */
+.mini-import-review-unit {
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    border-radius: 18px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mini-import-review-unit.is-confirmed {
+    border-color: var(--mini-good);
+}
+
+/* Comparación de Identidad: Mini -> SA */
+.mini-import-identity-map {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    border-radius: 14px;
+    padding: 14px;
+}
+
+.mini-import-identity-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.mini-import-identity-card strong {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--mini-text-faint);
+    font-weight: 700;
+}
+
+.mini-import-identity-source p {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--mini-accent);
+    font-family: 'IBM Plex Mono', monospace;
+}
+
+.mini-import-identity-arrow {
+    color: var(--mini-text-dim);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.mini-import-identity-local select {
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    border-radius: 8px;
+    color: var(--mini-text);
+    padding: 6px 10px;
+    font-size: 12.5px;
+    font-family: inherit;
+    width: 100%;
+    cursor: pointer;
+}
+
+.mini-import-identity-local select:focus {
+    border-color: var(--mini-accent);
+    outline: none;
+}
+
+.mini-import-assigned-filter {
+    font-size: 11px;
+    color: var(--mini-text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    margin-top: 2px;
+}
+
+/* Selector de Horas de Mini (Duplicados con horas distintas) */
+.mini-import-duplicate-hours {
+    border: 1px solid var(--mini-border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: var(--mini-panel);
+    margin: 0;
+}
+
+.mini-import-duplicate-hours legend {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mini-accent);
+    padding: 0 6px;
+}
+
+/* Grilla de Decisión: Mini vs SA */
+.mini-import-record-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.mini-import-source-record {
+    border: 1px solid var(--mini-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: var(--mini-panel);
+    transition: all 0.2s;
+}
+
+.mini-import-source-record strong {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mini-text-faint);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.mini-import-source-record p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--mini-text);
+}
+
+.mini-import-segmented-field {
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.mini-import-segmented-field legend {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mini-text-dim);
+    margin-bottom: 8px;
+}
+
+.mini-import-segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    border-radius: 12px;
+    padding: 4px;
+}
+
+.mini-import-segmented label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--mini-text-dim);
+    transition: all 0.15s;
+    user-select: none;
+}
+
+.mini-import-segmented label:has(input:checked) {
+    background: var(--mini-accent);
+    color: var(--mini-panel);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.mini-import-segmented input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Horas por Cargo / Distribución */
+.mini-import-position-allocation-field {
+    border: 1px solid var(--mini-border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    background: var(--mini-panel);
+    margin: 0;
+}
+
+.mini-import-position-allocation-field legend {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--mini-text-dim);
+    padding: 0 6px;
+}
+
+.mini-import-position-allocation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.mini-import-position-allocation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    border-radius: 10px;
+}
+
+.mini-import-position-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mini-text);
+    cursor: pointer;
+    flex: 1;
+}
+
+.mini-import-hour-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--mini-text-dim);
+}
+
+.mini-import-hour-stepper {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--mini-border);
+    border-radius: 8px;
+    background: var(--mini-panel);
+    overflow: hidden;
+}
+
+.mini-import-hour-step {
+    width: 28px;
+    height: 30px;
+    background: transparent;
+    border: none;
+    color: var(--mini-text-dim);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+}
+
+.mini-import-hour-step:hover {
+    background: var(--mini-hover);
+    color: var(--mini-accent);
+}
+
+.mini-import-hour-stepper input[type="number"] {
+    width: 50px;
+    height: 30px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--mini-border);
+    border-right: 1px solid var(--mini-border);
+    color: var(--mini-text);
+    text-align: center;
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    -moz-appearance: textfield;
+}
+
+.mini-import-hour-stepper input[type="number"]::-webkit-inner-spin-button,
+.mini-import-hour-stepper input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Banner de Empleado Inactivo */
+.mini-import-inactive-banner {
+    background: oklch(0.28 0.04 70) !important;
+    border: 1px solid var(--mini-warn) !important;
+    border-left: 4px solid var(--mini-warn) !important;
+    border-radius: 12px !important;
+    padding: 14px 18px !important;
+    color: var(--mini-text) !important;
+}
+
+.mini-import-inactive-banner strong {
+    color: var(--mini-warn) !important;
+    font-size: 13.5px !important;
+}
+
+.mini-import-inactive-banner p {
+    color: var(--mini-text-dim) !important;
+    font-size: 12px !important;
+    margin-top: 4px !important;
+}
+
+/* Switch de Recordar Asociación */
+.mini-import-remember {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--mini-text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Footer y Navegación de Revisión */
+.mini-import-footer.mini-import-review-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.mini-import-footer .mini-import-queue-status {
+    border-left: none !important;
+    background: transparent !important;
+    color: var(--mini-text-dim) !important;
+    font-size: 12px !important;
+    padding: 0 10px !important;
+    white-space: nowrap !important;
+    text-align: center !important;
+    margin: 0 !important;
+}
+
+.mini-import-footer .mini-import-queue-status.is-complete {
+    color: var(--mini-good) !important;
+}
+
+.mini-import-unit-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--mini-border);
+}

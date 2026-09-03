@@ -1239,13 +1239,7 @@ export class MiniAttendanceImportModal {
             section.append(this.renderAutomaticReview(view));
             return section;
         }
-        const back = actionButton('Volver', 'back-review');
-        back.classList.add('mini-import-action-secondary');
-        back.disabled = this.applyStatus === 'pending' || this.applyStatus === 'success';
-        back.addEventListener('click', () => {
-            this.showAutomaticReview();
-        });
-        section.append(back, this.renderIndividualReview(view));
+        section.append(this.renderIndividualReview(view));
         return section;
     }
 
@@ -1726,6 +1720,23 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-individual-review',
             dataset: { miniIndividualReview: '' }
         });
+
+        const visibleItems = this.clampReviewPage(view);
+        const unresolvedAllItems = view.items.filter(item => !item.confirmed);
+        const allReviewsComplete = unresolvedAllItems.length === 0 &&
+            !this.conflictPlan.hasBlockingIssues;
+        const currentIndex = this.reviewPageIndex;
+        const currentItem = visibleItems[currentIndex];
+
+        section.append(renderTopbar(
+            3,
+            4,
+            this.individualReviewMode === 'single' ? 'Modificar asistencia' : 'Resolución de pendientes',
+            visibleItems.length ? `Empleado ${currentIndex + 1} de ${visibleItems.length}` : '',
+            'CONFLICTOS',
+            () => this.close()
+        ));
+
         const summary = element('p', null, {
             className: 'mini-import-review-summary-line',
             dataset: { miniReviewSummary: '' }
@@ -1734,19 +1745,8 @@ export class MiniAttendanceImportModal {
             `${view.summary.needsAttention} ` +
             `${view.summary.needsAttention === 1 ? 'requiere' : 'requieren'} atención · ` +
             `${view.summary.confirmed} confirmadas · ${view.summary.ignored} ignoradas`;
-        section.append(
-            element('h3', this.individualReviewMode === 'single'
-                ? 'Modificar asistencia'
-                : 'Revisión de pendientes'),
-            summary
-        );
-        const visibleItems = this.clampReviewPage(view);
-        const unresolvedAllItems = view.items.filter(item => !item.confirmed);
-        const allReviewsComplete = unresolvedAllItems.length === 0 &&
-            !this.conflictPlan.hasBlockingIssues;
+
         if (visibleItems.length) {
-            const currentIndex = this.reviewPageIndex;
-            const currentItem = visibleItems[currentIndex];
             const progress = element('div', null, {
                 className: 'mini-import-review-progress',
                 dataset: { miniReviewProgress: '' }
@@ -1762,15 +1762,27 @@ export class MiniAttendanceImportModal {
             );
             section.append(
                 progress,
+                summary,
                 this.renderReviewUnit(currentItem)
             );
-            const navigation = element('nav', null, {
-                className: 'mini-import-review-navigation',
+
+            const footer = element('nav', null, {
+                className: 'mini-import-footer mini-import-review-navigation',
                 dataset: { miniReviewNavigation: '' },
                 'aria-label': 'Navegación entre empleados'
             });
+
+            const back = actionButton('← Volver a lista', 'back-review');
+            back.classList.add('mini-import-action-secondary');
+            back.disabled = this.applyStatus === 'pending' || this.applyStatus === 'success';
+            back.addEventListener('click', () => {
+                this.showAutomaticReview();
+            });
+
             const previous = actionButton('Anterior', 'previous-unit', currentIndex === 0);
+            previous.classList.add('mini-import-action-secondary');
             previous.addEventListener('click', () => this.setReviewPage(currentIndex - 1));
+
             const isLast = currentIndex === visibleItems.length - 1;
             const nextLabel = isLast && currentItem.confirmed
                 ? allReviewsComplete
@@ -1782,6 +1794,7 @@ export class MiniAttendanceImportModal {
                 'next-unit',
                 !currentItem.confirmed
             );
+            next.classList.add('mini-import-action-primary');
             next.addEventListener('click', () => {
                 if (isLast && allReviewsComplete) {
                     this.showFinalSummary();
@@ -1795,7 +1808,7 @@ export class MiniAttendanceImportModal {
                 }
                 this.setReviewPage(currentIndex + 1);
             });
-            navigation.append(previous, next);
+
             const queueStatus = element(
                 'p',
                 allReviewsComplete
@@ -1810,7 +1823,12 @@ export class MiniAttendanceImportModal {
                     dataset: { miniQueueStatus: '' }
                 }
             );
-            section.append(queueStatus, navigation);
+
+            const navGroup = element('div', null, { style: 'display: flex; gap: 8px; align-items: center;' });
+            navGroup.append(previous, next);
+
+            footer.append(back, queueStatus, navGroup);
+            section.append(footer);
         }
         if (!visibleItems.length) {
             const empty = element('div', null, {
@@ -1833,7 +1851,15 @@ export class MiniAttendanceImportModal {
                 ));
                 empty.append(resume);
             }
-            section.append(empty);
+            const footer = element('nav', null, {
+                className: 'mini-import-footer mini-import-review-navigation',
+                dataset: { miniReviewNavigation: '' }
+            });
+            const back = actionButton('← Volver a lista', 'back-review');
+            back.classList.add('mini-import-action-secondary');
+            back.addEventListener('click', () => this.showAutomaticReview());
+            footer.append(back);
+            section.append(summary, empty, footer);
         }
         const locked = this.applyStatus === 'pending' || this.applyStatus === 'success';
         if (locked) {
