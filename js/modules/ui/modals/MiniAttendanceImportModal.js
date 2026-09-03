@@ -68,23 +68,47 @@ function renderChip(text) {
     return element('div', text, { className: 'mini-import-chip' });
 }
 
-function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = 'Contrutek') {
+function chevronSvg() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2.2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('class', 'mini-import-substep-chevron');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M6 9l6 6 6-6');
+    svg.appendChild(path);
+    return svg;
+}
+
+function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = '', chipText = '') {
     const bar = element('div', null, { className: 'mini-import-topbar' });
     const brand = element('div', null, { className: 'mini-import-topbar-brand' });
-    const img = element('img', null, { src: 'icon-512.png', alt: '', width: '30', height: '30' });
+    const img = element('img', null, { src: 'icon-512.png', alt: '', width: '28', height: '28' });
     img.addEventListener('error', () => { img.style.display = 'none'; });
     const brandText = element('div');
     brandText.append(
         element('div', title, { className: 'mini-import-topbar-title' }),
-        element('div', subtitle, { className: 'mini-import-topbar-subtitle' })
+        element('div', subtitle || `Paso ${step}`, { className: 'mini-import-topbar-subtitle' })
     );
     brand.append(img, brandText);
-    const stepEl = element('div', `Paso ${step} / ${totalSteps}`, { className: 'mini-import-topbar-step' });
+
+    const rightGroup = element('div', null, { className: 'mini-import-topbar-right' });
+    if (chipText) {
+        rightGroup.append(element('div', chipText, { className: 'mini-import-chip mini-import-topbar-chip' }));
+    }
+    const stepEl = element('div', `${step}/${totalSteps}`, { className: 'mini-import-topbar-step' });
+    rightGroup.append(stepEl);
+
     const progress = element('div', null, {
         className: 'mini-import-progress-bar',
         style: `width: ${Math.round((step / totalSteps) * 100)}%;`
     });
-    bar.append(brand, stepEl, progress);
+    bar.append(brand, rightGroup, progress);
     return bar;
 }
 
@@ -170,6 +194,8 @@ export class MiniAttendanceImportModal {
         this.draft = null;
         this.controlId = nextControlId++;
         this.showDetailedTable = false;
+        this.dateCardCollapsed = false;
+        this.allocationCardCollapsed = true;
     }
 
     mount(host) {
@@ -209,11 +235,16 @@ export class MiniAttendanceImportModal {
         this.pendingDate = suggestedDate;
         this.duplicateHourChoices.clear();
         this.stage = 'setup';
+        this.dateCardCollapsed = Boolean(this.draft.confirmedDate);
+        this.allocationCardCollapsed = true;
         this.render();
     }
 
     confirmDate() {
         this.draft = confirmMiniAttendanceDraftDate(this.draft, this.pendingDate);
+        if (this.draft.confirmedDate && this.draft.dateBlockers.length === 0) {
+            this.dateCardCollapsed = true;
+        }
         this.render();
     }
 
@@ -309,8 +340,7 @@ export class MiniAttendanceImportModal {
 
     renderPaste() {
         const section = element('div', null, { className: 'mini-import-paste' });
-        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado'));
-        section.append(renderChip('IMPORTACIÓN DE ASISTENCIA'));
+        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado', 'PEGADO'));
         const id = `mini-attendance-source-${this.controlId}`;
         const label = element('label', 'Pega el reporte de Mini enviado por WhatsApp', { htmlFor: id });
         const textarea = element('textarea', null, {
@@ -333,16 +363,10 @@ export class MiniAttendanceImportModal {
 
     renderSetup() {
         const section = element('div', null, { className: 'mini-import-setup' });
-        section.append(renderTopbar(2, 4, 'Importar asistencia desde Mini', 'Paso 2 · Validación'));
-        section.append(renderChip('VALIDACIÓN'));
-        const back = actionButton('Volver al texto', 'back');
-        back.classList.add('mini-import-action-secondary');
-        back.addEventListener('click', () => {
-            this.stage = 'paste';
-            this.render();
-        });
-        const header = element('header', null, { className: 'mini-import-setup-header' });
-        header.append(
+        section.append(renderTopbar(2, 4, 'Importar asistencia desde Mini', 'Paso 2 · Validación', 'VALIDACIÓN'));
+
+        const introCard = element('div', null, { className: 'mini-import-intro-card' });
+        introCard.append(
             element('h2', 'Comprueba la fecha y jornada'),
             element('p', 'Verifica los datos generales detectados antes de conciliar.')
         );
@@ -363,16 +387,22 @@ export class MiniAttendanceImportModal {
                 element('dd', value, { dataset: { [key]: '' } })
             );
         });
-        header.append(summary);
+        introCard.append(summary);
 
         const footer = element('div', null, { className: 'mini-import-footer' });
+        const back = actionButton('Volver al texto', 'back');
+        back.classList.add('mini-import-action-secondary');
+        back.addEventListener('click', () => {
+            this.stage = 'paste';
+            this.render();
+        });
         const continueButton = actionButton('Continuar a revisión', 'continue', !this.canContinue());
         continueButton.classList.add('mini-import-action-primary');
         continueButton.addEventListener('click', () => this.startReview());
         footer.append(back, continueButton);
 
         section.append(
-            header,
+            introCard,
             this.renderDateSetup(),
             this.renderAllocationSetup(),
             this.renderSourceSummary(),
@@ -425,19 +455,40 @@ export class MiniAttendanceImportModal {
     }
 
     renderDateSetup() {
-        const section = element('fieldset', null, { className: 'mini-import-date-card' });
-        section.append(element('legend', '1. Confirmar fecha'));
-        section.append(element(
+        const isCollapsed = Boolean(this.dateCardCollapsed && this.draft?.confirmedDate && this.draft.dateBlockers.length === 0);
+        const card = element('div', null, {
+            className: `mini-import-substep-card ${isCollapsed ? 'is-collapsed' : 'is-active'}`
+        });
+
+        const header = element('div', null, { className: 'mini-import-substep-header' });
+        header.addEventListener('click', () => {
+            this.dateCardCollapsed = !this.dateCardCollapsed;
+            this.render();
+        });
+
+        const titleWrap = element('div', null, { className: 'mini-import-substep-title-wrap' });
+        titleWrap.append(element('span', '1. Confirmar fecha', { className: 'mini-import-substep-title' }));
+        if (this.draft?.confirmedDate) {
+            titleWrap.append(element('span', `✓ ${displayDate(this.draft.confirmedDate)}`, {
+                className: 'mini-import-substep-badge is-confirmed'
+            }));
+        }
+        header.append(titleWrap, chevronSvg());
+        card.append(header);
+
+        const body = element('div', null, { className: 'mini-import-substep-body' });
+        const hint = this.parsed.header.dateHint;
+        body.append(element('p', hint
+            ? `${hint.weekday}, ${hint.day}/${hint.month} · ${hint.year ?? 'año no incluido'}`
+            : 'El reporte no incluye una fecha reconocible.', {
+            className: 'mini-import-date-hint-text',
+            dataset: { miniDateHint: '' }
+        }));
+        body.append(element(
             'p',
             'Compara la fecha completa con el encabezado de Mini. No se importará nada hasta confirmarla.',
             { className: 'mini-import-help', dataset: { miniDateHelp: '' } }
         ));
-        const hint = this.parsed.header.dateHint;
-        section.append(element('p', hint
-            ? `${hint.weekday}, ${hint.day}/${hint.month} · ${hint.year ?? 'año no incluido'}`
-            : 'El reporte no incluye una fecha reconocible.', {
-            dataset: { miniDateHint: '' }
-        }));
         const id = `mini-attendance-date-${this.controlId}`;
         const input = element('input', null, {
             id,
@@ -455,14 +506,41 @@ export class MiniAttendanceImportModal {
         });
         const dateRow = element('div', null, { className: 'mini-import-date-row' });
         dateRow.append(input, confirm);
-        section.append(element('label', 'Fecha completa', { htmlFor: id }), dateRow, blockers);
-        return section;
+        body.append(
+            element('label', 'Fecha completa', {
+                htmlFor: id,
+                style: 'font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px;'
+            }),
+            dateRow,
+            blockers
+        );
+        card.append(body);
+        return card;
     }
 
     renderAllocationSetup() {
-        const section = element('fieldset');
-        section.append(element('legend', '2. Distribuir horas'));
-        section.append(element(
+        const isCollapsed = Boolean(this.allocationCardCollapsed);
+        const card = element('div', null, {
+            className: `mini-import-substep-card ${isCollapsed ? 'is-collapsed' : 'is-active'}`
+        });
+
+        const header = element('div', null, { className: 'mini-import-substep-header' });
+        header.addEventListener('click', () => {
+            this.allocationCardCollapsed = !this.allocationCardCollapsed;
+            this.render();
+        });
+
+        const titleWrap = element('div', null, { className: 'mini-import-substep-title-wrap' });
+        titleWrap.append(element('span', '2. Distribuir horas', { className: 'mini-import-substep-title' }));
+        titleWrap.append(element('span', modeLabel(this.draft.allocationMode), {
+            className: 'mini-import-substep-badge',
+            dataset: { miniCurrentMode: '' }
+        }));
+        header.append(titleWrap, chevronSvg());
+        card.append(header);
+
+        const body = element('div', null, { className: 'mini-import-substep-body' });
+        body.append(element(
             'p',
             `Puedes mantener todo como normal o separar el excedente sobre el límite regular de ${this.regularLimit} horas.`,
             { className: 'mini-import-help', dataset: { miniAllocationHelp: '' } }
@@ -470,7 +548,7 @@ export class MiniAttendanceImportModal {
         const options = element('div', null, { className: 'mini-import-allocation-options' });
         for (const mode of ['all_normal', 'split_at_regular_limit']) {
             const id = `mini-mode-${mode}-${this.controlId}`;
-            const card = element('label', null, {
+            const optCard = element('label', null, {
                 htmlFor: id,
                 className: `mini-import-allocation-card ${this.draft.allocationMode === mode ? 'is-selected' : ''}`
             });
@@ -482,21 +560,21 @@ export class MiniAttendanceImportModal {
                 checked: this.draft.allocationMode === mode
             });
             radio.addEventListener('change', () => {
-                if (radio.checked) this.setAllocationMode(mode);
+                if (radio.checked) {
+                    this.setAllocationMode(mode);
+                }
             });
             const textWrap = element('div');
             textWrap.append(
-                element('div', modeLabel(mode), { style: 'font-weight: 600; font-size: 14px;' }),
-                element('div', mode === 'all_normal' ? 'Asigna todas las horas como jornada ordinaria' : `Separa las horas que pasen de ${this.regularLimit}h como extra`, { style: 'font-size: 12px; color: var(--mini-text-dim);' })
+                element('div', modeLabel(mode), { style: 'font-weight: 700; font-size: 13.5px; color: var(--mini-text);' }),
+                element('div', mode === 'all_normal' ? 'Asigna todas las horas como jornada ordinaria' : `Separa las horas que pasen de ${this.regularLimit}h como extra`, { style: 'font-size: 11.5px; color: var(--mini-text-dim); margin-top: 3px;' })
             );
-            card.append(radio, textWrap);
-            options.append(card);
+            optCard.append(radio, textWrap);
+            options.append(optCard);
         }
-        section.append(options);
-        section.append(element('p', modeLabel(this.draft.allocationMode), {
-            dataset: { miniCurrentMode: '' }
-        }));
-        return section;
+        body.append(options);
+        card.append(body);
+        return card;
     }
 
     renderRows() {
@@ -1123,8 +1201,7 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-automatic-review',
             dataset: { miniAutomaticReview: '' }
         });
-        panel.append(renderTopbar(3, 4, 'Importar asistencia desde Mini', 'Paso 3 · Conciliación'));
-        panel.append(renderChip('CONCILIACIÓN DEL REPORTE'));
+        panel.append(renderTopbar(3, 4, 'Importar asistencia desde Mini', 'Paso 3 · Conciliación', 'CONCILIACIÓN'));
 
         const automaticItems = this.automaticReviewItems(view);
         const attentionItems = this.attentionReviewItems(view);
@@ -1754,8 +1831,7 @@ export class MiniAttendanceImportModal {
         });
         const miniTotal = rowSummaries.reduce((total, row) => total + row.miniTotal, 0);
         const saTotal = rowSummaries.reduce((total, row) => total + row.saTotal, 0);
-        section.append(renderTopbar(4, 4, 'Importar asistencia desde Mini', 'Paso 4 · Resumen final'));
-        section.append(renderChip('TODO LISTO PARA IMPORTAR'));
+        section.append(renderTopbar(4, 4, 'Importar asistencia desde Mini', 'Paso 4 · Resumen final', 'RESUMEN'));
         section.append(
             element('h3', 'Resumen final'),
             element(

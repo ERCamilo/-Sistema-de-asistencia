@@ -102,9 +102,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 24px;
+    padding: 14px 20px;
     border-bottom: 1px solid var(--mini-border);
-    margin-bottom: 20px;
+    margin-bottom: 16px;
+    background: var(--mini-panel);
 }
 
 .mini-import-topbar-brand {
@@ -114,27 +115,42 @@
 }
 
 .mini-import-topbar-brand img {
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     border-radius: 8px;
 }
 
 .mini-import-topbar-title {
     font-size: 13.5px;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--mini-text);
     line-height: 1.2;
 }
 
 .mini-import-topbar-subtitle {
     font-size: 11px;
-    color: var(--mini-text-faint);
+    color: var(--mini-text-dim);
+}
+
+.mini-import-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.mini-import-topbar-chip {
+    margin-bottom: 0 !important;
+    height: 22px !important;
+    padding: 0 9px !important;
+    font-size: 10px !important;
+    letter-spacing: .06em !important;
 }
 
 .mini-import-topbar-step {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 11.5px;
-    color: var(--mini-text-faint);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--mini-accent);
 }
 
 .mini-import-progress-bar {
@@ -371,90 +387,195 @@
 /* ---------------- Setup Screen Enhancements (Onboarding v2) ---------------- */
 .mini-import-setup {
     display: grid;
-    gap: 16px;
+    gap: 14px;
 }
 
-.mini-import-setup-header h2 {
+/* Tarjeta de Encabezado y Resumen (Card 1 en la captura) */
+.mini-import-intro-card {
+    border: 1px solid var(--mini-border);
+    border-radius: 16px;
+    padding: 20px;
+    background: var(--mini-panel-2);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.mini-import-intro-card h2 {
     margin: 0;
     font-size: 22px;
     font-weight: 700;
-    letter-spacing: -0.012em;
+    letter-spacing: -0.015em;
     color: var(--mini-text);
 }
 
-.mini-import-setup-header p {
+.mini-import-intro-card p {
     margin: 6px 0 16px;
     font-size: 13.5px;
     color: var(--mini-text-dim);
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
 .mini-import-setup-summary {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 10px;
-    margin: 0 0 16px;
+    margin: 0;
 }
 
 .mini-import-summary-item {
-    background: var(--mini-panel-2);
+    background: var(--mini-panel);
     border: 1px solid var(--mini-border);
     border-radius: 12px;
-    padding: 11px 13px;
+    padding: 12px 14px;
 }
 
 .mini-import-summary-item dt {
-    font-size: 10px;
+    font-size: 10.5px;
     letter-spacing: .06em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--mini-text-faint);
-    margin-bottom: 4px;
+    margin-bottom: 5px;
 }
 
 .mini-import-summary-item dd {
     margin: 0;
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--mini-text);
+    line-height: 1.3;
 }
 
-.mini-import-setup fieldset {
+/* Tarjetas Colapsables de Sub-Pasos (1. Confirmar Fecha, 2. Distribuir Horas) */
+.mini-import-substep-card {
     border: 1px solid var(--mini-border);
+    border-radius: 16px;
     background: var(--mini-panel-2);
-    border-radius: 14px;
-    padding: 16px 18px;
-    margin: 0 0 14px;
-    display: grid;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.mini-import-substep-card.is-active {
+    border-color: var(--mini-accent);
+}
+
+.mini-import-substep-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.mini-import-substep-header:hover {
+    background: var(--mini-hover);
+}
+
+.mini-import-substep-title-wrap {
+    display: flex;
+    align-items: center;
     gap: 10px;
 }
 
-.mini-import-setup legend {
+.mini-import-substep-title {
     font-size: 12px;
-    font-weight: 600;
-    letter-spacing: .04em;
+    font-weight: 700;
+    letter-spacing: .05em;
     text-transform: uppercase;
     color: var(--mini-accent);
-    padding: 0 6px;
+}
+
+.mini-import-substep-badge {
+    font-size: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    color: var(--mini-text);
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.mini-import-substep-badge.is-confirmed {
+    color: var(--mini-good);
+    border-color: var(--mini-good);
+}
+
+.mini-import-substep-chevron {
+    width: 20px;
+    height: 20px;
+    color: var(--mini-text-dim);
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mini-import-substep-card.is-collapsed .mini-import-substep-chevron {
+    transform: rotate(-90deg);
+}
+
+.mini-import-substep-body {
+    padding: 0 18px 18px;
+}
+
+.mini-import-substep-card.is-collapsed .mini-import-substep-body {
+    display: none;
+}
+
+.mini-import-date-hint-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--mini-text);
+    margin: 4px 0 12px;
 }
 
 .mini-import-date-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     margin-top: 6px;
 }
 
 .mini-import-setup input[type="date"] {
     flex: 1;
-    height: 42px;
-    padding: 0 12px;
-    border-radius: 10px;
+    height: 44px;
+    padding: 0 14px;
+    border-radius: 12px;
     border: 1px solid var(--mini-border);
     background: var(--mini-panel);
     color: var(--mini-text);
     font-family: inherit;
     font-size: 14px;
+}
+
+/* Opciones de asignación en 2 columnas horizontales */
+.mini-import-allocation-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.mini-import-allocation-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--mini-border);
+    background: var(--mini-panel);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mini-import-allocation-card:hover {
+    background: var(--mini-hover);
+    border-color: var(--mini-text-dim);
+}
+
+.mini-import-allocation-card.is-selected {
+    border-color: var(--mini-accent);
+    background: var(--mini-panel-2);
+    box-shadow: 0 0 0 1px var(--mini-accent);
 }
 
 .mini-import-preview {
