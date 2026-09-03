@@ -85,7 +85,7 @@ function chevronSvg() {
     return svg;
 }
 
-function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = '', chipText = '') {
+function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = '', chipText = '', onClose = null) {
     const bar = element('div', null, { className: 'mini-import-topbar' });
     const brand = element('div', null, { className: 'mini-import-topbar-brand' });
     const img = element('img', null, { src: 'icon-512.png', alt: '', width: '28', height: '28' });
@@ -103,6 +103,16 @@ function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini'
     }
     const stepEl = element('div', `${step}/${totalSteps}`, { className: 'mini-import-topbar-step' });
     rightGroup.append(stepEl);
+
+    if (onClose) {
+        const closeBtn = element('button', '✕', {
+            type: 'button',
+            className: 'mini-import-topbar-close',
+            'aria-label': 'Cerrar'
+        });
+        closeBtn.addEventListener('click', onClose);
+        rightGroup.append(closeBtn);
+    }
 
     const progress = element('div', null, {
         className: 'mini-import-progress-bar',
@@ -340,7 +350,7 @@ export class MiniAttendanceImportModal {
 
     renderPaste() {
         const section = element('div', null, { className: 'mini-import-paste' });
-        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado', 'PEGADO'));
+        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado', 'PEGADO', () => this.close()));
         const id = `mini-attendance-source-${this.controlId}`;
         const label = element('label', 'Pega el reporte de Mini enviado por WhatsApp', { htmlFor: id });
         const textarea = element('textarea', null, {
@@ -363,7 +373,7 @@ export class MiniAttendanceImportModal {
 
     renderSetup() {
         const section = element('div', null, { className: 'mini-import-setup' });
-        section.append(renderTopbar(2, 4, 'Importar asistencia desde Mini', 'Paso 2 · Validación', 'VALIDACIÓN'));
+        section.append(renderTopbar(2, 4, 'Importar asistencia desde Mini', 'Paso 2 · Validación', 'VALIDACIÓN', () => this.close()));
 
         const introCard = element('div', null, { className: 'mini-import-intro-card' });
         introCard.append(
@@ -1179,20 +1189,12 @@ export class MiniAttendanceImportModal {
 
     renderReview() {
         const section = element('div', null, { className: 'mini-import-review' });
-        const back = actionButton('Volver', 'back-review');
-        back.classList.add('mini-import-action-secondary');
-        back.disabled = this.applyStatus === 'pending' || this.applyStatus === 'success';
-        back.addEventListener('click', () => {
-            if (this.reviewStep === 'automatic') {
-                this.stage = 'setup';
-                this.render();
-                return;
-            }
-            this.showAutomaticReview();
+        const modeEl = element('span', modeLabel(this.draft.allocationMode), {
+            dataset: { miniCurrentMode: '' },
+            style: 'display: none;'
         });
-        section.append(back, element('p', modeLabel(this.draft.allocationMode), {
-            dataset: { miniCurrentMode: '' }
-        }));
+        section.append(modeEl);
+
         const view = this.buildReviewView();
         if (this.reviewStep === 'summary') {
             section.append(this.renderFinalSummary(view));
@@ -1202,7 +1204,13 @@ export class MiniAttendanceImportModal {
             section.append(this.renderAutomaticReview(view));
             return section;
         }
-        section.append(this.renderIndividualReview(view));
+        const back = actionButton('Volver', 'back-review');
+        back.classList.add('mini-import-action-secondary');
+        back.disabled = this.applyStatus === 'pending' || this.applyStatus === 'success';
+        back.addEventListener('click', () => {
+            this.showAutomaticReview();
+        });
+        section.append(back, this.renderIndividualReview(view));
         return section;
     }
 
@@ -1211,7 +1219,7 @@ export class MiniAttendanceImportModal {
             className: 'mini-import-automatic-review',
             dataset: { miniAutomaticReview: '' }
         });
-        panel.append(renderTopbar(3, 4, 'Importar asistencia desde Mini', 'Paso 3 · Conciliación', 'CONCILIACIÓN'));
+        panel.append(renderTopbar(3, 4, 'Importar asistencia desde Mini', 'Paso 3 · Conciliación', 'CONCILIACIÓN', () => this.close()));
 
         const automaticItems = this.automaticReviewItems(view);
         const attentionItems = this.attentionReviewItems(view);
@@ -1413,11 +1421,22 @@ export class MiniAttendanceImportModal {
                 : 'Todas las filas están listas para pasar al resumen final.',
             { className: 'mini-import-next-action', dataset: { miniAutomaticHint: '' } }
         );
+        const back = actionButton('Volver', 'back-review');
+        back.classList.add('mini-import-action-secondary');
+        back.disabled = this.applyStatus === 'pending' || this.applyStatus === 'success';
+        back.addEventListener('click', () => {
+            this.stage = 'setup';
+            this.render();
+        });
+
         const accept = actionButton('', 'accept-automatic');
         accept.classList.add('mini-import-action-primary');
         panel.addEventListener('change', () => this.syncAutomaticReviewStatus(panel));
         accept.addEventListener('click', () => this.acceptAutomaticMatches(panel));
-        panel.append(note, accept);
+
+        const footer = element('div', null, { className: 'mini-import-footer' });
+        footer.append(back, accept);
+        panel.append(note, footer);
         this.syncAutomaticReviewStatus(panel, view);
         return panel;
     }
@@ -1841,7 +1860,7 @@ export class MiniAttendanceImportModal {
         });
         const miniTotal = rowSummaries.reduce((total, row) => total + row.miniTotal, 0);
         const saTotal = rowSummaries.reduce((total, row) => total + row.saTotal, 0);
-        section.append(renderTopbar(4, 4, 'Importar asistencia desde Mini', 'Paso 4 · Resumen final', 'RESUMEN'));
+        section.append(renderTopbar(4, 4, 'Importar asistencia desde Mini', 'Paso 4 · Resumen final', 'RESUMEN', () => this.close()));
         section.append(
             element('h3', 'Resumen final'),
             element(
@@ -1906,6 +1925,11 @@ export class MiniAttendanceImportModal {
         section.append(table);
 
         const locked = this.applyStatus === 'pending' || this.applyStatus === 'success';
+        const back = actionButton('Volver', 'back-review');
+        back.classList.add('mini-import-action-secondary');
+        back.disabled = locked;
+        back.addEventListener('click', () => this.showAutomaticReview());
+
         const apply = actionButton(
             this.applyStatus === 'error'
                 ? 'Reintentar aplicación'
@@ -1915,7 +1939,10 @@ export class MiniAttendanceImportModal {
         );
         apply.classList.add('mini-import-action-primary');
         apply.addEventListener('click', () => this.applyCurrentPlan());
-        section.append(apply);
+
+        const footer = element('div', null, { className: 'mini-import-footer' });
+        footer.append(back, apply);
+        section.append(footer);
         const status = this.renderApplyStatus();
         if (status) section.append(status);
         return section;

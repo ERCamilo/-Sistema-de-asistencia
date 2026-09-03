@@ -57,14 +57,44 @@
     font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif !important;
     max-width: 640px !important;
     width: 95% !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: 90vh !important;
     margin: 0 auto !important;
     overflow: hidden !important;
     transition: max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
 
-/* Solo se expande a 980px cuando se abre la tabla detallada de auditoría */
+@supports (height: 100dvh) {
+    .modal-container.mini-attendance-review-shell {
+        height: auto !important;
+        min-height: auto !important;
+        max-height: 90dvh !important;
+    }
+}
+
+.mini-attendance-review-shell > .modal-body {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: calc(90vh - 40px) !important;
+    overflow-y: auto !important;
+    padding: 0 !important;
+}
+
+.mini-attendance-review-shell > .modal-header {
+    display: none !important;
+}
+
+/* Solo se expande a 980px y altura completa cuando se abre la tabla detallada de auditoría */
 .modal-container.mini-attendance-review-shell.is-detailed-table {
     max-width: 980px !important;
+    height: min(90vh, 900px) !important;
+}
+
+@supports (height: 100dvh) {
+    .modal-container.mini-attendance-review-shell.is-detailed-table {
+        height: min(90dvh, 900px) !important;
+    }
 }
 
 .mini-attendance-import {
@@ -151,6 +181,28 @@
     font-size: 14px;
     font-weight: 700;
     color: var(--mini-accent);
+}
+
+.mini-import-topbar-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    color: var(--mini-text-faint);
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 8px;
+    line-height: 1;
+    margin-left: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+
+.mini-import-topbar-close:hover {
+    color: var(--mini-text);
+    background: var(--mini-hover);
 }
 
 .mini-import-progress-bar {
