@@ -254,6 +254,38 @@ export class MiniAttendanceImportModal {
         this.draft = confirmMiniAttendanceDraftDate(this.draft, this.pendingDate);
         if (this.draft.confirmedDate && this.draft.dateBlockers.length === 0) {
             this.dateCardCollapsed = true;
+            const dateCard = this.host?.querySelector('[data-mini-date-card]');
+            if (dateCard) {
+                const titleWrap = dateCard.querySelector('.mini-import-substep-title-wrap');
+                if (titleWrap) {
+                    let dateBadge = titleWrap.querySelector('.mini-import-substep-badge');
+                    if (!dateBadge) {
+                        dateBadge = element('span', null, { className: 'mini-import-substep-badge is-confirmed' });
+                        titleWrap.append(dateBadge);
+                    }
+                    dateBadge.className = 'mini-import-substep-badge is-confirmed';
+                    dateBadge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right:2px"><polyline points="20 6 9 17 4 12"/></svg>${displayDate(this.draft.confirmedDate)}`;
+                }
+                dateCard.classList.remove('is-active');
+                dateCard.classList.add('is-collapsed');
+
+                const blockers = dateCard.querySelector('[data-mini-date-blockers]');
+                if (blockers) blockers.textContent = '';
+
+                const summaryDate = this.host.querySelector('[data-mini-summary-date]');
+                if (summaryDate) summaryDate.textContent = displayDate(this.draft.confirmedDate);
+
+                const continueBtn = this.host.querySelector('[data-mini-action="continue"]');
+                if (continueBtn) continueBtn.disabled = !this.canContinue();
+
+                const helpText = this.host.querySelector('[data-mini-continue-help]');
+                if (helpText) {
+                    helpText.textContent = this.canContinue()
+                        ? 'La preparación está completa. Haz clic para avanzar a la conciliación.'
+                        : 'Confirma la fecha y corrige las advertencias antes de continuar.';
+                }
+                return;
+            }
         }
         this.render();
     }
@@ -469,7 +501,8 @@ export class MiniAttendanceImportModal {
     renderDateSetup() {
         const isCollapsed = Boolean(this.dateCardCollapsed && this.draft?.confirmedDate && this.draft.dateBlockers.length === 0);
         const card = element('div', null, {
-            className: `mini-import-substep-card ${isCollapsed ? 'is-collapsed' : 'is-active'}`
+            className: `mini-import-substep-card ${isCollapsed ? 'is-collapsed' : 'is-active'}`,
+            dataset: { miniDateCard: '' }
         });
 
         const header = element('div', null, { className: 'mini-import-substep-header' });
