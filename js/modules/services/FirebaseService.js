@@ -34,6 +34,17 @@ import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
 // subida exitosa.
 // storageKey por tipo: el watermark se persiste y sobrevive al reload (sin
 // esto, el primer guardado tras recargar re-subía el roster entero).
+// DIR-U3-001: generation+UID guard (reuses AuthStartupGuard concept)
+let _firebaseAuthGeneration=0,_firebaseLastAuthUid=auth?.currentUser?.uid??null;
+function _syncFirebaseAuthGeneration(){const u=auth?.currentUser?.uid??null;if(u!==_firebaseLastAuthUid){_firebaseAuthGeneration++;_firebaseLastAuthUid=u;}}
+function _captureAuthIdentity(){_syncFirebaseAuthGeneration();return{expectedUid:auth?.currentUser?.uid??null,expectedGeneration:_firebaseAuthGeneration};}
+function _isCapturedAuthCurrent(c){_syncFirebaseAuthGeneration();return!!c&&c.expectedUid!=null&&c.expectedUid===(auth?.currentUser?.uid??null)&&c.expectedGeneration===_firebaseAuthGeneration;}
+try{if(typeof onAuthStateChanged==='function'&&auth)onAuthStateChanged(auth,u=>{const uid=u?.uid??null;if(uid!==_firebaseLastAuthUid){_firebaseAuthGeneration++;_firebaseLastAuthUid=uid;}});}catch(_){}
+try{if(auth&&typeof auth==='object'){let _a=auth.currentUser;_firebaseLastAuthUid=_a?.uid??null;Object.defineProperty(auth,'currentUser',{get(){return _a;},set(v){const n=v?.uid??null,o=_a?.uid??null;if(n!==o){_firebaseAuthGeneration++;_firebaseLastAuthUid=n;}_a=v;},configurable:true,enumerable:true});}}catch(_){}
+export function _testGetAuthGeneration(){return _firebaseAuthGeneration;}
+export function _testResetAuthGeneration(){_firebaseAuthGeneration=0;_firebaseLastAuthUid=auth?.currentUser?.uid??null;}
+export function _testBumpAuthGenerationForTest(uid){const n=uid==null?null:String(uid);if(n!==_firebaseLastAuthUid){_firebaseAuthGeneration++;_firebaseLastAuthUid=n;}return _firebaseAuthGeneration;}
+
 const _employeeUploadTracker = createEntityUploadTracker('entityUpload.employees.v1');
 const _positionUploadTracker = createEntityUploadTracker('entityUpload.positions.v1');
 const _leaderUploadTracker = createEntityUploadTracker('entityUpload.leaders.v1');
@@ -115,7 +126,9 @@ class FirebaseService {
      *   TAMBIÉN las escribiría dos veces por guardado.
      */
     async saveFullState(state, opts = {}) {
-        if (!auth.currentUser) return;
+        const _capturedAuth = _captureAuthIdentity();
+        if (!_capturedAuth.expectedUid) return;
+        if (!_isCapturedAuthCurrent(_capturedAuth)) return;
 
         try {
             // Firestore no acepta instancias de clases personalizadas ni valores undefined.
@@ -145,7 +158,11 @@ class FirebaseService {
             // watermark) YA escribe las entidades por separado — llamarlo acá
             // TAMBIÉN las escribiría dos veces por guardado.
             if (!opts.skipEntities) {
-                await this.saveEntities(state.employees, state.positions, state.leaders, schemaVersion);
+                if (!_isCapturedAuthCurrent(_capturedAuth)) return;
+                await this.saveEntities(state.employees, state.positions, state.leaders, schemaVersion, _capturedAuth);
+                if (!_isCapturedAuthCurrent(_capturedAuth)) return;
+            } else {
+                if (!_isCapturedAuthCurrent(_capturedAuth)) return;
             }
 
             // ⚡ FASE 4.1 / Schema v3: Si la cuenta migró al modelo granular, el
@@ -166,7 +183,8 @@ class FirebaseService {
             const cleanState = JSON.parse(JSON.stringify(snapshotContext));
             const settingsMap = cleanState.settings;
 
-            const docRef = doc(db, 'users', auth.currentUser.uid, 'data', 'current');
+            if (!_isCapturedAuthCurrent(_capturedAuth)) return;
+            const docRef = doc(db, 'users', _capturedAuth.expectedUid, 'data', 'current');
 
             // 🛡️ R4: guard de tamaño del doc espejo. En cuentas LEGACY (<v2) los
             // empleados/posiciones/líderes siguen INLINE y una nómina grande con
@@ -186,9 +204,7 @@ class FirebaseService {
                     // único campo que no toca las entidades grandes.
                     if (settingsMap && typeof settingsMap === 'object') {
                         try {
-                            // JD2#4: setDoc(merge:true), no updateDoc — updateDoc tira
-                            // NOT_FOUND si el doc nunca existió (cuenta nueva cuyo primer
-                            // save ya excede). setDoc(merge) lo crea y sólo toca settings.
+                            if (!_isCapturedAuthCurrent(_capturedAuth)) return;
                             await setDoc(docRef, { settings: settingsMap }, { merge: true });
                         } catch (e) {
                             console.warn('⚠️ R4: no se pudo sincronizar settings aparte:', e?.message);
@@ -216,6 +232,7 @@ class FirebaseService {
             // localUpdatedAt correcto en una sola operación (si lo excluyéramos,
             // el otro dispositivo vería un snapshot con settings/localUpdatedAt
             // viejos y el watermark dispararía un re-sync innecesario).
+            if (!_isCapturedAuthCurrent(_capturedAuth)) return;
             await setDoc(docRef, {
                 ...cleanState,
                 updatedAt: serverTimestamp(),
@@ -223,13 +240,8 @@ class FirebaseService {
                 lastChangedBy: getDeviceId()
             }, { merge: true });
 
-            // 🧩 M9: tras el merge, REEMPLAZAMOS settings como mapa COMPLETO.
-            // Con merge:true Firestore fusiona mapas en profundidad, así que una
-            // clave de settings BORRADA localmente sobreviviría. updateDoc
-            // reemplaza el campo entero, eliminando las claves que ya no existen
-            // (LWW por dispositivo: settings es un objeto coherente que el
-            // dispositivo siempre tiene completo en memoria).
             if (settingsMap && typeof settingsMap === 'object') {
+                if (!_isCapturedAuthCurrent(_capturedAuth)) return;
                 await updateDoc(docRef, { settings: settingsMap });
             }
             console.log(`☁️ Estado sincronizado en Firebase (schemaVersion=${schemaVersion || 'legacy'})`);
@@ -256,31 +268,37 @@ class FirebaseService {
      * — con mergeRemote:true eso es lectura+escritura por entidad, y agotó
      * la cuota diaria de Firestore en horas con una cuenta de tamaño normal.
      */
-    async saveEntities(employees, positions, leaders, schemaVersion) {
+    async saveEntities(employees, positions, leaders, schemaVersion, _capturedFromCaller = null) {
+        const _captured = _capturedFromCaller || _captureAuthIdentity();
+        if (!_captured.expectedUid) return;
+        if (!_isCapturedAuthCurrent(_captured)) return;
         const isMigratedEmployees = typeof schemaVersion === 'number' && schemaVersion >= 2;
         const isMigratedGranular = typeof schemaVersion === 'number' && schemaVersion >= 3;
 
-        // markUploaded recibe SOLO las entidades que escribieron OK (res.saved),
-        // no las candidatas: si un write falla, ese id sigue siendo candidato el
-        // próximo guardado (no se pierde en silencio) y los demás no se re-suben.
         if (isMigratedEmployees) {
+            if (!_isCapturedAuthCurrent(_captured)) return;
             const emps = _employeeUploadTracker.filterChanged(Array.isArray(employees) ? employees : []);
             if (emps.length > 0) {
                 const res = await EmployeeRepository.saveMany(emps, { mergeRemote: true });
                 _employeeUploadTracker.markUploaded(res.saved);
+                if (!_isCapturedAuthCurrent(_captured)) return;
             }
         }
 
         if (isMigratedGranular) {
+            if (!_isCapturedAuthCurrent(_captured)) return;
             const pos = _positionUploadTracker.filterChanged(Array.isArray(positions) ? positions : []);
             if (pos.length > 0) {
                 const res = await PositionRepository.saveMany(pos, { mergeRemote: true });
                 _positionUploadTracker.markUploaded(res.saved);
+                if (!_isCapturedAuthCurrent(_captured)) return;
             }
+            if (!_isCapturedAuthCurrent(_captured)) return;
             const leads = _leaderUploadTracker.filterChanged(Array.isArray(leaders) ? leaders : []);
             if (leads.length > 0) {
                 const res = await LeaderRepository.saveMany(leads, { mergeRemote: true });
                 _leaderUploadTracker.markUploaded(res.saved);
+                if (!_isCapturedAuthCurrent(_captured)) return;
             }
         }
     }
