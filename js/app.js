@@ -7810,7 +7810,7 @@ function _initOutgoingConflictGuard() {
                             armApplyingFlagWatchdog(); // R3: red de seguridad si el flush no corre
 
                             // 🛡️ LIMPIEZA DE ESTADO: Eliminar claves "cortas" (solo id) o inconsistentes
-                            // Solo deben quedar claves con formato: employeeId-dateKey
+                            // Deben quedar claves con formato: employeeId-dateKey
                             const entries = Object.entries(allAttendance);
                             entries.forEach(([key, record]) => {
                                 const shortKey = record.employeeId;
