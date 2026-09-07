@@ -22,6 +22,7 @@ import { ensureCanonicalProject } from './ProjectRegistry.js';
 import { adoptProject } from './ProjectAdoption.js';
 import { indexedDBService } from '../../services/IndexedDBService.js';
 import { ensureDefaultSeed } from '../payroll/ProjectPayrollConfigStore.js';
+import { backfillMissingOfficialLinks } from '../pettycash/PettyCashOfficialLink.js';
 
 export async function initProjectsInfrastructure({
     defaults = defaultProjectService,
@@ -84,6 +85,19 @@ export async function initProjectsInfrastructure({
                     .then(() => migrateEntityProjectStamps())
                     .catch(error => console.warn(
                         '⚠️ ProjectsBoot: M2 sello local falló (arranque no afectado):',
+                        error?.message || error
+                    ));
+            }
+            // F1.7 (DEP-SA-001): backfill idempotente del vínculo oficial de
+            // caja chica con el default canónico ya resuelto. Local-only, sin
+            // outbox ni nube, fire-and-forget; el .catch preserva never-throw.
+            if (canonicalId) {
+                Promise.resolve()
+                    .then(() => backfillMissingOfficialLinks({
+                        defaultOfficialProjectId: canonicalId
+                    }))
+                    .catch(error => console.warn(
+                        '⚠️ ProjectsBoot: petty official backfill falló (arranque no afectado):',
                         error?.message || error
                     ));
             }

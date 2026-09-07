@@ -73,6 +73,14 @@ import {
 import { APP_CONFIG } from '../../config/Config.js';
 import { auth } from '../../data/firebase.js';
 import { ensureExcelJSLoaded } from '../../utils/LazyExcelJS.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import {
+    OFFICIAL_LINK_KEY,
+    getOfficialProjectId,
+    resolveBirthOfficialId
+} from './PettyCashOfficialLink.js';
+import { projectContext } from '../projects/ProjectContext.js';
+import { defaultProjectService } from '../projects/DefaultProject.js';
 
 const SEL_KEY = '_pettycash_sel_v1'; // solo la selección de UI (los datos van a IndexedDB)
 const CATEGORIAS = ['Materiales', 'Transporte', 'Comida', 'Herramientas', 'Mano de obra', 'Combustible', 'Otros'];
@@ -686,6 +694,7 @@ export function PettyCashTab() {
         </div>
         ${_receiptQueueBanner(d)}
         ${_projectBar(d)}
+        ${_officialLinkDiagnostic(d, proj)}
         ${proj ? _projectBody(proj) : _emptyProjects()}
     </div>`;
 }
@@ -797,6 +806,25 @@ function _projectBar(d) {
         <button type="button" data-app-fn="pcNewProject"
             style="background:#0ea5e9;color:#fff;border:none;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;">+ Proyecto</button>
     </div>`;
+}
+
+// F1.7 (DEP-SA-001): diagnóstico visible mínimo del vínculo oficial.
+// Sólo con Projects ON; nunca filtra ni altera selección — las filas
+// huérfanas y el historial se conservan y sólo se anuncian.
+function _officialLinkDiagnostic(d, proj) {
+    if (!isProjectsEnabled()) return '';
+    const projects = Array.isArray(d?.projects) ? d.projects : [];
+    if (!projects.length) return '';
+    if (proj) {
+        const link = getOfficialProjectId(proj);
+        if (link) {
+            return `<div data-petty-official-link="${esc(link)}" style="margin:-6px 0 14px;font-size:.72rem;color:#64748b;">Vinculado a proyecto oficial: ${esc(link)}</div>`;
+        }
+        return `<div data-petty-official-orphan style="margin:-6px 0 14px;font-size:.74rem;color:#fbbf24;background:#172033;border:1px solid #475569;border-radius:8px;padding:8px 11px;">⚠ Proyecto de caja sin vínculo oficial (huérfano) — se conserva y no se filtra.</div>`;
+    }
+    const orphans = projects.filter((p) => !getOfficialProjectId(p)).length;
+    if (!orphans) return '';
+    return `<div data-petty-official-orphan style="margin:-6px 0 14px;font-size:.74rem;color:#fbbf24;background:#172033;border:1px solid #475569;border-radius:8px;padding:8px 11px;">⚠ ${orphans} proyecto(s) de caja sin vínculo oficial — se conservan y no se filtran.</div>`;
 }
 
 function _emptyProjects() {
@@ -1324,6 +1352,24 @@ export function registerPettyCashGlobals() {
         if (!name) return;
         const d = pc();
         const p = { id: uid('proj'), name, status: 'activo', createdBy: 'app', updatedAt: Date.now() };
+        // F1.7 (DEP-SA-001): birth stamping sólo con Projects ON — vínculo al
+        // active vigente (fallback al default canónico bajo la semántica
+        // existente). Con OFF la key se OMITE por completo (byte-stable).
+        if (isProjectsEnabled()) {
+            try {
+                let activeId = null;
+                let defaultId = null;
+                try { activeId = await projectContext.getActiveProjectId(); } catch { activeId = null; }
+                try {
+                    const def = await defaultProjectService.ensureDefaultProject();
+                    defaultId = def?.id || null;
+                } catch { defaultId = null; }
+                p[OFFICIAL_LINK_KEY] = resolveBirthOfficialId({
+                    activeProjectId: activeId,
+                    defaultProjectId: defaultId
+                });
+            } catch { p[OFFICIAL_LINK_KEY] = null; }
+        }
         d.projects.push(p);
         d.selectedProjectId = p.id;
         d.selectedPeriodId = null;

@@ -18,6 +18,7 @@ import { APP_CONFIG } from '../../config/Config.js';
 import { sendMovementMirror } from './PettyCashMovementMirror.js';
 import { PettyCashPersistenceMetrics } from './PettyCashPersistenceMetrics.js';
 import { createCrossTabLock } from '../../services/CrossTabLock.js';
+import { normalizeOfficialProjectId } from './PettyCashOfficialLink.js';
 
 const STORE = { projects: 'pettyCashProjects', periods: 'pettyCashPeriods', movements: 'pettyCashMovements' };
 const REPO = { projects: PettyCashRepository.projects, periods: PettyCashRepository.periods, movements: PettyCashRepository.movements };
@@ -372,11 +373,23 @@ export const PettyCashStore = {
             localById.forEach((localProject, id) => {
                 const remoteProject = merged.get(id);
                 if (!remoteProject) return;
+                let next = remoteProject;
                 const localCounter = Number(localProject.nextRecordNumber) || 0;
                 const remoteCounter = Number(remoteProject.nextRecordNumber) || 0;
                 if (localCounter > remoteCounter) {
-                    merged.set(id, { ...remoteProject, nextRecordNumber: localCounter });
+                    next = { ...next, nextRecordNumber: localCounter };
                 }
+                // F1.7 (DEP-SA-001, narrow additive rule): un remoto legacy sin
+                // vínculo válido propio jamás borra el vínculo local. Sólo un
+                // remoto con officialProjectId válido y no-null ejerce la
+                // autoridad de merge existente. Sin tocar queries, outbox,
+                // flush, contadores (arriba) ni otros campos.
+                const localLink = normalizeOfficialProjectId(localProject?.officialProjectId);
+                const remoteLink = normalizeOfficialProjectId(remoteProject?.officialProjectId);
+                if (localLink && !remoteLink) {
+                    next = { ...next, officialProjectId: localLink };
+                }
+                if (next !== remoteProject) merged.set(id, next);
             });
         }
 
