@@ -12,6 +12,7 @@ const store = () => window.SaMiniP2P.makeIdentityStore('sa', 'SA - Oficina');
 let activeSession = null;
 let activeChannel = null;
 let activePeer = null;
+let projectSetupListenerAttached = false;
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
@@ -23,6 +24,13 @@ function notify(message, type = 'info') {
 
 function modal() { return document.getElementById(MODAL_ID); }
 function body() { return modal()?.querySelector('[data-p2p-body]'); }
+
+async function getProjectSetupState() {
+  if (typeof window.getProjectSetupState !== 'function') {
+    return { enabled: false, ready: false, activeProjectId: null, activeProject: null };
+  }
+  return window.getProjectSetupState();
+}
 
 function cleanupSession() {
   try { activeSession?.close?.(); } catch (_) {}
@@ -84,15 +92,22 @@ async function renderHome() {
   cleanupSession();
   const self = await store().getSelf();
   const peers = (await store().listPeers()).filter(p => p.peerApp === 'mini');
+  let projectState;
+  try { projectState = await getProjectSetupState(); }
+  catch (error) { projectState = { enabled: true, ready: false, activeProject: null, error }; }
+  const projectCard = projectState.ready
+    ? `<div style="border:1px solid rgba(22,163,74,.32);border-radius:14px;padding:13px;background:rgba(22,163,74,.07)"><div style="font-size:11px;opacity:.65">Proyecto a enviar</div><strong>${esc(projectState.activeProject?.name || projectState.activeProjectId)}</strong><div style="font-size:10px;opacity:.58;margin-top:3px;font-family:monospace;word-break:break-all">${esc(projectState.activeProjectId)}</div><button type="button" data-configure-project style="margin-top:9px;border:0;background:transparent;color:#2563eb;font-weight:700;cursor:pointer;padding:0">Configurar proyecto</button></div>`
+    : `<div style="border:1px solid rgba(245,158,11,.38);border-radius:14px;padding:13px;background:rgba(245,158,11,.08)"><strong>Se necesita un proyecto activo</strong><div style="font-size:12px;margin-top:4px;line-height:1.45">Mini puede vincularse sin proyecto, pero SA no enviará empleados hasta resolver un projectId oficial.</div><button type="button" data-configure-project style="margin-top:9px;border:0;background:transparent;color:#2563eb;font-weight:700;cursor:pointer;padding:0">Configurar proyecto</button></div>`;
   const peerRows = peers.length ? peers.map(peer => `
     <div style="display:flex;gap:10px;align-items:center;border:1px solid rgba(148,163,184,.28);border-radius:12px;padding:12px">
       <div style="flex:1;min-width:0"><strong>${esc(peer.displayName)}</strong><div style="font-size:11px;opacity:.65;overflow:hidden;text-overflow:ellipsis">Vinculado ${esc(new Date(peer.linkedAt).toLocaleString('es-DO'))}</div></div>
-      <button type="button" data-send-peer="${esc(peer.peerId)}" style="border:0;border-radius:10px;padding:9px 12px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer">Enviar roster</button>
+      <button type="button" data-send-peer="${esc(peer.peerId)}" ${projectState.ready ? '' : 'disabled aria-disabled="true" title="Configura un proyecto antes de enviar"'} style="border:0;border-radius:10px;padding:9px 12px;background:${projectState.ready ? '#16a34a' : '#94a3b8'};color:#fff;font-weight:700;cursor:${projectState.ready ? 'pointer' : 'not-allowed'}">Enviar roster</button>
       <button type="button" data-unlink-peer="${esc(peer.peerId)}" title="Desvincular" style="border:1px solid rgba(239,68,68,.35);border-radius:10px;padding:9px 10px;background:transparent;color:#dc2626;cursor:pointer">×</button>
     </div>`).join('') : '<div style="font-size:13px;opacity:.7;padding:8px 0">Aún no hay Mini vinculados.</div>';
   body().innerHTML = `
     <div style="display:grid;gap:12px">
       <div style="border:1px solid rgba(37,99,235,.28);border-radius:14px;padding:14px;background:rgba(37,99,235,.07)"><strong>👥 Personal / Roster</strong><div style="font-size:12px;margin-top:4px">Disponible ahora · SA → Mini</div></div>
+      ${projectCard}
       ${disabledCard('🕒 Asistencia','Mini → SA')}
       ${disabledCard('💾 Backup','SA ↔ SA / Mini ↔ Mini')}
       ${disabledCard('📄 Documentos / Archivos','Reservado para una fase futura')}
@@ -101,6 +116,7 @@ async function renderHome() {
     <div style="display:grid;gap:8px;margin-top:10px">${peerRows}</div>
     <div style="margin-top:16px">${button('Vincular Mini · QR o código','data-new-pair aria-label="Vincular un nuevo Mini con QR o código de 6 dígitos"')}</div>
     <p style="font-size:11px;line-height:1.45;opacity:.65;margin:12px 2px 0">Escanea un QR o usa el código de 6 dígitos y la clave para vincular Mini. Vincular un dispositivo no importa ni modifica datos automáticamente; cada roster recibido todavía requiere revisión y confirmación en Mini.</p>`;
+  body().querySelector('[data-configure-project]')?.addEventListener('click', () => window.openProjectSetupModal?.());
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
   body().querySelectorAll('[data-send-peer]').forEach(btn => btn.addEventListener('click', () => connectTrustedAndSend(btn.dataset.sendPeer)));
   body().querySelectorAll('[data-unlink-peer]').forEach(btn => btn.addEventListener('click', async () => {
@@ -175,9 +191,18 @@ function renderPairConfirmation(remote, sas, accept, reject) {
   box.querySelector('[data-reject]').addEventListener('click', reject);
 }
 
-function renderPairLinked(peer, channel) {
+async function renderPairLinked(peer, channel) {
   activePeer = peer;
-  body().innerHTML = `<h3 style="margin-top:0">✓ Mini vinculado</h3><p><strong>${esc(peer.displayName)}</strong> quedó reconocido por este SA.</p><label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input type="checkbox" data-salary> Incluir sueldo en este roster</label>${button('Enviar roster ahora','data-send-now')}<button type="button" data-done style="width:100%;margin-top:8px;border:0;background:transparent;padding:10px;color:inherit;cursor:pointer">Terminar</button><div data-send-status style="font-size:12px;margin-top:10px"></div>`;
+  let projectState;
+  try { projectState = await getProjectSetupState(); }
+  catch (error) { projectState = { ready: false, error }; }
+  if (!projectState.ready) {
+    body().innerHTML = `<h3 style="margin-top:0">✓ Mini vinculado</h3><p><strong>${esc(peer.displayName)}</strong> quedó reconocido por este SA.</p><div style="padding:12px;border-radius:12px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);font-size:13px">El vínculo está listo. Para enviar empleados, configura primero el proyecto oficial.</div><div style="margin-top:12px">${button('Configurar proyecto','data-configure-project')}</div><button type="button" data-done style="width:100%;margin-top:8px;border:0;background:transparent;padding:10px;color:inherit;cursor:pointer">Terminar</button>`;
+    body().querySelector('[data-configure-project]').addEventListener('click', () => window.openProjectSetupModal?.());
+    body().querySelector('[data-done]').addEventListener('click', renderHome);
+    return;
+  }
+  body().innerHTML = `<h3 style="margin-top:0">✓ Mini vinculado</h3><p><strong>${esc(peer.displayName)}</strong> quedó reconocido por este SA.</p><div style="font-size:12px;padding:10px;border-radius:10px;background:rgba(22,163,74,.07);margin-bottom:12px">Proyecto: <strong>${esc(projectState.activeProject?.name || projectState.activeProjectId)}</strong></div><label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input type="checkbox" data-salary> Incluir sueldo en este roster</label>${button('Enviar roster ahora','data-send-now')}<button type="button" data-done style="width:100%;margin-top:8px;border:0;background:transparent;padding:10px;color:inherit;cursor:pointer">Terminar</button><div data-send-status style="font-size:12px;margin-top:10px"></div>`;
   body().querySelector('[data-send-now]').addEventListener('click', () => sendRosterOnChannel(channel, peer, body().querySelector('[data-salary]').checked));
   body().querySelector('[data-done]').addEventListener('click', renderHome);
 }
@@ -192,12 +217,18 @@ function renderPairError(error) {
 async function connectTrustedAndSend(peerId) {
   cleanupSession();
   try {
+    const projectState = await getProjectSetupState();
+    if (!projectState.ready) {
+      notify('⚠️ Configura un proyecto activo antes de enviar el roster.', 'warning');
+      await window.openProjectSetupModal?.();
+      return;
+    }
     const identityStore = store();
     const self = await identityStore.getSelf();
     const peer = await identityStore.getPeer(peerId);
     if (!peer || peer.peerApp !== 'mini') throw new Error('Mini vinculado no encontrado.');
     activePeer = peer;
-    body().innerHTML = `<button type="button" data-back style="border:0;background:transparent;color:inherit;cursor:pointer;padding:0 0 12px">← Volver</button><h3 style="margin:0 0 8px">Enviar roster a ${esc(peer.displayName)}</h3><p style="font-size:13px;opacity:.7">En Mini abre Transferencias → Personal / Roster → Esperar roster.</p><label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input type="checkbox" data-salary> Incluir sueldo en esta transferencia</label><div data-connect-status style="padding:12px;border-radius:12px;background:rgba(59,130,246,.08);font-size:13px">Buscando el Mini vinculado…</div>`;
+    body().innerHTML = `<button type="button" data-back style="border:0;background:transparent;color:inherit;cursor:pointer;padding:0 0 12px">← Volver</button><h3 style="margin:0 0 8px">Enviar roster a ${esc(peer.displayName)}</h3><p style="font-size:13px;opacity:.7">Proyecto: <strong>${esc(projectState.activeProject?.name || projectState.activeProjectId)}</strong>. En Mini abre Transferencias → Personal / Roster → Esperar roster.</p><label style="display:flex;gap:8px;align-items:center;margin:14px 0"><input type="checkbox" data-salary> Incluir sueldo en esta transferencia</label><div data-connect-status style="padding:12px;border-radius:12px;background:rgba(59,130,246,.08);font-size:13px">Buscando el Mini vinculado…</div>`;
     body().querySelector('[data-back]').addEventListener('click', renderHome);
     const route = await window.SaMiniP2P.deriveTrustedRoute(peer.linkToken);
     const signaling = new window.SaMiniP2P.SignalingClient({ room: route.room, peerId: self.deviceId, proof: route.proof });
@@ -279,4 +310,10 @@ export async function openP2PRosterTransfer() {
 export function registerP2PRosterGlobals() {
   window.openP2PRosterTransfer = openP2PRosterTransfer;
   window.closeP2PRosterTransfer = closeP2PRosterTransfer;
+  if (!projectSetupListenerAttached) {
+    window.addEventListener('projects:setup-changed', () => {
+      if (modal()) renderHome().catch(error => notify('❌ ' + (error.message || error), 'error'));
+    });
+    projectSetupListenerAttached = true;
+  }
 }

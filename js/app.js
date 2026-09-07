@@ -176,6 +176,7 @@ import * as SyncUI from './modules/ui/SyncUI.js';
 import { NotesCenter, NoteEditorModal, registerLegacyGlobals as registerNotesGlobals } from './modules/features/notes/index.js';
 import { ExportMenu, ImportFullModal, registerLegacyGlobals as registerExportGlobals } from './modules/features/export/index.js';
 import { registerP2PRosterGlobals } from './modules/features/p2p/P2PRosterUI.js';
+import { registerProjectSetupGlobals } from './modules/features/projects/ProjectsUI.js';
 import { EmployeeProfileModal, syncProfileToMaster, registerLegacyGlobals as registerProfileGlobals } from './modules/features/profile/index.js';
 import { migrateAllAdvances, registerLegacyGlobals as registerLoansGlobals } from './modules/features/loans/index.js';
 import {
@@ -3698,6 +3699,7 @@ window.setEmployeeLeaderFilter = (leaderId) => {
 // compatibility with the legacy data-app-fn event delegation.
 registerNotesGlobals();
 registerExportGlobals();
+registerProjectSetupGlobals();
 registerP2PRosterGlobals();
 registerProfileGlobals();
 registerLoansGlobals();

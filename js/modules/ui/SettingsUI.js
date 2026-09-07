@@ -48,6 +48,9 @@ const _SETTINGS_ACTION_MAP = {
     'create-firebase-snapshot': () => window.createFirebaseSnapshot?.(),
     'start-maintenance-wizard': () => window.startMaintenanceWizard?.(),
     'export-data': () => window.exportData?.(),
+    'open-project-setup': () => guardSettingsDraftOnLeave({
+        onProceed: () => window.openProjectSetupModal?.()
+    }),
     'open-import-input': () => document.getElementById('import-file-input')?.click(),
     'delete-all-data': () => window.deleteAllData?.(),
     'download-from-cloud': () => window.downloadFromCloudNow?.(),

@@ -27,6 +27,21 @@ export function SettingsGeneralTab(context) {
                     </div>
                 </div>
 
+                <!-- Proyectos -->
+                <div class="stg-panel">
+                    <div class="stg-header">
+                        <div>
+                            <h3>Proyecto de trabajo</h3>
+                        </div>
+                    </div>
+                    <p style="font-size:0.82rem;color:#64748b;line-height:1.55;margin:0 0 12px;">
+                        Configura la identidad oficial del proyecto usada para aislar empleados y para transferencias SA → Mini. La activación es explícita; nunca se deriva del nombre de la empresa.
+                    </p>
+                    <button type="button" data-settings-action="open-project-setup" class="btn-secondary" style="width:100%;justify-content:center;padding:10px;border-radius:8px;">
+                        Configurar proyecto
+                    </button>
+                </div>
+
                 <!-- Interfaz -->
                 <div class="stg-panel">
                     <div class="stg-header" style="margin-bottom: 14px;">

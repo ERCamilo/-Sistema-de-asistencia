@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0907.181507'
+const CACHE_VERSION = '2026.0907.194557'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -44,6 +44,8 @@ const APP_SHELL = [
     './js/p2p/P2PPairing.js',
     './js/modules/features/p2p/P2PRosterUI.js',
     // Static module dependencies required by the current SA roster flow.
+    './js/modules/features/projects/ProjectsUI.js',
+    './js/modules/features/projects/ProjectSetupService.js',
     './js/modules/features/projects/ProjectContext.js',
     './js/modules/features/projects/ProjectStore.js',
     './js/modules/features/projects/Project.js',
