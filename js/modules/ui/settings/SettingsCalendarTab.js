@@ -4,6 +4,13 @@
  */
 export function SettingsTabCalendar(context) {
     const state = context.state;
+    if (context.payrollConfigStatus && context.payrollConfigStatus !== 'ready') {
+        const message = context.payrollConfigStatus === 'unavailable'
+            ? `Payroll config unavailable for project "${context.payrollProjectId}"`
+            : `Cargando configuración de nómina para ${context.payrollProjectId}...`;
+        return `<div class="stg-panel" role="${context.payrollConfigStatus === 'unavailable' ? 'alert' : 'status'}">${message}</div>`;
+    }
+    const settings = context.payrollSettings || state.settings;
     const icons = context.icons;
     return `
                 <!-- Panel Integrado de Calendario y Fechas -->
@@ -31,14 +38,14 @@ export function SettingsTabCalendar(context) {
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label class="form-label" style="font-size: 0.8rem;">Inicio del Período</label>
                                     <input type="date" 
-                                           value="${state.settings.payPeriod?.periodStart || ''}" 
+                                           value="${settings.payPeriod?.periodStart || ''}"${' '}
                                            class="form-input"
                                            onchange="updatePayPeriod('periodStart', this.value)">
                                 </div>
                                 <div class="form-group" style="margin-bottom: 12px;">
                                     <label class="form-label" style="font-size: 0.8rem;">Duración (Días)</label>
                                     <input type="number" inputmode="decimal" 
-                                           value="${state.settings.payPeriod?.periodLength || 21}" 
+                                           value="${settings.payPeriod?.periodLength || 21}"${' '}
                                            min="1" max="60"
                                            class="form-input"
                                            onchange="updatePayPeriod('periodLength', this.value)">
@@ -46,7 +53,7 @@ export function SettingsTabCalendar(context) {
                                 <div class="form-group" style="margin: 0;">
                                     <label class="form-label" style="font-size: 0.8rem;">Día de Pago (Opcional)</label>
                                     <input type="date" 
-                                           value="${state.settings.payPeriod?.payDay || ''}" 
+                                           value="${settings.payPeriod?.payDay || ''}"${' '}
                                            class="form-input"
                                            onchange="updatePayPeriod('payDay', this.value)">
                                 </div>
@@ -56,13 +63,13 @@ export function SettingsTabCalendar(context) {
                                 <strong>Sincronización Interactiva:</strong> Usa los botones del calendario a la derecha para seleccionar fechas directamente de forma gráfica sin usar estos campos.
                             </div>
                             <div style="margin-top: auto; font-size: 0.75rem; color: #64748b; text-align: center; background: var(--stg-card-bg); padding: 8px; border-radius: 6px;">
-                                Total Festivos: <strong style="color: #f59e0b;">${state.settings.holidays.length}</strong>
+                                 Total Festivos: <strong style="color: #f59e0b;">${settings.holidays.length}</strong>
                             </div>
                         </div>
 
                         <!-- Columna Derecha: Calendario Visual Interactivo -->
                         <div style="flex: 2; min-width: 320px;">
-                            ${SettingsHolidayCalendar(context)}
+                            ${SettingsHolidayCalendar(context, settings)}
                         </div>
                     </div>
                 </div>
@@ -77,7 +84,7 @@ export function SettingsTabCalendar(context) {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
                         <div class="form-group">
                             <label class="form-label">Horas Laborales por Día</label>
-                            <input type="number" inputmode="decimal" id="regularHoursPerDay" value="${state.settings.regularHoursPerDay}" min="4" max="16" class="form-input">
+                            <input type="number" inputmode="decimal" id="regularHoursPerDay" value="${settings.regularHoursPerDay}" min="4" max="16" class="form-input">
                         </div>
                         <div class="form-group">
                             <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
@@ -85,7 +92,7 @@ export function SettingsTabCalendar(context) {
                                 <span style="background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: help;" 
                                       title="Multiplicador para horas extras normales">i</span>
                             </label>
-                            <input type="number" inputmode="decimal" id="overtimeFactor" value="${state.settings.overtimeFactor}" min="1" max="3" step="0.25" class="form-input">
+                            <input type="number" inputmode="decimal" id="overtimeFactor" value="${settings.overtimeFactor}" min="1" max="3" step="0.25" class="form-input">
                         </div>
                         <div class="form-group">
                             <label class="form-label" style="display: flex; align-items: center; gap: 8px;">
@@ -96,7 +103,7 @@ export function SettingsTabCalendar(context) {
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <input type="number" inputmode="decimal" 
                                        id="holidayFactor" 
-                                       value="${state.settings.holidayFactor}" 
+                                       value="${settings.holidayFactor}"${' '}
                                        min="1" 
                                        max="5" 
                                        step="0.5"
@@ -153,7 +160,7 @@ export function SettingsTabCalendar(context) {
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <input type="number" inputmode="decimal" 
                                    id="defaultDeductionPercentage" 
-                                   value="${state.settings.defaultDeductionPercentage || 2}" 
+                                       value="${settings.defaultDeductionPercentage || 2}"${' '}
                                    min="0" 
                                    max="100"
                                    step="0.5"
@@ -169,6 +176,6 @@ export function SettingsTabCalendar(context) {
             `;
 }
 
-function SettingsHolidayCalendar(context) {
-    return context.holidayService.renderSettingsCalendar();
+function SettingsHolidayCalendar(context, settings) {
+    return context.holidayService.renderSettingsCalendar(settings);
 }

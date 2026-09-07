@@ -1,18 +1,24 @@
 import payrollClosureSync from './PayrollClosureSync.js';
 
+let epoch = 0;
 let unsubscribe = null;
 
 export const PayrollClosureLiveSync = {
     start(options = {}) {
         this.stop();
-        unsubscribe = payrollClosureSync.subscribeRecent(options.onApply, {
+        const myEpoch = epoch;
+        const isCurrent = () => myEpoch === epoch;
+        const rawUnsubscribe = payrollClosureSync.subscribeRecent(options.onApply, {
             limit: options.limit || 100,
-            onError: options.onError
+            onError: options.onError,
+            isCurrent
         });
-        return unsubscribe;
+        unsubscribe = rawUnsubscribe;
+        return () => this.stop();
     },
 
     stop() {
+        epoch++;
         if (typeof unsubscribe === 'function') {
             try { unsubscribe(); } catch (error) {
                 console.warn('Payroll closure unsubscribe failed:', error);

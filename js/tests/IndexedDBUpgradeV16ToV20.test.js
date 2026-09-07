@@ -1,7 +1,7 @@
 /**
  * F1.4/G — REAL IndexedDB upgrade characterization: a database created and
  * seeded manually at version 16 (legacy stores only, no `projects`) must
- * upgrade through the REAL IndexedDBService (requests v17) creating the
+ * upgrade through the REAL IndexedDBService (requests v20) creating the
  * `projects` store WITHOUT losing or corrupting any legacy record.
  */
 
@@ -12,7 +12,7 @@ if (typeof globalThis.structuredClone !== 'function') {
     globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
 }
 
-const DB_NAME = 'attendance-app-db-upgrade-v16-v17';
+const DB_NAME = 'attendance-app-db-upgrade-v16-v20';
 
 const SEED = {
     employee: { id: 'EMP-legacy-0001', key: 'EMP-legacy-0001', number: 7, name: 'Legacy Ana', active: true, positions: [], updatedAt: 1000 },
@@ -59,7 +59,7 @@ function putAll(db, entries) {
     });
 }
 
-describe('IndexedDBService upgrade v16 → v17 (real)', () => {
+describe('IndexedDBService upgrade v16 → v20 (real)', () => {
     test('creates the projects store and keeps ALL legacy seeded records intact/readable', async () => {
         const legacyDb = await openV16WithLegacyStores(DB_NAME);
         expect(legacyDb.objectStoreNames.contains('projects')).toBe(false);
@@ -72,8 +72,8 @@ describe('IndexedDBService upgrade v16 → v17 (real)', () => {
         });
         legacyDb.close();
 
-        // Upgrade path under test: REAL service requests v17 over the v16 db.
-        const svc = new IndexedDBService(DB_NAME); // default constructor version = 17
+        // Upgrade path under test: REAL service requests v20 over the v16 db.
+        const svc = new IndexedDBService(DB_NAME); // default constructor version = 20
         await svc.init();
 
         expect(svc.db.objectStoreNames.contains('projects')).toBe(true);

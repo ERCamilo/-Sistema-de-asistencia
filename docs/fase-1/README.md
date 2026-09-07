@@ -3,9 +3,9 @@
 | Campo | Valor |
 |---|---|
 | Fase | Fase 1.0 (precondiciones para F1, según decisión de Dirección 2026-08-24/25) |
-| Estado | **F0 100%; F1.1–F1.5 cerradas** · arquitectura F1.6 aprobada con modificación · A0 técnicamente validado en `c7a9e0c`, pendiente de revisión formal de Dirección · A0.5 no iniciado · A1–A6 y F1.7 bloqueadas |
-| Punto de parada | F1.5: **354/354 suites · 3401 tests · 0 fallos**. Post-A0: **354/354 suites · 3409 tests · 0 fallos**; la evidencia técnica de A0 espera revisión formal |
-| Rama de trabajo | `fase-0-auditoria` (apilada sobre main; incluye también trabajo paralelo del dueño del repo) |
+| Estado | **F0 100%; F1.1–F1.5 cerradas** · F1.6: **A0–A5 ✅ cerrados; A6 en reconciliación de gates; B1–B3 con material mergeado y B3 congelado por contrato; B4–B5 🔒 · F1.7 🔒** · DEP-SA-004 cerrado |
+| Punto de parada | **A6 en reconciliación**: cerrar mutaciones legacy directas con Projects ON, conservar Tanda B y paridad OFF; no iniciar B4/B5 ni SA-Mini. |
+| Rama de trabajo | `feature/factor-dias-no-laborables` · commit de referencia `ae66121` (A5) / `6c1cb2c` (A4) · árbol limpio antes de esta reconciliación documental |
 
 ## Pasos
 
@@ -24,8 +24,15 @@
 | **Cierre pre-F1.4** | [`F1-preF14-cierre.md`](F1-preF14-cierre.md) | ✅ Ejecutado (S3–S5 + wiring + invariantes AppState + upgrade real) | Puerta para F1.4 |
 | **F1.4 Empleados/puestos/líderes** | [`F1.4-empleados-puestos-lideres.md`](F1.4-empleados-puestos-lideres.md) | ✅ Ejecutado (2 tandas + migración M2 + batería A/B) | ✅ CERRADA |
 | **F1.5 Asistencia multiproyecto** | [`F1.5-asistencia-multiproyecto.md`](F1.5-asistencia-multiproyecto.md) | ✅ Cerrada y aprobada por Dirección (incluye micro-cierre) · 354/354 suites, 3401 tests | ✅ CERRADA |
-| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | Arquitectura aprobada con modificación; A0 técnicamente validado (`c7a9e0c`, 354/354 suites · 3409 tests), pendiente revisión formal; A0.5 es la próxima puerta y A1–A6 están bloqueadas | F1.7 bloqueada hasta revisión/cierre F1.6 |
-| **F1.6-A0 Bitácora IDB por proyecto** | [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) | ✅ Bitácora evaluable — 3 ciclos RED→GREEN, contrato final `legacy-unresolved:*` y frontera de rollback; validación `c7a9e0c` / 354/354 · 3409 | Lectura obligatoria antes de A0.5 |
+| **F1.6 Nómina multiproyecto** | [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) | **A0–A5 ✅ cerrados; A6 en reconciliación; B1–B3 con material mergeado; B4–B5 🔒** | F1.7 🔒 requiere F1.6-A y F1.6-B completas, verificadas, revisadas y aprobadas; **no iniciar B4/B5 ni SA-Mini** |
+| **F1.6-A0 Bitácora IDB por proyecto** | [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-26** — bitácora evaluable 3 ciclos RED→GREEN (§2.1), contrato `explicit > default autoritativo > legacy-unresolved:*` (§2.2), verificación §3 (RecordKey 13/13, 12/12, 76 acotados, 354/354 · 3409, ALLOW); frontera rollback `c7a9e0c` | Lectura obligatoria — A0 cerrado |
+| **F1.6-A0.5 Bitácora identidad canónica** | [`F1.6-A0.5-bitacora.md`](F1.6-A0.5-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-27** — `51a7611` + `50343ee` (20/20, 360/360 · 3485, ALLOW 0 findings; DEP-SA-004 cerrado) | Registro histórico; estado vivo en este índice y en el documento F1.6 |
+| **F1.6-A1 Bitácora PayrollProjectContext** | [`F1.6-A1-bitacora.md`](F1.6-A1-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-28** — `185e1cd` (10/10, 55/55 · 361/361 · 3495, ALLOW 0 findings) | Registro histórico; A3 ya conecta parte de sus consumidores |
+| **F1.6-A2 Bitácora projectPayrollConfigs** | [`F1.6-A2-bitacora.md`](F1.6-A2-bitacora.md) | ✅ **Cerrado y aprobado por Dirección 2026-08-28** — `d5858dc` (7/7, 62/62 · 362/362 · 3502, ALLOW 0 findings) | Registro histórico; A3 ya consume configuración donde está conectado |
+| **F1.6-A3 Bitácora cálculo scoped** | [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) | ✅ **Cerrado y aprobado formalmente por Dirección 2026-08-28** — `1bd02b3` (6 archivos, +630/-9; 10/10 nuevos; 27/27 A1+A2+A3, 363/363 · 3512, ALLOW · 0 findings) | Registro histórico; A4 ✅ / A5 ✅ cerrados 2026-08-28/29 |
+| **F1.6-A4 Bitácora UI/configuración/preview scoped** | [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md) | ✅ **Cerrado y aprobado formalmente por Dirección 2026-08-28** — `6c1cb2c` (12 archivos, +1144/-26; 12/12 nuevos; 49/49, 365/365 · 3525, ALLOW · 0 findings) | Registro histórico; **A5 ✅ cerrado 2026-08-29** |
+| **F1.6-A5 H-05 exportConfig (transitorio)** | [`F1.6-A5-bitacora.md`](F1.6-A5-bitacora.md) | ✅ **Cerrado y aprobado formalmente por Dirección 2026-08-29** — `ae66121` (8 archivos, +243/-4; helper 24 líneas; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix de WARNING `Object.assign` vía `Object.assign` shallow copy) — helper `ExportConfigSanitizer` elimina solo `exportConfig`, preserva `payrollDefaults`/`projectPayrollConfigs`; sanea mirror/replace/snapshot + `getSnapshot`/`getFullState` + `PersistenceService` `_mirrorSnapshot` + `DataOps` frozen/`cleanCloud` + `app.js` `applyRemoteData`/`applyBackupData`/`prepareRestoredState`; verifica no resurrección tras sync/restore/snapshot con A→B→A y OFF paridad preservadas | **A5 ✅ cerrado — A6 en reconciliación**; B1–B3 material mergeado, B4–B5/F1.7 🔒 |
+| **F1.6-A6 Cierre de Tanda A — gates + matriz consolidada** | `F1.6-nomina-multiproyecto.md` §5 + Roadmap §7/§15 | 🔄 **En reconciliación** — Projects ON bloquea antes de mutar las rutas legacy directas y conserva la política Tanda B; OFF preserva legacy. B1–B3 ya tienen material mergeado; B4/B5 no se inicia | **Cerrar A6**; B4–B5 y F1.7 🔒 |
 | **F1.7 Caja chica multiproyecto** | Roadmap §7 | **BLOQUEADA** | Requiere F1.6 revisada y aprobada |
 
 Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
@@ -37,6 +44,29 @@ Orden de trabajo completa: [`F1.0-precondiciones.md`](F1.0-precondiciones.md)
 - ADRs **008–011** implementados/documentados para etapas previas; decisiones F1.6 **012–016** registradas en roadmap §13
 - Dependencias F1.6 **DEP-SA-002/004** registradas en roadmap §12; DEP-SA-003 conserva la política de pagos pendiente de B4
 - **A0 bitácora evaluable** → [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md) — deduplicación IDB por proyecto, 3 ciclos RED→GREEN y contrato `legacy-unresolved:*`
+- **A0.5 bitácora evaluable** → [`F1.6-A0.5-bitacora.md`](F1.6-A0.5-bitacora.md) — identidad canónica cross-device, registro/promoción/adopción SA-only, 20 tests (15+3-device + 2 micro-cierre MC1/MC2) y 2 WARNINGS ✅ resueltos en `50343ee` (ALLOW 0 findings)
+- **A1 bitácora evaluable** → [`F1.6-A1-bitacora.md`](F1.6-A1-bitacora.md) — frontera única `PayrollProjectContext`, captura antes de `await`, OFF paridad exacta, freeze, `#12` por `employeeId`, attendance snapshot, 10/10 + 55/55 · 361/361 · 3495, ALLOW 0 findings, sin wiring, `buildAttendanceIndex` intacto
+- **A2 bitácora evaluable** → [`F1.6-A2-bitacora.md`](F1.6-A2-bitacora.md) — store versionado `projectPayrollConfigs` por `projectId`, 10 campos, semilla atómica idempotente, flag OFF sin dual-write, A/B isolation, reload, canónico vs active, local-only sin cloud/wiring, 7/7 + 62/62 agrupada · 362/362 · 3502, ALLOW 0 findings, **✅ Cerrado y aprobado por Dirección 2026-08-28**
+- **A3 bitácora evaluable** → [`F1.6-A3-bitacora.md`](F1.6-A3-bitacora.md) — cálculo scoped en `PayrollService`, helpers contextuales en `PayrollPeriod`, snapshot con congelamiento de primer nivel, fail-closed, OFF síncrono, 10 tests nuevos; **✅ cerrado y aprobado formalmente: 27/27 · 363/363 · 3512 · ALLOW 0 findings**
+- **A4 bitácora evaluable** → [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md) — UI de configuración y preview scoped con `ProjectPayrollUIRuntime` + `ProjectPayrollConfigStore`, `config.payPeriod` productivo, invalidación sincrónica A→B y rebuild B→A, stale preview guard, OFF byte-idéntico, 12 tests nuevos; **✅ Cerrado y aprobado formalmente por Dirección 2026-08-28: 49/49 · 365/365 · 3525 · ALLOW 0 findings**
+- **A5 H-05 (✅ cerrado y aprobado formalmente 2026-08-29)** → [`F1.6-A5-bitacora.md`](F1.6-A5-bitacora.md) — `ae66121` (8 archivos, +243/-4; helper 24 líneas; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix `Object.assign` vía `Object.assign` shallow copy) — `exportConfig` transitorio saneado simétricamente en ALL frontiers (mirror/data/current, cloud replace, snapshots, DataOps local→cloud, restores/legacy ingresses); verifica no resurrección tras sync/restore/snapshot load; no borra `payrollDefaults`/`projectPayrollConfigs`; preserva A→B→A y OFF paridad; no toca PayrollClosure/closures/loans/economic adjustments/PDF/SplitX/economic cloud/petty cash
+- **A5 evidencia** → 17/17 (6 helper + 11 wiring), 56/56 agrupada, 366/366 · 3542, ALLOW · 0 findings tras corrección de WARNING (live-reference mutation → `Object.assign`); **A6 🟢 autorizado — cierre de Tanda A**
+- **A6 en reconciliación** → `F1.6-nomina-multiproyecto.md` §5 + Roadmap §7/§15 — gates con proyectos ON bloquean antes de mutar las rutas legacy directas (deducciones, bonos y adelantos), conservan la política Tanda B y preservan OFF; B1–B3 ya tienen material mergeado, B4–B5/F1.7 permanecen bloqueados
+
+## Contrato A4 — ✅ Cerrado y aprobado formalmente por Dirección 2026-08-28 · A5 ✅ cerrado 2026-08-29
+
+> A4 fue ejecutado exactamente en el orden congelado siguiente y quedó **cerrado y aprobado formalmente por Dirección 2026-08-28** sobre `6c1cb2c` (12/12, 49/49, 365/365 · 3525, ALLOW · 0 findings). A4 ✅ y A5 ✅ forman la base para **A6 🟢 autorizado exclusivamente (cierre de Tanda A)**.
+
+1. Con flag ON, UI de configuración y preview usan el `projectId` capturado y `projectPayrollConfigs` vía `ProjectPayrollUIRuntime`.
+2. Los callers productivos de período del preview usan `config.payPeriod` scoped.
+3. A→B invalida selección temporal, preview, período y caché de sesión; B→A reconstruye A.
+4. Una preview async iniciada en A permanece en A mientras una preview nueva usa B.
+5. Con flag OFF, la UI legacy permanece byte-idéntica.
+6. No se habilitan cierres, préstamos, ajustes persistidos, historial ni exportación final.
+7. No se trabaja H-05 completo ni se amplía la persistencia de `exportConfig`.
+8. Tests + fresh review completados sobre `6c1cb2c` (49/49, 365/365 · 3525, ALLOW · 0 findings); **A4 ✅ cerrado y aprobado — A5 ✅ cerrado 2026-08-29 — A6 🟢 autorizado**.
+
+Evidencia A4: `6c1cb2c` (12 archivos, +1144/-26; 12/12 nuevos, 49/49, 365/365 · 3525, ALLOW · 0 findings) — **✅ cerrado y aprobado 2026-08-28**. A5: `ae66121` (17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix `Object.assign`) — **✅ cerrado y aprobado 2026-08-29**. El cierre formal de A3 (`1bd02b3`) se basa en bitácora local, evidencia reportada y revisión. DEP-SA-004 cerrado.
 
 ## Commits de esta etapa
 
@@ -110,6 +140,6 @@ El trabajo paralelo del dueño vive en **worktrees separados** (ver `git worktre
 
 ## Cómo retomar
 
-1. Leer roadmap §12–§16, este índice, [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) y la bitácora evaluable [`F1.6-A0-bitacora.md`](F1.6-A0-bitacora.md).
-2. Estado: F0 al 100%; F1.1–F1.5 cerradas; **F1.6 con arquitectura aprobada y A0 técnicamente validado**, pendiente de revisión formal; no hay comportamiento funcional de nómina aceptado.
-3. Próxima acción: Dirección debe revisar la evidencia A0; después, iniciar únicamente A0.5. No iniciar A1–A6 ni F1.7 antes de validar A0.5.
+1. Leer roadmap §12–§16, este índice, [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md) y las bitácoras evaluables A0–A5, especialmente [`F1.6-A5-bitacora.md`](F1.6-A5-bitacora.md) como cierre formal A5 ✅ y [`F1.6-A4-bitacora.md`](F1.6-A4-bitacora.md) como cierre formal de A4.
+2. Estado exacto: **A0–A5 ✅ cerrados; A6 en reconciliación; B1–B3 con material mergeado y B3 congelado; B4–B5 🔒 · F1.7 🔒**. DEP-SA-004 cerrado.
+3. Próxima acción: **cerrar A6** — gates antes de toda mutación legacy de deducciones, bonos y adelantos con Projects ON; conservar la política Tanda B y la paridad OFF; no iniciar B4/B5 ni SA-Mini. Ver [`F1.6-nomina-multiproyecto.md`](F1.6-nomina-multiproyecto.md), [`F1.6-B3-contract.md`](F1.6-B3-contract.md) y Roadmap §7/§15.

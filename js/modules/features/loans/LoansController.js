@@ -38,6 +38,7 @@ import {
 import { findSimilarExistingLoan } from './LoanDuplicateDetector.js';
 import { resolveDuplicateAsDistinct, resolveDuplicateByDeleting } from './LoanDuplicateResolver.js';
 import { escapeHTML } from '../../utils/Sanitize.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 import {
     createLoanPaymentDraft,
     updateLoanPaymentDraft,
@@ -126,6 +127,7 @@ function alertMsg(msg, type = 'error') {
  * Idempotent — safe to run on every boot. Called from app.js after data load.
  */
 export function migrateAllAdvances() {
+    assertTandaBBlockedWhenScoped('LoansController.migrateAllAdvances');
     if (!state.employees) return 0;
     let total = 0;
     for (const emp of state.employees) {

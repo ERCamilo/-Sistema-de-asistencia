@@ -15,10 +15,10 @@ const appSource = fs.readFileSync(APP_PATH, 'utf8');
 
 testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
 
-    "app.js importa drainMainSyncOutbox de PersistenceService (U8)"() {
+    "app.js importa drainMainSyncOutboxUntilEmpty de PersistenceService (U8)"() {
         testRunner.assert(
-            /import\s*\{[^}]*drainMainSyncOutbox[^}]*\}\s*from\s+['"]\.\/modules\/services\/PersistenceService\.js['"]/.test(appSource),
-            "app.js debe importar drainMainSyncOutbox"
+            /import\s*\{[^}]*drainMainSyncOutboxUntilEmpty[^}]*\}\s*from\s+['"]\.\/modules\/services\/PersistenceService\.js['"]/.test(appSource),
+            "app.js debe importar drainMainSyncOutboxUntilEmpty"
         );
     },
 
@@ -37,7 +37,7 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
             'el badge ya no debe tener onPausedClick — reanudar vive en el toggle del CS');
     },
 
-    "el login (onAuthStateChanged) drena el outbox después de claimLocalOwnership (U8)"() {
+    "el login (onAuthStateChanged) drena el outbox antes de LiveSync (U8)"() {
         // Cierra la pestaña antes de que una subida termine, luego reconectás
         // o volvés a entrar: el login es uno de los dos triggers documentados
         // (junto con 'online') para reanudar pendientes — no basta esperar a
@@ -47,9 +47,24 @@ testRunner.addSuite("app.js — Cableado de migración (Fase 4.1)", {
         // drenar no tendría sentido (clearAll() ya vació también el outbox).
         const idx = appSource.lastIndexOf('claimLocalOwnership(user.uid);');
         testRunner.assert(idx !== -1, 'debe existir la llamada a claimLocalOwnership en el login');
-        const after = appSource.slice(idx, idx + 400);
-        testRunner.assert(/drainMainSyncOutbox\s*\(\s*\)/.test(after),
-            'debe llamarse drainMainSyncOutbox() después de claimLocalOwnership al iniciar sesión');
+        const after = appSource.slice(idx, idx + 700);
+        testRunner.assert(/await\s+runAuthStartupAfterDrain/.test(after),
+            'debe esperarse la orquestación de outbox antes de iniciar LiveSync');
+        testRunner.assert(/startAfterDrain:\s*\(\)\s*=>\s*startPayrollLiveSyncAfterOutboxDrain/.test(after),
+            'el login debe delegar el drenado al helper de Payroll');
+        testRunner.assert(/drainOutbox:\s*\(\)\s*=>\s*drainMainSyncOutboxUntilEmpty\(\)/.test(after),
+            'el login debe usar drainMainSyncOutboxUntilEmpty antes de LiveSync');
+        testRunner.assert(/isCurrent:\s*_isCurrentAuthCallback/.test(after),
+            'el helper de Payroll debe recibir el guard de auth');
+    },
+
+    "el callback de auth captura generación y UID esperado"() {
+        testRunner.assert(/_authStartupGuard\.begin\(user\)/.test(appSource),
+            'cada callback debe capturar una generación nueva');
+        testRunner.assert(/getCurrentUid:\s*\(\)\s*=>\s*auth\.currentUser\?\.uid/.test(appSource),
+            'el predicado debe leer el UID actual de Firebase');
+        testRunner.assert(/createAuthStartupGuard/.test(appSource),
+            'app.js debe usar el seam compartido de auth startup');
     },
 
     "app.js importa loadAndMigrateEmployees"() {

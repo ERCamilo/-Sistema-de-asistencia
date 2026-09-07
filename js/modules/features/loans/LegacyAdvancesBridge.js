@@ -21,6 +21,7 @@ import { render } from '../../core/RenderManager.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import { syncProfileToMaster } from '../profile/index.js';
 import { recordNestedTombstone } from '../../services/NestedTombstones.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 // ─── ID generator (kept compatible with the legacy ADV-{ts} format) ──────────
 
@@ -118,6 +119,7 @@ function notify(msg, type = 'info') {
 }
 
 export function addAdvance() {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.addAdvance');
     const profile = state.employeeProfile;
     if (!profile) return;
     addAdvanceTo(profile, getDateKey(new Date()));
@@ -126,6 +128,7 @@ export function addAdvance() {
 }
 
 export function removeAdvance(index) {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.removeAdvance');
     const profile = state.employeeProfile;
     if (!profile) return;
     removeAdvanceAt(profile, parseInt(index, 10));
@@ -134,24 +137,28 @@ export function removeAdvance(index) {
 }
 
 export function updateAdvanceValue(index, value) {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.updateAdvanceValue');
     updateAdvanceField(state.employeeProfile, parseInt(index, 10), 'amount', value);
     syncProfileToMaster(state.employeeProfile?.employeeId);
     refreshPayrollUI();
 }
 
 export function updateAdvanceDate(index, value) {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.updateAdvanceDate');
     updateAdvanceField(state.employeeProfile, parseInt(index, 10), 'date', value);
     syncProfileToMaster(state.employeeProfile?.employeeId);
     refreshPayrollUI();
 }
 
 export function updateAdvanceInterest(index, value) {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.updateAdvanceInterest');
     updateAdvanceField(state.employeeProfile, parseInt(index, 10), 'interest', value);
     syncProfileToMaster(state.employeeProfile?.employeeId);
     refreshPayrollUI();
 }
 
 export function updateAdvanceNote(index, value) {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.updateAdvanceNote');
     updateAdvanceField(state.employeeProfile, parseInt(index, 10), 'note', value);
     syncProfileToMaster(state.employeeProfile?.employeeId);
     refreshPayrollUI();
@@ -163,6 +170,7 @@ export function editAdvance(index) {
 }
 
 export function saveAdvance(index) {
+    assertTandaBBlockedWhenScoped('LegacyAdvancesBridge.saveAdvance');
     clearEditing(state.employeeProfile, parseInt(index, 10));
     // Toast honesto con el resultado real (lo emite el SaveOutcomeNotifier).
     syncProfileToMaster(state.employeeProfile?.employeeId, { announce: 'Adelanto guardado' });

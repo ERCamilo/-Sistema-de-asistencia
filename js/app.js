@@ -1,5 +1,5 @@
 import FirebaseService from './modules/services/FirebaseService.js';
-import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutbox, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
+import { saveApplicationData, saveToIndexedDB, loadApplicationData, validateDataIntegrity, prepareDataForNewAccount, createAutoBackup, restoreAutoBackup, sanitizePositions, loadDemoDataIntoDB, drainMainSyncOutboxUntilEmpty, retryFailedCloudSync, ensureAttendanceRange } from './modules/services/PersistenceService.js';
 import { hydrateApplicationAndInitializeWeather } from './modules/core/StartupOrchestrator.js';
 import { attendanceSyncTracker } from './modules/services/AttendanceSyncTracker.js';
 import { BatchedSaver, shouldReleaseApplyingFlag } from './modules/utils/BatchedSaver.js';
@@ -41,7 +41,16 @@ import {
 import { recordNestedTombstone } from './modules/services/NestedTombstones.js';
 import { PettyCashStore } from './modules/features/pettycash/PettyCashStore.js';
 import { initProjectsInfrastructure } from './modules/features/projects/ProjectsBoot.js';
+import { resetEntityScope } from './modules/features/projects/EntityProjectScope.js';
+import { MainSyncStore } from './modules/services/MainSyncStore.js';
+import { PayrollClosureLiveSync } from './modules/features/payroll/PayrollClosureLiveSync.js';
+import { startPayrollLiveSyncAfterOutboxDrain } from './modules/features/payroll/PayrollClosureLiveSyncStartup.js';
+import { createAuthStartupGuard, runAuthStartupAfterDrain } from './modules/services/AuthStartupGuard.js';
+import { projectContext } from './modules/features/projects/ProjectContext.js';
+import { auth } from './modules/data/firebase.js';
+import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
+import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
@@ -101,6 +110,8 @@ import {
 } from './modules/features/attendance/AttendanceBulkActions.js';
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
 import { entityInScope } from './modules/features/projects/ProjectContext.js';
+import { isProjectsEnabled } from './modules/config/FeatureFlags.js';
+import { assertTandaBBlockedWhenScoped } from './modules/config/TandaBGate.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
 import { DateUtils, parseDate, getDateKey, isDayHoliday, formatDate, formatDateShort, formatMonthYear, formatDateRangeWithMonth, wasEmployeeActiveOnDate, wasEmployeeActiveInRange, getWeekRangeText as pillWeekRange } from './modules/utils/DateUtils.js';
 import { normalizeRegularHoursPerDay, resolveDailyTargetHours } from './modules/utils/AttendanceHours.js';
@@ -122,6 +133,7 @@ import { ComponentBase } from './modules/components/ComponentBase.js';
 import { AttendanceService } from './modules/features/attendance/AttendanceService.js';
 import { HolidayService } from './modules/features/attendance/HolidayService.js';
 import { PayrollService } from './modules/features/payroll/PayrollService.js';
+import { ProjectPayrollUIRuntime } from './modules/features/payroll/ProjectPayrollUIRuntime.js';
 import { getBalance, getPayrollDeductionOptions } from './modules/features/loans/LoansService.js';
 import { ChartService } from './modules/features/analytics/ChartService.js';
 // Importación de datos demo eliminada (ahora se usa DemoSeed.js mediante PersistenceService)
@@ -1050,6 +1062,7 @@ const holidayService = new HolidayService(state);
 
 // 💰 CLASE PAYROLLSERVICE
 const payrollService = new PayrollService(state);
+const payrollUIRuntime = new ProjectPayrollUIRuntime({ state });
 
 // 📈 CLASE CHARTSERVICE
 const chartService = new ChartService(state);
@@ -1061,6 +1074,8 @@ initSettingsUI({
     state,
     icons,
     holidayService,
+    payrollRuntime: payrollUIRuntime,
+    render,
     get currentUser() { return window.currentUser; },
     get autoSyncEnabled() { return autoSyncEnabled; },
     calculateStorageStats: () => calculateStorageStats()
@@ -1098,6 +1113,7 @@ const moduleContext = {
     state,
     services: {
         payroll: payrollService,
+        payrollRuntime: payrollUIRuntime,
         attendance: attendanceService,
         storage: storageService,
         data: dataService,
@@ -1915,6 +1931,8 @@ window.restoreSnapshot = async (snapshotId) => {
                 // flujo de restauración vivo nunca los leía. Y reinstanciar
                 // las clases: los objetos planos del snapshot rompen los
                 // métodos de Employee/Position/Leader en el resto de la app.
+                // H-05 A5: sanitize legacy snapshot ingress before prepare
+                if (snapshot.state && typeof snapshot.state === 'object') sanitizeExportConfig(snapshot.state);
                 const prepared = prepareRestoredState(snapshot.state);
                 state.employees = prepared.employees.map(e => new Employee(e));
                 state.positions = prepared.positions.map(p => new Position(p));
@@ -2585,6 +2603,7 @@ window.changeChartPeriod = (period) => { state.chartPeriod = period; render(); }
 
 
 window.addDeduction = () => {
+    assertTandaBBlockedWhenScoped('app.addDeduction');
     if (!state.employeeProfile.deductions) state.employeeProfile.deductions = [];
 
     const defaultPercentage = state.settings.defaultDeductionPercentage || 2;
@@ -2599,6 +2618,7 @@ window.addDeduction = () => {
 };
 
 window.removeDeduction = (index) => {
+    assertTandaBBlockedWhenScoped('app.removeDeduction');
     // 🪦 P1: registrar el tombstone ANTES del splice — sin esto, el merge
     // con la nube (unionById) resucitaba el item borrado.
     const _deleted = state.employeeProfile.deductions[index];
@@ -2609,6 +2629,7 @@ window.removeDeduction = (index) => {
 };
 
 window.updateDeductionType = (index, type) => {
+    assertTandaBBlockedWhenScoped('app.updateDeductionType');
     if (state.employeeProfile.deductions[index]) {
         state.employeeProfile.deductions[index].type = type;
         syncProfileToMaster(state.employeeProfile.employeeId);
@@ -2617,6 +2638,7 @@ window.updateDeductionType = (index, type) => {
 };
 
 window.updateDeductionValue = (index, value) => {
+    assertTandaBBlockedWhenScoped('app.updateDeductionValue');
     if (state.employeeProfile.deductions[index]) {
         state.employeeProfile.deductions[index].value = parseFloat(value) || 0;
         syncProfileToMaster(state.employeeProfile.employeeId);
@@ -2626,6 +2648,7 @@ window.updateDeductionValue = (index, value) => {
 
 // 🎁 SISTEMA DE BONIFICACIONES / PAGOS
 window.addBonus = () => {
+    assertTandaBBlockedWhenScoped('app.addBonus');
     if (!state.employeeProfile.bonuses) state.employeeProfile.bonuses = [];
 
     state.employeeProfile.bonuses.push({
@@ -2639,6 +2662,7 @@ window.addBonus = () => {
 };
 
 window.removeBonus = (index) => {
+    assertTandaBBlockedWhenScoped('app.removeBonus');
     // 🪦 P1: tombstone antes del splice (ver removeDeduction).
     const _deleted = state.employeeProfile.bonuses[index];
     if (_deleted?.id) recordNestedTombstone(state.employeeProfile, 'bonuses', _deleted.id);
@@ -2648,6 +2672,7 @@ window.removeBonus = (index) => {
 };
 
 window.updateBonusType = (index, type) => {
+    assertTandaBBlockedWhenScoped('app.updateBonusType');
     if (state.employeeProfile.bonuses[index]) {
         state.employeeProfile.bonuses[index].type = type;
         syncProfileToMaster(state.employeeProfile.employeeId);
@@ -2656,6 +2681,7 @@ window.updateBonusType = (index, type) => {
 };
 
 window.updateBonusValue = (index, value) => {
+    assertTandaBBlockedWhenScoped('app.updateBonusValue');
     if (state.employeeProfile.bonuses[index]) {
         state.employeeProfile.bonuses[index].value = parseFloat(value) || 0;
         syncProfileToMaster(state.employeeProfile.employeeId);
@@ -2691,6 +2717,7 @@ eventBus.on('render:complete', () => {
 // read from it. A migration runs on each profile open to mirror legacy data
 // into emp.loans[].
 window.addAdvance = () => {
+    assertTandaBBlockedWhenScoped('app.addAdvance');
     if (!state.employeeProfile.advances) state.employeeProfile.advances = [];
 
     const newIndex = state.employeeProfile.advances.length;
@@ -2712,6 +2739,7 @@ window.addAdvance = () => {
 };
 
 window.removeAdvance = (index) => {
+    assertTandaBBlockedWhenScoped('app.removeAdvance');
     // 🪦 P1: tombstone antes del splice (ver removeDeduction).
     const _deleted = state.employeeProfile.advances[index];
     if (_deleted?.id) recordNestedTombstone(state.employeeProfile, 'advances', _deleted.id);
@@ -2721,6 +2749,7 @@ window.removeAdvance = (index) => {
 };
 
 window.updateAdvanceValue = (index, amount) => {
+    assertTandaBBlockedWhenScoped('app.updateAdvanceValue');
     if (state.employeeProfile.advances[index]) {
         state.employeeProfile.advances[index].amount = parseFloat(amount) || 0;
         syncAdvancesAndSave(); // ⚡ Auto-save
@@ -2729,6 +2758,7 @@ window.updateAdvanceValue = (index, amount) => {
 };
 
 window.updateAdvanceDate = (index, date) => {
+    assertTandaBBlockedWhenScoped('app.updateAdvanceDate');
     if (state.employeeProfile.advances[index]) {
         state.employeeProfile.advances[index].date = date;
         syncAdvancesAndSave(); // ⚡ Auto-save
@@ -2737,6 +2767,7 @@ window.updateAdvanceDate = (index, date) => {
 };
 
 window.updateAdvanceInterest = (index, interest) => {
+    assertTandaBBlockedWhenScoped('app.updateAdvanceInterest');
     if (state.employeeProfile.advances[index]) {
         state.employeeProfile.advances[index].interest = parseFloat(interest) || 0;
         syncAdvancesAndSave(); // ⚡ Auto-save
@@ -2745,6 +2776,7 @@ window.updateAdvanceInterest = (index, interest) => {
 };
 
 window.updateAdvanceNote = (index, note) => {
+    assertTandaBBlockedWhenScoped('app.updateAdvanceNote');
     if (state.employeeProfile.advances[index]) {
         state.employeeProfile.advances[index].note = note;
         syncAdvancesAndSave(); // ⚡ Auto-save
@@ -2753,6 +2785,7 @@ window.updateAdvanceNote = (index, note) => {
 };
 
 window.saveAdvance = (index) => {
+    assertTandaBBlockedWhenScoped('app.saveAdvance');
     // ⚡ FIX (Bug #2): Close edit mode for this row so the user sees the
     // saved summary (the dead-code version used to do this; the live
     // version didn't, leaving rows perpetually expanded).
@@ -2775,6 +2808,7 @@ function syncAdvancesAndSave(saveOptions = {}) {
 // ⚡ NUEVO: Función principal para actualizar toda la interfaz de nómina
 function updatePayrollUI(payrollOverride = null) {
     if (!state.showEmployeeProfile || state.employeeProfile.activeTab !== 'nomina') return;
+    if (isProjectsEnabled()) return;
     
     const empId = state.employeeProfile.employeeId;
     const emp = state.employees.find(e => e.id === empId);
@@ -5224,6 +5258,20 @@ window.changeSettingsCalendarMonth = function (delta) {
 
 // ═══ SISTEMA DE TOGGLE BUTTONS PARA CALENDARIO ═══
 window.handleCalendarDayClick = function (dateKey) {
+    if (isProjectsEnabled()) {
+        payrollUIRuntime.updateConfig(config => {
+            const next = { ...config, holidays: [...config.holidays], payPeriod: { ...config.payPeriod } };
+            const mode = state.settingsCalendarMode || 'holiday';
+            if (mode === 'holiday') {
+                next.holidays = next.holidays.includes(dateKey)
+                    ? next.holidays.filter(value => value !== dateKey)
+                    : [...next.holidays, dateKey].sort();
+            } else if (mode === 'periodStart') next.payPeriod.periodStart = dateKey;
+            else if (mode === 'payDay') next.payPeriod.payDay = dateKey;
+            return next;
+        }).then(() => render()).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        return;
+    }
     holidayService.handleCalendarDayClick(dateKey, () => saveApplicationData());
     render();
 };
@@ -5241,6 +5289,17 @@ window.changeSettingsCalendarMode = function (mode) {
 // ============================================
 
 window.updatePayPeriod = function (field, value) {
+    if (isProjectsEnabled()) {
+        payrollUIRuntime.updateConfig(config => {
+            const payPeriod = { ...config.payPeriod };
+            if (field === 'periodLength') {
+                const num = parseInt(value, 10);
+                if (Number.isInteger(num) && num >= 1 && num <= 60) payPeriod.periodLength = num;
+            } else if (field === 'periodStart' || field === 'payDay') payPeriod[field] = value || null;
+            return { ...config, payPeriod };
+        }).then(() => render()).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        return;
+    }
     if (!state.settings.payPeriod) {
         state.settings.payPeriod = { periodStart: null, periodLength: 21, payDay: null };
     }
@@ -5257,6 +5316,25 @@ window.updatePayPeriod = function (field, value) {
 };
 
 window.advancePayPeriod = function () {
+    if (isProjectsEnabled()) {
+        const pp = payrollUIRuntime.getCurrentView().config?.payPeriod;
+        if (!pp?.periodStart || !pp?.periodLength) {
+            showNotification('❌ Configura el inicio y duración del período primero', 'error');
+            return;
+        }
+        const start = new Date(`${pp.periodStart}T00:00:00`);
+        start.setDate(start.getDate() + pp.periodLength);
+        const payPeriod = { ...pp, periodStart: getDateKey(start) };
+        if (pp.payDay) {
+            const payDay = new Date(`${pp.payDay}T00:00:00`);
+            payDay.setDate(payDay.getDate() + pp.periodLength);
+            payPeriod.payDay = getDateKey(payDay);
+        }
+        payrollUIRuntime.updateConfig(config => ({ ...config, payPeriod }))
+            .then(() => render())
+            .catch(error => showNotification(`❌ ${error.message}`, 'error'));
+        return;
+    }
     const pp = state.settings.payPeriod;
     if (!pp?.periodStart || !pp?.periodLength) {
         showNotification('❌ Configura el inicio y duración del período primero', 'error');
@@ -5598,24 +5676,33 @@ window.commitIconSet = function (value) {
     saveApplicationData();
 };
 window.saveSettings = function () {
+    const projectsEnabled = isProjectsEnabled();
+    const projectView = projectsEnabled ? payrollUIRuntime.getCurrentView() : null;
+    const projectSettings = projectsEnabled
+        ? projectView.config
+        : state.settings;
+    if (projectsEnabled && !projectSettings) {
+        showNotification(`❌ Payroll config unavailable for project "${projectView.projectId}"`, 'error');
+        return;
+    }
     // Leer valores del formulario
     const companyNameElement = document.getElementById('companyName');
     const companyName = companyNameElement ? companyNameElement.value.trim() : state.settings.companyName;
 
     const regularHoursPerDayElement = document.getElementById('regularHoursPerDay');
-    const regularHoursPerDay = regularHoursPerDayElement ? parseFloat(regularHoursPerDayElement.value) : state.settings.regularHoursPerDay;
+    const regularHoursPerDay = regularHoursPerDayElement ? parseFloat(regularHoursPerDayElement.value) : projectSettings.regularHoursPerDay;
 
     const overtimeFactorElement = document.getElementById('overtimeFactor');
-    const overtimeFactor = overtimeFactorElement ? parseFloat(overtimeFactorElement.value) : state.settings.overtimeFactor;
+    const overtimeFactor = overtimeFactorElement ? parseFloat(overtimeFactorElement.value) : projectSettings.overtimeFactor;
 
     const holidayFactorElement = document.getElementById('holidayFactor');
-    const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : state.settings.holidayFactor;
+    const holidayFactor = holidayFactorElement ? parseFloat(holidayFactorElement.value) : projectSettings.holidayFactor;
     const restDayFactorElement = document.getElementById('restDayFactor');
     const restDayFactor = restDayFactorElement ? parseFloat(restDayFactorElement.value) : (state.settings.restDayFactor || 1.5);
 
     // ⚡ Leer configuración de nómina
     const defaultDeductionPercentageElement = document.getElementById('defaultDeductionPercentage');
-    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (state.settings.defaultDeductionPercentage || 2);
+    const defaultDeductionPercentage = defaultDeductionPercentageElement ? (parseFloat(defaultDeductionPercentageElement.value) || 2) : (projectSettings.defaultDeductionPercentage || 2);
     // iconSet NO se lee del DOM: es un control auto-commit (window.commitIconSet).
 
     const scrollbarMode = document.getElementById('scrollbarMode')?.value || state.settings.scrollbarMode;
@@ -5692,13 +5779,24 @@ window.saveSettings = function () {
     }
 
     // Guardar configuración
+    const scopedConfigSave = projectsEnabled
+        ? payrollUIRuntime.updateConfig(config => ({
+            ...config,
+            regularHoursPerDay,
+            overtimeFactor,
+            holidayFactor,
+            defaultDeductionPercentage
+        }))
+        : null;
     stateManager.batchSetState(() => {
         state.settings.companyName = companyName;
-        state.settings.regularHoursPerDay = regularHoursPerDay;
-        state.settings.overtimeFactor = overtimeFactor;
-        state.settings.holidayFactor = holidayFactor;
+        if (!projectsEnabled) {
+            state.settings.regularHoursPerDay = regularHoursPerDay;
+            state.settings.overtimeFactor = overtimeFactor;
+            state.settings.holidayFactor = holidayFactor;
+        }
         state.settings.restDayFactor = restDayFactor;
-        state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
+        if (!projectsEnabled) state.settings.defaultDeductionPercentage = defaultDeductionPercentage;
         state.settings.scrollbarMode = scrollbarMode;
         state.settings.showAttendanceCardDeficit = showAttendanceCardDeficit;
         state.settings.attendanceDeficitUnit = attendanceDeficitUnit;
@@ -5729,6 +5827,12 @@ window.saveSettings = function () {
     state.settings.updatedAt = Date.now();
     state.settings._isDirty = true;
 
+    if (scopedConfigSave) {
+        return scopedConfigSave.then(() => {
+            saveApplicationData({ announce: 'Configuración guardada' });
+            render();
+        }).catch(error => showNotification(`❌ ${error.message}`, 'error'));
+    }
     // Toast honesto: verde solo si de verdad se guardó (local + nube).
     saveApplicationData({ announce: 'Configuración guardada' });
     render();
@@ -5809,6 +5913,11 @@ window.createFirebaseSnapshot = async function (type = 'auto', reason = null) {
 async function applyBackupData(importedData) {
     try {
         const data = importedData.data;
+        // H-05 A5: ingress legacy backup/snapshot — sanear exportConfig transitorio antes de aplicar
+        if (data && typeof data === 'object') sanitizeExportConfig(data);
+        if (importedData && typeof importedData === 'object') sanitizeExportConfig(importedData);
+        // Also sanitize .state if snapshot shape { state: {...} }
+        if (data && data.state && typeof data.state === 'object') sanitizeExportConfig(data.state);
 
         // Sobrescribir estado (Atomicity local)
         state.settings = data.settings || state.settings;
@@ -7017,9 +7126,38 @@ function _initOutgoingConflictGuard() {
     // Una pausa MANUAL del usuario (sin marcador de restauración) no se toca.
     healOrphanedRestorePause();
 
+    // A0.5 G2–G5: trackers for uid isolation and listener cleanup (SA-only)
+    let _lastAuthUid = null;
+    let _mirrorUnsub = null;
+    let _settingsUnsub = null;
+    const _authStartupGuard = createAuthStartupGuard({
+        getCurrentUid: () => auth.currentUser?.uid ?? null
+    });
+
     // This flag coordinates the first cloud snapshot only. The boot loader has
     // its own lifecycle in boot-loader.js and is controlled through app events.
     let isInitialLoad = true;
+
+    function _canStartPayrollLiveSync() {
+        if (!auth?.currentUser) return false;
+        if (!isProjectsEnabled()) return false;
+        try { _payrollClosureRepositoryInternals.captureScopedScope(); return true; } catch (_) { return false; }
+    }
+    function _attemptPayrollLiveSync() {
+        if (_canStartPayrollLiveSync()) {
+            try { PayrollClosureLiveSync.start({ onApply: () => window.render?.(), onError: e => console.error('Payroll closure live sync failed:', e) }); } catch (e) { console.warn('Payroll LiveSync start failed:', e); }
+        } else { PayrollClosureLiveSync.stop(); }
+    }
+    try {
+        projectContext.subscribe(({ previousProjectId, projectId }) => {
+            const changed = String(previousProjectId || '') !== String(projectId || '');
+            if (!changed && PayrollClosureLiveSync.isActive()) return;
+            PayrollClosureLiveSync.stop();
+            if (_canStartPayrollLiveSync()) {
+                try { PayrollClosureLiveSync.start({ onApply: () => window.render?.(), onError: e => console.error('Payroll closure live sync failed:', e) }); } catch (_) {}
+            }
+        });
+    } catch (_) {}
 
     // 💾 Diálogo de recuperación cuando el almacenamiento local (IndexedDB) no
     // pudo abrirse en el arranque. Recibe el nombre del error tipado que produjo
@@ -7093,7 +7231,9 @@ function _initOutgoingConflictGuard() {
 
         // 1.2 Migrar emp.advances[] (legacy) → emp.loans[] (Sprint loans, 2026-05-20).
         // Idempotent. Only writes back to DB if at least one record was migrated.
-        migrateAllAdvances();
+        // Projects ON keeps legacy Tanda B advances immutable; the controller
+        // also guards direct callers, while boot skips this legacy migration.
+        if (!isProjectsEnabled()) migrateAllAdvances();
         try {
             await migrateLegacyPayrollClosures(state.employees, {
                 schemaVersion: state.settings?.schemaVersion
@@ -7116,7 +7256,7 @@ function _initOutgoingConflictGuard() {
         // los datos locales de este dispositivo. Dos salidas seguras:
         //   - Borrar lo local y recargar (la nube de ESTA cuenta será la verdad).
         //   - Cerrar sesión y dejar lo local intacto.
-        async function handleLocalOwnerMismatch(user) {
+        async function handleLocalOwnerMismatch(user, isCurrent = () => true) {
             console.warn('🔐 Datos locales pertenecen a otra cuenta. Sincronización bloqueada hasta resolver.');
             const wipeAndContinue = await Modal.confirm({
                 title: '🔐 Este dispositivo tiene datos de otra cuenta',
@@ -7132,6 +7272,8 @@ function _initOutgoingConflictGuard() {
                 type: 'danger'
             });
 
+            if (!isCurrent()) return false;
+
             if (wipeAndContinue) {
                 // JD-F6 (ALTO, hallazgo mutuo de ambos jueces): la limpieza
                 // manual vieja (3 claves sueltas + clearAll) no purgaba el
@@ -7143,6 +7285,7 @@ function _initOutgoingConflictGuard() {
                 // nueva. wipeAllLocalTraces cubre ambas cosas + el manifiesto
                 // completo (la pausa de subida heredada, caché de caja chica…).
                 const wipeResult = await wipeAllLocalTraces();
+                if (!isCurrent()) return false;
                 if (!wipeResult.ok) {
                     console.warn('⚠️ Wipe de cambio de cuenta parcial:', wipeResult.errors);
                 }
@@ -7151,6 +7294,7 @@ function _initOutgoingConflictGuard() {
                 setTimeout(() => location.reload(), 900);
             } else {
                 await FirebaseService.logout();
+                if (!isCurrent()) return false;
                 window.currentUser = null;
                 showNotification('🔒 Sesión cerrada. Los datos locales quedaron intactos.', 'info');
                 render();
@@ -7159,6 +7303,9 @@ function _initOutgoingConflictGuard() {
 
         // 4. Inicializar Auth y Sincronización (Tiempo Real)
         FirebaseService.onAuthStateChanged(async (user) => {
+            const _authCallback = _authStartupGuard.begin(user);
+            const _isCurrentAuthCallback = _authCallback.isCurrent;
+
             // Estandarización de Scope Global
             window.currentUser = user;
             if (window.App) window.App.currentUser = user;
@@ -7172,7 +7319,8 @@ function _initOutgoingConflictGuard() {
                     state.modalType = null;
                 });
             }
-
+            // A0.5 G2–G5: aislamiento por uid — limpiar scope/colas/listeners al cambiar de cuenta o cerrar sesión
+            { const _prevUid=_lastAuthUid; const _nextUid=user?String(user.uid):null; const _isSwitch=!!(_prevUid&&_nextUid&&_prevUid!==_nextUid); const _isLogout=!!(_prevUid&&!_nextUid); if(_isSwitch||_isLogout){ try{PayrollClosureLiveSync.stop()}catch(_){} try{resetEntityScope()}catch(_){} try{await MainSyncStore.clearAll()}catch(_){} if(!_isCurrentAuthCallback())return; try{if(typeof _mirrorUnsub==='function')_mirrorUnsub()}catch(_){} try{if(typeof _settingsUnsub==='function')_settingsUnsub()}catch(_){} try{if(typeof window._attendanceUnsubscribe==='function')window._attendanceUnsubscribe()}catch(_){} try{if(typeof EmployeesLiveSync.stop==='function')EmployeesLiveSync.stop()}catch(_){} try{if(typeof PositionsLiveSync.stop==='function')PositionsLiveSync.stop()}catch(_){} try{if(typeof LeadersLiveSync.stop==='function')LeadersLiveSync.stop()}catch(_){} _mirrorUnsub=null;_settingsUnsub=null; if(typeof window._attendanceUnsubscribe!=='undefined')window._attendanceUnsubscribe=null; if(typeof window._currentSubRange!=='undefined')window._currentSubRange=null; if(_isSwitch){ try{localStorage.removeItem('asistencia_default_project_id')}catch(_){} try{localStorage.removeItem('asistencia_active_project_id')}catch(_){} try{localStorage.removeItem('migration.projectAdoption.v1')}catch(_){} } } _lastAuthUid=_nextUid; if(!user) try{PayrollClosureLiveSync.stop()}catch(_){} }
             state.syncStatus = user ? 'synced' : 'idle';
             render(); // Actualización inmediata de UI (Perfil/SyncStatus)
 
@@ -7210,41 +7358,56 @@ function _initOutgoingConflictGuard() {
                     localHasData: !localStateIsEmpty(state)
                 });
                 if (_ownership === 'mismatch') {
-                    await handleLocalOwnerMismatch(user);
+                    await handleLocalOwnerMismatch(user, _isCurrentAuthCallback);
+                    if (!_isCurrentAuthCallback()) return;
                     return; // El flujo continúa tras el wipe+reload o el logout.
                 }
-                claimLocalOwnership(user.uid);
-
+                claimLocalOwnership(user.uid);try{await initProjectsInfrastructure({uid:user.uid})}catch(_){}
+                if (!_isCurrentAuthCallback()) return;
                 // 🚚 U8: reanudar subidas a la nube que quedaron pendientes de una
                 // sesión anterior (pestaña cerrada a medio subir). No espera a que
                 // el usuario haga otro cambio cualquiera para disparar la sync.
-                drainMainSyncOutbox().catch(e => console.warn('⚠️ Error drenando outbox al iniciar sesión:', e));
+                await runAuthStartupAfterDrain({
+                    isCurrent: _isCurrentAuthCallback,
+                    startAfterDrain: () => startPayrollLiveSyncAfterOutboxDrain({
+                        drainOutbox: () => drainMainSyncOutboxUntilEmpty(),
+                        attemptLiveSync: _attemptPayrollLiveSync,
+                        isCurrent: _isCurrentAuthCallback
+                    }),
+                    continueStartup: async ({ isCurrent }) => {
+                        if (!isCurrent()) return;
 
-                // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
-                window.startPettyCashSync?.();
+                        // 💵 Caja chica: cargar de Firestore + arrancar live sync (idempotente).
+                        window.startPettyCashSync?.();
+                        if (!isCurrent()) return;
 
-                // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2 - no bloqueante) ---
-                if (state.isDataLoaded) {
-                    (async () => {
-                        try {
-                            const cloudData = await FirebaseService.getFullState();
-                            // Si no hay datos en la nube pero sí locales, migramos de inmediato
-                            if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
-                                debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
-                                await FirebaseService.saveFullState(state);
-                                if (Object.keys(state.attendance).length > 0) {
-                                    await FirebaseService.syncHistory(state.attendance);
+                        // --- LÓGICA DE MIGRACIÓN INICIAL (Fase 2 - no bloqueante) ---
+                        if (state.isDataLoaded && isCurrent()) {
+                            (async () => {
+                                try {
+                                    if (!isCurrent()) return;
+                                    const cloudData = await FirebaseService.getFullState();
+                                    if (!isCurrent()) return;
+                                    // Si no hay datos en la nube pero sí locales, migramos de inmediato
+                                    if (!cloudData && (state.employees.length > 0 || state.positions.length > 0)) {
+                                        debug.log('🚀 Migrando datos locales a la nube (Primera vez)...');
+                                        await FirebaseService.saveFullState(state);
+                                        if (!isCurrent()) return;
+                                        if (Object.keys(state.attendance).length > 0) {
+                                            await FirebaseService.syncHistory(state.attendance);
+                                            if (!isCurrent()) return;
+                                        }
+                                        showNotification('✅ Datos migrados a la nube', 'success');
+                                    }
+                                } catch (e) {
+                                    if (isCurrent()) console.error('Error en migración inicial:', e);
                                 }
-                                showNotification('✅ Datos migrados a la nube', 'success');
-                            }
-                        } catch (e) {
-                            console.error('Error en migración inicial:', e);
+                            })();
                         }
-                    })();
-                }
+                        if (!isCurrent()) return;
 
-                // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
-                // per-registro de settings) recuerda su ÚLTIMO ts conocido;
+                        // 📡 Fase 2B U2: watermark combinado — cada feed (espejo y doc
+                        // per-registro de settings) recuerda su ÚLTIMO ts conocido;
                 // mergeCloudWatermark los combina por MAX cada vez que
                 // CUALQUIERA de los dos dispara, para que ninguno "atrase" al
                 // otro (la cadencia del espejo se reduce en Change B).
@@ -7255,8 +7418,11 @@ function _initOutgoingConflictGuard() {
                 // state._lastKnownCloudUpdatedAt cuando el usuario elige
                 // "local wins" en el conflicto saliente.
 
+                // A0.5 G4: limpiar listener previo antes de re-suscribir (evita fugas cross-cuenta)
+                if (typeof _mirrorUnsub === 'function') { try { _mirrorUnsub(); } catch (_) {} }
                 // Suscribirse a cambios en el estado (Mirror Sync)
-                FirebaseService.subscribeToChanges(async (remoteData) => {
+                _mirrorUnsub = FirebaseService.subscribeToChanges(async (remoteData) => {
+                    if (!_isCurrentAuthCallback()) return;
                     debug.log('📡 Cambio detectado en la nube...');
 
                     // 🛡️ Guardar el timestamp de la nube para que _executeSave pueda
@@ -7362,10 +7528,14 @@ function _initOutgoingConflictGuard() {
                     // Sin cambios significativos (o es initial load) → aplicar
                     // directo como siempre.
                     await applyRemoteData();
+                    if (!_isCurrentAuthCallback()) return;
 
                     // Cuerpo del apply real, extraído como función local para que
                     // tanto el flujo silencioso como el modal puedan invocarlo.
                     async function applyRemoteData() {
+
+                    // H-05 A5: ingress mirror — sanear exportConfig transitorio legacy antes de aplicar
+                    if (remoteData && typeof remoteData === 'object') sanitizeExportConfig(remoteData);
 
                     // 🛡️ GUARD: Evitar loop infinito de sincronización
                     // Sin este flag: cloud change → state update → render → save → firebase sync → cloud change → ∞
@@ -7376,7 +7546,7 @@ function _initOutgoingConflictGuard() {
                     // el watchdog liberaría el flag a mitad de un apply legítimo →
                     // loop/sobrescritura. El mirror se libera solo vía su setTimeout.
                     window._pendingRemoteSave = true; // Marcar que hay datos remotos para persistir
-
+                    const _applyOwner = _authCallback.generation;
                     // JD2#3: envolver el apply en try/catch. Si una lectura de
                     // migración u otra operación async rechaza, el flag debe
                     // liberarse igual; si no, queda trabado toda la sesión (el
@@ -7399,6 +7569,14 @@ function _initOutgoingConflictGuard() {
                         loadPositions: (rd) => FirebaseService.loadPositionsIfMigrated(rd),
                         loadLeaders: (rd) => FirebaseService.loadLeadersIfMigrated(rd)
                     });
+                    if (!_isCurrentAuthCallback()) {
+                        if (_applyOwner === _authStartupGuard.getGeneration()) {
+                            window._isApplyingRemoteData = false;
+                            window._pendingRemoteSave = false;
+                            if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
+                        }
+                        return;
+                    }
                     if (loaderResult.migrated) {
                         debug.log(`✅ Migración v2 completada: ${loaderResult.count} empleado(s)`);
                     }
@@ -7513,11 +7691,8 @@ function _initOutgoingConflictGuard() {
                         debug.log('🧹 Datos de la nube sanitizados localmente.');
                     }
 
-                    // Desactivar flag después de un tick para que el render/save no suba de vuelta.
-                    // ⚡ FIX: Persistir datos remotos en IndexedDB para que F5 no muestre datos desactualizados.
-                    // Judgment Day Fase 1 R1: validateDataIntegrity() es ahora async (U2d consulta
-                    // el outbox antes de compactar tombstones) — el callback pasa a async/await.
                     _applyMirrorTimer = setTimeout(async () => {
+                        if (_applyOwner !== _authStartupGuard.getGeneration()) return;
                         window._isApplyingRemoteData = false;
                         if (window._pendingRemoteSave) {
                             window._pendingRemoteSave = false;
@@ -7557,11 +7732,11 @@ function _initOutgoingConflictGuard() {
                         // setTimeout; acá cubrimos la rama de error que antes quedaba
                         // sin red tras quitar el watchdog del mirror (JD#1).
                         console.warn('⚠️ applyRemoteData falló; liberando _isApplyingRemoteData:', err);
-                        // JD3-A: cancelar el timer post-apply si ya se encoló, para NO
-                        // correr validate+save sobre un estado parcialmente mergeado.
                         if (_applyMirrorTimer) clearTimeout(_applyMirrorTimer);
-                        window._isApplyingRemoteData = false;
-                        window._pendingRemoteSave = false;
+                        if (_applyOwner === _authStartupGuard.getGeneration()) {
+                            window._isApplyingRemoteData = false;
+                            window._pendingRemoteSave = false;
+                        }
                         // JD3-B: si falló durante la carga inicial, renderizar el
                         // estado local disponible. El controlador de arranque se
                         // completa únicamente mediante el evento app:ready.
@@ -7581,12 +7756,15 @@ function _initOutgoingConflictGuard() {
                     } // ← cierra applyRemoteData()
                 });
 
+                // A0.5 G4: idem settings
+                if (typeof _settingsUnsub === 'function') { try { _settingsUnsub(); } catch (_) {} }
                 // 📡 Fase 2B U2: suscripción en vivo al doc per-registro de
                 // settings (users/{uid}/data/settings) — DESACOPLADA del
                 // espejo. El filtro de eco (lastChangedBy === deviceId) ya
                 // ocurre DENTRO de FirebaseService.subscribeToSettings, mismo
                 // criterio que subscribeToChanges.
-                FirebaseService.subscribeToSettings((settingsDoc) => {
+                _settingsUnsub = FirebaseService.subscribeToSettings((settingsDoc) => {
+                    if (!_isCurrentAuthCallback()) return;
                     if (!settingsDoc) return;
                     debug.log('📡 Cambio detectado en settings (doc per-registro)...');
 
@@ -7617,6 +7795,7 @@ function _initOutgoingConflictGuard() {
 
                 // ⚡ OPTIMIZACIÓN ZONAL & FASE 3: Suscripción Dinámica por Rango
                 window.updateAttendanceSubscription = function () {
+                    if (!_isCurrentAuthCallback()) return;
                     if (window._attendanceUnsubscribe) {
                         window._attendanceUnsubscribe();
                     }
@@ -7641,6 +7820,7 @@ function _initOutgoingConflictGuard() {
                         // callback pasa a async/await. subscribeToAttendanceZonal invoca
                         // onInitialLoad(allAttendance) fire-and-forget (no espera su retorno).
                         onInitialLoad: async (allAttendance) => {
+                            if (!_isCurrentAuthCallback()) return;
                             if (isDownloadPaused()) {
                                 debug.log('⏸️ Descarga pausada — carga inicial de asistencia ignorada.');
                                 return;
@@ -7649,7 +7829,7 @@ function _initOutgoingConflictGuard() {
                             armApplyingFlagWatchdog(); // R3: red de seguridad si el flush no corre
 
                             // 🛡️ LIMPIEZA DE ESTADO: Eliminar claves "cortas" (solo id) o inconsistentes
-                            // Solo deben quedar claves con formato: employeeId-dateKey
+                            // Deben quedar claves con formato: employeeId-dateKey
                             const entries = Object.entries(allAttendance);
                             entries.forEach(([key, record]) => {
                                 const shortKey = record.employeeId;
@@ -7681,6 +7861,10 @@ function _initOutgoingConflictGuard() {
                             // fix R2 cerró. Re-armar acá le da presupuesto completo.
                             armApplyingFlagWatchdog();
                             const attendanceFixes = await validateDataIntegrity();
+                            if (!_isCurrentAuthCallback()) {
+                                window._isApplyingRemoteData = false;
+                                return;
+                            }
                             if (attendanceFixes > 0) {
                                 debug.log(`🛡️ Zonal initial load: ${attendanceFixes} orphan(s) sanitized in attendance`);
                                 // Use a one-tick delay so the flag clears first via BatchedSaver
@@ -7718,6 +7902,7 @@ function _initOutgoingConflictGuard() {
                             if (!isInitialLoad) render();
                         },
                         onModified: (dateKey, records) => {
+                            if (!_isCurrentAuthCallback()) return;
                             if (isDownloadPaused()) {
                                 debug.log(`⏸️ Descarga pausada — modificación de asistencia [${dateKey}] ignorada.`);
                                 return;
@@ -7768,8 +7953,12 @@ function _initOutgoingConflictGuard() {
 
                 // Iniciar primera suscripción
                 window.updateAttendanceSubscription();
+                    }
+                });
+                if (!_isCurrentAuthCallback()) return;
             } else {
                 await window.stopPettyCashSync?.();
+                if (!_isCurrentAuthCallback()) return;
                 // 🛡️ Judgment Day Fase 2B JD Ronda 2 (fix F2), endurecido en
                 // Ronda 3: resetear TANTO el cache compartido de watermarks
                 // como state._lastKnownCloudUpdatedAt (vía
@@ -7900,4 +8089,3 @@ function initBackToTop() {
     btn.onclick = () => window.scrollTo({ top: 0, behavior: 'smooth' });
     document.body.appendChild(btn);
 }
-

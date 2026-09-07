@@ -117,12 +117,13 @@ testRunner.addSuite("EmployeeReportData — cableado en AnalyticsUI", {
         const fs = require('fs');
         const path = require('path');
         const SRC = fs.readFileSync(path.resolve(__dirname, '../modules/features/analytics/AnalyticsUI.js'), 'utf8');
-        const idx = SRC.indexOf('HOJAS POR LÍDER');
-        testRunner.assert(idx !== -1, 'debe existir la sección de hojas por líder');
-        const block = SRC.slice(idx, idx + 2600);
+        const idx = SRC.indexOf('const generateLeaderSheets');
+        const endIdx = SRC.indexOf('const generatePositionSheets', idx);
+        testRunner.assert(idx !== -1 && endIdx > idx, 'debe existir la sección de hojas por líder');
+        const block = SRC.slice(idx, endIdx);
         testRunner.assert(!/\$\{baseIndex\}/.test(block),
             'no debe numerar por índice de orden (baseIndex)');
-        testRunner.assert(/idx:\s*`\$\{emp\.number\}/.test(block),
+        testRunner.assert(/idx:\s*`\$\{emp\.number\s*(?:\|\|\s*''\s*)?\}\$\{suffix\}/.test(block),
             'debe numerar por el número de empleado (ficha), como las hojas por posición');
     },
 

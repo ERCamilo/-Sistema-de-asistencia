@@ -63,6 +63,11 @@ export class EmployeeFloatingCard {
 
         const { employee: emp, stats } = data;
         const { h7, hw, hm, hp, gross } = stats;
+        const grossHTML = Number.isFinite(gross) ? `
+            <div class="earnings-highlight">
+                <div class="earnings-label">💰 Ganancias Brutas del Periodo</div>
+                <div class="earnings-value">$${gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            </div>` : '';
 
         const calendarHTML = CalendarView({
             employee: emp,
@@ -148,10 +153,7 @@ export class EmployeeFloatingCard {
                     </div>
                 </div>
 
-                <div class="earnings-highlight">
-                    <div class="earnings-label">💰 Ganancias Brutas del Periodo</div>
-                    <div class="earnings-value">$${gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                </div>
+                ${grossHTML}
 
                 ${calendarHTML}
                 ${notesHTML}

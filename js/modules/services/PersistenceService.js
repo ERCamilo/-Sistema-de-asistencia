@@ -31,6 +31,7 @@ import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/atte
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
+import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
 
 // Importar clases de entidad para inflar datos
 import { Employee } from '../features/employees/Employee.js';
@@ -971,9 +972,13 @@ async function _executeSave(options = {}) {
         let _mirrorSnapshot;
         try {
             _mirrorSnapshot = JSON.parse(JSON.stringify(stateManager.getState()));
-        } catch (e) {
-            console.warn('⚠️ No se pudo clonar el snapshot para la nube; se sube la referencia viva:', e);
-            _mirrorSnapshot = stateManager.getState();
+            // H-05 A5: mirror egress — exportConfig transitorio nunca al outbox cloud
+            sanitizeExportConfig(_mirrorSnapshot);
+        } catch (_mirrorErr) {
+            _mirrorSnapshot = {};
+            try { Object.assign(_mirrorSnapshot, stateManager.getState()); } catch {}
+            sanitizeExportConfig(_mirrorSnapshot);
+            delete _mirrorSnapshot.exportConfig; // idempotent if helper already did, ensures no live mutation path missed
         }
         _outboxEnqueues.push(syncFirebaseMirrorDebounced(_mirrorSnapshot, {
             force: options.forceMirror || options.awaitOutboxEnqueue

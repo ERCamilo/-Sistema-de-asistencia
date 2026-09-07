@@ -75,7 +75,8 @@ function draft(options = {}) {
         periodSource: 'configured',
         closedAt: options.closedAt || 100,
         closedBy: 'operator',
-        supersedesId: options.supersedesId || null
+        supersedesId: options.supersedesId || null,
+        ...(options.projectId !== undefined ? { projectId: options.projectId } : {})
     });
 }
 
@@ -254,6 +255,29 @@ describe('Unified payroll closure workflow', () => {
             periodStart: '2026-08-01', periodEnd: '2026-08-15', rows: [second, base]
         });
         expect(reversed).toBe(ordered);
+    });
+
+    test('passes one explicit project through the draft fingerprint and schema 3 closure', () => {
+        const projectA = draft({ projectId: ' project-a ' });
+        const projectARetry = draft({ projectId: 'project-a', closedAt: 200 });
+        const projectB = draft({ projectId: 'project-b' });
+
+        expect(projectA.closure).toMatchObject({ schemaVersion: 3, projectId: 'project-a' });
+        expect(JSON.parse(projectA.closure.fingerprint).projectId).toBe('project-a');
+        expect(projectARetry.closure.fingerprint).toBe(projectA.closure.fingerprint);
+        expect(projectARetry.closure.id).toBe(projectA.closure.id);
+        expect(projectB.closure.fingerprint).not.toBe(projectA.closure.fingerprint);
+        expect(projectB.closure.id).not.toBe(projectA.closure.id);
+    });
+
+    test('keeps the absent-project workflow byte-identical and schema 2', () => {
+        const legacy = draft();
+        const expectedFingerprint = '{"periodStart":"2026-08-01","periodEnd":"2026-08-15","rows":[{"employeeId":"employee-1","employeeNumber":"1","employeeName":"Ada","employeePosition":"Operadora","leaderRefs":[],"gross":1000,"bonuses":0,"deductions":0,"loans":0,"net":1000,"bonusDetails":[],"deductionDetails":[],"loanDetails":[]}]}';
+
+        expect(legacy.closure.fingerprint).toBe(expectedFingerprint);
+        expect(legacy.closure.id).toBe('PAYROLL-CLOSURE-1kuliawd9vlvq');
+        expect(legacy.closure.schemaVersion).toBe(2);
+        expect(legacy.closure).not.toHaveProperty('projectId');
     });
 
     test('blocks an exact duplicate and requires explicit correction for changed content', () => {

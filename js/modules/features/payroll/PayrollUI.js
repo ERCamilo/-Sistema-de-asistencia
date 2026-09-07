@@ -88,9 +88,12 @@ import {
     setPayrollAdjustmentPeriodRuntimeSelection,
     setPayrollAdjustmentPeriodRuntimeSelections
 } from './PayrollAdjustmentPeriodSelection.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 let context = null;
 let payrollService = null;
+let payrollRuntime = null;
+let unsubscribeRuntimeInvalidation = null;
 let latestPayrollPreviewRows = [];
 let payrollClosureInProgress = false;
 let payrollPeriodClosureCache = {
@@ -224,7 +227,8 @@ const _ACTION_MAP = {
     'download-export-json': () => window.PayrollUI?.downloadExportJSON?.(),
     'export-payroll-pdf': () => window.PayrollUI?.exportPayrollPDF?.(),
     'send-to-splitx': () => window.PayrollUI?.sendToSplitX?.(),
-    'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode)
+    'change-payroll-view-mode': (mode) => window.PayrollUI?.changePayrollViewMode?.(mode),
+    'refresh-scoped-payroll-preview': () => window.PayrollUI?.refreshScopedPayrollPreview?.().catch?.(() => {})
 };
 
 function _handlePayrollClick(e) {
@@ -287,8 +291,14 @@ function _handlePayrollAdjustmentInput(e) {
 let _payrollDelegationAttached = false;
 
 export function init(ctx) {
+    unsubscribeRuntimeInvalidation?.();
     context = ctx;
     payrollService = ctx.services.payroll;
+    payrollRuntime = ctx.services.payrollRuntime || null;
+    unsubscribeRuntimeInvalidation = payrollRuntime?.subscribeInvalidation?.(() => {
+        latestPayrollPreviewRows = [];
+        context?.render?.();
+    }) || null;
     if (ctx.state?.exportConfig) {
         delete ctx.state.exportConfig.payrollAdjustmentPeriodSelections;
     }
@@ -403,6 +413,8 @@ function getLeaderFilteredEmployees(state) {
  * generator and the new Cuentas-por-Cobrar (loans ledger).
  */
 export function PayrollTab() {
+    const scopedView = payrollRuntime?.getCurrentView?.();
+    if (scopedView?.enabled) return ScopedPayrollTab(scopedView);
     const state = getState();
     const mode = state.payrollViewMode || 'generator';
 
@@ -435,6 +447,94 @@ export function PayrollTab() {
                 : (mode === 'history' ? PayrollHistoryTab() : PayrollGeneratorTab())}
         </div>
     `;
+}
+
+function ScopedPayrollTab(view) {
+    if (view.status === 'idle') {
+        queueMicrotask(() => refreshScopedPayrollPreview().catch(() => {}));
+    }
+    const errorMessage = view.error?.message || `Payroll config unavailable for project "${view.projectId}"`;
+    if (view.status === 'unavailable') {
+        return `
+            <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+                <h2>Nómina del proyecto</h2>
+                <div role="alert">${escapeHTML(errorMessage)}</div>
+            </section>
+        `;
+    }
+    if (view.status !== 'ready') {
+        return `
+            <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+                <h2>Nómina del proyecto</h2>
+                <p>Cargando configuración de nómina para ${escapeHTML(view.projectId)}...</p>
+            </section>
+        `;
+    }
+    const period = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
+    const rows = view.previewRows || [];
+    const total = rows.reduce((sum, row) => sum + (Number(row.monto) || 0), 0);
+    return `
+        <section class="payroll-project-preview" data-project-id="${escapeHTML(view.projectId)}">
+            <header>
+                <h2>Nómina del proyecto</h2>
+                <p>Configuración disponible · ${escapeHTML(view.projectId)}</p>
+            </header>
+            <div class="payroll-project-preview__period">
+                <label>Desde
+                    <input type="date" value="${escapeHTML(period.periodStart)}"
+                           onchange="PayrollUI.updateScopedPeriod('start', this.value)">
+                </label>
+                <label>Hasta
+                    <input type="date" value="${escapeHTML(period.periodEnd)}"
+                           onchange="PayrollUI.updateScopedPeriod('end', this.value)">
+                </label>
+                <button type="button" data-payroll-action="refresh-scoped-payroll-preview">
+                    Actualizar vista previa
+                </button>
+            </div>
+            <div class="responsive-table-wrapper" role="region" aria-label="Vista previa base de nómina" tabindex="0">
+                <table class="payroll-review-table">
+                    <thead><tr><th>#</th><th>Empleado</th><th>Bruto</th><th>Neto</th></tr></thead>
+                    <tbody>
+                        ${rows.map(row => `
+                            <tr>
+                                <td>${escapeHTML(String(row._number || row.id))}</td>
+                                <td>${escapeHTML(row._employeeName)}</td>
+                                <td>${formatCurrency(row._brutoOriginal)}</td>
+                                <td>${formatCurrency(row.monto)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                    <tfoot><tr><td colspan="3">Total base</td><td>${formatCurrency(total)}</td></tr></tfoot>
+                </table>
+            </div>
+        </section>
+    `;
+}
+
+export async function refreshScopedPayrollPreview(options = {}) {
+    if (!payrollRuntime) throw new Error('Project payroll UI runtime unavailable');
+    try {
+        const result = await payrollRuntime.generatePreview(options);
+        if (result.current) {
+            latestPayrollPreviewRows = result.rows;
+            context?.render?.();
+        }
+        return result;
+    } catch (error) {
+        context?.render?.();
+        throw error;
+    }
+}
+
+export function updateScopedPeriod(type, value) {
+    const view = payrollRuntime?.getCurrentView?.();
+    if (!view?.enabled || view.status !== 'ready') return Promise.resolve(null);
+    const resolved = view.period || resolvePayrollPeriod(view.config.payPeriod, new Date());
+    return refreshScopedPayrollPreview({
+        periodStart: type === 'start' ? value : resolved.periodStart,
+        periodEnd: type === 'end' ? value : resolved.periodEnd
+    });
 }
 
 /** Setter wired through data-payroll-action="change-payroll-view-mode". */
@@ -1330,6 +1430,7 @@ function persistAdjustmentDefault(kind, previous, next) {
 }
 
 export async function addDesktopAdjustment(kind, target) {
+    assertTandaBBlockedWhenScoped('PayrollUI.addDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
     const form = target?.closest('.payroll-adjustment-form');
     const draft = readAdjustmentForm(form);
@@ -1575,6 +1676,7 @@ function prepareScheduledRemoval(state, reference) {
 }
 
 export async function removeScheduledAdjustment(referenceToken) {
+    assertTandaBBlockedWhenScoped('PayrollUI.removeScheduledAdjustment');
     const initialReference = resolveScheduledActionReference(referenceToken);
     let initial;
     try {
@@ -1648,6 +1750,7 @@ export async function removeScheduledAdjustment(referenceToken) {
 }
 
 export async function setScheduledAdjustmentPaused(referenceToken, paused) {
+    assertTandaBBlockedWhenScoped('PayrollUI.setScheduledAdjustmentPaused');
     const planReference = resolveScheduledActionReference(referenceToken);
     if (!planReference) {
         window.showNotification?.(
@@ -1733,6 +1836,7 @@ export async function setScheduledAdjustmentPaused(referenceToken, paused) {
 }
 
 export function updateDesktopAdjustment(kind, target) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
     const index = Number(target?.dataset.index);
     const state = getState();
@@ -1763,6 +1867,7 @@ export function updateDesktopAdjustment(kind, target) {
 }
 
 export function removeDesktopAdjustment(kind, target) {
+    assertTandaBBlockedWhenScoped('PayrollUI.removeDesktopAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
     const index = Number(target?.dataset.index);
     const state = getState();
@@ -1864,6 +1969,7 @@ export function addExportDeduction() {
 }
 
 export function removeExportDeduction(index) {
+    assertTandaBBlockedWhenScoped('PayrollUI.removeExportDeduction');
     const state = getState();
     const item = state.exportConfig.deductions?.[index];
     if (item && !item.employeeId && item.id) {
@@ -1886,6 +1992,7 @@ function syncRememberedAdjustment(kind, item, immediate = false) {
 }
 
 export function toggleRememberGlobalAdjustment(kind, index, checked) {
+    assertTandaBBlockedWhenScoped('PayrollUI.toggleRememberGlobalAdjustment');
     if (!['deductions', 'bonuses'].includes(kind)) return;
     const state = getState();
     const item = state.exportConfig[kind]?.[index];
@@ -1900,6 +2007,7 @@ export function toggleRememberGlobalAdjustment(kind, index, checked) {
 }
 
 export function updateExportDeductionType(index, type) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateExportDeductionType');
     const state = getState();
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
@@ -1910,6 +2018,7 @@ export function updateExportDeductionType(index, type) {
 }
 
 export function updateExportDeductionValue(index, value) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateExportDeductionValue');
     const state = getState();
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
@@ -1926,6 +2035,7 @@ export function updateExportDeductionValue(index, value) {
 }
 
 export function updateExportDeductionName(index, value) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateExportDeductionName');
     const state = getState();
     const deductions = state.exportConfig.deductions;
     if (deductions && deductions[index]) {
@@ -2088,6 +2198,7 @@ export function addExportBonus() {
 }
 
 export function removeExportBonus(index) {
+    assertTandaBBlockedWhenScoped('PayrollUI.removeExportBonus');
     const state = getState();
     const item = state.exportConfig.bonuses?.[index];
     if (item && !item.employeeId && item.id) {
@@ -2101,6 +2212,7 @@ export function removeExportBonus(index) {
 }
 
 export function updateExportBonusType(index, type) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateExportBonusType');
     const state = getState();
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
@@ -2111,6 +2223,7 @@ export function updateExportBonusType(index, type) {
 }
 
 export function updateExportBonusValue(index, value) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateExportBonusValue');
     const state = getState();
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
@@ -2121,6 +2234,7 @@ export function updateExportBonusValue(index, value) {
 }
 
 export function updateExportBonusName(index, value) {
+    assertTandaBBlockedWhenScoped('PayrollUI.updateExportBonusName');
     const state = getState();
     const bonuses = state.exportConfig.bonuses;
     if (bonuses && bonuses[index]) {
@@ -2202,6 +2316,7 @@ export function addEmployeeBonusFromForm() {
 // ---------------------- PRÉSTAMOS TEMPORALES DE NÓMINA ----------------------
 
 export function addPayrollLoansToExport() {
+    assertTandaBBlockedWhenScoped('PayrollUI.addPayrollLoansToExport');
     const state = getState();
     const eligibleEmployees = getLeaderFilteredEmployees(state);
     const selection = buildPayrollLoanSelection(eligibleEmployees, state.exportConfig.periodEnd);
@@ -2346,6 +2461,7 @@ function getSplitXExportData() {
 }
 
 export function copyExportJSON() {
+    assertTandaBBlockedWhenScoped('PayrollUI.copyExportJSON');
     const data = getSplitXExportData();
     if (!data) return;
     const json = JSON.stringify(data, null, 2);
@@ -2357,6 +2473,7 @@ export function copyExportJSON() {
 }
 
 export function downloadExportJSON() {
+    assertTandaBBlockedWhenScoped('PayrollUI.downloadExportJSON');
     const data = getSplitXExportData();
     if (!data) return;
     const json = JSON.stringify(data, null, 2);
@@ -2371,6 +2488,7 @@ export function downloadExportJSON() {
 }
 
 export async function exportPayrollPDF() {
+    assertTandaBBlockedWhenScoped('PayrollUI.exportPayrollPDF');
     const previewRows = generateExportData();
     if (!previewRows || previewRows.length === 0) {
         if (window.showNotification) {
@@ -2581,6 +2699,7 @@ export async function exportPayrollPDF() {
 }
 
 export function sendToSplitX(targetUrl) {
+    assertTandaBBlockedWhenScoped('PayrollUI.sendToSplitX');
     const data = getSplitXExportData();
     if (!data || data.length === 0) return null;
 
@@ -2899,6 +3018,7 @@ async function loadCurrentPayrollClosureState({ ignoreInProgress = false } = {})
 }
 
 export function togglePayrollPaidConfirmation(checked) {
+    assertTandaBBlockedWhenScoped('PayrollUI.togglePayrollPaidConfirmation');
     const current = currentPayrollClosureState();
     if (!checked) {
         stateManager.setState({
@@ -2950,6 +3070,7 @@ function payrollHistorySummary(item = {}) {
 }
 
 export async function loadPayrollHistory({ direction = 'current', force = false } = {}) {
+    assertTandaBBlockedWhenScoped('PayrollUI.loadPayrollHistory');
     if (payrollHistoryState.loading && !force) return;
     if (direction === 'previous') {
         const previousIndex = payrollHistoryState.pageIndex - 1;
@@ -3101,6 +3222,7 @@ function focusPayrollHistoryControl(action, id = null) {
 }
 
 export async function openPayrollHistoryDetail(closureId) {
+    assertTandaBBlockedWhenScoped('PayrollUI.openPayrollHistoryDetail');
     const id = String(closureId || '');
     if (!id) return;
     stateManager.setState({ payrollViewMode: 'history' });
@@ -3179,6 +3301,7 @@ export function preparePayrollCorrection(closureId) {
 }
 
 export async function openPayrollClosure() {
+    assertTandaBBlockedWhenScoped('PayrollUI.openPayrollClosure');
     if (payrollClosureInProgress) return;
     payrollClosureInProgress = true;
     try {
@@ -3272,6 +3395,7 @@ export async function openPayrollClosure() {
 }
 
 export async function undoPayrollClosure(closureId) {
+    assertTandaBBlockedWhenScoped('PayrollUI.undoPayrollClosure');
     if (payrollClosureInProgress) return;
     payrollClosureInProgress = true;
     try {

@@ -14,9 +14,22 @@ import {
     startAfter,
     where
 } from '../../data/firebase.js';
-import { PAYROLL_CLOSURE_STATUS } from './PayrollClosure.js';
+import {
+    LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION,
+    PAYROLL_CLOSURE_IDENTITY_KIND,
+    PAYROLL_CLOSURE_SCHEMA_VERSION,
+    PAYROLL_CLOSURE_STATUS,
+    promoteLegacyPayrollClosure,
+    validatePayrollClosureSummaryForScopedRead,
+    validatePayrollClosureForScopedWrite
+} from './PayrollClosure.js';
 import { resolvePayrollClosureMutation } from './PayrollClosureMerge.js';
 import { assertPayrollClosureSize } from './PayrollClosureSize.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
+import {
+    captureEntityProjectScope,
+    peekEntityScope
+} from '../projects/EntityProjectScope.js';
 
 const COLLECTION = 'payrollClosures';
 
@@ -62,8 +75,74 @@ function normalizedLimit(value, fallback = 10) {
     return Math.max(1, Math.min(10, Math.trunc(Number(value) || fallback)));
 }
 
+function normalizedProjectId(value) {
+    const projectId = typeof value === 'string' ? value.trim() : '';
+    return projectId && !projectId.startsWith('legacy-unresolved:') ? projectId : null;
+}
+
+function captureScopedScope() {
+    if (!isProjectsEnabled()) return null;
+    const scope = captureEntityProjectScope();
+    const projectId = normalizedProjectId(scope?.projectId);
+    if (!scope?.enabled || !projectId) {
+        throw new Error('A canonical project is required for scoped payroll closure access');
+    }
+    return {
+        projectId,
+        defaultProjectId: normalizedProjectId(scope.defaultProjectId)
+    };
+}
+
+function staleReadError(message) {
+    const error = new Error(message);
+    error.code = 'PAYROLL_CLOSURE_STALE_READ';
+    error.name = 'PayrollClosureStaleReadError';
+    return error;
+}
+
+function ensureNotStale(scope) {
+    if (!scope) return;
+    if (!isProjectsEnabled()) {
+        throw staleReadError('Payroll closure read stale: projects disabled mid-read');
+    }
+    const current = peekEntityScope();
+    if (!current?.enabled || normalizedProjectId(current.projectId) !== scope.projectId) {
+        throw staleReadError('Payroll closure read stale: project switched');
+    }
+}
+
+function isRawLegacyClosure(closure) {
+    return Number(closure?.schemaVersion) === LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION &&
+        !Object.prototype.hasOwnProperty.call(closure || {}, 'projectId') &&
+        !Object.prototype.hasOwnProperty.call(closure || {}, 'identityKind');
+}
+
+function isScopedClosure(closure, capturedPid) {
+    return Number(closure?.schemaVersion) === PAYROLL_CLOSURE_SCHEMA_VERSION &&
+        String(closure?.projectId || '') === capturedPid;
+}
+
+function compareByClosedAt(left, right) {
+    return Number(right.closedAt || 0) - Number(left.closedAt || 0) ||
+        String(right.id).localeCompare(String(left.id));
+}
+
 function closureSummary(closure = {}) {
     const source = clone(closure);
+    const isSchema3 = source.schemaVersion === PAYROLL_CLOSURE_SCHEMA_VERSION;
+    const hasIdentityKind = Object.prototype.hasOwnProperty.call(source, 'identityKind');
+    const hasOwnershipToken = Object.prototype.hasOwnProperty.call(source, 'ownershipToken');
+    const identity = isSchema3
+        ? {
+            projectId: source.projectId,
+            identityKind: hasIdentityKind ? source.identityKind : null,
+            ownershipToken: hasOwnershipToken ? source.ownershipToken : null
+        }
+        : {
+            projectId: null,
+            identityKind: null,
+            ownershipToken: null
+        };
     return {
         schemaVersion: source.schemaVersion,
         id: source.id,
@@ -81,12 +160,20 @@ function closureSummary(closure = {}) {
         supersedesId: source.supersedesId,
         voidedAt: source.voidedAt,
         voidedBy: source.voidedBy,
-        voidReason: source.voidReason
+        voidReason: source.voidReason,
+        ...identity
     };
 }
 
-function pageQuery({ limit = 10, cursor = null, status = null } = {}) {
+function scopedClosureSummary(closure, projectId) {
+    const summary = closureSummary(closure);
+    return validatePayrollClosureSummaryForScopedRead(summary, projectId);
+}
+
+function pageQuery({ limit = 10, cursor = null, status = null } = {}, capturedPid = null, legacy = false) {
     const constraints = [];
+    if (capturedPid) constraints.push(where('projectId', '==', capturedPid));
+    if (legacy) constraints.push(where('schemaVersion', '==', LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION));
     if (status) constraints.push(where('status', '==', String(status)));
     constraints.push(
         orderBy('closedAt', 'desc'),
@@ -100,8 +187,174 @@ function pageQuery({ limit = 10, cursor = null, status = null } = {}) {
     return query(requireSessionRef(currentCollection()), ...constraints);
 }
 
+function periodQuery(periodStart, periodEnd, capturedPid = null, legacy = false) {
+    const constraints = [];
+    if (capturedPid) constraints.push(where('projectId', '==', capturedPid));
+    if (legacy) constraints.push(where('schemaVersion', '==', LEGACY_PAYROLL_CLOSURE_SCHEMA_VERSION));
+    constraints.push(
+        where('periodStart', '==', String(periodStart || '')),
+        where('periodEnd', '==', String(periodEnd || ''))
+    );
+    return query(requireSessionRef(currentCollection()), ...constraints);
+}
+
+async function promoteLegacyCloudClosure(legacy, scope) {
+    if (!scope || scope.defaultProjectId !== scope.projectId || !isRawLegacyClosure(legacy)) {
+        return null;
+    }
+    const ref = requireSessionRef(currentDocument(legacy.id));
+    const result = await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(ref);
+        ensureNotStale(scope);
+        if (!snapshot?.exists?.()) return null;
+        const current = { ...clone(snapshot.data()), id: String(snapshot.id || legacy.id) };
+        if (current.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+            if (!isScopedClosure(current, scope.projectId)) return null;
+            return promoteLegacyPayrollClosure(current, scope.projectId);
+        }
+        if (!isRawLegacyClosure(current)) return null;
+        const promoted = promoteLegacyPayrollClosure(current, scope.projectId);
+        transaction.set(ref, promoted);
+        return promoted;
+    });
+    ensureNotStale(scope);
+    return result ? clone(result) : null;
+}
+
+async function saveOneScoped(closure, scope = captureScopedScope()) {
+    if (!scope) throw new Error('A canonical project is required for scoped payroll closure writes');
+    const incoming = clone(closure);
+    validatePayrollClosureForScopedWrite(incoming, scope.projectId);
+    assertPayrollClosureSize(incoming);
+    const ref = requireSessionRef(currentDocument(incoming.id));
+    if (incoming.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+        const preflight = await getDoc(ref);
+        ensureNotStale(scope);
+        if (!preflight?.exists?.()) {
+            throw new Error('A promoted legacy closure must already exist as schema 2');
+        }
+        const source = { ...clone(preflight.data()), id: String(preflight.id || incoming.id) };
+        if (isRawLegacyClosure(source)) {
+            validatePayrollClosureForScopedWrite(incoming, scope.projectId, {
+                legacySource: source
+            });
+        }
+    }
+    const result = await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(ref);
+        ensureNotStale(scope);
+        const existing = snapshot.exists()
+            ? { ...clone(snapshot.data()), id: String(snapshot.id || incoming.id) }
+            : null;
+        if (existing?.projectId && !isScopedClosure(existing, scope.projectId)) {
+            throw new Error('Payroll closure belongs to another project');
+        }
+        if (incoming.identityKind === PAYROLL_CLOSURE_IDENTITY_KIND.PROMOTED_LEGACY) {
+            if (!existing) throw new Error('A promoted legacy closure must already exist as schema 2');
+            if (isRawLegacyClosure(existing)) {
+                validatePayrollClosureForScopedWrite(incoming, scope.projectId, {
+                    legacySource: existing
+                });
+                transaction.set(ref, incoming);
+                return { written: true, closure: clone(incoming) };
+            }
+        }
+        const mutation = resolvePayrollClosureMutation(existing, incoming);
+        if (mutation.write) transaction.set(ref, mutation.value);
+        return { written: mutation.write, closure: clone(mutation.value) };
+    });
+    ensureNotStale(scope);
+    return result;
+}
+
+async function loadPageScoped(options = {}, scope = captureScopedScope()) {
+    if (!scope) return { items: [], nextCursor: null };
+    const pageSize = normalizedLimit(options.limit);
+    const nativeSnapshot = await getDocs(pageQuery(options, scope.projectId));
+    ensureNotStale(scope);
+    let loaded = snapshotItems(nativeSnapshot);
+
+    if (scope.defaultProjectId === scope.projectId) {
+        const legacySnapshot = await getDocs(pageQuery(options, null, true));
+        ensureNotStale(scope);
+        for (const legacy of snapshotItems(legacySnapshot)) {
+            const promoted = await promoteLegacyCloudClosure(legacy, scope);
+            ensureNotStale(scope);
+            if (promoted) loaded.push(promoted);
+        }
+    }
+
+    loaded.sort(compareByClosedAt);
+    const items = loaded.slice(0, pageSize)
+        .map(item => scopedClosureSummary(item, scope.projectId));
+    const last = items.at(-1);
+    return {
+        items,
+        nextCursor: loaded.length >= pageSize && last
+            ? { closedAt: Number(last.closedAt) || 0, id: String(last.id) }
+            : null
+    };
+}
+
+async function loadByIdScoped(id, scope = captureScopedScope()) {
+    if (!scope) return null;
+    const snapshot = await getDoc(requireSessionRef(currentDocument(id)));
+    ensureNotStale(scope);
+    if (!snapshot?.exists?.()) return null;
+    const record = { ...clone(snapshot.data()), id: String(snapshot.id || id) };
+    if (isScopedClosure(record, scope.projectId)) {
+        validatePayrollClosureForScopedWrite(record, scope.projectId);
+        return record;
+    }
+    if (scope.defaultProjectId !== scope.projectId || !isRawLegacyClosure(record)) return null;
+    const promoted = await promoteLegacyCloudClosure(record, scope);
+    ensureNotStale(scope);
+    if (promoted) validatePayrollClosureForScopedWrite(promoted, scope.projectId);
+    return promoted;
+}
+
+async function loadByPeriodScoped(periodStart, periodEnd, scope = captureScopedScope()) {
+    if (!scope) return [];
+    const nativeSnapshot = await getDocs(periodQuery(periodStart, periodEnd, scope.projectId));
+    ensureNotStale(scope);
+    const loaded = snapshotItems(nativeSnapshot);
+
+    if (scope.defaultProjectId === scope.projectId) {
+        const legacySnapshot = await getDocs(periodQuery(periodStart, periodEnd, null, true));
+        ensureNotStale(scope);
+        for (const legacy of snapshotItems(legacySnapshot)) {
+            const promoted = await promoteLegacyCloudClosure(legacy, scope);
+            ensureNotStale(scope);
+            if (promoted) loaded.push(promoted);
+        }
+    }
+    for (const closure of loaded) {
+        validatePayrollClosureForScopedWrite(closure, scope.projectId);
+    }
+    return loaded;
+}
+
+function subscribeRecentScoped(onChange, { limit = 10, onError = null } = {}, scope = captureScopedScope()) {
+    if (!scope || typeof onChange !== 'function') return () => {};
+    const ref = pageQuery({ limit }, scope.projectId);
+    return onSnapshot(ref, snapshot => {
+        try {
+            ensureNotStale(scope);
+            if (snapshot?.metadata?.hasPendingWrites) return;
+            onChange(snapshotItems(snapshot)
+                .map(item => scopedClosureSummary(item, scope.projectId)));
+        } catch (error) {
+            if (typeof onError === 'function') onError(error);
+        }
+    }, error => {
+        if (typeof onError === 'function') onError(error);
+        else console.error('Payroll closure subscription failed:', error);
+    });
+}
+
 export const PayrollClosureRepository = {
     async saveOne(closure) {
+        if (isProjectsEnabled()) return saveOneScoped(closure);
         assertClosure(closure);
         assertPayrollClosureSize(closure);
         const incoming = clone(closure);
@@ -119,8 +372,12 @@ export const PayrollClosureRepository = {
     },
 
     async loadPage(options = {}) {
-        const pageSize = normalizedLimit(options.limit);
-        const snapshot = await getDocs(pageQuery(options));
+        const { scope = undefined, ...queryOptions } = options;
+        if (isProjectsEnabled()) {
+            return loadPageScoped(queryOptions, scope || captureScopedScope());
+        }
+        const pageSize = normalizedLimit(queryOptions.limit);
+        const snapshot = await getDocs(pageQuery(queryOptions));
         const loaded = snapshotItems(snapshot);
         const items = loaded.slice(0, pageSize).map(closureSummary);
         const last = items.at(-1);
@@ -132,13 +389,17 @@ export const PayrollClosureRepository = {
         };
     },
 
-    async loadById(id) {
+    async loadById(id, { scope = undefined } = {}) {
+        if (isProjectsEnabled()) return loadByIdScoped(id, scope || captureScopedScope());
         const snapshot = await getDoc(requireSessionRef(currentDocument(id)));
         if (!snapshot?.exists?.()) return null;
         return { ...clone(snapshot.data()), id: String(snapshot.id || id) };
     },
 
-    async loadByPeriod(periodStart, periodEnd) {
+    async loadByPeriod(periodStart, periodEnd, { scope = undefined } = {}) {
+        if (isProjectsEnabled()) {
+            return loadByPeriodScoped(periodStart, periodEnd, scope || captureScopedScope());
+        }
         const snapshot = await getDocs(query(
             requireSessionRef(currentCollection()),
             where('periodStart', '==', String(periodStart || '')),
@@ -148,6 +409,10 @@ export const PayrollClosureRepository = {
     },
 
     subscribeRecent(onChange, { limit = 10, onError = null } = {}) {
+        if (isProjectsEnabled()) {
+            const scope = captureScopedScope();
+            return subscribeRecentScoped(onChange, { limit, onError }, scope);
+        }
         if (typeof onChange !== 'function') return () => {};
         const ref = pageQuery({ limit });
         return onSnapshot(ref, snapshot => {
@@ -159,5 +424,17 @@ export const PayrollClosureRepository = {
         });
     }
 };
+
+export const _payrollClosureRepositoryInternals = Object.freeze({
+    captureScopedScope,
+    closureSummary,
+    ensureNotStale,
+    loadByIdScoped,
+    loadByPeriodScoped,
+    loadPageScoped,
+    promoteLegacyCloudClosure,
+    saveOneScoped,
+    subscribeRecentScoped
+});
 
 export default PayrollClosureRepository;

@@ -13,6 +13,7 @@ import {
     ACTIVE_PROJECT_LS_KEY
 } from 'actual/features/projects/ProjectContext.js';
 import { isProjectsEnabled, setProjectsEnabled } from 'actual/config/FeatureFlags.js';
+import { resetEntityScope } from 'actual/features/projects/EntityProjectScope.js';
 
 if (typeof globalThis.structuredClone !== 'function') {
     globalThis.structuredClone = value => JSON.parse(JSON.stringify(value));
@@ -29,12 +30,14 @@ function makeHarness(dbName) {
 describe('ProjectContext (F1.3)', () => {
     beforeEach(() => {
         localStorage.clear();
+        resetEntityScope();
         setProjectsEnabled(true);
         expect(isProjectsEnabled()).toBe(true);
     });
 
     afterEach(() => {
         localStorage.clear();
+        resetEntityScope();
         setProjectsEnabled(false);
     });
 
@@ -58,6 +61,36 @@ describe('ProjectContext (F1.3)', () => {
         // Fresh service instances over the same IDB + LS key = "restart".
         const second = makeHarness(dbName);
         await expect(second.context.getActiveProjectId()).resolves.toBe(project.id);
+    });
+
+    test('active-project subscribers receive only real successful ON changes and can unsubscribe', async () => {
+        const { store, context } = makeHarness('attendance-app-db-context-events');
+        const projectA = Project.create({ name: 'Obra A' });
+        const projectB = Project.create({ name: 'Obra B' });
+        const rejected = Project.create({ name: 'Obra cerrada' });
+        rejected.close();
+        await store.create(projectA);
+        await store.create(projectB);
+        await store.create(rejected);
+        const listener = jest.fn();
+        const unsubscribe = context.subscribe(listener);
+
+        await context.setActiveProjectId(projectA.id);
+        expect(listener).toHaveBeenLastCalledWith({ previousProjectId: null, projectId: projectA.id });
+        await context.setActiveProjectId(projectA.id);
+        await expect(context.setActiveProjectId(rejected.id)).rejects.toThrow(/closed/);
+        setProjectsEnabled(false);
+        await expect(context.setActiveProjectId(projectB.id)).resolves.toBeNull();
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        setProjectsEnabled(true);
+        await context.setActiveProjectId(projectB.id);
+        expect(listener).toHaveBeenLastCalledWith({ previousProjectId: projectA.id, projectId: projectB.id });
+        expect(listener).toHaveBeenCalledTimes(2);
+
+        unsubscribe();
+        await context.setActiveProjectId(projectA.id);
+        expect(listener).toHaveBeenCalledTimes(2);
     });
 
     test('stored id pointing to a nonexistent project falls back cleanly to the default', async () => {

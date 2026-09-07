@@ -3,6 +3,7 @@ import {
     isPayrollAdjustmentInstallmentPlan,
     normalizeEmployeeAdjustmentEntries
 } from './PayrollAdjustmentInstallmentPlan.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
 
 const VALID_KINDS = new Set(Object.values(ADJUSTMENT_PLAN_KIND));
 
@@ -62,6 +63,7 @@ function validatePlan(plan, employeeById, incomingIds) {
  * partially applied result.
  */
 export function attachPayrollAdjustmentPlans(employees, plans) {
+    assertTandaBBlockedWhenScoped('PayrollAdjustmentPlanRepository.attachPayrollAdjustmentPlans');
     const employeeById = validateEmployees(employees);
     if (!Array.isArray(plans) || plans.length === 0) {
         throw new Error('Debes proporcionar al menos un plan');

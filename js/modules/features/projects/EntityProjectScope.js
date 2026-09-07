@@ -17,6 +17,11 @@ export function replaceEntityScope(scope = EMPTY_SCOPE) {
     return { ...resolvedScope };
 }
 
+export function resetEntityScope() {
+    resolvedScope = { ...EMPTY_SCOPE };
+    return { ...resolvedScope };
+}
+
 export function peekEntityScope() {
     return { ...resolvedScope };
 }

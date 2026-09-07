@@ -39,7 +39,9 @@ export function renderAssignedPositionCard({
     const mode = employee?.positionSalaryModes?.[positionId] === 'daily' ? 'daily' : 'hourly';
     const displayRate = fromStoredHourly(hourlyRate, mode, regularHours);
     const metrics = getPositionPeriodMetrics(snapshot, positionId);
-    const accrued = calculatePositionAccrued(metrics, hourlyRate, settings);
+    const accrued = snapshot?.payrollAvailable === false
+        ? null
+        : calculatePositionAccrued(metrics, hourlyRate, settings);
     const color = safePositionColor(position.color);
 
     return `
@@ -72,7 +74,7 @@ export function renderAssignedPositionCard({
             <div class="employee-position-assignment__metrics">
                 <span><small>Días trabajados</small><strong>${Number(metrics.days) || 0}</strong></span>
                 <span><small>Horas del período</small><strong>${formatHours(getPositionTotalHours(metrics))}</strong></span>
-                <span><small>Acumulado</small><strong data-position-accrued>${formatMoney(accrued)}</strong></span>
+                ${accrued === null ? '' : `<span><small>Acumulado</small><strong data-position-accrued>${formatMoney(accrued)}</strong></span>`}
             </div>
 
             <div class="employee-position-assignment__salary">
@@ -163,6 +165,7 @@ export function attachEmployeePositionEditor({ root, state, employee, regularHou
     };
 
     const recalculateCard = card => {
+        if (snapshot.payrollAvailable === false) return;
         const input = card.querySelector('.custom-salary-input');
         const mode = card.querySelector('.custom-salary-mode')?.value || 'hourly';
         const hourlyRate = toStoredHourly(Number(input?.value) || 0, mode, regularHours);

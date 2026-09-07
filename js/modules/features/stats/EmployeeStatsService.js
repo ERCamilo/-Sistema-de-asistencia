@@ -4,6 +4,7 @@
  */
 
 import { getDateKey, parseDate } from '../../utils/DateUtils.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
 export class EmployeeStatsService {
     constructor(state, payrollService, chartService) {
@@ -58,7 +59,8 @@ export class EmployeeStatsService {
 
         // 4. Horas del periodo de pago actual
         let hp = 0;
-        let gross = 0;
+        const projectsEnabled = isProjectsEnabled();
+        let gross = projectsEnabled ? null : 0;
         const pStartKey = this.state.settings?.payPeriod?.periodStart;
         const pLen = this.state.settings?.payPeriod?.periodLength || 15;
 
@@ -70,8 +72,10 @@ export class EmployeeStatsService {
             const effectiveEnd = (todayKey < pEndKey) ? todayKey : pEndKey;
 
             hp = this.getEmployeeTotalHours(empId, pStartKey, effectiveEnd);
-            const payroll = this.payrollService.calculateEmployeePayroll(empId, pStartKey, effectiveEnd);
-            gross = payroll.bruto;
+            if (!projectsEnabled) {
+                const payroll = this.payrollService.calculateEmployeePayroll(empId, pStartKey, effectiveEnd);
+                gross = payroll.bruto;
+            }
         }
 
         // 5. Datos de gráfico

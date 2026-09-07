@@ -12,9 +12,11 @@ const HISTORY_UI = fs.readFileSync(
 );
 
 describe('Payroll closure privacy boundary', () => {
-    test('stores history under the authenticated owner path with default deny', () => {
+    test('stores history under the authenticated owner path with explicit payroll rules', () => {
         expect(REPOSITORY).toContain("collection(db, 'users', auth.currentUser.uid, COLLECTION)");
-        expect(RULES).toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}[\s\S]*request\.auth\.uid == userId/);
+        expect(RULES).not.toMatch(/match \/users\/\{userId\}\/\{document=\*\*\}/);
+        expect(RULES).toMatch(/match \/users\/\{userId\}\/payrollClosures\/\{closureId\}/);
+        expect(RULES).toContain('allow read: if isAccountOwner(userId)');
         expect(RULES).toMatch(/match \/\{document=\*\*\}[\s\S]*allow read, write: if false/);
     });
 

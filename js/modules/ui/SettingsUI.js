@@ -418,6 +418,23 @@ export function SettingsTab() {
 
     // Fallback para pestaña activa si está indefinida
     const activeTab = state.settingsActiveTab || 'general';
+    let calendarContext = context;
+    if (activeTab === 'calendar' && context.payrollRuntime) {
+        const payrollView = context.payrollRuntime.getCurrentView();
+        if (payrollView.enabled) {
+            if (payrollView.status === 'idle') {
+                context.payrollRuntime.ensureCurrentConfig()
+                    .catch(() => null)
+                    .finally(() => context.render?.());
+            }
+            calendarContext = {
+                ...context,
+                payrollSettings: payrollView.settingsView,
+                payrollConfigStatus: payrollView.status,
+                payrollProjectId: payrollView.projectId
+            };
+        }
+    }
 
     return `
                 <div style="max-width: 900px; margin: 0 auto;">
@@ -461,7 +478,7 @@ export function SettingsTab() {
                     <!-- Contenido de las Pestañas -->
                     ${activeTab === 'general' ? SettingsGeneralTab(context) : ''}
                     ${activeTab === 'data' ? SettingsDataTab(context) : ''}
-                    ${activeTab === 'calendar' ? SettingsTabCalendar(context) : ''}
+                    ${activeTab === 'calendar' ? SettingsTabCalendar(calendarContext) : ''}
                     ${activeTab === 'tests' ? SettingsTestsTab(context) : ''}
                     
                     <div style="margin-top: 24px; display: flex; justify-content: flex-end;">

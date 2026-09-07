@@ -48,7 +48,7 @@ Contexto: el diff paralelo ya no existe en el árbol — el dueño lo resolvió 
 
 ## 5. Upgrade real v16→v17
 
-`IndexedDBUpgradeV16ToV17.test.js`: apertura manual v16 con stores sembrados → cierre → apertura vía servicio REAL (pide v17) → store `projects` creado y TODOS los registros legacy intactos y legibles. ✅
+`IndexedDBUpgradeV16ToV20.test.js`: apertura manual v16 con stores sembrados → cierre → apertura vía servicio REAL (pide v20) → store `projects` creado y TODOS los registros legacy intactos y legibles. ✅
 
 ## Checklist de la orden
 
@@ -56,7 +56,7 @@ Contexto: el diff paralelo ya no existe en el árbol — el dueño lo resolvió 
 - [x] 2. S3/S4/S5 resueltos mínimos + tests
 - [x] 3. Boot-wiring estrictamente tras flag
 - [x] 4. Tests OFF / ON / reload / ON→OFF→ON
-- [x] 5. Test de upgrade real v16→v17 preservando registros
+- [x] 5. Test de upgrade real v16→v20 preservando registros (el hito histórico de F1.1 fue v16→v17; el servicio productivo actual abre v20)
 - [x] 6. Empleados/puestos/líderes/asistencia/nómina/caja SIN TOCAR
 - [x] 7. README actualizado + este informe con SHAs/suite/riesgos
 - [x] 8. DETENERSE — F1.4 requiere autorización explícita

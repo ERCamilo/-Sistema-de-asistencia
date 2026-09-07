@@ -23,6 +23,8 @@ import {
 import {
     buildEmployeeScheduledAdjustmentPlans
 } from '../payroll/PayrollAdjustmentScheduled.js';
+import { assertTandaBBlockedWhenScoped } from '../../config/TandaBGate.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ function alertMsg(message, type = 'info') {
  * persistent employee record. Called on close and after every payroll edit.
  */
 export function syncProfileToMaster(empId, saveOptions = {}) {
+    assertTandaBBlockedWhenScoped('ProfileController.syncProfileToMaster');
     if (!empId) return false;
     const emp = state.employees.find(e => e.id === empId);
     if (!emp || !state.employeeProfile) return false;
@@ -156,6 +159,7 @@ export function cancelManualAdjustmentMovement() {
 }
 
 export async function recordManualAdjustmentMovement(kind, planId, input = {}) {
+    assertTandaBBlockedWhenScoped('ProfileController.recordManualAdjustmentMovement');
     const target = activeEmployeePlan(kind, planId);
     if (!target) {
         notify('Este plan no pertenece al empleado seleccionado.', 'error');
@@ -257,7 +261,7 @@ export async function submitManualAdjustmentMovementAt(index) {
 
 export function closeEmployeeProfile() {
     // Final sync before close — avoids losing edits to deductions/bonuses
-    syncProfileToMaster(state.employeeProfile?.employeeId);
+    if (!isProjectsEnabled()) syncProfileToMaster(state.employeeProfile?.employeeId);
     // 🛡️ Migrate any newly-added legacy advances into emp.loans[] so they show
     // up in the Cuentas-por-Cobrar ledger the next time the user opens it.
     if (typeof window !== 'undefined' && typeof window.migrateAllAdvances === 'function') {
@@ -453,6 +457,7 @@ export function togglePositionBreakdown(positionId) {
 // ─── Mark as paid ────────────────────────────────────────────────────────────
 
 export function markAsPaid() {
+    assertTandaBBlockedWhenScoped('ProfileController.markAsPaid');
     const emp = state.employees.find(e => e.id === state.employeeProfile.employeeId);
     if (!emp) return;
 

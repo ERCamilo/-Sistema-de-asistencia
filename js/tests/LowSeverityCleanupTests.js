@@ -53,7 +53,7 @@ testRunner.addSuite("Limpieza de baja severidad (L2/L3/L5)", {
     },
 
     "L5: importDB usa batchUpdate, no update en bucle"() {
-        const block = IDB_SRC.match(/async importDB\s*\([\s\S]{0,1400}?\n    \}/);
+        const block = IDB_SRC.match(/async importDB\s*\([\s\S]{0,2000}?\n    \}/);
         testRunner.assert(!!block, 'importDB debe existir');
         testRunner.assert(/batchUpdate\s*\(/.test(block[0]),
             'importDB debe escribir con batchUpdate (rápido), no update() registro por registro');

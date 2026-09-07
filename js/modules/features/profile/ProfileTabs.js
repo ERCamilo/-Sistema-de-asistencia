@@ -19,10 +19,17 @@ import { CalendarView } from '../../ui/components/CalendarView.js';
 import icons from '../../ui/IconSystem.js';
 import { ProfileStartDatePicker, ProfileEndDatePicker, ProfileHireDatePicker, calculateMonthlyEstimate } from './ProfilePickers.js';
 import { renderEmployeeScheduledAdjustments } from '../payroll/PayrollAdjustmentScheduled.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
 // ─── Tab: Nómina ─────────────────────────────────────────────────────────────
 
 export function ProfileTabNomina(emp) {
+    if (isProjectsEnabled()) {
+        return `<div data-scoped-payroll-unavailable style="padding: 20px; border: 1px solid #334155; border-radius: 8px; color: #94a3b8;">
+            La nómina individual no está disponible en esta vista mientras los proyectos están habilitados.
+        </div>`;
+    }
+
     const { periodStart, periodEnd, deductionType, deductionValue } = state.employeeProfile;
 
     const payroll = payrollService.calculateEmployeePayroll(

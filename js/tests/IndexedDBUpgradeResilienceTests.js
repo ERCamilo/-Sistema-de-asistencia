@@ -44,11 +44,11 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
 
 });
 
-testRunner.addSuite("IndexedDB — schema v17: sync, Mini, payroll history, projects, and employee photos", {
+testRunner.addSuite("IndexedDB — schema v20: sync, Mini, payroll history, projects, employee photos & payroll configs", {
 
-    "the database version is 17"() {
-        testRunner.assert(/version\s*=\s*17/.test(IDB_SRC),
-            'IndexedDBService must open version 17 (employee photo cache + official projects store)');
+    "the database version is 20"() {
+        testRunner.assert(/version\s*=\s*20/.test(IDB_SRC),
+            'IndexedDBService must open version 20 (employee photo cache + official projects + payroll configs)');
     },
 
     "existe el store mainSyncOutbox con keyPath 'key' autoIncrement (NO reutiliza sync_queue)"() {

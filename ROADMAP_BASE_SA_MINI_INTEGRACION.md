@@ -268,7 +268,33 @@ Ejemplo:
 
 **Al terminar la fase:** SA es internamente project-aware. Se puede crear un proyecto de prueba vacío y comprobar aislamiento aunque todavía no exista UI completa.
 
-**Actualización F1.6 (2026-08-26):** la arquitectura de nómina multiproyecto está aprobada con la modificación bloqueante DEP-SA-004. A0 está técnicamente validado en `c7a9e0c` y pendiente de revisión formal de Dirección; A0.5 es el siguiente gate y no debe comenzar antes de esa revisión. A1–A6 y F1.7 permanecen bloqueadas; F1.6 no está completa y no hay comportamiento funcional de nómina aceptado.
+**Actualización F1.6 (reconciliación actual):** **A0–A5 ✅ están cerrados y aprobados por Dirección 2026-08-29** — A4 `6c1cb2c` y A5 `ae66121` mantienen su evidencia histórica. La candidata reconcilia A6 con gates explícitos antes de mutaciones legacy cuando Projects está ON, preservando la política Tanda B y la paridad OFF. La línea histórica mergeada también contiene material B1–B3 (identidad de cierre, store/stamper local y B3 cloud contract congelado en [`docs/fase-1/F1.6-B3-contract.md`](docs/fase-1/F1.6-B3-contract.md)); **B4–B5 y F1.7 permanecen fuera de esta fase.** DEP-SA-004 cerrado.
+
+**Orden ejecutado de A4 (✅ cerrado y aprobado 2026-08-28):**
+
+1. Con flag ON, UI de configuración y preview usan el `projectId` capturado y `projectPayrollConfigs` vía `ProjectPayrollUIRuntime`.
+2. Los callers productivos de período del preview usan `config.payPeriod` scoped.
+3. A→B invalida selección temporal, preview, período y caché de sesión; B→A reconstruye A.
+4. Una preview async iniciada en A permanece en A mientras una preview nueva usa B.
+5. Con flag OFF, la UI legacy permanece byte-idéntica.
+6. No se habilitan cierres, préstamos, ajustes persistidos, historial ni exportación final.
+7. No se trabaja H-05 completo ni se amplía la persistencia de `exportConfig`.
+8. Tests + fresh review completados sobre `6c1cb2c` (49/49, 365/365 · 3525, ALLOW · 0 findings); **A4 ✅ cerrado y aprobado — A5 🟢 autorizado exclusivamente (H-05)**.
+
+**Orden ejecutado de A5 (✅ cerrado y aprobado formalmente 2026-08-29 — `ae66121`):**
+
+1. Tratar `exportConfig` como estado transitorio de UI/sesión y sanitizar simétricamente en ALL egress/ingress frontiers: mirror/data/current, cloud replace, snapshots, DataOps local→cloud y restores/legacy ingresses.
+2. Verificar que un `exportConfig` viejo no resucite tras sync/restore/snapshot load.
+3. No eliminar configuración durable legítima (`settings.payrollDefaults`, `projectPayrollConfigs`).
+4. Preservar garantías A→B→A de A4 (invalidación sincrónica + rebuild sin stale).
+5. No tocar `PayrollClosure`, cierres, préstamos, ajustes económicos, PDF, SplitX, economic cloud ni petty cash.
+6. Tests + fresh review completados (**17/17 nuevos, 56/56 agrupada, 366/366 suites · 3542/3542 tests · 0 fallos, ALLOW · 0 findings** tras fix WARNING `Object.assign` vía `Object.assign` shallow copy); **A5 cerrado — A6 🟢 autorizado exclusivamente (cierre de Tanda A)**.
+
+**Orden autorizado de A6 (🟢 cierre de Tanda A — ejecutar en orden congelado):**
+
+1. Gates que bloqueen efectivamente con proyectos ON: cierres de nómina, ajustes económicos persistidos/programados, operaciones de préstamo, historial económico, pago definitivo, exportaciones finales — no solo botones ocultos en `ScopedPayrollTab`, también llamadas directas programáticas deben fallar explícita y seguramente sin mutaciones parciales; OFF preserva legacy.
+2. Matriz consolidada A/B de toda la Tanda A: mismo `#12` `employeeId` distinto, configs/períodos/feriados/horas distintos, asistencia aislada, A→B→A, async A mientras se cambia a B, H-05 sin resurrección de `exportConfig`, `buildAttendanceIndex` RAW detrás de fronteras scoped.
+3. No ampliar B1–B3 ni iniciar B4/B5: no agregar nuevas superficies de ajustes, préstamos, pagos definitivos, recuperación o exportación final scoped. F1.7 permanece bloqueada hasta que F1.6 esté completa y aprobada.
 
 **Punto de parada usable:** SA sigue siendo utilizable como antes con un único proyecto visible.
 
@@ -611,7 +637,7 @@ Mantener esta tabla viva durante el desarrollo.
 | DEP-SA-001 | SA | SA (aprueba Dirección) | F2.8 / F2.9 (resumen mensual e informe final) + multiproyecto completo | Vínculo oficial Project ↔ PettyCashProject con relación **1:N**: campo `officialProjectId` en `pettyCashProjects`, backfill al predeterminado; UN Project oficial puede tener VARIOS proyectos de caja vinculados y los reportes suman TODOS (veredicto P7). Implementación NO bloquea F1.1–F1.6 | Alta | Decidida — implementación pendiente |
 | DEP-SA-002 | SA | SA + Integración (valida Dirección) | F1.6 configuración cloud | Dependencia específica de configuración cloud: `payrollConfigsV1/{projectId}` requiere identidad/registro de proyecto estable; su resolución operativa queda detrás de DEP-SA-004 | Bloqueante para config cloud | Pendiente — no resolver dentro de F1.6-A |
 | DEP-SA-003 | SA | SA (implementa ADR-016) | F1.6-B4 cierres/pagos | Implementar la política canónica fijada para `ProfileController.markAsPaid`: delegar al cierre de nómina o deshabilitar con proyectos ON; `employee.paymentHistory` se conserva como histórico y no como ledger nuevo | Bloqueante para B4 | Pendiente — ADR-016 fijado; implementación pendiente |
-| DEP-SA-004 | SA | SA (valida Dirección) | F1.6-A1–A6, estado económico durable por `projectId` y F1.6-B cloud | Identidad canónica de `Project` entre dispositivos: la misma cuenta/obra debe compartir un único `projectId`; `activeProjectId` sigue siendo local. Registro, adopción/promoción y protección contra carreras mínimos y SA-only; no incluye organizaciones, roles, membresías, Mini ni Integración | Bloqueante | Pendiente — A0.5 no iniciado; no comenzar antes de la revisión formal de A0 |
+| DEP-SA-004 | SA | SA (valida Dirección) | Gate histórico de identidad canónica para F1.6 | Identidad canónica de `Project` entre dispositivos: misma cuenta/obra comparte un único `projectId`; `activeProjectId` sigue local. Implementación mínima SA-only sin organizaciones, roles, membresías, Mini ni Integración | Cerrada; no es bloqueo actual | **✅ Cerrado y aprobado por Dirección el 2026-08-27** — `51a7611` + `50343ee` (20/20, 360/360 · 3485, ALLOW 0 findings; ver [`docs/fase-1/F1.6-A0.5-bitacora.md`](docs/fase-1/F1.6-A0.5-bitacora.md)). A4/A5 también están cerrados; el material B1–B3 de cierres está mergeado en la línea reconciliada. A6 se reconcilia; B4–B5/F1.7 siguen bloqueados por sus dependencias específicas, no por DEP-SA-004. |
 
 ---
 
@@ -632,9 +658,9 @@ Cada decisión que afecte a más de un equipo debe registrarse para evitar que f
 | ADR-009 | El espejo `data/current` permanece a nivel CUENTA incluyendo todos los proyectos; el filtrado por proyecto lo hacen repositorios/UI vía `activeProjectId`; PROHIBIDO sobrescribir entidades de otro proyecto con una copia local obsoleta (guard anti-stale obligatoria en saveFullState/merge) | Evitar que cambiar de proyecto activo o sincronizar con datos viejos reemplace en cloud datos del proyecto anterior | SA, Integración | v0.2 (ajustada por veredicto P4, 2026-08-25) |
 | ADR-010 | En Gen1 `employeeId` identifica la FICHA dentro del proyecto, no a la persona globalmente; copiar un empleado a otra obra genera NUEVO `employeeId` + metadata `copiedFromEmployeeId` (solo auditoría, sin sincronización entre copias) | Firestore no admite dos documentos con el mismo id en una colección; las obras deben ser independientes | SA, Mini, Integración | v0.2 |
 | ADR-011 | Project v1 añade `startDate` y `endDate` (fechas laborales/contractuales reales) separadas de `createdAt`/`closedAt` (administrativas) | El informe final necesita inicio y fin REALES de la obra, no la fecha de alta en SA | SA | v0.2 |
-| ADR-012 | **F1.6 seleccionada, pendiente de implementación:** nómina consume un `PayrollProjectContext` capturado con empleados, posiciones, líderes, asistencia y configuración scoped; `buildAttendanceIndex` permanece RAW; toda operación async congela un snapshot antes del primer `await` | El estado global mutable y los índices compartidos no son una frontera de aislamiento económico | SA | v0.3 (2026-08-26) |
-| ADR-013 | **F1.6 seleccionada, pendiente de implementación:** configuración canónica en IDB `projectPayrollConfigs`, clave `projectId`, con campos operativos mínimos versionados; semilla atómica del default; flag OFF usa legacy sin dual-write. Cloud `payrollConfigsV1/{projectId}` se difiere detrás de DEP-SA-004; DEP-SA-002 queda como dependencia específica de esa configuración. F2.7 copiará solo esta configuración, no movimientos | Una fuente durable por proyecto evita divergencia; IDs locales no son todavía identidad cloud estable | SA, Integración | v0.3 (2026-08-26) |
-| ADR-014 | **F1.6 seleccionada, pendiente de implementación:** `exportConfig` es transitorio y se elimina de espejo, replace cloud, snapshots, DataOps local→cloud e ingresos legacy cloud/snapshot; `settings.payrollDefaults` continúa durable hasta su migración canónica | Resolver H-05 y evitar recuperar ajustes/selecciones incompletos como estado oficial | SA | v0.3 (2026-08-26) |
+| ADR-012 | **Implementada en A1 y conectada parcialmente en A3 cerrado:** nómina usa `PayrollProjectContext` capturado con empleados, posiciones, líderes, asistencia y settings; `buildAttendanceIndex` permanece RAW y Service/Period usan `ctx.getAttendance()` en las rutas A3. Snapshot deep-cloned con congelamiento de primer nivel antes del primer `await`; no es congelamiento recursivo ni wiring UI/runtime completo. | El estado global mutable y los índices compartidos no son una frontera de aislamiento económico | SA | v0.3, A3 cerrado 2026-08-28 |
+| ADR-013 | **Implementada en A2 y consumida donde A3 cerrado está conectado:** configuración canónica IDB `projectPayrollConfigs`, clave `projectId`, semilla atómica y flag OFF sin dual-write. A3 consume horas/factores/feriados y período a nivel helper; `payrollDefaults` y `defaultDeductionPercentage` aún no se consumen. Cloud sigue diferida por DEP-SA-002; DEP-SA-004 está cerrado. | Una fuente durable por proyecto evita divergencia sin anticipar cloud ni UI | SA, Integración | v0.3, A3 cerrado 2026-08-28 |
+| ADR-014 | **✅ Implementada y cerrada en A5 2026-08-29:** `exportConfig` es transitorio y se elimina de espejo, replace cloud, snapshots, DataOps local→cloud e ingresos legacy cloud/snapshot (`ae66121`; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix WARNING `Object.assign`); `settings.payrollDefaults` continúa durable hasta su migración canónica | Resolver H-05 y evitar recuperar ajustes/selecciones incompletos como estado oficial | SA | v0.4 (2026-08-29) |
 | ADR-015 | **F1.6-B seleccionada, pendiente de implementación:** cierres nuevos usan schema 3 con `projectId` inmutable; promoción schema 2→3/default explícita y solo de metadata; IDs, fingerprints, lotes, repositorios, índices, cachés y consultas serán project-aware | Todo cierre, ajuste, préstamo, exportación y recuperación debe tener propietario económico inequívoco | SA, Integración | v0.3 (2026-08-26) |
 | ADR-016 | **F1.6-B bloqueante, pendiente de implementación:** `PayrollClosure` es la autoridad canónica del estado económico de una nómina pagada; las nuevas operaciones `markAsPaid()` deben delegar al cierre canónico o quedar deshabilitadas con proyectos ON. `employee.paymentHistory` se conserva como dato histórico y no como ledger autoritativo nuevo | Evitar una segunda contabilidad divergente y mantener una única autoridad de pago | SA | v0.4 (2026-08-26) |
 
@@ -660,9 +686,9 @@ La orden histórica de inicialización entregada al **Equipo SA** fue:
 
 > Inspeccionar el estado actual del repositorio SA y ejecutar únicamente la Fase 0. No modificar todavía el comportamiento productivo. Entregar mapa de datos, propuesta de Project v1, plan de migración, riesgos y dependencias encontradas. No comenzar Fase 1 hasta que Dirección/Coordinación apruebe el informe.
 
-Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual es:
+Para el estado vigente de F1.6, esa orden histórica ya fue completada. La orden actual, actualizada el 2026-08-29, es:
 
-> Dirección debe revisar formalmente la evidencia técnica de A0 y el commit `c7a9e0c`. Solo después de esa revisión, el Equipo SA puede iniciar A0.5 para resolver DEP-SA-004. No iniciar A1–A6, estado económico durable por `projectId`, cloud de F1.6-B ni F1.7 hasta validar la identidad canónica entre dispositivos.
+> **Estado exacto de la reconciliación: A0–A5 ✅ cerrados; A6 en cierre de gates; B1–B3 con material mergeado y B3 congelado por contrato; B4–B5 🔒 · F1.7 🔒.** A5 mantiene su evidencia histórica; A6 debe preservar Projects OFF y la política Tanda B. No iniciar nuevas superficies B4/B5 ni SA-Mini. DEP-SA-004 cerrado.
 
 El primer objetivo técnico estable será:
 
@@ -676,7 +702,7 @@ El primer objetivo técnico estable será:
 |---|---|---|---|
 | F0 Auditoría SA | ✅ Completada 6/6 — APROBADA por Dirección (2026-08-24) | SA | Ninguna |
 | F1.0 Precondiciones del refactor | ✅ Completada y APROBADA (2026-08-25) | SA | F0 aprobada |
-| F1 Contexto de proyecto | En ejecución — **F1.5 cerrada y aprobada** (354/354 suites, 3401 tests, 0 fallos); F1.6 con arquitectura aprobada y modificación DEP-SA-004; A0 técnicamente validado (`c7a9e0c`, 354/354 suites, 3409 tests, 0 fallos), pendiente revisión formal; A0.5 no iniciado; **F1.7 bloqueada** | SA | Revisar formalmente A0; luego validar A0.5 antes de A1–A6, estado económico durable o cloud F1.6-B |
+| F1 Contexto de proyecto | En ejecución — F1.5 cerrada y aprobada; F1.6 en estado **A0–A5 ✅ cerrados; A6 en reconciliación de gates; B1–B3 con material mergeado; B4–B5 y F1.7 🔒** | SA | **Cerrar A6 sin ampliar B1–B3; no iniciar B4/B5 ni SA-Mini.** DEP-SA-004 cerrado |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |

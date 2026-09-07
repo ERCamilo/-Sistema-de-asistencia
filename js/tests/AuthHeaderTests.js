@@ -198,11 +198,15 @@ testRunner.addSuite('AuthHeader — modal de login explicativo y logout en el CS
     'al loguearse, onAuthStateChanged cierra el modal de login y vuelve a la app'() {
         const idx = APP_SRC.indexOf('onAuthStateChanged(async (user)');
         testRunner.assert(idx !== -1, 'debe existir el handler de auth');
-        const body = APP_SRC.slice(idx, idx + 700);
+        const end = APP_SRC.indexOf('// A0.5 G2–G5:', idx);
+        testRunner.assert(end !== -1, 'debe existir el anchor estable previo al bloque A0.5');
+        const body = APP_SRC.slice(idx, end);
         testRunner.assert(/modalType\s*===\s*'login'/.test(body),
             'debe detectar el modal de login abierto al loguearse');
         testRunner.assert(/showModal\s*=\s*false/.test(body),
             'debe cerrar el modal para mostrar la app de vuelta');
+        testRunner.assert(/modalType\s*=\s*null/.test(body),
+            'debe limpiar el tipo del modal después de cerrar el login');
     }
 
 });

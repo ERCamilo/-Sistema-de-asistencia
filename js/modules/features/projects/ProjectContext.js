@@ -52,6 +52,23 @@ export class ProjectContextService {
     constructor({ store = projectStore, defaults = new DefaultProjectService({ store: projectStore }) } = {}) {
         this.store = store;
         this.defaults = defaults;
+        this.listeners = new Set();
+    }
+
+    subscribe(listener) {
+        if (typeof listener !== 'function') throw new TypeError('Project change listener must be a function');
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    notifyProjectChanged(payload) {
+        for (const listener of [...this.listeners]) {
+            try {
+                listener(payload);
+            } catch (error) {
+                console.error('Project change listener failed', error);
+            }
+        }
     }
 
     /**
@@ -85,11 +102,13 @@ export class ProjectContextService {
     async setActiveProjectId(id) {
         if (!isProjectsEnabled()) return null;
 
+        const previousProjectId = readStoredId() || peekEntityScope().projectId || null;
         const candidate = await this.store.get(id);
         if (!candidate) throw new Error(`Proyecto inexistente: "${id}"`);
         if (candidate.status !== PROJECT_STATUS.ACTIVE) {
             throw new Error(`El proyecto "${candidate.name}" está "${candidate.status}"; sólo puede activarse uno "active".`);
         }
+        if (candidate.id === previousProjectId) return candidate.id;
         writeStoredId(candidate.id);
         // F1.4: el snapshot síncrono queda al día para los renders/save
         // handlers que corran antes de la próxima resolución async.
@@ -98,6 +117,7 @@ export class ProjectContextService {
             projectId: candidate.id,
             defaultProjectId: peekEntityScope().defaultProjectId
         });
+        this.notifyProjectChanged({ previousProjectId, projectId: candidate.id });
         return candidate.id;
     }
 
@@ -116,6 +136,7 @@ export const projectContext = new ProjectContextService();
 export const getActiveProjectId = () => projectContext.getActiveProjectId();
 export const setActiveProjectId = id => projectContext.setActiveProjectId(id);
 export const clearActiveProjectId = () => projectContext.clearActiveProjectId();
+export const subscribeActiveProject = listener => projectContext.subscribe(listener);
 
 // ═══════════════════════════════════════════════════════════════════
 // F1.4 — EntityScope: alcance de proyecto para entidades (empleados,
