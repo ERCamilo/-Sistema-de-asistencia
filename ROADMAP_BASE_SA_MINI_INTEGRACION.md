@@ -365,6 +365,169 @@ Ejemplo:
 
 **Estado esperado:** Contrato 100%; Personal SA→Mini ~55%; Asistencia Mini→SA ~50%; Proyecto global ~42%.
 
+> **Nota de ponderación:** los pesos F3.1–F3.11 anteriores suman 100% y **no se modifican**.
+> F3.P2P es un suplemento **supplemental 0%/non-weighted** (`supplemental 0% / non-weighted`):
+> no altera pesos completados ni reescribe el avance ya medido. La Tabla maestra (§8) no incluye columna P2P por este motivo.
+
+---
+
+## Fase 3.P2P — Suplemento no ponderado: transferencia opcional peer-to-peer SA ↔ Mini/pares (supplemental 0%/non-weighted)
+
+> Task traceability: non-weighted supplemental F3.P2P capability for optional peer-to-peer transfer
+> between SA and Mini/peers; supplemental 0%/non-weighted so completed weights are not rewritten.
+
+**Propósito:** ofrecer un transporte opcional peer-to-peer entre SA y Mini/pares para
+intercambiar los contratos canónicos ya definidos y los backups nativos existentes, sin
+crear contratos o formatos nuevos y sin reemplazar archivo/portapapeles/WhatsApp ni el
+futuro sync Firebase.
+
+**Naturaleza suplementaria (no ponderada):**
+
+- F3.P2P es **supplemental 0% / non-weighted**. Los pesos F3.1–F3.11 no cambian.
+- Completar o no F3.P2P **no reescribe** los porcentajes de F3 ni de la Tabla maestra (§8).
+- Es opcional: F4–F10 no dependen de F3.P2P. El punto de parada usable de F3 sigue siendo
+  la integración manual por archivo.
+
+**Equipo principal:** Integración
+**Equipos consumidores:** SA y Mini
+**Dependencias base:** F3.1 congelado; F3.2 (`sa-roster/v1`) documentado; rutas nativas de
+backup existentes: SA con su validación y preflight project-aware/`RestoreUI`, y Mini con
+su validación/restauración existente. `ProjectBackupManifest` aporta información de
+diagnóstico/preflight para SA; **no es un validador de backups**.
+
+**Gate específico de asistencia:** el transporte P2P de `attendance-submission/v1` depende
+de **ambos**: el contrato consumidor F3.4 y el productor canónico Mini F3.9 **completado**.
+F3.P2P **no debe absorber, adelantar ni reimplementar trabajo de F3.9**; solo transporta los
+bytes que entregue ese productor terminado.
+
+### Alcance v1 — estricto (solo esto viaja por P2P)
+
+1. **Roster `sa-roster/v1`** — SA → Mini/pares. Misma forma congelada en
+   `docs/fase-3/F3.1-envelope.md` §1.1, `docs/fase-3/F3.2-employee.md` y
+   `docs/fase-3/fixtures/sa-roster-v1.example.json`.
+2. **Asistencia `attendance-submission/v1`** — Mini → SA. Misma forma congelada en
+   `docs/fase-3/F3.4-attendance-submission.md` (bare JSON body, 12 claves de envelope,
+   7 claves de fila, `saProjectId` explícito, `scope` solo auditoría), emitida por el
+   productor canónico Mini F3.9 ya completado. P2P no construye este payload.
+3. **Backups nativos existentes SA/Mini** — SA y Mini tienen formatos de backup distintos.
+   P2P los transporta como bytes opacos, sin convertirlos ni crear un formato común:
+   - SA → SA: solo la ruta nativa de SA mediante su validación y preflight
+     project-aware/`RestoreUI`; `ProjectBackupManifest` aporta diagnóstico/preflight, no
+     validación.
+   - Mini → Mini: solo la validación/restauración de backup ya existente en Mini.
+   - SA → Mini o Mini → SA: el receptor puede ofrecer **únicamente guardar/descargar** los
+     bytes opacos. **La aplicación incorrecta MUST NOT importarlos ni restaurarlos.**
+
+Nada fuera de estas tres clases de payload viaja por P2P en v1. Roster y asistencia usan
+el mismo validador que por archivo. Un backup solo entra en la ruta de validación/restauración
+de la misma aplicación; si es cross-app permanece opaco y solo puede guardarse/descargarse.
+
+### UI documentada (v1)
+
+La UI P2P documentada expone exactamente estas opciones:
+
+- `Enviar roster a peer` (habilitado en v1).
+- `Enviar asistencia a SA` (habilitado en v1).
+- `Enviar / Recibir backup` (habilitado en v1, solo payloads existentes).
+- `Documents / Files` — **visible pero explícitamente disabled / greyed out (futuro)**.
+  (visible future Documents/Files option, explicitly disabled/greyed out)
+  Es un placeholder de descubrimiento, sin acción, sin picker, sin envío.
+
+**Generic documents / photos / binary file support is OUT OF SCOPE v1.** Fotos, PDFs,
+documentos genéricos, binarios arbitrarios, captura de cámara y file-sharing general no
+pertenecen a F3.P2P v1 aunque el transporte futuro pudiera soportarlos.
+
+### Restricciones de arquitectura (obligatorias)
+
+1. **WebRTC DataChannel for payload bytes.** Los bytes del payload viajan solo por
+   WebRTC DataChannel entre peers. Ningún otro canal transporta el cuerpo.
+2. **Small signaling service only for peer discovery/offer-answer.** La señalización
+   solo resuelve descubrimiento de peers e intercambio offer-answer (SDP/ICE). No valida,
+   no transforma, no rutea payloads. (small signaling service only for peer discovery/offer-answer)
+3. **Signaling service must not persist payload contents.** La señalización no guarda,
+   no loguea ni cachea cuerpos, filas, backups ni hashes con contenido reconstruible.
+   Solo estado efímero de sesión/offer-answer. (signaling service must not persist payload contents)
+4. **Receiving is never equivalent to import/restore.** Recibir bytes por P2P solo los
+   deja en staging pendiente. Importar roster/asistencia o restaurar un backup same-app
+   exige el mismo gesto explícito del usuario que por archivo. Un backup cross-app solo
+   puede ofrecerse para guardar/descargar; nunca para importación/restauración local.
+5. **Existing SA/Mini validators / preflight / preview / confirmations remain authoritative.**
+   `SaMiniRosterExport` + validador Mini, `AttendanceSubmissionInboxStore`
+   (validate/importJSON), la validación de backup SA + preflight project-aware/`RestoreUI`,
+   la validación/restauración de backup Mini y el draft revisado
+   (`docs/plans/mini-attendance-draft-import.md`) siguen siendo las únicas puertas de
+   entrada. `ProjectBackupManifest` solo aporta información de diagnóstico/preflight a SA;
+   no valida backups. P2P no añade atajos, bypass ni restore cross-app.
+   (existing SA/Mini validators/preflight/preview/confirmations remain authoritative)
+6. **SHA-256 transport integrity over exact payload bytes is required.** El emisor calcula
+   SHA-256 sobre la secuencia exacta y completa de bytes entregada al transporte; el receptor
+   reconstruye esa misma secuencia y verifica el digest **antes** de parsear, validar o
+   hacer staging. Mismatch ⇒ rechazo fail-closed, sin staging, sin escritura. El FNV-1a
+   `bodyHash` existente de asistencia se conserva solo para semántica/idempotencia y
+   **no es integridad de transporte ni sustituye SHA-256**.
+7. **P2P is optional transport and never source of truth and never replaces Firebase future sync.**
+   SA sigue siendo fuente oficial (ADR-001); Firebase sigue siendo el transporte/plataforma
+   futuro (ADR-003). P2P no define formato, no otorga autoridad y no sustituye F6/F7.
+   (P2P is optional transport and never source of truth and never replaces Firebase future sync)
+8. **Backup compatibility remains app-native.** SA ↔ SA usa la ruta existente de SA con
+   validación, preflight project-aware/`RestoreUI` y confirmación explícita; jamás hace
+   auto-merge autoritativo. Mini ↔ Mini usa la validación/restauración existente de Mini.
+   SA ↔ Mini puede transportar el archivo como bytes opacos y ofrecer solo guardar/descargar:
+   la aplicación incorrecta MUST NOT importarlo/restaurarlo. Por defecto no muta asistencia,
+   nómina, caja, préstamos, proyectos ni datos Mini.
+
+Transporte-neutralidad de roster/asistencia: los bytes de archivo viajan sin cambios;
+wrappers tipo `{ data: … }` se rechazan igual que en F3.4 §8. El SHA-256 cubre esos bytes
+exactos, no una recanonización posterior.
+
+### Acceptance criteria (criterios de aceptación de F3.P2P v1)
+
+- [ ] AC-1 — Solo viajan `sa-roster/v1`, `attendance-submission/v1` y backups nativos
+  existentes sin conversión; cualquier otra clase de payload se rechaza fail-closed.
+- [ ] AC-2 — Roster y asistencia recibidos intactos validan con el mismo validador de archivo.
+  Los backups same-app siguen la validación/preflight/restore nativos: SA con su ruta
+  project-aware/`RestoreUI`, Mini con su ruta existente. `ProjectBackupManifest` se usa solo
+  como información de diagnóstico/preflight de SA, no como validador.
+- [ ] AC-3 — SHA-256 de los bytes exactos se verifica antes de parsear/validar/staging:
+  mismatch ⇒ rechazo, cero escrituras y error visible. Prueba con 1 byte corrupto. El FNV-1a
+  `bodyHash` de asistencia no satisface este criterio de integridad de transporte.
+- [ ] AC-4 — Recepción ≠ importación: paquete recibido queda en staging `pending`; la
+  asistencia oficial, el roster Mini y los datos SA no cambian hasta preview + confirmación
+  explícita. Prueba de cero-mutación en recepción.
+- [ ] AC-5 — Señalización mínima: solo discovery/offer-answer; evidencia (logs/tests) de que
+  la señalización no persiste cuerpos de payload.
+- [ ] AC-6 — `Documents / Files` visible, disabled / greyed out, sin acción; intento de
+  envío genérico (foto/binario) falla o está ausente por diseño. Documentos genéricos
+  verificados OUT OF SCOPE.
+- [ ] AC-7 — Matriz de backup: SA ↔ SA exige su validación + preflight project-aware/
+  `RestoreUI` + confirmación y no auto-fusiona; Mini ↔ Mini usa su validación/restauración
+  existente; SA → Mini y Mini → SA ofrecen solo guardar/descargar, y la importación/restore
+  por la aplicación incorrecta está ausente o se rechaza. Todos los casos sin autorización
+  dejan cero mutaciones autoritativas.
+- [ ] AC-8 — Pesos F3.1–F3.11 intactos (suman 100%); F3.P2P reporta 0% supplemental y no
+  altera la Tabla maestra. Fallbacks de archivo/WhatsApp siguen funcionando.
+- [ ] AC-9 — F3.P2P-2 no inicia hasta que existan el contrato consumidor F3.4 y el productor
+  canónico Mini F3.9 completado; su alcance contiene solo transporte y no absorbe ni
+  reimplementa trabajo de F3.9.
+
+### Phased implementation units (unidades por fases, todas 0% non-weighted)
+
+| Unidad | Responsable | Trabajo | Peso | Entregable | Criterio de aceptación | Dependencia | Hito |
+|---|---|---|---:|---|---|---|---|
+| F3.P2P-0 | Integración | Señalización mínima efímera + esqueleto DataChannel sin payloads reales | 0% (supplemental / non-weighted) | Servicio de signaling solo discovery/offer-answer + prueba de no-persistencia | AC-5; ningún cuerpo en logs/storage del signaling | F3.1 | `p2p-signaling-skeleton` |
+| F3.P2P-1 | SA + Mini + Integración | Transporte roster `sa-roster/v1` por DataChannel con SHA-256 de bytes exactos + staging + preview | 0% (supplemental / non-weighted) | Envío/recepción roster con el validador existente | AC-1–AC-4, AC-8 para roster | F3.P2P-0 + F3.2 | `p2p-roster-transport` |
+| F3.P2P-2 | Mini + SA + Integración | Transporte `attendance-submission/v1` ya producido por F3.9, con SHA-256 de bytes exactos + idempotencia + inbox pending | 0% (supplemental / non-weighted) | Envío/recepción asistencia a `AttendanceSubmissionInboxStore` pending, sin implementar el productor | AC-1–AC-4, AC-8–AC-9 para asistencia; replay `submissionId` no duplica | F3.P2P-0 + F3.4 + F3.9 completado | `p2p-attendance-transport` |
+| F3.P2P-3 | SA + Mini + Integración | Transporte de backups nativos como bytes opacos: restore solo same-app; cross-app solo guardar/descargar | 0% (supplemental / non-weighted) | SA ↔ SA y Mini ↔ Mini conservan sus rutas nativas; SA ↔ Mini nunca restaura en la app incorrecta | AC-1, AC-3, AC-7; cero mutación sin autorización | F3.P2P-0 + rutas nativas de backup SA/Mini | `p2p-backup-transport` |
+| F3.P2P-4 | Todos | UI documentada + `Documents / Files` disabled + endurecimiento y docs finales | 0% (supplemental / non-weighted) | UI con 3 acciones v1 + placeholder futuro grisado; guía + pruebas negativas | AC-6, AC-8; archivo/WhatsApp intactos | F3.P2P-1–F3.P2P-3 | `p2p-ui-hardening` |
+
+**Al terminar F3.P2P:** roster, asistencia producida por F3.9 y backups nativos pueden moverse
+por DataChannel con SHA-256 sobre sus bytes exactos y sin cambiar sus contratos/formatos. Los
+backups solo se restauran en la misma aplicación; los cross-app solo se guardan/descargan. La
+UI ya muestra el futuro `Documents / Files` como opción deshabilitada. Nada autoritativo
+cambia por recibir.
+
+**Punto de parada usable:** F3 manual sigue usable sin P2P; P2P apagado o ausente no rompe SA/Mini.
+
 ---
 
 ## Fase 4 — Plataforma Firebase, identidad y seguridad
@@ -663,6 +826,7 @@ Cada decisión que afecte a más de un equipo debe registrarse para evitar que f
 | ADR-014 | **✅ Implementada y cerrada en A5 2026-08-29:** `exportConfig` es transitorio y se elimina de espejo, replace cloud, snapshots, DataOps local→cloud e ingresos legacy cloud/snapshot (`ae66121`; 17/17, 56/56, 366/366 · 3542, ALLOW · 0 findings tras fix WARNING `Object.assign`); `settings.payrollDefaults` continúa durable hasta su migración canónica | Resolver H-05 y evitar recuperar ajustes/selecciones incompletos como estado oficial | SA | v0.4 (2026-08-29) |
 | ADR-015 | **F1.6-B seleccionada, pendiente de implementación:** cierres nuevos usan schema 3 con `projectId` inmutable; promoción schema 2→3/default explícita y solo de metadata; IDs, fingerprints, lotes, repositorios, índices, cachés y consultas serán project-aware | Todo cierre, ajuste, préstamo, exportación y recuperación debe tener propietario económico inequívoco | SA, Integración | v0.3 (2026-08-26) |
 | ADR-016 | **F1.6-B bloqueante, pendiente de implementación:** `PayrollClosure` es la autoridad canónica del estado económico de una nómina pagada; las nuevas operaciones `markAsPaid()` deben delegar al cierre canónico o quedar deshabilitadas con proyectos ON. `employee.paymentHistory` se conserva como dato histórico y no como ledger autoritativo nuevo | Evitar una segunda contabilidad divergente y mantener una única autoridad de pago | SA | v0.4 (2026-08-26) |
+| ADR-017 | **F3.P2P suplementario 0% / non-weighted:** P2P es transporte opcional por WebRTC DataChannel solo para `sa-roster/v1`, `attendance-submission/v1` y backups nativos existentes. La asistencia depende del contrato consumidor F3.4 **y** del productor canónico Mini F3.9 completado; P2P no absorbe F3.9. Signaling solo hace discovery/offer-answer sin persistir payloads; recepción ≠ import/restore. La integridad de transporte es SHA-256 sobre los bytes exactos; el FNV-1a `bodyHash` de asistencia queda solo para semántica/idempotencia. SA y Mini conservan formatos de backup distintos: SA ↔ SA usa validación + preflight project-aware/`RestoreUI`, Mini ↔ Mini su validación/restauración existente, y SA ↔ Mini solo transporta bytes opacos para guardar/descargar, nunca para restore en la app incorrecta. `ProjectBackupManifest` aporta diagnóstico/preflight, no validación. P2P nunca es fuente de verdad ni reemplaza Firebase; `Documents / Files` permanece visible disabled/greyed y los genéricos siguen OUT OF SCOPE v1 | Reusar contratos y rutas nativas sin crear autoridad paralela, conversión de backup ni file-sharing general | SA, Mini, Integración | v0.5 (2026-09-07, docs-only) |
 
 ---
 
@@ -705,6 +869,7 @@ El primer objetivo técnico estable será:
 | F1 Contexto de proyecto | En ejecución — F1.5 cerrada y aprobada; F1.6 en estado **A0–A5 ✅ cerrados; A6 en reconciliación de gates; B1–B3 con material mergeado; B4–B5 y F1.7 🔒** | SA | **Cerrar A6 sin ampliar B1–B3; no iniciar B4/B5 ni SA-Mini.** DEP-SA-004 cerrado |
 | F2 Ciclo de vida/reporte | Bloqueado | SA | F1 aprobada |
 | F3 Contrato + manual | Bloqueado | Integración | F2/project context estable |
+| F3.P2P Suplemento P2P opcional | No iniciado — suplemento 0% / non-weighted, no bloquea F4–F10 | Integración | F3.1 + F3.2 + F3.4 + F3.9 completado para asistencia + rutas nativas de backup SA/Mini |
 | F4 Firebase | Bloqueado | Integración | F3 congelado |
 | F5 Vinculación Mini | Bloqueado | Mini | F4 Auth/invitaciones |
 | F6 Personal sync | Bloqueado | SA+Integración+Mini | F5 + F4 rules |
