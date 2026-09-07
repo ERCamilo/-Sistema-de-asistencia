@@ -2,7 +2,8 @@
  * 📤 ExportMenu — Template for the bottom-anchored export popover.
  *
  * Rendered when state.showExportMenu is true. Offers Share (FULL/MINI),
- * Import FULL, Download. Shows a loading spinner when state.isExporting.
+ * direct SA↔Mini transfer, Import FULL, Download. Shows a loading spinner when
+ * state.isExporting.
  */
 
 import { state } from '../../core/AppState.js';
@@ -151,14 +152,7 @@ export function ExportMenu() {
                                         <span style="color:#10b981; font-weight:700;">MINI v1</span>
                                         <span style="font-size:0.75rem;color:#94a3b8;">Formato SA→Mini</span>
                                     </button>
-                                    <button type="button" data-app-fn="openP2PRosterTransfer"
-                                            style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#052e2b;border:1px solid #0f766e;border-radius:10px;color:#f1f5f9;cursor:pointer;text-align:left;font-size:0.875rem;"
-                                            onmouseover="this.style.borderColor='#2dd4bf'"
-                                            onmouseout="this.style.borderColor='#0f766e'">
-                                        <span style="color:#2dd4bf;font-weight:800;">⇄ DIRECTO</span>
-                                        <span style="font-size:0.75rem;color:#99f6e4;">Enviar roster a Mini vinculado</span>
-                                    </button>
-                                    <label style="width: 100%;
+                                     <label style="width: 100%;
                                                   display: flex;
                                                   align-items: center;
                                                   gap: 8px;
@@ -179,6 +173,40 @@ export function ExportMenu() {
                                 </div>
                             ` : ''}
                         ` : ''}
+
+                        <button type="button" data-app-fn="openP2PRosterTransfer"
+                                class="export-menu-option"
+                                style="width: 100%;
+                                       display: flex;
+                                       align-items: center;
+                                       gap: 12px;
+                                       padding: 14px 16px;
+                                       background: transparent;
+                                       border: none;
+                                       border-radius: 12px;
+                                       color: #f1f5f9;
+                                       cursor: pointer;
+                                       transition: all 0.2s;
+                                       text-align: left;
+                                       font-size: 0.9375rem;
+                                       margin-top: 4px;"
+                                onmouseover="this.style.background='#334155'"
+                                onmouseout="this.style.background='transparent'">
+                            <div style="width: 40px;
+                                       height: 40px;
+                                       background: linear-gradient(135deg, #14b8a6, #0f766e);
+                                       border-radius: 10px;
+                                       display: flex;
+                                       align-items: center;
+                                       justify-content: center;
+                                       font-size: 1.25rem;">
+                                ⇄
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; color: #f1f5f9;">Transferencias directas</div>
+                                <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">Vincular Mini con QR/código y enviar</div>
+                            </div>
+                        </button>
 
                         <button type="button" data-app-fn="openImportFullModal"
                                 class="export-menu-option"

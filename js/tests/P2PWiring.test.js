@@ -3,6 +3,24 @@ const path = require('path');
 const crypto = require('crypto');
 const root = path.resolve(__dirname,'../..');
 const read = rel => fs.readFileSync(path.join(root,rel),'utf8');
+const { ExportMenu } = require('../modules/features/export/ExportMenu.js');
+const { state } = require('../modules/core/AppState.js');
+const { setProjectsEnabled } = require('../modules/config/FeatureFlags.js');
+
+function renderExportMenu(projectsEnabled, showShareOptions = true) {
+  setProjectsEnabled(projectsEnabled);
+  state.showExportMenu = true;
+  state.showShareOptions = showShareOptions;
+  state.exportMenuData = { filename: 'export.json' };
+  return ExportMenu();
+}
+
+afterEach(() => {
+  state.showExportMenu = false;
+  state.showShareOptions = false;
+  state.exportMenuData = {};
+  setProjectsEnabled(false);
+});
 
 test('SA loads P2P classic dependencies before boot-loader and keeps boot-loader adjacent to app module',()=>{
   const html=read('index.html');
@@ -24,14 +42,57 @@ test('SA P2P roster uses canonical producer, salary opt-in and validated receive
   expect(ui).toContain("'roster-rejected'");
   expect(ui).toContain('data-salary');
   expect(ui).not.toContain('includeSalary: true');
+  expect(ui).toContain('const scope = await getEntityScope();');
+  expect(ui).toContain('const saProjectId = resolveSaMiniRosterScope(scope);');
 });
 
-test('SA exposes DIRECTO in export menu and service worker precaches P2P runtime',()=>{
+test('direct transfer is first-level, Projects-independent, and not duplicated in MINI v1',()=>{
+  const off = renderExportMenu(false);
+  const on = renderExportMenu(true);
+  const directAction = 'data-app-fn="openP2PRosterTransfer"';
+
+  for (const menu of [off, on]) {
+    expect(menu).toContain('Transferencias directas');
+    expect(menu).toContain('QR/código');
+    expect(menu).toContain('Mini');
+    expect((menu.match(new RegExp(directAction, 'g')) || []).length).toBe(1);
+    expect(menu).not.toContain('DIRECTO');
+  }
+
+  const firstLevel = document.createElement('div');
+  firstLevel.innerHTML = off;
+  const directButton = firstLevel.querySelector(`[${directAction}]`);
+  expect(directButton).not.toBeNull();
+  expect(directButton.parentElement.parentElement.classList.contains('export-menu')).toBe(true);
+
+  expect(off).not.toContain('data-app-fn="shareExportMiniV1"');
+  expect(off).not.toContain('data-app-fn="toggleMiniV1Salary"');
+  expect(on).toContain('data-app-fn="shareExportMiniV1"');
+  expect(on).toContain('data-app-fn="toggleMiniV1Salary"');
+});
+
+test('SA exposes direct transfer and service worker precaches P2P runtime',()=>{
   const menu=read('js/modules/features/export/ExportMenu.js');
   const sw=read('sw.js');
   expect(menu).toContain('openP2PRosterTransfer');
-  expect(menu).toContain('DIRECTO');
+  expect(menu).toContain('Transferencias directas');
+  expect(menu).toContain('QR/código');
   for(const asset of ['./js/vendor/qrcode.js','./js/p2p/P2PCore.js','./js/p2p/P2PPairing.js','./js/modules/features/p2p/P2PRosterUI.js']) expect(sw).toContain(asset);
+});
+
+test('pairing keeps QR vendor/path plus six-digit code and key wiring',()=>{
+  const html=read('index.html');
+  const ui=read('js/modules/features/p2p/P2PRosterUI.js');
+  expect(html).toContain('js/vendor/qrcode.js');
+  expect(ui).toContain('const MINI_PAIR_BASE_URL');
+  expect(ui).toContain('window.qrcode');
+  expect(ui).toContain('buildPairUrl(descriptor, MINI_PAIR_BASE_URL)');
+  expect(ui).toContain('renderQr(pairUrl)');
+  expect(ui).toContain('Código de 6 dígitos');
+  expect(ui).toContain('descriptor.code.slice(0,3)');
+  expect(ui).toContain('descriptor.key');
+  expect(ui).toContain('data-new-pair');
+  expect(ui).toContain('QR de vinculación');
 });
 
 test('precache cubre el cierre estatico de dependencias del roster P2P',()=>{

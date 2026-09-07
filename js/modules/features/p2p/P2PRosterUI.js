@@ -99,8 +99,8 @@ async function renderHome() {
     </div>
     <div style="margin-top:18px;display:flex;justify-content:space-between;align-items:center;gap:10px"><strong>Dispositivos vinculados</strong><span style="font-size:11px;opacity:.6">Este SA: ${esc(self.displayName)}</span></div>
     <div style="display:grid;gap:8px;margin-top:10px">${peerRows}</div>
-    <div style="margin-top:16px">${button('Vincular un nuevo Mini','data-new-pair')}</div>
-    <p style="font-size:11px;line-height:1.45;opacity:.65;margin:12px 2px 0">Vincular un dispositivo no importa ni modifica datos automáticamente. Cada roster recibido todavía requiere revisión y confirmación en Mini.</p>`;
+    <div style="margin-top:16px">${button('Vincular Mini · QR o código','data-new-pair aria-label="Vincular un nuevo Mini con QR o código de 6 dígitos"')}</div>
+    <p style="font-size:11px;line-height:1.45;opacity:.65;margin:12px 2px 0">Escanea un QR o usa el código de 6 dígitos y la clave para vincular Mini. Vincular un dispositivo no importa ni modifica datos automáticamente; cada roster recibido todavía requiere revisión y confirmación en Mini.</p>`;
   body().querySelector('[data-new-pair]').addEventListener('click', startNewPairing);
   body().querySelectorAll('[data-send-peer]').forEach(btn => btn.addEventListener('click', () => connectTrustedAndSend(btn.dataset.sendPeer)));
   body().querySelectorAll('[data-unlink-peer]').forEach(btn => btn.addEventListener('click', async () => {
@@ -132,11 +132,11 @@ async function startNewPairing() {
     body().innerHTML = `
       <button type="button" data-back style="border:0;background:transparent;color:inherit;cursor:pointer;padding:0 0 12px">← Volver</button>
       <h3 style="margin:0 0 6px">Vincular nuevo Mini</h3>
-      <p style="font-size:13px;opacity:.72;margin:0 0 16px">En Mini, escanea este QR o abre Transferencias e introduce el código y la clave.</p>
+      <p style="font-size:13px;opacity:.72;margin:0 0 16px">En Mini, escanea este QR o abre Transferencias e introduce el código de 6 dígitos y la clave.</p>
       <div style="display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:18px;align-items:center">
-        <div style="text-align:center">${renderQr(pairUrl)}</div>
+        <div style="text-align:center"><div style="font-size:12px;font-weight:700;margin-bottom:6px">QR de vinculación</div>${renderQr(pairUrl)}</div>
         <div>
-          <div style="font-size:12px;opacity:.65">Código</div><div style="font-size:30px;font-weight:800;letter-spacing:4px">${esc(descriptor.code.slice(0,3)+' '+descriptor.code.slice(3))}</div>
+          <div style="font-size:12px;opacity:.65">Código de 6 dígitos</div><div style="font-size:30px;font-weight:800;letter-spacing:4px">${esc(descriptor.code.slice(0,3)+' '+descriptor.code.slice(3))}</div>
           <div style="font-size:12px;opacity:.65;margin-top:12px">Clave</div><div style="font-size:22px;font-weight:800;letter-spacing:2px">${esc(descriptor.key)}</div>
           <div style="font-size:12px;opacity:.65;margin-top:14px">Expira en 5 minutos. El código solo no basta para entrar.</div>
         </div>
