@@ -14,6 +14,21 @@ export {
 } from './ExportMenuService.js';
 
 export {
+    SA_MINI_ROSTER_SCHEMA,
+    SA_MINI_ROSTER_VERSION,
+    SA_MINI_ROSTER_ENVELOPE_KEYS,
+    SA_MINI_ROSTER_ROW_KEYS,
+    SA_MINI_ID_MAX_LENGTH,
+    SaMiniRosterExportError,
+    normalizeRosterNumber,
+    normalizeSaMiniId,
+    resolveSaMiniRosterScope,
+    selectSaMiniRosterEmployees,
+    buildSaMiniRosterPayload,
+    buildSaMiniRosterJson
+} from './SaMiniRosterExport.js';
+
+export {
     showExportMenuHandler,
     closeExportMenuHandler,
     toggleShareOptions,
@@ -21,6 +36,9 @@ export {
     performDownload,
     shareExportFull,
     shareExportMini,
+    shareExportMiniV1,
+    toggleMiniV1Salary,
+    setMiniV1IncludeSalary,
     openImportFullModal,
     closeImportFullModal,
     setImportFullText,

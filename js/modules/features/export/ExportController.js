@@ -16,6 +16,12 @@ import { state, stateManager, invalidateAllStats, buildAttendanceIndex } from '.
 import { render } from '../../core/RenderManager.js';
 import { saveApplicationData, sanitizePositions } from '../../services/PersistenceService.js';
 import { openExportMenu, closeExportMenu, buildMiniExportPayload } from './ExportMenuService.js';
+import {
+    buildSaMiniRosterPayload,
+    resolveSaMiniRosterScope,
+    selectSaMiniRosterEmployees
+} from './SaMiniRosterExport.js';
+import { getEntityScope } from '../projects/ProjectContext.js';
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -47,6 +53,9 @@ function notify(message, type = 'info') {
 export function showExportMenuHandler(options) {
     stateManager.batchSetState(() => {
         openExportMenu(state, options || {});
+        // MINI v1 (F3.5): el opt-in salarial requiere consentimiento fresco
+        // en cada apertura; nunca se hereda de una exportación previa.
+        state.exportMiniV1IncludeSalary = false;
     });
     render();
 }
@@ -54,6 +63,9 @@ export function showExportMenuHandler(options) {
 export function closeExportMenuHandler() {
     stateManager.batchSetState(() => {
         closeExportMenu(state);
+        // MINI v1 (F3.5): al cerrar se revoca el opt-in salarial para que el
+        // próximo export exija un nuevo check explícito.
+        state.exportMiniV1IncludeSalary = false;
         // The legacy app.js closeExportMenu also dismissed sibling popovers.
         // Replicate that here so the data-app-fn buttons keep the same UX.
         state.showImportFullModal = false;
@@ -193,6 +205,67 @@ export async function shareExportMini(options = {}) {
     }
 }
 
+// ─── Share via clipboard: MINI v1 (roster canónico SA→Mini, F3.5) ───────────
+// Transporte: sólo texto JSON al portapapeles. Sólo lectura: no muta storage
+// ni registros. Fail-closed: cualquier validación fallida aborta con un error
+// accionable y NO copia nada.
+export async function shareExportMiniV1(options = {}) {
+    try {
+        stateManager.batchSetState(() => {
+            state.isExporting = true;
+        });
+        render();
+
+        // Alcance estricto: Proyectos ON + proyecto activo + default (sin
+        // ensureDefaultProject ni lecturas crudas de localStorage aquí:
+        // getEntityScope() es la única resolución permitida).
+        const scope = await getEntityScope();
+        const saProjectId = resolveSaMiniRosterScope(scope);
+        const inScope = selectSaMiniRosterEmployees(state.employees, scope);
+
+        // Privacidad salarial: sólo opt-in explícito (checkbox "Incluir sueldo").
+        const includeSalary = options.includeSalary === true
+            || state.exportMiniV1IncludeSalary === true;
+
+        const payload = buildSaMiniRosterPayload({
+            saProjectId,
+            employees: inScope,
+            positions: state.positions,
+            settings: state.settings,
+            includeSalary,
+            scope
+        });
+
+        const json = JSON.stringify(payload, null, 2);
+        const copied = await copyTextToClipboard(json);
+        if (!copied) throw new Error('copy failed');
+
+        notify('✅ Roster SA→Mini (MINI v1) copiado al portapapeles', 'success');
+        closeExportMenuHandler();
+    } catch (error) {
+        console.error('Error copiando MINI v1:', error);
+        notify('❌ ' + (error && error.message ? error.message : 'Error al copiar roster MINI v1'), 'error');
+    } finally {
+        stateManager.batchSetState(() => {
+            state.isExporting = false;
+        });
+        render();
+    }
+}
+
+// ─── MINI v1: opt-in salarial ("Incluir sueldo", apagado por defecto) ───────
+export function toggleMiniV1Salary() {
+    stateManager.batchSetState(() => {
+        state.exportMiniV1IncludeSalary = state.exportMiniV1IncludeSalary !== true;
+    });
+}
+
+export function setMiniV1IncludeSalary(value) {
+    stateManager.batchSetState(() => {
+        state.exportMiniV1IncludeSalary = value === true;
+    });
+}
+
 // ─── Import FULL: replace all state from pasted JSON ─────────────────────────
 
 export function openImportFullModal() {
@@ -298,6 +371,9 @@ export function registerLegacyGlobals() {
     window.performDownload = performDownload;
     window.shareExportFull = shareExportFull;
     window.shareExportMini = shareExportMini;
+    window.shareExportMiniV1 = shareExportMiniV1;
+    window.toggleMiniV1Salary = toggleMiniV1Salary;
+    window.setMiniV1IncludeSalary = setMiniV1IncludeSalary;
     window.openImportFullModal = openImportFullModal;
     window.closeImportFullModal = closeImportFullModal;
     window.setImportFullText = setImportFullText;

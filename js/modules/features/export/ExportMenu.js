@@ -6,6 +6,7 @@
  */
 
 import { state } from '../../core/AppState.js';
+import { isProjectsEnabled } from '../../config/FeatureFlags.js';
 
 export function ExportMenu() {
     if (!state.showExportMenu) return '';
@@ -14,6 +15,10 @@ export function ExportMenu() {
     const canShare = true;
     const isLoading = state.isExporting;
     const showShareOptions = !!state.showShareOptions;
+    // MINI v1 (F3.5): sólo disponible con Proyectos ON; el alcance exacto se
+    // valida en el controller (fail-closed). Checkbox apagado por defecto.
+    const showMiniV1 = isProjectsEnabled();
+    const includeSalaryV1 = state.exportMiniV1IncludeSalary === true;
 
     return `
         <div class="modal-overlay animate-fade-in" ${isLoading ? '' : 'data-app-close-on-self="close-export-menu"'} style="background: rgba(0,0,0,0.3);">
@@ -126,6 +131,44 @@ export function ExportMenu() {
                                         <span style="color:#10b981; font-weight:700;">MINI</span>
                                         <span style="font-size:0.75rem;color:#94a3b8;">Formato compatible con Mini</span>
                                     </button>
+                                    ${showMiniV1 ? `
+                                    <button type="button" data-app-fn="shareExportMiniV1"
+                                            style="width: 100%;
+                                                   display: flex;
+                                                   align-items: center;
+                                                   gap: 10px;
+                                                   padding: 10px 12px;
+                                                   background: #0f172a;
+                                                   border: 1px solid #334155;
+                                                   border-radius: 10px;
+                                                   color: #f1f5f9;
+                                                   cursor: pointer;
+                                                   transition: all 0.2s;
+                                                   text-align: left;
+                                                   font-size: 0.875rem;"
+                                            onmouseover="this.style.borderColor='#10b981'"
+                                            onmouseout="this.style.borderColor='#334155'">
+                                        <span style="color:#10b981; font-weight:700;">MINI v1</span>
+                                        <span style="font-size:0.75rem;color:#94a3b8;">Formato SA→Mini</span>
+                                    </button>
+                                    <label style="width: 100%;
+                                                  display: flex;
+                                                  align-items: center;
+                                                  gap: 8px;
+                                                  padding: 8px 12px;
+                                                  background: transparent;
+                                                  border: none;
+                                                  border-radius: 10px;
+                                                  color: #f1f5f9;
+                                                  cursor: pointer;
+                                                  font-size: 0.8125rem;">
+                                        <input type="checkbox" data-app-fn="toggleMiniV1Salary"
+                                               ${includeSalaryV1 ? 'checked' : ''}
+                                               aria-label="Incluir sueldo en MINI v1"
+                                               style="width: 16px; height: 16px; accent-color: #10b981; cursor: pointer;">
+                                        <span style="font-size:0.75rem;color:#94a3b8;">Incluir sueldo</span>
+                                    </label>
+                                    ` : ''}
                                 </div>
                             ` : ''}
                         ` : ''}
