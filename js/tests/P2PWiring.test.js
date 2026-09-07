@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const root = path.resolve(__dirname,'../..');
 const read = rel => fs.readFileSync(path.join(root,rel),'utf8');
 const { ExportMenu } = require('../modules/features/export/ExportMenu.js');
+const { renderQr } = require('../modules/features/p2p/P2PRosterUI.js');
 const { state } = require('../modules/core/AppState.js');
 const { setProjectsEnabled } = require('../modules/config/FeatureFlags.js');
 
@@ -93,6 +94,26 @@ test('pairing keeps QR vendor/path plus six-digit code and key wiring',()=>{
   expect(ui).toContain('descriptor.key');
   expect(ui).toContain('data-new-pair');
   expect(ui).toContain('QR de vinculación');
+});
+
+test('pairing QR markup uses a data image with responsive dimensions and useful alt text',()=>{
+  const previous = window.qrcode;
+  window.qrcode = () => ({
+    addData: jest.fn(),
+    make: jest.fn(),
+    createDataURL: jest.fn(() => 'data:image/gif;base64,AA==')
+  });
+  try {
+    const markup = renderQr('https://miniasist.erlin.do/#pair');
+    expect(markup).toContain('src="data:image/gif;base64,AA=="');
+    expect(markup).toContain('width="240"');
+    expect(markup).toContain('height="240"');
+    expect(markup).toContain('alt="Código QR de vinculación SA con Mini"');
+    expect(markup).toContain('max-width:100%');
+    expect(markup).not.toContain('createSvgTag');
+  } finally {
+    window.qrcode = previous;
+  }
 });
 
 test('precache cubre el cierre estatico de dependencias del roster P2P',()=>{

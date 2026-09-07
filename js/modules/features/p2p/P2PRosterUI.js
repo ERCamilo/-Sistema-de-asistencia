@@ -110,13 +110,15 @@ async function renderHome() {
   }));
 }
 
-function renderQr(url) {
+export function renderQr(url) {
   try {
     if (typeof window.qrcode !== 'function') return '<div style="font-size:12px;color:#b45309">QR no disponible. Usa código + clave.</div>';
     const qr = window.qrcode(0, 'M');
     qr.addData(url);
     qr.make();
-    return `<div style="background:#fff;padding:10px;border-radius:12px;display:inline-block">${qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true })}</div>`;
+    const dataUrl = qr.createDataURL(4, 2);
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) throw new Error('QR data URL inválida.');
+    return `<div style="background:#fff;padding:10px;border-radius:12px;display:inline-block"><img src="${esc(dataUrl)}" width="240" height="240" alt="Código QR de vinculación SA con Mini" style="display:block;width:min(100%,240px);max-width:100%;height:auto;aspect-ratio:1 / 1;image-rendering:pixelated"></div>`;
   } catch (_) {
     return '<div style="font-size:12px;color:#b45309">No se pudo generar QR. Usa código + clave.</div>';
   }

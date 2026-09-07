@@ -17,6 +17,7 @@
   const MAX_SDP_BYTES = 32 * 1024;
   const MAX_ICE_CANDIDATE_BYTES = 8 * 1024;
   const MAX_ICE_STRING_LENGTH = 256;
+  const MAX_CLOSE_REASON_BYTES = 123;
   const PAIR_SESSION_TTL_MS = 5 * 60 * 1000;
   const ICE_SERVERS = [{ urls: 'stun:stun.cloudflare.com:3478' }];
   const channelStates = new WeakMap();
@@ -40,6 +41,24 @@
     if (new TextEncoder().encode(value).byteLength > maxBytes) throw new Error(message);
     if (!allowControls && /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) throw new Error(message);
     return value;
+  }
+
+  function boundedCloseReason(reason) {
+    const raw = reason instanceof Error
+      ? reason.message
+      : (typeof reason === 'string' ? reason : reason?.message || String(reason || ''));
+    const clean = String(raw).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+    const fallback = 'P2P session failed';
+    if (!clean) return fallback;
+    let result = '';
+    let bytes = 0;
+    for (const character of clean) {
+      const characterBytes = new TextEncoder().encode(character).byteLength;
+      if (bytes + characterBytes > MAX_CLOSE_REASON_BYTES) break;
+      result += character;
+      bytes += characterBytes;
+    }
+    return result || fallback;
   }
 
   function channelState(channel) {
@@ -79,7 +98,7 @@
     if (status.closing) return;
     status.closing = true;
     try {
-      if (status.closeSession) status.closeSession();
+      if (status.closeSession) status.closeSession(reason);
       else channel.close?.();
     } catch (_) { /* close is best effort; the revoked bit is authoritative */ }
   }
@@ -434,9 +453,9 @@
       const frame = validateSignalFrameObject({ v: 1, type, data });
       this.ws.send(JSON.stringify(frame));
     }
-    close() {
+    close(reason = 'done') {
       this.closed = true;
-      try { this.ws?.close(1000, 'done'); } catch (_) {}
+      try { this.ws?.close(1000, boundedCloseReason(reason)); } catch (_) {}
     }
   }
 
@@ -452,7 +471,7 @@
       if (!pc.remoteDescription) return;
       while (pendingIce.length) await pc.addIceCandidate(pendingIce.shift());
     };
-    const closeSession = () => {
+    const closeSession = (reason = 'done') => {
       if (closed) return;
       closed = true;
       if (expiryTimer) clearTimeout(expiryTimer);
@@ -460,7 +479,7 @@
       try { offSignaling?.(); } catch (_) {}
       try { channel?.close?.(); } catch (_) {}
       try { pc.close(); } catch (_) {}
-      try { signaling.close(); } catch (_) {}
+      try { signaling.close(boundedCloseReason(reason)); } catch (_) {}
     };
     const failClosed = error => {
       if (closed) return;

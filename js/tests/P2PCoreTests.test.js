@@ -57,7 +57,7 @@ class FakeSignaling {
   onEvent(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   async connect() {}
   emit(event) { for (const fn of [...this.listeners]) fn(event); }
-  close() { this.closeCalls += 1; this.closed = true; }
+  close(reason) { this.closeCalls += 1; this.closeReason = reason; this.closed = true; }
 }
 
 class FakePeerConnection {
@@ -541,6 +541,42 @@ test('signaling socket close and ICE send failure revoke the RTC session', async
     await waitFor(() => disconnectedSession.isClosed(), 'ICE disconnected revoke');
     expect(disconnectedSession.channel.closed).toBe(true);
     expect(Core.isChannelAuthenticated(disconnectedSession.channel)).toBe(false);
+  } finally {
+    globalThis.RTCPeerConnection = previous;
+    window.RTCPeerConnection = previous;
+  }
+});
+
+test('intentional close uses done while failure teardown preserves a bounded sanitized reason', async () => {
+  const previous = globalThis.RTCPeerConnection;
+  globalThis.RTCPeerConnection = FakePeerConnection;
+  window.RTCPeerConnection = FakePeerConnection;
+  try {
+    const cleanSignaling = new FakeSignaling();
+    const cleanSession = await Core.createRtcSession({ signaling:cleanSignaling, initiator:true });
+    cleanSession.close();
+    expect(cleanSignaling.closeReason).toBe('done');
+    expect(cleanSignaling.closeCalls).toBe(1);
+
+    const failureSignaling = new FakeSignaling();
+    failureSignaling.send = () => {
+      const error = new Error('Mini failure\nwith controls\t' + 'é'.repeat(100));
+      error.stack = 'HIDDEN STACK';
+      throw error;
+    };
+    const failureSession = await Core.createRtcSession({ signaling:failureSignaling, initiator:true });
+    Core.markChannelAuthenticated(failureSession.channel);
+    failureSession.pc.onicecandidate({ candidate:{ toJSON:() => ({ candidate:'candidate:x', sdpMid:null, sdpMLineIndex:0, usernameFragment:null }) } });
+    await waitFor(() => failureSession.isClosed(), 'sanitized failure teardown');
+
+    expect(failureSignaling.closeReason).toContain('Mini failure with controls');
+    expect(failureSignaling.closeReason).not.toContain('HIDDEN STACK');
+    expect(failureSignaling.closeReason).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/);
+    expect(new TextEncoder().encode(failureSignaling.closeReason).byteLength).toBeLessThanOrEqual(123);
+    expect(failureSignaling.closeReason).not.toBe('done');
+    expect(failureSignaling.closeCalls).toBe(1);
+    expect(failureSession.channel.closeCalls).toBe(1);
+    expect(failureSession.pc.closeCalls).toBe(1);
   } finally {
     globalThis.RTCPeerConnection = previous;
     window.RTCPeerConnection = previous;
