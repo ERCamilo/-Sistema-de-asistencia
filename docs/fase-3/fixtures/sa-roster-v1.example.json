@@ -1,0 +1,26 @@
+{
+  "schema": "sa-roster/v1",
+  "version": 1,
+  "saProjectId": "PRJ-EJEMPLO-0001",
+  "generatedAt": "2026-09-07T00:00:00.000Z",
+  "employees": [
+    {
+      "saEmployeeId": "EMP-001",
+      "number": "1",
+      "name": "Ana García",
+      "position": "Oficial Albañil",
+      "sueldo": "2500"
+    },
+    {
+      "saEmployeeId": "EMP-002",
+      "number": "2",
+      "name": "Luis Pérez",
+      "paused": true
+    },
+    {
+      "saEmployeeId": "EMP-003",
+      "number": "3",
+      "name": "María López"
+    }
+  ]
+}
