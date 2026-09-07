@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sa-mini-p2p-signaling",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "SignalingRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SignalingRoom"] }
+  ],
+  "routes": [
+    { "pattern": "p2p.erlin.do", "custom_domain": true }
+  ]
+}

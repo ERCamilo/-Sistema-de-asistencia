@@ -26,3 +26,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## QR Code Generator for JavaScript
+
+The vendored file `js/vendor/qrcode.js` is the upstream **QR Code Generator for
+JavaScript** by **Kazuhiko Arase** (`http://www.d-project.com/`). It is licensed
+under the **MIT License**. The file also contains the upstream QR Code
+trademark notice for DENSO WAVE INCORPORATED.
+
+Pinned vendored SHA-256 (exact bytes):
+
+`18ae399f81182bc9de916e9c77b195df20cc58d6f2d55a62b085a299f1bf1780`

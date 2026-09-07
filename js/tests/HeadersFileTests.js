@@ -111,6 +111,11 @@ testRunner.addSuite("Security headers — Content-Security-Policy", {
         testRunner.assert(/connect-src[^;]*n8n\.erlin\.do/i.test(csp), 'connect-src debe permitir el webhook de caja chica (n8n)');
     },
 
+    "permite la señalización WebRTC P2P"() {
+        testRunner.assert(/connect-src[^;]*wss:\/\/p2p\.erlin\.do/i.test(readCsp()),
+            'connect-src debe permitir wss://p2p.erlin.do');
+    },
+
     "permite el espejo de caja chica en Supabase y el beacon de analytics"() {
         const csp = readCsp();
         testRunner.assert(/connect-src[^;]*supabase\.co/i.test(csp),

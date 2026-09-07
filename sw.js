@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0907.020204'
+const CACHE_VERSION = '2026.0907.145701'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -39,6 +39,24 @@ const APP_SHELL = [
     // JS principal
     './js/boot-loader.js',
     './js/app.js',
+    './js/vendor/qrcode.js',
+    './js/p2p/P2PCore.js',
+    './js/p2p/P2PPairing.js',
+    './js/modules/features/p2p/P2PRosterUI.js',
+    // Static module dependencies required by the current SA roster flow.
+    './js/modules/features/projects/ProjectContext.js',
+    './js/modules/features/projects/ProjectStore.js',
+    './js/modules/features/projects/Project.js',
+    './js/modules/features/projects/DefaultProject.js',
+    './js/modules/features/projects/EntityProjectScope.js',
+    './js/modules/features/export/SaMiniRosterExport.js',
+    './js/modules/features/export/ExportMenuService.js',
+    './js/modules/config/FeatureFlags.js',
+    './js/modules/services/CrossTabLock.js',
+    './js/modules/services/SaveStatsExtras.js',
+    './js/modules/services/RecordKey.js',
+    './js/modules/services/EmployeePhotoCache.js',
+    './js/modules/utils/AttendanceHours.js',
 
     // Core
     './js/modules/core/AppState.js',

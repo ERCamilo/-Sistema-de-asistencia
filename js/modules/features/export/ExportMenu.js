@@ -151,6 +151,13 @@ export function ExportMenu() {
                                         <span style="color:#10b981; font-weight:700;">MINI v1</span>
                                         <span style="font-size:0.75rem;color:#94a3b8;">Formato SA→Mini</span>
                                     </button>
+                                    <button type="button" data-app-fn="openP2PRosterTransfer"
+                                            style="width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#052e2b;border:1px solid #0f766e;border-radius:10px;color:#f1f5f9;cursor:pointer;text-align:left;font-size:0.875rem;"
+                                            onmouseover="this.style.borderColor='#2dd4bf'"
+                                            onmouseout="this.style.borderColor='#0f766e'">
+                                        <span style="color:#2dd4bf;font-weight:800;">⇄ DIRECTO</span>
+                                        <span style="font-size:0.75rem;color:#99f6e4;">Enviar roster a Mini vinculado</span>
+                                    </button>
                                     <label style="width: 100%;
                                                   display: flex;
                                                   align-items: center;
