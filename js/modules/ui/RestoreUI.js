@@ -8,8 +8,14 @@ import { DateUtils } from '../utils/DateUtils.js';
 export const RestoreUI = {
     /**
      * Muestra el modal de comparación entre datos locales y backup
+     * F1.9 S1: `options.projectDiagnostics` (resultado puro de
+     * ProjectBackupManifest.diagnoseProjectBackup) se muestra ANTES de las
+     * acciones existentes. No cambia callbacks ni operaciones de restore:
+     * el restore sigue con semántica default-preserve y requiere acción
+     * explícita del usuario. Sin diagnósticos, un backup sin superficie de
+     * proyecto muestra aviso legacy (sin llamar APIs de proyecto).
      */
-    showComparisonModal(backupData, currentState, callbacks = {}) {
+    showComparisonModal(backupData, currentState, callbacks = {}, options = {}) {
         const modalId = 'restore-comparison-modal';
         if (document.getElementById(modalId)) return;
 
@@ -36,6 +42,12 @@ export const RestoreUI = {
         };
 
         const isOnline = !!window.currentUser;
+
+        // F1.9 S1: diagnósticos de proyecto (solo lectura, sin IO aquí).
+        // `options.projectDiagnostics` lo calcula app.js con el helper puro;
+        // sin él, solo se detecta superficie legacy por presencia de claves.
+        const projectDiagnostics = (options && typeof options === 'object') ? (options.projectDiagnostics || null) : null;
+        const projectSectionHTML = this._buildProjectDiagnosticsHTML(backupData, projectDiagnostics);
 
         const modalHTML = `
             <div id="${modalId}" class="modal-overlay" style="display: flex; align-items: center; justify-content: center; z-index: 10001; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px); position: fixed; top: 0; left: 0; width: 100%; height: 100%;">
@@ -105,6 +117,8 @@ export const RestoreUI = {
                             ${isOnline ? 'Detectamos que tienes una cuenta activa. Elige cómo quieres manejar el impacto de este backup en la nube.' : 'Los datos se cargarán solo en este dispositivo. Si luego inicias sesión, se sincronizarán normalmente.'}
                         </div>
                     </div>
+
+                    ${projectSectionHTML}
 
                     <!-- Botones de Acción -->
                     <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -246,6 +260,83 @@ export const RestoreUI = {
             if (currentDialog) currentDialog.remove();
             onProceed();
         };
+    },
+
+    /**
+     * F1.9 S1: sección de diagnósticos de proyecto (solo lectura/render).
+     * Nunca reescribe projectId, ni crea/adopta proyectos, ni cambia
+     * active/default, ni toca registry/punteros/cierres/configs/petty.
+     * El restore conserva su semántica actual y exige acción explícita.
+     */
+    _escapeProjectText(value) {
+        return String(value ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    },
+
+    _buildProjectDiagnosticsHTML(backupData, diagnostics) {
+        const container = (backupData && backupData.data && typeof backupData.data === 'object') ? backupData.data : {};
+        const hasMetaFallback = Boolean(
+            (container && (Object.prototype.hasOwnProperty.call(container, 'projects') || Object.prototype.hasOwnProperty.call(container, 'projectPayrollConfigs') || Object.prototype.hasOwnProperty.call(container, 'projectBackup'))) ||
+            (backupData && (Object.prototype.hasOwnProperty.call(backupData, 'projectBackup') || Object.prototype.hasOwnProperty.call(backupData, 'projects')))
+        );
+        const esc = (v) => this._escapeProjectText(v);
+        // Sin diagnósticos calculados: solo aviso legacy por presencia de claves (sin IO).
+        if (!diagnostics || typeof diagnostics !== 'object') {
+            if (hasMetaFallback) return '';
+            return `
+                <div id="project-backup-diagnostics" data-warning="legacy-no-project" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); color: #fbbf24; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 0.8rem; line-height: 1.5;">
+                    <div style="font-weight: 700; margin-bottom: 4px;">⚠️ Backup sin información de proyecto (legacy)</div>
+                    <div>Se puede restaurar con el comportamiento actual. Los registros sin proyecto pertenecen al predeterminado. Esta vista no reescribe projectId ni crea proyectos.</div>
+                </div>
+            `;
+        }
+
+        const warnings = Array.isArray(diagnostics.warnings) ? diagnostics.warnings : [];
+        const isLegacy = Boolean(diagnostics.isLegacyBackup);
+        const backupIds = Array.isArray(diagnostics.backupProjectIds) ? diagnostics.backupProjectIds : [];
+        const foreignIds = Array.isArray(diagnostics.foreignProjectIds) ? diagnostics.foreignProjectIds : [];
+        const missingConfigs = Array.isArray(diagnostics.missingConfigProjectIds) ? diagnostics.missingConfigProjectIds : [];
+        const closureRisks = diagnostics.closureRisks || { localClosureCount: 0, atRiskCount: 0, atRiskIds: [] };
+        const petty = diagnostics.petty || { orphanMissing: 0, orphanInvalid: 0 };
+        const receiptLoss = diagnostics.receiptLoss || { unrecoverableReceiptCount: 0 };
+        const pointerInfo = diagnostics.pointerInfo || null;
+
+        const lines = [];
+        if (isLegacy) {
+            lines.push('<div style="font-weight: 700; margin-bottom: 4px;">⚠️ Backup sin información de proyecto (legacy)</div><div>Se puede restaurar con el comportamiento actual. Los registros sin proyecto pertenecen al predeterminado. Esta vista no reescribe projectId ni crea proyectos.</div>');
+        } else {
+            lines.push(`<div style="font-weight: 700; margin-bottom: 6px;">🏷️ Backup con proyectos: ${backupIds.length} proyecto(s) distinto(s)</div>`);
+            if (backupIds.length > 0) {
+                lines.push(`<div style="font-size: 0.75rem; color: #cbd5e1; margin-bottom: 6px;">IDs en backup: ${backupIds.map(esc).join(', ')}</div>`);
+            }
+            if (foreignIds.length > 0) {
+                lines.push(`<div style="margin-top: 6px;">⚠️ IDs foráneos (no existen en este dispositivo): <b>${foreignIds.map(esc).join(', ')}</b>. No se adoptará ni creará ningún proyecto; el restore conserva la semántica actual.</div>`);
+            }
+            if (missingConfigs.length > 0) {
+                lines.push(`<div style="margin-top: 6px;">⚠️ Sin configuración de nómina en el backup para: <b>${missingConfigs.map(esc).join(', ')}</b>.</div>`);
+            }
+            if (closureRisks.atRiskCount > 0) {
+                lines.push(`<div style="margin-top: 6px;">⚠️ ${closureRisks.atRiskCount} cierre(s) local(es) podrían quedar huérfanos tras restaurar el roster (se conservan intactos, solo se avisa).</div>`);
+            }
+            if ((petty.orphanMissing || 0) > 0 || (petty.orphanInvalid || 0) > 0) {
+                lines.push(`<div style="margin-top: 6px;">⚠️ Caja chica: ${petty.orphanMissing || 0} vínculo(s) ausente(s), ${petty.orphanInvalid || 0} inválido(s) por <i>officialProjectId</i>. No se filtra ni borra nada.</div>`);
+            }
+            if ((receiptLoss.unrecoverableReceiptCount || 0) > 0) {
+                lines.push(`<div style="margin-top: 6px;">🧾 ${receiptLoss.unrecoverableReceiptCount} comprobante(s) solo-local(es) no recuperables desde este backup.</div>`);
+            }
+            if (pointerInfo && (!pointerInfo.defaultMatch || !pointerInfo.activeMatch)) {
+                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">ℹ️ El proyecto predeterminado/activo local difiere del que trae el backup (informativo; no se cambia nada automáticamente).</div>');
+            }
+            if (lines.length === 1) {
+                lines.push('<div style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">Sin riesgos detectados. El restore conserva la semántica actual y requiere tu confirmación.</div>');
+            }
+        }
+
+        const warnAttr = esc(warnings.join(','));
+        return `
+            <div id="project-backup-diagnostics" data-warning="${warnAttr}" style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.3); color: #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 0.8rem; line-height: 1.5;">
+                ${lines.join('')}
+            </div>
+        `;
     },
 
     /**

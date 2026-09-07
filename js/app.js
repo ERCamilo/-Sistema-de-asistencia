@@ -51,6 +51,7 @@ import { auth } from './modules/data/firebase.js';
 import { _payrollClosureRepositoryInternals } from './modules/features/payroll/PayrollClosureRepository.js';
 import { sanitizePettyCashForSnapshot, preparePettyCashBackupForRestore } from './modules/services/SnapshotSanitizer.js';
 import { sanitizeExportConfig } from './modules/services/ExportConfigSanitizer.js';
+import { buildProjectBackupManifest, diagnoseProjectBackup } from './modules/services/ProjectBackupManifest.js';
 import { EmployeesLiveSync } from './modules/services/EmployeesLiveSync.js';
 import { handleRemoteSettings } from './modules/services/SettingsLiveSync.js';
 import { mergeIncomingEmployees } from './modules/services/EmployeesIncomingMerge.js';
@@ -5842,6 +5843,38 @@ window.saveSettings = function () {
 // GESTIÓN DE DATOS: EXPORTAR, IMPORTAR, ELIMINAR
 // ============================================
 
+/**
+ * F1.9 S1: adjunta superficie project-aware al payload de export FILE.
+ * Aditiva y solo ON: OFF retorna sin tocar nada (sin claves extra ni
+ * llamadas a APIs de proyecto). ON lee via IndexedDB existente + helper
+ * puro; nunca incluye cierres. No muta `state`, solo el objeto export.
+ */
+async function maybeAttachProjectBackup(exportData) {
+    if (!isProjectsEnabled()) return;
+    const [projectsForBackup, configsForBackup] = await Promise.all([
+        indexedDBService.getAll('projects').catch(() => []),
+        indexedDBService.getAll('projectPayrollConfigs').catch(() => [])
+    ]);
+    let defaultId = null;
+    let activeId = null;
+    try { defaultId = localStorage.getItem('asistencia_default_project_id'); } catch (_) { /* stay null */ }
+    try { activeId = localStorage.getItem('asistencia_active_project_id'); } catch (_) { /* stay null */ }
+    const manifest = buildProjectBackupManifest({
+        employees: state.employees,
+        positions: state.positions,
+        leaders: state.leaders,
+        attendance: state.attendance,
+        projects: projectsForBackup || [],
+        projectPayrollConfigs: configsForBackup || [],
+        defaultProjectId: defaultId,
+        activeProjectId: activeId,
+        exportedAt: exportData.exportDate
+    });
+    exportData.data.projects = Array.isArray(projectsForBackup) ? projectsForBackup : [];
+    exportData.data.projectPayrollConfigs = Array.isArray(configsForBackup) ? configsForBackup : [];
+    exportData.data.projectBackup = manifest;
+}
+
 window.exportData = async function () {
     try {
         // 💵 M3: incluir la caja chica en el backup. Se lee de PettyCashStore
@@ -5871,6 +5904,14 @@ window.exportData = async function () {
                 ...(pettyCashBackup ? { pettyCash: pettyCashBackup } : {})
             }
         };
+
+        // F1.9 S1: superficie project-aware aditiva, solo ON.
+        // OFF queda byte-idéntica (helper retorna sin claves ni lecturas).
+        try {
+            await maybeAttachProjectBackup(exportData);
+        } catch (e) {
+            console.warn('⚠️ exportData: no se pudo adjuntar manifiesto de proyecto (se exporta sin él):', e);
+        }
 
         // Generar nombre de archivo
         const dateStr = new Date().toISOString().split('T')[0];
@@ -6010,12 +6051,76 @@ window.loadBackupFromFile = function (file, hooks = {}) {
         try {
             let importedData = JSON.parse(e.target.result);
 
+            // F1.9 S1: preserve project surface across LegacyMigrator (which only
+            // knows legacy tables). Re-attach verbatim if the migrator drops it —
+            // no rewrite, no adoption; diagnostics still see the original keys.
+            // Unknown/new metadata never breaks the legacy path.
+            const __preContainer = (importedData && typeof importedData === 'object' && importedData.data && typeof importedData.data === 'object')
+                ? importedData.data
+                : (importedData && typeof importedData === 'object' ? importedData : null);
+            const __preProjects = __preContainer && Array.isArray(__preContainer.projects) ? __preContainer.projects : null;
+            const __preConfigs = __preContainer && Array.isArray(__preContainer.projectPayrollConfigs) ? __preContainer.projectPayrollConfigs : null;
+            const __preManifest = __preContainer && __preContainer.projectBackup && typeof __preContainer.projectBackup === 'object' ? __preContainer.projectBackup : null;
+
             // 🚛 Filtro de Migración Legacy
             if (LegacyMigrator.needsMigration(importedData)) {
                 importedData = LegacyMigrator.migrate(importedData);
+                try {
+                    const __postContainer = importedData && importedData.data && typeof importedData.data === 'object' ? importedData.data : null;
+                    if (__postContainer) {
+                        if (__preProjects && !Array.isArray(__postContainer.projects)) __postContainer.projects = __preProjects;
+                        if (__preConfigs && !Array.isArray(__postContainer.projectPayrollConfigs)) __postContainer.projectPayrollConfigs = __preConfigs;
+                        if (__preManifest && typeof __postContainer.projectBackup !== 'object') __postContainer.projectBackup = __preManifest;
+                    }
+                } catch (_) { /* preserve-only, never break legacy path */ }
             }
 
             if (!importedData.data) throw new Error('Formato de archivo inválido');
+
+            // F1.9 S1: pure preflight diagnostics (helper has no IO; local reads
+            // only here, read-only, no pointer/registry writes, no clearFirst change).
+            // OFF: empty local context — no project API calls, legacy warning only.
+            // ON: best-effort local snapshot for foreign/closure/petty diagnosis.
+            let projectDiagnostics = null;
+            try {
+                if (!isProjectsEnabled()) {
+                    projectDiagnostics = diagnoseProjectBackup(importedData, {
+                        localProjects: [],
+                        localProjectIds: [],
+                        defaultProjectId: null,
+                        activeProjectId: null,
+                        canonicalProjectId: null,
+                        localClosures: [],
+                        localPayrollConfigs: [],
+                        localPettyCash: null
+                    });
+                } else {
+                    let localProjectsForDiag = [];
+                    let localConfigsForDiag = [];
+                    let localClosuresForDiag = [];
+                    let localPettyForDiag = null;
+                    try { localProjectsForDiag = await indexedDBService.getAll('projects').catch(() => []); } catch (_) { localProjectsForDiag = []; }
+                    try { localConfigsForDiag = await indexedDBService.getAll('projectPayrollConfigs').catch(() => []); } catch (_) { localConfigsForDiag = []; }
+                    try { localClosuresForDiag = await indexedDBService.getAll('payrollClosures').catch(() => []); } catch (_) { localClosuresForDiag = []; }
+                    try { localPettyForDiag = await PettyCashStore.loadLocal().catch(() => null); } catch (_) { localPettyForDiag = null; }
+                    let localDefaultForDiag = null;
+                    let localActiveForDiag = null;
+                    try { localDefaultForDiag = localStorage.getItem('asistencia_default_project_id'); } catch (_) { /* null */ }
+                    try { localActiveForDiag = localStorage.getItem('asistencia_active_project_id'); } catch (_) { /* null */ }
+                    projectDiagnostics = diagnoseProjectBackup(importedData, {
+                        localProjects: localProjectsForDiag || [],
+                        defaultProjectId: localDefaultForDiag,
+                        activeProjectId: localActiveForDiag,
+                        canonicalProjectId: null,
+                        localClosures: localClosuresForDiag || [],
+                        localPayrollConfigs: localConfigsForDiag || [],
+                        localPettyCash: localPettyForDiag
+                    });
+                }
+            } catch (e) {
+                console.warn('⚠️ loadBackupFromFile: diagnóstico de proyecto no disponible:', e);
+                projectDiagnostics = null;
+            }
 
             RestoreUI.showComparisonModal(importedData, state, {
                 // Opción 1: Restaurar Local (Offline)
@@ -6074,7 +6179,7 @@ window.loadBackupFromFile = function (file, hooks = {}) {
                         render();
                     }
                 }
-            });
+            }, { projectDiagnostics });
 
         } catch (err) {
             logError(err, 'leer el backup');
