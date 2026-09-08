@@ -1,4 +1,10 @@
 import { projectSetupService } from './ProjectSetupService.js';
+import {
+    mountProjectList,
+    openProjectListModal,
+    closeProjectListModal,
+    renderProjectListHTML
+} from './ProjectListUI.js';
 
 const MODAL_ID = 'project-setup-modal';
 
@@ -83,12 +89,25 @@ async function renderState() {
         <input data-project-name maxlength="80" value="${esc(project.name)}" style="width:100%;box-sizing:border-box;border:1px solid rgba(148,163,184,.55);border-radius:10px;padding:11px;background:var(--bg-primary,#fff);color:inherit">
         <div style="margin-top:10px">${primary('Guardar nombre', 'data-project-rename')}</div>
         <div data-project-setup-status style="font-size:12px;margin-top:10px"></div>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(148,163,184,.25);font-size:12px;line-height:1.5;opacity:.7">
-            ${projectCount === 1
-                ? 'Hay 1 proyecto local. Esta entrega mantiene el flujo de un solo proyecto para cerrar SA → Mini.'
-                : `Hay ${projectCount} proyectos locales. La creación y el selector multiproyecto completo se habilitarán con el resto de Fase 2, incluyendo el aislamiento visual de Caja Chica.`}
+        <div data-project-list-section style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(148,163,184,.25)">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <strong style="font-size:14px;display:flex;align-items:center;gap:6px">
+                    <span>📂</span>
+                    <span>Proyectos del sistema</span>
+                </strong>
+                <span style="font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.05em">F2.1 Oficial</span>
+            </div>
+            <div data-project-list-container></div>
         </div>`;
     body().querySelector('[data-project-rename]').addEventListener('click', renameProject);
+    const listContainer = body()?.querySelector('[data-project-list-container]');
+    if (listContainer) {
+        mountProjectList(listContainer, {
+            projects: state.projects,
+            activeProjectId: state.activeProjectId,
+            defaultProjectId: state.defaultProjectId
+        });
+    }
 }
 
 async function activateProjects() {
@@ -139,6 +158,20 @@ export function registerProjectSetupGlobals() {
     window.getProjectSetupState = () => projectSetupService.getState();
     window.openProjectSetupModal = openProjectSetupModal;
     window.closeProjectSetupModal = closeProjectSetupModal;
+    window.openProjectListModal = openProjectListModal;
+    window.closeProjectListModal = closeProjectListModal;
+    window.mountProjectList = mountProjectList;
+    window.renderProjectList = mountProjectList;
 }
 
-export default { openProjectSetupModal, closeProjectSetupModal, registerProjectSetupGlobals };
+export { openProjectListModal, closeProjectListModal, mountProjectList, renderProjectListHTML };
+
+export default {
+    openProjectSetupModal,
+    closeProjectSetupModal,
+    openProjectListModal,
+    closeProjectListModal,
+    mountProjectList,
+    renderProjectListHTML,
+    registerProjectSetupGlobals
+};

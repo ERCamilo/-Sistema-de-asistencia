@@ -45,6 +45,11 @@ export class ProjectStore {
             .map(clone);
     }
 
+    async listByStatus(status) {
+        const records = await this.listAll();
+        return records.filter(project => project.status === status);
+    }
+
     /** Toda mutación estampa updatedAt (F0.3 §1); no muta la instancia recibida. */
     async update(project) {
         const payload = toPayload(project);

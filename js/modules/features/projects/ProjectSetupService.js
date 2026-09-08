@@ -67,6 +67,20 @@ export class ProjectSetupService {
         };
     }
 
+    async getProjectsOverview() {
+        const state = await this.getState();
+        const stats = {
+            total: state.projects.length,
+            active: state.projects.filter(p => p.status === PROJECT_STATUS.ACTIVE).length,
+            closed: state.projects.filter(p => p.status === PROJECT_STATUS.CLOSED).length,
+            archived: state.projects.filter(p => p.status === PROJECT_STATUS.ARCHIVED).length
+        };
+        return {
+            ...state,
+            stats
+        };
+    }
+
     async activate({ uid = null } = {}) {
         const wasEnabled = this.flags.isEnabled() === true;
         if (!wasEnabled) this.flags.setEnabled(true);
