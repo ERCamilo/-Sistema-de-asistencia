@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const root = path.resolve(__dirname,'../..');
 const read = rel => fs.readFileSync(path.join(root,rel),'utf8');
 const { ExportMenu } = require('../modules/features/export/ExportMenu.js');
-const { renderQr } = require('../modules/features/p2p/P2PRosterUI.js');
+const { renderQr, sortPeersByRecentActivity } = require('../modules/features/p2p/P2PRosterUI.js');
 const { state } = require('../modules/core/AppState.js');
 const { setProjectsEnabled } = require('../modules/config/FeatureFlags.js');
 
@@ -78,7 +78,46 @@ test('SA exposes direct transfer and service worker precaches P2P runtime',()=>{
   expect(menu).toContain('openP2PRosterTransfer');
   expect(menu).toContain('Transferencias directas');
   expect(menu).toContain('QR/código');
-  for(const asset of ['./js/vendor/qrcode.js','./js/p2p/P2PCore.js','./js/p2p/P2PPairing.js','./js/modules/features/p2p/P2PRosterUI.js']) expect(sw).toContain(asset);
+  for(const asset of ['./js/vendor/qrcode.js','./js/p2p/P2PCore.js','./js/p2p/P2PPairing.js','./js/modules/features/p2p/P2PPeerAliasStore.js','./js/modules/features/p2p/P2PRosterUI.js']) expect(sw).toContain(asset);
+});
+
+
+test('peer aliases are local presentation metadata with rename/clear/unlink wiring',()=>{
+  const ui=read('js/modules/features/p2p/P2PRosterUI.js');
+  const aliases=read('js/modules/features/p2p/P2PPeerAliasStore.js');
+  expect(ui).toContain("from './P2PPeerAliasStore.js'");
+  expect(ui).toContain('data-rename-peer');
+  expect(ui).toContain('data-peer-alias');
+  expect(ui).toContain('data-save-alias');
+  expect(ui).toContain('data-clear-alias');
+  expect(ui).toContain('aliasStore.removeAlias(peerId)');
+  expect(ui).toContain('peerName(peer)');
+  expect(ui).toContain('Nombre original:');
+  expect(ui).toContain('se guarda sólo en este SA');
+  expect(aliases).toContain("const DEFAULT_STORAGE_KEY = 'sa_p2p_peer_aliases_v1'");
+  expect(aliases).toContain('parsed.entries');
+  expect(aliases).toContain('const entries = Array.from(aliases');
+  expect(aliases).not.toContain('linkToken');
+  expect(aliases).not.toContain('HMAC');
+  expect(aliases).not.toContain('Firebase');
+});
+
+test('linked peer identity UX uses recent activity ordering and editable self name',()=>{
+  const ordered = sortPeersByRecentActivity([
+    { peerId: 'old', linkedAt: '2026-09-07T10:00:00Z', lastSeenAt: '2026-09-07T11:00:00Z' },
+    { peerId: 'fallback', linkedAt: '2026-09-07T13:00:00Z' },
+    { peerId: 'new', linkedAt: '2026-09-07T09:00:00Z', lastSeenAt: '2026-09-07T14:00:00Z' }
+  ]);
+  expect(ordered.map(peer => peer.peerId)).toEqual(['new', 'fallback', 'old']);
+
+  const ui=read('js/modules/features/p2p/P2PRosterUI.js');
+  expect(ui).toContain('Última conexión:');
+  expect(ui).toContain('peer.lastSeenAt || peer.linkedAt');
+  expect(ui).toContain('data-rename-self');
+  expect(ui).toContain('Nombre de este SA');
+  expect(ui).toContain('identityStore.renameSelf(nextName)');
+  expect(ui).toContain('futuros emparejamientos');
+  expect(ui).not.toContain('En línea');
 });
 
 test('pairing keeps QR vendor/path plus six-digit code and key wiring',()=>{

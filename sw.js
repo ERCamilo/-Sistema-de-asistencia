@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0907.211458'
+const CACHE_VERSION = '2026.0907.221126'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -42,6 +42,7 @@ const APP_SHELL = [
     './js/vendor/qrcode.js',
     './js/p2p/P2PCore.js',
     './js/p2p/P2PPairing.js',
+    './js/modules/features/p2p/P2PPeerAliasStore.js',
     './js/modules/features/p2p/P2PRosterUI.js',
     // Static module dependencies required by the current SA roster flow.
     './js/modules/features/projects/ProjectsUI.js',
