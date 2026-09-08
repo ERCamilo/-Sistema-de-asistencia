@@ -54,10 +54,14 @@ describe('ProjectStore — REAL IndexedDB runtime (fake-indexeddb)', () => {
         await store.create(project);
         project.close();
 
+        const beforeUpdate = project.toJSON();
         const saved = await store.update(project);
         expect(saved.status).toBe('closed');
-        expect(saved.closedAt).toBeGreaterThan(0);
-        expect(await store.get(project.id)).toEqual(project.toJSON());
+        expect(saved.closedAt).toBe(project.closedAt);
+        expect(saved.updatedAt).toBeGreaterThanOrEqual(project.updatedAt);
+        expect(await store.get(project.id)).toEqual(saved);
+        expect(project.toJSON()).toEqual(beforeUpdate);
+        expect(saved).toEqual({ ...beforeUpdate, updatedAt: saved.updatedAt });
     });
 
     test('reads return POJOs detached from stored state', async () => {
