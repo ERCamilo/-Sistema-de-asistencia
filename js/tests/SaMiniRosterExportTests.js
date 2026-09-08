@@ -440,7 +440,7 @@ testRunner.addSuite("SaMiniRosterExport — opcionales y allowlist", {
         testRunner.assertEquals(ok.employees[0].position, 'Oficial Albañil', "nombre válido presente");
     },
 
-    "paused: sólo true cuando active === false (nunca false)"() {
+    "paused: true al pausar, false sólo tras reactivación explícita; activo normal omite"() {
         const active = buildSaMiniRosterPayload({
             saProjectId: PRJ_A,
             employees: [emp({ active: true })],
@@ -448,8 +448,22 @@ testRunner.addSuite("SaMiniRosterExport — opcionales y allowlist", {
         });
         testRunner.assert(
             !Object.prototype.hasOwnProperty.call(active.employees[0], 'paused'),
-            "activo ⇒ sin clave paused"
+            "activo sin historial de inactividad ⇒ sin clave paused"
         );
+
+        const reactivated = buildSaMiniRosterPayload({
+            saProjectId: PRJ_A,
+            employees: [emp({
+                active: true,
+                statusHistory: [
+                    { active: true, timestamp: 1 },
+                    { active: false, timestamp: 2 },
+                    { active: true, timestamp: 3 }
+                ]
+            })],
+            positions: []
+        });
+        testRunner.assertEquals(reactivated.employees[0].paused, false, "false → true ⇒ paused:false");
 
         const noFlag = buildSaMiniRosterPayload({
             saProjectId: PRJ_A,

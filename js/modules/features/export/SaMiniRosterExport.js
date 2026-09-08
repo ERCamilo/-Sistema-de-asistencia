@@ -19,7 +19,9 @@
  *   (=== true) el `sueldo` se deriva REUTILIZANDO buildMiniExportPayload
  *   (lógica salarial vigente, sin matemática nueva) para garantizar paridad.
  * - Semántica Mini de opcionales: se omite position si no hay/está vacía;
- *   paused:true sólo cuando active === false (nunca se emite false);
+ *   paused:true cuando active === false; paused:false sólo tras una
+ *   reactivación explícita comprobable en statusHistory (false → true).
+ *   Un activo normal conserva la omisión congelada del contrato.
  *   sueldo sólo con opt-in. Se prefiere omisión sobre null/undefined.
  * - Nunca se emiten préstamos, adelantos, fotos, customSalary,
  *   positionSalaries, deletedAt ni ningún extra económico/privado: cada fila
@@ -380,7 +382,16 @@ export function buildSaMiniRosterPayload({
             if (sueldo) row.sueldo = sueldo;
         }
 
-        if (employee.active === false) row.paused = true;
+        if (employee.active === false) {
+            row.paused = true;
+        } else if (employee.active === true && Array.isArray(employee.statusHistory)) {
+            let sawInactive = false;
+            const explicitlyReactivated = employee.statusHistory.some(change => {
+                if (change?.active === false) { sawInactive = true; return false; }
+                return sawInactive && change?.active === true;
+            });
+            if (explicitlyReactivated) row.paused = false;
+        }
 
         return row;
     });

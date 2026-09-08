@@ -33,6 +33,19 @@ testRunner.addSuite("analyzeConflicts — backward compat (Tarea #17)", {
         testRunner.assertEquals(conflicts[0].members.length, 2);
     },
 
+    "001, 01 y 1 forman un solo grupo de conflicto sin perder el formato mostrado"() {
+        reset();
+        state.employees = [
+            { id: 'e1', name: 'Uno padded', number: '001' },
+            { id: 'e2', name: 'Uno medio', number: '01' },
+            { id: 'e3', name: 'Uno corto', number: '1' }
+        ];
+        const conflicts = analyzeConflicts();
+        testRunner.assertEquals(conflicts.length, 1);
+        testRunner.assertEquals(conflicts[0].number, '001', 'conserva formato de display del primer miembro');
+        testRunner.assertEquals(conflicts[0].members.length, 3);
+    },
+
     "sin opts y state vacío → []"() {
         reset();
         const conflicts = analyzeConflicts();

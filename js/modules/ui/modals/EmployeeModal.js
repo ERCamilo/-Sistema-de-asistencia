@@ -9,6 +9,7 @@ import { escapeHTML } from '../../utils/Sanitize.js';
 import { stateManager, buildAttendanceIndex } from '../../core/AppState.js';
 import { normalizeRegularHoursPerDay } from '../../utils/AttendanceHours.js';
 import { peekEntityScope, entityInScope } from '../../features/projects/ProjectContext.js';
+import { sameEmployeeNumber } from '../../features/employees/EmployeeNumberIdentity.js';
 import {
     attachEmployeePositionEditor,
     renderEmployeePositionEditor
@@ -331,7 +332,7 @@ export class EmployeeModal {
             // o fusionar (misma persona). F1.4: la colisión sólo cuenta dentro
             // del mismo proyecto efectivo (#12 en A y #12 en B conviven).
             const duplicate = state.employees.find(e =>
-                e.number === number
+                sameEmployeeNumber(e.number, number)
                 && (!existingEmp || e.id !== existingEmp.id)
                 && entityInScope(e, scope)
             );
@@ -379,12 +380,16 @@ export class EmployeeModal {
     static _showNumberConflict({ intendedNumber, editingName, existingEmp, duplicate, applyFields, finish, state }) {
         const oldNumber = existingEmp ? existingEmp.number : null;
         const who = editingName || (existingEmp && existingEmp.name) || 'Este empleado';
+        const duplicateNumber = String(duplicate?.number ?? intendedNumber).trim();
+        const equivalentHint = duplicateNumber !== String(intendedNumber).trim()
+            ? ` <span style="color:#fbbf24">(equivale a #${escapeHTML(duplicateNumber)})</span>`
+            : '';
 
         const content = `
             <div style="padding:4px 2px;">
                 <p style="color:#e2e8f0;margin:0 0 10px;line-height:1.4;">
-                    El número <strong>#${intendedNumber}</strong> ya está asignado a
-                    <strong>${duplicate.name}</strong>.
+                    El número <strong>#${escapeHTML(intendedNumber)}</strong>${equivalentHint} ya está asignado a
+                    <strong>${escapeHTML(duplicate.name)}</strong>.
                 </p>
                 <p style="color:#94a3b8;font-size:0.85rem;margin:0;">¿Qué deseas hacer?</p>
             </div>`;
@@ -394,7 +399,7 @@ export class EmployeeModal {
         ];
 
         // Intercambiar solo tiene sentido al editar un empleado con número previo.
-        if (existingEmp && oldNumber && String(oldNumber) !== String(intendedNumber)) {
+        if (existingEmp && oldNumber && !sameEmployeeNumber(oldNumber, intendedNumber)) {
             buttons.push({
                 text: `🔁 Intercambiar (#${oldNumber} ↔ #${intendedNumber})`,
                 class: 'btn-primary',

@@ -31,6 +31,7 @@ import { stampAttendanceWrite, tombstoneAttendanceWrite } from '../features/atte
 import { createAttendanceRangeLoader } from './AttendanceRangeLoader.js';
 import { createAttendanceCachePruner } from './AttendanceCachePruner.js';
 import { peekEntityScope, entityInScope, sameEffectiveProject, effectiveProjectId } from '../features/projects/ProjectContext.js';
+import { employeeNumberIdentityKey, sameEmployeeNumber } from '../features/employees/EmployeeNumberIdentity.js';
 import { sanitizeExportConfig } from './ExportConfigSanitizer.js';
 
 // Importar clases de entidad para inflar datos
@@ -1922,9 +1923,10 @@ export function analyzeConflicts(opts = {}) {
     const _conflictScope = peekEntityScope();
     const groups = new Map();
     byId.forEach((emp) => {
+        const numberKey = employeeNumberIdentityKey(emp.number) || `s:${String(emp.number).trim()}`;
         const key = _conflictScope.enabled
-            ? `${effectiveProjectId(emp, _conflictScope)}::${emp.number}`
-            : emp.number;
+            ? `${effectiveProjectId(emp, _conflictScope)}::${numberKey}`
+            : numberKey;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(emp);
     });
@@ -1955,7 +1957,9 @@ export function analyzeConflicts(opts = {}) {
                     completeness: completeness
                 };
             });
-            conflicts.push({ number, members: conflictGroup });
+            // Keep the original display formatting from the first member
+            // while grouping by canonical numeric identity (001 == 01 == 1).
+            conflicts.push({ number: members[0]?.number ?? number, members: conflictGroup });
         }
     });
 
@@ -2277,7 +2281,7 @@ export function reassignEmployeeNumber(employeeId, newNumber, opts = {}) {
 
     if (!opts.allowCollision) {
         // Verificar que el nuevo número no esté en uso
-        const conflict = state.employees.find(e => e.number === newNumber && e.id !== employeeId);
+        const conflict = state.employees.find(e => sameEmployeeNumber(e.number, newNumber) && e.id !== employeeId);
         if (conflict) {
             console.warn(`⚠️ Número ${newNumber} ya en uso por ${conflict.name}`);
             return false;
@@ -2289,7 +2293,7 @@ export function reassignEmployeeNumber(employeeId, newNumber, opts = {}) {
     emp.updatedAt = Date.now();
     emp._isDirty = true;
 
-    const tail = opts.allowCollision && state.employees.some(e => e.number === newNumber && e.id !== employeeId)
+    const tail = opts.allowCollision && state.employees.some(e => sameEmployeeNumber(e.number, newNumber) && e.id !== employeeId)
         ? ' [conflicto temporal — el wizard lo resolverá en el siguiente paso]'
         : '';
     console.log(`🔄 Ficha reasignada: ${emp.name} (${oldNumber} → ${newNumber})${tail}`);

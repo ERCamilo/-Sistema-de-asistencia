@@ -230,6 +230,23 @@ describe('F1.4 birth stamping at UI save handlers', () => {
         expect(state.leaders.find(l => l.name === 'NuevoL').projectId).toBe(PRJ_B);
     });
 
+    test('employee save opens the conflict resolver for equivalent padded numbers (001 == 01 == 1)', () => {
+        setProjectsEnabled(false);
+        state.employees = [baseEmployee({ id: 'EMP-001', number: '001', name: 'Existente', posId: 'pos-x' })];
+        state.positions = [{ id: 'pos-x', name: 'Oficial', active: true }];
+        const conflictSpy = jest.spyOn(EmployeeModal, '_showNumberConflict').mockImplementation(() => {});
+        try {
+            EmployeeModal.save(makeMockModal(employeeFormHTML({ number: '1', name: 'Nuevo' })), null);
+            expect(conflictSpy).toHaveBeenCalledTimes(1);
+            const args = conflictSpy.mock.calls[0][0];
+            expect(args.intendedNumber).toBe('1');
+            expect(args.duplicate.id).toBe('EMP-001');
+            expect(state.employees).toHaveLength(1);
+        } finally {
+            conflictSpy.mockRestore();
+        }
+    });
+
     test('flag OFF: births carry NO projectId key at all', () => {
         setProjectsEnabled(false);
         peekEntityScope(); // snapshot exists but disabled

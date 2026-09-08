@@ -48,6 +48,16 @@ testRunner.addSuite("reassignEmployeeNumber — comportamiento sin colisión", {
 
 testRunner.addSuite("reassignEmployeeNumber — colisión (bug ficha 500/501)", {
 
+    "sin allowCollision: 001, 01 y 1 colisionan por identidad numérica"() {
+        resetState([
+            { id: 'EMP-A', name: 'Ana', number: '001' },
+            { id: 'EMP-B', name: 'Bruno', number: '002' }
+        ]);
+        const r = reassignEmployeeNumber('EMP-B', '1');
+        testRunner.assertEquals(r, false);
+        testRunner.assertEquals(state.employees.find(e => e.id === 'EMP-B').number, '002');
+    },
+
     "sin allowCollision: retorna false y NO cambia el número (comportamiento actual)"() {
         resetState([
             { id: 'EMP-A', name: 'Hector', number: '500' },
