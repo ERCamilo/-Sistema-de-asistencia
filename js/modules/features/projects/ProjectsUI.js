@@ -5,6 +5,11 @@ import {
     closeProjectListModal,
     renderProjectListHTML
 } from './ProjectListUI.js';
+import {
+    mountProjectCreateForm,
+    openProjectCreateModal,
+    closeProjectCreateModal
+} from './ProjectCreateUI.js';
 
 const MODAL_ID = 'project-setup-modal';
 
@@ -90,24 +95,70 @@ async function renderState() {
         <div style="margin-top:10px">${primary('Guardar nombre', 'data-project-rename')}</div>
         <div data-project-setup-status style="font-size:12px;margin-top:10px"></div>
         <div data-project-list-section style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(148,163,184,.25)">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
                 <strong style="font-size:14px;display:flex;align-items:center;gap:6px">
                     <span>📂</span>
                     <span>Proyectos del sistema</span>
                 </strong>
-                <span style="font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.05em">F2.1 Oficial</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <button type="button" data-project-create-open style="border:0;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;background:#2563eb;color:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:4px">
+                        <span>➕</span>
+                        <span>Nuevo proyecto</span>
+                    </button>
+                    <span style="font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.05em">Oficial</span>
+                </div>
             </div>
+            <div data-project-create-slot style="display:none;margin-bottom:14px"></div>
             <div data-project-list-container></div>
         </div>`;
     body().querySelector('[data-project-rename]').addEventListener('click', renameProject);
     const listContainer = body()?.querySelector('[data-project-list-container]');
+    const createSlot = body()?.querySelector('[data-project-create-slot]');
+    const createBtn = body()?.querySelector('[data-project-create-open]');
+
+    let listHandle = null;
     if (listContainer) {
-        mountProjectList(listContainer, {
+        listHandle = mountProjectList(listContainer, {
             projects: state.projects,
             activeProjectId: state.activeProjectId,
             defaultProjectId: state.defaultProjectId
         });
     }
+
+    let isCreateOpen = false;
+    const closeCreate = () => {
+        isCreateOpen = false;
+        if (createSlot) {
+            createSlot.style.display = 'none';
+            createSlot.innerHTML = '';
+        }
+    };
+
+    const openCreate = () => {
+        isCreateOpen = true;
+        if (createSlot) {
+            createSlot.style.display = 'block';
+            mountProjectCreateForm(createSlot, {
+                setupService: projectSetupService,
+                onSuccess: async (createdProject, nextState) => {
+                    closeCreate();
+                    const freshState = nextState || await projectSetupService.getState();
+                    listHandle?.update({
+                        projects: freshState.projects,
+                        activeProjectId: freshState.activeProjectId,
+                        defaultProjectId: freshState.defaultProjectId
+                    });
+                    emitChanged({ projectId: freshState.activeProjectId, createdProject: createdProject.id });
+                },
+                onCancel: closeCreate
+            });
+        }
+    };
+
+    createBtn?.addEventListener('click', () => {
+        if (isCreateOpen) closeCreate();
+        else openCreate();
+    });
 }
 
 async function activateProjects() {
@@ -162,9 +213,20 @@ export function registerProjectSetupGlobals() {
     window.closeProjectListModal = closeProjectListModal;
     window.mountProjectList = mountProjectList;
     window.renderProjectList = mountProjectList;
+    window.openProjectCreateModal = openProjectCreateModal;
+    window.closeProjectCreateModal = closeProjectCreateModal;
+    window.mountProjectCreateForm = mountProjectCreateForm;
 }
 
-export { openProjectListModal, closeProjectListModal, mountProjectList, renderProjectListHTML };
+export {
+    openProjectListModal,
+    closeProjectListModal,
+    mountProjectList,
+    renderProjectListHTML,
+    openProjectCreateModal,
+    closeProjectCreateModal,
+    mountProjectCreateForm
+};
 
 export default {
     openProjectSetupModal,
@@ -173,5 +235,8 @@ export default {
     closeProjectListModal,
     mountProjectList,
     renderProjectListHTML,
+    openProjectCreateModal,
+    closeProjectCreateModal,
+    mountProjectCreateForm,
     registerProjectSetupGlobals
 };

@@ -15,6 +15,16 @@ export function normalizeProjectSetupName(value) {
     return name;
 }
 
+export function assertUniqueProjectName(name, existingProjects = []) {
+    const normalized = normalizeProjectSetupName(name).toLowerCase();
+    const duplicate = (existingProjects || []).find(
+        p => String(p?.name ?? '').trim().replace(/\s+/g, ' ').toLowerCase() === normalized
+    );
+    if (duplicate) {
+        throw new Error(`Ya existe un proyecto con el nombre "${duplicate.name}".`);
+    }
+}
+
 export class ProjectSetupService {
     constructor({
         store = projectStore,
@@ -110,6 +120,26 @@ export class ProjectSetupService {
         const model = Project.create({ ...state.activeProject, name });
         const updated = await this.store.update(model);
         return { ...(await this.getState()), activeProject: updated };
+    }
+
+    async createEmptyProject({ name, metadata } = {}) {
+        if (this.flags.isEnabled() !== true) {
+            throw new Error('Activa Proyectos antes de crear un nuevo proyecto.');
+        }
+        const normalizedName = normalizeProjectSetupName(name);
+        const existingProjects = await this.store.listAll();
+        assertUniqueProjectName(normalizedName, existingProjects);
+
+        const payload = { name: normalizedName };
+        if (metadata && typeof metadata === 'object') {
+            payload.metadata = metadata;
+        }
+        const model = Project.create(payload);
+        const created = await this.store.create(model);
+        return {
+            project: created,
+            state: await this.getState()
+        };
     }
 }
 

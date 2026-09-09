@@ -1,5 +1,10 @@
 import { PROJECT_STATUS } from './Project.js';
 import { projectSetupService } from './ProjectSetupService.js';
+import {
+    mountProjectCreateForm,
+    openProjectCreateModal,
+    closeProjectCreateModal
+} from './ProjectCreateUI.js';
 
 export const PROJECT_FILTERS = Object.freeze({
     ALL: 'all',
@@ -319,6 +324,10 @@ export async function openProjectListModal({ setupService = projectSetupService 
                     <strong id="project-list-title" style="font-size:18px">Listado de proyectos</strong>
                     <div style="font-size:12px;opacity:.68">Vista oficial de proyectos activos, cerrados y archivados</div>
                 </div>
+                <button type="button" data-project-create-open style="display:none;border:0;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;background:#2563eb;color:#fff;cursor:pointer;align-items:center;gap:4px">
+                    <span>➕</span>
+                    <span>Nuevo proyecto</span>
+                </button>
                 <button type="button" data-project-list-close aria-label="Cerrar" style="border:0;background:transparent;color:inherit;font-size:28px;cursor:pointer">×</button>
             </header>
             <div data-project-list-modal-body style="padding:18px 20px">
@@ -342,10 +351,53 @@ export async function openProjectListModal({ setupService = projectSetupService 
             return;
         }
 
-        mountProjectList(bodyEl, {
+        const createBtn = el.querySelector('[data-project-create-open]');
+        if (createBtn) createBtn.style.display = 'inline-flex';
+
+        bodyEl.innerHTML = `
+            <div data-project-create-slot style="display:none;margin-bottom:16px"></div>
+            <div data-project-list-mount></div>`;
+
+        const createSlot = bodyEl.querySelector('[data-project-create-slot]');
+        const listMount = bodyEl.querySelector('[data-project-list-mount]');
+        const listHandle = mountProjectList(listMount, {
             projects: state.projects,
             activeProjectId: state.activeProjectId,
             defaultProjectId: state.defaultProjectId
+        });
+
+        let isCreateOpen = false;
+        const closeCreate = () => {
+            isCreateOpen = false;
+            if (createSlot) {
+                createSlot.style.display = 'none';
+                createSlot.innerHTML = '';
+            }
+        };
+
+        const openCreate = () => {
+            isCreateOpen = true;
+            if (createSlot) {
+                createSlot.style.display = 'block';
+                mountProjectCreateForm(createSlot, {
+                    setupService,
+                    onSuccess: async (createdProject, nextState) => {
+                        closeCreate();
+                        const freshState = nextState || await setupService.getState();
+                        listHandle.update({
+                            projects: freshState.projects,
+                            activeProjectId: freshState.activeProjectId,
+                            defaultProjectId: freshState.defaultProjectId
+                        });
+                    },
+                    onCancel: closeCreate
+                });
+            }
+        };
+
+        createBtn?.addEventListener('click', () => {
+            if (isCreateOpen) closeCreate();
+            else openCreate();
         });
     } catch (error) {
         bodyEl.innerHTML = `
@@ -354,6 +406,12 @@ export async function openProjectListModal({ setupService = projectSetupService 
             </div>`;
     }
 }
+
+export {
+    openProjectCreateModal,
+    closeProjectCreateModal,
+    mountProjectCreateForm
+};
 
 export default {
     PROJECT_FILTERS,
@@ -367,5 +425,8 @@ export default {
     mountProjectList,
     renderProjectList,
     openProjectListModal,
-    closeProjectListModal
+    closeProjectListModal,
+    openProjectCreateModal,
+    closeProjectCreateModal,
+    mountProjectCreateForm
 };
