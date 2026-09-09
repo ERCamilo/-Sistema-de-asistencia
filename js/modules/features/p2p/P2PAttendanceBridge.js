@@ -22,6 +22,7 @@ import {
 
 export const ATTENDANCE_REQUEST_SCHEMA = 'attendance-request/v1';
 export const ATTENDANCE_RESPONSE_SCHEMA = 'attendance-response/v1';
+export const ATTENDANCE_READY_SCHEMA = 'attendance-ready/v1';
 export const MAX_REQUEST_RANGE_DAYS = 31;
 export const ATTENDANCE_REQUEST_KEYS = Object.freeze([
     'schema',
@@ -33,6 +34,17 @@ export const ATTENDANCE_REQUEST_KEYS = Object.freeze([
 
 const WORKDATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const REQUEST_ID_FORBIDDEN_RE = /[\s\x00-\x1f\x7f]/;
+
+export function validateAttendanceReady(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new TypeError('attendance-ready must be an object');
+    }
+    const keys = Object.keys(raw);
+    if (keys.length !== 1 || keys[0] !== 'schema' || raw.schema !== ATTENDANCE_READY_SCHEMA) {
+        throw new TypeError('attendance-ready/v1 has invalid shape');
+    }
+    return Object.freeze({ schema: ATTENDANCE_READY_SCHEMA });
+}
 
 function getP2PCore(override) {
     if (override) return override;
@@ -386,6 +398,9 @@ export async function requestAttendanceFromPeer({
     let timeoutTimer = null;
     let abortHandler = null;
     let isSettled = false;
+    let localAuthenticated = false;
+    let peerAttendanceReady = false;
+    let requestSent = false;
 
     try {
         const response = await new Promise((resolve, reject) => {
@@ -450,6 +465,66 @@ export async function requestAttendanceFromPeer({
                 },
                 onChannel: (channel) => {
                     activeChannel = channel;
+
+                    const maybeSendRequest = () => {
+                        if (isSettled || requestSent || !localAuthenticated || !peerAttendanceReady) return;
+                        try {
+                            if (typeof core.isChannelAuthenticated === 'function' &&
+                                core.isChannelAuthenticated(channel) !== true) {
+                                throw new Error('Canal P2P no autenticado al iniciar solicitud de asistencia.');
+                            }
+                            requestSent = true;
+                            notifyState('requesting', { message: `Solicitando asistencia a ${peerName}…` });
+                            channel.send(JSON.stringify(request));
+                            notifyState('receiving', { message: `Esperando respuesta de ${peerName}…` });
+                        } catch (sendErr) {
+                            fail(sendErr);
+                        }
+                    };
+
+                    // Install the application listener before trusted-auth completes so
+                    // an early Mini readiness frame cannot be lost.
+                    messageHandler = (event) => {
+                        try {
+                            if (typeof event?.data !== 'string') return;
+                            let parsed;
+                            try {
+                                parsed = JSON.parse(event.data);
+                            } catch (_) {
+                                return;
+                            }
+                            if (!parsed || typeof parsed !== 'object') return;
+                            if (parsed.protocol === 'sa-mini-p2p-control/v1' ||
+                                parsed.protocol === 'sa-mini-p2p-transfer/v1') {
+                                return;
+                            }
+                            if (parsed.schema === ATTENDANCE_READY_SCHEMA) {
+                                validateAttendanceReady(parsed);
+                                peerAttendanceReady = true;
+                                maybeSendRequest();
+                                return;
+                            }
+                            if (parsed.schema !== ATTENDANCE_RESPONSE_SCHEMA) return;
+                            if (!requestSent) {
+                                throw new Error('Mini respondió asistencia antes de declarar disponibilidad para la solicitud.');
+                            }
+                            if (typeof core.isChannelAuthenticated === 'function' &&
+                                core.isChannelAuthenticated(channel) !== true) {
+                                throw new Error('Canal P2P dejó de estar autenticado antes de recibir asistencia.');
+                            }
+                            const validated = validateAttendanceResponse(parsed, {
+                                expectedRequestId: request.requestId,
+                                expectedSaProjectId: request.saProjectId,
+                                expectedFromDate: request.fromDate,
+                                expectedToDate: request.toDate
+                            });
+                            succeed(validated);
+                        } catch (err) {
+                            fail(err);
+                        }
+                    };
+                    channel.addEventListener('message', messageHandler);
+
                     try {
                         notifyState('authenticating', { message: `Autenticando canal seguro con ${peerName}…` });
                         trustedAttachment = pairing.attachTrusted(channel, {
@@ -457,51 +532,9 @@ export async function requestAttendanceFromPeer({
                             peer,
                             store,
                             onAuthenticated: () => {
-                                try {
-                                    notifyState('requesting', { message: `Solicitando asistencia a ${peerName}…` });
-                                    // ONLY SEND AFTER AUTHENTICATION
-                                    messageHandler = (event) => {
-                                        try {
-                                            if (typeof event?.data !== 'string') return;
-                                            let parsed;
-                                            try {
-                                                parsed = JSON.parse(event.data);
-                                            } catch (_) {
-                                                return; // ignore unparseable frames
-                                            }
-                                            if (!parsed || typeof parsed !== 'object') return;
-                                            // Ignore unrelated control / roster frames
-                                            if (parsed.protocol === 'sa-mini-p2p-control/v1' ||
-                                                parsed.protocol === 'sa-mini-p2p-transfer/v1') {
-                                                return;
-                                            }
-                                            if (parsed.schema !== ATTENDANCE_RESPONSE_SCHEMA) {
-                                                return;
-                                            }
-
-                                            // Correlate requestId and saProjectId; validate strictly
-                                            if (typeof core.isChannelAuthenticated === 'function' &&
-                                                core.isChannelAuthenticated(channel) !== true) {
-                                                throw new Error('Canal P2P dejó de estar autenticado antes de recibir asistencia.');
-                                            }
-                                            const validated = validateAttendanceResponse(parsed, {
-                                                expectedRequestId: request.requestId,
-                                                expectedSaProjectId: request.saProjectId,
-                                                expectedFromDate: request.fromDate,
-                                                expectedToDate: request.toDate
-                                            });
-                                            succeed(validated);
-                                        } catch (err) {
-                                            fail(err);
-                                        }
-                                    };
-
-                                    channel.addEventListener('message', messageHandler);
-                                    channel.send(JSON.stringify(request));
-                                    notifyState('receiving', { message: `Esperando respuesta de ${peerName}…` });
-                                } catch (sendErr) {
-                                    fail(sendErr);
-                                }
+                                localAuthenticated = true;
+                                notifyState('authenticating', { message: `Canal autenticado con ${peerName}. Esperando disponibilidad de asistencia…` });
+                                maybeSendRequest();
                             },
                             onError: (authErr) => {
                                 fail(authErr);

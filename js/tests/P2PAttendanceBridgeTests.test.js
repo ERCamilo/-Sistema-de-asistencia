@@ -1,6 +1,8 @@
 import {
     ATTENDANCE_REQUEST_SCHEMA,
     ATTENDANCE_RESPONSE_SCHEMA,
+    ATTENDANCE_READY_SCHEMA,
+    validateAttendanceReady,
     MAX_REQUEST_RANGE_DAYS,
     buildAttendanceRequest,
     validateAttendanceRequest,
@@ -167,6 +169,7 @@ function makeMockP2PEnvironment({
             connect: jest.fn(async () => {}),
             close: jest.fn()
         })),
+        isChannelAuthenticated: jest.fn(() => true),
         createRtcSession: jest.fn().mockImplementation(async ({ onChannel }) => {
             setTimeout(() => {
                 onChannel?.(channel);
@@ -187,6 +190,7 @@ function makeMockP2PEnvironment({
             setTimeout(() => {
                 if (authSucceeds) {
                     onAuthenticated?.();
+                    ch.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
                     if (autoRespond) {
                         setTimeout(() => {
                             if (ch.sent.length > 0) {
@@ -260,6 +264,12 @@ describe('P2PAttendanceBridge — Request & Response Validation', () => {
         expect(req.requestId).toBeTruthy();
         expect(typeof req.requestId).toBe('string');
         expect(req.requestId.length).toBeLessThanOrEqual(128);
+    });
+
+    test('validates exact attendance-ready/v1 handshake frame', () => {
+        expect(validateAttendanceReady({ schema: ATTENDANCE_READY_SCHEMA })).toEqual({ schema: ATTENDANCE_READY_SCHEMA });
+        expect(() => validateAttendanceReady({ schema: ATTENDANCE_READY_SCHEMA, extra: true })).toThrow(/invalid shape/);
+        expect(() => validateAttendanceReady({ schema: 'attendance-ready/v2' })).toThrow(/invalid shape/);
     });
 
     test('validates date range: rejects inverted dates and range > 31 days', () => {
@@ -449,6 +459,52 @@ describe('P2PAttendanceBridge — Request & Response Validation', () => {
 });
 
 describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup', () => {
+    test('does not send request after local auth until Mini announces attendance-ready', async () => {
+        const env = makeMockP2PEnvironment({ autoRespond: false });
+        env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
+            onAuthenticated();
+            return { detach: jest.fn() };
+        });
+        const pending = requestAttendanceFromPeer({
+            peerId: 'peer-mini-1', saProjectId: SA_PROJECT,
+            fromDate: '2026-09-06', toDate: '2026-09-06', timeoutMs: 250,
+            identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
+        });
+        await new Promise(r => setTimeout(r, 15));
+        expect(env.channel.sent).toHaveLength(0);
+        env.channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
+        await new Promise(r => setTimeout(r, 0));
+        expect(env.channel.sent).toHaveLength(1);
+        const req = JSON.parse(env.channel.sent[0]);
+        env.channel.receiveMessage({
+            schema: ATTENDANCE_RESPONSE_SCHEMA, requestId: req.requestId, saProjectId: req.saProjectId,
+            ok: true, fromDate: req.fromDate, toDate: req.toDate, submissions: []
+        });
+        await expect(pending).resolves.toMatchObject({ peerId: 'peer-mini-1' });
+    });
+
+    test('retains an early attendance-ready frame that arrives before local auth completes', async () => {
+        const env = makeMockP2PEnvironment({ autoRespond: false });
+        env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
+            channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
+            setTimeout(onAuthenticated, 10);
+            return { detach: jest.fn() };
+        });
+        const pending = requestAttendanceFromPeer({
+            peerId: 'peer-mini-1', saProjectId: SA_PROJECT,
+            fromDate: '2026-09-06', toDate: '2026-09-06', timeoutMs: 250,
+            identityStore: env.identityStore, p2pCore: env.p2pCore, p2pPairing: env.p2pPairing
+        });
+        await new Promise(r => setTimeout(r, 25));
+        expect(env.channel.sent).toHaveLength(1);
+        const req = JSON.parse(env.channel.sent[0]);
+        env.channel.receiveMessage({
+            schema: ATTENDANCE_RESPONSE_SCHEMA, requestId: req.requestId, saProjectId: req.saProjectId,
+            ok: true, fromDate: req.fromDate, toDate: req.toDate, submissions: []
+        });
+        await expect(pending).resolves.toMatchObject({ peerId: 'peer-mini-1' });
+    });
+
     test('sends attendance request only after channel authentication', async () => {
         const env = makeMockP2PEnvironment();
         const db = new MemoryDB();
@@ -493,6 +549,7 @@ describe('P2PAttendanceBridge — Trusted Connection, Timeout & Session Cleanup'
         });
         env.p2pPairing.attachTrusted = jest.fn().mockImplementation((channel, { onAuthenticated }) => {
             onAuthenticated();
+            channel.receiveMessage({ schema: ATTENDANCE_READY_SCHEMA });
             const req = JSON.parse(channel.sent[channel.sent.length - 1]);
             channel.receiveMessage({
                 schema: ATTENDANCE_RESPONSE_SCHEMA,
