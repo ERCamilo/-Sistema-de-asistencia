@@ -1,6 +1,6 @@
 # Directriz del Sistema de Diseño (Design System)
 ### Control de Asistencia · Contrutek
-**Referencia Canónica**: `Onboarding-funcional.html` (Onboarding v2)
+**Referencia Canónica de comportamiento**: `Onboarding-funcional.html` (Onboarding v2). El HTML funcional original puede vivir fuera del repositorio; `design.md` debe conservar aquí sus reglas estables para que la guía no dependa de que ese archivo esté presente localmente.
 
 Esta especificación documenta con exhaustividad y rigor de producción el lenguaje visual, la paleta de tokens OKLCH, los componentes interactivos, la ingeniería de animaciones y la psicología de interacción (UI/UX) que definen el producto.
 
@@ -90,6 +90,12 @@ La experiencia fluida del onboarding se basa en una arquitectura de renderizado 
   to   { opacity: 1; transform: none; }
 }
 
+/* Aparición simple sin desplazamiento */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* Aparición pop elástica (checks, swatches, tarjetas activas) */
 @keyframes popIn {
   0%   { opacity: 0; transform: scale(0.6); }
@@ -133,6 +139,66 @@ La experiencia fluida del onboarding se basa en una arquitectura de renderizado 
 Cuando una cifra cambia (ej. número de presentes o total de horas), el valor numérico no brinca de golpe; sube con una curva cúbica suave (`1 - Math.pow(1 - k, 3)`) durante ~800–1100ms mediante `requestAnimationFrame`, parcheando únicamente el nodo de texto sin repintar el DOM circundante.
 
 ---
+
+
+### 4.4 Continuidad espacial: morphing entre pantallas y modales de distinto tamaño
+
+Cuando una interacción pasa de una vista compacta a otra más alta/ancha (o viceversa), **no se desmonta el modal para crear otro**. El usuario debe percibir que el mismo objeto de interfaz se transforma.
+
+Reglas obligatorias:
+* Mantener montados el mismo overlay y el mismo shell del modal durante toda la transición. Cambiar contenido dentro del shell, no reemplazar overlay + modal en un frame distinto.
+* Medir el rectángulo actual y el rectángulo destino (`getBoundingClientRect`) y animar el shell entre ambos. El ancho y alto objetivo se expresan temporalmente en píxeles para que `height:auto` no provoque un salto.
+* Duración orientativa del cambio geométrico: **220–320 ms**, con `cubic-bezier(.2,.8,.2,1)`. Cambios pequeños pueden usar 180–220 ms; cambios grandes no deben superar ~360 ms.
+* El contenido anterior puede bajar a `opacity:0` durante ~80–120 ms mientras el shell empieza a transformarse; el contenido nuevo entra con `opacity` + `translateY(6px)` durante ~140–200 ms. No debe existir un frame vacío/blanco entre ambos.
+* `border-radius`, padding y divisiones internas pueden interpolarse junto con el tamaño si cambian entre variantes compacta/media/ancha.
+* En desktop el anclaje visual preferido es el centro del shell. En bottom sheets móviles, el borde inferior permanece visualmente anclado y el crecimiento sucede principalmente hacia arriba.
+* El overlay **no parpadea, no desaparece y no reinicia su opacidad** al cambiar entre pasos del mismo flujo.
+* El foco lógico se transfiere sólo después de que el contenido destino exista; si el control equivalente continúa, se preserva el foco. Nunca enviar el foco a `body` durante la transición.
+* Mantener el scroll del área que no cambia. Si el siguiente paso necesita reset de scroll, hacerlo al finalizar el morph, no antes.
+* Interacciones internas que no cambian la arquitectura del panel siguen usando `_noAnim = true`; el morph se reserva para navegación/expansión estructural.
+* Con `prefers-reduced-motion: reduce`, aplicar el estado destino inmediatamente pero conservar el mismo shell/overlay para evitar el efecto de parpadeo.
+
+Patrón recomendado (FLIP/medición doble):
+```js
+async function morphModal(shell, renderNext) {
+  const from = shell.getBoundingClientRect();
+  shell.style.width = `${from.width}px`;
+  shell.style.height = `${from.height}px`;
+
+  renderNext(); // mismo shell; cambia sólo su interior
+  const prevTransition = shell.style.transition;
+  shell.style.transition = 'none';
+  shell.style.width = '';
+  shell.style.height = 'auto';
+  const to = shell.getBoundingClientRect();
+
+  shell.style.width = `${from.width}px`;
+  shell.style.height = `${from.height}px`;
+  shell.getBoundingClientRect(); // commit del estado inicial
+  shell.style.transition = 'width .26s cubic-bezier(.2,.8,.2,1), height .26s cubic-bezier(.2,.8,.2,1)';
+  shell.style.width = `${to.width}px`;
+  shell.style.height = `${to.height}px`;
+
+  await waitForTransition(shell);
+  shell.style.width = '';
+  shell.style.height = '';
+  shell.style.transition = prevTransition;
+}
+```
+La implementación real puede usar Web Animations API o FLIP, pero debe preservar estas propiedades perceptuales: **mismo objeto, continuidad geométrica, cero flash y cero salto de foco**.
+
+### 4.5 Detalles del onboarding funcional que también forman parte del contrato
+
+El `Onboarding-funcional.html` original aporta además los siguientes patrones que deben conservarse en flujos equivalentes:
+* `fadeIn` es un keyframe canónico adicional para elementos cuya aparición no requiere desplazamiento.
+* La guía puede usar composición de **dos columnas** (explicación + demo viva) en pantallas amplias y pasar a **una sola columna a 860 px o menos**. El demo cambia de borde lateral a borde superior para mantener continuidad visual.
+* El shell principal permanece centrado sobre un fondo único de viewport completo; la navegación entre fases cambia el contenido interior sin sustituir el contexto visual completo.
+* Seleccionar una tarjeta puede revelar información contextual **dentro de la misma tarjeta** (por ejemplo, detalle de backup/Google) en vez de abrir inmediatamente otro modal.
+* El estado de navegación del onboarding se persiste de forma ligera para poder continuar donde se dejó, pero se limpia al completar el flujo.
+* Los cambios reactivos de inputs, días, horas y estados usan rerender sin animación global (`_noAnim`) y sólo el elemento afectado recibe una microanimación mediante `_action`.
+* El cursor/selección de texto se captura antes del rerender y se restaura con `setSelectionRange()` después del render.
+* La animación de datos debe parchear únicamente nodos numéricos (`requestAnimationFrame`) cuando sea posible; no se vuelve a animar el contenedor completo por cada cambio.
+* El flujo finaliza con una pantalla de resumen/ready que sintetiza decisiones previas antes de entrar a la aplicación.
 
 ## 5. Catálogo de Componentes de Interfaz
 

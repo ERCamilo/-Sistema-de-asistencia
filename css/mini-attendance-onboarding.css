@@ -1618,3 +1618,365 @@
     }
 }
 
+/* ==========================================================================
+   CONECTADOS: P2P CONNECTION UI & REQUEST LIFECYCLE (DESIGN TOKENS)
+   ========================================================================== */
+
+.mini-import-connected {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.mini-import-connected-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mini-import-select {
+    width: 100%;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 14px;
+    border-radius: 10px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text);
+    font-family: inherit;
+    font-size: 13.5px;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+}
+
+.mini-import-select:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+    border-color: var(--mini-accent);
+}
+
+.mini-import-peer-info {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--mini-text-dim);
+}
+
+.mini-import-peer-info strong {
+    color: var(--mini-text);
+}
+
+.mini-import-peer-info-meta {
+    font-size: 11px;
+    color: var(--mini-text-faint);
+    margin-top: 2px;
+}
+
+.mini-import-hint {
+    font-size: 12px;
+    color: var(--mini-text-faint);
+    margin: 0;
+    line-height: 1.4;
+}
+
+.mini-import-date-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 14px;
+    background: var(--mini-panel-2);
+    border: 1px solid var(--mini-border);
+}
+
+.mini-import-grouping-toggle {
+    display: flex;
+    gap: 8px;
+}
+
+.mini-import-grouping-toggle button,
+.mini-import-mode-btn {
+    min-height: 44px;
+    height: 44px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--mini-border);
+    background: transparent;
+    color: var(--mini-text-dim);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+
+.mini-import-grouping-toggle button:hover,
+.mini-import-mode-btn:hover {
+    background: var(--mini-hover);
+    color: var(--mini-text);
+}
+
+.mini-import-grouping-toggle button.is-active,
+.mini-import-mode-btn.is-active {
+    background: var(--mini-accent);
+    color: var(--mini-on-accent);
+    border-color: var(--mini-accent);
+}
+
+.mini-import-grouping-toggle button:focus-visible,
+.mini-import-mode-btn:focus-visible,
+.mini-import-action:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+}
+
+.mini-import-date-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+
+.mini-import-date-fields label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mini-text-dim);
+}
+
+.mini-import-date-fields input[type="date"] {
+    min-height: 44px;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: 10px;
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.mini-import-date-fields input[type="date"]:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+    border-color: var(--mini-accent);
+}
+
+.mini-import-connected-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.mini-import-connected-actions button {
+    min-height: 44px;
+    height: 44px;
+}
+
+.mini-import-cancel-btn {
+    background: transparent;
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text-dim);
+    border-radius: 10px;
+    padding: 0 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    font-family: inherit;
+}
+
+.mini-import-cancel-btn:hover {
+    background: var(--mini-hover);
+    color: var(--mini-text);
+}
+
+.mini-import-cancel-btn:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+}
+
+.mini-import-retry-btn {
+    background: transparent;
+    border: 1px solid var(--mini-warn);
+    color: var(--mini-warn);
+    border-radius: 10px;
+    padding: 0 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, filter 0.15s;
+    font-family: inherit;
+}
+
+.mini-import-retry-btn:hover {
+    filter: brightness(1.15);
+    background: color-mix(in oklch, var(--mini-warn) 12%, transparent);
+}
+
+.mini-import-retry-btn:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+}
+
+/* Notice & Feedback Semántico */
+.mini-import-transport-notice {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.45;
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    color: var(--mini-text-dim);
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.mini-import-transport-notice.is-connecting,
+.mini-import-transport-notice.is-authenticating,
+.mini-import-transport-notice.is-requesting,
+.mini-import-transport-notice.is-receiving {
+    border-color: var(--mini-accent);
+    background: color-mix(in oklch, var(--mini-accent) 10%, var(--mini-panel));
+    color: var(--mini-text);
+}
+
+.mini-import-transport-notice.is-success {
+    border-color: var(--mini-good);
+    background: color-mix(in oklch, var(--mini-good) 10%, var(--mini-panel));
+    color: var(--mini-text);
+}
+
+.mini-import-transport-notice.is-partial_success,
+.mini-import-transport-notice.is-partial {
+    border-color: var(--mini-warn);
+    background: color-mix(in oklch, var(--mini-warn) 10%, var(--mini-panel));
+    color: var(--mini-text);
+}
+
+.mini-import-transport-notice.is-error,
+.mini-import-transport-notice.is-timeout {
+    border-color: var(--mini-bad);
+    background: color-mix(in oklch, var(--mini-bad) 10%, var(--mini-panel));
+    color: var(--mini-text);
+}
+
+.mini-import-transport-notice.is-cancelled {
+    border-color: var(--mini-border);
+    background: var(--mini-panel);
+    color: var(--mini-text-faint);
+}
+
+/* Per-Mini Progress List */
+.mini-import-peer-progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.mini-import-peer-progress-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--mini-panel);
+    border: 1px solid var(--mini-border);
+    font-size: 12.5px;
+}
+
+.mini-import-peer-progress-name {
+    font-weight: 600;
+    color: var(--mini-text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mini-import-peer-progress-status {
+    font-size: 11.5px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--mini-panel-2);
+    color: var(--mini-text-dim);
+    white-space: nowrap;
+}
+
+.mini-import-peer-progress-status.is-success {
+    background: color-mix(in oklch, var(--mini-good) 18%, transparent);
+    color: var(--mini-good);
+    font-weight: 600;
+}
+
+.mini-import-peer-progress-status.is-error,
+.mini-import-peer-progress-status.is-timeout {
+    background: color-mix(in oklch, var(--mini-bad) 18%, transparent);
+    color: var(--mini-bad);
+    font-weight: 600;
+}
+
+.mini-import-peer-progress-status.is-active {
+    background: color-mix(in oklch, var(--mini-accent) 18%, transparent);
+    color: var(--mini-accent);
+    font-weight: 600;
+}
+
+.mini-import-peer-retry-btn {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1px solid var(--mini-warn);
+    background: transparent;
+    color: var(--mini-warn);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.mini-import-peer-retry-btn:hover {
+    background: color-mix(in oklch, var(--mini-warn) 15%, transparent);
+}
+
+.mini-import-peer-retry-btn:focus-visible {
+    outline: 2px solid var(--mini-accent);
+    outline-offset: 2px;
+}
+
+
+/* Structural modal morph: same overlay/shell, new content enters without flash. */
+.mini-attendance-import.is-morph-entering {
+    animation: miniImportMorphContentIn 180ms cubic-bezier(.2,.8,.2,1) both;
+}
+
+@keyframes miniImportMorphContentIn {
+    from { opacity: .72; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mini-attendance-import.is-morph-entering {
+        animation: none !important;
+    }
+}

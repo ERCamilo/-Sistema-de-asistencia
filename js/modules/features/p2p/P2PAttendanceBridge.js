@@ -302,12 +302,14 @@ export async function listLinkedMiniPeers({
     const miniPeers = (allPeers || []).filter(p => p && p.peerApp === 'mini');
     return miniPeers.map(peer => {
         const resolvedName = aliasStore?.resolveName ? aliasStore.resolveName(peer) : (peer.displayName || 'Mini');
+        const alias = aliasStore?.getAlias ? aliasStore.getAlias(peer.peerId) : null;
         return {
             id: peer.peerId,
             peerId: peer.peerId,
             deviceId: peer.peerId,
             name: resolvedName,
             displayName: peer.displayName || 'Mini',
+            alias: alias || null,
             linkedAt: peer.linkedAt || null,
             lastSeenAt: peer.lastSeenAt || null,
             peer
@@ -326,7 +328,9 @@ export async function requestAttendanceFromPeer({
     p2pCore = null,
     p2pPairing = null,
     inboxStore = null,
-    requestId = null
+    requestId = null,
+    onStateChange = null,
+    signal = null
 } = {}) {
     const core = getP2PCore(p2pCore);
     if (!core) throw new Error('SaMiniP2P core no está disponible.');
@@ -348,6 +352,25 @@ export async function requestAttendanceFromPeer({
     }
     const peerName = aliasStore?.resolveName ? aliasStore.resolveName(peer) : (peer.displayName || 'Mini');
 
+    const notifyState = (state, details = {}) => {
+        if (typeof onStateChange === 'function') {
+            try {
+                onStateChange(state, {
+                    peerId: peer.peerId,
+                    peerName,
+                    ...details
+                });
+            } catch (_) {}
+        }
+    };
+
+    if (signal?.aborted) {
+        const cancelErr = new Error('Solicitud cancelada por el usuario.');
+        cancelErr.name = 'AbortError';
+        notifyState('cancelled', { error: cancelErr, message: 'Solicitud cancelada por el usuario.' });
+        throw cancelErr;
+    }
+
     const route = await core.deriveTrustedRoute(peer.linkToken);
     const signaling = new core.SignalingClient({
         room: route.room,
@@ -361,6 +384,7 @@ export async function requestAttendanceFromPeer({
     let trustedAttachment = null;
     let messageHandler = null;
     let timeoutTimer = null;
+    let abortHandler = null;
     let isSettled = false;
 
     try {
@@ -369,18 +393,51 @@ export async function requestAttendanceFromPeer({
                 if (isSettled) return;
                 isSettled = true;
                 if (timeoutTimer) clearTimeout(timeoutTimer);
-                reject(error instanceof Error ? error : new Error(String(error)));
+                if (signal && abortHandler) {
+                    try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
+                }
+                const normalized = error instanceof Error ? error : new Error(String(error));
+                const isAbort = normalized.name === 'AbortError' || normalized.message?.includes('cancelada');
+                const isTimeout = normalized.isTimeout || normalized.message?.includes('timeout');
+                if (isAbort) {
+                    notifyState('cancelled', { error: normalized, message: 'Solicitud cancelada por el usuario.' });
+                } else if (isTimeout) {
+                    notifyState('timeout', { error: normalized, message: normalized.message });
+                } else {
+                    notifyState('error', { error: normalized, message: normalized.message || 'Error P2P' });
+                }
+                reject(normalized);
             };
 
             const succeed = (result) => {
                 if (isSettled) return;
                 isSettled = true;
                 if (timeoutTimer) clearTimeout(timeoutTimer);
+                if (signal && abortHandler) {
+                    try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
+                }
                 resolve(result);
             };
 
+            notifyState('connecting', { message: `Conectando con ${peerName}…` });
+
+            if (signal) {
+                abortHandler = () => {
+                    const cancelErr = new Error('Solicitud cancelada por el usuario.');
+                    cancelErr.name = 'AbortError';
+                    fail(cancelErr);
+                };
+                if (signal.aborted) {
+                    abortHandler();
+                    return;
+                }
+                signal.addEventListener('abort', abortHandler, { once: true });
+            }
+
             timeoutTimer = setTimeout(() => {
-                fail(new Error(`Mini "${peerName}" no respondió a tiempo (timeout de ${timeoutMs}ms).`));
+                const timeoutErr = new Error(`Mini "${peerName}" no respondió a tiempo (timeout de ${timeoutMs}ms).`);
+                timeoutErr.isTimeout = true;
+                fail(timeoutErr);
             }, timeoutMs);
 
             sessionPromise = core.createRtcSession({
@@ -394,12 +451,14 @@ export async function requestAttendanceFromPeer({
                 onChannel: (channel) => {
                     activeChannel = channel;
                     try {
+                        notifyState('authenticating', { message: `Autenticando canal seguro con ${peerName}…` });
                         trustedAttachment = pairing.attachTrusted(channel, {
                             self,
                             peer,
                             store,
                             onAuthenticated: () => {
                                 try {
+                                    notifyState('requesting', { message: `Solicitando asistencia a ${peerName}…` });
                                     // ONLY SEND AFTER AUTHENTICATION
                                     messageHandler = (event) => {
                                         try {
@@ -439,6 +498,7 @@ export async function requestAttendanceFromPeer({
 
                                     channel.addEventListener('message', messageHandler);
                                     channel.send(JSON.stringify(request));
+                                    notifyState('receiving', { message: `Esperando respuesta de ${peerName}…` });
                                 } catch (sendErr) {
                                     fail(sendErr);
                                 }
@@ -474,6 +534,12 @@ export async function requestAttendanceFromPeer({
             }
         }
 
+        notifyState('success', {
+            message: `Asistencia recibida de ${peerName}.`,
+            submissions: response.submissions || [],
+            importedRecords
+        });
+
         return {
             peerId: peer.peerId,
             peerName,
@@ -484,6 +550,9 @@ export async function requestAttendanceFromPeer({
     } finally {
         // ALWAYS clean up fail-closed
         if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (signal && abortHandler) {
+            try { signal.removeEventListener('abort', abortHandler); } catch (_) {}
+        }
         if (activeChannel && messageHandler) {
             try { activeChannel.removeEventListener('message', messageHandler); } catch (_) {}
         }
@@ -505,6 +574,7 @@ export async function requestAttendanceFromPeer({
 
 export async function requestMiniAttendance({
     miniId = '',
+    targetMiniIds = null,
     date = '',
     rangeStart = '',
     rangeEnd = '',
@@ -515,7 +585,9 @@ export async function requestMiniAttendance({
     identityStore = null,
     aliasStore = p2pPeerAliasStore,
     p2pCore = null,
-    p2pPairing = null
+    p2pPairing = null,
+    onProgress = null,
+    signal = null
 } = {}) {
     if (!saProjectId || typeof saProjectId !== 'string' || !saProjectId.trim()) {
         throw new Error('Se requiere un proyecto activo para solicitar asistencia a Minis.');
@@ -552,7 +624,16 @@ export async function requestMiniAttendance({
     }
 
     let targets = [];
-    if (miniId && String(miniId).trim()) {
+    if (Array.isArray(targetMiniIds) && targetMiniIds.length > 0) {
+        targets = linkedMinis.filter(m =>
+            targetMiniIds.includes(m.id) ||
+            targetMiniIds.includes(m.peerId) ||
+            targetMiniIds.includes(m.deviceId)
+        );
+        if (targets.length === 0) {
+            throw new Error('Ninguno de los Minis especificados fue encontrado.');
+        }
+    } else if (miniId && String(miniId).trim()) {
         const targetId = String(miniId).trim();
         const found = linkedMinis.find(m => m.id === targetId || m.peerId === targetId || m.deviceId === targetId);
         if (!found) {
@@ -569,7 +650,43 @@ export async function requestMiniAttendance({
     let importedCount = 0;
     let duplicateCount = 0;
 
-    for (const target of targets) {
+    for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        if (signal?.aborted) {
+            const cancelErr = new Error('Solicitud cancelada por el usuario.');
+            cancelErr.name = 'AbortError';
+            if (targets.length === 1) {
+                if (typeof onProgress === 'function') {
+                    try {
+                        onProgress({
+                            peerId: target.peerId || target.id,
+                            peerName: target.name || target.displayName || 'Mini',
+                            state: 'cancelled',
+                            message: 'Solicitud cancelada por el usuario.'
+                        });
+                    } catch (_) {}
+                }
+                throw cancelErr;
+            }
+            for (let j = i; j < targets.length; j++) {
+                const remTarget = targets[j];
+                const remErr = new Error('Solicitud cancelada por el usuario.');
+                remErr.name = 'AbortError';
+                errors.push({ peer: remTarget, error: remErr });
+                if (typeof onProgress === 'function') {
+                    try {
+                        onProgress({
+                            peerId: remTarget.peerId || remTarget.id,
+                            peerName: remTarget.name || remTarget.displayName || 'Mini',
+                            state: 'cancelled',
+                            message: 'Solicitud cancelada por el usuario.'
+                        });
+                    } catch (_) {}
+                }
+            }
+            break;
+        }
+
         try {
             const peerResult = await requestAttendanceFromPeer({
                 peerId: target.peerId || target.id,
@@ -581,7 +698,20 @@ export async function requestMiniAttendance({
                 aliasStore,
                 p2pCore,
                 p2pPairing,
-                inboxStore
+                inboxStore,
+                signal,
+                onStateChange: (peerState, detail) => {
+                    if (typeof onProgress === 'function') {
+                        try {
+                            onProgress({
+                                peerId: target.peerId || target.id,
+                                peerName: target.name || target.displayName || 'Mini',
+                                state: peerState,
+                                ...detail
+                            });
+                        } catch (_) {}
+                    }
+                }
             });
             results.push(peerResult);
             const subs = peerResult.submissions || [];
@@ -597,20 +727,63 @@ export async function requestMiniAttendance({
             if (targets.length === 1) {
                 throw err;
             }
+            if (err?.name === 'AbortError' || signal?.aborted) {
+                for (let j = i + 1; j < targets.length; j++) {
+                    const remTarget = targets[j];
+                    const cancelErr = new Error('Solicitud cancelada por el usuario.');
+                    cancelErr.name = 'AbortError';
+                    errors.push({ peer: remTarget, error: cancelErr });
+                    if (typeof onProgress === 'function') {
+                        try {
+                            onProgress({
+                                peerId: remTarget.peerId || remTarget.id,
+                                peerName: remTarget.name || remTarget.displayName || 'Mini',
+                                state: 'cancelled',
+                                message: 'Solicitud cancelada por el usuario.'
+                            });
+                        } catch (_) {}
+                    }
+                }
+                break;
+            }
         }
     }
 
     if (results.length === 0 && errors.length > 0) {
         const errorMessages = errors.map(e => `${e.peer.name}: ${e.error.message || e.error}`).join('; ');
-        throw new Error(`Error al solicitar asistencia: ${errorMessages}`);
+        const combinedErr = new Error(`Error al solicitar asistencia: ${errorMessages}`);
+        combinedErr.errors = errors;
+        if (errors.every(e => e.error?.name === 'AbortError')) {
+            combinedErr.name = 'AbortError';
+        }
+        throw combinedErr;
     }
 
-    const message = targets.length === 1
-        ? `✓ Asistencia recibida de ${targets[0].name} (${importedCount} nuevos, ${duplicateCount} duplicados).`
-        : `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${importedCount} nuevos, ${duplicateCount} duplicados).`;
+    const hasPartialError = errors.length > 0;
+    const status = hasPartialError ? 'partial_success' : 'success';
+
+    let message;
+    if (targets.length === 1) {
+        if (totalSubmissions === 0) {
+            message = `✓ Asistencia recibida de ${targets[0].name} (sin registros para esta fecha).`;
+        } else {
+            message = `✓ Asistencia recibida de ${targets[0].name} (${importedCount} nuevos, ${duplicateCount} duplicados).`;
+        }
+    } else {
+        if (hasPartialError) {
+            const failedNames = errors.map(e => e.peer.name).join(', ');
+            message = `Parcial: ${results.length} de ${targets.length} Minis respondieron (${importedCount} nuevos${duplicateCount ? `, ${duplicateCount} duplicados` : ''}). Falló: ${failedNames}.`;
+        } else if (totalSubmissions === 0) {
+            message = `✓ Asistencia recibida de ${targets.length} Minis (sin registros para esta fecha).`;
+        } else {
+            message = `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${importedCount} nuevos, ${duplicateCount} duplicados).`;
+        }
+    }
 
     return {
         ok: true,
+        status,
+        hasPartialError,
         message,
         targetsCount: targets.length,
         respondedCount: results.length,

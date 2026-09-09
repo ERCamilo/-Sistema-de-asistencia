@@ -160,6 +160,12 @@ function displayDate(isoDate) {
     return year && month && day ? `${day}/${month}/${year}` : '';
 }
 
+function formatMiniDate(value) {
+    if (!value) return 'Sin registro';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString('es-DO') : 'Sin registro';
+}
+
 export class MiniAttendanceImportModal {
     constructor({
         employees = [],
@@ -181,6 +187,7 @@ export class MiniAttendanceImportModal {
         onRequestSubmissions = null,
         importMode = 'paste',
         groupingMode = 'day',
+        selectedMiniId = null,
         saProjectId = null
     } = {}) {
         this.employees = employees;
@@ -204,7 +211,7 @@ export class MiniAttendanceImportModal {
         this.importMode = importMode;
         this.groupingMode = groupingMode;
         this.saProjectId = saProjectId;
-        this.selectedMiniId = this.linkedMinis[0]?.id || this.linkedMinis[0]?.deviceId || '';
+        this.selectedMiniId = selectedMiniId !== null ? selectedMiniId : (this.linkedMinis[0]?.id || this.linkedMinis[0]?.deviceId || '');
         this.connectedDate = proposedDate || '';
         this.connectedRangeStart = proposedDate || '';
         this.connectedRangeEnd = proposedDate || '';
@@ -214,6 +221,11 @@ export class MiniAttendanceImportModal {
         this.consolidationProposal = null;
         this.transportStatusMessage = '';
         this.isFetchingConnected = false;
+        this.connectionState = 'idle';
+        this.connectionStatusDetail = '';
+        this.peerProgress = new Map();
+        this.failedMiniTargets = [];
+        this.activeAbortController = null;
         this.applyStatus = 'idle';
         this.applyResult = null;
         this.applyError = null;
@@ -233,6 +245,8 @@ export class MiniAttendanceImportModal {
         this.showDetailedTable = false;
         this.dateCardCollapsed = false;
         this.allocationCardCollapsed = true;
+        this._modalLayoutSignature = null;
+        this._activeMorphCleanup = null;
     }
 
     mount(host) {
@@ -247,7 +261,8 @@ export class MiniAttendanceImportModal {
         this.modal = new Modal({
             title: 'Importar asistencia desde Mini',
             size: 'large',
-            content
+            content,
+            onClose: () => this.handleModalClosed()
         });
         this.modal.open();
         this.mount(content);
@@ -256,6 +271,18 @@ export class MiniAttendanceImportModal {
 
     close() {
         this.modal?.close();
+    }
+
+    handleModalClosed() {
+        if (this.activeAbortController && !this.activeAbortController.signal?.aborted) {
+            try { this.activeAbortController.abort(); } catch (_) {}
+        }
+        if (typeof this._activeMorphCleanup === 'function') {
+            try { this._activeMorphCleanup(); } catch (_) {}
+        }
+        this._activeMorphCleanup = null;
+        // Prevent background request settlement from rendering into a closing/detached modal.
+        this.host = null;
     }
 
     analyze() {
@@ -383,6 +410,146 @@ export class MiniAttendanceImportModal {
             this.draft.rows.every(row => row.sourceRow.errors.length === 0);
     }
 
+    captureStructuralFocus() {
+        if (!this.host || typeof document === 'undefined') return null;
+        const active = document.activeElement;
+        if (!active || active === document.body || !this.host.contains(active)) return null;
+        return {
+            id: active.id || '',
+            miniAction: active.dataset?.miniAction || '',
+            miniMode: active.dataset?.miniMode || '',
+            miniGrouping: active.dataset?.miniGrouping || '',
+            miniDraftCheckbox: active.dataset?.miniDraftCheckbox || ''
+        };
+    }
+
+    restoreStructuralFocus(reference) {
+        if (!reference || !this.host) return;
+        const candidates = Array.from(this.host.querySelectorAll(
+            'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ));
+        let target = null;
+        if (reference.id) target = this.host.querySelector(`#${typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(reference.id) : reference.id}`);
+        if (!target && reference.miniAction) target = candidates.find(el => el.dataset?.miniAction === reference.miniAction);
+        if (!target && reference.miniMode) target = candidates.find(el => el.dataset?.miniMode === reference.miniMode);
+        if (!target && reference.miniGrouping) target = candidates.find(el => el.dataset?.miniGrouping === reference.miniGrouping);
+        if (!target && reference.miniDraftCheckbox) target = candidates.find(el => el.dataset?.miniDraftCheckbox === reference.miniDraftCheckbox);
+        if (!target) target = candidates[0] || this.modal?.element?.querySelector('[data-modal-container]');
+        try { target?.focus?.({ preventScroll: true }); } catch (_) { try { target?.focus?.(); } catch (_) {} }
+    }
+
+    modalLayoutSignature() {
+        return [
+            this.stage,
+            this.stage === 'paste' ? this.importMode : '',
+            this.showDetailedTable ? 'detail' : 'summary',
+            this.consolidatedResult ? 'consolidated' : 'plain'
+        ].join('|');
+    }
+
+    prefersReducedMotion() {
+        try {
+            return Boolean(
+                typeof window !== 'undefined' &&
+                typeof window.matchMedia === 'function' &&
+                window.matchMedia('(prefers-reduced-motion: reduce)')?.matches
+            );
+        } catch (_) {
+            return false;
+        }
+    }
+
+    prepareModalMorph(nextSignature) {
+        const previousSignature = this._modalLayoutSignature;
+        this._modalLayoutSignature = nextSignature;
+        const shell = this.modal?.element?.querySelector('[data-modal-container]');
+        if (!shell || !previousSignature || previousSignature === nextSignature || this.prefersReducedMotion()) {
+            return null;
+        }
+        if (typeof shell.getBoundingClientRect !== 'function') return null;
+        const rect = shell.getBoundingClientRect();
+        if (!(rect.width > 0) || !(rect.height > 0)) return null;
+
+        if (typeof this._activeMorphCleanup === 'function') this._activeMorphCleanup();
+
+        const snapshot = {
+            shell,
+            fromWidth: Math.round(rect.width),
+            fromHeight: Math.round(rect.height),
+            transition: shell.style.transition,
+            overflow: shell.style.overflow,
+            width: shell.style.width,
+            height: shell.style.height
+        };
+        shell.style.transition = 'none';
+        shell.style.width = `${snapshot.fromWidth}px`;
+        shell.style.height = `${snapshot.fromHeight}px`;
+        shell.style.overflow = 'hidden';
+        return snapshot;
+    }
+
+    finishModalMorph(snapshot, contentRoot) {
+        if (!snapshot) return;
+        const { shell } = snapshot;
+        shell.style.transition = 'none';
+        shell.style.width = '';
+        shell.style.height = '';
+        const targetRect = shell.getBoundingClientRect();
+        const toWidth = Math.round(targetRect.width);
+        const toHeight = Math.round(targetRect.height);
+
+        const restore = () => {
+            shell.style.transition = snapshot.transition;
+            shell.style.overflow = snapshot.overflow;
+            shell.style.width = snapshot.width;
+            shell.style.height = snapshot.height;
+            contentRoot?.classList.remove('is-morph-entering');
+            this._activeMorphCleanup = null;
+        };
+
+        if (!(toWidth > 0) || !(toHeight > 0) ||
+            (toWidth === snapshot.fromWidth && toHeight === snapshot.fromHeight)) {
+            restore();
+            return;
+        }
+
+        shell.style.width = `${snapshot.fromWidth}px`;
+        shell.style.height = `${snapshot.fromHeight}px`;
+        shell.style.overflow = 'hidden';
+        contentRoot?.classList.add('is-morph-entering');
+        void shell.offsetHeight;
+
+        const duration = 260;
+        let timeoutId = null;
+        let finished = false;
+        const finish = () => {
+            if (finished) return;
+            finished = true;
+            if (timeoutId !== null) clearTimeout(timeoutId);
+            shell.removeEventListener?.('transitionend', onTransitionEnd);
+            restore();
+        };
+        const onTransitionEnd = (event) => {
+            if (event?.target === shell && (event.propertyName === 'width' || event.propertyName === 'height')) {
+                finish();
+            }
+        };
+        this._activeMorphCleanup = finish;
+        shell.addEventListener?.('transitionend', onTransitionEnd);
+        timeoutId = setTimeout(finish, duration + 40);
+
+        const start = () => {
+            shell.style.transition = `width ${duration}ms cubic-bezier(.2,.8,.2,1), height ${duration}ms cubic-bezier(.2,.8,.2,1)`;
+            shell.style.width = `${toWidth}px`;
+            shell.style.height = `${toHeight}px`;
+        };
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(start);
+        } else {
+            start();
+        }
+    }
+
     syncModalLayout() {
         const shell = this.modal?.element?.querySelector('[data-modal-container]');
         const reviewing = this.stage === 'review';
@@ -399,6 +566,8 @@ export class MiniAttendanceImportModal {
 
     render() {
         if (!this.host) return;
+        const focusReference = this.captureStructuralFocus();
+        const morphSnapshot = this.prepareModalMorph(this.modalLayoutSignature());
         this.syncModalLayout();
         const root = element('section', null, {
             className: 'mini-attendance-import',
@@ -411,6 +580,8 @@ export class MiniAttendanceImportModal {
         root.append(content);
         this.host.replaceChildren(root);
         this.host.scrollLeft = 0;
+        if (morphSnapshot) this.restoreStructuralFocus(focusReference);
+        this.finishModalMorph(morphSnapshot, root);
     }
 
     async setImportMode(mode) {
@@ -454,7 +625,7 @@ export class MiniAttendanceImportModal {
         this.render();
     }
 
-    async handleFetchConnected() {
+    async handleFetchConnected({ targetMiniIds = null } = {}) {
         if (this.isFetchingConnected) return;
 
         if (typeof this.onRequestSubmissions !== 'function') {
@@ -463,34 +634,229 @@ export class MiniAttendanceImportModal {
             return;
         }
 
+        const isRetry = Array.isArray(targetMiniIds) && targetMiniIds.length > 0;
+        const previousFailedTargets = new Set(isRetry ? this.failedMiniTargets : []);
+        if (!isRetry) this.failedMiniTargets = [];
+        const requestedMiniId = isRetry ? '' : this.selectedMiniId;
+        const activeTargets = isRetry
+            ? this.linkedMinis.filter(m =>
+                targetMiniIds.includes(m.id) ||
+                targetMiniIds.includes(m.peerId) ||
+                targetMiniIds.includes(m.deviceId)
+            )
+            : (requestedMiniId
+                ? this.linkedMinis.filter(m => (m.id || m.deviceId || m.peerId) === requestedMiniId)
+                : this.linkedMinis);
+
         this.isFetchingConnected = true;
-        this.transportStatusMessage = 'Solicitando asistencia al Mini vinculado...';
+        this.connectionState = 'connecting';
+        this.activeAbortController = new AbortController();
+
+        // Initialize or update progress state for active targets
+        activeTargets.forEach(target => {
+            const peerKey = target.peerId || target.id || target.deviceId;
+            this.peerProgress.set(peerKey, {
+                peerId: peerKey,
+                peerName: target.name || target.displayName || 'Mini',
+                alias: target.alias || null,
+                lastSeenAt: target.lastSeenAt || null,
+                state: 'connecting',
+                message: `Conectando con ${target.name || 'Mini'}…`
+            });
+        });
+
+        if (isRetry) {
+            this.transportStatusMessage = `Reintentando ${targetMiniIds.length} Mini(s) fallido(s)...`;
+        } else if (requestedMiniId) {
+            const targetName = activeTargets[0]?.name || 'Mini vinculado';
+            this.transportStatusMessage = `Solicitando asistencia a ${targetName}...`;
+        } else {
+            this.transportStatusMessage = this.linkedMinis.length > 1
+                ? `Solicitando asistencia a ${this.linkedMinis.length} Minis vinculados...`
+                : 'Solicitando asistencia al Mini vinculado...';
+        }
+
+        // Render once at start to mount in-flight UI, cancel button, and initial progress state
         this.render();
 
         try {
-            const requestPromise = this.onRequestSubmissions({
-                miniId: this.selectedMiniId,
+            const result = await this.onRequestSubmissions({
+                miniId: requestedMiniId,
+                targetMiniIds: isRetry ? targetMiniIds : null,
                 date: this.connectedDate,
                 rangeStart: this.connectedRangeStart,
                 rangeEnd: this.connectedRangeEnd,
-                groupingMode: this.groupingMode
+                groupingMode: this.groupingMode,
+                signal: this.activeAbortController.signal,
+                onProgress: (progress) => this.handlePeerProgress(progress)
             });
-            const result = await requestPromise;
 
             if (this.inboxStore) {
-                this.savedDrafts = await this.inboxStore.list(
-                    this.saProjectId ? { saProjectId: this.saProjectId } : null
-                );
+                try {
+                    this.savedDrafts = await this.inboxStore.list(
+                        this.saProjectId ? { saProjectId: this.saProjectId } : null
+                    );
+                } catch (_) {}
             }
 
-            const count = result?.importedCount ?? (Array.isArray(result?.submissions) ? result.submissions.length : (result?.totalSubmissions ?? ''));
-            const countText = count !== '' ? ` (${count} importados)` : '';
-            this.transportStatusMessage = result?.message || `✓ Asistencia recibida y guardada en borrador${countText}.`;
+            const failedThisAttempt = new Set(
+                Array.isArray(result?.errors)
+                    ? result.errors.map(e => e.peer?.peerId || e.peer?.id || e.peer?.deviceId).filter(Boolean)
+                    : []
+            );
+            if (isRetry) {
+                // Differential retry: only mutate the peers that were retried.
+                for (const targetId of targetMiniIds) previousFailedTargets.delete(targetId);
+                for (const targetId of failedThisAttempt) previousFailedTargets.add(targetId);
+                this.failedMiniTargets = [...previousFailedTargets];
+            } else {
+                this.failedMiniTargets = [...failedThisAttempt];
+            }
+
+            const stillHasFailures = this.failedMiniTargets.length > 0;
+            if (result?.hasPartialError || result?.status === 'partial_success' || stillHasFailures) {
+                this.connectionState = 'partial_success';
+                const baseMessage = result?.message || 'Asistencia recibida parcialmente de algunos Minis.';
+                this.transportStatusMessage = stillHasFailures && isRetry
+                    ? `${baseMessage} · ${this.failedMiniTargets.length} Mini(s) aún pendientes de reintento.`
+                    : baseMessage;
+            } else {
+                this.connectionState = 'success';
+                const count = result?.importedCount ?? (Array.isArray(result?.submissions) ? result.submissions.length : (result?.totalSubmissions ?? ''));
+                const countText = count !== '' ? ` (${count} importados)` : '';
+                this.transportStatusMessage = result?.message || `✓ Asistencia recibida y guardada en borrador${countText}.`;
+            }
         } catch (error) {
-            this.transportStatusMessage = `Error: ${error.message || error}`;
+            if (this.inboxStore) {
+                try {
+                    this.savedDrafts = await this.inboxStore.list(
+                        this.saProjectId ? { saProjectId: this.saProjectId } : null
+                    );
+                } catch (_) {}
+            }
+
+            const isAbort = error?.name === 'AbortError' ||
+                error?.message?.includes('cancelad') ||
+                this.connectionState === 'cancelled';
+
+            if (isAbort) {
+                this.connectionState = 'cancelled';
+                this.transportStatusMessage = 'Solicitud cancelada por el usuario.';
+            } else {
+                this.connectionState = 'error';
+                this.transportStatusMessage = `Error: ${error.message || error}`;
+            }
+
+            const failedThisAttempt = new Set(
+                Array.isArray(error?.errors) && error.errors.length > 0
+                    ? error.errors.map(e => e.peer?.peerId || e.peer?.id || e.peer?.deviceId).filter(Boolean)
+                    : activeTargets.map(t => t.peerId || t.id || t.deviceId).filter(Boolean)
+            );
+            if (isRetry) {
+                if (!isAbort) {
+                    for (const targetId of targetMiniIds) previousFailedTargets.delete(targetId);
+                    for (const targetId of failedThisAttempt) previousFailedTargets.add(targetId);
+                }
+                this.failedMiniTargets = [...previousFailedTargets];
+            } else {
+                this.failedMiniTargets = [...failedThisAttempt];
+            }
         } finally {
             this.isFetchingConnected = false;
-            this.render();
+            this.activeAbortController = null;
+            // Render only while the modal/mounted host still exists.
+            if (this.host) this.render();
+        }
+    }
+
+    handleCancelFetch() {
+        if (this.activeAbortController) {
+            this.activeAbortController.abort();
+        }
+    }
+
+    handleRetryFailed() {
+        if (this.failedMiniTargets.length > 0) {
+            this.handleFetchConnected({ targetMiniIds: [...this.failedMiniTargets] });
+        }
+    }
+
+    handlePeerProgress(progress) {
+        if (!progress || !progress.peerId) return;
+        const key = progress.peerId;
+        const existing = this.peerProgress.get(key) || {};
+        this.peerProgress.set(key, {
+            ...existing,
+            ...progress
+        });
+        this.updatePeerProgressDOM(progress);
+    }
+
+    /**
+     * Targeted DOM patch for peer progress updates.
+     * Avoids calling full this.render() on every progress tick to eliminate
+     * UI flicker, element churn, loss of focus, and scroll position resets.
+     * Full render is only performed once at start and once at conclusion.
+     */
+    updatePeerProgressDOM(progress) {
+        if (!this.host) return;
+
+        const peerId = progress.peerId;
+        let statusBadge = this.host.querySelector(`[data-mini-peer-status="${peerId}"]`);
+        if (!statusBadge) {
+            const matched = this.linkedMinis.find(m => m.peerId === peerId || m.id === peerId || m.deviceId === peerId);
+            if (matched) {
+                const altKey = matched.id || matched.peerId || matched.deviceId;
+                statusBadge = this.host.querySelector(`[data-mini-peer-status="${altKey}"]`);
+            }
+        }
+
+        if (statusBadge) {
+            statusBadge.textContent = this.getStateLabel(progress.state);
+            statusBadge.dataset.miniPeerState = progress.state;
+            statusBadge.className = `mini-import-peer-progress-status ${this.getStateClass(progress.state)}`.trim();
+        }
+
+        const noticeEl = this.host.querySelector('[data-mini-transport-seam]');
+        if (noticeEl && progress.message) {
+            noticeEl.textContent = progress.message;
+            noticeEl.className = `mini-import-transport-notice is-${progress.state}`;
+        }
+    }
+
+    getStateLabel(state) {
+        switch (state) {
+            case 'connecting': return 'Conectando…';
+            case 'authenticating': return 'Autenticando…';
+            case 'requesting': return 'Solicitando…';
+            case 'receiving': return 'Recibiendo…';
+            case 'success': return 'Completado';
+            case 'timeout': return 'Tiempo agotado';
+            case 'error': return 'Error';
+            case 'cancelled': return 'Cancelado';
+            case 'pending':
+            default:
+                return 'En espera';
+        }
+    }
+
+    getStateClass(state) {
+        switch (state) {
+            case 'connecting':
+            case 'authenticating':
+            case 'requesting':
+            case 'receiving':
+                return 'is-active';
+            case 'success':
+                return 'is-success';
+            case 'timeout':
+                return 'is-timeout';
+            case 'error':
+                return 'is-error';
+            case 'cancelled':
+                return 'is-cancelled';
+            default:
+                return '';
         }
     }
 
@@ -553,12 +919,15 @@ export class MiniAttendanceImportModal {
         });
 
         if (this.linkedMinis.length > 0) {
-            const defaultOpt = element('option', 'Todos los Minis vinculados', { value: '' });
+            const defaultOpt = element('option', 'Todos los Minis vinculados', {
+                value: '',
+                selected: this.selectedMiniId === ''
+            });
             selector.append(defaultOpt);
             this.linkedMinis.forEach(mini => {
                 const opt = element('option', `${mini.name || 'Mini'} (${mini.deviceId || mini.id})`, {
                     value: mini.id || mini.deviceId,
-                    selected: (mini.id || mini.deviceId) === this.selectedMiniId
+                    selected: Boolean(this.selectedMiniId) && (mini.id || mini.deviceId) === this.selectedMiniId
                 });
                 selector.append(opt);
             });
@@ -568,6 +937,7 @@ export class MiniAttendanceImportModal {
         }
         selector.addEventListener('change', (e) => {
             this.selectedMiniId = e.target.value;
+            this.render();
         });
 
         const hint = element('p', 'Vincula dispositivos Mini desde Ajustes P2P para sincronización directa.', {
@@ -631,22 +1001,107 @@ export class MiniAttendanceImportModal {
             dateFields.append(startLabel, startInput, endLabel, endInput);
         }
 
+        const actionsContainer = element('div', null, { className: 'mini-import-connected-actions' });
+
         const fetchBtn = actionButton(
-            this.isFetchingConnected ? 'Solicitando...' : 'Solicitar asistencia al Mini',
+            this.isFetchingConnected ? 'Solicitando...' : (this.connectionState === 'error' ? 'Reintentar solicitud' : 'Solicitar asistencia al Mini'),
             'fetch-connected',
             this.isFetchingConnected
         );
         fetchBtn.classList.add('mini-import-action-primary');
         fetchBtn.addEventListener('click', () => this.handleFetchConnected());
+        actionsContainer.append(fetchBtn);
 
-        dateSection.append(groupingToggle, dateFields, fetchBtn);
+        if (this.isFetchingConnected) {
+            const cancelBtn = actionButton('Cancelar', 'cancel-fetch');
+            cancelBtn.classList.add('mini-import-cancel-btn');
+            cancelBtn.dataset.miniAction = 'cancel-fetch';
+            cancelBtn.addEventListener('click', () => this.handleCancelFetch());
+            actionsContainer.append(cancelBtn);
+        }
+
+        if (!this.isFetchingConnected && this.failedMiniTargets.length > 0) {
+            const retryBtn = actionButton(
+                `Reintentar fallidos (${this.failedMiniTargets.length})`,
+                'retry-failed'
+            );
+            retryBtn.classList.add('mini-import-retry-btn');
+            retryBtn.dataset.miniAction = 'retry-failed';
+            retryBtn.addEventListener('click', () => this.handleRetryFailed());
+            actionsContainer.append(retryBtn);
+        }
+
+        dateSection.append(groupingToggle, dateFields, actionsContainer);
 
         if (this.transportStatusMessage) {
+            const noticeClasses = ['mini-import-transport-notice'];
+            if (this.connectionState && this.connectionState !== 'idle') {
+                noticeClasses.push(`is-${this.connectionState}`);
+            }
             const statusMsg = element('div', this.transportStatusMessage, {
-                className: 'mini-import-transport-notice',
+                className: noticeClasses.join(' '),
                 dataset: { miniTransportSeam: '' }
             });
             dateSection.append(statusMsg);
+        }
+
+        // Target progress list for all-Mini requests
+        if (!this.selectedMiniId && this.linkedMinis.length > 0) {
+            const progressList = element('div', null, {
+                className: 'mini-import-peer-progress-list',
+                dataset: { miniPeerProgressList: '' }
+            });
+
+            this.linkedMinis.forEach(mini => {
+                const peerId = mini.id || mini.peerId || mini.deviceId;
+                const progress = this.peerProgress.get(peerId);
+                const currentState = progress?.state || 'pending';
+                const displayName = mini.alias && mini.alias !== mini.name
+                    ? `${mini.name} (${mini.alias})`
+                    : (mini.name || mini.displayName || 'Mini');
+                const lastSeenText = `Última vez: ${formatMiniDate(mini.lastSeenAt)}`;
+
+                const row = element('div', null, {
+                    className: 'mini-import-peer-progress-row',
+                    dataset: { miniPeerRow: peerId }
+                });
+
+                const nameWrap = element('div', null, {
+                    className: 'mini-import-peer-progress-name',
+                    dataset: { miniPeerName: peerId }
+                });
+                const nameTitle = element('strong', displayName);
+                const lastSeenEl = element('div', lastSeenText, {
+                    className: 'mini-import-peer-info-meta',
+                    dataset: { miniPeerLastSeen: peerId }
+                });
+                nameWrap.append(nameTitle, lastSeenEl);
+
+                const statusBadge = element('span', this.getStateLabel(currentState), {
+                    className: `mini-import-peer-progress-status ${this.getStateClass(currentState)}`.trim(),
+                    dataset: {
+                        miniPeerStatus: peerId,
+                        miniPeerState: currentState
+                    }
+                });
+
+                row.append(nameWrap, statusBadge);
+
+                if (!this.isFetchingConnected && (currentState === 'error' || currentState === 'timeout')) {
+                    const peerRetryBtn = actionButton('Reintentar', `retry-peer-${peerId}`);
+                    peerRetryBtn.classList.add('mini-import-peer-retry-btn');
+                    peerRetryBtn.dataset.miniAction = 'retry-peer';
+                    peerRetryBtn.dataset.miniTargetPeerId = peerId;
+                    peerRetryBtn.addEventListener('click', () => {
+                        this.handleFetchConnected({ targetMiniIds: [peerId] });
+                    });
+                    row.append(peerRetryBtn);
+                }
+
+                progressList.append(row);
+            });
+
+            dateSection.append(progressList);
         }
 
         // 3. Saved Draft List

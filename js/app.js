@@ -3348,19 +3348,22 @@ window.openMiniAttendanceImport = async () => {
         saProjectId,
         linkedMinis,
         inboxStore,
-        onRequestSubmissions: async ({ miniId, date, rangeStart, rangeEnd, groupingMode }) => {
+        onRequestSubmissions: async ({ miniId, targetMiniIds, date, rangeStart, rangeEnd, groupingMode, onProgress, signal }) => {
             const currentProjectId = await projectContext.getActiveProjectId();
             if (!currentProjectId) {
                 throw new Error('Se requiere un proyecto activo para solicitar asistencia a Minis.');
             }
             return await requestMiniAttendance({
                 miniId,
+                targetMiniIds,
                 date,
                 rangeStart,
                 rangeEnd,
                 groupingMode,
                 saProjectId: currentProjectId,
-                inboxStore
+                inboxStore,
+                onProgress,
+                signal
             });
         }
     }).open();

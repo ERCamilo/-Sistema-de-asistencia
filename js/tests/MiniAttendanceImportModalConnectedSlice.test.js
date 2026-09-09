@@ -261,3 +261,578 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         expect(host.querySelector('[data-mini-stage]').dataset.miniStage).toBe('setup');
     });
 });
+
+describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retry & LastSeen', () => {
+    let host;
+
+    beforeEach(() => {
+        host = document.createElement('div');
+        document.body.replaceChildren(host);
+    });
+
+    afterEach(() => {
+        document.body.replaceChildren();
+    });
+
+    test('all-Mini view renders one row per target with alias/name and lastSeen, without invented online status', () => {
+        const linkedMinis = [
+            {
+                id: 'peer-mini-1',
+                peerId: 'peer-mini-1',
+                deviceId: 'device-1',
+                name: 'Mini Obra 1',
+                alias: 'Obra Norte',
+                lastSeenAt: '2026-09-08T14:30:00.000Z'
+            },
+            {
+                id: 'peer-mini-2',
+                peerId: 'peer-mini-2',
+                deviceId: 'device-2',
+                name: 'Mini Taller 2',
+                alias: null,
+                lastSeenAt: null
+            }
+        ];
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: '', // All Minis
+            linkedMinis
+        });
+        modal.mount(host);
+
+        const list = host.querySelector('[data-mini-peer-progress-list]');
+        expect(list).not.toBeNull();
+
+        // Check peer 1
+        const row1 = host.querySelector('[data-mini-peer-row="peer-mini-1"]');
+        expect(row1).not.toBeNull();
+        const name1 = row1.querySelector('[data-mini-peer-name="peer-mini-1"]');
+        expect(name1.textContent).toContain('Mini Obra 1 (Obra Norte)');
+        const lastSeen1 = row1.querySelector('[data-mini-peer-last-seen="peer-mini-1"]');
+        expect(lastSeen1.textContent).toContain('Última vez:');
+        expect(lastSeen1.textContent).not.toContain('Sin registro');
+
+        const status1 = row1.querySelector('[data-mini-peer-status="peer-mini-1"]');
+        expect(status1.dataset.miniPeerState).toBe('pending');
+        expect(status1.textContent).toBe('En espera');
+
+        // Check peer 2
+        const row2 = host.querySelector('[data-mini-peer-row="peer-mini-2"]');
+        expect(row2).not.toBeNull();
+        const name2 = row2.querySelector('[data-mini-peer-name="peer-mini-2"]');
+        expect(name2.textContent).toContain('Mini Taller 2');
+        const lastSeen2 = row2.querySelector('[data-mini-peer-last-seen="peer-mini-2"]');
+        expect(lastSeen2.textContent).toBe('Última vez: Sin registro');
+
+        const status2 = row2.querySelector('[data-mini-peer-status="peer-mini-2"]');
+        expect(status2.dataset.miniPeerState).toBe('pending');
+        expect(status2.textContent).toBe('En espera');
+
+        // Verify NO invented online status anywhere in the list
+        expect(list.textContent).not.toMatch(/en l[íi]nea|desconectado|online|offline/i);
+    });
+
+    test('progress state transitions update DOM badges in place without triggering full render', async () => {
+        const linkedMinis = [
+            { id: 'peer-mini-1', peerId: 'peer-mini-1', name: 'Mini Obra 1' }
+        ];
+
+        let progressCallback;
+        let resolveRequest;
+        const requestPromise = new Promise(resolve => {
+            resolveRequest = resolve;
+        });
+
+        const onRequestSpy = jest.fn(({ onProgress }) => {
+            progressCallback = onProgress;
+            return requestPromise;
+        });
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: '',
+            linkedMinis,
+            onRequestSubmissions: onRequestSpy
+        });
+        modal.mount(host);
+
+        const renderSpy = jest.spyOn(modal, 'render');
+
+        // Start fetch
+        const fetchBtn = host.querySelector('[data-mini-action="fetch-connected"]');
+        fetchBtn.click();
+
+        // Full render called once at start
+        expect(renderSpy).toHaveBeenCalledTimes(1);
+
+        const badge = host.querySelector('[data-mini-peer-status="peer-mini-1"]');
+        expect(badge).not.toBeNull();
+        expect(badge.dataset.miniPeerState).toBe('connecting');
+        expect(badge.classList.contains('is-active')).toBe(true);
+
+        // Transition: authenticating
+        progressCallback({
+            peerId: 'peer-mini-1',
+            state: 'authenticating',
+            message: 'Autenticando canal seguro con Mini Obra 1…'
+        });
+        expect(badge.dataset.miniPeerState).toBe('authenticating');
+        expect(badge.textContent).toBe('Autenticando…');
+        expect(badge.classList.contains('is-active')).toBe(true);
+        expect(renderSpy).toHaveBeenCalledTimes(1); // NO full render!
+
+        // Transition: requesting
+        progressCallback({
+            peerId: 'peer-mini-1',
+            state: 'requesting',
+            message: 'Solicitando asistencia a Mini Obra 1…'
+        });
+        expect(badge.dataset.miniPeerState).toBe('requesting');
+        expect(badge.textContent).toBe('Solicitando…');
+        expect(badge.classList.contains('is-active')).toBe(true);
+        expect(renderSpy).toHaveBeenCalledTimes(1); // NO full render!
+
+        // Transition: receiving
+        progressCallback({
+            peerId: 'peer-mini-1',
+            state: 'receiving',
+            message: 'Esperando respuesta de Mini Obra 1…'
+        });
+        expect(badge.dataset.miniPeerState).toBe('receiving');
+        expect(badge.textContent).toBe('Recibiendo…');
+        expect(badge.classList.contains('is-active')).toBe(true);
+        expect(renderSpy).toHaveBeenCalledTimes(1); // NO full render!
+
+        // Transition: success
+        progressCallback({
+            peerId: 'peer-mini-1',
+            state: 'success',
+            message: 'Asistencia recibida de Mini Obra 1.'
+        });
+        expect(badge.dataset.miniPeerState).toBe('success');
+        expect(badge.textContent).toBe('Completado');
+        expect(badge.classList.contains('is-success')).toBe(true);
+        expect(renderSpy).toHaveBeenCalledTimes(1); // NO full render!
+
+        // Resolve fetch
+        resolveRequest({
+            ok: true,
+            status: 'success',
+            hasPartialError: false,
+            importedCount: 1,
+            duplicateCount: 0,
+            message: '✓ Asistencia recibida de Mini Obra 1 (1 nuevos).'
+        });
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        // Full render called once more upon completion to settle final UI
+        expect(renderSpy).toHaveBeenCalledTimes(2);
+        expect(modal.connectionState).toBe('success');
+    });
+
+    test('partial success renders partial notice, successful drafts, and allows Retry failed only', async () => {
+        const db = new MemoryDB();
+        const inboxStore = new AttendanceSubmissionInboxStore({ db });
+
+        const linkedMinis = [
+            { id: 'peer-mini-1', peerId: 'peer-mini-1', name: 'Mini 1' },
+            { id: 'peer-mini-2', peerId: 'peer-mini-2', name: 'Mini 2' }
+        ];
+
+        const onRequestSpy = jest.fn(async ({ onProgress }) => {
+            // Mini 1 succeeds
+            onProgress({ peerId: 'peer-mini-1', state: 'success', message: 'OK' });
+            await inboxStore.importSubmission(sampleSubmission(SUB_UUID_1, '2026-09-06'), {
+                expectedSaProjectId: SA_PROJECT,
+                metadata: { sourcePeerId: 'peer-mini-1', sourcePeerName: 'Mini 1' }
+            });
+            // Mini 2 fails
+            onProgress({ peerId: 'peer-mini-2', state: 'timeout', message: 'Timeout' });
+            return {
+                ok: true,
+                status: 'partial_success',
+                hasPartialError: true,
+                message: 'Parcial: 1 de 2 Minis respondieron (1 nuevos). Falló: Mini 2.',
+                importedCount: 1,
+                duplicateCount: 0,
+                results: [{ peerId: 'peer-mini-1' }],
+                errors: [{ peer: linkedMinis[1], error: new Error('Timeout') }]
+            };
+        });
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: '',
+            linkedMinis,
+            inboxStore,
+            onRequestSubmissions: onRequestSpy
+        });
+        modal.mount(host);
+
+        const fetchBtn = host.querySelector('[data-mini-action="fetch-connected"]');
+        fetchBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // Verify partial success state
+        expect(modal.connectionState).toBe('partial_success');
+        expect(modal.failedMiniTargets).toEqual(['peer-mini-2']);
+
+        // Notice has partial styling and message
+        const notice = host.querySelector('[data-mini-transport-seam]');
+        expect(notice).not.toBeNull();
+        expect(notice.className).toContain('is-partial_success');
+        expect(notice.textContent).toContain('Parcial: 1 de 2 Minis respondieron');
+
+        // Mini 1 shows success badge, Mini 2 shows timeout badge
+        const badge1 = host.querySelector('[data-mini-peer-status="peer-mini-1"]');
+        const badge2 = host.querySelector('[data-mini-peer-status="peer-mini-2"]');
+        expect(badge1.dataset.miniPeerState).toBe('success');
+        expect(badge2.dataset.miniPeerState).toBe('timeout');
+
+        // Saved drafts contains Mini 1 submission
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).not.toBeNull();
+
+        // Retry failed button is visible
+        const retryFailedBtn = host.querySelector('[data-mini-action="retry-failed"]');
+        expect(retryFailedBtn).not.toBeNull();
+        expect(retryFailedBtn.textContent).toContain('Reintentar fallidos (1)');
+
+        // Per-peer retry button is also visible on row 2
+        const peerRetryBtn = host.querySelector('[data-mini-action="retry-peer"][data-mini-target-peer-id="peer-mini-2"]');
+        expect(peerRetryBtn).not.toBeNull();
+    });
+
+    test('retry target list passes failed peer IDs only and relies on inbox idempotency', async () => {
+        const db = new MemoryDB();
+        const inboxStore = new AttendanceSubmissionInboxStore({ db });
+
+        const linkedMinis = [
+            { id: 'peer-mini-1', peerId: 'peer-mini-1', name: 'Mini 1' },
+            { id: 'peer-mini-2', peerId: 'peer-mini-2', name: 'Mini 2' }
+        ];
+
+        let callCount = 0;
+        const onRequestSpy = jest.fn(async ({ targetMiniIds }) => {
+            callCount++;
+            if (callCount === 1) {
+                // Initial call: Mini 1 succeeds, Mini 2 fails
+                await inboxStore.importSubmission(sampleSubmission(SUB_UUID_1, '2026-09-06'), {
+                    expectedSaProjectId: SA_PROJECT
+                });
+                return {
+                    ok: true,
+                    status: 'partial_success',
+                    hasPartialError: true,
+                    message: 'Parcial: 1 de 2 respondieron. Falló: Mini 2.',
+                    errors: [{ peer: linkedMinis[1], error: new Error('Peer offline') }]
+                };
+            }
+            // Retry call: Mini 2 succeeds
+            expect(targetMiniIds).toEqual(['peer-mini-2']);
+            await inboxStore.importSubmission(sampleSubmission(SUB_UUID_2, '2026-09-06'), {
+                expectedSaProjectId: SA_PROJECT
+            });
+            return {
+                ok: true,
+                status: 'success',
+                hasPartialError: false,
+                message: '✓ Asistencia recibida de Mini 2 (1 nuevos).'
+            };
+        });
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: '',
+            linkedMinis,
+            inboxStore,
+            onRequestSubmissions: onRequestSpy
+        });
+        modal.mount(host);
+
+        // Initial request
+        host.querySelector('[data-mini-action="fetch-connected"]').click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(modal.connectionState).toBe('partial_success');
+        expect(modal.failedMiniTargets).toEqual(['peer-mini-2']);
+
+        // Click "Reintentar fallidos"
+        const retryBtn = host.querySelector('[data-mini-action="retry-failed"]');
+        expect(retryBtn).not.toBeNull();
+        retryBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // Second call was invoked with only failed targetMiniIds
+        expect(onRequestSpy).toHaveBeenCalledTimes(2);
+        expect(onRequestSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+            targetMiniIds: ['peer-mini-2']
+        }));
+
+        // After successful retry: connectionState is success, failedMiniTargets is empty
+        expect(modal.connectionState).toBe('success');
+        expect(modal.failedMiniTargets).toEqual([]);
+        expect(host.querySelector('[data-mini-action="retry-failed"]')).toBeNull();
+
+        // Both drafts are in inbox (idempotent staging)
+        expect(modal.savedDrafts.length).toBe(2);
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).not.toBeNull();
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_2}"]`)).not.toBeNull();
+    });
+
+    test('cancel during in-flight request aborts signal, stops request, and updates UI to cancelled', async () => {
+        let capturedSignal;
+        let rejectRequest;
+        const requestPromise = new Promise((_, reject) => {
+            rejectRequest = reject;
+        });
+
+        const onRequestSpy = jest.fn(({ signal, onProgress }) => {
+            capturedSignal = signal;
+            signal.addEventListener('abort', () => {
+                const cancelErr = new Error('Solicitud cancelada por el usuario.');
+                cancelErr.name = 'AbortError';
+                onProgress({ peerId: 'peer-mini-1', state: 'cancelled', message: 'Cancelado' });
+                rejectRequest(cancelErr);
+            });
+            return requestPromise;
+        });
+
+        const linkedMinis = [
+            { id: 'peer-mini-1', peerId: 'peer-mini-1', name: 'Mini 1' }
+        ];
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: '',
+            linkedMinis,
+            onRequestSubmissions: onRequestSpy
+        });
+        modal.mount(host);
+
+        // Click fetch
+        host.querySelector('[data-mini-action="fetch-connected"]').click();
+
+        expect(modal.isFetchingConnected).toBe(true);
+        expect(capturedSignal).toBeDefined();
+        expect(capturedSignal.aborted).toBe(false);
+
+        // Cancel button is displayed
+        const cancelBtn = host.querySelector('[data-mini-action="cancel-fetch"]');
+        expect(cancelBtn).not.toBeNull();
+
+        // Click Cancel
+        cancelBtn.click();
+
+        expect(capturedSignal.aborted).toBe(true);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(modal.isFetchingConnected).toBe(false);
+        expect(modal.connectionState).toBe('cancelled');
+        expect(modal.transportStatusMessage).toContain('cancelada');
+
+        const notice = host.querySelector('[data-mini-transport-seam]');
+        expect(notice.className).toContain('is-cancelled');
+        expect(notice.textContent).toContain('cancelada');
+
+        const badge = host.querySelector('[data-mini-peer-status="peer-mini-1"]');
+        expect(badge.dataset.miniPeerState).toBe('cancelled');
+        expect(badge.textContent).toBe('Cancelado');
+    });
+
+    test('no false success: failures, timeouts, and zero-record responses do not show false success', async () => {
+        const linkedMinis = [
+            { id: 'peer-mini-1', peerId: 'peer-mini-1', name: 'Mini 1' }
+        ];
+
+        // 1. Error does NOT show success
+        const errorModal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: 'peer-mini-1',
+            linkedMinis,
+            onRequestSubmissions: jest.fn().mockRejectedValue(new Error('Fallo de red'))
+        });
+        errorModal.mount(host);
+
+        host.querySelector('[data-mini-action="fetch-connected"]').click();
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(errorModal.connectionState).toBe('error');
+        const errNotice = host.querySelector('[data-mini-transport-seam]');
+        expect(errNotice.className).not.toContain('is-success');
+        expect(errNotice.textContent).not.toContain('✓');
+        expect(errNotice.textContent).toContain('Error: Fallo de red');
+
+        // 2. Zero records received clearly states no records rather than false imported count
+        const zeroModal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: 'peer-mini-1',
+            linkedMinis,
+            onRequestSubmissions: jest.fn().mockResolvedValue({
+                ok: true,
+                status: 'success',
+                hasPartialError: false,
+                totalSubmissions: 0,
+                importedCount: 0,
+                duplicateCount: 0,
+                message: '✓ Asistencia recibida de Mini 1 (sin registros para esta fecha).'
+            })
+        });
+        zeroModal.mount(host);
+
+        host.querySelector('[data-mini-action="fetch-connected"]').click();
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(zeroModal.connectionState).toBe('success');
+        const zeroNotice = host.querySelector('[data-mini-transport-seam]');
+        expect(zeroNotice.textContent).toContain('sin registros para esta fecha');
+        expect(zeroNotice.textContent).not.toContain('0 importados');
+    });
+});
+
+describe('MiniAttendanceImportModal — structural modal morph continuity', () => {
+    test('keeps the same overlay and shell while a structural view changes size', async () => {
+        const overlay = document.createElement('div');
+        const shell = document.createElement('div');
+        shell.dataset.modalContainer = '';
+        const host = document.createElement('div');
+        shell.appendChild(host);
+        overlay.appendChild(shell);
+        document.body.replaceChildren(overlay);
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'paste',
+            linkedMinis: [{ id: 'mini-1', peerId: 'mini-1', name: 'Mini 1' }]
+        });
+        modal.modal = { element: overlay };
+        modal.host = host;
+
+        let naturalHeight = 420;
+        const originalReplaceChildren = host.replaceChildren.bind(host);
+        host.replaceChildren = (...nodes) => {
+            originalReplaceChildren(...nodes);
+            naturalHeight = modal.importMode === 'connected' ? 560 : 420;
+        };
+        shell.getBoundingClientRect = () => {
+            const explicitHeight = Number.parseFloat(shell.style.height || '');
+            const explicitWidth = Number.parseFloat(shell.style.width || '');
+            return {
+                width: Number.isFinite(explicitWidth) ? explicitWidth : 720,
+                height: Number.isFinite(explicitHeight) ? explicitHeight : naturalHeight,
+                top: 0, left: 0, right: 720, bottom: naturalHeight, x: 0, y: 0,
+                toJSON() { return this; }
+            };
+        };
+
+        modal.render();
+        const overlayRef = modal.modal.element;
+        const shellRef = overlay.querySelector('[data-modal-container]');
+        const connectedModeButton = host.querySelector('[data-mini-mode="connected"]');
+        connectedModeButton.focus();
+        expect(document.activeElement).toBe(connectedModeButton);
+
+        await modal.setImportMode('connected');
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect(modal.modal.element).toBe(overlayRef);
+        expect(overlay.querySelector('[data-modal-container]')).toBe(shellRef);
+        expect(shell.style.transition).toContain('height 260ms');
+        expect(shell.style.height).toBe('560px');
+        expect(host.querySelector('[data-mini-mode="connected"]')).not.toBeNull();
+        expect(document.activeElement?.dataset?.miniMode).toBe('connected');
+
+        modal._activeMorphCleanup?.();
+        expect(shell.style.height).toBe('');
+        expect(shell.style.width).toBe('');
+    });
+});
+
+describe('MiniAttendanceImportModal — review regressions', () => {
+    let host;
+
+    beforeEach(() => {
+        host = document.createElement('div');
+        document.body.replaceChildren(host);
+    });
+
+    afterEach(() => {
+        document.body.replaceChildren();
+    });
+
+    test('retrying one failed Mini preserves other failed peers until each is resolved', async () => {
+        const linkedMinis = [
+            { id: 'mini-a', peerId: 'mini-a', name: 'Mini A' },
+            { id: 'mini-b', peerId: 'mini-b', name: 'Mini B' },
+            { id: 'mini-c', peerId: 'mini-c', name: 'Mini C' }
+        ];
+        const calls = [];
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected',
+            selectedMiniId: '',
+            linkedMinis,
+            onRequestSubmissions: async ({ targetMiniIds }) => {
+                calls.push(targetMiniIds ? [...targetMiniIds] : null);
+                return {
+                    ok: true,
+                    status: 'success',
+                    hasPartialError: false,
+                    importedCount: 0,
+                    duplicateCount: 1,
+                    message: 'Reintento completado.'
+                };
+            }
+        });
+        modal.mount(host);
+        modal.failedMiniTargets = ['mini-b', 'mini-c'];
+        modal.connectionState = 'partial_success';
+
+        await modal.handleFetchConnected({ targetMiniIds: ['mini-b'] });
+        expect(calls[0]).toEqual(['mini-b']);
+        expect(modal.failedMiniTargets).toEqual(['mini-c']);
+        expect(modal.connectionState).toBe('partial_success');
+        expect(modal.transportStatusMessage).toContain('1 Mini(s) aún pendientes');
+
+        await modal.handleFetchConnected({ targetMiniIds: ['mini-c'] });
+        expect(calls[1]).toEqual(['mini-c']);
+        expect(modal.failedMiniTargets).toEqual([]);
+        expect(modal.connectionState).toBe('success');
+    });
+
+    test('closing the modal aborts an active request, cleans morph state and blocks detached rerender', () => {
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            importMode: 'connected'
+        });
+        modal.mount(host);
+        const controller = new AbortController();
+        const morphCleanup = jest.fn();
+        modal.activeAbortController = controller;
+        modal._activeMorphCleanup = morphCleanup;
+
+        modal.handleModalClosed();
+
+        expect(controller.signal.aborted).toBe(true);
+        expect(morphCleanup).toHaveBeenCalledTimes(1);
+        expect(modal._activeMorphCleanup).toBeNull();
+        expect(modal.host).toBeNull();
+    });
+});
