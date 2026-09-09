@@ -2172,10 +2172,10 @@
     width: fit-content;
     max-width: 100%;
     padding: 4px 8px;
-    border: 1px solid var(--mini-border);
+    border: 1px solid color-mix(in oklch, var(--mini-text-dim) 24%, var(--mini-panel-2));
     border-radius: 999px;
-    background: var(--mini-panel);
-    color: var(--mini-text-dim);
+    background: color-mix(in oklch, var(--mini-text-dim) 24%, var(--mini-panel-2));
+    color: var(--mini-text);
     font-size: 11px;
     font-weight: 700;
     line-height: 1.2;
@@ -2187,8 +2187,8 @@
 .mini-badge-applied-days,
 .mini-day-status.is-ready,
 .mini-day-status.is-applied {
-    border-color: var(--mini-good);
-    background: color-mix(in oklch, var(--mini-good) 62%, var(--mini-panel-2));
+    border-color: color-mix(in oklch, var(--mini-good) 70%, var(--mini-panel-2));
+    background: color-mix(in oklch, var(--mini-good) 70%, var(--mini-panel-2));
     color: var(--mini-text);
 }
 
@@ -2198,8 +2198,8 @@
 .mini-day-status.is-stage_b_conflict,
 .mini-row-status.is-conflict,
 .mini-row-status.is-identity_conflict {
-    border-color: var(--mini-warn);
-    background: color-mix(in oklch, var(--mini-warn) 58%, var(--mini-panel-2));
+    border-color: color-mix(in oklch, var(--mini-warn) 72%, var(--mini-panel-2));
+    background: color-mix(in oklch, var(--mini-warn) 72%, var(--mini-panel-2));
     color: var(--mini-text);
 }
 
@@ -2208,16 +2208,14 @@
     align-items: center;
     justify-content: center;
     justify-self: end;
-    width: 26px;
-    height: 26px;
-    border-radius: 999px;
-    background: color-mix(in oklch, var(--mini-good) 72%, var(--mini-panel-2));
-    color: var(--mini-text);
+    width: 24px;
+    height: 24px;
+    color: var(--mini-good);
 }
 
 .mini-row-resolved-icon svg {
-    width: 15px;
-    height: 15px;
+    width: 18px;
+    height: 18px;
     fill: none;
     stroke: currentColor;
     stroke-width: 2.6;
@@ -2480,14 +2478,14 @@
 }
 
 .mini-import-draft-status.is-reviewed {
-    border-color: var(--mini-warn);
-    background: color-mix(in oklch, var(--mini-warn) 58%, var(--mini-panel-2));
+    border-color: color-mix(in oklch, var(--mini-warn) 72%, var(--mini-panel-2));
+    background: color-mix(in oklch, var(--mini-warn) 72%, var(--mini-panel-2));
     color: var(--mini-text);
 }
 
 .mini-import-draft-status.is-incorporated,
 .mini-import-draft-status.is-imported {
-    border-color: var(--mini-good);
-    background: color-mix(in oklch, var(--mini-good) 62%, var(--mini-panel-2));
+    border-color: color-mix(in oklch, var(--mini-good) 70%, var(--mini-panel-2));
+    background: color-mix(in oklch, var(--mini-good) 70%, var(--mini-panel-2));
     color: var(--mini-text);
 }

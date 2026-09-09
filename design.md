@@ -227,11 +227,11 @@ Etiqueta superior que sitúa al usuario:
 Las etiquetas de estado deben comunicar el significado de un vistazo y conservar contraste suficiente sobre fondos oscuros.
 
 * **Regla visual obligatoria**: no usar el patrón de etiqueta con fondo transparente + borde semántico + texto del mismo color. Para estados como `Nuevo`, `Conflicto`, `Advertencia`, `Error` o `Incorporado`, usar un **relleno sólido del color semántico** y texto/icono claro de alto contraste.
-* **Colores**: `--good` para éxito/listo, `--warn` para conflicto/atención, `--bad` para error/bloqueo y `--accent` para novedad/estado informativo. El borde, si existe, debe integrarse con el relleno y no ser el recurso visual principal.
+* **Colores**: `--good` para éxito/listo, `--warn` para conflicto/atención, `--bad` para error/bloqueo y `--accent` para novedad/estado informativo. El borde, si existe, debe usar el mismo token o valor derivado que el relleno; no debe verse como un contorno separado ni ser el recurso visual principal.
 * **Texto sobre color**: preferir blanco o un token `on-*` con contraste equivalente. Sobre `--accent`, usar `--on-accent`; sobre `--good`, `--warn` o `--bad`, usar un tono claro que cumpla contraste AA.
 * **Forma**: altura aproximada `24px–28px`, `padding: 4px 9px`, `border-radius: 999px`, `font-size: 11px–12px`, `font-weight: 700`.
 * **No depender sólo del color**: conflictos y advertencias deben conservar texto o iconografía que explique el estado.
-* **Estado resuelto/completado**: en filas o listas repetitivas, no mostrar una píldora de texto `Resuelto`. Usar un **SVG checkmark** claro y accesible (`aria-label="Resuelto"` o texto visualmente oculto). Puede ir dentro de un círculo sólido `--good` si se necesita mayor presencia visual.
+* **Estado resuelto/completado**: en filas o listas repetitivas, no mostrar una píldora de texto `Resuelto`. Usar un **SVG checkmark** claro y accesible (`aria-label="Resuelto"` o texto visualmente oculto). En filas repetitivas usar por defecto el check SVG simple, sin píldora, círculo ni fondo propio; reservar contenedores adicionales sólo para casos excepcionales definidos por el sistema de diseño.
 * **Estado nuevo**: usar una etiqueta sólida `Nuevo` con `--accent` y texto `--on-accent`.
 * **Estado incorporado**: el registro completo puede verse atenuado (`opacity` aproximada `.55–.7`) para indicar que ya fue procesado; si se muestra una etiqueta adicional, debe seguir la misma regla de relleno sólido.
 * **Consistencia**: el mismo estado debe conservar color, icono y redacción en toda la aplicación; no alternar entre borde-only, chip sólido y texto plano para el mismo significado.
