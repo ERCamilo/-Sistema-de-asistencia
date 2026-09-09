@@ -10,6 +10,7 @@ import {
     openProjectCreateModal,
     closeProjectCreateModal
 } from './ProjectCreateUI.js';
+import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 const MODAL_ID = 'project-setup-modal';
 
@@ -121,7 +122,36 @@ async function renderState() {
         listHandle = mountProjectList(listContainer, {
             projects: state.projects,
             activeProjectId: state.activeProjectId,
-            defaultProjectId: state.defaultProjectId
+            defaultProjectId: state.defaultProjectId,
+            allowSwitch: true,
+            setupService: projectSetupService,
+            onSwitchProject: async (targetId, button) => {
+                const status = body()?.querySelector('[data-project-setup-status]');
+                if (typeof isSettingsDraftDirty === 'function' && isSettingsDraftDirty()) {
+                    const msg = 'Hay cambios sin guardar en la configuración. Guarda o cancela los cambios manualmente antes de cambiar de proyecto.';
+                    if (status) status.innerHTML = `<strong style="color:#d97706">Atención:</strong> ${esc(msg)}`;
+                    notify(msg, 'warning');
+                    return;
+                }
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = 'Cambiando…';
+                }
+                if (status) status.textContent = 'Cambiando de proyecto…';
+                try {
+                    const result = await projectSetupService.switchActiveProject(targetId);
+                    if (result?.stale) return;
+                    emitChanged({ projectId: result.activeProjectId, switched: true });
+                    notify(`✅ Proyecto activo: ${result.activeProject?.name || result.activeProjectId}`, 'success');
+                    window.render?.();
+                    await renderState();
+                } catch (error) {
+                    if (status) status.innerHTML = `<strong style="color:#dc2626">Error:</strong> ${esc(error.message || error)}`;
+                    notify('❌ ' + (error.message || error), 'error');
+                } finally {
+                    if (button) button.disabled = false;
+                }
+            }
         });
     }
 
@@ -216,7 +246,10 @@ export function registerProjectSetupGlobals() {
     window.openProjectCreateModal = openProjectCreateModal;
     window.closeProjectCreateModal = closeProjectCreateModal;
     window.mountProjectCreateForm = mountProjectCreateForm;
+    window.switchActiveProject = (id) => projectSetupService.switchActiveProject(id);
 }
+
+export const switchActiveProject = (id) => projectSetupService.switchActiveProject(id);
 
 export {
     openProjectListModal,
@@ -238,5 +271,6 @@ export default {
     openProjectCreateModal,
     closeProjectCreateModal,
     mountProjectCreateForm,
+    switchActiveProject,
     registerProjectSetupGlobals
 };

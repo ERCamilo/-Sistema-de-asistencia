@@ -108,7 +108,12 @@ export class ProjectContextService {
         if (candidate.status !== PROJECT_STATUS.ACTIVE) {
             throw new Error(`El proyecto "${candidate.name}" está "${candidate.status}"; sólo puede activarse uno "active".`);
         }
-        if (candidate.id === previousProjectId) return candidate.id;
+        if (candidate.id === previousProjectId) {
+            if (readStoredId() !== candidate.id) {
+                writeStoredId(candidate.id);
+            }
+            return candidate.id;
+        }
         writeStoredId(candidate.id);
         // F1.4: el snapshot síncrono queda al día para los renders/save
         // handlers que corran antes de la próxima resolución async.

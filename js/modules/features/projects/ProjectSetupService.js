@@ -1,8 +1,9 @@
 import { isProjectsEnabled, setProjectsEnabled } from '../../config/FeatureFlags.js';
 import { initProjectsInfrastructure } from './ProjectsBoot.js';
 import { projectStore } from './ProjectStore.js';
-import { getEntityScope } from './ProjectContext.js';
+import { getEntityScope, setActiveProjectId } from './ProjectContext.js';
 import { Project, PROJECT_STATUS } from './Project.js';
+import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 export const PROJECT_SETUP_NAME_MAX_LENGTH = 80;
 
@@ -30,12 +31,20 @@ export class ProjectSetupService {
         store = projectStore,
         getScope = getEntityScope,
         boot = initProjectsInfrastructure,
-        flags = { isEnabled: isProjectsEnabled, setEnabled: setProjectsEnabled }
+        flags = { isEnabled: isProjectsEnabled, setEnabled: setProjectsEnabled },
+        setActiveId = setActiveProjectId,
+        isDraftDirty = (doc = (typeof document !== 'undefined' ? document : null)) => (doc ? isSettingsDraftDirty(doc) : false)
     } = {}) {
         this.store = store;
         this.getScope = getScope;
         this.boot = boot;
         this.flags = flags;
+        this.setActiveId = setActiveId;
+        this.isDraftDirty = isDraftDirty;
+        this.switchGeneration = 0;
+        // Serialize mutations so a slower superseded switch cannot overwrite
+        // a newer request after that newer request has already been accepted.
+        this.switchQueue = Promise.resolve();
     }
 
     async getState() {
@@ -140,6 +149,73 @@ export class ProjectSetupService {
             project: created,
             state: await this.getState()
         };
+    }
+
+    async switchActiveProject(targetProjectId, { doc = (typeof document !== 'undefined' ? document : null) } = {}) {
+        if (this.flags.isEnabled() !== true) {
+            throw new Error('Activa Proyectos antes de cambiar de proyecto.');
+        }
+
+        if (typeof this.isDraftDirty === 'function') {
+            const hasDraft = doc ? this.isDraftDirty(doc) : this.isDraftDirty();
+            if (hasDraft === true) {
+                throw new Error('Hay cambios sin guardar en la configuración. Guarda o cancela los cambios manualmente antes de cambiar de proyecto.');
+            }
+        }
+
+        const currentGen = ++this.switchGeneration;
+        const execute = async () => {
+            // A newer request can supersede this one while it is waiting in the
+            // queue. In that case it must never mutate the canonical context.
+            if (this.switchGeneration !== currentGen) {
+                return {
+                    stale: true,
+                    generation: currentGen,
+                    switched: false,
+                    state: await this.getState()
+                };
+            }
+
+            if (this.flags.isEnabled() !== true) {
+                throw new Error('Activa Proyectos antes de cambiar de proyecto.');
+            }
+            if (typeof this.isDraftDirty === 'function') {
+                const hasDraft = doc ? this.isDraftDirty(doc) : this.isDraftDirty();
+                if (hasDraft === true) {
+                    throw new Error('Hay cambios sin guardar en la configuración. Guarda o cancela los cambios manualmente antes de cambiar de proyecto.');
+                }
+            }
+
+            const currentScope = await this.getScope();
+            const previousProjectId = currentScope?.projectId ? String(currentScope.projectId) : null;
+            if (this.switchGeneration !== currentGen) {
+                return {
+                    stale: true,
+                    generation: currentGen,
+                    switched: false,
+                    previousProjectId,
+                    state: await this.getState()
+                };
+            }
+
+            const resolvedId = await this.setActiveId(targetProjectId);
+            const nextState = await this.getState();
+            const stale = this.switchGeneration !== currentGen;
+
+            return {
+                stale,
+                generation: currentGen,
+                switched: !stale && resolvedId !== previousProjectId,
+                previousProjectId,
+                activeProjectId: nextState.activeProjectId,
+                activeProject: nextState.activeProject,
+                state: nextState
+            };
+        };
+
+        const task = this.switchQueue.then(execute, execute);
+        this.switchQueue = task.then(() => undefined, () => undefined);
+        return task;
     }
 }
 

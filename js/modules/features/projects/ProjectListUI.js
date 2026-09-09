@@ -5,6 +5,7 @@ import {
     openProjectCreateModal,
     closeProjectCreateModal
 } from './ProjectCreateUI.js';
+import { isSettingsDraftDirty } from '../../ui/settings/SettingsDraftBar.js';
 
 export const PROJECT_FILTERS = Object.freeze({
     ALL: 'all',
@@ -102,7 +103,7 @@ export function groupProjectsByStatus(projects = []) {
     return grouped;
 }
 
-export function renderProjectItemHTML(project, { activeProjectId = null, defaultProjectId = null } = {}) {
+export function renderProjectItemHTML(project, { activeProjectId = null, defaultProjectId = null, allowSwitch = false } = {}) {
     if (!project) return '';
     const statusMeta = PROJECT_STATUS_META[project.status] || PROJECT_STATUS_META[PROJECT_STATUS.ACTIVE];
     const isActiveContext = !!(activeProjectId && String(project.id) === String(activeProjectId));
@@ -139,6 +140,17 @@ export function renderProjectItemHTML(project, { activeProjectId = null, default
                     <div>Creado: <strong>${formatProjectDate(project.createdAt)}</strong></div>
                     ${project.closedAt ? `<div>Cerrado: <strong>${formatProjectDate(project.closedAt)}</strong></div>` : ''}
                     ${project.archivedAt ? `<div>Archivado: <strong>${formatProjectDate(project.archivedAt)}</strong></div>` : ''}
+                    ${allowSwitch && project.status === PROJECT_STATUS.ACTIVE && !isActiveContext ? `
+                        <div style="margin-top:8px">
+                            <button type="button"
+                                    class="btn-switch-project"
+                                    data-project-switch="${esc(project.id)}"
+                                    data-switch-project="${esc(project.id)}"
+                                    style="border:1px solid rgba(37,99,235,.4);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;background:rgba(37,99,235,.08);color:#1d4ed8;cursor:pointer;display:inline-flex;align-items:center;gap:4px">
+                                <span>🔁</span>
+                                <span>Cambiar a este proyecto</span>
+                            </button>
+                        </div>` : ''}
                 </div>
             </div>
             ${project.metadata?.notes ? `
@@ -170,11 +182,12 @@ export function renderProjectListHTML({
     projects = [],
     activeProjectId = null,
     defaultProjectId = null,
-    currentFilter = PROJECT_FILTERS.ALL
+    currentFilter = PROJECT_FILTERS.ALL,
+    allowSwitch = false
 } = {}) {
     const list = Array.isArray(projects) ? projects : [];
     const stats = calculateProjectStats(list);
-    const options = { activeProjectId, defaultProjectId };
+    const options = { activeProjectId, defaultProjectId, allowSwitch };
 
     const tabStyle = (filterKey) => `
         border:0;
@@ -255,20 +268,25 @@ export function mountProjectList(container, {
     activeProjectId = null,
     defaultProjectId = null,
     initialFilter = PROJECT_FILTERS.ALL,
-    onFilterChange = null
+    onFilterChange = null,
+    onSwitchProject = null,
+    allowSwitch = false,
+    setupService = projectSetupService
 } = {}) {
     if (!container) return null;
     let currentProjects = Array.isArray(projects) ? [...projects] : [];
     let currentActiveId = activeProjectId;
     let currentDefaultId = defaultProjectId;
     let currentFilter = initialFilter;
+    const shouldAllowSwitch = allowSwitch || typeof onSwitchProject === 'function';
 
     function render() {
         container.innerHTML = renderProjectListHTML({
             projects: currentProjects,
             activeProjectId: currentActiveId,
             defaultProjectId: currentDefaultId,
-            currentFilter
+            currentFilter,
+            allowSwitch: shouldAllowSwitch
         });
 
         const tabs = container.querySelectorAll('[data-project-filter]');
@@ -283,6 +301,45 @@ export function mountProjectList(container, {
                 }
             });
         });
+
+        if (shouldAllowSwitch) {
+            const switchBtns = container.querySelectorAll('[data-project-switch]');
+            switchBtns.forEach(btn => {
+                btn.addEventListener('click', async (event) => {
+                    event.preventDefault();
+                    const targetId = btn.getAttribute('data-project-switch');
+                    if (!targetId) return;
+                    if (typeof onSwitchProject === 'function') {
+                        await onSwitchProject(targetId, btn);
+                    } else {
+                        if (typeof isSettingsDraftDirty === 'function' && isSettingsDraftDirty()) {
+                            window.showNotification?.('Hay cambios sin guardar en la configuración. Guarda o cancela los cambios manualmente antes de cambiar de proyecto.', 'warning');
+                            return;
+                        }
+                        btn.disabled = true;
+                        btn.textContent = 'Cambiando…';
+                        try {
+                            const result = await setupService.switchActiveProject(targetId);
+                            if (result?.stale) return;
+                            const freshState = result?.state || await setupService.getState();
+                            currentActiveId = freshState.activeProjectId;
+                            currentProjects = freshState.projects;
+                            currentDefaultId = freshState.defaultProjectId;
+                            render();
+                            window.dispatchEvent(new CustomEvent('projects:setup-changed', {
+                                detail: { projectId: freshState.activeProjectId, switched: true }
+                            }));
+                            window.showNotification?.(`✅ Proyecto activo: ${freshState.activeProject?.name || freshState.activeProjectId}`, 'success');
+                            window.render?.();
+                        } catch (err) {
+                            window.showNotification?.('❌ ' + (err.message || err), 'error');
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    }
+                });
+            });
+        }
     }
 
     render();
@@ -310,7 +367,7 @@ export function closeProjectListModal() {
     modal()?.remove();
 }
 
-export async function openProjectListModal({ setupService = projectSetupService } = {}) {
+export async function openProjectListModal({ setupService = projectSetupService, onSwitchSuccess = null } = {}) {
     closeProjectListModal();
 
     const el = document.createElement('div');
@@ -356,14 +413,53 @@ export async function openProjectListModal({ setupService = projectSetupService 
 
         bodyEl.innerHTML = `
             <div data-project-create-slot style="display:none;margin-bottom:16px"></div>
-            <div data-project-list-mount></div>`;
+            <div data-project-list-mount></div>
+            <div data-project-list-status style="font-size:12px;margin-top:10px"></div>`;
 
         const createSlot = bodyEl.querySelector('[data-project-create-slot]');
         const listMount = bodyEl.querySelector('[data-project-list-mount]');
+        const statusEl = bodyEl.querySelector('[data-project-list-status]');
         const listHandle = mountProjectList(listMount, {
             projects: state.projects,
             activeProjectId: state.activeProjectId,
-            defaultProjectId: state.defaultProjectId
+            defaultProjectId: state.defaultProjectId,
+            allowSwitch: true,
+            setupService,
+            onSwitchProject: async (targetId, button) => {
+                if (typeof isSettingsDraftDirty === 'function' && isSettingsDraftDirty()) {
+                    const msg = 'Hay cambios sin guardar en la configuración. Guarda o cancela los cambios manualmente antes de cambiar de proyecto.';
+                    if (statusEl) statusEl.innerHTML = `<strong style="color:#d97706">Atención:</strong> ${esc(msg)}`;
+                    window.showNotification?.(msg, 'warning');
+                    return;
+                }
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = 'Cambiando…';
+                }
+                if (statusEl) statusEl.textContent = 'Cambiando de proyecto…';
+                try {
+                    const result = await setupService.switchActiveProject(targetId);
+                    if (result?.stale) return;
+                    const freshState = result?.state || await setupService.getState();
+                    listHandle.update({
+                        projects: freshState.projects,
+                        activeProjectId: freshState.activeProjectId,
+                        defaultProjectId: freshState.defaultProjectId
+                    });
+                    if (statusEl) statusEl.innerHTML = `<strong style="color:#15803d">Listo:</strong> Proyecto activo: "${esc(freshState.activeProject?.name || freshState.activeProjectId)}".`;
+                    window.dispatchEvent(new CustomEvent('projects:setup-changed', {
+                        detail: { projectId: freshState.activeProjectId, switched: true }
+                    }));
+                    window.showNotification?.(`✅ Proyecto activo: ${freshState.activeProject?.name || freshState.activeProjectId}`, 'success');
+                    window.render?.();
+                    onSwitchSuccess?.(freshState);
+                } catch (error) {
+                    if (statusEl) statusEl.innerHTML = `<strong style="color:#dc2626">Error:</strong> ${esc(error.message || error)}`;
+                    window.showNotification?.('❌ ' + (error.message || error), 'error');
+                } finally {
+                    if (button) button.disabled = false;
+                }
+            }
         });
 
         let isCreateOpen = false;
