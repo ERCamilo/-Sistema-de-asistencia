@@ -22,6 +22,7 @@ function baseDeps(over = {}) {
         loginWithGoogle: async () => ({ uid: 'u1' }),
         onAuthStateChanged: cb => { cb({ uid: 'u1' }); return () => {}; },
         loadBackupFromFile: async () => {},
+        getReadySummary: () => ({ company: 'Obra restaurada', employeeCount: 4, positionCount: 2 }),
         ...over
     };
     deps.__calls = calls;
@@ -100,6 +101,9 @@ testRunner.addSuite('Onboarding v2 — acciones reales de elección', {
         return p.then(res => {
             testRunner.assertEquals(res.completed, true, 'éxito marca completado');
             testRunner.assertEquals(deps.storage.getItem('onboardingCompleted'), 'true', 'flag marcada');
+            testRunner.assertEquals(res.summary.company, 'Obra restaurada', 'devuelve empresa restaurada para la pantalla final');
+            testRunner.assertEquals(res.summary.employeeCount, 4, 'devuelve personal restaurado para la pantalla final');
+            testRunner.assertEquals(res.summary.positionCount, 2, 'devuelve posiciones restauradas para la pantalla final');
         });
     },
     'google: sesión iniciada marca finalización'() {

@@ -51,10 +51,10 @@ const PREVIEW_BADGE = '<span style="display:inline-flex;align-items:center;heigh
 /* Chrome del overlay: estado async + botón de cierre siempre; el badge de vista
  * previa SOLO en modo preview (el arranque live es el onboarding de verdad). */
 function buildChrome() {
-    return '<div data-od-preview-chrome style="position:absolute;top:12px;right:14px;z-index:2;display:flex;align-items:center;gap:10px;">'
+    return '<div data-od-preview-chrome class="odv-topbar-chrome" style="display:flex;align-items:center;gap:10px;min-width:0;">'
         + '<span data-od-preview-status style="display:none;align-items:center;height:26px;padding:0 11px;border-radius:20px;background:#334155;border:1px solid #475569;color:#06b6d4;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;"></span>'
         + (hostMode === 'preview' ? PREVIEW_BADGE : '')
-        + '<button type="button" data-act="closePreview" aria-label="Cerrar vista previa" title="Cerrar vista previa" style="width:32px;height:32px;border-radius:50%;border:1px solid #475569;background:#1e293b;color:#94a3b8;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>'
+        + '<button type="button" data-act="closePreview" aria-label="Cerrar guía" title="Cerrar guía" style="width:36px;height:36px;min-width:36px;min-height:36px;border-radius:10px;border:1px solid #475569;background:#1e293b;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
         + '</div>';
 }
 
@@ -115,6 +115,7 @@ async function runChoice(value) {
     st._busy = false;
     if (result && result.completed) {
         notifyCompleted();
+        st.readySummary = result.summary || null;
         st.phase = 'ready';
         saveProgress(localStorage, st);
         renderPreview();

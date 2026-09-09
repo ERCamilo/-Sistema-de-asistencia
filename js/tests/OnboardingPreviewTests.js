@@ -27,6 +27,18 @@ testRunner.addSuite('Onboarding v2 — vista previa (arnés aislado)', {
         testRunner.assert(ov.textContent.includes('VISTA PREVIA · las acciones modifican datos reales'), 'badge refleja acciones reales');
         testRunner.assert(!!ov.querySelector('[data-act="closePreview"]'), 'botón de cierre presente');
     },
+    'el cierre vive dentro del header y no se superpone al progreso ni a Omitir guía'() {
+        cleanup();
+        showOnboardingPreview();
+        const ov = overlay();
+        const topbar = ov.querySelector('[data-od-id="od-topbar"]');
+        const chrome = ov.querySelector('[data-od-preview-chrome]');
+        const close = ov.querySelector('[data-act="closePreview"]');
+        testRunner.assert(!!topbar && !!chrome && !!close, 'header, chrome y cierre presentes');
+        testRunner.assert(topbar.contains(chrome) && chrome.contains(close), 'el cierre participa del layout del header');
+        testRunner.assert(chrome.style.position !== 'absolute', 'el cierre no usa posicionamiento absoluto sobre el contenido');
+        testRunner.assert(!!topbar.querySelector('[data-act="goLast"]'), 'Omitir guía comparte el header sin quedar debajo del cierre');
+    },
     'clic en Siguiente avanza al paso 2 de la guía'() {
         cleanup();
         showOnboardingPreview();

@@ -94,3 +94,21 @@
     }
 }
 
+
+/* El cierre forma parte del header: nunca se superpone al contador ni a "Omitir guía". */
+.odv-topbar-actions { flex-wrap: wrap; }
+.odv-topbar-chrome { flex: 0 0 auto; }
+
+@media (max-width: 720px) {
+    .odv-topbar { align-items: flex-start !important; }
+    .odv-topbar-actions { gap: 8px !important; }
+    .odv-topbar-chrome [data-od-preview-status],
+    .odv-topbar-chrome > span:not([data-od-preview-status]) { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+@media (max-width: 480px) {
+    .odv-topbar { gap: 8px !important; }
+    .odv-topbar-actions { margin-left: auto; }
+    .odv-topbar-actions > [aria-live="polite"] { display: none; }
+    .odv-topbar-actions [data-act="goLast"] { padding: 0 7px !important; }
+}

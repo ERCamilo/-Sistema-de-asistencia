@@ -26,6 +26,11 @@ const errText = e => (e && e.message ? String(e.message) : String(e));
 function resolveDeps(deps = {}) {
     return {
         loadBackupFromFile: deps.loadBackupFromFile || ((file, hooks) => window.loadBackupFromFile(file, hooks)),
+        getReadySummary: deps.getReadySummary || (() => ({
+            company: String(state.settings?.companyName || '').trim(),
+            employeeCount: Array.isArray(state.employees) ? state.employees.length : 0,
+            positionCount: Array.isArray(state.positions) ? state.positions.length : 0
+        })),
         showConfirm: deps.showConfirm || (opts => new Promise(resolve => {
             window.showConfirm({ ...opts, onConfirm: () => resolve(true), onCancel: () => resolve(false) });
         })),
@@ -46,7 +51,7 @@ function resolveDeps(deps = {}) {
 async function runDemo(deps) {
     await deps.loadDemoData(); /* PersistenceService ya marca el modo demo interno */
     markCompleted(deps.storage);
-    return { completed: true };
+    return { completed: true, summary: deps.getReadySummary() };
 }
 
 async function runScratch(deps) {
@@ -82,7 +87,10 @@ function runBackup(deps) {
             const file = input.files && input.files[0];
             if (!file) { finish({ completed: false }); return; }
             deps.loadBackupFromFile(file, {
-                onSuccess: () => { markCompleted(deps.storage); finish({ completed: true }); },
+                onSuccess: () => {
+                    markCompleted(deps.storage);
+                    finish({ completed: true, summary: deps.getReadySummary() });
+                },
                 onError: err => finish({ completed: false, error: errText(err) })
             });
         });
@@ -109,7 +117,7 @@ async function runGoogle(deps) {
         await deps.loginWithGoogle();
         await userReady;
         markCompleted(deps.storage);
-        return { completed: true };
+        return { completed: true, summary: deps.getReadySummary() };
     } catch (err) {
         return { completed: false, error: errText(err) };
     } finally {

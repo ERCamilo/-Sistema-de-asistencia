@@ -21,6 +21,8 @@ Cualquier pantalla, modal, formulario o flujo (comenzando por el rediseño del i
 * **Subtítulo**: Exactamente una línea que explica el beneficio inmediato.
 * **Hints dinámicos en Footer**: Si el botón primario está deshabilitado, el centro del footer muestra en texto atenuado (`--text-faint`) la razón exacta (ej. `"Escribe un nombre para continuar"`, `"Selecciona al menos un día"`).
 * **Alertas sin interrupciones**: Los errores o advertencias nunca disparan `alert()` ni ventanas emergentes; se renderizan como tarjetas sutiles inline con borde semántico y fondo traslúcido.
+* **Acciones del encabezado sin solapamiento**: cerrar, omitir, contador de pasos y estados asíncronos deben participar del layout normal del header. No colocar el cierre con `position:absolute` encima de otros controles o textos; reservar espacio real y adaptar/ocultar metadatos secundarios en pantallas estrechas.
+* **Resumen final fiel al resultado**: una pantalla de éxito/restauración debe mostrar datos derivados del estado efectivamente aplicado (empresa, personal, posiciones u otros contadores relevantes), no valores temporales del wizard. Si un dato no pudo verificarse, mostrarlo como no disponible en vez de `0` o `—` engañosos.
 
 ---
 
