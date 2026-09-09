@@ -384,7 +384,79 @@ export class AttendanceSubmissionInboxStore {
         );
     }
 
-    list() {
-        return this.db.getAll(ATTENDANCE_SUBMISSION_INBOX);
+    async list(filter = null) {
+        const records = await this.db.getAll(ATTENDANCE_SUBMISSION_INBOX);
+        if (!filter || typeof filter !== 'object') return records;
+        const { saProjectId, workDate, status } = filter;
+        if (!saProjectId && !workDate && !status) return records;
+        return records.filter(record => {
+            if (saProjectId && record.saProjectId !== saProjectId) return false;
+            if (workDate && record.workDate !== workDate) return false;
+            if (status && record.status !== status) return false;
+            return true;
+        });
+    }
+
+    listByProject(saProjectId) {
+        if (saProjectId === undefined || saProjectId === null) {
+            throw new TypeError('saProjectId is required');
+        }
+        return this.list({ saProjectId: String(saProjectId) });
+    }
+
+    async importSubmission(
+        input,
+        { expectedSaProjectId, expectedRosterVersion, currentRosterVersion } = {}
+    ) {
+        const raw = typeof input === 'string' ? input : JSON.stringify(input);
+        return this.importJSON(raw, { expectedSaProjectId, expectedRosterVersion, currentRosterVersion });
+    }
+
+    async updateStatus(
+        saProjectId,
+        submissionId,
+        nextStatus,
+        { blockers = null, metadata = null } = {}
+    ) {
+        if (saProjectId === undefined || saProjectId === null) {
+            throw new TypeError('saProjectId is required');
+        }
+        if (submissionId === undefined || submissionId === null) {
+            throw new TypeError('submissionId is required');
+        }
+        const cleanStatus = text(nextStatus, 'status');
+        const key = attendanceSubmissionKey(String(saProjectId), String(submissionId));
+        const existing = await this.db.get(ATTENDANCE_SUBMISSION_INBOX, key);
+        if (!existing) {
+            throw new Error(
+                `Submission ${submissionId} for project ${saProjectId} not found`
+            );
+        }
+        const updated = freeze({
+            ...existing,
+            status: cleanStatus,
+            updatedAt: this.now(),
+            ...(blockers !== null ? { blockers: [...blockers] } : {}),
+            ...(metadata !== null
+                ? { metadata: { ...(existing.metadata || {}), ...metadata } }
+                : {})
+        });
+        await this.db.update(ATTENDANCE_SUBMISSION_INBOX, updated);
+        return updated;
+    }
+
+    async delete(saProjectId, submissionId) {
+        if (saProjectId === undefined || saProjectId === null) {
+            throw new TypeError('saProjectId is required');
+        }
+        if (submissionId === undefined || submissionId === null) {
+            throw new TypeError('submissionId is required');
+        }
+        const key = attendanceSubmissionKey(String(saProjectId), String(submissionId));
+        if (typeof this.db.delete === 'function') {
+            await this.db.delete(ATTENDANCE_SUBMISSION_INBOX, key);
+            return true;
+        }
+        return false;
     }
 }

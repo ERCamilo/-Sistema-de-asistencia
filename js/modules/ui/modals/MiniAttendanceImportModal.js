@@ -19,6 +19,11 @@ import { buildMiniAttendanceReviewViewModel } from '../MiniAttendanceReviewViewM
 import { state, stateManager } from '../../core/AppState.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
+import {
+    consolidateAttendanceSubmissions,
+    groupConsolidatedAttendance,
+    buildConsolidationProposal
+} from '../../features/attendance/AttendanceConsolidation.js';
 
 let nextControlId = 1;
 
@@ -170,7 +175,13 @@ export class MiniAttendanceImportModal {
         aliasStore = null,
         actorUid = null,
         confirmIgnore = null,
-        confirmReactivate = null
+        confirmReactivate = null,
+        inboxStore = null,
+        linkedMinis = [],
+        onRequestSubmissions = null,
+        importMode = 'paste',
+        groupingMode = 'day',
+        saProjectId = null
     } = {}) {
         this.employees = employees;
         this.attendance = attendance;
@@ -187,6 +198,21 @@ export class MiniAttendanceImportModal {
         this.aliasStore = aliasStore;
         this.actorUid = actorUid;
         this.confirmIgnore = confirmIgnore;
+        this.inboxStore = inboxStore;
+        this.linkedMinis = Array.isArray(linkedMinis) ? linkedMinis : [];
+        this.onRequestSubmissions = onRequestSubmissions;
+        this.importMode = importMode;
+        this.groupingMode = groupingMode;
+        this.saProjectId = saProjectId;
+        this.selectedMiniId = this.linkedMinis[0]?.id || this.linkedMinis[0]?.deviceId || '';
+        this.connectedDate = proposedDate || '';
+        this.connectedRangeStart = proposedDate || '';
+        this.connectedRangeEnd = proposedDate || '';
+        this.savedDrafts = [];
+        this.selectedDraftIds = new Set();
+        this.consolidatedResult = null;
+        this.consolidationProposal = null;
+        this.transportStatusMessage = '';
         this.applyStatus = 'idle';
         this.applyResult = null;
         this.applyError = null;
@@ -379,16 +405,92 @@ export class MiniAttendanceImportModal {
             'aria-live': 'polite'
         });
         const content = this.stage === 'paste'
-            ? this.renderPaste()
+            ? (this.importMode === 'connected' ? this.renderConnected() : this.renderPaste())
             : this.stage === 'setup' ? this.renderSetup() : this.renderReview();
         root.append(content);
         this.host.replaceChildren(root);
         this.host.scrollLeft = 0;
     }
 
+    async setImportMode(mode) {
+        this.importMode = mode;
+        if (mode === 'connected' && this.inboxStore) {
+            try {
+                this.savedDrafts = await this.inboxStore.list(
+                    this.saProjectId ? { saProjectId: this.saProjectId } : null
+                );
+            } catch (err) {
+                console.warn('Error loading inbox drafts:', err);
+            }
+        }
+        this.render();
+    }
+
+    setGroupingMode(mode) {
+        this.groupingMode = mode;
+        this.render();
+    }
+
+    toggleDraftSelection(submissionId) {
+        if (this.selectedDraftIds.has(submissionId)) {
+            this.selectedDraftIds.delete(submissionId);
+        } else {
+            this.selectedDraftIds.add(submissionId);
+        }
+        this.render();
+    }
+
+    consolidateSelectedDrafts() {
+        const drafts = this.savedDrafts.filter(d => this.selectedDraftIds.has(d.submissionId));
+        if (!drafts.length) return;
+        this.consolidatedResult = consolidateAttendanceSubmissions(drafts, {
+            expectedSaProjectId: this.saProjectId
+        });
+        this.consolidationProposal = buildConsolidationProposal(this.consolidatedResult, {
+            employees: this.employees,
+            attendance: this.attendance
+        });
+        this.render();
+    }
+
+    handleFetchConnected() {
+        if (typeof this.onRequestSubmissions === 'function') {
+            this.onRequestSubmissions({
+                miniId: this.selectedMiniId,
+                date: this.connectedDate,
+                rangeStart: this.connectedRangeStart,
+                rangeEnd: this.connectedRangeEnd,
+                groupingMode: this.groupingMode
+            });
+            this.transportStatusMessage = 'Solicitud de asistencia enviada al Mini vinculado.';
+        } else {
+            this.transportStatusMessage = 'Transporte P2P en preparación: callback seam disponible (onRequestSubmissions).';
+        }
+        this.render();
+    }
+
+    renderModeTabs() {
+        const tabs = element('div', null, { className: 'mini-import-mode-tabs', dataset: { miniModeTabs: '' } });
+        const connectedBtn = actionButton('Conectados', 'switch-mode-connected');
+        connectedBtn.classList.add('mini-import-mode-btn');
+        if (this.importMode === 'connected') connectedBtn.classList.add('is-active');
+        connectedBtn.dataset.miniMode = 'connected';
+        connectedBtn.addEventListener('click', () => this.setImportMode('connected'));
+
+        const pasteBtn = actionButton('Pegar texto', 'switch-mode-paste');
+        pasteBtn.classList.add('mini-import-mode-btn');
+        if (this.importMode === 'paste') pasteBtn.classList.add('is-active');
+        pasteBtn.dataset.miniMode = 'paste';
+        pasteBtn.addEventListener('click', () => this.setImportMode('paste'));
+
+        tabs.append(connectedBtn, pasteBtn);
+        return tabs;
+    }
+
     renderPaste() {
         const section = element('div', null, { className: 'mini-import-paste' });
         section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado', 'PEGADO', () => this.close()));
+        section.append(this.renderModeTabs());
         const id = `mini-attendance-source-${this.controlId}`;
         const label = element('label', 'Pega el reporte de Mini enviado por WhatsApp', { htmlFor: id });
         const textarea = element('textarea', null, {
@@ -409,6 +511,287 @@ export class MiniAttendanceImportModal {
         footer.append(analyze);
         section.append(label, textarea, footer);
         return section;
+    }
+
+    renderConnected() {
+        const section = element('div', null, { className: 'mini-import-paste mini-import-connected' });
+        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Conectados', 'CONECTADOS', () => this.close()));
+        section.append(this.renderModeTabs());
+
+        // 1. Linked Mini selection
+        const selectionSection = element('div', null, { className: 'mini-import-connected-section', dataset: { miniConnectedSelection: '' } });
+        const selectLabel = element('label', 'Seleccionar Mini vinculado:', { htmlFor: `mini-connected-${this.controlId}` });
+        const selector = element('select', null, {
+            id: `mini-connected-${this.controlId}`,
+            className: 'mini-import-select',
+            dataset: { miniConnectedSelector: '' }
+        });
+
+        if (this.linkedMinis.length > 0) {
+            const defaultOpt = element('option', 'Todos los Minis vinculados', { value: '' });
+            selector.append(defaultOpt);
+            this.linkedMinis.forEach(mini => {
+                const opt = element('option', `${mini.name || 'Mini'} (${mini.deviceId || mini.id})`, {
+                    value: mini.id || mini.deviceId,
+                    selected: (mini.id || mini.deviceId) === this.selectedMiniId
+                });
+                selector.append(opt);
+            });
+        } else {
+            const noMinisOpt = element('option', 'No hay Minis vinculados en esta sesión', { value: '', disabled: true, selected: true });
+            selector.append(noMinisOpt);
+        }
+        selector.addEventListener('change', (e) => {
+            this.selectedMiniId = e.target.value;
+        });
+
+        const hint = element('p', 'Vincula dispositivos Mini desde Ajustes P2P para sincronización directa.', {
+            className: 'mini-import-hint',
+            dataset: { miniConnectedHint: '' }
+        });
+        selectionSection.append(selectLabel, selector, hint);
+
+        // 2. Day / Range controls + Grouping mode
+        const dateSection = element('div', null, { className: 'mini-import-date-controls', dataset: { miniDateControls: '' } });
+        const groupingToggle = element('div', null, { className: 'mini-import-grouping-toggle', dataset: { miniGroupingToggle: '' } });
+
+        const dayGroupingBtn = actionButton('Por día', 'set-grouping-day');
+        if (this.groupingMode === 'day') dayGroupingBtn.classList.add('is-active');
+        dayGroupingBtn.dataset.miniGrouping = 'day';
+        dayGroupingBtn.addEventListener('click', () => this.setGroupingMode('day'));
+
+        const periodGroupingBtn = actionButton('Por período', 'set-grouping-period');
+        if (this.groupingMode === 'period') periodGroupingBtn.classList.add('is-active');
+        periodGroupingBtn.dataset.miniGrouping = 'period';
+        periodGroupingBtn.addEventListener('click', () => this.setGroupingMode('period'));
+
+        groupingToggle.append(dayGroupingBtn, periodGroupingBtn);
+
+        const dateFields = element('div', null, { className: 'mini-import-date-fields' });
+        if (this.groupingMode === 'day') {
+            const dayLabel = element('label', 'Fecha de asistencia:', { htmlFor: `mini-date-${this.controlId}` });
+            const dayInput = element('input', null, {
+                type: 'date',
+                id: `mini-date-${this.controlId}`,
+                value: this.connectedDate,
+                dataset: { miniDateInput: '' }
+            });
+            dayInput.addEventListener('input', (e) => {
+                this.connectedDate = e.target.value;
+            });
+            dateFields.append(dayLabel, dayInput);
+        } else {
+            const startLabel = element('label', 'Desde:', { htmlFor: `mini-start-${this.controlId}` });
+            const startInput = element('input', null, {
+                type: 'date',
+                id: `mini-start-${this.controlId}`,
+                value: this.connectedRangeStart,
+                dataset: { miniRangeStart: '' }
+            });
+            startInput.addEventListener('input', (e) => {
+                this.connectedRangeStart = e.target.value;
+            });
+
+            const endLabel = element('label', 'Hasta:', { htmlFor: `mini-end-${this.controlId}` });
+            const endInput = element('input', null, {
+                type: 'date',
+                id: `mini-end-${this.controlId}`,
+                value: this.connectedRangeEnd,
+                dataset: { miniRangeEnd: '' }
+            });
+            endInput.addEventListener('input', (e) => {
+                this.connectedRangeEnd = e.target.value;
+            });
+
+            dateFields.append(startLabel, startInput, endLabel, endInput);
+        }
+
+        const fetchBtn = actionButton('Solicitar asistencia al Mini', 'fetch-connected');
+        fetchBtn.classList.add('mini-import-action-primary');
+        fetchBtn.addEventListener('click', () => this.handleFetchConnected());
+
+        dateSection.append(groupingToggle, dateFields, fetchBtn);
+
+        if (this.transportStatusMessage) {
+            const statusMsg = element('div', this.transportStatusMessage, {
+                className: 'mini-import-transport-notice',
+                dataset: { miniTransportSeam: '' }
+            });
+            dateSection.append(statusMsg);
+        }
+
+        // 3. Saved Draft List
+        const draftsSection = element('div', null, { className: 'mini-import-saved-drafts', dataset: { miniSavedDrafts: '' } });
+        const draftsHeader = element('div', null, { className: 'mini-import-drafts-header' });
+        draftsHeader.append(element('h3', 'Borradores guardados en bandeja'));
+
+        const refreshBtn = actionButton('Actualizar bandeja', 'refresh-drafts');
+        refreshBtn.addEventListener('click', async () => {
+            if (this.inboxStore) {
+                this.savedDrafts = await this.inboxStore.list(
+                    this.saProjectId ? { saProjectId: this.saProjectId } : null
+                );
+                this.render();
+            }
+        });
+        draftsHeader.append(refreshBtn);
+        draftsSection.append(draftsHeader);
+
+        if (!this.savedDrafts.length) {
+            draftsSection.append(
+                element('p', 'No hay borradores guardados en la bandeja de entrada.', {
+                    className: 'mini-import-empty-drafts',
+                    dataset: { miniEmptyDrafts: '' }
+                })
+            );
+        } else {
+            const listEl = element('div', null, { className: 'mini-import-draft-list', dataset: { miniDraftList: '' } });
+            this.savedDrafts.forEach(draft => {
+                const itemEl = element('div', null, {
+                    className: 'mini-import-draft-card',
+                    dataset: { miniDraftItem: draft.submissionId }
+                });
+                const isChecked = this.selectedDraftIds.has(draft.submissionId);
+                const checkbox = element('input', null, {
+                    type: 'checkbox',
+                    checked: isChecked,
+                    dataset: { miniDraftCheckbox: draft.submissionId }
+                });
+                checkbox.addEventListener('change', () => this.toggleDraftSelection(draft.submissionId));
+
+                const info = element('div', null, { className: 'mini-import-draft-info' });
+                info.append(
+                    element('div', `Fecha: ${draft.workDate} · Mini: ${draft.sourceSnapshot?.scope?.sourceId || draft.deviceId || 'desconocido'}`, { className: 'mini-import-draft-title' }),
+                    element('div', `Filas: ${draft.sourceSnapshot?.rows?.length || 0} · Estado: ${draft.status}`, { className: 'mini-import-draft-meta' })
+                );
+                itemEl.append(checkbox, info);
+                listEl.append(itemEl);
+            });
+            draftsSection.append(listEl);
+
+            const consolidateBtn = actionButton(
+                `Consolidar borradores seleccionados (${this.selectedDraftIds.size})`,
+                'consolidate-drafts',
+                this.selectedDraftIds.size === 0
+            );
+            consolidateBtn.classList.add('mini-import-action-primary');
+            consolidateBtn.addEventListener('click', () => this.consolidateSelectedDrafts());
+            draftsSection.append(consolidateBtn);
+        }
+
+        // 4. Consolidation Skeleton & Proposal Seam
+        if (this.consolidatedResult) {
+            const skeleton = this.renderConsolidationSkeleton();
+            section.append(selectionSection, dateSection, draftsSection, skeleton);
+        } else {
+            section.append(selectionSection, dateSection, draftsSection);
+        }
+
+        return section;
+    }
+
+    renderConsolidationSkeleton() {
+        const container = element('div', null, {
+            className: 'mini-import-consolidation-skeleton',
+            dataset: { miniConsolidationSkeleton: '' }
+        });
+
+        const summary = this.consolidatedResult.summary;
+        const badges = element('div', null, { className: 'mini-consolidation-summary-badges' });
+        badges.append(
+            element('span', `Total: ${summary.totalItems}`, { className: 'mini-badge mini-badge-total' }),
+            element('span', `Resueltos: ${summary.resolvedCount}`, { className: 'mini-badge mini-badge-resolved' }),
+            element('span', `Conflictos de horas: ${summary.hoursConflictCount}`, { className: 'mini-badge mini-badge-conflict' }),
+            element('span', `Identidades no resueltas: ${summary.unresolvedIdentityCount}`, { className: 'mini-badge mini-badge-unresolved' })
+        );
+
+        // Grouped view
+        const grouped = groupConsolidatedAttendance(this.consolidatedResult, this.groupingMode);
+        const groupsContainer = element('div', null, { className: 'mini-consolidation-groups' });
+
+        if (grouped.mode === 'day') {
+            grouped.groups.forEach(group => {
+                const groupEl = element('div', null, { className: 'mini-consolidation-group-card' });
+                groupEl.append(
+                    element('h4', `Fecha: ${group.workDate} (${group.items.length} trabajadores)`)
+                );
+                const itemsList = element('div', null, { className: 'mini-consolidation-items-list' });
+                group.items.forEach(item => {
+                    const rowEl = element('div', null, {
+                        className: `mini-consolidation-row is-${item.status}`,
+                        dataset: { miniConsolidationItem: item.id }
+                    });
+                    const statusLabel = item.status === 'resolved'
+                        ? 'Resuelto'
+                        : (item.status === 'conflict' ? 'Conflicto horas' : 'Identidad no resuelta');
+                    rowEl.append(
+                        element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
+                        element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
+                        element('span', item.normalHours !== null ? `${item.normalHours}h` : 'Horas en conflicto', { className: 'mini-row-hours' }),
+                        element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
+                    );
+                    itemsList.append(rowEl);
+                });
+                groupEl.append(itemsList);
+                groupsContainer.append(groupEl);
+            });
+        } else {
+            // mode === 'period'
+            const periodHeader = element('h4', `Período: ${grouped.periodStart} al ${grouped.periodEnd}`);
+            groupsContainer.append(periodHeader);
+
+            const itemsList = element('div', null, { className: 'mini-consolidation-items-list' });
+            grouped.employeeGroups.forEach(emp => {
+                const rowEl = element('div', null, {
+                    className: `mini-consolidation-row is-${emp.hasConflicts ? 'conflict' : 'resolved'}`,
+                    dataset: { miniConsolidationItem: `period:${emp.saEmployeeId}` }
+                });
+                rowEl.append(
+                    element('span', emp.displayName, { className: 'mini-row-name' }),
+                    element('span', `#${emp.displayNumber}`, { className: 'mini-row-number' }),
+                    element('span', `${emp.totalNormalHours}h norm / ${emp.totalOvertimeHours}h extra`, { className: 'mini-row-hours' }),
+                    element('span', emp.hasConflicts ? 'Conflicto' : 'Resuelto', { className: `mini-row-status is-${emp.hasConflicts ? 'conflict' : 'resolved'}` })
+                );
+                itemsList.append(rowEl);
+            });
+            if (grouped.unresolvedItems.length > 0) {
+                const unresHeader = element('h5', `Identidades no resueltas (${grouped.unresolvedItems.length})`);
+                groupsContainer.append(unresHeader);
+                grouped.unresolvedItems.forEach(item => {
+                    const rowEl = element('div', null, {
+                        className: 'mini-consolidation-row is-identity_conflict',
+                        dataset: { miniConsolidationItem: item.id }
+                    });
+                    rowEl.append(
+                        element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
+                        element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
+                        element('span', `${item.normalHours}h`, { className: 'mini-row-hours' }),
+                        element('span', 'Identidad no resuelta', { className: 'mini-row-status is-identity_conflict' })
+                    );
+                    itemsList.append(rowEl);
+                });
+            }
+            groupsContainer.append(itemsList);
+        }
+
+        // Proposal Seam banner
+        const proposalNotice = element('div', null, {
+            className: 'mini-proposal-seam-notice',
+            dataset: { miniProposalSeam: '' }
+        });
+        proposalNotice.append(
+            element('strong', 'Seam de propuesta para conciliación:'),
+            element('p', 'La propuesta está consolidada y lista para el conciliador oficial. No se ha escrito en la asistencia oficial de SA.')
+        );
+        if (this.consolidationProposal) {
+            const pSummary = this.consolidationProposal.summary;
+            proposalNotice.append(
+                element('div', `Propuestas generadas: ${pSummary.total} · Listas: ${pSummary.readyToApply} · Bloqueadas: ${pSummary.blockedCount}`)
+            );
+        }
+
+        container.append(badges, groupsContainer, proposalNotice);
+        return container;
     }
 
     renderSetup() {

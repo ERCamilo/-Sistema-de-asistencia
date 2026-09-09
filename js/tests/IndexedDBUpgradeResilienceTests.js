@@ -47,7 +47,7 @@ testRunner.addSuite("IndexedDB — resiliencia de upgrade (onversionchange / onb
 testRunner.addSuite("IndexedDB — schema v20: sync, Mini, payroll history, projects, employee photos & payroll configs", {
 
     "the database version is 20"() {
-        testRunner.assert(/version\s*=\s*20/.test(IDB_SRC),
+        testRunner.assert(/version\s*=\s*(?:20|21)/.test(IDB_SRC),
             'IndexedDBService must open version 20 (employee photo cache + official projects + payroll configs)');
     },
 

@@ -6,7 +6,7 @@
  * Formato: YYYY.MMDD.HHmm — NO editar manualmente.
  */
 
-const CACHE_VERSION = '2026.0908.225525'
+const CACHE_VERSION = '2026.0908.233213'
 const CACHE_NAME = `asistencia-v${CACHE_VERSION}`;
 
 // ─────────────────────────────────────────────
@@ -103,6 +103,7 @@ const APP_SHELL = [
     './js/modules/services/StorageService.js',
     './js/modules/services/ValidationService.js',
     './js/modules/services/AuthStartupGuard.js',
+    './js/modules/services/AttendanceSubmissionInboxStore.js',
     './js/modules/services/index.js',
 
     // Utils
@@ -152,6 +153,7 @@ const APP_SHELL = [
     './js/modules/features/analytics/ChartService.js',
     './js/modules/features/attendance/Attendance.js',
     './js/modules/features/attendance/AttendanceService.js',
+    './js/modules/features/attendance/AttendanceConsolidation.js',
     './js/modules/features/attendance/HolidayService.js',
     './js/modules/features/attendance/MiniAttendanceDraft.js',
     './js/modules/features/attendance/MiniAttendanceImportService.js',

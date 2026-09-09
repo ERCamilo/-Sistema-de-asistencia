@@ -104,7 +104,7 @@ describe('IndexedDBService upgrade v19 → v20 (real)', () => {
         const cB1 = closure(B, 150);
         await openV19WithClosures(dbName, [cA1, cA2, cB1]);
 
-        const svc = new IndexedDBService(dbName);
+        const svc = new IndexedDBService(dbName, 20);
         await svc.init();
         expect(svc.db.version).toBe(20);
         const store = svc.db.transaction('payrollClosures', 'readonly').objectStore('payrollClosures');
@@ -151,7 +151,7 @@ describe('IndexedDBService upgrade v19 → v20 (real)', () => {
         };
         await openV17WithLegacyData(dbName, { employee, settings, project, payrollClosure });
 
-        const svc = new IndexedDBService(dbName);
+        const svc = new IndexedDBService(dbName, 20);
         await svc.init();
 
         expect(svc.db.version).toBe(20);
@@ -173,7 +173,7 @@ describe('IndexedDBService upgrade v19 → v20 (real)', () => {
 
     test('fresh v20 install creates both composite indexes', async () => {
         const dbName = `test-fresh-v20-${Date.now()}-${Math.random()}`;
-        const svc = new IndexedDBService(dbName);
+        const svc = new IndexedDBService(dbName, 20);
         await svc.init();
         expect(svc.db.version).toBe(20);
         const store = svc.db.transaction('payrollClosures', 'readonly').objectStore('payrollClosures');

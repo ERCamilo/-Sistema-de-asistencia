@@ -199,7 +199,7 @@ describe('PayrollClosureStamper B2.3', () => {
         expect(store.indexNames.contains('projectId')).toBe(true);
         expect(store.indexNames.contains('projectClosedAtId')).toBe(true);
         expect(store.indexNames.contains('projectStatusClosedAtId')).toBe(true);
-        expect(svc.db.version).toBe(20);
+        expect(svc.db.version).toBe(21);
         svc.db.close();
     });
 

@@ -26,7 +26,7 @@ export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 20) {
+    constructor(dbName = 'attendance-app-db', version = 21) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -311,6 +311,16 @@ export class IndexedDBService {
                 // Local-only en A2 (sin outbox ni publicación cloud).
                 if (!db.objectStoreNames.contains('projectPayrollConfigs')) {
                     db.createObjectStore('projectPayrollConfigs', { keyPath: 'projectId' });
+                }
+
+                // Store: inbox para attendance-submission/v1 (v21, F3.4) —
+                // recepciones pendientes de Mini hacia SA, transporte-neutral.
+                if (!db.objectStoreNames.contains('attendanceSubmissionInbox')) {
+                    const inboxStore = db.createObjectStore('attendanceSubmissionInbox', { keyPath: 'key' });
+                    inboxStore.createIndex('status', 'status', { unique: false });
+                    inboxStore.createIndex('saProjectId', 'saProjectId', { unique: false });
+                    inboxStore.createIndex('workDate', 'workDate', { unique: false });
+                    inboxStore.createIndex('receivedAt', 'receivedAt', { unique: false });
                 }
             };
         });
