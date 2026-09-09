@@ -223,23 +223,43 @@ Etiqueta superior que sitúa al usuario:
 </div>
 ```
 
-### 5.4 Tarjetas de Selección Táctil (Radio Cards)
+### 5.4 Etiquetas de Estado y Resolución
+Las etiquetas de estado deben comunicar el significado de un vistazo y conservar contraste suficiente sobre fondos oscuros.
+
+* **Regla visual obligatoria**: no usar el patrón de etiqueta con fondo transparente + borde semántico + texto del mismo color. Para estados como `Nuevo`, `Conflicto`, `Advertencia`, `Error` o `Incorporado`, usar un **relleno sólido del color semántico** y texto/icono claro de alto contraste.
+* **Colores**: `--good` para éxito/listo, `--warn` para conflicto/atención, `--bad` para error/bloqueo y `--accent` para novedad/estado informativo. El borde, si existe, debe integrarse con el relleno y no ser el recurso visual principal.
+* **Texto sobre color**: preferir blanco o un token `on-*` con contraste equivalente. Sobre `--accent`, usar `--on-accent`; sobre `--good`, `--warn` o `--bad`, usar un tono claro que cumpla contraste AA.
+* **Forma**: altura aproximada `24px–28px`, `padding: 4px 9px`, `border-radius: 999px`, `font-size: 11px–12px`, `font-weight: 700`.
+* **No depender sólo del color**: conflictos y advertencias deben conservar texto o iconografía que explique el estado.
+* **Estado resuelto/completado**: en filas o listas repetitivas, no mostrar una píldora de texto `Resuelto`. Usar un **SVG checkmark** claro y accesible (`aria-label="Resuelto"` o texto visualmente oculto). Puede ir dentro de un círculo sólido `--good` si se necesita mayor presencia visual.
+* **Estado nuevo**: usar una etiqueta sólida `Nuevo` con `--accent` y texto `--on-accent`.
+* **Estado incorporado**: el registro completo puede verse atenuado (`opacity` aproximada `.55–.7`) para indicar que ya fue procesado; si se muestra una etiqueta adicional, debe seguir la misma regla de relleno sólido.
+* **Consistencia**: el mismo estado debe conservar color, icono y redacción en toda la aplicación; no alternar entre borde-only, chip sólido y texto plano para el mismo significado.
+* **Bandejas con ciclo de vida**: cuando una importación use una bandeja persistente, distinguir al menos `Nuevo` (recibido y aún no revisado), `No incorporado` (ya revisado/consolidado pero no aplicado) e `Incorporado` (flujo completado y confirmado). El estado debe persistirse; no debe depender sólo de una clase CSS temporal.
+* **Nuevos**: usar chip sólido de acento y mantenerlo visible hasta que el borrador entre realmente a revisión/consolidación.
+* **Incorporados**: atenuar la tarjeta completa (`opacity` aproximada `.55–.7`) y desactivar acciones que volverían a aplicar el mismo borrador por accidente. Debe seguir siendo legible para consulta/auditoría.
+* **Filtros de bandeja**: ofrecer filtros por `Todos`, `Nuevos`, `No incorporados` e `Incorporados`, más orden por fecha de trabajo y fecha de actualización/recepción. En listas temporales se prioriza lo más reciente.
+* **Finalización explícita**: aplicar datos y completar una importación son acciones distintas. Después de aplicar todos los días, mostrar un botón `Completar importación`; sólo esta acción cambia los borradores a `Incorporado`.
+* **Filas resueltas**: en listas de empleados repetitivas, sustituir la píldora textual `Resuelto` por un SVG checkmark accesible. El significado accesible se conserva con `aria-label` o texto oculto.
+* **Separación entre personas**: cuando varios empleados pertenezcan al mismo día, cada empleado debe sentirse como una unidad visual distinta mediante espacio, fondo, borde/radio o divisor claro; no depender únicamente de una línea fina continua que haga parecer todo una sola tabla.
+
+### 5.5 Tarjetas de Selección Táctil (Radio Cards)
 **Nunca usar radio buttons diminutos del navegador.**
 * Tarjeta completa clickeable con `padding: 16px 18px`, `border-radius: 14px`, transición de fondo y borde.
 * Caja de icono cuadrada: `40x40px`, radio `11px`, fondo `var(--panel-2)`, borde `1px solid var(--border)`.
 * **Estado inactivo**: Fondo transparente, borde `var(--border)`.
 * **Estado activo / seleccionado**: Fondo `var(--panel-2)`, borde `1px solid var(--accent)`. La caja de icono se llena de color cian (`var(--accent)`) con icono en `--on-accent`.
 
-### 5.5 Steppers Numéricos y Presets
+### 5.6 Steppers Numéricos y Presets
 Para valores como horas o cantidades:
 * Botones redondos/cuadrados de `+` y `−` de `44x44px` con borde `var(--border)`.
 * Cifra central grande en `IBM Plex Mono` de `38px` bold con leyenda pequeña inferior (`por día` / `horas`).
 * Botones de preset rápido al lado (ej. `8h`, `9h`, `10h`) con radio `9px` y altura `36px`.
 
-### 5.6 Tarjetas de Previsualización en Tiempo Real (Live Mirroring)
+### 5.7 Tarjetas de Previsualización en Tiempo Real (Live Mirroring)
 Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una tarjeta con fondo `var(--panel-2)`, borde izquierdo con acento de color (`border-left: 3px solid var(--accent)`), que refleja instantáneamente el valor tecleado sin demora.
 
-### 5.7 Footer Canónico de Navegación
+### 5.8 Footer Canónico de Navegación
 * **Padding**: `16px 26px`, borde superior `1px solid var(--border)`.
 * **Botón Atrás**: Altura `40px` a `42px`, transparente, texto `var(--text-dim)` con flecha SVG izquierda. Si está deshabilitado en el paso 1: `opacity: .35; pointer-events: none;`.
 * **Centro**: Paginación con puntos (`dots`) o hint contextual en `--text-faint`.
@@ -289,6 +309,6 @@ Siguiendo esta directriz, el flujo de Mini se rediseña así:
    * Botón secundario en la tarjeta: `Inspeccionar listado completo en tabla →` (abre la pantalla 3b detallada).
    * Botón primario cian del footer: `Resolver M pendientes →` (o `Ir al resumen final →`).
 4. **Paso 3b: Pantalla de Tabla Detallada y Resolución (Pantalla completa independiente)**:
-   * Vista en tabla con estética limpia, chips de estado de 26px (`✓` verde, `✕` rojo, `!` naranja), selector inline de horas y botón `Volver a la vista general`.
+   * Vista en tabla con estética limpia, selector inline de horas y separación visual clara entre empleados. Los estados de conflicto usan etiquetas **sólidas** con relleno semántico y texto claro; los estados resueltos usan un **SVG checkmark** en lugar de una etiqueta textual `Resuelto`. Botón `Volver a la vista general`.
 5. **Paso 4: Resumen Final**:
    * Estilo `readySection`: Gran check verde circular animado con `popIn`, resumen de filas aprobadas e ignoradas en caja estilizada, y botón definitivo `Aplicar asistencia a SA`.

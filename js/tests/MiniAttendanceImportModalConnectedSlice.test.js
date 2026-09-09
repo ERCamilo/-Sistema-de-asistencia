@@ -892,6 +892,102 @@ describe('MiniAttendanceImportModal — connected wizard and proxy-safe reconcil
         expect(host.querySelector('[data-mini-action="back-connected-inbox"]')).not.toBeNull();
     });
 
+
+    test('draft inbox filters new/non-incorporated/incorporated and sorts by work date or update date', async () => {
+        const db = new MemoryDB();
+        let now = 1000;
+        const inboxStore = new AttendanceSubmissionInboxStore({ db, now: () => now });
+        const thirdId = '123e4567-e89b-42d3-a456-426614174003';
+        await inboxStore.importSubmission(sampleSubmission(SUB_UUID_1, '2026-09-06'), { expectedSaProjectId: SA_PROJECT });
+        now = 2000;
+        await inboxStore.importSubmission(sampleSubmission(SUB_UUID_2, '2026-09-09'), { expectedSaProjectId: SA_PROJECT });
+        now = 3000;
+        await inboxStore.updateStatus(SA_PROJECT, SUB_UUID_2, 'reviewed');
+        now = 4000;
+        await inboxStore.importSubmission(sampleSubmission(thirdId, '2026-09-08'), { expectedSaProjectId: SA_PROJECT });
+        now = 5000;
+        await inboxStore.updateStatus(SA_PROJECT, thirdId, 'incorporated', { metadata: { incorporatedAt: now } });
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            inboxStore,
+            importMode: 'connected'
+        });
+        modal.mount(host);
+        await modal.setImportMode('connected');
+        await modal.openConnectedInbox();
+
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"] [data-mini-draft-new]`)?.textContent).toBe('Nuevo');
+        const incorporatedCard = host.querySelector(`[data-mini-draft-item="${thirdId}"]`);
+        expect(incorporatedCard.classList.contains('is-incorporated')).toBe(true);
+        expect(host.querySelector(`[data-mini-draft-checkbox="${thirdId}"]`).disabled).toBe(true);
+
+        const ids = () => [...host.querySelectorAll('[data-mini-draft-item]')].map(node => node.dataset.miniDraftItem);
+        expect(ids()).toEqual([SUB_UUID_2, thirdId, SUB_UUID_1]);
+
+        const statusFilter = host.querySelector('[data-mini-draft-status-filter]');
+        statusFilter.value = 'new';
+        statusFilter.dispatchEvent(new Event('change'));
+        expect(ids()).toEqual([SUB_UUID_1]);
+
+        host.querySelector('[data-mini-draft-status-filter]').value = 'not-incorporated';
+        host.querySelector('[data-mini-draft-status-filter]').dispatchEvent(new Event('change'));
+        expect(ids()).toEqual([SUB_UUID_2, SUB_UUID_1]);
+
+        host.querySelector('[data-mini-draft-status-filter]').value = 'all';
+        host.querySelector('[data-mini-draft-status-filter]').dispatchEvent(new Event('change'));
+        const sort = host.querySelector('[data-mini-draft-sort]');
+        sort.value = 'updatedAt';
+        sort.dispatchEvent(new Event('change'));
+        expect(ids()).toEqual([thirdId, SUB_UUID_2, SUB_UUID_1]);
+    });
+
+
+    test('completion waits for pending review persistence so incorporated cannot be overwritten by reviewed', async () => {
+        let releaseReview;
+        const reviewStatusPromise = new Promise(resolve => { releaseReview = resolve; });
+        const updateStatus = jest.fn(async (_projectId, submissionId, status) => ({
+            ...sampleSubmission(submissionId),
+            submissionId,
+            saProjectId: SA_PROJECT,
+            status,
+            workDate: '2026-09-06'
+        }));
+        const inboxStore = {
+            updateStatus,
+            list: jest.fn(async () => [{
+                submissionId: SUB_UUID_1,
+                saProjectId: SA_PROJECT,
+                status: 'incorporated',
+                workDate: '2026-09-06',
+                sourceSnapshot: sampleSubmission()
+            }])
+        };
+        const modal = new MiniAttendanceImportModal({ saProjectId: SA_PROJECT, inboxStore, importMode: 'connected' });
+        modal.mount(host);
+        modal.savedDrafts = [{
+            submissionId: SUB_UUID_1,
+            saProjectId: SA_PROJECT,
+            status: 'reviewed',
+            workDate: '2026-09-06',
+            sourceSnapshot: sampleSubmission()
+        }];
+        modal.selectedDraftIds.add(SUB_UUID_1);
+        modal.multiDayResolver = {
+            getMultiDaySummary: () => ({ totalDays: 1, appliedDaysCount: 1, workDates: ['2026-09-06'] })
+        };
+        modal.reviewStatusPromise = reviewStatusPromise;
+
+        const completion = modal.completeConnectedImport();
+        await Promise.resolve();
+        expect(updateStatus).not.toHaveBeenCalled();
+        releaseReview();
+        await completion;
+        expect(updateStatus).toHaveBeenCalledTimes(1);
+        expect(updateStatus.mock.calls[0][2]).toBe('incorporated');
+        expect(modal.connectedView).toBe('inbox');
+    });
+
     test('connected reconciliation unwraps AppState-like proxies before reading frozen positionHours', async () => {
         const db = new MemoryDB();
         const inboxStore = new AttendanceSubmissionInboxStore({ db });

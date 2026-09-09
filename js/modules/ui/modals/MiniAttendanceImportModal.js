@@ -93,6 +93,28 @@ function chevronSvg() {
     return svg;
 }
 
+function resolvedCheckSvg(label = 'Resuelto') {
+    const wrap = element('span', null, {
+        className: 'mini-row-resolved-icon',
+        role: 'img',
+        title: label,
+        'aria-label': label
+    });
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M20 6 9 17l-5-5');
+    svg.appendChild(path);
+    wrap.appendChild(svg);
+    return wrap;
+}
+
+function isIncorporatedDraft(draft) {
+    return draft?.status === 'incorporated' || draft?.status === 'imported';
+}
+
 function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini', subtitle = '', chipText = '', onClose = null) {
     const bar = element('div', null, { className: 'mini-import-topbar' });
     const brand = element('div', null, { className: 'mini-import-topbar-brand' });
@@ -223,6 +245,10 @@ export class MiniAttendanceImportModal {
         this.connectedView = 'request';
         this.savedDrafts = [];
         this.selectedDraftIds = new Set();
+        this.draftSortMode = 'workDate';
+        this.draftStatusFilter = 'all';
+        this.completionStatusMessage = '';
+        this.reviewStatusPromise = Promise.resolve();
         this.consolidatedResult = null;
         this.consolidationProposal = null;
         this.multiDayResolver = null;
@@ -642,7 +668,36 @@ export class MiniAttendanceImportModal {
         this.render();
     }
 
+    setDraftSortMode(mode) {
+        this.draftSortMode = mode === 'updatedAt' ? 'updatedAt' : 'workDate';
+        this.render();
+    }
+
+    setDraftStatusFilter(filter) {
+        const allowed = new Set(['all', 'new', 'not-incorporated', 'incorporated']);
+        this.draftStatusFilter = allowed.has(filter) ? filter : 'all';
+        this.render();
+    }
+
+    getVisibleDrafts() {
+        const filtered = this.savedDrafts.filter(draft => {
+            if (this.draftStatusFilter === 'new') return draft.status === 'pending';
+            if (this.draftStatusFilter === 'not-incorporated') return !isIncorporatedDraft(draft);
+            if (this.draftStatusFilter === 'incorporated') return isIncorporatedDraft(draft);
+            return true;
+        });
+        const updatedTime = draft => Number(draft?.updatedAt || draft?.receivedAt || 0);
+        return [...filtered].sort((a, b) => {
+            if (this.draftSortMode === 'updatedAt') {
+                return updatedTime(b) - updatedTime(a) || String(b.workDate || '').localeCompare(String(a.workDate || ''));
+            }
+            return String(b.workDate || '').localeCompare(String(a.workDate || '')) || updatedTime(b) - updatedTime(a);
+        });
+    }
+
     toggleDraftSelection(submissionId) {
+        const draft = this.savedDrafts.find(item => item.submissionId === submissionId);
+        if (isIncorporatedDraft(draft)) return;
         if (this.selectedDraftIds.has(submissionId)) {
             this.selectedDraftIds.delete(submissionId);
         } else {
@@ -651,8 +706,63 @@ export class MiniAttendanceImportModal {
         this.render();
     }
 
+    async markDraftsReviewed(drafts) {
+        if (!this.inboxStore) return;
+        const pending = drafts.filter(draft => draft.status === 'pending');
+        if (!pending.length) return;
+        const reviewedAt = Date.now();
+        this.savedDrafts = this.savedDrafts.map(draft => pending.some(item => item.submissionId === draft.submissionId)
+            ? { ...draft, status: 'reviewed', updatedAt: reviewedAt, metadata: { ...(draft.metadata || {}), reviewedAt } }
+            : draft);
+        try {
+            const persisted = await Promise.all(pending.map(draft => this.inboxStore.updateStatus(
+                draft.saProjectId,
+                draft.submissionId,
+                'reviewed',
+                { metadata: { reviewedAt } }
+            )));
+            const byId = new Map(persisted.map(record => [record.submissionId, record]));
+            this.savedDrafts = this.savedDrafts.map(draft => byId.get(draft.submissionId) || draft);
+        } catch (err) {
+            console.warn('No se pudo marcar el borrador como revisado:', err);
+        }
+    }
+
+    async completeConnectedImport() {
+        if (!this.multiDayResolver || !this.inboxStore || !this.selectedDraftIds.size) return;
+        const summary = this.multiDayResolver.getMultiDaySummary();
+        if (!summary.totalDays || summary.appliedDaysCount !== summary.totalDays) return;
+        const drafts = this.savedDrafts.filter(draft => this.selectedDraftIds.has(draft.submissionId));
+        if (!drafts.length) return;
+        const incorporatedAt = Date.now();
+        try {
+            await this.reviewStatusPromise;
+            await Promise.all(drafts.map(draft => this.inboxStore.updateStatus(
+                draft.saProjectId,
+                draft.submissionId,
+                'incorporated',
+                { metadata: { incorporatedAt, incorporatedWorkDates: [...summary.workDates] } }
+            )));
+            this.savedDrafts = await this.inboxStore.list(
+                this.saProjectId ? { saProjectId: this.saProjectId } : null
+            );
+            const completedCount = drafts.length;
+            this.selectedDraftIds.clear();
+            this.consolidatedResult = null;
+            this.consolidationProposal = null;
+            this.multiDayResolver = null;
+            this.connectedView = 'inbox';
+            this.completionStatusMessage = `Importación completada. ${completedCount} borrador${completedCount === 1 ? '' : 'es'} marcado${completedCount === 1 ? '' : 's'} como incorporado${completedCount === 1 ? '' : 's'}.`;
+            this.render();
+        } catch (err) {
+            console.error('Error completing connected import:', err);
+            this.completionStatusMessage = 'No se pudo completar la importación. Los borradores no fueron marcados como incorporados.';
+            this.render();
+        }
+    }
+
     consolidateSelectedDrafts() {
-        const drafts = this.savedDrafts.filter(d => this.selectedDraftIds.has(d.submissionId));
+        const drafts = this.savedDrafts.filter(d => this.selectedDraftIds.has(d.submissionId) && !isIncorporatedDraft(d));
         if (!drafts.length) return;
 
         // Never feed AppState's recursive proxies into the reconciliation engine.
@@ -683,6 +793,7 @@ export class MiniAttendanceImportModal {
             applyPlan: this.applyPlan
         });
         this.connectedView = 'consolidation';
+        this.reviewStatusPromise = this.markDraftsReviewed(drafts);
         this.render();
     }
 
@@ -1196,6 +1307,56 @@ export class MiniAttendanceImportModal {
         draftsHeader.append(refreshBtn);
         draftsSection.append(draftsHeader);
 
+        const counts = {
+            all: this.savedDrafts.length,
+            new: this.savedDrafts.filter(draft => draft.status === 'pending').length,
+            notIncorporated: this.savedDrafts.filter(draft => !isIncorporatedDraft(draft)).length,
+            incorporated: this.savedDrafts.filter(draft => isIncorporatedDraft(draft)).length
+        };
+        const filterBar = element('div', null, { className: 'mini-import-draft-filters', dataset: { miniDraftFilters: '' } });
+        const statusLabelWrap = element('label', null, { className: 'mini-import-draft-filter' });
+        statusLabelWrap.append(element('span', 'Estado'));
+        const statusSelect = element('select', null, {
+            className: 'mini-import-select',
+            value: this.draftStatusFilter,
+            dataset: { miniDraftStatusFilter: '' },
+            'aria-label': 'Filtrar borradores por estado'
+        });
+        [
+            ['all', `Todos (${counts.all})`],
+            ['new', `Nuevos (${counts.new})`],
+            ['not-incorporated', `No incorporados (${counts.notIncorporated})`],
+            ['incorporated', `Incorporados (${counts.incorporated})`]
+        ].forEach(([value, label]) => statusSelect.append(element('option', label, { value })));
+        statusSelect.value = this.draftStatusFilter;
+        statusSelect.addEventListener('change', () => this.setDraftStatusFilter(statusSelect.value));
+        statusLabelWrap.append(statusSelect);
+
+        const sortLabelWrap = element('label', null, { className: 'mini-import-draft-filter' });
+        sortLabelWrap.append(element('span', 'Ordenar por'));
+        const sortSelect = element('select', null, {
+            className: 'mini-import-select',
+            value: this.draftSortMode,
+            dataset: { miniDraftSort: '' },
+            'aria-label': 'Ordenar borradores'
+        });
+        sortSelect.append(
+            element('option', 'Fecha del día', { value: 'workDate' }),
+            element('option', 'Fecha de actualización', { value: 'updatedAt' })
+        );
+        sortSelect.value = this.draftSortMode;
+        sortSelect.addEventListener('change', () => this.setDraftSortMode(sortSelect.value));
+        sortLabelWrap.append(sortSelect);
+        filterBar.append(statusLabelWrap, sortLabelWrap);
+        draftsSection.append(filterBar);
+
+        if (this.completionStatusMessage) {
+            draftsSection.append(element('div', this.completionStatusMessage, {
+                className: 'mini-import-completion-message',
+                role: 'status'
+            }));
+        }
+
         if (!this.savedDrafts.length) {
             draftsSection.append(
                 element('p', 'No hay borradores guardados en la bandeja de entrada.', {
@@ -1205,15 +1366,18 @@ export class MiniAttendanceImportModal {
             );
         } else {
             const listEl = element('div', null, { className: 'mini-import-draft-list', dataset: { miniDraftList: '' } });
-            this.savedDrafts.forEach(draft => {
+            const visibleDrafts = this.getVisibleDrafts();
+            visibleDrafts.forEach(draft => {
+                const incorporated = isIncorporatedDraft(draft);
                 const itemEl = element('div', null, {
-                    className: 'mini-import-draft-card',
-                    dataset: { miniDraftItem: draft.submissionId }
+                    className: `mini-import-draft-card${incorporated ? ' is-incorporated' : ''}`,
+                    dataset: { miniDraftItem: draft.submissionId, miniDraftState: incorporated ? 'incorporated' : draft.status || 'pending' }
                 });
-                const isChecked = this.selectedDraftIds.has(draft.submissionId);
+                const isChecked = !incorporated && this.selectedDraftIds.has(draft.submissionId);
                 const checkbox = element('input', null, {
                     type: 'checkbox',
                     checked: isChecked,
+                    disabled: incorporated,
                     dataset: { miniDraftCheckbox: draft.submissionId }
                 });
                 checkbox.addEventListener('change', () => this.toggleDraftSelection(draft.submissionId));
@@ -1225,10 +1389,12 @@ export class MiniAttendanceImportModal {
                     draft.sourceSnapshot?.deviceId ||
                     'Mini desconocido';
                 const statusLabel = draft.status === 'pending'
-                    ? 'Pendiente'
-                    : draft.status === 'imported'
-                        ? 'Importado'
-                        : draft.status || 'Pendiente';
+                    ? 'Nuevo'
+                    : draft.status === 'reviewed'
+                        ? 'No incorporado'
+                        : isIncorporatedDraft(draft)
+                            ? 'Incorporado'
+                            : draft.status || 'No incorporado';
                 const headline = element('div', null, { className: 'mini-import-draft-title' });
                 headline.append(
                     element('strong', displayDate(draft.workDate) || draft.workDate),
@@ -1237,13 +1403,23 @@ export class MiniAttendanceImportModal {
                 const meta = element('div', null, { className: 'mini-import-draft-meta' });
                 meta.append(
                     element('span', `${draft.sourceSnapshot?.rows?.length || 0} fila${draft.sourceSnapshot?.rows?.length === 1 ? '' : 's'}`),
-                    element('span', statusLabel, { className: `mini-import-draft-status is-${draft.status || 'pending'}` })
+                    element('span', statusLabel, {
+                        className: `mini-import-draft-status is-${draft.status || 'pending'}${incorporated ? ' is-incorporated' : ''}`,
+                        dataset: draft.status === 'pending' ? { miniDraftNew: '' } : {}
+                    })
                 );
                 if (draft.receivedAt) meta.append(element('span', `Recibido: ${formatMiniDate(draft.receivedAt)}`));
+                if (draft.updatedAt && draft.updatedAt !== draft.receivedAt) meta.append(element('span', `Actualizado: ${formatMiniDate(draft.updatedAt)}`));
                 info.append(headline, meta);
                 itemEl.append(checkbox, info);
                 listEl.append(itemEl);
             });
+            if (!visibleDrafts.length) {
+                listEl.append(element('p', 'No hay borradores que coincidan con este filtro.', {
+                    className: 'mini-import-empty-drafts',
+                    dataset: { miniEmptyFilteredDrafts: '' }
+                }));
+            }
             draftsSection.append(listEl);
 
             const consolidateBtn = actionButton(
@@ -1380,9 +1556,7 @@ export class MiniAttendanceImportModal {
                         className: `mini-consolidation-row is-${item.status}`,
                         dataset: { miniConsolidationItem: item.id }
                     });
-                    const statusLabel = item.status === 'resolved'
-                        ? 'Resuelto'
-                        : (item.status === 'conflict' ? 'Conflicto horas' : 'Identidad no resuelta');
+                    const statusLabel = item.status === 'conflict' ? 'Conflicto horas' : 'Identidad no resuelta';
                     const sourcesText = Array.isArray(item.sources)
                         ? [...new Set(item.sources.map(s => s.deviceId).filter(Boolean))].join(', ')
                         : '';
@@ -1390,7 +1564,9 @@ export class MiniAttendanceImportModal {
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
                         element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
                         element('span', item.normalHours !== null ? `${item.normalHours}h` : 'Horas en conflicto', { className: 'mini-row-hours' }),
-                        element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
+                        item.status === 'resolved'
+                            ? resolvedCheckSvg('Resuelto')
+                            : element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
                     );
                     if (sourcesText) {
                         rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
@@ -1552,7 +1728,9 @@ export class MiniAttendanceImportModal {
                     element('span', emp.displayName, { className: 'mini-row-name' }),
                     element('span', `#${emp.displayNumber}`, { className: 'mini-row-number' }),
                     element('span', `${emp.totalNormalHours}h norm / ${emp.totalOvertimeHours}h extra`, { className: 'mini-row-hours' }),
-                    element('span', emp.hasConflicts ? 'Conflicto' : 'Resuelto', { className: `mini-row-status is-${emp.hasConflicts ? 'conflict' : 'resolved'}` })
+                    emp.hasConflicts
+                        ? element('span', 'Conflicto', { className: 'mini-row-status is-conflict' })
+                        : resolvedCheckSvg('Resuelto')
                 );
                 itemsList.append(rowEl);
             });
@@ -1650,7 +1828,20 @@ export class MiniAttendanceImportModal {
                     console.error('Error applying ready days:', err);
                 }
             });
-            batchSection.append(applyReadyBtn);
+            const allDaysApplied = multiSummary.totalDays > 0 && multiSummary.appliedDaysCount === multiSummary.totalDays;
+            const completeBtn = actionButton(
+                'Completar importación',
+                'complete-connected-import',
+                !allDaysApplied || this.selectedDraftIds.size === 0
+            );
+            completeBtn.classList.add('mini-import-action-primary');
+            completeBtn.addEventListener('click', () => { void this.completeConnectedImport(); });
+            batchSection.append(applyReadyBtn, completeBtn);
+            if (!allDaysApplied) {
+                batchSection.append(element('span', 'Resuelve y aplica todos los días para completar la importación.', {
+                    className: 'mini-import-complete-hint'
+                }));
+            }
             container.append(batchSection);
         }
 

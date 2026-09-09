@@ -144,6 +144,10 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         const d2Status = host.querySelector('[data-mini-day-date="2026-09-07"]');
         expect(d1Status.textContent).toBe('Listo para aplicar');
         expect(d2Status.textContent).toBe('Conflicto entre Minis');
+        const resolvedIcon = host.querySelector('[data-mini-consolidation-item] .mini-row-resolved-icon');
+        expect(resolvedIcon).not.toBeNull();
+        expect(resolvedIcon.getAttribute('aria-label')).toBe('Resuelto');
+        expect(resolvedIcon.querySelector('svg')).not.toBeNull();
 
         // Day 1 apply button is enabled; Day 2 is disabled
         const d1ApplyBtn = host.querySelector('[data-mini-action="apply-day"][data-mini-date="2026-09-06"]');
@@ -161,6 +165,7 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         expect(attendance['EMP-001-2026-09-06']).toBeDefined();
         // Day 2 remains unwritten
         expect(attendance['EMP-002-2026-09-07']).toBeUndefined();
+        expect(host.querySelector('[data-mini-action="complete-connected-import"]').disabled).toBe(true);
 
         // Now resolve Day 2's identity inline in the UI
         const selectEl = host.querySelector(`[data-mini-select-employee="unresolved:${SUB_ID_2}:m2"]`);
@@ -183,6 +188,17 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         const d2StatusApplied = host.querySelector('[data-mini-day-date="2026-09-07"]');
         expect(d2StatusApplied.textContent).toBe('Aplicado');
         expect(attendance['EMP-002-2026-09-07']).toBeDefined();
+
+        const completeBtn = host.querySelector('[data-mini-action="complete-connected-import"]');
+        expect(completeBtn.disabled).toBe(false);
+        completeBtn.click();
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect((await inboxStore.get(SA_PROJECT, SUB_ID_1)).status).toBe('incorporated');
+        expect((await inboxStore.get(SA_PROJECT, SUB_ID_2)).status).toBe('incorporated');
+        expect(modal.connectedView).toBe('inbox');
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_ID_1}"]`).classList.contains('is-incorporated')).toBe(true);
+        expect(host.querySelector('[data-mini-action="complete-connected-import"]')).toBeNull();
     });
 
     test('UI handles hours conflict and SA conflict inline before batch apply', async () => {
