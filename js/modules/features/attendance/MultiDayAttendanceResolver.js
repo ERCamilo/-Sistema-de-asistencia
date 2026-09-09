@@ -1,0 +1,647 @@
+/**
+ * MultiDayAttendanceResolver — Two-stage multi-day attendance resolver for SA.
+ *
+ * Isolated F3.4 slice:
+ * - Stage A: Resolves Mini-vs-Mini inconsistencies first (identities & hours conflicts).
+ * - Stage B: Adapts each resolved day to the canonical conflict plan and applies via
+ *   buildMiniAttendanceApplyPlan / applyMiniAttendancePlan and AttendanceRecordWriter.
+ * - ZERO direct writes to state.attendance.
+ * - Missing row from a Mini is never absence/deletion.
+ * - Structured rows without saEmployeeId require explicit identity resolution; NEVER auto-linked.
+ * - Hours conflict requires explicit source choice (or manual hours); no majority auto-win.
+ * - Existing SA records that differ require explicit keep-SA/use-imported decision.
+ * - Identical existing rows are treated as no-op (keep_existing).
+ * - Provenance preserved in miniImportAudit.sources.
+ * - Day and period views supported; period is presentation only, resolution/apply remains day-atomic.
+ * - Batch apply supports applying all ready days while leaving blocked days untouched.
+ * - Zero writes before explicit confirmation.
+ */
+
+import {
+    consolidateAttendanceSubmissions,
+    groupConsolidatedAttendance
+} from './AttendanceConsolidation.js';
+import {
+    isMiniAttendanceEmployeeEligible,
+    existingProjection,
+    buildMiniAttendanceApplyPlan
+} from './MiniAttendanceDraft.js';
+import { applyMiniAttendancePlan } from './MiniAttendanceImportService.js';
+import { entityInScope } from '../projects/ProjectContext.js';
+
+function deepFreeze(value, seen = new WeakSet()) {
+    if (value === null || typeof value !== 'object' || seen.has(value)) return value;
+    seen.add(value);
+    Object.values(value).forEach(child => deepFreeze(child, seen));
+    return Object.freeze(value);
+}
+
+function cloneValue(value) {
+    if (Array.isArray(value)) return value.map(cloneValue);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneValue(child)]));
+    }
+    return value;
+}
+
+/**
+ * Adapts resolved items for a single date to a canonical conflict plan adhering to
+ * buildMiniAttendanceApplyPlan's contract.
+ *
+ * @param {object} options
+ * @param {string} options.date - ISO workDate
+ * @param {Array<object>} options.items - Consolidated items
+ * @param {Array<object>} [options.employees=[]] - SA employees
+ * @param {object} [options.attendance={}] - Existing SA attendance
+ * @param {Map} [options.decisions=new Map()] - User decisions map for existing SA conflicts
+ * @param {number} [options.revision=1]
+ * @param {number} [options.draftRevision=1]
+ * @returns {object} Canonical conflict plan
+ */
+export function adaptResolvedDayToConflictPlan({
+    date,
+    items = [],
+    employees = [],
+    attendance = {},
+    decisions = new Map(),
+    revision = 1,
+    draftRevision = 1
+}) {
+    if (!date || typeof date !== 'string') {
+        throw new TypeError('Valid date string is required');
+    }
+
+    const dateItems = items.filter(item => item.workDate === date && !item.excluded);
+
+    // Verify no unresolved Stage A items remain
+    const hasUnresolvedItems = dateItems.some(
+        item => item.status === 'identity_conflict' || item.status === 'conflict' || !item.saEmployeeId
+    );
+
+    if (hasUnresolvedItems) {
+        throw new Error(`Cannot adapt day ${date} to conflict plan: unresolved Stage A conflicts present`);
+    }
+
+    const rows = dateItems.map(item => {
+        const employeeId = item.saEmployeeId;
+        const employee = employees.find(e => e.id === employeeId);
+        const positionIds = employee && Array.isArray(employee.positions) ? [...employee.positions] : [];
+        const key = `${employeeId}-${date}`;
+        const existingRecord = attendance[key] || null;
+        const existing = existingProjection(existingRecord);
+
+        const imported = {
+            normalHours: item.normalHours,
+            overtimeHours: item.overtimeHours
+        };
+
+        const existingNormal = existingRecord && Number.isFinite(existingRecord.hoursWorked)
+            ? existingRecord.hoursWorked : 0;
+        const existingOvertime = existingRecord && Number.isFinite(existingRecord.overtimeHours)
+            ? existingRecord.overtimeHours : 0;
+        const isIdentical = Boolean(existingRecord) &&
+            existingNormal === imported.normalHours &&
+            existingOvertime === imported.overtimeHours;
+
+        const userDecision = decisions.get(key);
+
+        let decision;
+        let targetPositionId = null;
+        let positionAllocations = [];
+
+        if (userDecision) {
+            decision = {
+                action: userDecision.action,
+                acknowledged: userDecision.acknowledged === true
+            };
+            targetPositionId = userDecision.targetPositionId || (positionIds[0] || null);
+            positionAllocations = userDecision.positionAllocations || (targetPositionId ? [{
+                positionId: targetPositionId,
+                normalHours: imported.normalHours,
+                overtimeHours: imported.overtimeHours
+            }] : []);
+        } else if (isIdentical) {
+            // Identical existing row: auto-acknowledged keep_existing -> no-op in apply (keptKeys)
+            decision = {
+                action: 'keep_existing',
+                acknowledged: true
+            };
+            targetPositionId = positionIds[0] || null;
+            positionAllocations = targetPositionId ? [{
+                positionId: targetPositionId,
+                normalHours: imported.normalHours,
+                overtimeHours: imported.overtimeHours
+            }] : [];
+        } else if (existingRecord) {
+            // Differing existing record requires explicit decision
+            decision = {
+                action: 'keep_existing',
+                acknowledged: false
+            };
+            targetPositionId = positionIds.length === 1 ? positionIds[0] : null;
+            positionAllocations = targetPositionId ? [{
+                positionId: targetPositionId,
+                normalHours: imported.normalHours,
+                overtimeHours: imported.overtimeHours
+            }] : [];
+        } else {
+            // New record: use imported
+            decision = {
+                action: 'use_imported',
+                acknowledged: true
+            };
+            targetPositionId = positionIds.length === 1 ? positionIds[0] : null;
+            positionAllocations = targetPositionId ? [{
+                positionId: targetPositionId,
+                normalHours: imported.normalHours,
+                overtimeHours: imported.overtimeHours
+            }] : [];
+        }
+
+        const rowBlockers = [];
+        if (existingRecord && !isIdentical && !decision.acknowledged) {
+            rowBlockers.push('decision_unacknowledged');
+        }
+        if (decision.action === 'use_imported') {
+            if (!positionAllocations.length) {
+                rowBlockers.push('target_position_required');
+            } else if (positionAllocations.some(p => !p.positionId || !positionIds.includes(p.positionId))) {
+                rowBlockers.push('target_position_invalid');
+            }
+        }
+
+        return {
+            key,
+            employeeId,
+            displayName: item.displayName || employee?.name || '',
+            displayNumber: item.displayNumber || employee?.number || '',
+            sources: cloneValue(item.sources || []),
+            imported,
+            existing,
+            isIdentical,
+            decision,
+            targetPositionId,
+            employeePositionIds: positionIds,
+            positionAllocations,
+            blockers: rowBlockers
+        };
+    });
+
+    const hasBlockingIssues = rows.some(r => r.blockers.length > 0);
+
+    return deepFreeze({
+        revision,
+        draftRevision,
+        date,
+        globalBlockers: [],
+        hasBlockingIssues,
+        rows
+    });
+}
+
+export class MultiDayAttendanceResolver {
+    constructor({
+        consolidation = null,
+        submissions = null,
+        employees = [],
+        attendance = {},
+        positions = [],
+        saProjectId = null,
+        regularLimit = 8,
+        applyPlan = applyMiniAttendancePlan,
+        entityScope = null
+    } = {}) {
+        let baseConsolidation = consolidation;
+        if (!baseConsolidation && Array.isArray(submissions)) {
+            baseConsolidation = consolidateAttendanceSubmissions(submissions, {
+                expectedSaProjectId: saProjectId
+            });
+        }
+        if (!baseConsolidation) {
+            throw new TypeError('Either consolidation or submissions array is required');
+        }
+
+        this.saProjectId = saProjectId || baseConsolidation.saProjectId || null;
+        this.employees = Array.isArray(employees) ? employees : [];
+        this.attendance = attendance || {};
+        this.positions = Array.isArray(positions) ? positions : [];
+        this.regularLimit = regularLimit;
+        this.applyPlan = applyPlan;
+        this.entityScope = entityScope;
+
+        this.workDates = [...(baseConsolidation.workDates || [])].sort();
+        this.contributingSubmissions = baseConsolidation.contributingSubmissions || [];
+        this.devices = baseConsolidation.devices || [];
+        this.items = cloneValue(baseConsolidation.items || []);
+
+        this.dayDecisions = new Map(); // `${employeeId}-${date}` -> decision
+        this.dayApplyResults = new Map(); // date -> result
+        this.activeViewMode = 'day';
+
+        this._recomputeAllDayStates();
+    }
+
+    _recomputeAllDayStates() {
+        this.dayStates = new Map();
+        for (const date of this.workDates) {
+            this._recomputeDayState(date);
+        }
+    }
+
+    _recomputeDayState(date) {
+        const dateItems = this.items.filter(item => item.workDate === date && !item.excluded);
+
+        // Check Stage A blockers (unresolved identity or hours conflict)
+        const stageABlockers = [];
+        const hasMissingId = dateItems.some(item => !item.saEmployeeId || item.status === 'identity_conflict');
+        if (hasMissingId) stageABlockers.push('missing_sa_employee_id');
+
+        const hasHoursConflict = dateItems.some(item => item.status === 'conflict');
+        if (hasHoursConflict) stageABlockers.push('hours_conflict');
+
+        if (stageABlockers.length > 0) {
+            this.dayStates.set(date, deepFreeze({
+                date,
+                status: 'stage_a_blocked',
+                stageABlockers,
+                stageBBlockers: [],
+                canApply: false,
+                items: cloneValue(dateItems),
+                conflictPlan: null,
+                applyPlan: null,
+                applyResult: this.dayApplyResults.get(date) || null
+            }));
+            return;
+        }
+
+        // Stage A is resolved for this day. Adapt to Stage B conflict plan.
+        const conflictPlan = adaptResolvedDayToConflictPlan({
+            date,
+            items: this.items,
+            employees: this.employees,
+            attendance: this.attendance,
+            decisions: this.dayDecisions,
+            revision: 1,
+            draftRevision: 1
+        });
+
+        const stageBBlockers = [];
+        if (conflictPlan.hasBlockingIssues) {
+            for (const row of conflictPlan.rows) {
+                stageBBlockers.push(...row.blockers);
+            }
+        }
+
+        const isApplied = this.dayApplyResults.has(date);
+        let status;
+        if (isApplied) {
+            status = 'applied';
+        } else if (conflictPlan.hasBlockingIssues) {
+            status = 'stage_b_conflict';
+        } else {
+            status = 'ready';
+        }
+
+        this.dayStates.set(date, deepFreeze({
+            date,
+            status,
+            stageABlockers: [],
+            stageBBlockers: [...new Set(stageBBlockers)],
+            canApply: status === 'ready',
+            items: cloneValue(dateItems),
+            conflictPlan,
+            applyPlan: status === 'ready' ? buildMiniAttendanceApplyPlan(conflictPlan, { expectedDraftRevision: 1 }) : null,
+            applyResult: this.dayApplyResults.get(date) || null
+        }));
+    }
+
+    _employeeInResolverScope(employee) {
+        if (!employee) return false;
+        const scope = this.entityScope;
+        if (scope?.enabled) {
+            if (!scope.projectId || scope.projectId !== this.saProjectId) return false;
+            return entityInScope(employee, scope);
+        }
+        if (!this.saProjectId) return true;
+        if (employee.projectId == null) return false;
+        return String(employee.projectId) === String(this.saProjectId);
+    }
+
+    getIdentityCandidates() {
+        return this.employees.filter(employee =>
+            isMiniAttendanceEmployeeEligible(employee) && this._employeeInResolverScope(employee)
+        );
+    }
+
+    /**
+     * Stage A: Explicitly resolves the identity of an item with missing saEmployeeId.
+     * NEVER auto-links by number or name.
+     *
+     * @param {string} itemId - ID of the unresolved item
+     * @param {string} targetEmployeeId - SA employee ID
+     * @returns {object} Updated item
+     */
+    resolveItemIdentity(itemId, targetEmployeeId) {
+        const item = this.items.find(i => i.id === itemId);
+        if (!item) throw new Error(`Item not found: ${itemId}`);
+
+        if (!this.saProjectId || item.saProjectId !== this.saProjectId) {
+            throw new TypeError(`Item ${itemId} does not belong to resolver project ${this.saProjectId || '(missing)'}`);
+        }
+
+        const employee = this.employees.find(e => e.id === targetEmployeeId);
+        if (!employee) throw new Error(`Employee not found: ${targetEmployeeId}`);
+        if (!isMiniAttendanceEmployeeEligible(employee)) {
+            throw new TypeError(`Employee ${targetEmployeeId} is inactive or ineligible for attendance import`);
+        }
+        if (!this._employeeInResolverScope(employee)) {
+            throw new TypeError(`Employee ${targetEmployeeId} does not belong to project ${this.saProjectId}`);
+        }
+
+        item.saEmployeeId = employee.id;
+        item.displayName = employee.name;
+        item.displayNumber = employee.number;
+
+        // Check if another item on the SAME (saProjectId, saEmployeeId, workDate) exists
+        const duplicateIndex = this.items.findIndex(
+            other => other !== item &&
+                other.saProjectId === item.saProjectId &&
+                other.saEmployeeId === employee.id &&
+                other.workDate === item.workDate &&
+                !other.excluded
+        );
+
+        if (duplicateIndex !== -1) {
+            const other = this.items[duplicateIndex];
+            // Merge sources
+            const mergedSources = [...item.sources, ...other.sources];
+            item.sources = mergedSources;
+
+            const normalHoursSet = new Set(mergedSources.map(s => s.normalHours));
+            const overtimeHoursSet = new Set(mergedSources.map(s => s.overtimeHours));
+            const hoursAgree = normalHoursSet.size === 1 && overtimeHoursSet.size === 1;
+
+            if (hoursAgree) {
+                item.status = 'resolved';
+                item.conflictType = null;
+                item.normalHours = mergedSources[0].normalHours;
+                item.overtimeHours = mergedSources[0].overtimeHours;
+                item.blockers = [];
+            } else {
+                item.status = 'conflict';
+                item.conflictType = 'hours_conflict';
+                item.normalHours = null;
+                item.overtimeHours = null;
+                item.conflictingHours = mergedSources.map(s => ({
+                    sourceId: s.sourceId,
+                    deviceId: s.deviceId,
+                    normalHours: s.normalHours,
+                    overtimeHours: s.overtimeHours,
+                    capturedAt: s.capturedAt
+                }));
+                item.blockers = ['hours_conflict'];
+            }
+
+            // Remove other item
+            this.items.splice(duplicateIndex, 1);
+        } else {
+            item.status = 'resolved';
+            item.conflictType = null;
+            item.blockers = [];
+        }
+
+        this._recomputeDayState(item.workDate);
+        return item;
+    }
+
+    /**
+     * Stage A: Explicitly resolves an hours conflict between Minis.
+     * Requires explicit source choice or manual hours; NO majority auto-win.
+     *
+     * @param {string} itemId - ID of the conflicting item
+     * @param {object} choice - { sourceIndex } or { normalHours, overtimeHours }
+     * @returns {object} Updated item
+     */
+    resolveItemHours(itemId, choice) {
+        const item = this.items.find(i => i.id === itemId);
+        if (!item) throw new Error(`Item not found: ${itemId}`);
+
+        let normalHours;
+        let overtimeHours;
+
+        if (choice && Number.isInteger(choice.sourceIndex)) {
+            const src = item.sources[choice.sourceIndex];
+            if (!src) throw new RangeError(`Invalid sourceIndex: ${choice.sourceIndex}`);
+            normalHours = src.normalHours;
+            overtimeHours = src.overtimeHours;
+        } else if (choice && typeof choice.deviceId === 'string') {
+            const src = item.sources.find(s => s.deviceId === choice.deviceId);
+            if (!src) throw new Error(`Source with deviceId ${choice.deviceId} not found`);
+            normalHours = src.normalHours;
+            overtimeHours = src.overtimeHours;
+        } else if (choice && Number.isFinite(choice.normalHours)) {
+            normalHours = choice.normalHours;
+            overtimeHours = Number.isFinite(choice.overtimeHours) ? choice.overtimeHours : 0;
+            if (normalHours < 0 || overtimeHours < 0 || normalHours + overtimeHours > 24) {
+                throw new RangeError('Invalid hours specification');
+            }
+        } else {
+            throw new TypeError('Explicit source choice or valid manual hours required');
+        }
+
+        item.normalHours = normalHours;
+        item.overtimeHours = overtimeHours;
+        item.status = 'resolved';
+        item.conflictType = null;
+        item.blockers = [];
+
+        this._recomputeDayState(item.workDate);
+        return item;
+    }
+
+    /**
+     * Excludes an item from consolidation and apply.
+     *
+     * @param {string} itemId
+     * @returns {object} Excluded item
+     */
+    excludeItem(itemId) {
+        const item = this.items.find(i => i.id === itemId);
+        if (!item) throw new Error(`Item not found: ${itemId}`);
+
+        item.excluded = true;
+        item.status = 'excluded';
+        item.blockers = [];
+
+        this._recomputeDayState(item.workDate);
+        return item;
+    }
+
+    /**
+     * Stage B: Resolves an existing SA conflict for a specific employee and date.
+     *
+     * @param {string} date - ISO workDate
+     * @param {string} employeeId - SA employee ID
+     * @param {object} resolution - { action: 'keep_existing' | 'use_imported', targetPositionId, positionAllocations }
+     * @returns {object} Updated day state
+     */
+    resolveDayConflict(date, employeeId, { action, targetPositionId = null, positionAllocations = null } = {}) {
+        if (!['keep_existing', 'use_imported'].includes(action)) {
+            throw new TypeError(`Invalid conflict action: "${action}". Expected "keep_existing" or "use_imported"`);
+        }
+
+        const key = `${employeeId}-${date}`;
+        this.dayDecisions.set(key, {
+            action,
+            acknowledged: true,
+            targetPositionId,
+            positionAllocations
+        });
+
+        this._recomputeDayState(date);
+        return this.getDayState(date);
+    }
+
+    /**
+     * Returns the state for a single date.
+     *
+     * @param {string} date
+     * @returns {object} Day state
+     */
+    getDayState(date) {
+        return this.dayStates.get(date) || null;
+    }
+
+    /**
+     * Returns all day states as an array sorted by date.
+     *
+     * @returns {Array<object>}
+     */
+    getAllDayStates() {
+        return this.workDates.map(date => this.getDayState(date));
+    }
+
+    /**
+     * Builds the apply plan for a specific date if it is ready.
+     *
+     * @param {string} date
+     * @returns {object} Canonical apply plan
+     */
+    buildDayApplyPlan(date) {
+        const dayState = this.getDayState(date);
+        if (!dayState) throw new Error(`Unknown date: ${date}`);
+        if (dayState.status !== 'ready') {
+            throw new Error(`Day ${date} is not ready to apply (status: "${dayState.status}")`);
+        }
+        return dayState.applyPlan;
+    }
+
+    /**
+     * Applies a single day atomically using the canonical apply plan and writer.
+     *
+     * @param {string} date
+     * @param {object} [options]
+     * @returns {Promise<object>} Apply result
+     */
+    async applyDay(date, { now = Date.now(), announce = 'Asistencia importada', deps = {} } = {}) {
+        const applyPlan = this.buildDayApplyPlan(date);
+        const result = await this.applyPlan(applyPlan, { now, announce, deps });
+
+        this.dayApplyResults.set(date, result);
+
+        // The canonical apply service/writer owns attendance mutation. The resolver
+        // records only the apply result and never writes into attendance directly.
+        this._recomputeDayState(date);
+        return result;
+    }
+
+    /**
+     * Applies all days that are currently ready.
+     * Blocked days remain untouched and blocked.
+     *
+     * @param {object} [options]
+     * @returns {Promise<Array<object>>} Results of applied days
+     */
+    async applyReadyDays(options = {}) {
+        const readyDates = this.workDates.filter(date => this.getDayState(date).status === 'ready');
+        const results = [];
+        for (const date of readyDates) {
+            const result = await this.applyDay(date, options);
+            results.push({ date, ...result });
+        }
+        return results;
+    }
+
+    /**
+     * Returns a multi-day summary across all dates.
+     *
+     * @returns {object} Summary metrics
+     */
+    getMultiDaySummary() {
+        const states = this.getAllDayStates();
+        const nonExcludedItems = this.items.filter(i => !i.excluded);
+
+        return deepFreeze({
+            workDates: [...this.workDates],
+            totalDays: this.workDates.length,
+            readyDaysCount: states.filter(s => s.status === 'ready').length,
+            blockedDaysCount: states.filter(s => s.status === 'stage_a_blocked' || s.status === 'stage_b_conflict').length,
+            appliedDaysCount: states.filter(s => s.status === 'applied').length,
+            stageAConflictCount: states.filter(s => s.status === 'stage_a_blocked').length,
+            stageBConflictCount: states.filter(s => s.status === 'stage_b_conflict').length,
+            totalItems: nonExcludedItems.length,
+            resolvedItemsCount: nonExcludedItems.filter(i => i.status === 'resolved').length
+        });
+    }
+
+    /**
+     * Returns grouped view for day or period presentation.
+     * Period is presentation only; resolution/apply remains day-atomic.
+     *
+     * @param {'day'|'period'} [mode='day']
+     * @returns {object} Grouped presentation
+     */
+    getConsolidatedView(mode = 'day') {
+        const cleanMode = mode === 'period' ? 'period' : 'day';
+        const consolidationSnapshot = {
+            saProjectId: this.saProjectId,
+            workDates: [...this.workDates],
+            devices: [...this.devices],
+            contributingSubmissions: this.contributingSubmissions,
+            items: cloneValue(this.items.filter(i => !i.excluded)),
+            summary: {
+                totalItems: this.items.filter(i => !i.excluded).length,
+                resolvedCount: this.items.filter(i => !i.excluded && i.status === 'resolved').length,
+                hoursConflictCount: this.items.filter(i => !i.excluded && i.status === 'conflict').length,
+                unresolvedIdentityCount: this.items.filter(i => !i.excluded && i.status === 'identity_conflict').length,
+                submissionsCount: this.contributingSubmissions.length
+            }
+        };
+
+        const grouped = groupConsolidatedAttendance(consolidationSnapshot, cleanMode);
+
+        if (cleanMode === 'day') {
+            const enrichedGroups = grouped.groups.map(group => ({
+                ...group,
+                dayState: this.getDayState(group.workDate)
+            }));
+            return deepFreeze({
+                ...grouped,
+                groups: enrichedGroups,
+                summary: this.getMultiDaySummary()
+            });
+        }
+
+        return deepFreeze({
+            ...grouped,
+            summary: this.getMultiDaySummary(),
+            dayStates: this.getAllDayStates()
+        });
+    }
+}
+
+export function createMultiDayAttendanceResolver(options) {
+    return new MultiDayAttendanceResolver(options);
+}
+
+export default MultiDayAttendanceResolver;

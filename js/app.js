@@ -112,7 +112,7 @@ import {
     buildMarkVisiblePresentPlan
 } from './modules/features/attendance/AttendanceBulkActions.js';
 import { mergeAttendanceRecords } from './modules/features/attendance/AttendanceMerge.js';
-import { entityInScope } from './modules/features/projects/ProjectContext.js';
+import { entityInScope, getEntityScope } from './modules/features/projects/ProjectContext.js';
 import { isProjectsEnabled } from './modules/config/FeatureFlags.js';
 import { assertTandaBBlockedWhenScoped } from './modules/config/TandaBGate.js';
 import { UndoManager } from './modules/utils/UndoManager.js';
@@ -3325,7 +3325,8 @@ window.openMiniAttendanceImport = async () => {
         console.warn('⚠️ No se pudieron cargar las coincidencias de Mini:', error);
     }
 
-    const saProjectId = await projectContext.getActiveProjectId();
+    const entityScope = await getEntityScope();
+    const saProjectId = entityScope?.projectId || await projectContext.getActiveProjectId();
     let linkedMinis = [];
     try {
         linkedMinis = await listLinkedMiniPeers();
@@ -3346,12 +3347,16 @@ window.openMiniAttendanceImport = async () => {
         aliasStore: miniAttendanceAliasStore,
         actorUid,
         saProjectId,
+        entityScope,
         linkedMinis,
         inboxStore,
         onRequestSubmissions: async ({ miniId, targetMiniIds, date, rangeStart, rangeEnd, groupingMode, onProgress, signal }) => {
             const currentProjectId = await projectContext.getActiveProjectId();
             if (!currentProjectId) {
                 throw new Error('Se requiere un proyecto activo para solicitar asistencia a Minis.');
+            }
+            if (currentProjectId !== saProjectId) {
+                throw new Error('El proyecto activo cambió mientras el importador estaba abierto. Cierra y vuelve a abrir Importar desde Mini.');
             }
             return await requestMiniAttendance({
                 miniId,

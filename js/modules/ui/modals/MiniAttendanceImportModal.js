@@ -24,6 +24,9 @@ import {
     groupConsolidatedAttendance,
     buildConsolidationProposal
 } from '../../features/attendance/AttendanceConsolidation.js';
+import {
+    createMultiDayAttendanceResolver
+} from '../../features/attendance/MultiDayAttendanceResolver.js';
 
 let nextControlId = 1;
 
@@ -188,7 +191,8 @@ export class MiniAttendanceImportModal {
         importMode = 'paste',
         groupingMode = 'day',
         selectedMiniId = null,
-        saProjectId = null
+        saProjectId = null,
+        entityScope = null
     } = {}) {
         this.employees = employees;
         this.attendance = attendance;
@@ -211,6 +215,7 @@ export class MiniAttendanceImportModal {
         this.importMode = importMode;
         this.groupingMode = groupingMode;
         this.saProjectId = saProjectId;
+        this.entityScope = entityScope;
         this.selectedMiniId = selectedMiniId !== null ? selectedMiniId : (this.linkedMinis[0]?.id || this.linkedMinis[0]?.deviceId || '');
         this.connectedDate = proposedDate || '';
         this.connectedRangeStart = proposedDate || '';
@@ -219,6 +224,7 @@ export class MiniAttendanceImportModal {
         this.selectedDraftIds = new Set();
         this.consolidatedResult = null;
         this.consolidationProposal = null;
+        this.multiDayResolver = null;
         this.transportStatusMessage = '';
         this.isFetchingConnected = false;
         this.connectionState = 'idle';
@@ -621,6 +627,16 @@ export class MiniAttendanceImportModal {
         this.consolidationProposal = buildConsolidationProposal(this.consolidatedResult, {
             employees: this.employees,
             attendance: this.attendance
+        });
+        this.multiDayResolver = createMultiDayAttendanceResolver({
+            consolidation: this.consolidatedResult,
+            employees: this.employees,
+            attendance: this.attendance,
+            positions: this.positions,
+            saProjectId: this.saProjectId,
+            entityScope: this.entityScope,
+            regularLimit: this.regularLimit,
+            applyPlan: this.applyPlan
         });
         this.render();
     }
@@ -1189,6 +1205,14 @@ export class MiniAttendanceImportModal {
             element('span', `Identidades no resueltas: ${summary.unresolvedIdentityCount}`, { className: 'mini-badge mini-badge-unresolved' })
         );
 
+        if (this.multiDayResolver) {
+            const multiSummary = this.multiDayResolver.getMultiDaySummary();
+            badges.append(
+                element('span', `Días listos: ${multiSummary.readyDaysCount}`, { className: 'mini-badge mini-badge-ready-days' }),
+                element('span', `Días aplicados: ${multiSummary.appliedDaysCount}`, { className: 'mini-badge mini-badge-applied-days' })
+            );
+        }
+
         // Grouped view
         const grouped = groupConsolidatedAttendance(this.consolidatedResult, this.groupingMode);
         const groupsContainer = element('div', null, { className: 'mini-consolidation-groups' });
@@ -1196,9 +1220,39 @@ export class MiniAttendanceImportModal {
         if (grouped.mode === 'day') {
             grouped.groups.forEach(group => {
                 const groupEl = element('div', null, { className: 'mini-consolidation-group-card' });
-                groupEl.append(
+                const headerEl = element('div', null, { className: 'mini-consolidation-group-header' });
+                headerEl.append(
                     element('h4', `Fecha: ${group.workDate} (${group.items.length} trabajadores)`)
                 );
+
+                const dayState = this.multiDayResolver ? this.multiDayResolver.getDayState(group.workDate) : null;
+                if (dayState) {
+                    const statusText = dayState.status === 'applied'
+                        ? 'Aplicado'
+                        : dayState.status === 'ready'
+                            ? 'Listo para aplicar'
+                            : dayState.status === 'stage_b_conflict'
+                                ? 'Conflicto con SA'
+                                : 'Conflicto entre Minis';
+                    headerEl.append(element('span', statusText, {
+                        className: `mini-day-status is-${dayState.status}`,
+                        dataset: { miniDayStatus: dayState.status, miniDayDate: group.workDate }
+                    }));
+
+                    const applyDayBtn = actionButton('Aplicar este día', 'apply-day', !dayState.canApply);
+                    applyDayBtn.dataset.miniDate = group.workDate;
+                    applyDayBtn.addEventListener('click', async () => {
+                        try {
+                            await this.multiDayResolver.applyDay(group.workDate);
+                            this.render();
+                        } catch (err) {
+                            console.error('Error applying day:', err);
+                        }
+                    });
+                    headerEl.append(applyDayBtn);
+                }
+                groupEl.append(headerEl);
+
                 const itemsList = element('div', null, { className: 'mini-consolidation-items-list' });
                 group.items.forEach(item => {
                     const rowEl = element('div', null, {
@@ -1220,6 +1274,97 @@ export class MiniAttendanceImportModal {
                     if (sourcesText) {
                         rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
                     }
+
+                    // Multi-day Resolver interactive controls
+                    if (this.multiDayResolver) {
+                        // 1. Unresolved Identity
+                        if (item.status === 'identity_conflict' || !item.saEmployeeId) {
+                            const resolveIdentityEl = element('div', null, {
+                                className: 'mini-identity-resolve-row',
+                                dataset: { miniUnresolvedIdentity: item.id }
+                            });
+                            resolveIdentityEl.append(element('span', 'Vincular a empleado SA:', { className: 'mini-control-label' }));
+                            const empSelect = element('select', null, {
+                                className: 'mini-import-select',
+                                dataset: { miniSelectEmployee: item.id }
+                            });
+                            empSelect.append(element('option', '-- Seleccionar empleado --', { value: '', disabled: true, selected: true }));
+                            this.multiDayResolver.getIdentityCandidates().forEach(emp => {
+                                empSelect.append(element('option', `${emp.number ? '#' + emp.number + ' ' : ''}${emp.name}`, { value: emp.id }));
+                            });
+                            const linkBtn = actionButton('Vincular', 'resolve-identity', true);
+                            linkBtn.dataset.miniItemId = item.id;
+                            empSelect.addEventListener('change', () => {
+                                linkBtn.disabled = !empSelect.value;
+                            });
+                            linkBtn.addEventListener('click', () => {
+                                if (!empSelect.value) return;
+                                this.multiDayResolver.resolveItemIdentity(item.id, empSelect.value);
+                                this.render();
+                            });
+                            resolveIdentityEl.append(empSelect, linkBtn);
+                            rowEl.append(resolveIdentityEl);
+                        }
+
+                        // 2. Hours conflict between Minis
+                        if (item.status === 'conflict' && Array.isArray(item.sources) && item.sources.length > 1) {
+                            const resolveHoursEl = element('div', null, {
+                                className: 'mini-hours-resolve-row',
+                                dataset: { miniHoursConflict: item.id }
+                            });
+                            resolveHoursEl.append(element('span', 'Elegir horas reportadas:', { className: 'mini-control-label' }));
+                            item.sources.forEach((src, srcIndex) => {
+                                const srcBtn = actionButton(
+                                    `Mini ${src.sourceId || src.deviceId}: ${src.normalHours}h / ${src.overtimeHours}h`,
+                                    'resolve-hours'
+                                );
+                                srcBtn.dataset.miniItemId = item.id;
+                                srcBtn.dataset.miniSourceIndex = String(srcIndex);
+                                srcBtn.addEventListener('click', () => {
+                                    this.multiDayResolver.resolveItemHours(item.id, { sourceIndex: srcIndex });
+                                    this.render();
+                                });
+                                resolveHoursEl.append(srcBtn);
+                            });
+                            rowEl.append(resolveHoursEl);
+                        }
+
+                        // 3. Existing SA conflict
+                        if (dayState && dayState.conflictPlan) {
+                            const conflictRow = dayState.conflictPlan.rows.find(r => r.employeeId === item.saEmployeeId);
+                            if (conflictRow && !conflictRow.isIdentical && !conflictRow.decision.acknowledged) {
+                                const saConflictEl = element('div', null, {
+                                    className: 'mini-sa-conflict-row',
+                                    dataset: { miniSaConflict: item.saEmployeeId }
+                                });
+                                const existingNormal = conflictRow.existing?.record?.hoursWorked || 0;
+                                const existingOvertime = conflictRow.existing?.record?.overtimeHours || 0;
+                                saConflictEl.append(
+                                    element('span', `SA tiene ${existingNormal}h norm / ${existingOvertime}h extra vs Mini ${item.normalHours}h:`, { className: 'mini-control-label' })
+                                );
+
+                                const keepSaBtn = actionButton('Conservar SA', 'keep-sa');
+                                keepSaBtn.dataset.miniEmployeeId = item.saEmployeeId;
+                                keepSaBtn.dataset.miniDate = group.workDate;
+                                keepSaBtn.addEventListener('click', () => {
+                                    this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, { action: 'keep_existing' });
+                                    this.render();
+                                });
+
+                                const useImportedBtn = actionButton('Usar Mini', 'use-imported');
+                                useImportedBtn.dataset.miniEmployeeId = item.saEmployeeId;
+                                useImportedBtn.dataset.miniDate = group.workDate;
+                                useImportedBtn.addEventListener('click', () => {
+                                    this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, { action: 'use_imported' });
+                                    this.render();
+                                });
+
+                                saConflictEl.append(keepSaBtn, useImportedBtn);
+                                rowEl.append(saConflictEl);
+                            }
+                        }
+                    }
+
                     itemsList.append(rowEl);
                 });
                 groupEl.append(itemsList);
@@ -1264,6 +1409,35 @@ export class MiniAttendanceImportModal {
                     if (sourcesText) {
                         rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
                     }
+
+                    if (this.multiDayResolver) {
+                        const resolveIdentityEl = element('div', null, {
+                            className: 'mini-identity-resolve-row',
+                            dataset: { miniUnresolvedIdentity: item.id }
+                        });
+                        resolveIdentityEl.append(element('span', 'Vincular a empleado SA:', { className: 'mini-control-label' }));
+                        const empSelect = element('select', null, {
+                            className: 'mini-import-select',
+                            dataset: { miniSelectEmployee: item.id }
+                        });
+                        empSelect.append(element('option', '-- Seleccionar empleado --', { value: '', disabled: true, selected: true }));
+                        this.multiDayResolver.getIdentityCandidates().forEach(emp => {
+                            empSelect.append(element('option', `${emp.number ? '#' + emp.number + ' ' : ''}${emp.name}`, { value: emp.id }));
+                        });
+                        const linkBtn = actionButton('Vincular', 'resolve-identity', true);
+                        linkBtn.dataset.miniItemId = item.id;
+                        empSelect.addEventListener('change', () => {
+                            linkBtn.disabled = !empSelect.value;
+                        });
+                        linkBtn.addEventListener('click', () => {
+                            if (!empSelect.value) return;
+                            this.multiDayResolver.resolveItemIdentity(item.id, empSelect.value);
+                            this.render();
+                        });
+                        resolveIdentityEl.append(empSelect, linkBtn);
+                        rowEl.append(resolveIdentityEl);
+                    }
+
                     itemsList.append(rowEl);
                 });
             }
@@ -1287,6 +1461,32 @@ export class MiniAttendanceImportModal {
         }
 
         container.append(badges, groupsContainer, proposalNotice);
+
+        // Batch Apply footer
+        if (this.multiDayResolver) {
+            const multiSummary = this.multiDayResolver.getMultiDaySummary();
+            const batchSection = element('div', null, {
+                className: 'mini-consolidation-batch-actions',
+                dataset: { miniBatchActions: '' }
+            });
+            const applyReadyBtn = actionButton(
+                `Aplicar días listos (${multiSummary.readyDaysCount})`,
+                'apply-ready-days',
+                multiSummary.readyDaysCount === 0
+            );
+            applyReadyBtn.classList.add('mini-import-action-primary');
+            applyReadyBtn.addEventListener('click', async () => {
+                try {
+                    await this.multiDayResolver.applyReadyDays();
+                    this.render();
+                } catch (err) {
+                    console.error('Error applying ready days:', err);
+                }
+            });
+            batchSection.append(applyReadyBtn);
+            container.append(batchSection);
+        }
+
         return container;
     }
 

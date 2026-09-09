@@ -517,7 +517,7 @@ function cloneValue(value) {
     return value;
 }
 
-function existingProjection(record) {
+export function existingProjection(record) {
     if (!record) return null;
     const snapshot = cloneValue(record);
     const breakdown = Array.isArray(snapshot.positionHours) && snapshot.positionHours.length
@@ -663,7 +663,8 @@ export function createMiniAttendanceConflictPlan(draft, attendance = {}) {
                 : { action: 'use_imported', acknowledged: true },
             targetPositionId: positionIds.length === 1 ? positionIds[0] : null,
             employeePositionIds: positionIds,
-            positionAllocations
+            positionAllocations,
+            sources: representative.sources || group.flatMap(item => item.row.sources || [])
         };
     });
     return finalizeConflictPlan({
@@ -741,7 +742,8 @@ function importedRecord(row, date) {
             applied,
             differenceHours: applied.totalHours -
                 row.imported.normalHours -
-                row.imported.overtimeHours
+                row.imported.overtimeHours,
+            ...(Array.isArray(row.sources) && row.sources.length > 0 ? { sources: cloneValue(row.sources) } : {})
         }
     };
 }
