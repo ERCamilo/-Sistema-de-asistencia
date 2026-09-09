@@ -84,7 +84,7 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         expect(host.querySelector('[data-mini-source]')).not.toBeNull();
     });
 
-    test('switching to Conectados renders linked Mini selector, day/range controls, and draft list', async () => {
+    test('switching to Conectados renders request controls and exposes drafts through the separate inbox step', async () => {
         const db = new MemoryDB();
         const inboxStore = new AttendanceSubmissionInboxStore({ db });
         await inboxStore.importSubmission(sampleSubmission(SUB_UUID_1, '2026-09-06'), { expectedSaProjectId: SA_PROJECT });
@@ -113,14 +113,18 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         expect(host.querySelector('[data-mini-connected-selection]')).not.toBeNull();
         expect(host.querySelector('[data-mini-connected-selector]')).not.toBeNull();
         expect(host.querySelector('[data-mini-date-controls]')).not.toBeNull();
-        expect(host.querySelector('[data-mini-saved-drafts]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-saved-drafts]')).toBeNull();
+        const inboxButton = host.querySelector('[data-mini-action="open-connected-inbox"]');
+        expect(inboxButton).not.toBeNull();
+        expect(inboxButton.textContent).toContain('1');
 
         // Check linked Mini options
         const select = host.querySelector('[data-mini-connected-selector]');
         expect(select.options.length).toBeGreaterThan(1);
         expect(select.options[1].textContent).toContain('Mini Obra 1');
 
-        // Check draft list
+        // Draft cards live in the next modal step, not below the request form.
+        await modal.openConnectedInbox();
         const draftItem = host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`);
         expect(draftItem).not.toBeNull();
     });
@@ -210,7 +214,8 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         modal.mount(host);
         await modal.setImportMode('connected');
 
-        // Select both drafts
+        // Open the separate inbox step and select both drafts.
+        await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_1}"]`).click();
         host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_2}"]`).click();
 
@@ -496,8 +501,10 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
         expect(badge1.dataset.miniPeerState).toBe('success');
         expect(badge2.dataset.miniPeerState).toBe('timeout');
 
-        // Saved drafts contains Mini 1 submission
-        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).not.toBeNull();
+        // The successful response is persisted, but cards stay in the separate inbox step.
+        expect(modal.savedDrafts.some(d => d.submissionId === SUB_UUID_1)).toBe(true);
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).toBeNull();
+        expect(host.querySelector('[data-mini-action="open-connected-inbox"]')?.textContent).toContain('1');
 
         // Retry failed button is visible
         const retryFailedBtn = host.querySelector('[data-mini-action="retry-failed"]');
@@ -582,8 +589,10 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
         expect(modal.failedMiniTargets).toEqual([]);
         expect(host.querySelector('[data-mini-action="retry-failed"]')).toBeNull();
 
-        // Both drafts are in inbox (idempotent staging)
+        // Both drafts are in the persisted inbox (idempotent staging) and appear in its own step.
         expect(modal.savedDrafts.length).toBe(2);
+        expect(host.querySelector('[data-mini-action="open-connected-inbox"]')?.textContent).toContain('2');
+        await modal.openConnectedInbox();
         expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).not.toBeNull();
         expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_2}"]`)).not.toBeNull();
     });
@@ -834,5 +843,104 @@ describe('MiniAttendanceImportModal — review regressions', () => {
         expect(morphCleanup).toHaveBeenCalledTimes(1);
         expect(modal._activeMorphCleanup).toBeNull();
         expect(modal.host).toBeNull();
+    });
+});
+
+
+describe('MiniAttendanceImportModal — connected wizard and proxy-safe reconciliation', () => {
+    let host;
+
+    beforeEach(() => {
+        host = document.createElement('div');
+        document.body.replaceChildren(host);
+    });
+
+    afterEach(() => {
+        document.body.replaceChildren();
+    });
+
+    test('Conectados separates request, inbox and consolidation into distinct modal steps', async () => {
+        const db = new MemoryDB();
+        const inboxStore = new AttendanceSubmissionInboxStore({ db });
+        await inboxStore.importSubmission(sampleSubmission(), { expectedSaProjectId: SA_PROJECT });
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            inboxStore,
+            importMode: 'connected',
+            linkedMinis: [{ id: 'mini-1', deviceId: 'phone-1', name: 'Mini Obra 1' }]
+        });
+        modal.mount(host);
+        await modal.setImportMode('connected');
+
+        expect(host.querySelector('[data-mini-connected-selection]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-saved-drafts]')).toBeNull();
+        const openInbox = host.querySelector('[data-mini-action="open-connected-inbox"]');
+        expect(openInbox).not.toBeNull();
+        expect(openInbox.textContent).toMatch(/1/);
+
+        openInbox.click();
+        expect(host.querySelector('[data-mini-connected-selection]')).toBeNull();
+        expect(host.querySelector('[data-mini-saved-drafts]')).not.toBeNull();
+        expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).not.toBeNull();
+        expect(host.querySelector('[data-mini-action="back-connected-request"]')).not.toBeNull();
+
+        host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_1}"]`).click();
+        host.querySelector('[data-mini-action="consolidate-drafts"]').click();
+        expect(host.querySelector('[data-mini-consolidation-skeleton]')).not.toBeNull();
+        expect(host.querySelector('[data-mini-saved-drafts]')).toBeNull();
+        expect(host.querySelector('[data-mini-action="back-connected-inbox"]')).not.toBeNull();
+    });
+
+    test('connected reconciliation unwraps AppState-like proxies before reading frozen positionHours', async () => {
+        const db = new MemoryDB();
+        const inboxStore = new AttendanceSubmissionInboxStore({ db });
+        await inboxStore.importSubmission(sampleSubmission(), { expectedSaProjectId: SA_PROJECT });
+
+        const frozenRecord = Object.freeze({
+            employeeId: 'EMP-001',
+            date: '2026-09-06',
+            present: true,
+            hoursWorked: 8,
+            overtimeHours: 0,
+            selectedPosition: 'POS-1',
+            multiPosition: false,
+            positionHours: Object.freeze([{ positionId: 'POS-1', hours: 8, overtimeHours: 0 }])
+        });
+        const rawAttendance = { 'EMP-001-2026-09-06': frozenRecord };
+        const cache = new WeakMap();
+        const recursiveProxy = value => {
+            if (!value || typeof value !== 'object') return value;
+            if (cache.has(value)) return cache.get(value);
+            const proxy = new Proxy(value, {
+                get(target, prop, receiver) {
+                    if (prop === '_rawTarget') return target;
+                    const child = Reflect.get(target, prop, receiver);
+                    return child && typeof child === 'object' ? recursiveProxy(child) : child;
+                }
+            });
+            cache.set(value, proxy);
+            return proxy;
+        };
+        const attendance = recursiveProxy(rawAttendance);
+        // Demonstrate the exact invariant that previously reached the global error handler.
+        expect(() => attendance['EMP-001-2026-09-06'].positionHours).toThrow(TypeError);
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            proposedDate: '2026-09-06',
+            inboxStore,
+            importMode: 'connected',
+            attendance,
+            employees: [{ id: 'EMP-001', number: '001', name: 'Ana Pérez', active: true, positions: ['POS-1'], projectId: SA_PROJECT }],
+            positions: [{ id: 'POS-1', name: 'Ayudante' }]
+        });
+        modal.mount(host);
+        await modal.setImportMode('connected');
+        modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${SUB_UUID_1}"]`).click();
+
+        expect(() => modal.consolidateSelectedDrafts()).not.toThrow();
+        expect(modal.multiDayResolver).not.toBeNull();
     });
 });

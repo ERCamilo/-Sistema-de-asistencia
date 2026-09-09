@@ -16,7 +16,7 @@ import {
 } from '../../features/attendance/MiniAttendanceDraft.js';
 import { applyMiniAttendancePlan } from '../../features/attendance/MiniAttendanceImportService.js';
 import { buildMiniAttendanceReviewViewModel } from '../MiniAttendanceReviewViewModel.js';
-import { state, stateManager } from '../../core/AppState.js';
+import { state, stateManager, toRaw } from '../../core/AppState.js';
 import { saveApplicationData } from '../../services/PersistenceService.js';
 import { getDateKey } from '../../utils/DateUtils.js';
 import {
@@ -220,6 +220,7 @@ export class MiniAttendanceImportModal {
         this.connectedDate = proposedDate || '';
         this.connectedRangeStart = proposedDate || '';
         this.connectedRangeEnd = proposedDate || '';
+        this.connectedView = 'request';
         this.savedDrafts = [];
         this.selectedDraftIds = new Set();
         this.consolidatedResult = null;
@@ -448,6 +449,7 @@ export class MiniAttendanceImportModal {
         return [
             this.stage,
             this.stage === 'paste' ? this.importMode : '',
+            this.stage === 'paste' && this.importMode === 'connected' ? this.connectedView : '',
             this.showDetailedTable ? 'detail' : 'summary',
             this.consolidatedResult ? 'consolidated' : 'plain'
         ].join('|');
@@ -592,7 +594,32 @@ export class MiniAttendanceImportModal {
 
     async setImportMode(mode) {
         this.importMode = mode;
-        if (mode === 'connected' && this.inboxStore) {
+        if (mode === 'connected') {
+            this.connectedView = 'request';
+            if (this.inboxStore) {
+                try {
+                    this.savedDrafts = await this.inboxStore.list(
+                        this.saProjectId ? { saProjectId: this.saProjectId } : null
+                    );
+                } catch (err) {
+                    console.warn('Error loading inbox drafts:', err);
+                }
+            }
+        }
+        this.render();
+    }
+
+    openConnectedRequest() {
+        this.connectedView = 'request';
+        this.render();
+    }
+
+    async openConnectedInbox() {
+        // Switch immediately so the modal morphs as one continuous object; refresh
+        // the persisted inbox in-place when IndexedDB resolves.
+        this.connectedView = 'inbox';
+        this.render();
+        if (this.inboxStore) {
             try {
                 this.savedDrafts = await this.inboxStore.list(
                     this.saProjectId ? { saProjectId: this.saProjectId } : null
@@ -601,6 +628,12 @@ export class MiniAttendanceImportModal {
                 console.warn('Error loading inbox drafts:', err);
             }
         }
+        if (this.host && this.connectedView === 'inbox') this.render();
+    }
+
+    openConnectedConsolidation() {
+        if (!this.consolidatedResult) return;
+        this.connectedView = 'consolidation';
         this.render();
     }
 
@@ -621,23 +654,35 @@ export class MiniAttendanceImportModal {
     consolidateSelectedDrafts() {
         const drafts = this.savedDrafts.filter(d => this.selectedDraftIds.has(d.submissionId));
         if (!drafts.length) return;
+
+        // Never feed AppState's recursive proxies into the reconciliation engine.
+        // A previously stored/frozen attendance record can contain non-configurable
+        // nested values (for example positionHours); recursively proxying those values
+        // violates Proxy invariants.  toRaw() crosses this boundary with plain mutable
+        // snapshots while the canonical writer remains the only path back to state.
+        const employeesSnapshot = toRaw(this.employees);
+        const attendanceSnapshot = toRaw(this.attendance);
+        const positionsSnapshot = toRaw(this.positions);
+        const entityScopeSnapshot = this.entityScope ? toRaw(this.entityScope) : null;
+
         this.consolidatedResult = consolidateAttendanceSubmissions(drafts, {
             expectedSaProjectId: this.saProjectId
         });
         this.consolidationProposal = buildConsolidationProposal(this.consolidatedResult, {
-            employees: this.employees,
-            attendance: this.attendance
+            employees: employeesSnapshot,
+            attendance: attendanceSnapshot
         });
         this.multiDayResolver = createMultiDayAttendanceResolver({
             consolidation: this.consolidatedResult,
-            employees: this.employees,
-            attendance: this.attendance,
-            positions: this.positions,
+            employees: employeesSnapshot,
+            attendance: attendanceSnapshot,
+            positions: positionsSnapshot,
             saProjectId: this.saProjectId,
-            entityScope: this.entityScope,
+            entityScope: entityScopeSnapshot,
             regularLimit: this.regularLimit,
             applyPlan: this.applyPlan
         });
+        this.connectedView = 'consolidation';
         this.render();
     }
 
@@ -921,9 +966,23 @@ export class MiniAttendanceImportModal {
     }
 
     renderConnected() {
-        const section = element('div', null, { className: 'mini-import-paste mini-import-connected' });
-        section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Conectados', 'CONECTADOS', () => this.close()));
-        section.append(this.renderModeTabs());
+        const section = element('div', null, {
+            className: `mini-import-paste mini-import-connected mini-import-connected-view-${this.connectedView}`,
+            dataset: { miniConnectedView: this.connectedView }
+        });
+        const connectedStep = this.connectedView === 'inbox' ? 2 : this.connectedView === 'consolidation' ? 3 : 1;
+        const subtitle = this.connectedView === 'inbox'
+            ? 'Paso 2 · Bandeja de borradores'
+            : this.connectedView === 'consolidation'
+                ? 'Paso 3 · Consolidación y conciliación'
+                : 'Paso 1 · Solicitar asistencia';
+        const chip = this.connectedView === 'inbox'
+            ? 'BANDEJA'
+            : this.connectedView === 'consolidation'
+                ? 'REVISIÓN'
+                : 'CONECTADOS';
+        section.append(renderTopbar(connectedStep, 3, 'Importar asistencia desde Mini', subtitle, chip, () => this.close()));
+        if (this.connectedView === 'request') section.append(this.renderModeTabs());
 
         // 1. Linked Mini selection
         const selectionSection = element('div', null, { className: 'mini-import-connected-section', dataset: { miniConnectedSelection: '' } });
@@ -1160,10 +1219,28 @@ export class MiniAttendanceImportModal {
                 checkbox.addEventListener('change', () => this.toggleDraftSelection(draft.submissionId));
 
                 const info = element('div', null, { className: 'mini-import-draft-info' });
-                info.append(
-                    element('div', `Fecha: ${draft.workDate} · Mini: ${draft.sourceSnapshot?.scope?.sourceId || draft.deviceId || 'desconocido'}`, { className: 'mini-import-draft-title' }),
-                    element('div', `Filas: ${draft.sourceSnapshot?.rows?.length || 0} · Estado: ${draft.status}`, { className: 'mini-import-draft-meta' })
+                const sourceName = draft.metadata?.sourcePeerName ||
+                    draft.metadata?.sourcePeerId ||
+                    draft.sourceSnapshot?.scope?.sourceId ||
+                    draft.sourceSnapshot?.deviceId ||
+                    'Mini desconocido';
+                const statusLabel = draft.status === 'pending'
+                    ? 'Pendiente'
+                    : draft.status === 'imported'
+                        ? 'Importado'
+                        : draft.status || 'Pendiente';
+                const headline = element('div', null, { className: 'mini-import-draft-title' });
+                headline.append(
+                    element('strong', displayDate(draft.workDate) || draft.workDate),
+                    element('span', sourceName, { className: 'mini-import-draft-source' })
                 );
+                const meta = element('div', null, { className: 'mini-import-draft-meta' });
+                meta.append(
+                    element('span', `${draft.sourceSnapshot?.rows?.length || 0} fila${draft.sourceSnapshot?.rows?.length === 1 ? '' : 's'}`),
+                    element('span', statusLabel, { className: `mini-import-draft-status is-${draft.status || 'pending'}` })
+                );
+                if (draft.receivedAt) meta.append(element('span', `Recibido: ${formatMiniDate(draft.receivedAt)}`));
+                info.append(headline, meta);
                 itemEl.append(checkbox, info);
                 listEl.append(itemEl);
             });
@@ -1179,14 +1256,58 @@ export class MiniAttendanceImportModal {
             draftsSection.append(consolidateBtn);
         }
 
-        // 4. Consolidation Skeleton & Proposal Seam
-        if (this.consolidatedResult) {
-            const skeleton = this.renderConsolidationSkeleton();
-            section.append(selectionSection, dateSection, draftsSection, skeleton);
-        } else {
-            section.append(selectionSection, dateSection, draftsSection);
+        // 4. Connected wizard navigation: request -> inbox -> consolidation.
+        // Each view owns the body instead of stacking every stage into one long screen.
+        if (this.connectedView === 'request') {
+            const inboxCard = element('section', null, {
+                className: 'mini-import-inbox-entry-card',
+                dataset: { miniInboxEntry: '' }
+            });
+            const inboxCopy = element('div', null, { className: 'mini-import-inbox-entry-copy' });
+            inboxCopy.append(
+                element('h3', 'Bandeja de borradores'),
+                element('p', this.savedDrafts.length
+                    ? `${this.savedDrafts.length} borrador${this.savedDrafts.length === 1 ? '' : 'es'} guardado${this.savedDrafts.length === 1 ? '' : 's'} para revisar cuando quieras.`
+                    : 'Las respuestas recibidas se guardan aquí sin modificar la asistencia oficial de SA.')
+            );
+            const openInboxBtn = actionButton(
+                `Revisar borradores (${this.savedDrafts.length})`,
+                'open-connected-inbox'
+            );
+            openInboxBtn.classList.add('mini-import-action-primary');
+            openInboxBtn.addEventListener('click', () => { void this.openConnectedInbox(); });
+            inboxCard.append(inboxCopy, openInboxBtn);
+            section.append(selectionSection, dateSection, inboxCard);
+            return section;
         }
 
+        if (this.connectedView === 'inbox') {
+            const nav = element('div', null, { className: 'mini-import-connected-nav' });
+            const back = actionButton('← Volver a solicitar', 'back-connected-request');
+            back.classList.add('mini-import-action-secondary');
+            back.addEventListener('click', () => this.openConnectedRequest());
+            nav.append(back, element('p', 'Selecciona uno o varios borradores. Nada se escribe en SA hasta completar la conciliación.', {
+                className: 'mini-import-hint'
+            }));
+            section.append(nav, draftsSection);
+            return section;
+        }
+
+        const nav = element('div', null, { className: 'mini-import-connected-nav' });
+        const back = actionButton('← Volver a la bandeja', 'back-connected-inbox');
+        back.classList.add('mini-import-action-secondary');
+        back.addEventListener('click', () => { void this.openConnectedInbox(); });
+        nav.append(back, element('p', 'Primero se resuelven diferencias entre Minis y después se compara la propuesta con SA.', {
+            className: 'mini-import-hint'
+        }));
+        section.append(nav);
+        if (this.consolidatedResult) {
+            section.append(this.renderConsolidationSkeleton());
+        } else {
+            section.append(element('div', 'No hay una consolidación activa. Vuelve a la bandeja y selecciona borradores.', {
+                className: 'mini-import-empty-drafts'
+            }));
+        }
         return section;
     }
 

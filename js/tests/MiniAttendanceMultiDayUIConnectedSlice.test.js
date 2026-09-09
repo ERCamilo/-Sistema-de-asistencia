@@ -130,6 +130,7 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         });
         modal.mount(host);
         await modal.setImportMode('connected');
+        await modal.openConnectedInbox();
 
         // Select both drafts
         host.querySelector(`[data-mini-draft-checkbox="${SUB_ID_1}"]`).click();
@@ -235,6 +236,7 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         });
         modal.mount(host);
         await modal.setImportMode('connected');
+        await modal.openConnectedInbox();
 
         host.querySelector(`[data-mini-draft-checkbox="${SUB_ID_C1}"]`).click();
         host.querySelector(`[data-mini-draft-checkbox="${SUB_ID_C2}"]`).click();
@@ -298,6 +300,7 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         });
         modal.mount(host);
         await modal.setImportMode('connected');
+        await modal.openConnectedInbox();
         host.querySelector(`[data-mini-draft-checkbox="${SUB_ID}"]`).click();
         host.querySelector('[data-mini-action="consolidate-drafts"]').click();
 
