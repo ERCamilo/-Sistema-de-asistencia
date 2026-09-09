@@ -213,6 +213,7 @@ export class MiniAttendanceImportModal {
         this.consolidatedResult = null;
         this.consolidationProposal = null;
         this.transportStatusMessage = '';
+        this.isFetchingConnected = false;
         this.applyStatus = 'idle';
         this.applyResult = null;
         this.applyError = null;
@@ -453,20 +454,44 @@ export class MiniAttendanceImportModal {
         this.render();
     }
 
-    handleFetchConnected() {
-        if (typeof this.onRequestSubmissions === 'function') {
-            this.onRequestSubmissions({
+    async handleFetchConnected() {
+        if (this.isFetchingConnected) return;
+
+        if (typeof this.onRequestSubmissions !== 'function') {
+            this.transportStatusMessage = 'Transporte P2P en preparación: callback seam disponible (onRequestSubmissions).';
+            this.render();
+            return;
+        }
+
+        this.isFetchingConnected = true;
+        this.transportStatusMessage = 'Solicitando asistencia al Mini vinculado...';
+        this.render();
+
+        try {
+            const requestPromise = this.onRequestSubmissions({
                 miniId: this.selectedMiniId,
                 date: this.connectedDate,
                 rangeStart: this.connectedRangeStart,
                 rangeEnd: this.connectedRangeEnd,
                 groupingMode: this.groupingMode
             });
-            this.transportStatusMessage = 'Solicitud de asistencia enviada al Mini vinculado.';
-        } else {
-            this.transportStatusMessage = 'Transporte P2P en preparación: callback seam disponible (onRequestSubmissions).';
+            const result = await requestPromise;
+
+            if (this.inboxStore) {
+                this.savedDrafts = await this.inboxStore.list(
+                    this.saProjectId ? { saProjectId: this.saProjectId } : null
+                );
+            }
+
+            const count = result?.importedCount ?? (Array.isArray(result?.submissions) ? result.submissions.length : (result?.totalSubmissions ?? ''));
+            const countText = count !== '' ? ` (${count} importados)` : '';
+            this.transportStatusMessage = result?.message || `✓ Asistencia recibida y guardada en borrador${countText}.`;
+        } catch (error) {
+            this.transportStatusMessage = `Error: ${error.message || error}`;
+        } finally {
+            this.isFetchingConnected = false;
+            this.render();
         }
-        this.render();
     }
 
     renderModeTabs() {
@@ -606,7 +631,11 @@ export class MiniAttendanceImportModal {
             dateFields.append(startLabel, startInput, endLabel, endInput);
         }
 
-        const fetchBtn = actionButton('Solicitar asistencia al Mini', 'fetch-connected');
+        const fetchBtn = actionButton(
+            this.isFetchingConnected ? 'Solicitando...' : 'Solicitar asistencia al Mini',
+            'fetch-connected',
+            this.isFetchingConnected
+        );
         fetchBtn.classList.add('mini-import-action-primary');
         fetchBtn.addEventListener('click', () => this.handleFetchConnected());
 
@@ -724,12 +753,18 @@ export class MiniAttendanceImportModal {
                     const statusLabel = item.status === 'resolved'
                         ? 'Resuelto'
                         : (item.status === 'conflict' ? 'Conflicto horas' : 'Identidad no resuelta');
+                    const sourcesText = Array.isArray(item.sources)
+                        ? [...new Set(item.sources.map(s => s.deviceId).filter(Boolean))].join(', ')
+                        : '';
                     rowEl.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
                         element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
                         element('span', item.normalHours !== null ? `${item.normalHours}h` : 'Horas en conflicto', { className: 'mini-row-hours' }),
                         element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
                     );
+                    if (sourcesText) {
+                        rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
+                    }
                     itemsList.append(rowEl);
                 });
                 groupEl.append(itemsList);
@@ -762,12 +797,18 @@ export class MiniAttendanceImportModal {
                         className: 'mini-consolidation-row is-identity_conflict',
                         dataset: { miniConsolidationItem: item.id }
                     });
+                    const sourcesText = Array.isArray(item.sources)
+                        ? [...new Set(item.sources.map(s => s.deviceId).filter(Boolean))].join(', ')
+                        : '';
                     rowEl.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
                         element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
                         element('span', `${item.normalHours}h`, { className: 'mini-row-hours' }),
                         element('span', 'Identidad no resuelta', { className: 'mini-row-status is-identity_conflict' })
                     );
+                    if (sourcesText) {
+                        rowEl.append(element('span', sourcesText, { className: 'mini-row-provenance', dataset: { miniSourceProvenance: '' } }));
+                    }
                     itemsList.append(rowEl);
                 });
             }

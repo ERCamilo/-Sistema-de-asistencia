@@ -19,6 +19,12 @@ function deepFreeze(value, seen = new WeakSet()) {
     return Object.freeze(value);
 }
 
+function isGenericDeviceId(deviceId) {
+    if (!deviceId || typeof deviceId !== 'string') return true;
+    const clean = deviceId.trim().toLowerCase();
+    return ['mini-device', 'mini-app', 'device', 'mini', 'generic', 'unknown'].includes(clean);
+}
+
 function unwrapSubmission(item) {
     if (!item || typeof item !== 'object') {
         throw new TypeError('Submission must be an object');
@@ -27,7 +33,8 @@ function unwrapSubmission(item) {
     if (envelope.schema !== 'attendance-submission/v1') {
         throw new TypeError(`Expected schema attendance-submission/v1, got "${envelope.schema}"`);
     }
-    return envelope;
+    const metadata = (item.metadata && typeof item.metadata === 'object') ? item.metadata : {};
+    return { envelope, metadata };
 }
 
 /**
@@ -43,7 +50,8 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
         throw new TypeError('submissions must be an array');
     }
 
-    const envelopes = submissions.map(unwrapSubmission);
+    const unwrapped = submissions.map(unwrapSubmission);
+    const envelopes = unwrapped.map(u => u.envelope);
     const expectedProject = expectedSaProjectId ? String(expectedSaProjectId).trim() : null;
 
     const contributingSubmissions = [];
@@ -56,8 +64,8 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
     // Missing saEmployeeId rows become independent identity conflicts; never auto-linked by number or name
     const unresolvedItems = [];
 
-    for (let subIndex = 0; subIndex < envelopes.length; subIndex++) {
-        const sub = envelopes[subIndex];
+    for (let subIndex = 0; subIndex < unwrapped.length; subIndex++) {
+        const { envelope: sub, metadata } = unwrapped[subIndex];
 
         if (expectedProject && sub.saProjectId !== expectedProject) {
             throw new TypeError(
@@ -65,13 +73,22 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
             );
         }
 
+        const sourcePeerId = metadata?.sourcePeerId || null;
+        const sourcePeerName = metadata?.sourcePeerName || null;
+        const provenanceName = sourcePeerName || sourcePeerId;
+        const isGeneric = isGenericDeviceId(sub.deviceId);
+        const effectiveDeviceId = (isGeneric && provenanceName) ? provenanceName : sub.deviceId;
+
         projectsSet.add(sub.saProjectId);
         workDatesSet.add(sub.workDate);
-        devicesSet.add(sub.deviceId);
+        devicesSet.add(effectiveDeviceId);
 
         contributingSubmissions.push({
             submissionId: sub.submissionId,
-            deviceId: sub.deviceId,
+            deviceId: effectiveDeviceId,
+            rawDeviceId: sub.deviceId,
+            sourcePeerId,
+            sourcePeerName,
             sourceId: sub.scope?.sourceId || '',
             siteId: sub.scope?.siteId || '',
             ownerUid: sub.scope?.ownerUid || '',
@@ -90,7 +107,10 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
 
             const sourceEntry = {
                 submissionId: sub.submissionId,
-                deviceId: sub.deviceId,
+                deviceId: effectiveDeviceId,
+                rawDeviceId: sub.deviceId,
+                sourcePeerId,
+                sourcePeerName,
                 sourceId: sub.scope?.sourceId || '',
                 siteId: sub.scope?.siteId || '',
                 ownerUid: sub.scope?.ownerUid || '',
@@ -175,6 +195,8 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 conflictingHours: sources.map(s => ({
                     sourceId: s.sourceId,
                     deviceId: s.deviceId,
+                    sourcePeerId: s.sourcePeerId || null,
+                    sourcePeerName: s.sourcePeerName || null,
                     normalHours: s.normalHours,
                     overtimeHours: s.overtimeHours,
                     capturedAt: s.capturedAt

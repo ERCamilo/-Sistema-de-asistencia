@@ -321,7 +321,7 @@ export class AttendanceSubmissionInboxStore {
 
     async importJSON(
         raw,
-        { expectedSaProjectId, expectedRosterVersion, currentRosterVersion } = {}
+        { expectedSaProjectId, expectedRosterVersion, currentRosterVersion, metadata = null } = {}
     ) {
         if (typeof raw !== 'string') throw new TypeError('raw JSON is required');
         if (expectedSaProjectId === undefined || expectedSaProjectId === null) {
@@ -344,6 +344,15 @@ export class AttendanceSubmissionInboxStore {
                     envelope.submissionId
                 );
             }
+            if (metadata && typeof metadata === 'object') {
+                const mergedMetadata = { ...(existing.metadata || {}), ...metadata };
+                const updated = freeze({
+                    ...existing,
+                    metadata: mergedMetadata
+                });
+                await this.db.update(ATTENDANCE_SUBMISSION_INBOX, updated);
+                return { outcome: 'duplicate', record: updated };
+            }
             return { outcome: 'duplicate', record: freeze(existing) };
         }
         const rosterRef =
@@ -365,7 +374,8 @@ export class AttendanceSubmissionInboxStore {
                     ? ['stale_roster']
                     : [],
             bodyHash,
-            sourceSnapshot: envelope
+            sourceSnapshot: envelope,
+            ...(metadata && typeof metadata === 'object' ? { metadata: { ...metadata } } : {})
         });
         await this.db.update(ATTENDANCE_SUBMISSION_INBOX, record);
         return { outcome: 'imported', record };
@@ -406,10 +416,10 @@ export class AttendanceSubmissionInboxStore {
 
     async importSubmission(
         input,
-        { expectedSaProjectId, expectedRosterVersion, currentRosterVersion } = {}
+        options = {}
     ) {
         const raw = typeof input === 'string' ? input : JSON.stringify(input);
-        return this.importJSON(raw, { expectedSaProjectId, expectedRosterVersion, currentRosterVersion });
+        return this.importJSON(raw, options);
     }
 
     async updateStatus(

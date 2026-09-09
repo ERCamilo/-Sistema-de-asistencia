@@ -99,6 +99,8 @@ import {
     buildDefaultMiniAttendanceAliasScope,
     miniAttendanceAliasStore
 } from './modules/services/MiniAttendanceAliasStore.js';
+import { AttendanceSubmissionInboxStore } from './modules/services/AttendanceSubmissionInboxStore.js';
+import { listLinkedMiniPeers, requestMiniAttendance } from './modules/features/p2p/P2PAttendanceBridge.js';
 import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
 import { Leader } from './modules/features/employees/Leader.js';
@@ -3322,6 +3324,17 @@ window.openMiniAttendanceImport = async () => {
     } catch (error) {
         console.warn('⚠️ No se pudieron cargar las coincidencias de Mini:', error);
     }
+
+    const saProjectId = await projectContext.getActiveProjectId();
+    let linkedMinis = [];
+    try {
+        linkedMinis = await listLinkedMiniPeers();
+    } catch (error) {
+        console.warn('⚠️ No se pudieron listar los Minis vinculados:', error);
+    }
+
+    const inboxStore = new AttendanceSubmissionInboxStore({ db: indexedDBService });
+
     return new MiniAttendanceImportModal({
         employees: state.employees,
         positions: state.positions,
@@ -3331,7 +3344,25 @@ window.openMiniAttendanceImport = async () => {
         aliases,
         aliasScope,
         aliasStore: miniAttendanceAliasStore,
-        actorUid
+        actorUid,
+        saProjectId,
+        linkedMinis,
+        inboxStore,
+        onRequestSubmissions: async ({ miniId, date, rangeStart, rangeEnd, groupingMode }) => {
+            const currentProjectId = await projectContext.getActiveProjectId();
+            if (!currentProjectId) {
+                throw new Error('Se requiere un proyecto activo para solicitar asistencia a Minis.');
+            }
+            return await requestMiniAttendance({
+                miniId,
+                date,
+                rangeStart,
+                rangeEnd,
+                groupingMode,
+                saProjectId: currentProjectId,
+                inboxStore
+            });
+        }
     }).open();
 };
 
