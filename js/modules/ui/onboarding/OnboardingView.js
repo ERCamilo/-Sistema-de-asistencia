@@ -29,6 +29,9 @@ export function topbar(stepCounter, showSkip, progress = null, chrome = '') {
     return `<div data-od-id="od-topbar" class="odv-topbar" style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 26px;border-bottom:1px solid ${C.border};"><div class="odv-topbar-brand" style="display:flex;align-items:center;gap:11px;min-width:0;"><img src="icon-512.png" alt="" width="30" height="30" onerror="this.style.display='none'" style="width:30px;height:30px;border-radius:8px;display:block;"><div style="line-height:1.15;min-width:0;"><div style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Control de Asistencia</div><div style="font-size:11px;color:${C.faint};">Contrutek</div></div></div><div class="odv-topbar-actions" style="display:flex;align-items:center;justify-content:flex-end;gap:12px;min-width:0;"><span aria-live="polite" style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:${C.faint};white-space:nowrap;">${esc(stepCounter)}</span>${skip}${chrome}</div>${bar}</div>`;
 }
 export function footer(s, showDots, hint, nextLabel, last) {
+    if (s.phase === 'ready') {
+        return `<div data-od-id="od-footer" class="odv-ready-footer" style="display:flex;align-items:center;justify-content:flex-end;padding:16px 26px;border-top:1px solid ${C.border};"><button type="button" data-act="next" aria-label="Continuar a la aplicación" style="display:flex;align-items:center;justify-content:center;gap:7px;min-width:150px;height:44px;min-height:44px;padding:0 22px;border-radius:10px;border:none;background:${C.accent};color:${C.onAccent};font-size:13.5px;font-weight:700;cursor:pointer;">Continuar<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>`;
+    }
     let dots = '';
     if (showDots) {
         dots = '<div style="display:flex;align-items:center;gap:7px;">' + STEPS.map((st, n) =>
@@ -205,7 +208,7 @@ export function renderOnboarding(s, chrome = '') {
     const nextLabel = s.phase === 'guide' ? (s.step === STEPS.length ? 'Configurar la app' : 'Siguiente')
         : s.phase === 'choice' ? 'Continuar'
         : s.phase === 'setup' ? (s.setupStep === SETUP_TOTAL ? 'Finalizar' : 'Siguiente')
-        : 'Entrar a la app';
+        : 'Continuar';
     const demo = demoPanel(s);
     const body = s.phase === 'guide' ? `<div class="odv-guide-grid" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:434px;">${guideCopy(s)}${demo}</div>`
         : s.phase === 'choice' ? choiceSection(s)

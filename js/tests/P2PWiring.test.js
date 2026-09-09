@@ -148,7 +148,8 @@ test('pairing QR markup uses a data image with responsive dimensions and useful 
     expect(markup).toContain('width="240"');
     expect(markup).toContain('height="240"');
     expect(markup).toContain('alt="Código QR de vinculación SA con Mini"');
-    expect(markup).toContain('max-width:100%');
+    expect(markup).toContain('class="sa-p2p-qr-image"');
+    expect(read('css/p2p-transfer.css')).toContain('max-width:100%');
     expect(markup).not.toContain('createSvgTag');
   } finally {
     window.qrcode = previous;
@@ -184,4 +185,30 @@ test('the vendored QR dependency has a documented, verified pin',()=>{
   expect(notice).toContain('Kazuhiko Arase');
   expect(notice).toContain('MIT License');
   expect(notice).toContain(digest);
+});
+
+
+test('P2P home follows compact linking UI contract',()=>{
+  const ui=read('js/modules/features/p2p/P2PRosterUI.js');
+  const css=read('css/p2p-transfer.css');
+  const html=read('index.html');
+  const sw=read('sw.js');
+  expect(ui).toContain('sa-p2p-capabilities');
+  for (const label of ['Personal','Proyecto','Asistencia','Archivos']) expect(ui).toContain(label);
+  expect(ui).toContain('sa-p2p-peer-row');
+  expect(ui).toContain('sa-p2p-device-actions');
+  expect(ui).toContain('sa-p2p-icon-btn');
+  expect(ui).toContain('showConfirm');
+  expect(ui).toContain('function setBodyHtml(markup)');
+  expect(ui).toContain("height 260ms cubic-bezier(.2,.8,.2,1)");
+  expect(ui).not.toContain("confirm('¿Desvincular");
+  expect(ui).not.toContain("disabledCard('🕒 Asistencia'");
+  expect(ui).not.toContain('<div style="font-size:24px">⇄</div>');
+  expect(css).toContain('.sa-p2p-capabilities');
+  expect(css).toMatch(/\.sa-p2p-icon-btn \{[^}]*width:44px;[^}]*height:44px;[^}]*min-height:44px;/);
+  expect(css).toMatch(/\.sa-p2p-button \{[^}]*min-height:44px;/);
+  expect(css).toMatch(/\.sa-p2p-back \{[^}]*min-height:44px;/);
+  expect(css).toMatch(/grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+  expect(html).toContain('css/p2p-transfer.css');
+  expect(sw).toContain("'./css/p2p-transfer.css'");
 });

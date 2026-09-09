@@ -79,6 +79,9 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         expect(pasteBtn).not.toBeNull();
         expect(pasteBtn.classList.contains('is-active')).toBe(true);
         expect(connectedBtn.classList.contains('is-active')).toBe(false);
+        expect([...modeTabs.querySelectorAll('[data-mini-mode]')].map(btn => btn.dataset.miniMode))
+            .toEqual(['paste', 'connected']);
+        expect(host.querySelector('.mini-import-content-gutter')).not.toBeNull();
 
         // Pegar texto view is visible by default
         expect(host.querySelector('[data-mini-source]')).not.toBeNull();
@@ -226,6 +229,7 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         // Verify consolidation skeleton rendered
         const skeleton = host.querySelector('[data-mini-consolidation-skeleton]');
         expect(skeleton).not.toBeNull();
+        expect(skeleton.closest('.mini-import-content-gutter')).not.toBeNull();
         expect(host.querySelector('.mini-badge-resolved').textContent).toContain('1');
 
         // Verify proposal seam banner is present

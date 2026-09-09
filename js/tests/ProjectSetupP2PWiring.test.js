@@ -32,7 +32,9 @@ test('P2P shows canonical active project and blocks all UI send entrypoints unti
     const ui = read('js/modules/features/p2p/P2PRosterUI.js');
     expect(ui).toContain("getProjectSetupState()");
     expect(ui).not.toContain("../projects/ProjectSetupService.js");
-    expect(ui).toContain('Proyecto a enviar');
+    expect(ui).toContain("<strong>Proyecto</strong>");
+    expect(ui).toContain("projectState.ready ? 'Proyecto activo: '");
+    expect(ui).toContain("projectState.activeProject?.name || 'Activo'");
     expect(ui).toContain('data-configure-project');
     expect(ui).toContain("projectState.ready ? '' : 'disabled aria-disabled=\"true\"");
     expect(ui).toContain("if (!projectState.ready)");

@@ -269,6 +269,15 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 
 ---
 
+
+### 5.8 Vinculación y Transferencias P2P
+* La portada de un flujo de vinculación no debe dedicar tarjetas grandes a capacidades/funciones. Usar una **franja compacta de capacidades** en una fila o grid corto (`Personal`, `Proyecto`, `Asistencia`, `Archivos`) y reservar el espacio principal para dispositivos y acciones reales.
+* Los dispositivos vinculados se muestran como filas/tarjetas compactas: icono vectorial, alias/nombre, última conexión y acciones secundarias con SVG. La acción principal puede conservar texto (`Enviar roster`, `Vincular Mini`).
+* Estados futuros/deshabilitados no compiten visualmente con funciones disponibles; se presentan atenuados dentro de la misma franja de capacidades.
+* En móvil, las capacidades pueden pasar de 4 columnas a 2; los targets táctiles siguen siendo de al menos `44x44px`.
+* Todo el flujo inicio → QR/código → confirmación → resultado conserva el mismo overlay/shell y aplica la transición morfológica definida en 4.6; no cerrar y volver a abrir otro modal.
+* No usar `confirm()` nativo ni emojis/símbolos Unicode como iconografía de acciones. Usar confirmación in-app y SVG accesibles.
+
 ## 6. Clases Utilitarias (Hover & Interactions)
 
 Para asegurar interactividad táctil sin CSS inline engorroso:

@@ -1046,14 +1046,15 @@ export class MiniAttendanceImportModal {
         pasteBtn.dataset.miniMode = 'paste';
         pasteBtn.addEventListener('click', () => this.setImportMode('paste'));
 
-        tabs.append(connectedBtn, pasteBtn);
+        tabs.append(pasteBtn, connectedBtn);
         return tabs;
     }
 
     renderPaste() {
         const section = element('div', null, { className: 'mini-import-paste' });
         section.append(renderTopbar(1, 4, 'Importar asistencia desde Mini', 'Paso 1 · Pegado', 'PEGADO', () => this.close()));
-        section.append(this.renderModeTabs());
+        const content = element('div', null, { className: 'mini-import-content-gutter' });
+        content.append(this.renderModeTabs());
         const id = `mini-attendance-source-${this.controlId}`;
         const label = element('label', 'Pega el reporte de Mini enviado por WhatsApp', { htmlFor: id });
         const textarea = element('textarea', null, {
@@ -1072,7 +1073,8 @@ export class MiniAttendanceImportModal {
         analyze.addEventListener('click', () => this.analyze());
         const footer = element('div', null, { className: 'mini-import-footer mini-import-footer-end' });
         footer.append(analyze);
-        section.append(label, textarea, footer);
+        content.append(label, textarea, footer);
+        section.append(content);
         return section;
     }
 
@@ -1093,7 +1095,8 @@ export class MiniAttendanceImportModal {
                 ? 'REVISIÓN'
                 : 'CONECTADOS';
         section.append(renderTopbar(connectedStep, 3, 'Importar asistencia desde Mini', subtitle, chip, () => this.close()));
-        if (this.connectedView === 'request') section.append(this.renderModeTabs());
+        const content = element('div', null, { className: 'mini-import-content-gutter' });
+        if (this.connectedView === 'request') content.append(this.renderModeTabs());
 
         // 1. Linked Mini selection
         const selectionSection = element('div', null, { className: 'mini-import-connected-section', dataset: { miniConnectedSelection: '' } });
@@ -1453,7 +1456,8 @@ export class MiniAttendanceImportModal {
             openInboxBtn.classList.add('mini-import-action-primary');
             openInboxBtn.addEventListener('click', () => { void this.openConnectedInbox(); });
             inboxCard.append(inboxCopy, openInboxBtn);
-            section.append(selectionSection, dateSection, inboxCard);
+            content.append(selectionSection, dateSection, inboxCard);
+            section.append(content);
             return section;
         }
 
@@ -1465,7 +1469,8 @@ export class MiniAttendanceImportModal {
             nav.append(back, element('p', 'Selecciona uno o varios borradores. Nada se escribe en SA hasta completar la conciliación.', {
                 className: 'mini-import-hint'
             }));
-            section.append(nav, draftsSection);
+            content.append(nav, draftsSection);
+            section.append(content);
             return section;
         }
 
@@ -1476,14 +1481,15 @@ export class MiniAttendanceImportModal {
         nav.append(back, element('p', 'Primero se resuelven diferencias entre Minis y después se compara la propuesta con SA.', {
             className: 'mini-import-hint'
         }));
-        section.append(nav);
+        content.append(nav);
         if (this.consolidatedResult) {
-            section.append(this.renderConsolidationSkeleton());
+            content.append(this.renderConsolidationSkeleton());
         } else {
-            section.append(element('div', 'No hay una consolidación activa. Vuelve a la bandeja y selecciona borradores.', {
+            content.append(element('div', 'No hay una consolidación activa. Vuelve a la bandeja y selecciona borradores.', {
                 className: 'mini-import-empty-drafts'
             }));
         }
+        section.append(content);
         return section;
     }
 

@@ -2489,3 +2489,29 @@
     background: color-mix(in oklch, var(--mini-good) 70%, var(--mini-panel-2));
     color: var(--mini-text);
 }
+
+
+/* Interior framing: the topbar remains full-bleed; every step body gets a visible gutter. */
+.mini-import-content-gutter {
+    display: grid;
+    gap: 16px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0 20px 20px;
+}
+
+.mini-import-mode-tabs {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+}
+
+.mini-import-mode-tabs .mini-import-mode-btn {
+    flex: 0 1 auto;
+}
+
+@media (max-width: 640px) {
+    .mini-import-content-gutter { padding: 0 14px 14px; gap: 14px; }
+    .mini-import-mode-tabs { width: 100%; }
+    .mini-import-mode-tabs .mini-import-mode-btn { flex: 1 1 0; min-width: 0; }
+}
