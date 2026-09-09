@@ -114,7 +114,7 @@ export function adaptResolvedDayToConflictPlan({
                 action: userDecision.action,
                 acknowledged: userDecision.acknowledged === true
             };
-            targetPositionId = userDecision.targetPositionId || (positionIds[0] || null);
+            targetPositionId = userDecision.targetPositionId || (positionIds.length === 1 ? positionIds[0] : null);
             positionAllocations = userDecision.positionAllocations || (targetPositionId ? [{
                 positionId: targetPositionId,
                 normalHours: imported.normalHours,

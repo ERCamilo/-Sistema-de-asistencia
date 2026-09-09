@@ -337,6 +337,50 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(mockState.attendance['EMP-001-2026-09-06'].hoursWorked).toBe(8);
     });
 
+    test('multi-position employee remains blocked until an explicit target position is selected', () => {
+        const sub = sampleSubmission({
+            submissionId: 'sub-multipos',
+            workDate: '2026-09-06',
+            rows: [
+                { miniLocalId: 'm3', number: '003', name: 'David López', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-003' }
+            ]
+        });
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [sub],
+            employees: mockEmployees,
+            attendance: mockState.attendance,
+            positions: mockPositions,
+            saProjectId: PROJECT_ID,
+            entityScope: PROJECT_SCOPE,
+            applyPlan: mockApplyPlan
+        });
+
+        let dayState = resolver.getDayState('2026-09-06');
+        expect(dayState.status).toBe('stage_b_conflict');
+        let row = dayState.conflictPlan.rows.find(item => item.employeeId === 'EMP-003');
+        expect(row.blockers).toContain('target_position_required');
+        expect(row.targetPositionId).toBeNull();
+
+        resolver.resolveDayConflict('2026-09-06', 'EMP-003', { action: 'use_imported' });
+        dayState = resolver.getDayState('2026-09-06');
+        expect(dayState.status).toBe('stage_b_conflict');
+        row = dayState.conflictPlan.rows.find(item => item.employeeId === 'EMP-003');
+        expect(row.blockers).toContain('target_position_required');
+        expect(row.targetPositionId).toBeNull();
+
+        resolver.resolveDayConflict('2026-09-06', 'EMP-003', {
+            action: 'use_imported',
+            targetPositionId: 'pos-2'
+        });
+        dayState = resolver.getDayState('2026-09-06');
+        expect(dayState.status).toBe('ready');
+        row = dayState.conflictPlan.rows.find(item => item.employeeId === 'EMP-003');
+        expect(row.targetPositionId).toBe('pos-2');
+        expect(row.positionAllocations).toEqual([{
+            positionId: 'pos-2', normalHours: 8, overtimeHours: 0
+        }]);
+    });
+
     test('5. Multi-day 2-3 dates: preserves day and period views; resolution and apply remain day-atomic', async () => {
         const sub1 = sampleSubmission({
             submissionId: 'sub-d1',

@@ -58,10 +58,14 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         document.body.replaceChildren(host);
         appliedPlans = [];
 
-        positions = [{ id: 'pos-1', name: 'Albañil' }];
+        positions = [
+            { id: 'pos-1', name: 'Albañil' },
+            { id: 'pos-2', name: 'Fierrero' }
+        ];
         employees = [
             { id: 'EMP-001', number: '001', name: 'Ana Pérez', active: true, positions: ['pos-1'] },
-            { id: 'EMP-002', number: '002', name: 'Carlos Gómez', active: true, positions: ['pos-1'] }
+            { id: 'EMP-002', number: '002', name: 'Carlos Gómez', active: true, positions: ['pos-1'] },
+            { id: 'EMP-003', number: '003', name: 'David López', active: true, positions: ['pos-1', 'pos-2'] }
         ];
         attendance = {};
 
@@ -269,4 +273,50 @@ describe('MiniAttendanceImportModal — Multi-Day Two-Stage UI Resolver', () => 
         expect(attendance['EMP-001-2026-09-06'].hoursWorked).toBe(8);
         expect(host.querySelector('[data-mini-day-date="2026-09-06"]').textContent).toBe('Aplicado');
     });
+    test('UI keeps a multi-position employee blocked until a position is explicitly selected', async () => {
+        const db = new MemoryDB();
+        const inboxStore = new AttendanceSubmissionInboxStore({ db });
+        const SUB_ID = '55555555-5555-4555-8555-555555555555';
+        const sub = buildSubmission({
+            id: SUB_ID,
+            workDate: '2026-09-09',
+            rows: [
+                { miniLocalId: 'm3', number: '003', name: 'David López', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-003' }
+            ]
+        });
+        await inboxStore.importSubmission(sub, { expectedSaProjectId: SA_PROJECT });
+
+        const modal = new MiniAttendanceImportModal({
+            saProjectId: SA_PROJECT,
+            entityScope: SA_SCOPE,
+            inboxStore,
+            employees,
+            positions,
+            attendance,
+            applyPlan: mockApplyPlan,
+            importMode: 'connected'
+        });
+        modal.mount(host);
+        await modal.setImportMode('connected');
+        host.querySelector(`[data-mini-draft-checkbox="${SUB_ID}"]`).click();
+        host.querySelector('[data-mini-action="consolidate-drafts"]').click();
+
+        expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Conflicto con SA');
+        const positionSelect = host.querySelector('[data-mini-select-position="EMP-003"]');
+        const assignBtn = host.querySelector('[data-mini-action="resolve-position"][data-mini-employee-id="EMP-003"]');
+        expect(positionSelect).not.toBeNull();
+        expect(assignBtn).not.toBeNull();
+        expect(assignBtn.disabled).toBe(true);
+
+        positionSelect.value = 'pos-2';
+        positionSelect.dispatchEvent(new Event('change'));
+        expect(assignBtn.disabled).toBe(false);
+        assignBtn.click();
+
+        expect(host.querySelector('[data-mini-day-date="2026-09-09"]').textContent).toBe('Listo para aplicar');
+        const plan = modal.multiDayResolver.buildDayApplyPlan('2026-09-09');
+        expect(plan.writes).toHaveLength(1);
+        expect(plan.writes[0].record.selectedPosition).toBe('pos-2');
+    });
+
 });

@@ -1362,6 +1362,52 @@ export class MiniAttendanceImportModal {
                                 saConflictEl.append(keepSaBtn, useImportedBtn);
                                 rowEl.append(saConflictEl);
                             }
+
+                            const needsPosition = conflictRow &&
+                                conflictRow.decision?.action === 'use_imported' &&
+                                conflictRow.blockers?.some(blocker =>
+                                    blocker === 'target_position_required' || blocker === 'target_position_invalid'
+                                );
+                            if (needsPosition) {
+                                const positionEl = element('div', null, {
+                                    className: 'mini-position-resolve-row',
+                                    dataset: { miniPositionConflict: item.saEmployeeId }
+                                });
+                                positionEl.append(element('span', 'Asignar las horas importadas a una posición:', {
+                                    className: 'mini-control-label'
+                                }));
+                                const positionSelect = element('select', null, {
+                                    className: 'mini-import-select',
+                                    dataset: { miniSelectPosition: item.saEmployeeId }
+                                });
+                                positionSelect.append(element('option', '-- Seleccionar posición --', {
+                                    value: '', disabled: true, selected: true
+                                }));
+                                (conflictRow.employeePositionIds || []).forEach(positionId => {
+                                    const position = this.positions.find(pos => pos.id === positionId);
+                                    positionSelect.append(element('option', position?.name || positionId, { value: positionId }));
+                                });
+                                const assignPositionBtn = actionButton(
+                                    'Asignar posición y continuar',
+                                    'resolve-position',
+                                    true
+                                );
+                                assignPositionBtn.dataset.miniEmployeeId = item.saEmployeeId;
+                                assignPositionBtn.dataset.miniDate = group.workDate;
+                                positionSelect.addEventListener('change', () => {
+                                    assignPositionBtn.disabled = !positionSelect.value;
+                                });
+                                assignPositionBtn.addEventListener('click', () => {
+                                    if (!positionSelect.value) return;
+                                    this.multiDayResolver.resolveDayConflict(group.workDate, item.saEmployeeId, {
+                                        action: 'use_imported',
+                                        targetPositionId: positionSelect.value
+                                    });
+                                    this.render();
+                                });
+                                positionEl.append(positionSelect, assignPositionBtn);
+                                rowEl.append(positionEl);
+                            }
                         }
                     }
 
