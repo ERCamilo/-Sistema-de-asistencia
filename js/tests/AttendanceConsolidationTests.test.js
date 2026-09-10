@@ -12,9 +12,10 @@ function buildSubmission({
     sourceId = 'mini-1',
     workDate = '2026-09-06',
     capturedAt = '2026-09-07T12:00:00.000Z',
-    rows = []
+    rows = [],
+    coverageMode = null
 } = {}) {
-    return {
+    const out = {
         schema: 'attendance-submission/v1',
         submissionId,
         saProjectId: PROJECT_ID,
@@ -25,6 +26,8 @@ function buildSubmission({
         workDate,
         rows
     };
+    if (coverageMode) out.coverageMode = coverageMode;
+    return out;
 }
 
 describe('AttendanceConsolidation — pure cross-Mini consolidation', () => {
@@ -163,6 +166,68 @@ describe('AttendanceConsolidation — pure cross-Mini consolidation', () => {
         expect(anaItem.normalHours).toBe(8);
         expect(anaItem.sources.length).toBe(1);
         expect(anaItem.sources[0].deviceId).toBe('dev-1');
+    });
+
+    test('full roster coverage treats a missing employee row as an explicit coverage conflict', () => {
+        const subMini1 = buildSubmission({
+            submissionId: '11111111-1111-1111-1111-111111111111',
+            deviceId: 'dev-1', sourceId: 'mini-1', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm1', number: '1', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', rosterStatus: 'active', saEmployeeId: 'EMP-001' }]
+        });
+        const subMini2 = buildSubmission({
+            submissionId: '22222222-2222-2222-2222-222222222222',
+            deviceId: 'dev-2', sourceId: 'mini-2', coverageMode: 'linked-roster-full', rows: []
+        });
+
+        const result = consolidateAttendanceSubmissions([subMini1, subMini2]);
+        const ana = result.items.find(item => item.saEmployeeId === 'EMP-001');
+        expect(ana.status).toBe('conflict');
+        expect(ana.conflictReasons).toContain('coverage_conflict');
+        expect(ana.sources).toHaveLength(2);
+        expect(ana.sources.find(source => source.deviceId === 'dev-2').missingRoster).toBe(true);
+    });
+
+    test('0h/unmarked versus reported hours is a Mini-to-Mini conflict', () => {
+        const subMini1 = buildSubmission({
+            submissionId: '11111111-1111-1111-1111-111111111111',
+            deviceId: 'dev-1', sourceId: 'mini-1', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm1', number: '1', name: 'Ana', normalHours: 0, overtimeHours: 0, status: 'unmarked', rosterStatus: 'active', saEmployeeId: 'EMP-001' }]
+        });
+        const subMini2 = buildSubmission({
+            submissionId: '22222222-2222-2222-2222-222222222222',
+            deviceId: 'dev-2', sourceId: 'mini-2', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm2', number: '1', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', rosterStatus: 'active', saEmployeeId: 'EMP-001' }]
+        });
+        const item = consolidateAttendanceSubmissions([subMini1, subMini2]).items[0];
+        expect(item.status).toBe('conflict');
+        expect(item.conflictReasons).toEqual(expect.arrayContaining(['attendance_status_conflict', 'hours_conflict']));
+    });
+
+    test('paused versus active roster state conflicts even when reported hours match', () => {
+        const subMini1 = buildSubmission({
+            submissionId: '11111111-1111-1111-1111-111111111111',
+            deviceId: 'dev-1', sourceId: 'mini-1', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm1', number: '1', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', rosterStatus: 'active', saEmployeeId: 'EMP-001' }]
+        });
+        const subMini2 = buildSubmission({
+            submissionId: '22222222-2222-2222-2222-222222222222',
+            deviceId: 'dev-2', sourceId: 'mini-2', coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm2', number: '1', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', rosterStatus: 'paused', saEmployeeId: 'EMP-001' }]
+        });
+        const item = consolidateAttendanceSubmissions([subMini1, subMini2]).items[0];
+        expect(item.status).toBe('conflict');
+        expect(item.conflictReasons).toContain('roster_status_conflict');
+    });
+
+    test('preserves total hours above eight instead of displaying only normal hours', () => {
+        const sub = buildSubmission({
+            coverageMode: 'linked-roster-full',
+            rows: [{ miniLocalId: 'm1', number: '1', name: 'Ana', normalHours: 8, overtimeHours: 8, status: 'present', rosterStatus: 'active', saEmployeeId: 'EMP-001' }]
+        });
+        const item = consolidateAttendanceSubmissions([sub]).items[0];
+        expect(item.normalHours).toBe(8);
+        expect(item.overtimeHours).toBe(8);
+        expect(item.totalHours).toBe(16);
     });
 
     test('detects hours conflict when multiple Minis report different hours for the same employee and date', () => {

@@ -209,7 +209,9 @@ export class MultiDayAttendanceResolver {
         saProjectId = null,
         regularLimit = 8,
         applyPlan = applyMiniAttendancePlan,
-        entityScope = null
+        entityScope = null,
+        stage = 'combined',
+        completedMiniDates = []
     } = {}) {
         let baseConsolidation = consolidation;
         if (!baseConsolidation && Array.isArray(submissions)) {
@@ -228,6 +230,13 @@ export class MultiDayAttendanceResolver {
         this.regularLimit = regularLimit;
         this.applyPlan = applyPlan;
         this.entityScope = entityScope;
+        if (!['combined', 'mini', 'sa'].includes(stage)) {
+            throw new TypeError(`Invalid resolver stage: ${stage}`);
+        }
+        this.stage = stage;
+        this.completedMiniDates = new Set(
+            Array.isArray(completedMiniDates) ? completedMiniDates.filter(date => typeof date === 'string') : []
+        );
 
         this.workDates = [...(baseConsolidation.workDates || [])].sort();
         this.contributingSubmissions = baseConsolidation.contributingSubmissions || [];
@@ -270,6 +279,26 @@ export class MultiDayAttendanceResolver {
                 conflictPlan: null,
                 applyPlan: null,
                 applyResult: this.dayApplyResults.get(date) || null
+            }));
+            return;
+        }
+
+        // In staged mode, Mini↔Mini resolution must complete independently
+        // before SA attendance is consulted. A completed day can be persisted and
+        // resumed without creating/applying any SA conflict plan.
+        if (this.stage === 'mini') {
+            const completed = this.completedMiniDates.has(date);
+            this.dayStates.set(date, deepFreeze({
+                date,
+                status: completed ? 'mini_day_completed' : 'mini_day_ready',
+                stageABlockers: [],
+                stageBBlockers: [],
+                canApply: false,
+                canCompleteMiniDay: !completed,
+                items: cloneValue(dateItems),
+                conflictPlan: null,
+                applyPlan: null,
+                applyResult: null
             }));
             return;
         }
@@ -451,8 +480,37 @@ export class MultiDayAttendanceResolver {
 
         item.normalHours = normalHours;
         item.overtimeHours = overtimeHours;
+        item.totalHours = normalHours + overtimeHours;
+        if (choice && Number.isInteger(choice.sourceIndex)) {
+            const selected = item.sources[choice.sourceIndex];
+            item.sourceStatus = selected?.status || (item.totalHours > 0 ? 'present' : 'unmarked');
+            item.rosterStatus = selected?.rosterStatus || null;
+            item.resolutionSource = {
+                submissionId: selected?.submissionId || null,
+                deviceId: selected?.deviceId || null,
+                sourcePeerId: selected?.sourcePeerId || null,
+                sourcePeerName: selected?.sourcePeerName || null,
+                missingRoster: selected?.missingRoster === true
+            };
+        } else if (choice && typeof choice.deviceId === 'string') {
+            const selected = item.sources.find(source => source.deviceId === choice.deviceId);
+            item.sourceStatus = selected?.status || (item.totalHours > 0 ? 'present' : 'unmarked');
+            item.rosterStatus = selected?.rosterStatus || null;
+            item.resolutionSource = {
+                submissionId: selected?.submissionId || null,
+                deviceId: selected?.deviceId || null,
+                sourcePeerId: selected?.sourcePeerId || null,
+                sourcePeerName: selected?.sourcePeerName || null,
+                missingRoster: selected?.missingRoster === true
+            };
+        } else {
+            item.sourceStatus = item.totalHours > 0 ? 'present' : 'unmarked';
+            item.rosterStatus = 'active';
+            item.resolutionSource = { manual: true };
+        }
         item.status = 'resolved';
         item.conflictType = null;
+        item.conflictReasons = [];
         item.blockers = [];
 
         this._recomputeDayState(item.workDate);
@@ -521,6 +579,86 @@ export class MultiDayAttendanceResolver {
         return this.workDates.map(date => this.getDayState(date));
     }
 
+    /** Completes one Mini↔Mini day after all Stage A conflicts are resolved. */
+    completeMiniDay(date) {
+        if (this.stage !== 'mini') throw new Error('completeMiniDay is only available in mini stage');
+        const state = this.getDayState(date);
+        if (!state) throw new Error(`Unknown date: ${date}`);
+        if (state.status !== 'mini_day_ready') {
+            throw new Error(`Day ${date} is not ready for Mini consolidation (status: ${state.status})`);
+        }
+        this.completedMiniDates.add(date);
+        this._recomputeDayState(date);
+        return this.getMiniProgressSnapshot();
+    }
+
+    reopenMiniDay(date) {
+        if (this.stage !== 'mini') throw new Error('reopenMiniDay is only available in mini stage');
+        this.completedMiniDates.delete(date);
+        this._recomputeDayState(date);
+        return this.getDayState(date);
+    }
+
+    isMiniStageComplete() {
+        return this.stage === 'mini' && this.workDates.length > 0 &&
+            this.workDates.every(date => this.completedMiniDates.has(date));
+    }
+
+    getMiniProgressSnapshot() {
+        if (this.stage !== 'mini') throw new Error('Mini progress snapshot is only available in mini stage');
+        return deepFreeze({
+            schema: 'mini-attendance-consolidation-progress/v1',
+            saProjectId: this.saProjectId,
+            sourceSubmissionIds: this.contributingSubmissions.map(item => item.submissionId).filter(Boolean),
+            workDates: [...this.workDates],
+            completedDays: [...this.completedMiniDates].sort(),
+            devices: [...this.devices],
+            contributingSubmissions: cloneValue(this.contributingSubmissions),
+            items: cloneValue(this.items),
+            summary: {
+                totalItems: this.items.filter(item => !item.excluded).length,
+                resolvedCount: this.items.filter(item => !item.excluded && item.status === 'resolved').length,
+                hoursConflictCount: this.items.filter(item => !item.excluded && item.status === 'conflict').length,
+                unresolvedIdentityCount: this.items.filter(item => !item.excluded && item.status === 'identity_conflict').length,
+                submissionsCount: this.contributingSubmissions.length
+            }
+        });
+    }
+
+    buildMiniConsolidatedDraft({ consolidationId, revision = 1, now = Date.now() } = {}) {
+        if (this.stage !== 'mini') throw new Error('Mini consolidated draft can only be built in mini stage');
+        if (!this.isMiniStageComplete()) throw new Error('All Mini consolidation days must be completed first');
+        if (typeof consolidationId !== 'string' || !consolidationId.trim()) {
+            throw new TypeError('consolidationId is required');
+        }
+        const items = cloneValue(this.items.filter(item => !item.excluded));
+        if (items.some(item => item.status === 'conflict' || item.status === 'identity_conflict' || !item.saEmployeeId)) {
+            throw new Error('Mini consolidated draft contains unresolved items');
+        }
+        return deepFreeze({
+            schema: 'mini-attendance-consolidated/v1',
+            consolidationId: consolidationId.trim(),
+            revision,
+            status: 'mini_consolidated',
+            saProjectId: this.saProjectId,
+            sourceSubmissionIds: this.contributingSubmissions.map(item => item.submissionId).filter(Boolean),
+            workDates: [...this.workDates],
+            completedDays: [...this.completedMiniDates].sort(),
+            devices: [...this.devices],
+            contributingSubmissions: cloneValue(this.contributingSubmissions),
+            items,
+            summary: {
+                totalItems: items.length,
+                resolvedCount: items.filter(item => item.status === 'resolved').length,
+                hoursConflictCount: 0,
+                unresolvedIdentityCount: 0,
+                submissionsCount: this.contributingSubmissions.length
+            },
+            createdAt: now,
+            updatedAt: now
+        });
+    }
+
     /**
      * Builds the apply plan for a specific date if it is ready.
      *
@@ -584,9 +722,10 @@ export class MultiDayAttendanceResolver {
         return deepFreeze({
             workDates: [...this.workDates],
             totalDays: this.workDates.length,
-            readyDaysCount: states.filter(s => s.status === 'ready').length,
+            readyDaysCount: states.filter(s => s.status === 'ready' || s.status === 'mini_day_ready').length,
             blockedDaysCount: states.filter(s => s.status === 'stage_a_blocked' || s.status === 'stage_b_conflict').length,
             appliedDaysCount: states.filter(s => s.status === 'applied').length,
+            completedMiniDaysCount: states.filter(s => s.status === 'mini_day_completed').length,
             stageAConflictCount: states.filter(s => s.status === 'stage_a_blocked').length,
             stageBConflictCount: states.filter(s => s.status === 'stage_b_conflict').length,
             totalItems: nonExcludedItems.length,

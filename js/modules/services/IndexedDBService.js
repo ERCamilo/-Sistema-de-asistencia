@@ -26,7 +26,7 @@ export const IDB_OPEN_TIMEOUT_MS = 8000;
 export const IDB_BLOCKED_GRACE_MS = 4000;
 
 export class IndexedDBService {
-    constructor(dbName = 'attendance-app-db', version = 21) {
+    constructor(dbName = 'attendance-app-db', version = 22) {
         this.dbName = dbName;
         this.version = version;
         this.db = null;
@@ -321,6 +321,18 @@ export class IndexedDBService {
                     inboxStore.createIndex('saProjectId', 'saProjectId', { unique: false });
                     inboxStore.createIndex('workDate', 'workDate', { unique: false });
                     inboxStore.createIndex('receivedAt', 'receivedAt', { unique: false });
+                }
+
+
+                // Store: progreso y versiones revisadas de consolidación Mini↔Mini (v22).
+                // Vive separado del inbox raw: descartar/recrear un consolidado jamás
+                // elimina ni reescribe attendanceSubmissionInbox.
+                if (!db.objectStoreNames.contains('miniAttendanceConsolidations')) {
+                    const consolidationStore = db.createObjectStore('miniAttendanceConsolidations', { keyPath: 'key' });
+                    consolidationStore.createIndex('saProjectId', 'saProjectId', { unique: false });
+                    consolidationStore.createIndex('status', 'status', { unique: false });
+                    consolidationStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+                    consolidationStore.createIndex('projectStatus', ['saProjectId', 'status'], { unique: false });
                 }
             };
         });

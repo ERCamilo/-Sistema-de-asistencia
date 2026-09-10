@@ -62,7 +62,7 @@ describe('IndexedDBService upgrade v20 → v21 (real)', () => {
 
         await openV20WithLegacyData(dbName, { employee, attendance, settings, project });
 
-        const svc = new IndexedDBService(dbName);
+        const svc = new IndexedDBService(dbName, 21);
         await svc.init();
 
         expect(svc.db.version).toBe(21);
@@ -104,7 +104,7 @@ describe('IndexedDBService upgrade v20 → v21 (real)', () => {
 
     test('fresh v21 install creates attendanceSubmissionInbox with all indexes', async () => {
         const dbName = `test-fresh-v21-${Date.now()}-${Math.random()}`;
-        const svc = new IndexedDBService(dbName);
+        const svc = new IndexedDBService(dbName, 21);
         await svc.init();
 
         expect(svc.db.version).toBe(21);

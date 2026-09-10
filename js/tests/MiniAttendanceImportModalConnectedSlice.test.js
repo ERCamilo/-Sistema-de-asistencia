@@ -235,8 +235,8 @@ describe('MiniAttendanceImportModal — Conectados vs Pegar texto slice', () => 
         // Verify proposal seam banner is present
         const proposalSeam = host.querySelector('[data-mini-proposal-seam]');
         expect(proposalSeam).not.toBeNull();
-        expect(proposalSeam.textContent).toContain('Seam de propuesta para conciliación');
-        expect(proposalSeam.textContent).toContain('No se ha escrito en la asistencia oficial');
+        expect(proposalSeam.textContent).toContain('Resolución Mini ↔ Mini');
+        expect(proposalSeam.textContent).toContain('SA no participa todavía');
     });
 
     test('Pegar texto preserves existing WhatsApp parser and behavior after switching back and forth', () => {
@@ -548,7 +548,8 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
             // Retry call: Mini 2 succeeds
             expect(targetMiniIds).toEqual(['peer-mini-2']);
             await inboxStore.importSubmission(sampleSubmission(SUB_UUID_2, '2026-09-06'), {
-                expectedSaProjectId: SA_PROJECT
+                expectedSaProjectId: SA_PROJECT,
+                metadata: { sourcePeerId: 'peer-mini-2', sourcePeerName: 'Mini 2' }
             });
             return {
                 ok: true,

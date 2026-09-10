@@ -617,4 +617,65 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(carlos.normalHours).toBe(8);
         expect(carlos.sources.length).toBe(1);
     });
+
+    test('staged Mini flow completes days and builds a persistent consolidated draft before SA comparison', () => {
+        const date = '2026-09-06';
+        const sub = sampleSubmission({
+            submissionId: 'sub-stage-mini',
+            workDate: date,
+            rows: [{ miniLocalId: 'm1', number: '001', name: 'Ana Pérez', normalHours: 8, overtimeHours: 8, status: 'present', saEmployeeId: 'EMP-001' }]
+        });
+        const existingAttendance = {
+            [`EMP-001-${date}`]: { employeeId: 'EMP-001', date, hoursWorked: 4, overtimeHours: 0 }
+        };
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [sub], employees: mockEmployees, attendance: existingAttendance,
+            positions: mockPositions, saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE,
+            stage: 'mini', applyPlan: mockApplyPlan
+        });
+
+        const before = resolver.getDayState(date);
+        expect(before.status).toBe('mini_day_ready');
+        expect(before.conflictPlan).toBeNull();
+        expect(before.items[0].totalHours).toBe(16);
+        expect(resolver.isMiniStageComplete()).toBe(false);
+
+        resolver.completeMiniDay(date);
+        expect(resolver.getDayState(date).status).toBe('mini_day_completed');
+        expect(resolver.isMiniStageComplete()).toBe(true);
+
+        const draft = resolver.buildMiniConsolidatedDraft({
+            consolidationId: 'CONS-001', revision: 1, now: 12345
+        });
+        expect(draft.schema).toBe('mini-attendance-consolidated/v1');
+        expect(draft.status).toBe('mini_consolidated');
+        expect(draft.completedDays).toEqual([date]);
+        expect(draft.items[0].totalHours).toBe(16);
+
+        const saResolver = createMultiDayAttendanceResolver({
+            consolidation: draft, employees: mockEmployees, attendance: existingAttendance,
+            positions: mockPositions, saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE,
+            stage: 'sa', applyPlan: mockApplyPlan
+        });
+        expect(saResolver.getDayState(date).status).toBe('stage_b_conflict');
+    });
+
+    test('staged Mini flow refuses final consolidated draft while a day is unresolved or incomplete', () => {
+        const sub1 = sampleSubmission({
+            submissionId: 'sub-stage-a', deviceId: 'dev-1', sourceId: 'mini-1',
+            rows: [{ miniLocalId: 'a', number: '1', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
+        });
+        const sub2 = sampleSubmission({
+            submissionId: 'sub-stage-b', deviceId: 'dev-2', sourceId: 'mini-2',
+            rows: [{ miniLocalId: 'b', number: '1', name: 'Ana', normalHours: 0, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }]
+        });
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [sub1, sub2], employees: mockEmployees, attendance: {},
+            positions: mockPositions, saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE,
+            stage: 'mini', applyPlan: mockApplyPlan
+        });
+        expect(resolver.getDayState('2026-09-06').status).toBe('stage_a_blocked');
+        expect(() => resolver.buildMiniConsolidatedDraft({ consolidationId: 'CONS-002' })).toThrow(/completed/);
+    });
+
 });

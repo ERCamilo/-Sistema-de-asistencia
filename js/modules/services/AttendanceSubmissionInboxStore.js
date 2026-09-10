@@ -28,6 +28,12 @@
  * siteId is never interpreted as saProjectId.
  */
 
+import {
+    attendanceSubmissionSemanticHash,
+    attendanceSubmissionSeriesKey,
+    diffAttendanceSubmissionSnapshots
+} from '../features/attendance/AttendanceSubmissionVersioning.js';
+
 export const ATTENDANCE_SUBMISSION_SCHEMA = 'attendance-submission/v1';
 export const ATTENDANCE_SUBMISSION_INBOX = 'attendanceSubmissionInbox';
 
@@ -41,6 +47,7 @@ export const ATTENDANCE_SUBMISSION_ENVELOPE_KEYS = Object.freeze([
     'capturedAt',
     'workDate',
     'rows',
+    'coverageMode',
     'clientSequence',
     'excludedCount',
     'errorSummary'
@@ -53,6 +60,7 @@ export const ATTENDANCE_SUBMISSION_ROW_KEYS = Object.freeze([
     'normalHours',
     'overtimeHours',
     'status',
+    'rosterStatus',
     'saEmployeeId'
 ]);
 
@@ -214,11 +222,17 @@ function validateRow(row, index) {
         throw new TypeError(`rows[${index}].overtimeHours must be finite and >= 0`);
     }
     const total = row.normalHours + row.overtimeHours;
-    if (!(total > 0) || total > 24) {
-        throw new TypeError(`rows[${index}] hours must sum to > 0 and <= 24`);
+    if (total > 24) {
+        throw new TypeError(`rows[${index}] hours must sum to <= 24`);
     }
-    if (row.status !== 'present') {
-        throw new TypeError(`rows[${index}].status must be present`);
+    if (row.status !== 'present' && row.status !== 'unmarked') {
+        throw new TypeError(`rows[${index}].status must be present or unmarked`);
+    }
+    if (row.status === 'present' && !(total > 0)) {
+        throw new TypeError(`rows[${index}] present hours must sum to > 0`);
+    }
+    if (row.status === 'unmarked' && total !== 0) {
+        throw new TypeError(`rows[${index}] unmarked hours must sum to 0`);
     }
     const safe = {
         miniLocalId,
@@ -226,8 +240,14 @@ function validateRow(row, index) {
         name,
         normalHours: row.normalHours,
         overtimeHours: row.overtimeHours,
-        status: 'present'
+        status: row.status
     };
+    if ('rosterStatus' in row) {
+        if (row.rosterStatus !== 'active' && row.rosterStatus !== 'paused') {
+            throw new TypeError(`rows[${index}].rosterStatus must be active or paused`);
+        }
+        safe.rosterStatus = row.rosterStatus;
+    }
     if ('saEmployeeId' in row) {
         safe.saEmployeeId = saId(row.saEmployeeId, `rows[${index}].saEmployeeId`);
     }
@@ -256,6 +276,16 @@ export function validateAttendanceSubmission(value, expectedSaProjectId) {
         throw new TypeError('rows are required');
     }
     const rows = value.rows.map((row, index) => validateRow(row, index));
+    let coverageMode = null;
+    if ('coverageMode' in value) {
+        if (value.coverageMode !== 'linked-roster-full') {
+            throw new TypeError('coverageMode must be linked-roster-full');
+        }
+        coverageMode = 'linked-roster-full';
+    }
+    if (!coverageMode && rows.some(row => row.status !== 'present' || row.rosterStatus !== undefined)) {
+        throw new TypeError('unmarked/rosterStatus rows require coverageMode=linked-roster-full');
+    }
     const seenMini = new Set();
     const seenSa = new Set();
     for (let index = 0; index < rows.length; index++) {
@@ -282,6 +312,7 @@ export function validateAttendanceSubmission(value, expectedSaProjectId) {
         workDate: workDay,
         rows
     };
+    if (coverageMode) envelope.coverageMode = coverageMode;
     if ('clientSequence' in value) {
         if (!Number.isSafeInteger(value.clientSequence) || value.clientSequence < 1) {
             throw new TypeError('clientSequence must be a positive integer');
@@ -312,11 +343,141 @@ export class AttendanceSubmissionReplayConflictError extends Error {
     }
 }
 
+function versionOrder(snapshot) {
+    if (Number.isSafeInteger(snapshot?.clientSequence) && snapshot.clientSequence > 0) {
+        return { kind: 'sequence', value: snapshot.clientSequence };
+    }
+    const captured = Date.parse(snapshot?.capturedAt || '');
+    return { kind: 'capturedAt', value: Number.isFinite(captured) ? captured : 0 };
+}
+
+function compareVersionOrder(nextSnapshot, currentSnapshot) {
+    const next = versionOrder(nextSnapshot);
+    const current = versionOrder(currentSnapshot);
+    if (next.kind === 'sequence' && current.kind === 'sequence') return Math.sign(next.value - current.value);
+    return Math.sign((Date.parse(nextSnapshot?.capturedAt || '') || 0) - (Date.parse(currentSnapshot?.capturedAt || '') || 0));
+}
+
+function recordSeriesKey(record) {
+    try {
+        return record?.versioning?.seriesKey || attendanceSubmissionSeriesKey(record?.sourceSnapshot, record?.metadata?.sourcePeerId || null);
+    } catch {
+        return null;
+    }
+}
+
 export class AttendanceSubmissionInboxStore {
     constructor({ db, now = () => Date.now() } = {}) {
         if (!db) throw new TypeError('db is required');
         this.db = db;
         this.now = now;
+    }
+
+
+    async _versionSeries(record) {
+        const seriesKey = recordSeriesKey(record);
+        const records = await this.db.getAll(ATTENDANCE_SUBMISSION_INBOX);
+        return {
+            seriesKey,
+            records: (records || []).filter(record => recordSeriesKey(record) === seriesKey)
+        };
+    }
+
+    async _storeVersionedRecord(record) {
+        const envelope = record.sourceSnapshot;
+        const { seriesKey, records } = await this._versionSeries(record);
+        const sorted = [...records].sort((a, b) => Number(a.receivedAt || 0) - Number(b.receivedAt || 0));
+        const original = sorted.find(item => item.versioning?.role === 'original') || sorted[0] || null;
+        const current = sorted.find(item => item.versioning?.role === 'current') || sorted[sorted.length - 1] || null;
+        const semanticHash = attendanceSubmissionSemanticHash(envelope);
+
+        if (!original) {
+            const initial = freeze({
+                ...record,
+                versioning: {
+                    seriesKey,
+                    role: 'original',
+                    isCurrent: true,
+                    updateCount: 0,
+                    semanticHash,
+                    originalSubmissionId: record.submissionId,
+                    currentSubmissionId: record.submissionId,
+                    diffFromOriginal: diffAttendanceSubmissionSnapshots(envelope, envelope)
+                }
+            });
+            await this.db.update(ATTENDANCE_SUBMISSION_INBOX, initial);
+            return { outcome: 'imported', record: initial, versionGroupChanged: false };
+        }
+
+        if (current && compareVersionOrder(envelope, current.sourceSnapshot) <= 0) {
+            return { outcome: 'stale-version', record: freeze(current), versionGroupChanged: false };
+        }
+
+        const originalSnapshot = original.sourceSnapshot;
+        const diff = diffAttendanceSubmissionSnapshots(originalSnapshot, envelope);
+        const nextCount = Math.max(1, Number(current?.versioning?.updateCount || 0) + 1);
+        const originalUpdated = freeze({
+            ...original,
+            versioning: {
+                ...(original.versioning || {}),
+                seriesKey,
+                role: 'original',
+                isCurrent: false,
+                updateCount: nextCount,
+                semanticHash: attendanceSubmissionSemanticHash(originalSnapshot),
+                originalSubmissionId: original.submissionId,
+                currentSubmissionId: record.submissionId,
+                diffFromOriginal: diff
+            }
+        });
+        await this.db.update(ATTENDANCE_SUBMISSION_INBOX, originalUpdated);
+
+        if (current && current.key !== original.key && typeof this.db.delete === 'function') {
+            await this.db.delete(ATTENDANCE_SUBMISSION_INBOX, current.key);
+        }
+
+        const next = freeze({
+            ...record,
+            versioning: {
+                seriesKey,
+                role: 'current',
+                isCurrent: true,
+                updateCount: nextCount,
+                semanticHash,
+                originalSubmissionId: original.submissionId,
+                currentSubmissionId: record.submissionId,
+                diffFromOriginal: diff
+            }
+        });
+        await this.db.update(ATTENDANCE_SUBMISSION_INBOX, next);
+        return { outcome: 'updated-version', record: next, original: originalUpdated, versionGroupChanged: diff.changed };
+    }
+
+    async listVersionGroups(filter = null) {
+        const records = await this.list(filter);
+        const groups = new Map();
+        for (const record of records) {
+            const seriesKey = recordSeriesKey(record);
+            if (!seriesKey) continue;
+            if (!groups.has(seriesKey)) groups.set(seriesKey, []);
+            groups.get(seriesKey).push(record);
+        }
+        return [...groups.entries()].map(([seriesKey, items]) => {
+            const sorted = [...items].sort((a, b) => Number(a.receivedAt || 0) - Number(b.receivedAt || 0));
+            const original = sorted.find(item => item.versioning?.role === 'original') || sorted[0];
+            const current = sorted.find(item => item.versioning?.role === 'current') || sorted[sorted.length - 1];
+            const diff = diffAttendanceSubmissionSnapshots(original.sourceSnapshot, current.sourceSnapshot);
+            return freeze({
+                seriesKey,
+                saProjectId: current.saProjectId,
+                deviceId: current.sourceSnapshot?.deviceId || '',
+                workDate: current.workDate,
+                original,
+                current,
+                updateCount: Math.max(Number(original.versioning?.updateCount || 0), Number(current.versioning?.updateCount || 0)),
+                diff
+            });
+        }).sort((a, b) => String(b.workDate).localeCompare(String(a.workDate)) || a.seriesKey.localeCompare(b.seriesKey));
     }
 
     async importJSON(
@@ -377,8 +538,7 @@ export class AttendanceSubmissionInboxStore {
             sourceSnapshot: envelope,
             ...(metadata && typeof metadata === 'object' ? { metadata: { ...metadata } } : {})
         });
-        await this.db.update(ATTENDANCE_SUBMISSION_INBOX, record);
-        return { outcome: 'imported', record };
+        return this._storeVersionedRecord(record);
     }
 
     get(saProjectId, submissionId) {

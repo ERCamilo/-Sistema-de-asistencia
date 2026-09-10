@@ -407,7 +407,7 @@ describe('AttendanceSubmissionInboxStore', () => {
         const source = fs.readFileSync(STORE_PATH, 'utf8');
         const codeOnly = stripComments(source);
 
-        expect(codeOnly).not.toMatch(/^\s*import\s/m);
+        expect(codeOnly).not.toMatch(/from ['"][^'"]*(AppState|PersistenceService|MiniAttendanceImportService|AttendanceRecordWriter)[^'"]*['"]/);
         expect(codeOnly).not.toMatch(/\brequire\s*\(/);
         expect(codeOnly).not.toMatch(/\bstate\b/);
         expect(codeOnly).not.toMatch(/['"]attendance['"]/);

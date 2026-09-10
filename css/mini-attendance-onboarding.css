@@ -2515,3 +2515,13 @@
     .mini-import-mode-tabs { width: 100%; }
     .mini-import-mode-tabs .mini-import-mode-btn { flex: 1 1 0; min-width: 0; }
 }
+
+/* Connected Mini source/day version selection */
+.mini-import-version-card .mini-import-draft-info { min-width: 0; }
+.mini-import-version-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.mini-import-version-choice { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 7px 10px; border-radius: 10px; background: var(--mini-panel-2); cursor: pointer; }
+.mini-import-version-choice input { margin: 0; }
+.mini-import-version-diff { margin-top: 10px; border-radius: 10px; background: var(--mini-panel-2); padding: 8px 10px; }
+.mini-import-version-diff summary { cursor: pointer; font-weight: 650; }
+.mini-import-version-diff-list { display: grid; gap: 6px; margin-top: 8px; }
+.mini-import-version-diff-row { font-size: .86rem; line-height: 1.35; }

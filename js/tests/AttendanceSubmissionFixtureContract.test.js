@@ -60,9 +60,11 @@ const FULL = {
             normalHours: 7.5,
             overtimeHours: 0.5,
             status: 'present',
+            rosterStatus: 'active',
             saEmployeeId: 'EMP-001'
         }
     ],
+    coverageMode: 'linked-roster-full',
     clientSequence: 7,
     excludedCount: 2,
     errorSummary: { unparsedFragments: 2, codes: ['UNPARSED_LINE'] }
@@ -147,6 +149,7 @@ describe('attendance-submission/v1 fixture — frozen F3.4 contract', () => {
                 'capturedAt',
                 'workDate',
                 'rows',
+                'coverageMode',
                 'clientSequence',
                 'excludedCount',
                 'errorSummary'
@@ -160,6 +163,7 @@ describe('attendance-submission/v1 fixture — frozen F3.4 contract', () => {
                 'normalHours',
                 'overtimeHours',
                 'status',
+                'rosterStatus',
                 'saEmployeeId'
             ].sort()
         );
@@ -203,6 +207,31 @@ describe('attendance-submission/v1 fixture — frozen F3.4 contract', () => {
             unparsedFragments: 2,
             codes: ['UNPARSED_LINE']
         });
+    });
+
+    test('full roster coverage extension is explicit and remains fail-closed', () => {
+        const coverage = validateAttendanceSubmission({
+            ...MINIMAL,
+            coverageMode: 'linked-roster-full',
+            rows: [{
+                ...MINIMAL.rows[0],
+                normalHours: 0,
+                overtimeHours: 0,
+                status: 'unmarked',
+                rosterStatus: 'paused',
+                saEmployeeId: 'EMP-001'
+            }]
+        }, SA_PROJECT);
+        expect(coverage.coverageMode).toBe('linked-roster-full');
+        expect(coverage.rows[0]).toMatchObject({
+            status: 'unmarked', rosterStatus: 'paused', normalHours: 0, overtimeHours: 0
+        });
+        expect(() => validateAttendanceSubmission({
+            ...MINIMAL,
+            rows: [{ ...MINIMAL.rows[0], normalHours: 0, overtimeHours: 0, status: 'unmarked' }]
+        }, SA_PROJECT)).toThrow(/coverageMode/);
+        expect(() => validateAttendanceSubmission({ ...MINIMAL, coverageMode: 'partial' }, SA_PROJECT))
+            .toThrow(/coverageMode/);
     });
 
     test('no sibling version or checksum: unknown keys fail closed', () => {

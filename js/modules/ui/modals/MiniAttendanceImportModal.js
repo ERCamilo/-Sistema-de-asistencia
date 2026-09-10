@@ -210,6 +210,37 @@ function formatMiniDate(value) {
     return Number.isFinite(date.getTime()) ? date.toLocaleString('es-DO') : 'Sin registro';
 }
 
+
+function versionDiffSummaryText(diff) {
+    const summary = diff?.summary || {};
+    const parts = [];
+    const add = (count, singular, plural) => { if (count) parts.push(`${count} ${count === 1 ? singular : plural}`); };
+    add(summary.hoursChanged, 'hora modificada', 'horas modificadas');
+    add(summary.attendanceAdded, 'asistencia agregada', 'asistencias agregadas');
+    add(summary.attendanceRemoved, 'asistencia eliminada', 'asistencias eliminadas');
+    add(summary.activated, 'empleado activado', 'empleados activados');
+    add(summary.paused, 'empleado pausado', 'empleados pausados');
+    add(summary.employeesAdded, 'empleado agregado al roster', 'empleados agregados al roster');
+    add(summary.employeesRemoved, 'empleado que ya no aparece', 'empleados que ya no aparecen');
+    return parts.length ? parts.join(' · ') : 'Sin cambios de asistencia';
+}
+
+function versionDetailText(detail) {
+    const prefix = detail.number ? `${detail.number}. ` : '';
+    const name = detail.name || detail.saEmployeeId || 'Empleado';
+    const bits = [];
+    if (detail.types?.includes('employee_added')) bits.push('agregado al roster');
+    if (detail.types?.includes('employee_removed')) bits.push('ya no aparece en el roster');
+    if (detail.types?.includes('activated')) bits.push('activado');
+    if (detail.types?.includes('paused')) bits.push('pausado');
+    if (detail.types?.some(type => ['hours_changed', 'attendance_added', 'attendance_removed'].includes(type))) {
+        const delta = Number(detail.deltaHours || 0);
+        const sign = delta > 0 ? '+' : '';
+        bits.push(`${sign}${delta}h · ${detail.beforeHours}h → ${detail.afterHours}h`);
+    }
+    return `${prefix}${name}${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+}
+
 export class MiniAttendanceImportModal {
     constructor({
         employees = [],
@@ -227,6 +258,7 @@ export class MiniAttendanceImportModal {
         confirmIgnore = null,
         confirmReactivate = null,
         inboxStore = null,
+        consolidationStore = null,
         linkedMinis = [],
         onRequestSubmissions = null,
         importMode = 'paste',
@@ -251,6 +283,7 @@ export class MiniAttendanceImportModal {
         this.actorUid = actorUid;
         this.confirmIgnore = confirmIgnore;
         this.inboxStore = inboxStore;
+        this.consolidationStore = consolidationStore;
         this.linkedMinis = Array.isArray(linkedMinis) ? linkedMinis : [];
         this.onRequestSubmissions = onRequestSubmissions;
         this.importMode = importMode;
@@ -271,6 +304,10 @@ export class MiniAttendanceImportModal {
         this.consolidatedResult = null;
         this.consolidationProposal = null;
         this.multiDayResolver = null;
+        this.activeConsolidationId = null;
+        this.activeConsolidationRecord = null;
+        this.resumableConsolidation = null;
+        this.consolidationDayIndex = 0;
         this.transportStatusMessage = '';
         this.isFetchingConnected = false;
         this.connectionState = 'idle';
@@ -673,7 +710,166 @@ export class MiniAttendanceImportModal {
                 console.warn('Error loading inbox drafts:', err);
             }
         }
+        await this.loadResumableConsolidation();
         if (this.host && this.connectedView === 'inbox') this.render();
+    }
+
+    async loadResumableConsolidation() {
+        if (!this.consolidationStore || !this.saProjectId) {
+            this.resumableConsolidation = null;
+            return null;
+        }
+        try {
+            const records = await this.consolidationStore.list({ saProjectId: this.saProjectId });
+            this.resumableConsolidation = records.find(record => record.status !== 'incorporated' && record.status !== 'discarded') || null;
+            return this.resumableConsolidation;
+        } catch (error) {
+            console.warn('No se pudo cargar la consolidación pendiente:', error);
+            this.resumableConsolidation = null;
+            return null;
+        }
+    }
+
+    _newConsolidationId() {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            return `mini-consolidation-${crypto.randomUUID()}`;
+        }
+        return `mini-consolidation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    getSelectedSourceDrafts() {
+        return this.savedDrafts.filter(draft => this.selectedDraftIds.has(draft.submissionId) && !isIncorporatedDraft(draft));
+    }
+
+    async persistMiniProgress() {
+        if (!this.consolidationStore || !this.multiDayResolver || this.multiDayResolver.stage !== 'mini' || !this.activeConsolidationId) return null;
+        const snapshot = this.multiDayResolver.getMiniProgressSnapshot();
+        this.activeConsolidationRecord = await this.consolidationStore.saveProgress({
+            consolidationId: this.activeConsolidationId,
+            snapshot,
+            sourceDrafts: this.getSelectedSourceDrafts(),
+            revision: this.activeConsolidationRecord?.revision || 1
+        });
+        this.resumableConsolidation = this.activeConsolidationRecord;
+        return this.activeConsolidationRecord;
+    }
+
+    async completeMiniDay(date) {
+        if (!this.multiDayResolver || this.multiDayResolver.stage !== 'mini') return;
+        this.multiDayResolver.completeMiniDay(date);
+        await this.persistMiniProgress();
+        const dates = this.multiDayResolver.workDates || [];
+        const nextIndex = dates.findIndex((workDate, index) => index > this.consolidationDayIndex && this.multiDayResolver.getDayState(workDate)?.status !== 'mini_day_completed');
+        if (nextIndex >= 0) this.consolidationDayIndex = nextIndex;
+        else if (this.consolidationDayIndex < dates.length - 1) this.consolidationDayIndex += 1;
+        this.render();
+    }
+
+    async createMiniConsolidatedDraft() {
+        if (!this.multiDayResolver || this.multiDayResolver.stage !== 'mini' || !this.activeConsolidationId) return;
+        const revision = this.activeConsolidationRecord?.revision || 1;
+        const draft = this.multiDayResolver.buildMiniConsolidatedDraft({
+            consolidationId: this.activeConsolidationId,
+            revision,
+            now: Date.now()
+        });
+        this.activeConsolidationRecord = this.consolidationStore
+            ? await this.consolidationStore.saveConsolidated(draft, { sourceDrafts: this.getSelectedSourceDrafts() })
+            : draft;
+        if (this.consolidationStore) {
+            this.activeConsolidationRecord = await this.consolidationStore.updateStatus(
+                draft.saProjectId,
+                draft.consolidationId,
+                'comparing_sa'
+            );
+        }
+        this.consolidatedResult = draft;
+        const employeesSnapshot = toRaw(this.employees);
+        const attendanceSnapshot = toRaw(this.attendance);
+        const positionsSnapshot = toRaw(this.positions);
+        const entityScopeSnapshot = this.entityScope ? toRaw(this.entityScope) : null;
+        this.consolidationProposal = buildConsolidationProposal(draft, {
+            employees: employeesSnapshot,
+            attendance: attendanceSnapshot
+        });
+        this.multiDayResolver = createMultiDayAttendanceResolver({
+            consolidation: draft,
+            employees: employeesSnapshot,
+            attendance: attendanceSnapshot,
+            positions: positionsSnapshot,
+            saProjectId: this.saProjectId,
+            entityScope: entityScopeSnapshot,
+            regularLimit: this.regularLimit,
+            applyPlan: this.applyPlan,
+            stage: 'sa'
+        });
+        this.connectedView = 'sa-comparison';
+        this.consolidationDayIndex = 0;
+        this.resumableConsolidation = this.activeConsolidationRecord;
+        this.render();
+    }
+
+    async resumeConsolidation(record = this.resumableConsolidation) {
+        if (!record) return;
+        this.activeConsolidationId = record.consolidationId;
+        this.activeConsolidationRecord = record;
+        this.selectedDraftIds.clear();
+        for (const ref of record.sourceRefs || []) {
+            if (ref.submissionId) this.selectedDraftIds.add(ref.submissionId);
+        }
+        const employeesSnapshot = toRaw(this.employees);
+        const attendanceSnapshot = toRaw(this.attendance);
+        const positionsSnapshot = toRaw(this.positions);
+        const entityScopeSnapshot = this.entityScope ? toRaw(this.entityScope) : null;
+        const miniStage = record.status === 'resolving' || record.schema === 'mini-attendance-consolidation-progress/v1';
+        this.consolidatedResult = record;
+        this.consolidationProposal = miniStage ? null : buildConsolidationProposal(record, {
+            employees: employeesSnapshot,
+            attendance: attendanceSnapshot
+        });
+        this.multiDayResolver = createMultiDayAttendanceResolver({
+            consolidation: record,
+            employees: employeesSnapshot,
+            attendance: attendanceSnapshot,
+            positions: positionsSnapshot,
+            saProjectId: this.saProjectId,
+            entityScope: entityScopeSnapshot,
+            regularLimit: this.regularLimit,
+            applyPlan: this.applyPlan,
+            stage: miniStage ? 'mini' : 'sa',
+            completedMiniDates: record.completedDays || []
+        });
+        const dates = this.multiDayResolver.workDates || [];
+        const firstPending = miniStage ? dates.findIndex(date => this.multiDayResolver.getDayState(date)?.status !== 'mini_day_completed') : 0;
+        this.consolidationDayIndex = firstPending >= 0 ? firstPending : Math.max(0, dates.length - 1);
+        this.connectedView = miniStage ? 'consolidation' : 'sa-comparison';
+        this.render();
+    }
+
+    async discardResumableConsolidation() {
+        const record = this.resumableConsolidation;
+        if (!record || !this.consolidationStore) return;
+        await this.consolidationStore.discard(record.saProjectId, record.consolidationId, 'Descartado desde la bandeja');
+        this.resumableConsolidation = null;
+        await this.loadResumableConsolidation();
+        this.render();
+    }
+
+    async discardActiveConsolidation() {
+        if (this.consolidationStore && this.activeConsolidationId && this.saProjectId) {
+            await this.consolidationStore.discard(this.saProjectId, this.activeConsolidationId, 'Descartado por el usuario para crear una nueva revisión');
+        }
+        this.activeConsolidationId = null;
+        this.activeConsolidationRecord = null;
+        this.resumableConsolidation = null;
+        this.consolidatedResult = null;
+        this.consolidationProposal = null;
+        this.multiDayResolver = null;
+        this.consolidationDayIndex = 0;
+        this.selectedDraftIds.clear();
+        this.connectedView = 'inbox';
+        await this.loadResumableConsolidation();
+        this.render();
     }
 
     openConnectedConsolidation() {
@@ -695,6 +891,60 @@ export class MiniAttendanceImportModal {
     setDraftStatusFilter(filter) {
         const allowed = new Set(['all', 'new', 'not-incorporated', 'incorporated']);
         this.draftStatusFilter = allowed.has(filter) ? filter : 'all';
+        this.render();
+    }
+
+    getVersionGroups() {
+        const bySeries = new Map();
+        for (const draft of this.savedDrafts) {
+            const seriesKey = draft.versioning?.seriesKey || `legacy:${draft.submissionId}`;
+            if (!bySeries.has(seriesKey)) bySeries.set(seriesKey, []);
+            bySeries.get(seriesKey).push(draft);
+        }
+        return [...bySeries.entries()].map(([seriesKey, drafts]) => {
+            const ordered = [...drafts].sort((a, b) => Number(a.receivedAt || 0) - Number(b.receivedAt || 0));
+            const original = ordered.find(item => item.versioning?.role === 'original') || ordered[0];
+            const current = ordered.find(item => item.versioning?.role === 'current') || ordered[ordered.length - 1];
+            const selected = ordered.find(item => this.selectedDraftIds.has(item.submissionId)) || null;
+            const diff = current?.versioning?.diffFromOriginal || original?.versioning?.diffFromOriginal || null;
+            return { seriesKey, original, current, selected, diff, updateCount: Math.max(Number(original?.versioning?.updateCount || 0), Number(current?.versioning?.updateCount || 0)) };
+        });
+    }
+
+    getVisibleVersionGroups() {
+        const groups = this.getVersionGroups().filter(group => {
+            const draft = group.current;
+            if (this.draftStatusFilter === 'new') return draft?.status === 'pending';
+            if (this.draftStatusFilter === 'not-incorporated') return !isIncorporatedDraft(draft);
+            if (this.draftStatusFilter === 'incorporated') return isIncorporatedDraft(draft);
+            return true;
+        });
+        const updatedTime = draft => Number(draft?.updatedAt || draft?.receivedAt || 0);
+        return groups.sort((a, b) => {
+            if (this.draftSortMode === 'updatedAt') {
+                return updatedTime(b.current) - updatedTime(a.current) || String(b.current?.workDate || '').localeCompare(String(a.current?.workDate || ''));
+            }
+            return String(b.current?.workDate || '').localeCompare(String(a.current?.workDate || '')) || updatedTime(b.current) - updatedTime(a.current);
+        });
+    }
+
+    toggleVersionGroupSelection(group, checked) {
+        for (const draft of [group.original, group.current]) {
+            if (draft?.submissionId) this.selectedDraftIds.delete(draft.submissionId);
+        }
+        if (checked) {
+            const choice = group.selected || group.current || group.original;
+            if (choice?.submissionId && !isIncorporatedDraft(choice)) this.selectedDraftIds.add(choice.submissionId);
+        }
+        this.render();
+    }
+
+    selectVersionForGroup(group, draft) {
+        const wasSelected = [group.original, group.current].some(item => item?.submissionId && this.selectedDraftIds.has(item.submissionId));
+        for (const item of [group.original, group.current]) {
+            if (item?.submissionId) this.selectedDraftIds.delete(item.submissionId);
+        }
+        if (wasSelected && draft?.submissionId && !isIncorporatedDraft(draft)) this.selectedDraftIds.add(draft.submissionId);
         this.render();
     }
 
@@ -780,8 +1030,8 @@ export class MiniAttendanceImportModal {
         }
     }
 
-    consolidateSelectedDrafts() {
-        const drafts = this.savedDrafts.filter(d => this.selectedDraftIds.has(d.submissionId) && !isIncorporatedDraft(d));
+    async consolidateSelectedDrafts() {
+        const drafts = this.getSelectedSourceDrafts();
         if (!drafts.length) return;
 
         // Never feed AppState's recursive proxies into the reconciliation engine.
@@ -797,10 +1047,9 @@ export class MiniAttendanceImportModal {
         this.consolidatedResult = consolidateAttendanceSubmissions(drafts, {
             expectedSaProjectId: this.saProjectId
         });
-        this.consolidationProposal = buildConsolidationProposal(this.consolidatedResult, {
-            employees: employeesSnapshot,
-            attendance: attendanceSnapshot
-        });
+        this.consolidationProposal = null;
+        this.activeConsolidationId = this._newConsolidationId();
+        this.activeConsolidationRecord = null;
         this.multiDayResolver = createMultiDayAttendanceResolver({
             consolidation: this.consolidatedResult,
             employees: employeesSnapshot,
@@ -809,11 +1058,16 @@ export class MiniAttendanceImportModal {
             saProjectId: this.saProjectId,
             entityScope: entityScopeSnapshot,
             regularLimit: this.regularLimit,
-            applyPlan: this.applyPlan
+            applyPlan: this.applyPlan,
+            stage: 'mini'
         });
         this.connectedView = 'consolidation';
+        this.consolidationDayIndex = 0;
         this.reviewStatusPromise = this.markDraftsReviewed(drafts);
+        // Render the Mini↔Mini step immediately; persistence then completes in the
+        // same action without blocking the modal transition.
         this.render();
+        await this.persistMiniProgress();
     }
 
     async handleFetchConnected({ targetMiniIds = null } = {}) {
@@ -1102,18 +1356,24 @@ export class MiniAttendanceImportModal {
             className: `mini-import-paste mini-import-connected mini-import-connected-view-${this.connectedView}`,
             dataset: { miniConnectedView: this.connectedView }
         });
-        const connectedStep = this.connectedView === 'inbox' ? 2 : this.connectedView === 'consolidation' ? 3 : 1;
+        const connectedStep = this.connectedView === 'inbox' ? 2
+            : this.connectedView === 'consolidation' ? 3
+                : this.connectedView === 'sa-comparison' ? 4 : 1;
         const subtitle = this.connectedView === 'inbox'
             ? 'Paso 2 · Bandeja de borradores'
             : this.connectedView === 'consolidation'
-                ? 'Paso 3 · Consolidación y conciliación'
-                : 'Paso 1 · Solicitar asistencia';
+                ? 'Paso 3 · Resolver Minis'
+                : this.connectedView === 'sa-comparison'
+                    ? 'Paso 4 · Comparar consolidado con SA'
+                    : 'Paso 1 · Solicitar asistencia';
         const chip = this.connectedView === 'inbox'
             ? 'BANDEJA'
             : this.connectedView === 'consolidation'
-                ? 'REVISIÓN'
-                : 'CONECTADOS';
-        section.append(renderTopbar(connectedStep, 3, 'Importar asistencia desde Mini', subtitle, chip, () => this.close()));
+                ? 'MINI ↔ MINI'
+                : this.connectedView === 'sa-comparison'
+                    ? 'MINI ↔ SA'
+                    : 'CONECTADOS';
+        section.append(renderTopbar(connectedStep, 4, 'Importar asistencia desde Mini', subtitle, chip, () => this.close()));
         const content = element('div', null, { className: 'mini-import-content-gutter' });
         if (this.connectedView === 'request') content.append(this.renderModeTabs());
 
@@ -1329,11 +1589,12 @@ export class MiniAttendanceImportModal {
         draftsHeader.append(refreshBtn);
         draftsSection.append(draftsHeader);
 
+        const allVersionGroups = this.getVersionGroups();
         const counts = {
-            all: this.savedDrafts.length,
-            new: this.savedDrafts.filter(draft => draft.status === 'pending').length,
-            notIncorporated: this.savedDrafts.filter(draft => !isIncorporatedDraft(draft)).length,
-            incorporated: this.savedDrafts.filter(draft => isIncorporatedDraft(draft)).length
+            all: allVersionGroups.length,
+            new: allVersionGroups.filter(group => group.current?.status === 'pending').length,
+            notIncorporated: allVersionGroups.filter(group => !isIncorporatedDraft(group.current)).length,
+            incorporated: allVersionGroups.filter(group => isIncorporatedDraft(group.current)).length
         };
         const filterBar = element('div', null, { className: 'mini-import-draft-filters', dataset: { miniDraftFilters: '' } });
         const statusLabelWrap = element('label', null, { className: 'mini-import-draft-filter' });
@@ -1382,75 +1643,68 @@ export class MiniAttendanceImportModal {
         if (!this.savedDrafts.length) {
             draftsSection.append(
                 element('p', 'No hay borradores guardados en la bandeja de entrada.', {
-                    className: 'mini-import-empty-drafts',
-                    dataset: { miniEmptyDrafts: '' }
+                    className: 'mini-import-empty-drafts', dataset: { miniEmptyDrafts: '' }
                 })
             );
         } else {
             const listEl = element('div', null, { className: 'mini-import-draft-list', dataset: { miniDraftList: '' } });
-            const visibleDrafts = this.getVisibleDrafts();
-            visibleDrafts.forEach(draft => {
+            const visibleGroups = this.getVisibleVersionGroups();
+            visibleGroups.forEach(group => {
+                const draft = group.current;
+                const original = group.original;
                 const incorporated = isIncorporatedDraft(draft);
+                const selectedId = group.selected?.submissionId || draft?.submissionId;
+                const isChecked = !incorporated && [original, draft].some(item => item?.submissionId && this.selectedDraftIds.has(item.submissionId));
                 const itemEl = element('div', null, {
-                    className: `mini-import-draft-card${incorporated ? ' is-incorporated' : ''}`,
-                    dataset: { miniDraftItem: draft.submissionId, miniDraftState: incorporated ? 'incorporated' : draft.status || 'pending' }
+                    className: `mini-import-draft-card mini-import-version-card${incorporated ? ' is-incorporated' : ''}`,
+                    dataset: { miniDraftItem: draft.submissionId, miniDraftSeries: group.seriesKey, miniDraftState: incorporated ? 'incorporated' : draft.status || 'pending' }
                 });
-                const isChecked = !incorporated && this.selectedDraftIds.has(draft.submissionId);
-                const checkbox = element('input', null, {
-                    type: 'checkbox',
-                    checked: isChecked,
-                    disabled: incorporated,
-                    dataset: { miniDraftCheckbox: draft.submissionId }
-                });
-                checkbox.addEventListener('change', () => this.toggleDraftSelection(draft.submissionId));
-
+                const checkbox = element('input', null, { type: 'checkbox', checked: isChecked, disabled: incorporated, dataset: { miniDraftCheckbox: draft.submissionId } });
+                checkbox.addEventListener('change', () => this.toggleVersionGroupSelection(group, checkbox.checked));
                 const info = element('div', null, { className: 'mini-import-draft-info' });
-                const sourceName = draft.metadata?.sourcePeerName ||
-                    draft.metadata?.sourcePeerId ||
-                    draft.sourceSnapshot?.scope?.sourceId ||
-                    draft.sourceSnapshot?.deviceId ||
-                    'Mini desconocido';
-                const statusLabel = draft.status === 'pending'
-                    ? 'Nuevo'
-                    : draft.status === 'reviewed'
-                        ? 'No incorporado'
-                        : isIncorporatedDraft(draft)
-                            ? 'Incorporado'
-                            : draft.status || 'No incorporado';
+                const sourceName = draft.metadata?.sourcePeerName || draft.metadata?.sourcePeerId || draft.sourceSnapshot?.scope?.sourceId || draft.sourceSnapshot?.deviceId || 'Mini desconocido';
+                const statusLabel = draft.status === 'pending' ? 'Nuevo' : draft.status === 'reviewed' ? 'No incorporado' : incorporated ? 'Incorporado' : draft.status || 'No incorporado';
                 const headline = element('div', null, { className: 'mini-import-draft-title' });
-                headline.append(
-                    element('strong', displayDate(draft.workDate) || draft.workDate),
-                    element('span', sourceName, { className: 'mini-import-draft-source' })
-                );
+                headline.append(element('strong', displayDate(draft.workDate) || draft.workDate), element('span', sourceName, { className: 'mini-import-draft-source' }));
                 const meta = element('div', null, { className: 'mini-import-draft-meta' });
                 meta.append(
-                    element('span', `${draft.sourceSnapshot?.rows?.length || 0} fila${draft.sourceSnapshot?.rows?.length === 1 ? '' : 's'}`),
-                    element('span', statusLabel, {
-                        className: `mini-import-draft-status is-${draft.status || 'pending'}${incorporated ? ' is-incorporated' : ''}`,
-                        dataset: draft.status === 'pending' ? { miniDraftNew: '' } : {}
-                    })
+                    element('span', `${draft.sourceSnapshot?.rows?.length || 0} empleado${draft.sourceSnapshot?.rows?.length === 1 ? '' : 's'}`),
+                    element('span', statusLabel, { className: `mini-import-draft-status is-${draft.status || 'pending'}${incorporated ? ' is-incorporated' : ''}`, dataset: draft.status === 'pending' ? { miniDraftNew: '' } : {} })
                 );
-                if (draft.receivedAt) meta.append(element('span', `Recibido: ${formatMiniDate(draft.receivedAt)}`));
-                if (draft.updatedAt && draft.updatedAt !== draft.receivedAt) meta.append(element('span', `Actualizado: ${formatMiniDate(draft.updatedAt)}`));
+                if (group.updateCount > 0) meta.append(element('span', `Actualizado ${group.updateCount} ${group.updateCount === 1 ? 'vez' : 'veces'}`));
                 info.append(headline, meta);
+
+                if (original?.submissionId !== draft?.submissionId) {
+                    const choices = element('div', null, { className: 'mini-import-version-choices', dataset: { miniVersionChoices: group.seriesKey } });
+                    const radioName = `mini-version-${this.controlId}-${group.seriesKey.replace(/[^a-z0-9_-]/gi, '-')}`;
+                    [[original, 'Original'], [draft, 'Actual']].forEach(([candidate, label]) => {
+                        const choice = element('label', null, { className: 'mini-import-version-choice' });
+                        const radio = element('input', null, { type: 'radio', name: radioName, value: candidate.submissionId, checked: selectedId === candidate.submissionId, disabled: incorporated });
+                        radio.addEventListener('change', () => { if (radio.checked) this.selectVersionForGroup(group, candidate); });
+                        const captured = formatMiniDate(candidate.sourceSnapshot?.capturedAt || candidate.receivedAt);
+                        choice.append(radio, element('span', `${label} · ${captured}`));
+                        choices.append(choice);
+                    });
+                    info.append(choices);
+                    const diff = group.diff;
+                    const changes = element('details', null, { className: 'mini-import-version-diff', dataset: { miniVersionDiff: group.seriesKey } });
+                    changes.append(element('summary', versionDiffSummaryText(diff)));
+                    const detailsList = element('div', null, { className: 'mini-import-version-diff-list' });
+                    if (diff?.details?.length) diff.details.forEach(detail => detailsList.append(element('div', versionDetailText(detail), { className: 'mini-import-version-diff-row' })));
+                    else detailsList.append(element('div', 'La captura cambió, pero no hay diferencias de asistencia ni de estado.', { className: 'mini-import-version-diff-row' }));
+                    changes.append(detailsList);
+                    info.append(changes);
+                }
                 itemEl.append(checkbox, info);
                 listEl.append(itemEl);
             });
-            if (!visibleDrafts.length) {
-                listEl.append(element('p', 'No hay borradores que coincidan con este filtro.', {
-                    className: 'mini-import-empty-drafts',
-                    dataset: { miniEmptyFilteredDrafts: '' }
-                }));
+            if (!visibleGroups.length) {
+                listEl.append(element('p', 'No hay borradores que coincidan con este filtro.', { className: 'mini-import-empty-drafts', dataset: { miniEmptyFilteredDrafts: '' } }));
             }
             draftsSection.append(listEl);
-
-            const consolidateBtn = actionButton(
-                `Consolidar borradores seleccionados (${this.selectedDraftIds.size})`,
-                'consolidate-drafts',
-                this.selectedDraftIds.size === 0
-            );
+            const consolidateBtn = actionButton(`Consolidar selecciones (${this.selectedDraftIds.size})`, 'consolidate-drafts', this.selectedDraftIds.size === 0);
             consolidateBtn.classList.add('mini-import-action-primary');
-            consolidateBtn.addEventListener('click', () => this.consolidateSelectedDrafts());
+            consolidateBtn.addEventListener('click', () => { void this.consolidateSelectedDrafts(); });
             draftsSection.append(consolidateBtn);
         }
 
@@ -1464,12 +1718,12 @@ export class MiniAttendanceImportModal {
             const inboxCopy = element('div', null, { className: 'mini-import-inbox-entry-copy' });
             inboxCopy.append(
                 element('h3', 'Bandeja de borradores'),
-                element('p', this.savedDrafts.length
-                    ? `${this.savedDrafts.length} borrador${this.savedDrafts.length === 1 ? '' : 'es'} guardado${this.savedDrafts.length === 1 ? '' : 's'} para revisar cuando quieras.`
+                element('p', this.getVersionGroups().length
+                    ? `${this.getVersionGroups().length} fuente${this.getVersionGroups().length === 1 ? '' : 's'}/día guardada${this.getVersionGroups().length === 1 ? '' : 's'} para revisar cuando quieras.`
                     : 'Las respuestas recibidas se guardan aquí sin modificar la asistencia oficial de SA.')
             );
             const openInboxBtn = actionButton(
-                `Revisar borradores (${this.savedDrafts.length})`,
+                `Revisar borradores (${this.getVersionGroups().length})`,
                 'open-connected-inbox'
             );
             openInboxBtn.classList.add('mini-import-action-primary');
@@ -1488,7 +1742,25 @@ export class MiniAttendanceImportModal {
             nav.append(back, element('p', 'Selecciona uno o varios borradores. Nada se escribe en SA hasta completar la conciliación.', {
                 className: 'mini-import-hint'
             }));
-            content.append(nav, draftsSection);
+            content.append(nav);
+            if (this.resumableConsolidation) {
+                const resume = element('section', null, { className: 'mini-import-resume-card', dataset: { miniResumeConsolidation: this.resumableConsolidation.consolidationId } });
+                const completed = this.resumableConsolidation.completedDays?.length || 0;
+                const total = this.resumableConsolidation.workDates?.length || 0;
+                const label = this.resumableConsolidation.status === 'resolving'
+                    ? `Resolución Mini pendiente · ${completed}/${total} días completados`
+                    : 'Consolidado Mini revisado · pendiente de comparar/aplicar en SA';
+                resume.append(element('strong', 'Continuar consolidación guardada'), element('p', label));
+                const resumeBtn = actionButton('Continuar', 'resume-consolidation');
+                resumeBtn.classList.add('mini-import-action-primary');
+                resumeBtn.addEventListener('click', () => { void this.resumeConsolidation(); });
+                const discardBtn = actionButton('Descartar consolidado', 'discard-consolidation');
+                discardBtn.classList.add('mini-import-action-secondary');
+                discardBtn.addEventListener('click', () => { void this.discardResumableConsolidation(); });
+                resume.append(resumeBtn, discardBtn);
+                content.append(resume);
+            }
+            content.append(draftsSection);
             section.append(content);
             return section;
         }
@@ -1512,35 +1784,74 @@ export class MiniAttendanceImportModal {
         return section;
     }
 
+    formatConnectedHours(normalHours, overtimeHours, { status = null, rosterStatus = null, missingRoster = false } = {}) {
+        if (missingRoster) return 'No existe en este Mini';
+        const normal = Number(normalHours || 0);
+        const overtime = Number(overtimeHours || 0);
+        const total = normal + overtime;
+        if (rosterStatus === 'paused' && total === 0) return 'Pausado · 0h';
+        if (status === 'unmarked' && total === 0) return '0h · Sin asistencia';
+        if (overtime > 0) return `${total}h · ${normal} normales + ${overtime} extra`;
+        return `${total}h`;
+    }
+
+    connectedConflictLabel(item) {
+        const reasons = new Set(item?.conflictReasons || []);
+        if (reasons.has('coverage_conflict')) return 'Conflicto de cobertura';
+        if (reasons.has('roster_status_conflict')) return 'Conflicto de estado';
+        if (reasons.has('attendance_status_conflict') || reasons.has('hours_conflict')) return 'Conflicto de asistencia';
+        return item?.status === 'identity_conflict' ? 'Identidad no resuelta' : 'Conflicto';
+    }
+
     renderConsolidationSkeleton() {
         const container = element('div', null, {
             className: 'mini-import-consolidation-skeleton',
             dataset: { miniConsolidationSkeleton: '' }
         });
 
-        const summary = this.consolidatedResult.summary;
+        const isMiniStage = this.multiDayResolver?.stage === 'mini';
+        const isSaStage = this.multiDayResolver?.stage === 'sa';
+        const summary = this.consolidatedResult.summary || this.multiDayResolver?.getMiniProgressSnapshot?.().summary || {
+            totalItems: 0, resolvedCount: 0, hoursConflictCount: 0, unresolvedIdentityCount: 0
+        };
         const badges = element('div', null, { className: 'mini-consolidation-summary-badges' });
         badges.append(
             element('span', `Total: ${summary.totalItems}`, { className: 'mini-badge mini-badge-total' }),
             element('span', `Resueltos: ${summary.resolvedCount}`, { className: 'mini-badge mini-badge-resolved' }),
-            element('span', `Conflictos de horas: ${summary.hoursConflictCount}`, { className: 'mini-badge mini-badge-conflict' }),
+            element('span', `Conflictos entre Minis: ${summary.hoursConflictCount}`, { className: 'mini-badge mini-badge-conflict' }),
             element('span', `Identidades no resueltas: ${summary.unresolvedIdentityCount}`, { className: 'mini-badge mini-badge-unresolved' })
         );
 
         if (this.multiDayResolver) {
             const multiSummary = this.multiDayResolver.getMultiDaySummary();
-            badges.append(
-                element('span', `Días listos: ${multiSummary.readyDaysCount}`, { className: 'mini-badge mini-badge-ready-days' }),
-                element('span', `Días aplicados: ${multiSummary.appliedDaysCount}`, { className: 'mini-badge mini-badge-applied-days' })
-            );
+            if (isMiniStage) {
+                badges.append(
+                    element('span', `Días revisados: ${this.multiDayResolver.completedMiniDates?.size || 0}/${multiSummary.totalDays}`, { className: 'mini-badge mini-badge-ready-days' })
+                );
+            } else {
+                badges.append(
+                    element('span', `Días listos: ${multiSummary.readyDaysCount}`, { className: 'mini-badge mini-badge-ready-days' }),
+                    element('span', `Días aplicados: ${multiSummary.appliedDaysCount}`, { className: 'mini-badge mini-badge-applied-days' })
+                );
+            }
         }
 
-        // Grouped view
-        const grouped = groupConsolidatedAttendance(this.consolidatedResult, this.groupingMode);
+        // La conciliación conectada siempre se pagina por día. El modo por período
+        // sólo controla la solicitud/agrupación de entrada, no la resolución humana.
+        const grouped = groupConsolidatedAttendance(this.consolidatedResult, 'day');
         const groupsContainer = element('div', null, { className: 'mini-consolidation-groups' });
 
         if (grouped.mode === 'day') {
-            grouped.groups.forEach(group => {
+            const totalDays = grouped.groups.length;
+            if (totalDays > 0) this.consolidationDayIndex = Math.max(0, Math.min(this.consolidationDayIndex, totalDays - 1));
+            const visibleGroups = totalDays ? [grouped.groups[this.consolidationDayIndex]] : [];
+            if (totalDays) {
+                groupsContainer.append(element('div', `Día ${this.consolidationDayIndex + 1} de ${totalDays}`, {
+                    className: 'mini-consolidation-day-counter',
+                    dataset: { miniDayCounter: '' }
+                }));
+            }
+            visibleGroups.forEach(group => {
                 const groupEl = element('div', null, { className: 'mini-consolidation-group-card' });
                 const headerEl = element('div', null, { className: 'mini-consolidation-group-header' });
                 headerEl.append(
@@ -1549,29 +1860,44 @@ export class MiniAttendanceImportModal {
 
                 const dayState = this.multiDayResolver ? this.multiDayResolver.getDayState(group.workDate) : null;
                 if (dayState) {
-                    const statusText = dayState.status === 'applied'
-                        ? 'Aplicado'
-                        : dayState.status === 'ready'
-                            ? 'Listo para aplicar'
-                            : dayState.status === 'stage_b_conflict'
-                                ? 'Conflicto con SA'
-                                : 'Conflicto entre Minis';
+                    const statusText = dayState.status === 'mini_day_completed'
+                        ? 'Día consolidado'
+                        : dayState.status === 'mini_day_ready'
+                            ? 'Listo para completar'
+                            : dayState.status === 'applied'
+                                ? 'Aplicado'
+                                : dayState.status === 'ready'
+                                    ? 'Listo para aplicar'
+                                    : dayState.status === 'stage_b_conflict'
+                                        ? 'Conflicto con SA'
+                                        : 'Conflicto entre Minis';
                     headerEl.append(element('span', statusText, {
                         className: `mini-day-status is-${dayState.status}`,
                         dataset: { miniDayStatus: dayState.status, miniDayDate: group.workDate }
                     }));
 
-                    const applyDayBtn = actionButton('Aplicar este día', 'apply-day', !dayState.canApply);
-                    applyDayBtn.dataset.miniDate = group.workDate;
-                    applyDayBtn.addEventListener('click', async () => {
-                        try {
-                            await this.multiDayResolver.applyDay(group.workDate);
-                            this.render();
-                        } catch (err) {
-                            console.error('Error applying day:', err);
-                        }
-                    });
-                    headerEl.append(applyDayBtn);
+                    if (isMiniStage) {
+                        const completeDayBtn = actionButton(
+                            dayState.status === 'mini_day_completed' ? 'Día completado' : 'Completar día',
+                            'complete-mini-day',
+                            dayState.status !== 'mini_day_ready'
+                        );
+                        completeDayBtn.dataset.miniDate = group.workDate;
+                        completeDayBtn.addEventListener('click', () => { void this.completeMiniDay(group.workDate); });
+                        headerEl.append(completeDayBtn);
+                    } else {
+                        const applyDayBtn = actionButton('Aplicar este día', 'apply-day', !dayState.canApply);
+                        applyDayBtn.dataset.miniDate = group.workDate;
+                        applyDayBtn.addEventListener('click', async () => {
+                            try {
+                                await this.multiDayResolver.applyDay(group.workDate);
+                                this.render();
+                            } catch (err) {
+                                console.error('Error applying day:', err);
+                            }
+                        });
+                        headerEl.append(applyDayBtn);
+                    }
                 }
                 groupEl.append(headerEl);
 
@@ -1581,14 +1907,16 @@ export class MiniAttendanceImportModal {
                         className: `mini-consolidation-row is-${item.status}`,
                         dataset: { miniConsolidationItem: item.id }
                     });
-                    const statusLabel = item.status === 'conflict' ? 'Conflicto horas' : 'Identidad no resuelta';
+                    const statusLabel = this.connectedConflictLabel(item);
                     const sourcesText = Array.isArray(item.sources)
                         ? [...new Set(item.sources.map(s => s.deviceId).filter(Boolean))].join(', ')
                         : '';
                     rowEl.append(
                         element('span', item.displayName || 'Sin nombre', { className: 'mini-row-name' }),
                         element('span', item.displayNumber ? `#${item.displayNumber}` : '', { className: 'mini-row-number' }),
-                        element('span', item.normalHours !== null ? `${item.normalHours}h` : 'Horas en conflicto', { className: 'mini-row-hours' }),
+                        element('span', item.normalHours !== null
+                            ? this.formatConnectedHours(item.normalHours, item.overtimeHours, { status: item.sourceStatus, rosterStatus: item.rosterStatus })
+                            : 'Requiere resolución', { className: 'mini-row-hours' }),
                         item.status === 'resolved'
                             ? resolvedCheckSvg('Resuelto')
                             : element('span', statusLabel, { className: `mini-row-status is-${item.status}` })
@@ -1619,9 +1947,10 @@ export class MiniAttendanceImportModal {
                             empSelect.addEventListener('change', () => {
                                 linkBtn.disabled = !empSelect.value;
                             });
-                            linkBtn.addEventListener('click', () => {
+                            linkBtn.addEventListener('click', async () => {
                                 if (!empSelect.value) return;
                                 this.multiDayResolver.resolveItemIdentity(item.id, empSelect.value);
+                                if (isMiniStage) await this.persistMiniProgress();
                                 this.render();
                             });
                             resolveIdentityEl.append(empSelect, linkBtn);
@@ -1634,16 +1963,23 @@ export class MiniAttendanceImportModal {
                                 className: 'mini-hours-resolve-row',
                                 dataset: { miniHoursConflict: item.id }
                             });
-                            resolveHoursEl.append(element('span', 'Elegir horas reportadas:', { className: 'mini-control-label' }));
+                            resolveHoursEl.append(element('span', 'Elegir versión para el consolidado:', { className: 'mini-control-label' }));
                             item.sources.forEach((src, srcIndex) => {
+                                const sourceName = src.sourcePeerName || src.sourceId || src.deviceId || 'Mini';
+                                const sourceDetail = this.formatConnectedHours(src.normalHours, src.overtimeHours, {
+                                    status: src.status,
+                                    rosterStatus: src.rosterStatus,
+                                    missingRoster: src.missingRoster === true
+                                });
                                 const srcBtn = actionButton(
-                                    `Mini ${src.sourceId || src.deviceId}: ${src.normalHours}h / ${src.overtimeHours}h`,
+                                    `${sourceName}: ${sourceDetail}`,
                                     'resolve-hours'
                                 );
                                 srcBtn.dataset.miniItemId = item.id;
                                 srcBtn.dataset.miniSourceIndex = String(srcIndex);
-                                srcBtn.addEventListener('click', () => {
+                                srcBtn.addEventListener('click', async () => {
                                     this.multiDayResolver.resolveItemHours(item.id, { sourceIndex: srcIndex });
+                                    if (isMiniStage) await this.persistMiniProgress();
                                     this.render();
                                 });
                                 resolveHoursEl.append(srcBtn);
@@ -1662,7 +1998,7 @@ export class MiniAttendanceImportModal {
                                 const existingNormal = conflictRow.existing?.record?.hoursWorked || 0;
                                 const existingOvertime = conflictRow.existing?.record?.overtimeHours || 0;
                                 saConflictEl.append(
-                                    element('span', `SA tiene ${existingNormal}h norm / ${existingOvertime}h extra vs Mini ${item.normalHours}h:`, { className: 'mini-control-label' })
+                                    element('span', `SA tiene ${existingNormal + existingOvertime}h vs consolidado Mini ${Number(item.normalHours || 0) + Number(item.overtimeHours || 0)}h:`, { className: 'mini-control-label' })
                                 );
 
                                 const keepSaBtn = actionButton('Conservar SA', 'keep-sa');
@@ -1820,8 +2156,10 @@ export class MiniAttendanceImportModal {
             dataset: { miniProposalSeam: '' }
         });
         proposalNotice.append(
-            element('strong', 'Seam de propuesta para conciliación:'),
-            element('p', 'La propuesta está consolidada y lista para el conciliador oficial. No se ha escrito en la asistencia oficial de SA.')
+            element('strong', isMiniStage ? 'Resolución Mini ↔ Mini:' : 'Comparación consolidado ↔ SA:'),
+            element('p', isMiniStage
+                ? 'En este paso sólo se comparan los Minis. SA no participa todavía y no se escribe asistencia oficial.'
+                : 'Esta etapa usa únicamente el consolidado Mini revisado para compararlo con SA. Nada se aplica sin confirmación.')
         );
         if (this.consolidationProposal) {
             const pSummary = this.consolidationProposal.summary;
@@ -1832,40 +2170,72 @@ export class MiniAttendanceImportModal {
 
         container.append(badges, groupsContainer, proposalNotice);
 
-        // Batch Apply footer
+        // Footer de etapa: Mini↔Mini nunca aplica en SA. Sólo completa días y
+        // produce un draft revisado; la aplicación existe únicamente en etapa SA.
         if (this.multiDayResolver) {
             const multiSummary = this.multiDayResolver.getMultiDaySummary();
             const batchSection = element('div', null, {
                 className: 'mini-consolidation-batch-actions',
                 dataset: { miniBatchActions: '' }
             });
-            const applyReadyBtn = actionButton(
-                `Aplicar días listos (${multiSummary.readyDaysCount})`,
-                'apply-ready-days',
-                multiSummary.readyDaysCount === 0
-            );
-            applyReadyBtn.classList.add('mini-import-action-primary');
-            applyReadyBtn.addEventListener('click', async () => {
-                try {
-                    await this.multiDayResolver.applyReadyDays();
-                    this.render();
-                } catch (err) {
-                    console.error('Error applying ready days:', err);
+            const dates = this.multiDayResolver.workDates || [];
+            const currentDate = dates[this.consolidationDayIndex] || null;
+            const currentState = currentDate ? this.multiDayResolver.getDayState(currentDate) : null;
+            const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
+            const prev = actionButton('Día anterior', 'previous-consolidation-day', this.consolidationDayIndex <= 0);
+            prev.addEventListener('click', () => { this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1); this.render(); });
+            const nextBlocked = isMiniStage && currentState?.status !== 'mini_day_completed';
+            const next = actionButton('Día siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1 || nextBlocked);
+            next.addEventListener('click', () => { this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1); this.render(); });
+            pager.append(prev, next);
+            batchSection.append(pager);
+
+            if (isMiniStage) {
+                const createBtn = actionButton(
+                    'Crear consolidado Mini',
+                    'create-mini-consolidated',
+                    !this.multiDayResolver.isMiniStageComplete()
+                );
+                createBtn.classList.add('mini-import-action-primary');
+                createBtn.addEventListener('click', () => { void this.createMiniConsolidatedDraft(); });
+                const discardBtn = actionButton('Descartar consolidado', 'discard-active-consolidation');
+                discardBtn.classList.add('mini-import-action-secondary');
+                discardBtn.addEventListener('click', () => { void this.discardActiveConsolidation(); });
+                batchSection.append(createBtn, discardBtn);
+                if (!this.multiDayResolver.isMiniStageComplete()) {
+                    batchSection.append(element('span', 'Completa cada día antes de crear el consolidado revisado.', {
+                        className: 'mini-import-complete-hint'
+                    }));
                 }
-            });
-            const allDaysApplied = multiSummary.totalDays > 0 && multiSummary.appliedDaysCount === multiSummary.totalDays;
-            const completeBtn = actionButton(
-                'Completar importación',
-                'complete-connected-import',
-                !allDaysApplied || this.selectedDraftIds.size === 0
-            );
-            completeBtn.classList.add('mini-import-action-primary');
-            completeBtn.addEventListener('click', () => { void this.completeConnectedImport(); });
-            batchSection.append(applyReadyBtn, completeBtn);
-            if (!allDaysApplied) {
-                batchSection.append(element('span', 'Resuelve y aplica todos los días para completar la importación.', {
-                    className: 'mini-import-complete-hint'
-                }));
+            } else {
+                const applyReadyBtn = actionButton(
+                    `Aplicar días listos (${multiSummary.readyDaysCount})`,
+                    'apply-ready-days',
+                    multiSummary.readyDaysCount === 0
+                );
+                applyReadyBtn.classList.add('mini-import-action-primary');
+                applyReadyBtn.addEventListener('click', async () => {
+                    try {
+                        await this.multiDayResolver.applyReadyDays();
+                        this.render();
+                    } catch (err) {
+                        console.error('Error applying ready days:', err);
+                    }
+                });
+                const allDaysApplied = multiSummary.totalDays > 0 && multiSummary.appliedDaysCount === multiSummary.totalDays;
+                const completeBtn = actionButton(
+                    'Completar importación',
+                    'complete-connected-import',
+                    !allDaysApplied || this.selectedDraftIds.size === 0
+                );
+                completeBtn.classList.add('mini-import-action-primary');
+                completeBtn.addEventListener('click', () => { void this.completeConnectedImport(); });
+                batchSection.append(applyReadyBtn, completeBtn);
+                if (!allDaysApplied) {
+                    batchSection.append(element('span', 'Resuelve y aplica todos los días para completar la importación.', {
+                        className: 'mini-import-complete-hint'
+                    }));
+                }
             }
             container.append(batchSection);
         }

@@ -100,6 +100,7 @@ import {
     miniAttendanceAliasStore
 } from './modules/services/MiniAttendanceAliasStore.js';
 import { AttendanceSubmissionInboxStore } from './modules/services/AttendanceSubmissionInboxStore.js';
+import { miniAttendanceConsolidationStore } from './modules/services/MiniAttendanceConsolidationStore.js';
 import { listLinkedMiniPeers, requestMiniAttendance } from './modules/features/p2p/P2PAttendanceBridge.js';
 import { Employee } from './modules/features/employees/Employee.js';
 import { Position } from './modules/features/employees/Position.js';
@@ -3350,6 +3351,7 @@ window.openMiniAttendanceImport = async () => {
         entityScope,
         linkedMinis,
         inboxStore,
+        consolidationStore: miniAttendanceConsolidationStore,
         onRequestSubmissions: async ({ miniId, targetMiniIds, date, rangeStart, rangeEnd, groupingMode, onProgress, signal }) => {
             const currentProjectId = await projectContext.getActiveProjectId();
             if (!currentProjectId) {

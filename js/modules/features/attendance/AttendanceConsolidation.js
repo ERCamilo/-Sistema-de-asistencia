@@ -63,6 +63,10 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
     const resolvedGroups = new Map();
     // Missing saEmployeeId rows become independent identity conflicts; never auto-linked by number or name
     const unresolvedItems = [];
+    // Only submissions that explicitly declare full linked-roster coverage may
+    // turn a missing row into a meaningful `missing_roster` source. Legacy v1
+    // drafts keep the old semantics: missing row = unknown, never absence.
+    const fullCoverageByDate = new Map();
 
     for (let subIndex = 0; subIndex < unwrapped.length; subIndex++) {
         const { envelope: sub, metadata } = unwrapped[subIndex];
@@ -78,6 +82,23 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
         const provenanceName = sourcePeerName || sourcePeerId;
         const isGeneric = isGenericDeviceId(sub.deviceId);
         const effectiveDeviceId = (isGeneric && provenanceName) ? provenanceName : sub.deviceId;
+        if (sub.coverageMode === 'linked-roster-full') {
+            if (!fullCoverageByDate.has(sub.workDate)) fullCoverageByDate.set(sub.workDate, []);
+            fullCoverageByDate.get(sub.workDate).push({
+                submissionId: sub.submissionId,
+                deviceId: effectiveDeviceId,
+                rawDeviceId: sub.deviceId,
+                sourcePeerId,
+                sourcePeerName,
+                sourceId: sub.scope?.sourceId || '',
+                siteId: sub.scope?.siteId || '',
+                ownerUid: sub.scope?.ownerUid || '',
+                rosterVersion: sub.rosterVersion,
+                capturedAt: sub.capturedAt,
+                workDate: sub.workDate,
+                coverageMode: sub.coverageMode
+            });
+        }
 
         projectsSet.add(sub.saProjectId);
         workDatesSet.add(sub.workDate);
@@ -95,6 +116,7 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
             rosterVersion: sub.rosterVersion,
             capturedAt: sub.capturedAt,
             workDate: sub.workDate,
+            coverageMode: sub.coverageMode || null,
             rowsCount: Array.isArray(sub.rows) ? sub.rows.length : 0
         });
 
@@ -122,7 +144,10 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 name: row.name,
                 normalHours: row.normalHours,
                 overtimeHours: row.overtimeHours,
-                status: row.status,
+                totalHours: Number(row.normalHours || 0) + Number(row.overtimeHours || 0),
+                status: row.status || 'present',
+                rosterStatus: row.rosterStatus || null,
+                missingRoster: false,
                 saEmployeeId: normalizedSaId
             };
 
@@ -141,6 +166,9 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                     miniLocalId: row.miniLocalId,
                     normalHours: row.normalHours,
                     overtimeHours: row.overtimeHours,
+                    totalHours: Number(row.normalHours || 0) + Number(row.overtimeHours || 0),
+                    sourceStatus: row.status || 'present',
+                    rosterStatus: row.rosterStatus || null,
                     sources: [sourceEntry],
                     blockers: ['missing_sa_employee_id', 'identity_conflict']
                 });
@@ -156,16 +184,51 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
     }
 
     const resolvedItems = [];
-    for (const [groupKey, sources] of resolvedGroups.entries()) {
+    for (const [groupKey, rawSources] of resolvedGroups.entries()) {
         const [saProjectId, saEmployeeId, workDate] = groupKey.split('|');
-        const first = sources[0];
+        const sources = [...rawSources];
 
-        // Check if all contributing Minis agree on normal and overtime hours
-        const normalHoursSet = new Set(sources.map(s => s.normalHours));
-        const overtimeHoursSet = new Set(sources.map(s => s.overtimeHours));
-        const hoursAgree = normalHoursSet.size === 1 && overtimeHoursSet.size === 1;
+        // New connected payloads explicitly declare full roster coverage. If an
+        // employee exists in another selected Mini but is absent from one of those
+        // full snapshots, represent that fact as `missing_roster` instead of
+        // silently treating it as 0h. Legacy submissions without coverageMode are
+        // intentionally ignored here for backwards compatibility.
+        for (const coverage of fullCoverageByDate.get(workDate) || []) {
+            if (sources.some(source => source.submissionId === coverage.submissionId)) continue;
+            sources.push({
+                ...coverage,
+                miniLocalId: null,
+                number: '',
+                name: '',
+                normalHours: 0,
+                overtimeHours: 0,
+                totalHours: 0,
+                status: 'missing_roster',
+                rosterStatus: 'missing',
+                saEmployeeId,
+                missingRoster: true
+            });
+        }
 
-        if (hoursAgree) {
+        const firstReal = sources.find(source => !source.missingRoster) || sources[0];
+        const normalHoursSet = new Set(sources.map(source => Number(source.normalHours || 0)));
+        const overtimeHoursSet = new Set(sources.map(source => Number(source.overtimeHours || 0)));
+        const attendanceStatusSet = new Set(sources.map(source => source.status || 'present'));
+        const explicitRosterStates = new Set(
+            sources.filter(source => !source.missingRoster && source.rosterStatus)
+                .map(source => source.rosterStatus)
+        );
+        const hasMissingRoster = sources.some(source => source.missingRoster);
+        const hasRealSource = sources.some(source => !source.missingRoster);
+        const conflictReasons = [];
+        if (hasMissingRoster && hasRealSource) conflictReasons.push('coverage_conflict');
+        if (explicitRosterStates.size > 1) conflictReasons.push('roster_status_conflict');
+        if (attendanceStatusSet.size > 1) conflictReasons.push('attendance_status_conflict');
+        if (normalHoursSet.size > 1 || overtimeHoursSet.size > 1) conflictReasons.push('hours_conflict');
+
+        if (conflictReasons.length === 0) {
+            const normalHours = Number(firstReal?.normalHours || 0);
+            const overtimeHours = Number(firstReal?.overtimeHours || 0);
             resolvedItems.push({
                 id: `consolidated:${saProjectId}:${saEmployeeId}:${workDate}`,
                 saProjectId,
@@ -173,36 +236,49 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
                 workDate,
                 status: 'resolved',
                 conflictType: null,
-                displayNumber: first.number,
-                displayName: first.name,
-                normalHours: first.normalHours,
-                overtimeHours: first.overtimeHours,
+                conflictReasons: [],
+                displayNumber: firstReal?.number || '',
+                displayName: firstReal?.name || '',
+                normalHours,
+                overtimeHours,
+                totalHours: normalHours + overtimeHours,
+                sourceStatus: firstReal?.status || 'present',
+                rosterStatus: firstReal?.rosterStatus || null,
                 sources,
                 blockers: []
             });
         } else {
+            const conflictType = conflictReasons.length === 1 ? conflictReasons[0] : 'multi_source_conflict';
             resolvedItems.push({
                 id: `consolidated:${saProjectId}:${saEmployeeId}:${workDate}`,
                 saProjectId,
                 saEmployeeId,
                 workDate,
                 status: 'conflict',
-                conflictType: 'hours_conflict',
-                displayNumber: first.number,
-                displayName: first.name,
+                conflictType,
+                conflictReasons,
+                displayNumber: firstReal?.number || '',
+                displayName: firstReal?.name || '',
                 normalHours: null,
                 overtimeHours: null,
-                conflictingHours: sources.map(s => ({
-                    sourceId: s.sourceId,
-                    deviceId: s.deviceId,
-                    sourcePeerId: s.sourcePeerId || null,
-                    sourcePeerName: s.sourcePeerName || null,
-                    normalHours: s.normalHours,
-                    overtimeHours: s.overtimeHours,
-                    capturedAt: s.capturedAt
+                totalHours: null,
+                sourceStatus: null,
+                rosterStatus: null,
+                conflictingHours: sources.map(source => ({
+                    sourceId: source.sourceId,
+                    deviceId: source.deviceId,
+                    sourcePeerId: source.sourcePeerId || null,
+                    sourcePeerName: source.sourcePeerName || null,
+                    normalHours: source.normalHours,
+                    overtimeHours: source.overtimeHours,
+                    totalHours: Number(source.normalHours || 0) + Number(source.overtimeHours || 0),
+                    status: source.status,
+                    rosterStatus: source.rosterStatus || null,
+                    missingRoster: source.missingRoster === true,
+                    capturedAt: source.capturedAt
                 })),
                 sources,
-                blockers: ['hours_conflict']
+                blockers: [...conflictReasons]
             });
         }
     }
