@@ -213,7 +213,8 @@ export class MultiDayAttendanceResolver {
         applyPlan = applyMiniAttendancePlan,
         entityScope = null,
         stage = 'combined',
-        completedMiniDates = []
+        completedMiniDates = [],
+        mergeOvertimeIntoNormal = false
     } = {}) {
         let baseConsolidation = consolidation;
         if (!baseConsolidation && Array.isArray(submissions)) {
@@ -232,6 +233,7 @@ export class MultiDayAttendanceResolver {
         this.regularLimit = regularLimit;
         this.applyPlan = applyPlan;
         this.entityScope = entityScope;
+        this.mergeOvertimeIntoNormal = mergeOvertimeIntoNormal === true;
         if (!['combined', 'mini', 'sa'].includes(stage)) {
             throw new TypeError(`Invalid resolver stage: ${stage}`);
         }
@@ -341,7 +343,10 @@ export class MultiDayAttendanceResolver {
             canApply: status === 'ready',
             items: cloneValue(dateItems),
             conflictPlan,
-            applyPlan: status === 'ready' ? buildMiniAttendanceApplyPlan(conflictPlan, { expectedDraftRevision: 1 }) : null,
+            applyPlan: status === 'ready' ? buildMiniAttendanceApplyPlan(conflictPlan, {
+                expectedDraftRevision: 1,
+                mergeOvertimeIntoNormal: this.mergeOvertimeIntoNormal
+            }) : null,
             applyResult: this.dayApplyResults.get(date) || null
         }));
     }
@@ -560,6 +565,15 @@ export class MultiDayAttendanceResolver {
 
         this._recomputeDayState(date);
         return this.getDayState(date);
+    }
+
+
+    setMergeOvertimeIntoNormal(enabled) {
+        this.mergeOvertimeIntoNormal = enabled === true;
+        for (const date of this.workDates) {
+            if (!this.dayApplyResults.has(date)) this._recomputeDayState(date);
+        }
+        return this.mergeOvertimeIntoNormal;
     }
 
     /**

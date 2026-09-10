@@ -712,10 +712,17 @@ export function reviewMiniAttendanceConflict(plan, rowIndex, review) {
     });
 }
 
-function importedRecord(row, date) {
+function importedRecord(row, date, { mergeOvertimeIntoNormal = false } = {}) {
     const existing = row.existing?.record || {};
-    const applied = summarizePositionAllocations(row.positionAllocations);
-    const positionHours = row.positionAllocations.map(allocation => ({
+    const appliedAllocations = row.positionAllocations.map(allocation => ({
+        ...allocation,
+        normalHours: mergeOvertimeIntoNormal
+            ? allocation.normalHours + allocation.overtimeHours
+            : allocation.normalHours,
+        overtimeHours: mergeOvertimeIntoNormal ? 0 : allocation.overtimeHours
+    }));
+    const applied = summarizePositionAllocations(appliedAllocations);
+    const positionHours = appliedAllocations.map(allocation => ({
         positionId: allocation.positionId,
         hours: allocation.normalHours,
         overtimeHours: allocation.overtimeHours
@@ -750,7 +757,7 @@ function importedRecord(row, date) {
     };
 }
 
-export function buildMiniAttendanceApplyPlan(plan, { expectedDraftRevision } = {}) {
+export function buildMiniAttendanceApplyPlan(plan, { expectedDraftRevision, mergeOvertimeIntoNormal = false } = {}) {
     if (expectedDraftRevision !== plan.draftRevision) throw new Error('Stale draft revision');
     if (plan.hasBlockingIssues) throw new Error('Conflict plan has unresolved blockers');
     const writes = [];
@@ -763,7 +770,7 @@ export function buildMiniAttendanceApplyPlan(plan, { expectedDraftRevision } = {
         }
         if (writtenKeys.has(row.key)) throw new Error(`Duplicate write key: ${row.key}`);
         writtenKeys.add(row.key);
-        writes.push({ key: row.key, record: importedRecord(row, plan.date) });
+        writes.push({ key: row.key, record: importedRecord(row, plan.date, { mergeOvertimeIntoNormal }) });
     }
     return deepFreeze({
         draftRevision: plan.draftRevision,

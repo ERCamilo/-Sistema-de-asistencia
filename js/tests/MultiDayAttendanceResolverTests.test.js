@@ -677,6 +677,33 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(write).toMatchObject({ present: false, deletedAt: null, hoursWorked: 0, overtimeHours: 0 });
     });
 
+    test('SA-stage apply folds overtime into normal hours by default and can preserve the split when disabled', () => {
+        const date = '2026-09-06';
+        const consolidation = {
+            saProjectId: PROJECT_ID, workDates: [date], devices: [], contributingSubmissions: [],
+            items: [{
+                id: 'overtime', saProjectId: PROJECT_ID, saEmployeeId: 'EMP-001', workDate: date,
+                status: 'resolved', sourceStatus: 'present', rosterStatus: 'active',
+                normalHours: 8, overtimeHours: 3.5, totalHours: 11.5, sources: []
+            }]
+        };
+        const resolver = createMultiDayAttendanceResolver({
+            consolidation, employees: mockEmployees, attendance: {}, positions: mockPositions,
+            saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE, stage: 'sa', applyPlan: mockApplyPlan,
+            mergeOvertimeIntoNormal: true
+        });
+
+        let record = resolver.buildDayApplyPlan(date).writes[0].record;
+        expect(record).toMatchObject({ hoursWorked: 11.5, overtimeHours: 0 });
+        expect(record.positionHours[0]).toMatchObject({ hours: 11.5, overtimeHours: 0 });
+        expect(record.miniImportAudit.original).toMatchObject({ normalHours: 8, overtimeHours: 3.5, totalHours: 11.5 });
+
+        resolver.setMergeOvertimeIntoNormal(false);
+        record = resolver.buildDayApplyPlan(date).writes[0].record;
+        expect(record).toMatchObject({ hoursWorked: 8, overtimeHours: 3.5 });
+        expect(record.positionHours[0]).toMatchObject({ hours: 8, overtimeHours: 3.5 });
+    });
+
     test('staged Mini flow refuses final consolidated draft while a day is unresolved or incomplete', () => {
         const sub1 = sampleSubmission({
             submissionId: 'sub-stage-a', deviceId: 'dev-1', sourceId: 'mini-1',

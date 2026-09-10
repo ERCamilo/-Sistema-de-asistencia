@@ -134,6 +134,31 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(appliedPlans).toHaveLength(0);
     });
 
+    test('SA comparison shows overtime merge checked by default and toggles the final apply plan', async () => {
+        const db = new MemoryDB();
+        const inbox = new AttendanceSubmissionInboxStore({ db });
+        const id = '66666666-6666-4666-8666-666666666666';
+        await inbox.importSubmission(buildSubmission({ id, workDate: '2026-09-10', deviceId: 'mini-a', rows: [
+            { miniLocalId: 'm2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 3.5, status: 'present', saEmployeeId: 'EMP-002' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+
+        const modal = makeModal({ db, employees, positions, attendance, applyPlan });
+        modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
+        host.querySelector('[data-mini-action="complete-mini-day"]').click(); await wait();
+        host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
+
+        const checkbox = host.querySelector('[data-mini-merge-overtime]');
+        expect(checkbox).not.toBeNull();
+        expect(checkbox.checked).toBe(true);
+        let record = modal.multiDayResolver.buildDayApplyPlan('2026-09-10').writes[0].record;
+        expect(record).toMatchObject({ hoursWorked: 11.5, overtimeHours: 0 });
+
+        checkbox.click();
+        record = modal.multiDayResolver.buildDayApplyPlan('2026-09-10').writes[0].record;
+        expect(record).toMatchObject({ hoursWorked: 8, overtimeHours: 3.5 });
+    });
+
     test('multi-position choice is deferred to SA comparison after Mini review', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });

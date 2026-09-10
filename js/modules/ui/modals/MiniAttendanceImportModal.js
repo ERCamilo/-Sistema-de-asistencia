@@ -304,6 +304,7 @@ export class MiniAttendanceImportModal {
         this.consolidatedResult = null;
         this.consolidationProposal = null;
         this.multiDayResolver = null;
+        this.mergeOvertimeIntoNormal = true;
         this.activeConsolidationId = null;
         this.activeConsolidationRecord = null;
         this.resumableConsolidation = null;
@@ -801,6 +802,7 @@ export class MiniAttendanceImportModal {
             entityScope: entityScopeSnapshot,
             regularLimit: this.regularLimit,
             applyPlan: this.applyPlan,
+            mergeOvertimeIntoNormal: this.mergeOvertimeIntoNormal,
             stage: 'sa'
         });
         this.connectedView = 'sa-comparison';
@@ -836,6 +838,7 @@ export class MiniAttendanceImportModal {
             entityScope: entityScopeSnapshot,
             regularLimit: this.regularLimit,
             applyPlan: this.applyPlan,
+            mergeOvertimeIntoNormal: this.mergeOvertimeIntoNormal,
             stage: miniStage ? 'mini' : 'sa',
             completedMiniDates: record.completedDays || []
         });
@@ -2168,7 +2171,31 @@ export class MiniAttendanceImportModal {
             );
         }
 
-        container.append(badges, groupsContainer, proposalNotice);
+        container.append(badges, groupsContainer);
+        if (!isMiniStage && this.multiDayResolver) {
+            const overtimeOption = element('label', null, {
+                className: 'mini-import-overtime-option',
+                dataset: { miniMergeOvertimeOption: '' }
+            });
+            const overtimeCheckbox = element('input', null, {
+                type: 'checkbox',
+                checked: this.mergeOvertimeIntoNormal,
+                dataset: { miniMergeOvertime: '' }
+            });
+            const overtimeCopy = element('span', null, { className: 'mini-import-overtime-option-copy' });
+            overtimeCopy.append(
+                element('strong', 'Sumar horas extra a las horas normales al aplicar'),
+                element('span', 'Activo por defecto. Ejemplo: 8 normales + 3 extra se guardan en SA como 11 horas normales.')
+            );
+            overtimeCheckbox.addEventListener('change', () => {
+                this.mergeOvertimeIntoNormal = overtimeCheckbox.checked;
+                this.multiDayResolver.setMergeOvertimeIntoNormal(this.mergeOvertimeIntoNormal);
+                this.render();
+            });
+            overtimeOption.append(overtimeCheckbox, overtimeCopy);
+            container.append(overtimeOption);
+        }
+        container.append(proposalNotice);
 
         // Footer de etapa: Mini↔Mini nunca aplica en SA. Sólo completa días y
         // produce un draft revisado; la aplicación existe únicamente en etapa SA.
