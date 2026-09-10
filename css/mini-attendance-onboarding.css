@@ -2549,3 +2549,51 @@
 .mini-import-overtime-option-copy strong { color: var(--mini-text); font-size: 13px; line-height: 1.35; }
 .mini-import-overtime-option-copy > span { color: var(--mini-text-dim); font-size: 11.5px; line-height: 1.45; }
 .mini-import-overtime-option:focus-within { outline: 2px solid var(--mini-accent); outline-offset: 2px; }
+
+
+/* Mini↔Mini day review: explicit source choice and fast day-level actions. */
+.mini-day-source-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--mini-border);
+    background: var(--mini-panel);
+}
+.mini-day-source-actions .mini-import-action,
+.mini-hours-resolve-row .mini-import-action { min-height: 44px; }
+.mini-hours-resolve-row .mini-import-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.mini-hours-resolve-row .mini-import-action.is-selected {
+    background: var(--mini-good);
+    border-color: var(--mini-good);
+    color: var(--mini-bg);
+    font-weight: 750;
+}
+.mini-source-choice-check {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.mini-day-review-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+}
+.mini-day-review-actions .mini-import-action { min-height: 46px; }
+@media (max-width: 640px) {
+    .mini-day-source-actions { align-items: stretch; flex-direction: column; }
+    .mini-day-source-actions .mini-import-action { width: 100%; }
+    .mini-day-review-actions { grid-template-columns: 1fr; }
+}

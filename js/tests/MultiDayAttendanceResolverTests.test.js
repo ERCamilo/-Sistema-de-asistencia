@@ -704,6 +704,37 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(record.positionHours[0]).toMatchObject({ hours: 8, overtimeHours: 3.5 });
     });
 
+    test('bulk day source choice resolves compatible rows from one Mini and preserves that choice', () => {
+        const date = '2026-09-06';
+        const subA = sampleSubmission({
+            submissionId: 'bulk-a', deviceId: 'mini-a', sourceId: 'mini-a', workDate: date,
+            rows: [
+                { miniLocalId: 'a1', number: '001', name: 'Ana', normalHours: 0, overtimeHours: 0, status: 'unmarked', saEmployeeId: 'EMP-001' },
+                { miniLocalId: 'a2', number: '002', name: 'Carlos', normalHours: 0, overtimeHours: 0, status: 'unmarked', saEmployeeId: 'EMP-002' }
+            ]
+        });
+        const subB = sampleSubmission({
+            submissionId: 'bulk-b', deviceId: 'mini-b', sourceId: 'mini-b', workDate: date,
+            rows: [
+                { miniLocalId: 'b1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+                { miniLocalId: 'b2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 2, status: 'present', saEmployeeId: 'EMP-002' }
+            ]
+        });
+        const resolver = createMultiDayAttendanceResolver({
+            submissions: [subA, subB], employees: mockEmployees, attendance: {}, positions: mockPositions,
+            saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE, stage: 'mini', applyPlan: mockApplyPlan
+        });
+        expect(resolver.getDayState(date).status).toBe('stage_a_blocked');
+        const result = resolver.resolveDayFromSource(date, 'mini-b');
+        expect(result).toMatchObject({ date, deviceId: 'mini-b', resolvedCount: 2, skippedCount: 0 });
+        const state = resolver.getDayState(date);
+        expect(state.status).toBe('mini_day_ready');
+        expect(state.items.map(item => [item.normalHours, item.overtimeHours])).toEqual([[8, 0], [8, 2]]);
+        expect(state.items.every(item => item.resolutionSource?.deviceId === 'mini-b')).toBe(true);
+        expect(resolver.getMiniProgressSnapshot().items.every(item => item.resolutionSource?.deviceId === 'mini-b')).toBe(true);
+    });
+
+
     test('staged Mini flow refuses final consolidated draft while a day is unresolved or incomplete', () => {
         const sub1 = sampleSubmission({
             submissionId: 'sub-stage-a', deviceId: 'dev-1', sourceId: 'mini-1',

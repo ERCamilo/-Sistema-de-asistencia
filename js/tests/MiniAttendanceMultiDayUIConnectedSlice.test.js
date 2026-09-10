@@ -159,6 +159,76 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
         expect(record).toMatchObject({ hoursWorked: 8, overtimeHours: 3.5 });
     });
 
+    test('keeps the chosen Mini visibly selected and can apply one Mini to the whole day', async () => {
+        const db = new MemoryDB();
+        const inbox = new AttendanceSubmissionInboxStore({ db });
+        const a = '66666666-6666-4666-8666-666666666666';
+        const b = '77777777-7777-4777-8777-777777777777';
+        await inbox.importSubmission(buildSubmission({ id: a, workDate: '2026-09-08', deviceId: 'mini-a', rows: [
+            { miniLocalId: 'a1', number: '001', name: 'Ana', normalHours: 4, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+            { miniLocalId: 'a2', number: '002', name: 'Carlos', normalHours: 4, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+        await inbox.importSubmission(buildSubmission({ id: b, workDate: '2026-09-08', deviceId: 'mini-b', rows: [
+            { miniLocalId: 'b1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' },
+            { miniLocalId: 'b2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 2, status: 'present', saEmployeeId: 'EMP-002' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+
+        const modal = makeModal({ db, employees, positions, attendance, applyPlan });
+        modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${a}"]`).click(); host.querySelector(`[data-mini-draft-checkbox="${b}"]`).click();
+        await modal.consolidateSelectedDrafts();
+
+        const firstMiniB = [...host.querySelectorAll('[data-mini-action="resolve-hours"]')]
+            .find(button => button.textContent.includes('mini-b'));
+        expect(firstMiniB).toBeDefined();
+        firstMiniB.click(); await wait();
+        const selected = host.querySelector('[data-mini-action="resolve-hours"].is-selected[aria-pressed="true"]');
+        expect(selected).not.toBeNull();
+        expect(selected.textContent).toContain('mini-b');
+        expect(selected.querySelector('svg.mini-source-choice-check')).not.toBeNull();
+
+        const bulk = host.querySelector('[data-mini-action="use-day-source"][data-mini-device-id="mini-b"]');
+        expect(bulk).not.toBeNull();
+        bulk.click(); await wait();
+        expect(modal.multiDayResolver.getDayState('2026-09-08').status).toBe('mini_day_ready');
+        expect(modal.multiDayResolver.getDayState('2026-09-08').items.every(item => item.resolutionSource?.deviceId === 'mini-b')).toBe(true);
+        const selectedButtons = [...host.querySelectorAll('[data-mini-action="resolve-hours"].is-selected')];
+        expect(selectedButtons).toHaveLength(2);
+        expect(selectedButtons.every(button => button.textContent.includes('mini-b'))).toBe(true);
+    });
+
+    test('footer can save a day pending or confirm it and continue to the next day', async () => {
+        const db = new MemoryDB();
+        const inbox = new AttendanceSubmissionInboxStore({ db });
+        const a = '88888888-8888-4888-8888-888888888888';
+        const b = '99999999-9999-4999-8999-999999999999';
+        await inbox.importSubmission(buildSubmission({ id: a, workDate: '2026-09-06', deviceId: 'mini-a', rows: [
+            { miniLocalId: 'a1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+        await inbox.importSubmission(buildSubmission({ id: b, workDate: '2026-09-07', deviceId: 'mini-a', rows: [
+            { miniLocalId: 'a2', number: '002', name: 'Carlos', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+
+        const modal = makeModal({ db, employees, positions, attendance, applyPlan });
+        modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${a}"]`).click(); host.querySelector(`[data-mini-draft-checkbox="${b}"]`).click();
+        await modal.consolidateSelectedDrafts();
+        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 1 de 2');
+
+        const pending = host.querySelector('[data-mini-action="leave-mini-day-pending"]');
+        expect(pending).not.toBeNull();
+        pending.click(); await wait();
+        expect(host.querySelector('[data-mini-day-counter]').textContent).toBe('Día 2 de 2');
+        expect(modal.multiDayResolver.getDayState('2026-09-06').status).toBe('mini_day_ready');
+
+        const confirmLast = host.querySelector('[data-mini-action="complete-mini-day"]');
+        expect(confirmLast.textContent).toContain('Confirmar día');
+        confirmLast.click(); await wait();
+        expect(modal.multiDayResolver.getDayState('2026-09-07').status).toBe('mini_day_completed');
+        expect(modal.multiDayResolver.getDayState('2026-09-06').status).toBe('mini_day_ready');
+    });
+
+
     test('multi-position choice is deferred to SA comparison after Mini review', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });

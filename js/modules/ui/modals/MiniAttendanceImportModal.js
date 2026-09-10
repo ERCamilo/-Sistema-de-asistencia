@@ -128,6 +128,18 @@ function resolvedCheckSvg(label = 'Resuelto') {
     return wrap;
 }
 
+function selectedCheckSvg() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('class', 'mini-source-choice-check');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M20 6 9 17l-5-5');
+    svg.appendChild(path);
+    return svg;
+}
+
 function isIncorporatedDraft(draft) {
     return draft?.status === 'incorporated' || draft?.status === 'imported';
 }
@@ -763,6 +775,14 @@ export class MiniAttendanceImportModal {
         const nextIndex = dates.findIndex((workDate, index) => index > this.consolidationDayIndex && this.multiDayResolver.getDayState(workDate)?.status !== 'mini_day_completed');
         if (nextIndex >= 0) this.consolidationDayIndex = nextIndex;
         else if (this.consolidationDayIndex < dates.length - 1) this.consolidationDayIndex += 1;
+        this.render();
+    }
+
+    async leaveMiniDayPendingAndContinue() {
+        if (!this.multiDayResolver || this.multiDayResolver.stage !== 'mini') return;
+        await this.persistMiniProgress();
+        const dates = this.multiDayResolver.workDates || [];
+        if (this.consolidationDayIndex < dates.length - 1) this.consolidationDayIndex += 1;
         this.render();
     }
 
@@ -1841,7 +1861,9 @@ export class MiniAttendanceImportModal {
 
         // La conciliación conectada siempre se pagina por día. El modo por período
         // sólo controla la solicitud/agrupación de entrada, no la resolución humana.
-        const grouped = groupConsolidatedAttendance(this.consolidatedResult, 'day');
+        const grouped = this.multiDayResolver
+            ? this.multiDayResolver.getConsolidatedView('day')
+            : groupConsolidatedAttendance(this.consolidatedResult, 'day');
         const groupsContainer = element('div', null, { className: 'mini-consolidation-groups' });
 
         if (grouped.mode === 'day') {
@@ -1879,16 +1901,7 @@ export class MiniAttendanceImportModal {
                         dataset: { miniDayStatus: dayState.status, miniDayDate: group.workDate }
                     }));
 
-                    if (isMiniStage) {
-                        const completeDayBtn = actionButton(
-                            dayState.status === 'mini_day_completed' ? 'Día completado' : 'Completar día',
-                            'complete-mini-day',
-                            dayState.status !== 'mini_day_ready'
-                        );
-                        completeDayBtn.dataset.miniDate = group.workDate;
-                        completeDayBtn.addEventListener('click', () => { void this.completeMiniDay(group.workDate); });
-                        headerEl.append(completeDayBtn);
-                    } else {
+                    if (!isMiniStage) {
                         const applyDayBtn = actionButton('Aplicar este día', 'apply-day', !dayState.canApply);
                         applyDayBtn.dataset.miniDate = group.workDate;
                         applyDayBtn.addEventListener('click', async () => {
@@ -1903,6 +1916,39 @@ export class MiniAttendanceImportModal {
                     }
                 }
                 groupEl.append(headerEl);
+
+                if (isMiniStage && this.multiDayResolver) {
+                    const sourceMap = new Map();
+                    let hasCrossMiniChoice = false;
+                    group.items.forEach(item => {
+                        if (Array.isArray(item.sources) && item.sources.length > 1) hasCrossMiniChoice = true;
+                        (item.sources || []).forEach(source => {
+                            if (!source?.deviceId || source.missingRoster === true) return;
+                            if (!sourceMap.has(source.deviceId)) {
+                                sourceMap.set(source.deviceId, source.sourcePeerName || source.sourceId || source.deviceId);
+                            }
+                        });
+                    });
+                    if (hasCrossMiniChoice && sourceMap.size > 0) {
+                        const quickActions = element('div', null, {
+                            className: 'mini-day-source-actions',
+                            dataset: { miniDaySourceActions: group.workDate }
+                        });
+                        quickActions.append(element('span', 'Acción rápida para este día:', { className: 'mini-control-label' }));
+                        sourceMap.forEach((sourceName, deviceId) => {
+                            const useSourceBtn = actionButton(`Usar todo de ${sourceName}`, 'use-day-source');
+                            useSourceBtn.dataset.miniDate = group.workDate;
+                            useSourceBtn.dataset.miniDeviceId = deviceId;
+                            useSourceBtn.addEventListener('click', async () => {
+                                this.multiDayResolver.resolveDayFromSource(group.workDate, deviceId);
+                                await this.persistMiniProgress();
+                                this.render();
+                            });
+                            quickActions.append(useSourceBtn);
+                        });
+                        groupEl.append(quickActions);
+                    }
+                }
 
                 const itemsList = element('div', null, { className: 'mini-consolidation-items-list' });
                 group.items.forEach(item => {
@@ -1960,29 +2006,36 @@ export class MiniAttendanceImportModal {
                             rowEl.append(resolveIdentityEl);
                         }
 
-                        // 2. Hours conflict between Minis
-                        if (item.status === 'conflict' && Array.isArray(item.sources) && item.sources.length > 1) {
+                        // 2. Hours conflict between Minis. Keep the chosen source visible
+                        // until the day is confirmed so the decision remains inspectable/changeable.
+                        const hadSourceChoice = Array.isArray(item.sources) && item.sources.length > 1 &&
+                            (item.status === 'conflict' || item.resolutionSource || Array.isArray(item.conflictingHours));
+                        if (isMiniStage && hadSourceChoice) {
                             const resolveHoursEl = element('div', null, {
                                 className: 'mini-hours-resolve-row',
                                 dataset: { miniHoursConflict: item.id }
                             });
-                            resolveHoursEl.append(element('span', 'Elegir versión para el consolidado:', { className: 'mini-control-label' }));
+                            resolveHoursEl.append(element('span', item.resolutionSource
+                                ? 'Versión seleccionada para el consolidado:'
+                                : 'Elegir versión para el consolidado:', { className: 'mini-control-label' }));
                             item.sources.forEach((src, srcIndex) => {
+                                if (src.missingRoster === true) return;
                                 const sourceName = src.sourcePeerName || src.sourceId || src.deviceId || 'Mini';
                                 const sourceDetail = this.formatConnectedHours(src.normalHours, src.overtimeHours, {
                                     status: src.status,
                                     rosterStatus: src.rosterStatus,
-                                    missingRoster: src.missingRoster === true
+                                    missingRoster: false
                                 });
-                                const srcBtn = actionButton(
-                                    `${sourceName}: ${sourceDetail}`,
-                                    'resolve-hours'
-                                );
+                                const selected = Boolean(item.resolutionSource?.deviceId && item.resolutionSource.deviceId === src.deviceId);
+                                const srcBtn = actionButton(`${sourceName}: ${sourceDetail}`, 'resolve-hours');
                                 srcBtn.dataset.miniItemId = item.id;
                                 srcBtn.dataset.miniSourceIndex = String(srcIndex);
+                                srcBtn.classList.toggle('is-selected', selected);
+                                srcBtn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+                                if (selected) srcBtn.append(selectedCheckSvg());
                                 srcBtn.addEventListener('click', async () => {
                                     this.multiDayResolver.resolveItemHours(item.id, { sourceIndex: srcIndex });
-                                    if (isMiniStage) await this.persistMiniProgress();
+                                    await this.persistMiniProgress();
                                     this.render();
                                 });
                                 resolveHoursEl.append(srcBtn);
@@ -2211,13 +2264,32 @@ export class MiniAttendanceImportModal {
             const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
             const prev = actionButton('Día anterior', 'previous-consolidation-day', this.consolidationDayIndex <= 0);
             prev.addEventListener('click', () => { this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1); this.render(); });
-            const nextBlocked = isMiniStage && currentState?.status !== 'mini_day_completed';
-            const next = actionButton('Día siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1 || nextBlocked);
+            const next = actionButton('Día siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1);
             next.addEventListener('click', () => { this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1); this.render(); });
             pager.append(prev, next);
             batchSection.append(pager);
 
             if (isMiniStage) {
+                const reviewActions = element('div', null, { className: 'mini-day-review-actions' });
+                const hasNextDay = this.consolidationDayIndex < dates.length - 1;
+                const leavePendingBtn = actionButton(
+                    hasNextDay ? 'Dejar pendiente y continuar' : 'Guardar día pendiente',
+                    'leave-mini-day-pending',
+                    currentState?.status === 'mini_day_completed'
+                );
+                leavePendingBtn.classList.add('mini-import-action-secondary');
+                leavePendingBtn.addEventListener('click', () => { void this.leaveMiniDayPendingAndContinue(); });
+                const confirmDayBtn = actionButton(
+                    hasNextDay ? 'Confirmar día y continuar' : 'Confirmar día',
+                    'complete-mini-day',
+                    currentState?.status !== 'mini_day_ready'
+                );
+                confirmDayBtn.classList.add('mini-import-action-primary');
+                confirmDayBtn.dataset.miniDate = currentDate || '';
+                confirmDayBtn.addEventListener('click', () => { if (currentDate) void this.completeMiniDay(currentDate); });
+                reviewActions.append(leavePendingBtn, confirmDayBtn);
+                batchSection.append(reviewActions);
+
                 const createBtn = actionButton(
                     'Crear consolidado Mini',
                     'create-mini-consolidated',

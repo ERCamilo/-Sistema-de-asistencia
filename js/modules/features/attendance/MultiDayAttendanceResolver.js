@@ -524,6 +524,36 @@ export class MultiDayAttendanceResolver {
         return item;
     }
 
+    /** Selects one Mini as the source for every compatible row of one day.
+     * Identity conflicts and rows absent from the selected Mini remain pending. */
+    resolveDayFromSource(date, deviceId) {
+        if (typeof deviceId !== 'string' || !deviceId) {
+            throw new TypeError('A Mini deviceId is required');
+        }
+        const dateItems = this.items.filter(item => item.workDate === date && !item.excluded);
+        let resolvedCount = 0;
+        let skippedCount = 0;
+        for (const item of dateItems) {
+            if (!item.saEmployeeId || item.status === 'identity_conflict') {
+                skippedCount += 1;
+                continue;
+            }
+            const source = Array.isArray(item.sources)
+                ? item.sources.find(candidate => candidate.deviceId === deviceId && candidate.missingRoster !== true)
+                : null;
+            if (!source) {
+                skippedCount += 1;
+                continue;
+            }
+            if (item.sources.length > 1 || item.status === 'conflict' || item.resolutionSource) {
+                this.resolveItemHours(item.id, { deviceId });
+                resolvedCount += 1;
+            }
+        }
+        this._recomputeDayState(date);
+        return deepFreeze({ date, deviceId, resolvedCount, skippedCount });
+    }
+
     /**
      * Excludes an item from consolidation and apply.
      *
