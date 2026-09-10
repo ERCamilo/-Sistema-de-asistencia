@@ -117,6 +117,8 @@ button.sa-p2p-capability:hover { background:var(--p2p-hover); }
 .sa-p2p-status.is-success span { color:var(--p2p-dim); font-size:11px; }
 
 
+.sa-p2p-qr-block { text-align:center; }
+.sa-p2p-qr-label { margin-bottom:7px; }
 .sa-p2p-qr-card { display:inline-block;padding:10px;border-radius:12px;background:var(--p2p-qr-bg); }
 .sa-p2p-qr-image { display:block;width:min(100%,240px);max-width:100%;height:auto;aspect-ratio:1 / 1;image-rendering:pixelated; }
 .sa-p2p-qr-warning { font-size:12px;color:var(--p2p-warn); }

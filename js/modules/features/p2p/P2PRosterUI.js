@@ -334,7 +334,7 @@ async function startNewPairing() {
         ${backButton()}
         <div><h3>Vincular nuevo Mini</h3><p>En Mini, escanea este QR. Si la cámara no está disponible, usa el código y la clave.</p></div>
         <div class="sa-p2p-pair-grid">
-          <div style="text-align:center"><div class="sa-p2p-section-label" style="margin-bottom:7px">QR de vinculación</div>${renderQr(pairUrl)}</div>
+          <div class="sa-p2p-qr-block"><div class="sa-p2p-section-label sa-p2p-qr-label">QR de vinculación</div>${renderQr(pairUrl)}</div>
           <div class="sa-p2p-code-panel">
             <div><span class="sa-p2p-section-label">Código de 6 dígitos</span><strong class="sa-p2p-pair-code">${esc(descriptor.code.slice(0,3)+' '+descriptor.code.slice(3))}</strong></div>
             <div><span class="sa-p2p-section-label">Clave</span><strong class="sa-p2p-pair-key">${esc(descriptor.key)}</strong></div>

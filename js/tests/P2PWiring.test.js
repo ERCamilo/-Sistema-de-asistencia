@@ -204,6 +204,7 @@ test('P2P home follows compact linking UI contract',()=>{
   expect(ui).not.toContain("confirm('¿Desvincular");
   expect(ui).not.toContain("disabledCard('🕒 Asistencia'");
   expect(ui).not.toContain('<div style="font-size:24px">⇄</div>');
+  expect(ui).not.toContain('style=');
   expect(css).toContain('.sa-p2p-capabilities');
   expect(css).toMatch(/\.sa-p2p-icon-btn \{[^}]*width:44px;[^}]*height:44px;[^}]*min-height:44px;/);
   expect(css).toMatch(/\.sa-p2p-button \{[^}]*min-height:44px;/);

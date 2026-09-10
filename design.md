@@ -277,6 +277,8 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 * En móvil, las capacidades pueden pasar de 4 columnas a 2; los targets táctiles siguen siendo de al menos `44x44px`.
 * Todo el flujo inicio → QR/código → confirmación → resultado conserva el mismo overlay/shell y aplica la transición morfológica definida en 4.6; no cerrar y volver a abrir otro modal.
 * No usar `confirm()` nativo ni emojis/símbolos Unicode como iconografía de acciones. Usar confirmación in-app y SVG accesibles.
+* **Gutter interior obligatorio**: salvo topbar/progress/footer deliberadamente full-bleed, el contenido interactivo de un modal debe conservar al menos `16–20px` de separación respecto al borde del shell (`12–14px` en móviles muy estrechos). Tabs, campos, tarjetas y botones no deben verse pegados al contorno exterior.
+* Los selectores de modo (`Pegar texto`, `Conectados`) viven dentro de ese gutter y respetan el orden definido por el flujo; no se colocan contra el borde del modal.
 
 ## 6. Clases Utilitarias (Hover & Interactions)
 
