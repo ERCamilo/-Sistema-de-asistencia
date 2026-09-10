@@ -321,6 +321,27 @@ describe('AttendanceConsolidation — pure cross-Mini consolidation', () => {
         expect(byPeriod.employeeGroups[0].totalOvertimeHours).toBe(1);
     });
 
+    test('orders employee lists numerically by employee number in day and period views', () => {
+        const sub = buildSubmission({
+            submissionId: '33333333-3333-4333-8333-333333333333',
+            workDate: '2026-09-08',
+            rows: [
+                { miniLocalId: 'm10', number: '010', name: 'Diez', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-010' },
+                { miniLocalId: 'm2', number: '2', name: 'Dos', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-002' },
+                { miniLocalId: 'm1', number: '001', name: 'Uno', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }
+            ]
+        });
+
+        const consolidated = consolidateAttendanceSubmissions([sub]);
+        expect(consolidated.items.map(item => item.displayNumber)).toEqual(['001', '2', '010']);
+
+        const byDay = groupConsolidatedAttendance(consolidated, 'day');
+        expect(byDay.groups[0].items.map(item => item.displayNumber)).toEqual(['001', '2', '010']);
+
+        const byPeriod = groupConsolidatedAttendance(consolidated, 'period');
+        expect(byPeriod.employeeGroups.map(item => item.displayNumber)).toEqual(['001', '2', '010']);
+    });
+
     test('buildConsolidationProposal creates proposal seam without writing to attendance', () => {
         const sub = buildSubmission({
             submissionId: '11111111-1111-1111-1111-111111111111',

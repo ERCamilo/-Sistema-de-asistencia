@@ -25,6 +25,31 @@ function isGenericDeviceId(deviceId) {
     return ['mini-device', 'mini-app', 'device', 'mini', 'generic', 'unknown'].includes(clean);
 }
 
+function employeeNumberValue(value) {
+    const text = String(value ?? '').trim();
+    if (!text || !/^\d+$/.test(text)) return Number.POSITIVE_INFINITY;
+    const numeric = Number(text);
+    return Number.isFinite(numeric) ? numeric : Number.POSITIVE_INFINITY;
+}
+
+function compareEmployeeDisplayOrder(a, b) {
+    const numberA = employeeNumberValue(a?.displayNumber);
+    const numberB = employeeNumberValue(b?.displayNumber);
+    if (numberA !== numberB) return numberA - numberB;
+
+    const rawNumberA = String(a?.displayNumber ?? '').trim();
+    const rawNumberB = String(b?.displayNumber ?? '').trim();
+    const numberTextOrder = rawNumberA.localeCompare(rawNumberB, 'es', { numeric: true, sensitivity: 'base' });
+    if (numberTextOrder !== 0) return numberTextOrder;
+
+    const nameA = String(a?.displayName ?? '').trim();
+    const nameB = String(b?.displayName ?? '').trim();
+    const nameOrder = nameA.localeCompare(nameB, 'es', { sensitivity: 'base' });
+    if (nameOrder !== 0) return nameOrder;
+
+    return String(a?.id ?? a?.saEmployeeId ?? '').localeCompare(String(b?.id ?? b?.saEmployeeId ?? ''));
+}
+
 function unwrapSubmission(item) {
     if (!item || typeof item !== 'object') {
         throw new TypeError('Submission must be an object');
@@ -283,11 +308,10 @@ export function consolidateAttendanceSubmissions(submissions, { expectedSaProjec
         }
     }
 
-    // Sort all items deterministically: workDate, then displayName or displayNumber, then id
+    // Operational lists are deterministic: workDate, then employee number ascending.
     const allItems = [...resolvedItems, ...unresolvedItems].sort((a, b) => {
         if (a.workDate !== b.workDate) return a.workDate.localeCompare(b.workDate);
-        if (a.displayName !== b.displayName) return a.displayName.localeCompare(b.displayName);
-        return a.id.localeCompare(b.id);
+        return compareEmployeeDisplayOrder(a, b);
     });
 
     const primaryProjectId = projectsSet.size === 1 ? [...projectsSet][0] : (expectedProject || null);
@@ -325,7 +349,9 @@ export function groupConsolidatedAttendance(consolidation, mode = 'day') {
     if (cleanMode === 'day') {
         const sortedDates = [...(consolidation.workDates || [])].sort();
         const groups = sortedDates.map(date => {
-            const dateItems = consolidation.items.filter(item => item.workDate === date);
+            const dateItems = consolidation.items
+                .filter(item => item.workDate === date)
+                .sort(compareEmployeeDisplayOrder);
             return {
                 key: date,
                 workDate: date,
@@ -386,9 +412,8 @@ export function groupConsolidatedAttendance(consolidation, mode = 'day') {
         }
     }
 
-    const employeeGroups = [...employeeMap.values()].sort((a, b) =>
-        a.displayName.localeCompare(b.displayName)
-    );
+    const employeeGroups = [...employeeMap.values()].sort(compareEmployeeDisplayOrder);
+    unresolved.sort(compareEmployeeDisplayOrder);
 
     return deepFreeze({
         mode: 'period',

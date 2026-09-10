@@ -229,6 +229,38 @@ describe('MiniAttendanceImportModal — staged Mini↔Mini → consolidated↔SA
     });
 
 
+    test('hides zero summary badges and keeps footer actions concise and ordered', async () => {
+        const db = new MemoryDB();
+        const inbox = new AttendanceSubmissionInboxStore({ db });
+        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        await inbox.importSubmission(buildSubmission({ id, workDate: '2026-09-11', deviceId: 'mini-a', rows: [
+            { miniLocalId: 'm1', number: '001', name: 'Ana', normalHours: 8, overtimeHours: 0, status: 'present', saEmployeeId: 'EMP-001' }
+        ] }), { expectedSaProjectId: SA_PROJECT });
+
+        const modal = makeModal({ db, employees, positions, attendance, applyPlan });
+        modal.mount(host); await modal.setImportMode('connected'); await modal.openConnectedInbox();
+        host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click(); await modal.consolidateSelectedDrafts();
+
+        const miniBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
+        expect(miniBadges).toContain('Total: 1');
+        expect(miniBadges).toContain('Resueltos: 1');
+        expect(miniBadges.some(text => text.startsWith('Conflictos entre Minis:'))).toBe(false);
+        expect(miniBadges.some(text => text.startsWith('Identidades no resueltas:'))).toBe(false);
+        expect(miniBadges.some(text => text.startsWith('Días revisados:'))).toBe(false);
+
+        let footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
+        expect(footerLabels).toEqual(['Anterior', 'Siguiente', 'Pendiente', 'Confirmar día', 'Descartar', 'Crear consolidado']);
+
+        host.querySelector('[data-mini-action="complete-mini-day"]').click(); await wait();
+        host.querySelector('[data-mini-action="create-mini-consolidated"]').click(); await wait();
+
+        const saBadges = [...host.querySelectorAll('.mini-consolidation-summary-badges .mini-badge')].map(el => el.textContent);
+        expect(saBadges).toContain('Días listos: 1');
+        expect(saBadges.some(text => text.startsWith('Días aplicados:'))).toBe(false);
+        footerLabels = [...host.querySelectorAll('[data-mini-batch-actions] button')].map(button => button.textContent.trim());
+        expect(footerLabels).toEqual(['Anterior', 'Siguiente', 'Aplicar listos', 'Finalizar']);
+    });
+
     test('multi-position choice is deferred to SA comparison after Mini review', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });

@@ -1838,24 +1838,28 @@ export class MiniAttendanceImportModal {
             totalItems: 0, resolvedCount: 0, hoursConflictCount: 0, unresolvedIdentityCount: 0
         };
         const badges = element('div', null, { className: 'mini-consolidation-summary-badges' });
-        badges.append(
-            element('span', `Total: ${summary.totalItems}`, { className: 'mini-badge mini-badge-total' }),
-            element('span', `Resueltos: ${summary.resolvedCount}`, { className: 'mini-badge mini-badge-resolved' }),
-            element('span', `Conflictos entre Minis: ${summary.hoursConflictCount}`, { className: 'mini-badge mini-badge-conflict' }),
-            element('span', `Identidades no resueltas: ${summary.unresolvedIdentityCount}`, { className: 'mini-badge mini-badge-unresolved' })
-        );
+        const appendPositiveBadge = (value, label, className) => {
+            const count = Number(value || 0);
+            if (count <= 0) return;
+            badges.append(element('span', `${label}: ${count}`, { className: `mini-badge ${className}` }));
+        };
+        appendPositiveBadge(summary.totalItems, 'Total', 'mini-badge-total');
+        appendPositiveBadge(summary.resolvedCount, 'Resueltos', 'mini-badge-resolved');
+        appendPositiveBadge(summary.hoursConflictCount, 'Conflictos entre Minis', 'mini-badge-conflict');
+        appendPositiveBadge(summary.unresolvedIdentityCount, 'Identidades no resueltas', 'mini-badge-unresolved');
 
         if (this.multiDayResolver) {
             const multiSummary = this.multiDayResolver.getMultiDaySummary();
             if (isMiniStage) {
-                badges.append(
-                    element('span', `Días revisados: ${this.multiDayResolver.completedMiniDates?.size || 0}/${multiSummary.totalDays}`, { className: 'mini-badge mini-badge-ready-days' })
-                );
+                const reviewedDays = this.multiDayResolver.completedMiniDates?.size || 0;
+                if (reviewedDays > 0) {
+                    badges.append(element('span', `Días revisados: ${reviewedDays}/${multiSummary.totalDays}`, {
+                        className: 'mini-badge mini-badge-ready-days'
+                    }));
+                }
             } else {
-                badges.append(
-                    element('span', `Días listos: ${multiSummary.readyDaysCount}`, { className: 'mini-badge mini-badge-ready-days' }),
-                    element('span', `Días aplicados: ${multiSummary.appliedDaysCount}`, { className: 'mini-badge mini-badge-applied-days' })
-                );
+                appendPositiveBadge(multiSummary.readyDaysCount, 'Días listos', 'mini-badge-ready-days');
+                appendPositiveBadge(multiSummary.appliedDaysCount, 'Días aplicados', 'mini-badge-applied-days');
             }
         }
 
@@ -2262,28 +2266,30 @@ export class MiniAttendanceImportModal {
             const currentDate = dates[this.consolidationDayIndex] || null;
             const currentState = currentDate ? this.multiDayResolver.getDayState(currentDate) : null;
             const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
-            const prev = actionButton('Día anterior', 'previous-consolidation-day', this.consolidationDayIndex <= 0);
+            const prev = actionButton('Anterior', 'previous-consolidation-day', this.consolidationDayIndex <= 0);
             prev.addEventListener('click', () => { this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1); this.render(); });
-            const next = actionButton('Día siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1);
+            const next = actionButton('Siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1);
             next.addEventListener('click', () => { this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1); this.render(); });
             pager.append(prev, next);
             batchSection.append(pager);
 
             if (isMiniStage) {
                 const reviewActions = element('div', null, { className: 'mini-day-review-actions' });
-                const hasNextDay = this.consolidationDayIndex < dates.length - 1;
                 const leavePendingBtn = actionButton(
-                    hasNextDay ? 'Dejar pendiente y continuar' : 'Guardar día pendiente',
+                    'Pendiente',
                     'leave-mini-day-pending',
                     currentState?.status === 'mini_day_completed'
                 );
+                leavePendingBtn.title = 'Guardar el progreso y continuar sin completar este día';
+                leavePendingBtn.setAttribute('aria-label', 'Dejar este día pendiente y continuar');
                 leavePendingBtn.classList.add('mini-import-action-secondary');
                 leavePendingBtn.addEventListener('click', () => { void this.leaveMiniDayPendingAndContinue(); });
                 const confirmDayBtn = actionButton(
-                    hasNextDay ? 'Confirmar día y continuar' : 'Confirmar día',
+                    'Confirmar día',
                     'complete-mini-day',
                     currentState?.status !== 'mini_day_ready'
                 );
+                confirmDayBtn.title = 'Marcar este día como completamente revisado';
                 confirmDayBtn.classList.add('mini-import-action-primary');
                 confirmDayBtn.dataset.miniDate = currentDate || '';
                 confirmDayBtn.addEventListener('click', () => { if (currentDate) void this.completeMiniDay(currentDate); });
@@ -2291,16 +2297,20 @@ export class MiniAttendanceImportModal {
                 batchSection.append(reviewActions);
 
                 const createBtn = actionButton(
-                    'Crear consolidado Mini',
+                    'Crear consolidado',
                     'create-mini-consolidated',
                     !this.multiDayResolver.isMiniStageComplete()
                 );
                 createBtn.classList.add('mini-import-action-primary');
                 createBtn.addEventListener('click', () => { void this.createMiniConsolidatedDraft(); });
-                const discardBtn = actionButton('Descartar consolidado', 'discard-active-consolidation');
+                const discardBtn = actionButton('Descartar', 'discard-active-consolidation');
                 discardBtn.classList.add('mini-import-action-secondary');
                 discardBtn.addEventListener('click', () => { void this.discardActiveConsolidation(); });
-                batchSection.append(createBtn, discardBtn);
+                const flowActions = element('div', null, {
+                    className: 'mini-consolidation-flow-actions is-global'
+                });
+                flowActions.append(discardBtn, createBtn);
+                batchSection.append(flowActions);
                 if (!this.multiDayResolver.isMiniStageComplete()) {
                     batchSection.append(element('span', 'Completa cada día antes de crear el consolidado revisado.', {
                         className: 'mini-import-complete-hint'
@@ -2308,10 +2318,11 @@ export class MiniAttendanceImportModal {
                 }
             } else {
                 const applyReadyBtn = actionButton(
-                    `Aplicar días listos (${multiSummary.readyDaysCount})`,
+                    'Aplicar listos',
                     'apply-ready-days',
                     multiSummary.readyDaysCount === 0
                 );
+                applyReadyBtn.title = `${multiSummary.readyDaysCount} día(s) listos para aplicar`;
                 applyReadyBtn.classList.add('mini-import-action-primary');
                 applyReadyBtn.addEventListener('click', async () => {
                     try {
@@ -2323,13 +2334,16 @@ export class MiniAttendanceImportModal {
                 });
                 const allDaysApplied = multiSummary.totalDays > 0 && multiSummary.appliedDaysCount === multiSummary.totalDays;
                 const completeBtn = actionButton(
-                    'Completar importación',
+                    'Finalizar',
                     'complete-connected-import',
                     !allDaysApplied || this.selectedDraftIds.size === 0
                 );
+                completeBtn.title = 'Finalizar la importación cuando todos los días estén aplicados';
                 completeBtn.classList.add('mini-import-action-primary');
                 completeBtn.addEventListener('click', () => { void this.completeConnectedImport(); });
-                batchSection.append(applyReadyBtn, completeBtn);
+                const flowActions = element('div', null, { className: 'mini-consolidation-flow-actions' });
+                flowActions.append(applyReadyBtn, completeBtn);
+                batchSection.append(flowActions);
                 if (!allDaysApplied) {
                     batchSection.append(element('span', 'Resuelve y aplica todos los días para completar la importación.', {
                         className: 'mini-import-complete-hint'
