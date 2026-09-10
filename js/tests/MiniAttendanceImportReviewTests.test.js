@@ -385,8 +385,12 @@ describe('Mini attendance import review slice', () => {
         expect(host.querySelectorAll('[data-mini-attention-row]')).toHaveLength(2);
         expect(host.querySelectorAll('[data-mini-attention-status="resolved"]'))
             .toHaveLength(1);
-        expect(host.querySelector('[data-mini-attention-status="resolved"]').textContent)
-            .toMatch(/002.*Resuelto.*Modificar/);
+        const resolvedRow = host.querySelector('[data-mini-attention-status="resolved"]');
+        expect(resolvedRow.textContent).toMatch(/002.*Modificar/);
+        expect(resolvedRow.textContent).not.toContain('Resuelto');
+        expect(resolvedRow.querySelector('.mini-row-resolved-icon')).not.toBeNull();
+        expect(resolvedRow.querySelector('.mini-row-resolved-icon svg')).not.toBeNull();
+        expect(resolvedRow.querySelector('.mini-import-status-badge.is-resolved')).toBeNull();
         expect(host.querySelector('[data-mini-attention-status="pending"]').textContent)
             .toContain('777 · Persona inexistente');
         expect(host.querySelector('[data-mini-action="review-all-attention"]').textContent)

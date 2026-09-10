@@ -310,6 +310,10 @@ Para asegurar interactividad táctil sin CSS inline engorroso:
 
 Siguiendo esta directriz, el flujo de Mini se rediseña así:
 
+* **Orden de origen**: el selector inicial muestra `Pegar texto` primero y `Conectados` después. El método humano/WhatsApp conserva su lugar como entrada inmediata y `Conectados` abre el flujo estructurado P2P.
+* **Marco interior en todos los pasos**: Pegado, Conectados/Bandeja, Validación, Conciliación y Resumen final conservan un gutter horizontal de `16–20px` (`12–14px` en móvil). Sólo topbar/progress y footer pueden ser deliberadamente full-bleed. Ninguna tarjeta, selector, tabla o botón de contenido queda pegado al borde del shell.
+* **Continuidad**: al cambiar de origen o avanzar entre esos pasos se conserva el mismo shell y se aplica morphing; no se desmonta el modal para simular navegación.
+
 1. **Paso 1: Pegado**:
    * Textarea estilizado en `var(--panel-2)` con bordes `var(--border)` y botón primario cian `Analizar reporte →`.
 2. **Paso 2: Validación**:

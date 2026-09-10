@@ -93,6 +93,23 @@ function chevronSvg() {
     return svg;
 }
 
+function closeSvg() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '17');
+    svg.setAttribute('height', '17');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    const first = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    first.setAttribute('d', 'M6 6l12 12');
+    const second = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    second.setAttribute('d', 'M18 6 6 18');
+    svg.append(first, second);
+    return svg;
+}
+
 function resolvedCheckSvg(label = 'Resuelto') {
     const wrap = element('span', null, {
         className: 'mini-row-resolved-icon',
@@ -135,11 +152,13 @@ function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini'
     rightGroup.append(stepEl);
 
     if (onClose) {
-        const closeBtn = element('button', '✕', {
+        const closeBtn = element('button', null, {
             type: 'button',
             className: 'mini-import-topbar-close',
-            'aria-label': 'Cerrar'
+            'aria-label': 'Cerrar',
+            title: 'Cerrar'
         });
+        closeBtn.append(closeSvg());
         closeBtn.addEventListener('click', onClose);
         rightGroup.append(closeBtn);
     }
@@ -1857,6 +1876,7 @@ export class MiniAttendanceImportModal {
     renderSetup() {
         const section = element('div', null, { className: 'mini-import-setup' });
         section.append(renderTopbar(2, 4, 'Importar asistencia desde Mini', 'Paso 2 · Validación', 'VALIDACIÓN', () => this.close()));
+        const content = element('div', null, { className: 'mini-import-content-gutter' });
 
         const introCard = element('div', null, { className: 'mini-import-intro-card' });
         introCard.append(
@@ -1894,7 +1914,7 @@ export class MiniAttendanceImportModal {
         continueButton.addEventListener('click', () => this.startReview());
         footer.append(back, continueButton);
 
-        section.append(
+        content.append(
             introCard,
             this.renderDateSetup(),
             this.renderAllocationSetup(),
@@ -1905,9 +1925,9 @@ export class MiniAttendanceImportModal {
                 : 'Confirma la fecha y corrige las advertencias antes de continuar.', {
                 className: 'mini-import-help',
                 dataset: { miniContinueHelp: '' }
-            }),
-            footer
+            })
         );
+        section.append(content, footer);
         return section;
     }
 
@@ -2698,6 +2718,7 @@ export class MiniAttendanceImportModal {
             dataset: { miniAutomaticReview: '' }
         });
         panel.append(renderTopbar(3, 4, 'Importar asistencia desde Mini', 'Paso 3 · Conciliación', 'CONCILIACIÓN', () => this.close()));
+        const content = element('div', null, { className: 'mini-import-content-gutter' });
 
         const automaticItems = this.automaticReviewItems(view);
         const attentionItems = this.attentionReviewItems(view);
@@ -2747,7 +2768,7 @@ export class MiniAttendanceImportModal {
         });
         toggleWrap.append(openDetailedBtn);
         execCard.append(toggleWrap);
-        panel.append(execCard);
+        content.append(execCard);
 
         const detailedSection = element('div', null, {
             className: 'mini-import-detailed-section'
@@ -2887,7 +2908,7 @@ export class MiniAttendanceImportModal {
             attentionHeading,
             this.renderAttentionReviewTable(attentionItems, pendingAttentionItems)
         );
-        panel.append(detailedSection);
+        content.append(detailedSection);
 
         const attentionCount = pendingAttentionItems.length;
         const note = element(
@@ -2914,7 +2935,8 @@ export class MiniAttendanceImportModal {
 
         const footer = element('div', null, { className: 'mini-import-footer' });
         footer.append(back, accept);
-        panel.append(note, footer);
+        content.append(note);
+        panel.append(content, footer);
         this.syncAutomaticReviewStatus(panel, view);
         return panel;
     }
@@ -3021,19 +3043,17 @@ export class MiniAttendanceImportModal {
             const status = element('div', null, {
                 className: 'mini-import-problem-status'
             });
-            status.append(element(
-                'span',
-                item.confirmed ? 'Resuelto' : item.problemSummary.label,
-                {
-                    className: item.confirmed
-                        ? 'mini-import-status-badge is-resolved'
-                        : `mini-import-status-badge is-${item.problemSummary.severity}`,
-                    title: item.confirmed
-                        ? 'Asistencia resuelta'
-                        : item.problems.map(problem => problem.message).join(' ')
-                }
-            ));
-            if (!item.confirmed) {
+            if (item.confirmed) {
+                status.append(resolvedCheckSvg('Resuelto'));
+            } else {
+                status.append(element(
+                    'span',
+                    item.problemSummary.label,
+                    {
+                        className: `mini-import-status-badge is-${item.problemSummary.severity}`,
+                        title: item.problems.map(problem => problem.message).join(' ')
+                    }
+                ));
                 status.append(element('small', item.nextAction));
             }
             const hours = this.renderAttentionHoursChoice(item);
@@ -3377,7 +3397,8 @@ export class MiniAttendanceImportModal {
         const miniTotal = rowSummaries.reduce((total, row) => total + row.miniTotal, 0);
         const saTotal = rowSummaries.reduce((total, row) => total + row.saTotal, 0);
         section.append(renderTopbar(4, 4, 'Importar asistencia desde Mini', 'Paso 4 · Resumen final', 'RESUMEN', () => this.close()));
-        section.append(
+        const content = element('div', null, { className: 'mini-import-content-gutter' });
+        content.append(
             element('h3', 'Resumen final'),
             element(
                 'p',
@@ -3412,7 +3433,7 @@ export class MiniAttendanceImportModal {
                 `Diferencia ${difference > 0 ? '+' : ''}${difference} h`
             )
         );
-        section.append(cards, totals);
+        content.append(cards, totals);
 
         const labels = ['Mini', 'Empleado en SA', 'Decisión', 'Mini', 'SA', 'Diferencia'];
         const table = element('table', null, {
@@ -3438,7 +3459,7 @@ export class MiniAttendanceImportModal {
             body.append(row);
         });
         table.append(head, body);
-        section.append(table);
+        content.append(table);
 
         const locked = this.applyStatus === 'pending' || this.applyStatus === 'success';
         const back = actionButton('Volver', 'back-review');
@@ -3458,9 +3479,9 @@ export class MiniAttendanceImportModal {
 
         const footer = element('div', null, { className: 'mini-import-footer' });
         footer.append(back, apply);
-        section.append(footer);
+        section.append(content, footer);
         const status = this.renderApplyStatus();
-        if (status) section.append(status);
+        if (status) content.append(status);
         return section;
     }
 
