@@ -41,14 +41,18 @@ function validateWrite(write, date) {
             overtimeHours: totals.overtimeHours + position.overtimeHours
         }), { normalHours: 0, overtimeHours: 0 })
         : null;
+    const totalHours = record && isNonNegativeHours(record.hoursWorked) && isNonNegativeHours(record.overtimeHours)
+        ? record.hoursWorked + record.overtimeHours
+        : NaN;
+    const attendanceStateValid = record?.present === true
+        ? totalHours > 0 && totalHours <= 24
+        : record?.present === false && totalHours === 0 && record.deletedAt == null;
     const malformed = !record ||
         typeof record.employeeId !== 'string' || !record.employeeId ||
         record.date !== date ||
-        record.present !== true ||
+        !attendanceStateValid ||
         !isNonNegativeHours(record.hoursWorked) ||
         !isNonNegativeHours(record.overtimeHours) ||
-        record.hoursWorked + record.overtimeHours <= 0 ||
-        record.hoursWorked + record.overtimeHours > 24 ||
         typeof record.selectedPosition !== 'string' || !record.selectedPosition ||
         !positionHoursValid ||
         uniquePositionIds.size !== positions?.length ||

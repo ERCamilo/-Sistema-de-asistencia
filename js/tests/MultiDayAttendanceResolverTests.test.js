@@ -660,6 +660,23 @@ describe('MultiDayAttendanceResolver — two-stage isolated resolver', () => {
         expect(saResolver.getDayState(date).status).toBe('stage_b_conflict');
     });
 
+    test('explicit zero-hour unmarked survives adaptation into a writable SA record', () => {
+        const date = '2026-09-06';
+        const plan = adaptResolvedDayToConflictPlan({
+            date,
+            items: [{ id: 'zero', saProjectId: PROJECT_ID, saEmployeeId: 'EMP-001', workDate: date, status: 'resolved', sourceStatus: 'unmarked', rosterStatus: 'active', normalHours: 0, overtimeHours: 0, sources: [] }],
+            employees: mockEmployees, attendance: {}
+        });
+        expect(plan.hasBlockingIssues).toBe(false);
+        expect(plan.rows[0].imported.status).toBe('unmarked');
+        const resolver = createMultiDayAttendanceResolver({
+            consolidation: { saProjectId: PROJECT_ID, workDates: [date], devices: [], contributingSubmissions: [], items: [{ id: 'zero', saProjectId: PROJECT_ID, saEmployeeId: 'EMP-001', workDate: date, status: 'resolved', sourceStatus: 'unmarked', rosterStatus: 'active', normalHours: 0, overtimeHours: 0, sources: [] }] },
+            employees: mockEmployees, attendance: {}, positions: mockPositions, saProjectId: PROJECT_ID, entityScope: PROJECT_SCOPE, stage: 'sa', applyPlan: mockApplyPlan
+        });
+        const write = resolver.getDayState(date).applyPlan.writes[0].record;
+        expect(write).toMatchObject({ present: false, deletedAt: null, hoursWorked: 0, overtimeHours: 0 });
+    });
+
     test('staged Mini flow refuses final consolidated draft while a day is unresolved or incomplete', () => {
         const sub1 = sampleSubmission({
             submissionId: 'sub-stage-a', deviceId: 'dev-1', sourceId: 'mini-1',

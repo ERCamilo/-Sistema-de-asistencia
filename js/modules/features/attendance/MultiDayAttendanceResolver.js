@@ -92,7 +92,9 @@ export function adaptResolvedDayToConflictPlan({
 
         const imported = {
             normalHours: item.normalHours,
-            overtimeHours: item.overtimeHours
+            overtimeHours: item.overtimeHours,
+            status: item.sourceStatus || (item.normalHours + item.overtimeHours > 0 ? 'present' : 'unmarked'),
+            rosterStatus: item.rosterStatus || null
         };
 
         const existingNormal = existingRecord && Number.isFinite(existingRecord.hoursWorked)

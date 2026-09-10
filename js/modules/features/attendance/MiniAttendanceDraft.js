@@ -720,13 +720,15 @@ function importedRecord(row, date) {
         hours: allocation.normalHours,
         overtimeHours: allocation.overtimeHours
     }));
+    const explicitZeroHours = row.imported?.status === 'unmarked' && applied.totalHours === 0;
     return {
         notes: '',
         isHoliday: false,
         ...cloneValue(existing),
         employeeId: row.employeeId,
         date,
-        present: true,
+        present: !explicitZeroHours,
+        deletedAt: null,
         hoursWorked: applied.normalHours,
         overtimeHours: applied.overtimeHours,
         selectedPosition: positionHours[0].positionId,
