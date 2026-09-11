@@ -70,8 +70,10 @@ export function renderPayrollClosurePanel({ gate, now = Date.now() } = {}) {
                     </button>
                 </div>
             ` : `
-                <label class="payroll-loan-settlement__paid-check ${canConfirm ? '' : 'is-disabled'}">
+                <label class="payroll-loan-settlement__paid-check ${canConfirm ? '' : 'is-disabled'}" for="payroll-closure-paid-confirmation">
                     <input type="checkbox"
+                           id="payroll-closure-paid-confirmation"
+                           name="payrollClosurePaidConfirmation"
                            data-payroll-action="toggle-payroll-paid"
                            ${gate?.payrollPaid ? 'checked' : ''}
                            ${canConfirm ? '' : 'disabled aria-disabled="true"'}>

@@ -53,8 +53,10 @@ export function renderPayrollLoanSettlementPanel({ gate, activeBatch = null, now
                     </button>
                 </div>
             ` : `
-                <label class="payroll-loan-settlement__paid-check ${canConfirmPayroll ? '' : 'is-disabled'}">
+                <label class="payroll-loan-settlement__paid-check ${canConfirmPayroll ? '' : 'is-disabled'}" for="payroll-loan-settlement-paid">
                     <input type="checkbox"
+                           id="payroll-loan-settlement-paid"
+                           name="payrollLoanSettlementPaid"
                            data-payroll-action="toggle-payroll-paid"
                            ${payrollPaid ? 'checked' : ''}
                            ${canConfirmPayroll ? '' : 'disabled aria-disabled="true"'}>

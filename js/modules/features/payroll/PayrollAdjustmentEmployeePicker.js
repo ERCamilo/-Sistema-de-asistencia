@@ -77,9 +77,12 @@ export function renderPayrollAdjustmentEmployeePicker({
     return `
         <div class="payroll-adjustment-picker">
             <div class="payroll-adjustment-picker__toolbar">
-                <label>
+                <label for="payroll-adjustment-picker-search">
                     <span>Buscar empleado</span>
                     <input type="search"
+                           id="payroll-adjustment-picker-search"
+                           name="adjustmentPickerSearch"
+                           autocomplete="off"
                            value="${escapeHTML(query)}"
                            placeholder="Nombre, número o puesto"
                            data-adjustment-picker-search>

@@ -46,6 +46,16 @@ function renderWarningSummary(model) {
 
 function renderSelectionControl({ checked, mixed = false, employeeId, loanId = null, label }) {
     const action = loanId === null ? 'toggle-payroll-loan-employee' : 'toggle-payroll-loan';
+    if (loanId === null) {
+        return `
+            <span class="payroll-loan-selection"
+                  aria-checked="${mixed ? 'mixed' : String(checked)}"
+                  aria-label="${safe(label)}"
+                  data-payroll-action="${action}"
+                  data-id="${safe(employeeId)}">
+            </span>
+        `;
+    }
     return `
         <button type="button"
                 class="payroll-loan-selection"
@@ -54,7 +64,7 @@ function renderSelectionControl({ checked, mixed = false, employeeId, loanId = n
                 aria-label="${safe(label)}"
                 data-payroll-action="${action}"
                 data-id="${safe(employeeId)}"
-                ${loanId === null ? '' : `data-loan-id="${safe(loanId)}"`}>
+                data-loan-id="${safe(loanId)}">
         </button>
     `;
 }
@@ -221,13 +231,12 @@ function renderEmployeeGroup(group, expandedIds) {
                     </span>
                     <strong class="payroll-loan-group__net ${warningClass}" data-label="Neto a pagar">${formatCurrency(group.netRemaining)}</strong>
                 </span>
-                <button type="button"
-                        class="payroll-loan-disclosure"
-                        aria-expanded="${isExpanded}"
-                        aria-label="${isExpanded ? 'Ocultar' : 'Mostrar'} préstamos de ${safe(group.employeeName)}"
-                        data-payroll-action="toggle-payroll-loan-details"
-                        data-id="${safe(group.employeeId)}">
-                </button>
+                <span class="payroll-loan-disclosure"
+                      aria-expanded="${isExpanded}"
+                      aria-label="${isExpanded ? 'Ocultar' : 'Mostrar'} préstamos de ${safe(group.employeeName)}"
+                      data-payroll-action="toggle-payroll-loan-details"
+                      data-id="${safe(group.employeeId)}">
+                </span>
                 ${renderSelectionControl({
                     checked: selectedAll,
                     mixed,
