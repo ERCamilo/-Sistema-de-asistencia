@@ -2042,14 +2042,36 @@ window.changeDate = async (days) => {
 
     // Delay de 50ms para asegurar que el navegador pinte el loader antes del bloqueo de JS
     setTimeout(async () => {
+        let nextDate;
         // Si estamos en vista semanal/período, avanzar por el bloque correspondiente
         if (state.viewMode === 'week') {
             const periodInfo = typeof window.getPeriodViewDates === 'function' ? window.getPeriodViewDates(state.selectedDate) : null;
-            const stepDays = periodInfo?.hasPagination ? 21 : (periodInfo?.dates?.length || 7);
-            state.selectedDate = DateUtils.addDays(state.selectedDate, days * stepDays);
+            if (periodInfo?.isPeriodSubdivision) {
+                const currentIdx = periodInfo.subdivisionIndex || 0;
+                const targetIdx = currentIdx + days;
+                if (targetIdx >= 0 && targetIdx < periodInfo.totalSubdivisions) {
+                    // Dentro del mismo período: saltar al inicio de la subdivisión destino
+                    nextDate = DateUtils.addDays(periodInfo.cycleStart, targetIdx * 7);
+                } else if (days > 0) {
+                    // Fin del período: avanzar a la primera subdivisión del siguiente ciclo de nómina
+                    nextDate = DateUtils.addDays(periodInfo.cycleStart, periodInfo.totalPeriodDays);
+                } else {
+                    // Inicio del período: retroceder a la última subdivisión del período anterior
+                    const prevCycleLastDay = DateUtils.addDays(periodInfo.cycleStart, -1);
+                    const prevInfo = typeof window.getPeriodViewDates === 'function' ? window.getPeriodViewDates(prevCycleLastDay) : null;
+                    nextDate = prevInfo?.periodStart || prevCycleLastDay;
+                }
+            } else {
+                const stepDays = periodInfo?.hasPagination ? 21 : (periodInfo?.dates?.length || 7);
+                nextDate = DateUtils.addDays(state.selectedDate, days * stepDays);
+            }
         } else {
-            state.selectedDate = DateUtils.addDays(state.selectedDate, days);
+            nextDate = DateUtils.addDays(state.selectedDate, days);
         }
+
+        stateManager.batchSetState(() => {
+            state.selectedDate = nextDate;
+        });
 
         // ✅ Guardar cambios
         saveApplicationData();
@@ -2070,7 +2092,8 @@ window.changePeriodPage = async (delta) => {
     window.showLoader?.(true);
 
     setTimeout(async () => {
-        const jumpDays = (parseInt(delta, 10) || 0) * 21;
+        const isMobile = typeof window !== 'undefined' && typeof window.innerWidth === 'number' && window.innerWidth < 1024;
+        const jumpDays = (parseInt(delta, 10) || 0) * (isMobile ? 7 : 21);
         stateManager.batchSetState(() => {
             state.selectedDate = DateUtils.addDays(state.selectedDate, jumpDays);
         });
@@ -2586,7 +2609,15 @@ window.toggleWeekPosition = (empId, posId, dateStr) => {
     const key = `${empId}-${dateStr}`;
     const att = state.attendance[key];
     if (att && att.present) {
-        att.selectedPosition = posId;
+        stateManager.batchSetState(() => {
+            att.selectedPosition = posId;
+            att.updatedAt = Date.now();
+            const emp = state.employees.find(e => e.id === empId);
+            if (emp) emp.updatedAt = Date.now();
+        });
+        if (typeof componentMemo !== 'undefined' && componentMemo.invalidate) {
+            componentMemo.invalidate(`week-row-${empId}`);
+        }
         saveApplicationData({ announce: 'Posición actualizada' }); // ✅ Guardar + toast honesto
         render();
     }
@@ -4011,6 +4042,42 @@ window.openPuestosPersonal = () => {
     if (typeof window.changeTab === 'function') window.changeTab('employees');
 };
 
+window.openHistorialNomina = () => {
+    if (state) state.payrollViewMode = 'history';
+    if (typeof window.changeTab === 'function') window.changeTab('export');
+};
+
+window.toggleSidebarPersonal = () => {
+    if (!state) return;
+    if (state.activeTab !== 'employees' && state.activeTab !== 'positions') {
+        stateManager.batchSetState(() => {
+            state.sidebarPersonalOpen = true;
+        });
+        window.openEmpleadosPersonal();
+    } else {
+        stateManager.batchSetState(() => {
+            state.sidebarPersonalOpen = !state.sidebarPersonalOpen;
+        });
+        if (typeof render === 'function') render();
+    }
+};
+
+window.toggleSidebarFinancial = () => {
+    if (!state) return;
+    const isFinancialActive = state.activeTab === 'export' || state.activeTab === 'pettycash';
+    if (!isFinancialActive) {
+        stateManager.batchSetState(() => {
+            state.sidebarFinancialOpen = true;
+        });
+        window.openNomina();
+    } else {
+        stateManager.batchSetState(() => {
+            state.sidebarFinancialOpen = !state.sidebarFinancialOpen;
+        });
+        if (typeof render === 'function') render();
+    }
+};
+
 function SidebarNavigation() {
     const t = state.activeTab;
     const cls = (...tabs) => tabs.includes(t) ? 'sidebar-item active' : 'sidebar-item';
@@ -4024,9 +4091,20 @@ function SidebarNavigation() {
         });
     } catch (_) { activeLoans = 0; }
 
-    // "Cuentas por Cobrar" is active when on Nómina screen with the ledger sub-view
+    // Submenu persistence states
+    if (state.sidebarPersonalOpen === undefined) {
+        state.sidebarPersonalOpen = (state.activeTab === 'employees' || state.activeTab === 'positions');
+    }
+    if (state.sidebarFinancialOpen === undefined) {
+        state.sidebarFinancialOpen = (state.activeTab === 'export' || state.activeTab === 'pettycash');
+    }
+
+    const isPersonalActive = state.activeTab === 'employees' || state.activeTab === 'positions';
+    const isNomina = state.activeTab === 'export' && (!state.payrollViewMode || state.payrollViewMode === 'generator');
     const isCuentas = state.activeTab === 'export' && state.payrollViewMode === 'ledger';
-    const cuentasCls = isCuentas ? 'sidebar-item active' : 'sidebar-item';
+    const isHistorial = state.activeTab === 'export' && state.payrollViewMode === 'history';
+    const isPettyCash = state.activeTab === 'pettycash';
+    const isFinancialActive = state.activeTab === 'export' || isPettyCash;
 
     // "Datos" is active when on Ajustes with the data sub-tab
     const isData = state.activeTab === 'settings' && state.settingsActiveTab === 'data';
@@ -4040,57 +4118,75 @@ function SidebarNavigation() {
     const isAjustes = state.activeTab === 'settings' && !isCal && !isData;
     const ajustesCls = isAjustes ? 'sidebar-item active' : 'sidebar-item';
 
-    const isPersonalActive = state.activeTab === 'employees' || state.activeTab === 'positions';
-
     const badge = (n) => n > 0 ? `<span class="sidebar-badge">${n}</span>` : '';
+
+    const chevron = (isOpen) => `
+        <svg class="sidebar-chevron ${isOpen ? 'is-open' : ''}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+            <path d="M6 12l4-4-4-4"/>
+        </svg>`;
 
     return `<aside class="app-sidebar" aria-label="Navegación principal">
                 <!-- Logo/Branding Box -->
-                <div class="sidebar-brand-box" style="margin-bottom: 16px; padding: 10px; border-radius: 12px; background: #020617; border: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; height: 72px; overflow: hidden; flex-shrink: 0;">
-                    <img src="feature_graphic (Custom) (1).jpeg" alt="Logo" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 6px;">
+                <div class="sidebar-brand-box">
+                    <img src="feature_graphic (Custom) (1).jpeg" alt="Logo">
                 </div>
                 <button class="${cls('attendance')}" type="button" data-app-fn="changeTab" data-arg="attendance" aria-label="Asistencia" title="Asistencia">
                     <span class="sidebar-icon">${icons.get('attendance')}</span>
                     <span class="sidebar-label">Asistencia</span>
                     ${badge(activeEmployees)}
                 </button>
-                <button class="${isPersonalActive ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="openEmpleadosPersonal" aria-label="Personal" title="Personal">
+                <button class="${isPersonalActive ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="toggleSidebarPersonal" aria-label="Personal" title="Personal (alternar submenú)">
                     <span class="sidebar-icon">${icons.get('personnel')}</span>
                     <span class="sidebar-label">Personal</span>
+                    ${chevron(state.sidebarPersonalOpen)}
                 </button>
-                ${isPersonalActive ? `
-                <div class="sidebar-subitems" style="padding-left: 20px; display: flex; flex-direction: column; gap: 2px; margin-top: 2px; margin-bottom: 4px;">
-                    <button class="sidebar-item ${state.employeeViewMode === 'employees' || !state.employeeViewMode ? 'active' : ''}" type="button" data-app-fn="openEmpleadosPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Empleados" title="Empleados">
-                        <span class="sidebar-icon" style="font-size: 14px;">👥</span>
-                        <span class="sidebar-label">Empleados</span>
-                    </button>
-                    <button class="sidebar-item ${state.employeeViewMode === 'leaders' ? 'active' : ''}" type="button" data-app-fn="openLideresPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Líderes" title="Líderes">
-                        <span class="sidebar-icon" style="font-size: 14px;">🔑</span>
-                        <span class="sidebar-label">Líderes</span>
-                    </button>
-                    <button class="sidebar-item ${state.employeeViewMode === 'positions' ? 'active' : ''}" type="button" data-app-fn="openPuestosPersonal" style="font-size: 13px; min-height: 36px; padding: 6px 12px;" aria-label="Puestos" title="Puestos">
-                        <span class="sidebar-icon" style="font-size: 14px;">💼</span>
-                        <span class="sidebar-label">Puestos</span>
-                    </button>
+                <div class="sidebar-subitems-wrapper ${state.sidebarPersonalOpen ? 'is-open' : ''}">
+                    <div class="sidebar-subitems">
+                        <button class="sidebar-item ${state.employeeViewMode === 'employees' || !state.employeeViewMode ? 'active' : ''}" type="button" data-app-fn="openEmpleadosPersonal" aria-label="Empleados" title="Empleados">
+                            <span class="sidebar-icon" style="font-size: 14px;">👥</span>
+                            <span class="sidebar-label">Empleados</span>
+                        </button>
+                        <button class="sidebar-item ${state.employeeViewMode === 'leaders' ? 'active' : ''}" type="button" data-app-fn="openLideresPersonal" aria-label="Líderes" title="Líderes">
+                            <span class="sidebar-icon" style="font-size: 14px;">🔑</span>
+                            <span class="sidebar-label">Líderes</span>
+                        </button>
+                        <button class="sidebar-item ${state.employeeViewMode === 'positions' ? 'active' : ''}" type="button" data-app-fn="openPuestosPersonal" aria-label="Puestos" title="Puestos">
+                            <span class="sidebar-icon" style="font-size: 14px;">💼</span>
+                            <span class="sidebar-label">Puestos</span>
+                        </button>
+                    </div>
                 </div>
-                ` : ''}
                 <button class="${cls('employee-report','dashboard')}" type="button" data-app-fn="changeTab" data-arg="employee-report" aria-label="Reportes" title="Reportes">
                     <span class="sidebar-icon">${icons.get('reports')}</span>
                     <span class="sidebar-label">Reportes</span>
                 </button>
-                <button class="${state.activeTab === 'export' && !isCuentas ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="openNomina" aria-label="Nómina" title="Nómina">
-                    <span class="sidebar-icon">${icons.get('payroll')}</span>
-                    <span class="sidebar-label">Nómina</span>
+                <button class="${isFinancialActive ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="toggleSidebarFinancial" aria-label="Financiero" title="Financiero (alternar submenú)">
+                    <span class="sidebar-icon" style="font-size: 16px;">🧮</span>
+                    <span class="sidebar-label">Financiero</span>
+                    ${!state.sidebarFinancialOpen ? badge(activeLoans) : ''}
+                    ${chevron(state.sidebarFinancialOpen)}
                 </button>
-                <button class="${cuentasCls}" type="button" data-app-fn="openCuentasPorCobrar" aria-label="Préstamos / Adelantos" title="Préstamos / Adelantos">
-                    <span class="sidebar-icon">💳</span>
-                    <span class="sidebar-label">Préstamos / Adelantos</span>
-                    ${badge(activeLoans)}
-                </button>
-                <button class="${state.activeTab === 'pettycash' ? 'sidebar-item active' : 'sidebar-item'}" type="button" data-app-fn="changeTab" data-arg="pettycash" aria-label="Caja Chica" title="Caja Chica">
-                    <span class="sidebar-icon">${icons.get('dollar')}</span>
-                    <span class="sidebar-label">Caja Chica</span>
-                </button>
+                <div class="sidebar-subitems-wrapper ${state.sidebarFinancialOpen ? 'is-open' : ''}">
+                    <div class="sidebar-subitems">
+                        <button class="sidebar-item ${isNomina ? 'active' : ''}" type="button" data-app-fn="openNomina" aria-label="Nómina" title="Nómina">
+                            <span class="sidebar-icon">${icons.get('payroll')}</span>
+                            <span class="sidebar-label">Nómina</span>
+                        </button>
+                        <button class="sidebar-item ${isCuentas ? 'active' : ''}" type="button" data-app-fn="openCuentasPorCobrar" aria-label="Préstamos / Adelantos" title="Préstamos / Adelantos">
+                            <span class="sidebar-icon">💳</span>
+                            <span class="sidebar-label">Préstamos / Adelantos</span>
+                            ${badge(activeLoans)}
+                        </button>
+                        <button class="sidebar-item ${isHistorial ? 'active' : ''}" type="button" data-app-fn="openHistorialNomina" aria-label="Historial de Nómina" title="Historial de Nómina">
+                            <span class="sidebar-icon">📜</span>
+                            <span class="sidebar-label">Historial</span>
+                        </button>
+                        <button class="sidebar-item ${isPettyCash ? 'active' : ''}" type="button" data-app-fn="changeTab" data-arg="pettycash" aria-label="Caja Chica" title="Caja Chica">
+                            <span class="sidebar-icon">${icons.get('dollar')}</span>
+                            <span class="sidebar-label">Caja Chica</span>
+                        </button>
+                    </div>
+                </div>
                 <div class="sidebar-divider"></div>
                 <div class="sidebar-section">Sistema</div>
                 <button class="${ajustesCls}" type="button" data-app-fn="openAjustesGenerales" aria-label="Ajustes" title="Ajustes">

@@ -7,6 +7,118 @@
     inherits: false;
 }
 
+/* ==========================================================================
+   🎨 DESIGN SYSTEM TOKENS (design.md / Onboarding-funcional.html)
+   ========================================================================== */
+:root {
+    /* ================= Superficies y Fondos ================= */
+    --bg:          oklch(0.185 0.012 245);  /* Fondo exterior / overlay (#0b1320) */
+    --panel:       oklch(0.228 0.013 245);  /* Contenedor principal modal (#131d2e) */
+    --panel-2:     oklch(0.268 0.014 245);  /* Superficies secundarias, inputs, cards (#1b273d) */
+    --hover:       oklch(0.310 0.015 245);  /* Hover táctil / interactivo (#24334e) */
+    --border:      oklch(0.330 0.014 245);  /* Bordes de división limpios (#2a3a56) */
+
+    /* ================= Tipografía y Jerarquía ================= */
+    --text:        oklch(0.960 0.004 245);  /* Texto principal (#f4f6fa) */
+    --text-dim:    oklch(0.740 0.010 245);  /* Texto secundario / descripciones (#a4b1c7) */
+    --text-faint:  oklch(0.560 0.012 245);  /* Metadatos, hints, códigos apagados (#6d7d99) */
+
+    /* ================= Acento de Marca (Cian Eléctrico) ================= */
+    --accent:      oklch(0.760 0.110 205);  /* Cian principal (#06b6d4 / oklch) */
+    --on-accent:   oklch(0.160 0.020 240);  /* Texto/icono sobre fondo acento (#081a24) */
+
+    /* ================= Semántica de Estado ================= */
+    --good:        oklch(0.740 0.120 158);  /* Éxito / Presente / Listo (#10b981) */
+    --warn:        oklch(0.820 0.110  78);  /* Advertencia / Atención / Feriado (#f59e0b) */
+    --bad:         oklch(0.680 0.160  25);  /* Error / Ausente / Peligro (#ef4444) */
+
+    /* ================= Elevación y Sombras ================= */
+    --shadow:      0 1px 2px rgba(0, 0, 0, 0.35), 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+}
+
+/* Hover utilities from design.md */
+.hv-bg:hover       { background: var(--hover) !important; }
+.hv-bright:hover   { filter: brightness(1.08); }
+.hv-text:hover     { color: var(--text) !important; }
+.hv-bdim:hover     { border-color: var(--text-dim) !important; }
+.hv-bgtext:hover   { background: var(--hover) !important; color: var(--text) !important; }
+.hv-danger:hover   { color: var(--bad) !important; border-color: var(--bad) !important; }
+
+/* ==========================================================================
+   🎬 DESIGN SYSTEM KEYFRAMES (design.md Section 4.2)
+   ========================================================================== */
+@keyframes riseIn {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes popIn {
+    0% {
+        opacity: 0;
+        transform: scale(0.6);
+    }
+    60% {
+        transform: scale(1.06);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes slideRow {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes tapRing {
+    0% {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+    40% {
+        opacity: 0.7;
+    }
+    100% {
+        opacity: 0;
+        transform: scale(1.9);
+    }
+}
+
+@keyframes glowPulse {
+    0%, 100% {
+        opacity: 0.22;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.42;
+        transform: scale(1.1);
+    }
+}
+
+@keyframes breathe {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.04);
+    }
+}
+
+
+
         /* ==========================================================================
    📊 TABLAS RESPONSIVAS - Scroll horizontal con indicador visual
    ========================================================================== */
@@ -524,6 +636,108 @@
             padding-right: 40px;
         }
 
+        /* Estilos para inputs de tipo fecha en reportes y dashboard */
+        input[type="date"].form-input,
+        .report-date-input {
+            color-scheme: dark;
+            accent-color: #06b6d4;
+            font-family: inherit;
+        }
+
+        input[type="date"].form-input::-webkit-calendar-picker-indicator,
+        .report-date-input::-webkit-calendar-picker-indicator {
+            cursor: pointer;
+            filter: invert(0.8) sepia(100%) saturate(300%) hue-rotate(150deg);
+            opacity: 0.85;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+
+        input[type="date"].form-input::-webkit-calendar-picker-indicator:hover,
+        .report-date-input::-webkit-calendar-picker-indicator:hover {
+            opacity: 1;
+            transform: scale(1.15);
+        }
+
+        /* Estilos para modal y tarjetas de períodos anteriores */
+        .past-period-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: left;
+            width: 100%;
+            color: inherit;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        .past-period-card:hover,
+        .past-period-card:focus-visible {
+            background: #1e293b;
+            border-color: #38bdf8;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .past-period-card.is-active {
+            background: rgba(139, 92, 246, 0.12);
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 1px #8b5cf6;
+        }
+
+        .past-period-card.is-closed {
+            border-left: 3px solid #10b981;
+        }
+
+        .past-period-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 9999px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .past-period-badge.badge-emerald {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .past-period-badge.badge-sky {
+            background: rgba(56, 189, 248, 0.12);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.25);
+        }
+
+        .past-period-badge.badge-purple {
+            background: rgba(168, 85, 247, 0.12);
+            color: #c084fc;
+            border: 1px solid rgba(168, 85, 247, 0.25);
+        }
+
+        @media (max-width: 480px) {
+            .past-period-card {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 10px 12px;
+            }
+            .past-period-card .past-period-meta {
+                width: 100%;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+        }
+
 
 
         /* Date Controls */
@@ -860,6 +1074,10 @@
         body.bottom-nav-hidden .date-controls-compact.at-bottom {
             bottom: 25px;
             /* Baja al fondo cuando no hay nav-bar */
+        }
+
+        body.has-sidebar .date-controls-compact.at-bottom {
+            display: none !important;
         }
 
         .date-controls-compact.at-bottom.visible {
@@ -2278,19 +2496,20 @@
 
         /* NEW: Week Check Wrapper - Clickable container */
         .week-check-wrapper {
-            width: 48px;
-            height: 48px;
+            width: 32px;
+            height: 32px;
             cursor: pointer;
             position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: transform 0.2s;
+            transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .week-check-wrapper:hover {
-            transform: scale(1.1);
+            transform: scale(1.18);
+            z-index: 10;
         }
 
         .week-check-wrapper:active {
@@ -2298,18 +2517,18 @@
         }
 
         .week-check-container {
-            width: 48px;
-            height: 48px;
+            width: 32px;
+            height: 32px;
         }
 
         .week-check-box {
             width: 100%;
             height: 100%;
-            border-radius: 8px;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.5rem;
+            font-size: 1.1rem;
             transition: all 0.2s;
         }
 
@@ -5598,3 +5817,522 @@
         display: inline-flex;
     }
 }
+
+/* ==========================================================================
+   📋 REPORTE DE EMPLEADOS — CONTROLS CARD (design.md)
+   ========================================================================== */
+.report-controls-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+    position: relative;
+    box-sizing: border-box;
+}
+
+.report-controls-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+
+.report-controls-title-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.report-kicker-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 20px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    width: fit-content;
+}
+
+.report-kicker-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+}
+
+.report-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.report-icon-box {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.report-title {
+    color: var(--text);
+    margin: 0;
+    font-size: 1.22rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+}
+
+.report-excel-btn {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(5, 150, 105, 0.28));
+    border: 1px solid rgba(16, 185, 129, 0.45);
+    color: #34d399;
+    padding: 0 16px;
+    height: 38px;
+    border-radius: 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.825rem;
+    font-family: inherit;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.14);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.report-excel-btn:hover {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.34), rgba(5, 150, 105, 0.42));
+    border-color: rgba(16, 185, 129, 0.65);
+    color: #6ee7b7;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.24);
+}
+
+.report-excel-btn:active {
+    transform: translateY(0);
+}
+
+.report-controls-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.report-dates-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.report-date-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.report-date-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    display: block;
+}
+
+.report-date-input {
+    width: 100%;
+    height: 40px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 0 12px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    color-scheme: dark;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.report-date-input:focus {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.18);
+}
+
+.report-presets-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.report-preset-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 10px;
+    border-radius: 10px;
+    font-size: 0.77rem;
+    font-weight: 600;
+    font-family: inherit;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.16s ease;
+    white-space: nowrap;
+    text-decoration: none;
+    box-sizing: border-box;
+}
+
+.report-preset-btn:hover {
+    background: var(--hover);
+    border-color: var(--text-dim);
+    color: var(--text);
+}
+
+.report-preset-btn--highlight {
+    background: rgba(6, 182, 212, 0.12);
+    border-color: rgba(6, 182, 212, 0.5);
+    color: var(--accent);
+}
+
+.report-preset-btn--highlight:hover {
+    background: rgba(6, 182, 212, 0.22);
+    border-color: var(--accent);
+    color: #a5f3fc;
+}
+
+@media (max-width: 640px) {
+    .report-controls-card {
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    .report-controls-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .report-excel-btn {
+        width: 100%;
+        height: 40px;
+        font-size: 0.85rem;
+    }
+
+    .report-dates-grid {
+        gap: 8px;
+    }
+
+    .report-presets-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+
+    .report-preset-btn {
+        height: 40px;
+        font-size: 0.75rem;
+        padding: 0 6px;
+    }
+}
+
+@media (max-width: 360px) {
+    .report-controls-card {
+        padding: 12px 10px;
+    }
+
+    .report-dates-grid {
+        gap: 6px;
+    }
+
+    .report-presets-grid {
+        gap: 6px;
+    }
+
+    .report-preset-btn {
+        font-size: 0.7rem;
+        gap: 4px;
+        padding: 0 4px;
+    }
+}
+
+/* ==========================================================================
+   📊 RESÚMENES GENERALES Y SECCIONES DE REPORTE (design.md)
+   ========================================================================== */
+.report-section-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.25);
+    animation: riseIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+}
+
+.report-section-card:hover {
+    border-color: rgba(6, 182, 212, 0.25);
+}
+
+.report-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    padding: 4px 0;
+    transition: color 0.18s ease;
+}
+
+.report-section-header.is-open {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+}
+
+.report-section-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.report-section-icon-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.report-position-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+    flex-shrink: 0;
+}
+
+.report-section-title-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.report-section-title {
+    margin: 0;
+    color: var(--text);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+.report-section-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-faint);
+    line-height: 1.3;
+}
+
+.report-section-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.report-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.74rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    animation: popIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: all 0.2s ease;
+}
+
+.report-section-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    color: var(--text-faint);
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s ease, background 0.18s ease;
+}
+
+.report-section-header:hover .report-section-chevron {
+    color: var(--text);
+    background: var(--hover);
+}
+
+.report-section-chevron.expanded {
+    transform: rotate(180deg);
+    color: var(--accent);
+}
+
+/* KPI metric strip */
+.report-summary-kpis {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.report-kpi-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    font-size: 0.76rem;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.report-kpi-chip:hover {
+    transform: translateY(-1px);
+    border-color: rgba(6, 182, 212, 0.3);
+}
+
+.report-kpi-label {
+    color: var(--text-faint);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+}
+
+.report-kpi-value {
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 700;
+    font-size: 0.82rem;
+}
+
+/* Animation on table expand */
+.report-table-collapse-body {
+    animation: riseIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+    margin-top: 14px;
+}
+
+/* Table rows smooth hover transition */
+.report-controls-card,
+.report-section-card table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+.report-section-card table tbody tr:hover {
+    background: var(--hover) !important;
+}
+
+/* Dashboard Generated Report card */
+.report-dashboard-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.report-dashboard-kpi-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.report-dashboard-kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+}
+
+.report-dashboard-kpi-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
+}
+
+.report-dashboard-kpi-num {
+    font-size: 1.6rem;
+    font-weight: 700;
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--text);
+    line-height: 1.1;
+}
+
+@media (max-width: 640px) {
+    .report-section-card {
+        padding: 14px;
+        border-radius: 12px;
+    }
+    
+    .report-section-title {
+        font-size: 0.95rem;
+    }
+
+    .report-summary-kpis {
+        gap: 6px;
+    }
+
+    .report-kpi-chip {
+        padding: 4px 8px;
+        font-size: 0.72rem;
+    }
+
+    .report-dashboard-kpi-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+}
+
+
