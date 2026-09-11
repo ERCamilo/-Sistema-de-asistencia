@@ -19,9 +19,17 @@ import {
     openLoansEmployeePicker,
     closeLoansEmployeePicker,
     setLoansPickerSearch,
-    openProfileForLoan
+    openProfileForLoan,
+    setLoansFilterView,
+    setLoansSortBy,
+    setLoansAmountFilter,
+    setLoansDateFilter,
+    toggleLoansFilterMenu,
+    resetLoansFilters,
+    selectLoansEmployee,
+    setLoansDisplayMode
 } from '../modules/features/loans/LoansController.js';
-import { LOAN_STATUS } from '../modules/features/loans/LoansService.js';
+import { LOAN_STATUS, sortEmployeeLoans, filterEmployeeLoans, getIndividualLoanRecords } from '../modules/features/loans/LoansService.js';
 
 function resetState() {
     state.employees = [
@@ -424,9 +432,6 @@ testRunner.addSuite("LoansLedger UI — full flow", {
 // ─────────────────────────────────────────────────────────────
 // El usuario debe poder ver de un vistazo cuándo fue el último cambio
 // en cada préstamo (creación, abono, anulación, write-off, reopen).
-
-import { selectLoansEmployee } from '../modules/features/loans/LoansController.js';
-
 testRunner.addSuite("LoansLedger UI — Timestamps último cambio", {
 
     "préstamo con updatedAt reciente muestra 'hace Xs'"() {
@@ -467,6 +472,305 @@ testRunner.addSuite("LoansLedger UI — Timestamps último cambio", {
         testRunner.assertEquals(threw, false, 'Defensivo ante loan sin updatedAt');
     }
 
+});
+
+testRunner.addSuite("LoansLedger UI — Vistas y Menú de Filtros", {
+
+    "renders view tabs (Con saldo, Todos, Inactivos, Saldados) with badges"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        const html = LoansLedger();
+
+        testRunner.assert(html.includes('data-app-fn="setLoansFilterView" data-arg="active"'), "Tab 'Con saldo' exists");
+        testRunner.assert(html.includes('data-app-fn="setLoansFilterView" data-arg="all"'), "Tab 'Todos' exists");
+        testRunner.assert(html.includes('data-app-fn="setLoansFilterView" data-arg="inactive-emp"'), "Tab 'Inactivos' exists");
+        testRunner.assert(html.includes('data-app-fn="setLoansFilterView" data-arg="settled"'), "Tab 'Saldados' exists");
+    },
+
+    "renders sort controls for número de orden, monto y fecha de último préstamo"() {
+        resetState();
+        const html = LoansLedger();
+
+        testRunner.assert(html.includes('data-app-fn="setLoansSortBy" data-arg="number"'), "Sort by number button exists");
+        testRunner.assert(html.includes('data-app-fn="setLoansSortBy" data-arg="balance"'), "Sort by balance button exists");
+        testRunner.assert(html.includes('data-app-fn="setLoansSortBy" data-arg="date"'), "Sort by date button exists");
+    },
+
+    "toggling filter menu displays amount and date filters"() {
+        resetState();
+        toggleLoansFilterMenu();
+        const html = LoansLedger();
+
+        testRunner.assert(html.includes('Filtrar Monto:'), "Amount filter select is visible");
+        testRunner.assert(html.includes('Filtrar Fecha:'), "Date filter select is visible");
+        testRunner.assert(html.includes('setLoansAmountFilter'), "Amount filter triggers setLoansAmountFilter");
+        testRunner.assert(html.includes('setLoansDateFilter'), "Date filter triggers setLoansDateFilter");
+
+        // Close menu
+        toggleLoansFilterMenu();
+    },
+
+    "setLoansFilterView updates the active view"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 500, interestRate: 0, status: LOAN_STATUS.PAID,
+            installmentMode: 'lump', installments: [], refinancings: [], payments: [{ id: 'P1', amount: 500 }]
+        }];
+        setLoansFilterView('settled');
+        const html = LoansLedger();
+        testRunner.assert(html.includes('loan-view-tab active'), "Active tab has active class");
+        testRunner.assert(html.includes('Ada Lovelace'), "Settled view shows employee who fully paid");
+        
+        // Reset view
+        setLoansFilterView('active');
+    },
+
+    "employee cards display formatted last loan date as short date"() {
+        resetState();
+        state.employees[0].loans = [{
+            id: 'L1', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE,
+            startDate: '2026-08-15', installmentMode: 'lump', installments: [], refinancings: [], payments: []
+        }];
+        const html = LoansLedger();
+        testRunner.assert(!html.includes('Actualizado:'), "Employee card no longer has 'Actualizado:' text prefix");
+        testRunner.assert(html.includes('15 ago 2026'), "Employee card displays formatted short date e.g. 15 ago 2026");
+    }
+});
+
+testRunner.addSuite("LoansService — Pure Sorting and Filtering", {
+
+    "sortEmployeeLoans sorts correctly by number (numeric), balance and date"() {
+        const sample = [
+            { number: '017', name: 'Zoe', totalBalance: 15800, lastLoanDate: '2026-05-10' },
+            { number: '002', name: 'Ada', totalBalance: 8472, lastLoanDate: '2026-09-01' },
+            { number: '0001', name: 'Bob', totalBalance: 9100, lastLoanDate: '2026-07-20' },
+            { number: '26', name: 'Charles', totalBalance: 15550, lastLoanDate: '2026-08-01' }
+        ];
+
+        // 1. Número de orden ascendente
+        const byNumAsc = sortEmployeeLoans(sample, 'number', 'asc');
+        testRunner.assertEquals(byNumAsc.map(e => e.number).join(','), '0001,002,017,26', "Sort by number asc (numeric)");
+
+        // 2. Número de orden descendente
+        const byNumDesc = sortEmployeeLoans(sample, 'number', 'desc');
+        testRunner.assertEquals(byNumDesc.map(e => e.number).join(','), '26,017,002,0001', "Sort by number desc");
+
+        // 3. Monto descendente (mayor a menor)
+        const byBalDesc = sortEmployeeLoans(sample, 'balance', 'desc');
+        testRunner.assertEquals(byBalDesc.map(e => e.number).join(','), '017,26,0001,002', "Sort by balance desc");
+
+        // 4. Monto ascendente (menor a mayor)
+        const byBalAsc = sortEmployeeLoans(sample, 'balance', 'asc');
+        testRunner.assertEquals(byBalAsc.map(e => e.number).join(','), '002,0001,26,017', "Sort by balance asc");
+
+        // 5. Fecha descendente (más reciente a más antigua)
+        const byDateDesc = sortEmployeeLoans(sample, 'date', 'desc');
+        testRunner.assertEquals(byDateDesc.map(e => e.number).join(','), '002,005,0001,017'.replace('005', '26'), "Sort by date desc");
+
+        // 6. Fecha ascendente (más antigua a más reciente)
+        const byDateAsc = sortEmployeeLoans(sample, 'date', 'asc');
+        testRunner.assertEquals(byDateAsc.map(e => e.number).join(','), '017,0001,26,002', "Sort by date asc");
+    },
+
+    "filterEmployeeLoans filters by search, amount bracket and date bracket"() {
+        const sample = [
+            { number: '017', name: 'Zoe Tech', totalBalance: 15800, lastLoanDate: '2026-09-05' },
+            { number: '002', name: 'Ada Dev', totalBalance: 3000, lastLoanDate: '2026-01-10' },
+            { number: '005', name: 'Erlin Boss', totalBalance: 9300, lastLoanDate: '2026-08-20' }
+        ];
+
+        // 1. Search by name
+        const searchName = filterEmployeeLoans(sample, { search: 'ada' });
+        testRunner.assertEquals(searchName.length, 1, "Search by name");
+        testRunner.assertEquals(searchName[0].name, 'Ada Dev');
+
+        // 2. Search by number
+        const searchNum = filterEmployeeLoans(sample, { search: '017' });
+        testRunner.assertEquals(searchNum.length, 1, "Search by number");
+
+        // 3. Amount filter < 5000
+        const under5k = filterEmployeeLoans(sample, { amountFilter: 'under5k' });
+        testRunner.assertEquals(under5k.length, 1, "Amount under 5k");
+        testRunner.assertEquals(under5k[0].number, '002');
+
+        // 4. Amount filter 5k-15k
+        const mid5k15k = filterEmployeeLoans(sample, { amountFilter: '5k-15k' });
+        testRunner.assertEquals(mid5k15k.length, 1, "Amount 5k to 15k");
+        testRunner.assertEquals(mid5k15k[0].number, '005');
+
+        // 5. Amount filter > 15k
+        const over15k = filterEmployeeLoans(sample, { amountFilter: 'over15k' });
+        testRunner.assertEquals(over15k.length, 1, "Amount over 15k");
+        testRunner.assertEquals(over15k[0].number, '017');
+    }
+});
+
+testRunner.addSuite("LoansLedger UI — Modo de Vistas (Agrupado vs Por Préstamo)", {
+
+    "getIndividualLoanRecords flattens multiple loans into separate unit records"() {
+        const testState = {
+            employees: [
+                {
+                    id: 'e-juan',
+                    name: 'Juan Perez',
+                    number: '042',
+                    active: true,
+                    loans: [
+                        { id: 'L-1', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Herramientas', installmentMode: 'lump', payments: [] },
+                        { id: 'L-2', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Reparación Moto', installmentMode: 'lump', payments: [] },
+                        { id: 'L-3', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Medicinas', installmentMode: 'lump', payments: [] }
+                    ]
+                },
+                {
+                    id: 'e-ana',
+                    name: 'Ana Silva',
+                    number: '010',
+                    active: true,
+                    loans: [
+                        { id: 'L-4', principal: 500, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Útiles escolares', installmentMode: 'lump', payments: [] }
+                    ]
+                }
+            ]
+        };
+
+        const records = getIndividualLoanRecords(testState, 'active');
+        testRunner.assertEquals(records.length, 4, "Debe haber 4 préstamos individuales en total");
+        
+        const juanRecords = records.filter(r => r.employeeId === 'e-juan');
+        testRunner.assertEquals(juanRecords.length, 3, "Juan debe aparecer 3 veces, una por cada préstamo");
+        testRunner.assertEquals(juanRecords[0].concept, 'Herramientas', "Primer concepto de Juan");
+        testRunner.assertEquals(juanRecords[1].concept, 'Reparación Moto', "Segundo concepto de Juan");
+        testRunner.assertEquals(juanRecords[2].concept, 'Medicinas', "Tercer concepto de Juan");
+        testRunner.assertEquals(juanRecords[0].totalBalance, 1000, "Saldo del préstamo 1");
+    },
+
+    "setLoansDisplayMode toggles between grouped and individual mode"() {
+        resetState();
+        setLoansDisplayMode('individual');
+        testRunner.assertEquals(state.loansLedger.displayMode, 'individual', "Modo individual fijado");
+
+        setLoansDisplayMode('grouped');
+        testRunner.assertEquals(state.loansLedger.displayMode, 'grouped', "Modo agrupado fijado");
+    },
+
+    "LoansLedger renders Juan 3 times in individual mode and 1 summary card in grouped mode"() {
+        resetState();
+        state.employees = [
+            {
+                id: 'e-juan',
+                name: 'Juan Perez',
+                number: '042',
+                active: true,
+                loans: [
+                    { id: 'L-1', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Préstamo 1', installmentMode: 'lump', startDate: '2026-09-01', payments: [] },
+                    { id: 'L-2', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Préstamo 2', installmentMode: 'lump', startDate: '2026-09-05', payments: [] },
+                    { id: 'L-3', principal: 1000, interestRate: 0, status: LOAN_STATUS.ACTIVE, concept: 'Préstamo 3', installmentMode: 'lump', startDate: '2026-09-10', payments: [] }
+                ]
+            }
+        ];
+
+        // 1. Vista agrupada por empleado
+        setLoansDisplayMode('grouped');
+        const groupedHtml = LoansLedger();
+        testRunner.assert(groupedHtml.includes('3 préstamos'), "Vista agrupada totaliza 3 préstamos en una tarjeta");
+        testRunner.assert(groupedHtml.includes('data-app-fn="setLoansDisplayMode" data-arg="individual"'), "Botón para cambiar a vista individual existe");
+        testRunner.assert(groupedHtml.includes('10 sep 2026'), "Muestra fecha corta 10 sep 2026");
+        testRunner.assert(!groupedHtml.includes('Actualizado:'), "No incluye etiqueta de texto Actualizado:");
+
+        // 2. Vista individual por préstamo
+        setLoansDisplayMode('individual');
+        const individualHtml = LoansLedger();
+        
+        // Contar ocurrencias de Juan Perez en el HTML de la lista
+        const matches = individualHtml.match(/Juan Perez/g) || [];
+        testRunner.assert(matches.length >= 3, `Juan Perez debe aparecer al menos 3 veces en vista individual (aparece ${matches.length})`);
+        testRunner.assert(individualHtml.includes('Préstamo 1'), "Incluye etiqueta para Préstamo 1");
+        testRunner.assert(individualHtml.includes('Préstamo 2'), "Incluye etiqueta para Préstamo 2");
+        testRunner.assert(individualHtml.includes('Préstamo 3'), "Incluye etiqueta para Préstamo 3");
+        testRunner.assert(individualHtml.includes('10 sep 2026'), "Muestra fecha corta 10 sep 2026 en tarjetas individuales");
+        testRunner.assert(!individualHtml.includes('Actualizado:'), "No incluye etiqueta de texto Actualizado:");
+        testRunner.assert(individualHtml.includes('loan-mode-btn active'), "El botón activo refleja el modo seleccionado");
+    },
+
+    "LoanCard renders Int. actual in metrics and Int. acumulado badge in purple when refinanced, and refinance form defaults to lump sum"() {
+        const testEmp = {
+            id: 'e-refin-1',
+            number: '10',
+            name: 'Carlos Ruiz',
+            active: true,
+            loans: [
+                {
+                    id: 'L-REFIN',
+                    principal: 9000,
+                    interestRate: 20,
+                    interestIncluded: false,
+                    status: LOAN_STATUS.ACTIVE,
+                    concept: 'Préstamo Equipos',
+                    installmentMode: 'lump',
+                    startDate: '2026-07-11',
+                    payments: [],
+                    refinancings: [
+                        {
+                            id: 'REF-1',
+                            date: '2026-09-11',
+                            basis: 'balance',
+                            baseAmount: 10800,
+                            interestRate: 20,
+                            interestAmount: 2160,
+                            voided: false
+                        }
+                    ]
+                },
+                {
+                    id: 'L-NORMAL',
+                    principal: 5000,
+                    interestRate: 10,
+                    interestIncluded: false,
+                    status: LOAN_STATUS.ACTIVE,
+                    concept: 'Préstamo Normal',
+                    installmentMode: 'lump',
+                    startDate: '2026-07-11',
+                    payments: [],
+                    refinancings: []
+                }
+            ]
+        };
+
+        state.employees = [testEmp];
+        state.loansLedger = {
+            selectedEmployeeId: 'e-refin-1',
+            showRefinanceFormForLoan: 'L-REFIN'
+        };
+
+        const html = LoansLedger();
+        const host = document.createElement('div');
+        host.innerHTML = html;
+
+        // 1. Verificar Int. actual en métricas
+        const metricLabels = Array.from(host.querySelectorAll('.loan-card__metric-label')).map(el => el.textContent.trim());
+        testRunner.assert(metricLabels.includes('Int. actual'), "Muestra métrica 'Int. actual' en las tarjetas");
+
+        // 2. Verificar que el préstamo con refinanciamiento tiene el badge acumulado morado
+        const refinBadge = host.querySelector('.loan-card__repayment-badge--refinanced');
+        testRunner.assert(refinBadge !== null, "Renderiza badge con clase loan-card__repayment-badge--refinanced cuando hay refinanciamiento");
+        testRunner.assert(refinBadge?.textContent.includes('Int. acumulado: $3,960.00'), "Badge acumulado muestra el total de interés acumulado ($3,960.00)");
+
+        // 3. Verificar que el préstamo normal tiene el badge acumulado neutral
+        const normalBadge = host.querySelector('.loan-card__repayment-badge--accumulated');
+        testRunner.assert(normalBadge !== null, "Renderiza badge con clase loan-card__repayment-badge--accumulated cuando no hay refinanciamiento");
+        testRunner.assert(normalBadge?.textContent.includes('Int. acumulado: $500.00'), "Badge normal muestra el interés base acumulado ($500.00)");
+
+        // 4. Verificar formulario de refinanciamiento predeterminado a Pago único
+        const refinForm = host.querySelector('.loan-operation-form--refinance');
+        testRunner.assert(refinForm !== null, "Formulario de refinanciamiento está abierto");
+        const lumpButton = refinForm?.querySelector('[data-arg2="lump"]');
+        testRunner.assert(lumpButton?.classList.contains('active'), "El botón 'Pago único' está activo por defecto en refinanciamiento");
+        const installmentsButton = refinForm?.querySelector('[data-arg2="installments"]');
+        testRunner.assert(!installmentsButton?.classList.contains('active'), "El botón 'En cuotas' NO está activo por defecto");
+    }
 });
 
 console.log('🧪 LoansLedger UI tests cargados.');
