@@ -167,18 +167,123 @@ function humanDraftSourceLabel(draft) {
     return 'Mini desconocido';
 }
 
-function technicalDetailsDisclosure(lines) {
-    const items = Array.isArray(lines) ? lines.filter(text => typeof text === 'string' && text.trim()) : [];
-    if (!items.length) return null;
-    const details = element('details', null, {
-        className: 'mini-technical-details',
-        dataset: { miniTechnicalDetails: '' }
+function renderCountBadge(count, options = {}) {
+    const numeric = Number(count);
+    const safe = Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
+    const label = typeof options.label === 'string' && options.label.trim() ? options.label.trim() : 'elementos';
+    const tone = typeof options.tone === 'string' && options.tone.trim() ? options.tone.trim() : 'accent';
+    const hideWhenZero = options.hideWhenZero !== false;
+    const badge = element('span', String(safe), {
+        className: `mini-count-badge is-${tone}`,
+        dataset: { miniCountBadge: '', miniCountValue: String(safe) }
     });
-    details.append(element('summary', 'Detalles técnicos'));
+    badge.setAttribute('aria-label', `${safe} ${label}`);
+    // The number itself is the visual; AT gets the full count phrase.
+    badge.setAttribute('role', 'status');
+    if (hideWhenZero && safe === 0) badge.hidden = true;
+    return badge;
+}
+
+function closeOpenTechnicalPopups(scope = null) {
+    const root = scope && scope.querySelectorAll ? scope : (typeof document !== 'undefined' ? document : null);
+    if (!root) return;
+    root.querySelectorAll('[data-mini-technical-popup-overlay]').forEach(overlay => {
+        const trigger = overlay._miniTrigger || null;
+        try { overlay.remove(); } catch (_) {}
+        if (trigger && trigger.isConnected) {
+            try { trigger.setAttribute('aria-expanded', 'false'); } catch (_) {}
+        }
+    });
+}
+
+function openTechnicalPopup(trigger, items, options = {}) {
+    if (!trigger || !(trigger instanceof HTMLElement)) return;
+    const scope = trigger.closest('.mini-attendance-import') || trigger.parentElement || document.body;
+    closeOpenTechnicalPopups(scope === document.body ? document : scope);
+    // If the same trigger was open, closing above is enough (toggle behaviour).
+    trigger.setAttribute('aria-expanded', 'true');
+    const overlay = element('div', null, {
+        className: 'mini-technical-popup-overlay',
+        dataset: { miniTechnicalPopupOverlay: '' }
+    });
+    overlay._miniTrigger = trigger;
+    const dialog = element('div', null, {
+        className: 'mini-technical-popup',
+        dataset: { miniTechnicalPopup: '' }
+    });
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-label', options.dialogLabel || 'Detalles técnicos');
+    dialog.setAttribute('aria-modal', 'false');
+    const header = element('div', null, { className: 'mini-technical-popup-header' });
+    header.append(element('strong', options.dialogLabel || 'Detalles técnicos'));
+    const closeBtn = element('button', null, {
+        type: 'button',
+        className: 'mini-technical-popup-close',
+        dataset: { miniTechnicalClose: '' },
+        'aria-label': 'Cerrar detalles técnicos'
+    });
+    closeBtn.textContent = '✕';
+    const close = () => {
+        try { overlay.remove(); } catch (_) {}
+        try { trigger.setAttribute('aria-expanded', 'false'); } catch (_) {}
+        try { trigger.focus({ preventScroll: true }); } catch (_) { try { trigger.focus(); } catch (_) {} }
+        if (typeof document !== 'undefined' && document.removeEventListener && close._onKey) {
+            document.removeEventListener('keydown', close._onKey);
+        }
+    };
+    const onKey = (event) => {
+        if (event?.key === 'Escape') {
+            event.stopPropagation();
+            close();
+        }
+    };
+    close._onKey = onKey;
+    if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('keydown', onKey);
+    }
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) close();
+    });
+    header.append(closeBtn);
+    dialog.append(header);
     const list = element('div', null, { className: 'mini-technical-details-list' });
     items.forEach(text => list.append(element('div', text, { className: 'mini-technical-details-row' })));
-    details.append(list);
-    return details;
+    dialog.append(list);
+    overlay.append(dialog);
+    scope.append(overlay);
+    try { closeBtn.focus({ preventScroll: true }); } catch (_) { try { closeBtn.focus(); } catch (_) {} }
+}
+
+function technicalDetailsDisclosure(lines, options = {}) {
+    const items = Array.isArray(lines) ? lines.filter(text => typeof text === 'string' && text.trim()) : [];
+    if (!items.length) return null;
+    const wrap = element('div', null, {
+        className: 'mini-technical-wrap',
+        dataset: { miniTechnicalDetails: '' }
+    });
+    const trigger = element('button', 'Detalles', {
+        type: 'button',
+        className: 'mini-technical-trigger',
+        dataset: { miniTechnicalTrigger: '' }
+    });
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.setAttribute('aria-expanded', 'false');
+    const countLabel = options.triggerAriaLabel || `Ver detalles técnicos, ${items.length} elementos`;
+    trigger.setAttribute('aria-label', countLabel);
+    trigger.addEventListener('click', () => {
+        const isOpen = trigger.getAttribute('aria-expanded') === 'true' &&
+            Boolean(trigger.closest('.mini-attendance-import')?.querySelector('[data-mini-technical-popup-overlay]'));
+        if (isOpen) {
+            const scope = trigger.closest('.mini-attendance-import') || document;
+            closeOpenTechnicalPopups(scope);
+            trigger.setAttribute('aria-expanded', 'false');
+            return;
+        }
+        openTechnicalPopup(trigger, items, options);
+    });
+    wrap.append(trigger);
+    return wrap;
 }
 
 function draftTechnicalLines(draft) {
@@ -219,6 +324,31 @@ function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini'
     );
     brand.append(img, brandText);
 
+    const centerDate = typeof progressOptions?.centerDate === 'string' ? progressOptions.centerDate.trim() : '';
+    const centerDay = typeof progressOptions?.dayText === 'string' ? progressOptions.dayText.trim() : '';
+    let centerEl = null;
+    if (centerDate || centerDay) {
+        centerEl = element('div', null, {
+            className: 'mini-import-topbar-center',
+            dataset: { miniTopbarWorkdate: '' }
+        });
+        const centerLabel = [centerDate, centerDay].filter(Boolean).join(' · ');
+        centerEl.setAttribute('aria-label', centerLabel);
+        centerEl.setAttribute('role', 'status');
+        if (centerDate) {
+            centerEl.append(element('div', centerDate, {
+                className: 'mini-import-topbar-date',
+                dataset: { miniTopbarDate: '' }
+            }));
+        }
+        if (centerDay) {
+            centerEl.append(element('div', centerDay, {
+                className: 'mini-import-topbar-day',
+                dataset: { miniTopbarDay: '' }
+            }));
+        }
+    }
+
     const rightGroup = element('div', null, { className: 'mini-import-topbar-right' });
     if (chipText) {
         rightGroup.append(element('div', chipText, { className: 'mini-import-chip mini-import-topbar-chip' }));
@@ -258,7 +388,8 @@ function renderTopbar(step, totalSteps, title = 'Importar asistencia desde Mini'
         'aria-valuenow': String(safeNow),
         'aria-label': progressOptions?.ariaLabel || subtitle || title
     });
-    bar.append(brand, rightGroup, progress);
+    if (centerEl) bar.append(brand, centerEl, rightGroup, progress);
+    else bar.append(brand, rightGroup, progress);
     return bar;
 }
 
@@ -1491,6 +1622,8 @@ export class MiniAttendanceImportModal {
             if (totalDays > 0) {
                 const currentDay = Math.max(1, Math.min(this.consolidationDayIndex + 1, totalDays));
                 const dayText = `Día ${currentDay} de ${totalDays}`;
+                const currentWorkDateIso = Array.isArray(dates) ? (dates[this.consolidationDayIndex] || dates[currentDay - 1] || '') : '';
+                const centerWorkDate = currentWorkDateIso ? (displayDate(currentWorkDateIso) || currentWorkDateIso) : '';
                 subtitle = `${stageLabel} · ${dayText}`;
                 chip = isMiniStage ? 'CONSOLIDAR' : 'COMPARAR';
                 topbarStep = currentDay;
@@ -1501,7 +1634,9 @@ export class MiniAttendanceImportModal {
                     now: currentDay,
                     min: 1,
                     max: totalDays,
-                    ariaLabel: subtitle
+                    ariaLabel: subtitle,
+                    centerDate: centerWorkDate,
+                    dayText
                 };
             } else {
                 subtitle = stageLabel;
@@ -1642,11 +1777,13 @@ export class MiniAttendanceImportModal {
 
         if (!this.isFetchingConnected && this.failedMiniTargets.length > 0) {
             const retryBtn = actionButton(
-                `Reintentar transferencia (${this.failedMiniTargets.length})`,
+                'Reintentar transferencia',
                 'retry-failed'
             );
             retryBtn.classList.add('mini-import-retry-btn');
             retryBtn.dataset.miniAction = 'retry-failed';
+            retryBtn.setAttribute('aria-label', `Reintentar transferencia, ${this.failedMiniTargets.length} pendientes`);
+            retryBtn.append(renderCountBadge(this.failedMiniTargets.length, { label: 'pendientes', tone: 'warn' }));
             retryBtn.addEventListener('click', () => this.handleRetryFailed());
             actionsContainer.append(retryBtn);
         }
@@ -1854,8 +1991,10 @@ export class MiniAttendanceImportModal {
                 listEl.append(element('p', 'No hay borradores que coincidan con este filtro.', { className: 'mini-import-empty-drafts', dataset: { miniEmptyFilteredDrafts: '' } }));
             }
             draftsSection.append(listEl);
-            const consolidateBtn = actionButton(`Consolidar selecciones (${this.selectedDraftIds.size})`, 'consolidate-drafts', this.selectedDraftIds.size === 0);
+            const consolidateBtn = actionButton('Consolidar selecciones', 'consolidate-drafts', this.selectedDraftIds.size === 0);
             consolidateBtn.classList.add('mini-import-action-primary');
+            consolidateBtn.setAttribute('aria-label', `Consolidar selecciones, ${this.selectedDraftIds.size} seleccionados`);
+            consolidateBtn.append(renderCountBadge(this.selectedDraftIds.size, { label: 'seleccionados', tone: 'accent' }));
             consolidateBtn.addEventListener('click', () => { void this.consolidateSelectedDrafts(); });
             draftsSection.append(consolidateBtn);
         }
@@ -1875,10 +2014,12 @@ export class MiniAttendanceImportModal {
                     : 'Las transferencias recibidas se guardan aquí sin aplicar nada en SA.')
             );
             const openInboxBtn = actionButton(
-                `Revisar borradores (${this.getVersionGroups().length})`,
+                'Revisar borradores',
                 'open-connected-inbox'
             );
             openInboxBtn.classList.add('mini-import-action-primary');
+            openInboxBtn.setAttribute('aria-label', `Revisar borradores, ${this.getVersionGroups().length} pendientes`);
+            openInboxBtn.append(renderCountBadge(this.getVersionGroups().length, { label: 'borradores pendientes', tone: 'accent' }));
             openInboxBtn.addEventListener('click', () => { void this.openConnectedInbox(); });
             inboxCard.append(inboxCopy, openInboxBtn);
             content.append(selectionSection, dateSection, inboxCard);
@@ -2514,15 +2655,30 @@ export class MiniAttendanceImportModal {
             const dates = this.multiDayResolver.workDates || [];
             const currentDate = dates[this.consolidationDayIndex] || null;
             const currentState = currentDate ? this.multiDayResolver.getDayState(currentDate) : null;
+            const navWrap = element('div', null, {
+                className: 'mini-consolidation-footer-nav',
+                dataset: { miniFooterNav: '' }
+            });
+            navWrap.setAttribute('role', 'group');
+            navWrap.setAttribute('aria-label', 'Navegación por días');
             const pager = element('div', null, { className: 'mini-consolidation-day-pager' });
             const prev = actionButton('Anterior', 'previous-consolidation-day', this.consolidationDayIndex <= 0);
+            prev.classList.add('mini-import-action-secondary');
             prev.addEventListener('click', () => { this.consolidationDayIndex = Math.max(0, this.consolidationDayIndex - 1); this.render(); });
             const next = actionButton('Siguiente', 'next-consolidation-day', this.consolidationDayIndex >= dates.length - 1);
+            next.classList.add('mini-import-action-secondary');
             next.addEventListener('click', () => { this.consolidationDayIndex = Math.min(dates.length - 1, this.consolidationDayIndex + 1); this.render(); });
             pager.append(prev, next);
-            batchSection.append(pager);
+            navWrap.append(pager);
+            batchSection.append(navWrap);
 
             if (isMiniStage) {
+                const decisionWrap = element('div', null, {
+                    className: 'mini-consolidation-footer-decision',
+                    dataset: { miniFooterDecision: '' }
+                });
+                decisionWrap.setAttribute('role', 'group');
+                decisionWrap.setAttribute('aria-label', 'Decisión del día actual');
                 const reviewActions = element('div', null, { className: 'mini-day-review-actions' });
                 const leavePendingBtn = actionButton(
                     'Pendiente',
@@ -2543,7 +2699,8 @@ export class MiniAttendanceImportModal {
                 confirmDayBtn.dataset.miniDate = currentDate || '';
                 confirmDayBtn.addEventListener('click', () => { if (currentDate) void this.completeMiniDay(currentDate); });
                 reviewActions.append(leavePendingBtn, confirmDayBtn);
-                batchSection.append(reviewActions);
+                decisionWrap.append(reviewActions);
+                batchSection.append(decisionWrap);
 
                 const createBtn = actionButton(
                     'Crear consolidado',
@@ -2553,13 +2710,21 @@ export class MiniAttendanceImportModal {
                 createBtn.classList.add('mini-import-action-primary');
                 createBtn.addEventListener('click', () => { void this.createMiniConsolidatedDraft(); });
                 const discardBtn = actionButton('Descartar', 'discard-active-consolidation');
-                discardBtn.classList.add('mini-import-action-secondary');
+                discardBtn.classList.add('mini-import-action-danger');
+                discardBtn.setAttribute('aria-label', 'Descartar consolidación actual');
                 discardBtn.addEventListener('click', () => { void this.discardActiveConsolidation(); });
                 const flowActions = element('div', null, {
                     className: 'mini-consolidation-flow-actions is-global'
                 });
                 flowActions.append(discardBtn, createBtn);
-                batchSection.append(flowActions);
+                const globalWrap = element('div', null, {
+                    className: 'mini-consolidation-footer-global',
+                    dataset: { miniFooterGlobal: '' }
+                });
+                globalWrap.setAttribute('role', 'group');
+                globalWrap.setAttribute('aria-label', 'Acciones globales');
+                globalWrap.append(flowActions);
+                batchSection.append(globalWrap);
                 if (!this.multiDayResolver.isMiniStageComplete()) {
                     batchSection.append(element('span', 'Consolida cada día antes de crear el consolidado revisado.', {
                         className: 'mini-import-complete-hint'
@@ -2592,7 +2757,14 @@ export class MiniAttendanceImportModal {
                 completeBtn.addEventListener('click', () => { void this.completeConnectedImport(); });
                 const flowActions = element('div', null, { className: 'mini-consolidation-flow-actions' });
                 flowActions.append(applyReadyBtn, completeBtn);
-                batchSection.append(flowActions);
+                const globalWrap = element('div', null, {
+                    className: 'mini-consolidation-footer-global',
+                    dataset: { miniFooterGlobal: '' }
+                });
+                globalWrap.setAttribute('role', 'group');
+                globalWrap.setAttribute('aria-label', 'Acciones globales');
+                globalWrap.append(flowActions);
+                batchSection.append(globalWrap);
                 if (!allDaysApplied) {
                     batchSection.append(element('span', 'Compara y aplica todos los días para completar la importación.', {
                         className: 'mini-import-complete-hint'

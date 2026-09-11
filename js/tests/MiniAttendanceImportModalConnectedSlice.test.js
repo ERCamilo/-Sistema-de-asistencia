@@ -510,10 +510,12 @@ describe('MiniAttendanceImportModal — All-Mini Progress, Cancel, Partial, Retr
         expect(host.querySelector(`[data-mini-draft-item="${SUB_UUID_1}"]`)).toBeNull();
         expect(host.querySelector('[data-mini-action="open-connected-inbox"]')?.textContent).toContain('1');
 
-        // Retry failed button is visible
+        // Retry failed button is visible with a numeric badge (no parenthetical).
         const retryFailedBtn = host.querySelector('[data-mini-action="retry-failed"]');
         expect(retryFailedBtn).not.toBeNull();
-        expect(retryFailedBtn.textContent).toContain('Reintentar transferencia (1)');
+        expect(retryFailedBtn.textContent).toContain('Reintentar transferencia');
+        expect(retryFailedBtn.textContent).not.toMatch(/\(\d+\)/);
+        expect(retryFailedBtn.querySelector('[data-mini-count-badge]')?.textContent).toBe('1');
 
         // Per-peer retry button is also visible on row 2
         const peerRetryBtn = host.querySelector('[data-mini-action="retry-peer"][data-mini-target-peer-id="peer-mini-2"]');

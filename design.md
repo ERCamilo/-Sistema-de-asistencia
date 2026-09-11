@@ -280,6 +280,15 @@ Al escribir en un input (ej. nombre de empresa o cargo), debajo se renderiza una
 * **Gutter interior obligatorio**: salvo topbar/progress/footer deliberadamente full-bleed, el contenido interactivo de un modal debe conservar al menos `16–20px` de separación respecto al borde del shell (`12–14px` en móviles muy estrechos). Tabs, campos, tarjetas y botones no deben verse pegados al contorno exterior.
 * Los selectores de modo (`Pegar texto`, `Conectados`) viven dentro de ese gutter y respetan el orden definido por el flujo; no se colocan contra el borde del modal.
 
+### 5.9 Insignia numérica de notificación / conteo (Count Badge)
+* **Forma compacta**: círculo/píldora (`border-radius: 999px`), `min-width: 20px`, `height: 20px`, `padding: 0 6px`, número centrado con `display: inline-flex; align-items: center; justify-content: center`.
+* **Relleno sólido semántico**: fondo y borde con el token del significado (`--accent` por defecto, `--warn`/`--bad`/`--good` cuando el conteo expresa advertencia/error/éxito); texto claro de alto contraste (`--on-accent` o equivalente). Nunca contorno solo sin relleno.
+* **Nunca parentético**: el conteo no se escribe como texto `(N)` dentro de la etiqueta del botón. El botón conserva su verbo (`Revisar borradores`) y la insignia aporta el número como elemento separado.
+* **Accesibilidad**: la insignia expone `aria-label` con la cantidad y su significado (ej. `3 borradores pendientes`); el botón puede reforzar con `aria-label` equivalente. Tipografía tabular para que el ancho no brinque.
+* **Cero oculto**: con `0` la insignia se oculta (`hidden`) salvo que el cero mismo sea informativo (ej. `0 pendientes` como estado explícito). Al ocultar, no dejar espacio fantasma ni paréntesis vacíos.
+* **Sin emoji**: el número es texto plano, sin iconos emoji ni símbolos decorativos.
+* **Movimiento reducido**: sin `pop`/`scale` ni transiciones cuando `prefers-reduced-motion: reduce`; el cambio de conteo es instantáneo y no mueve el layout vecino.
+
 ## 6. Clases Utilitarias (Hover & Interactions)
 
 Para asegurar interactividad táctil sin CSS inline engorroso:

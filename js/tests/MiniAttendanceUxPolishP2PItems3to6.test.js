@@ -56,7 +56,7 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
     });
     afterEach(() => document.body.replaceChildren());
 
-    test('(3) technical IDs are not primary UI; human identity is primary with Detalles técnicos for audit', async () => {
+    test('(3) technical IDs are not primary UI; human identity is primary with Detalles popup for audit', async () => {
         const db = new MemoryDB();
         const inbox = new AttendanceSubmissionInboxStore({ db });
         const { positions, employees, attendance, applyPlan } = baseFixtures();
@@ -81,23 +81,36 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(optionTexts.some(t => t.includes('Mini Norte'))).toBe(true);
         expect(optionTexts.some(t => t.includes('tech-device-uuid-aaa'))).toBe(false);
         expect(optionTexts.some(t => t.includes('tech-peer-uuid-zzz'))).toBe(false);
-        const linkedDetailsBody = host.querySelector('[data-mini-connected-selection] [data-mini-technical-details]')?.textContent || '';
-        expect(linkedDetailsBody).toContain('Detalles técnicos');
-        expect(linkedDetailsBody).toContain('tech-device-uuid-aaa');
+        // Meta1: compact Detalles trigger opens an in-modal popup (no inline <details>).
+        expect(host.querySelector('[data-mini-connected-selection] details.mini-technical-details')).toBeNull();
+        const linkedTrigger = host.querySelector('[data-mini-connected-selection] [data-mini-technical-trigger]');
+        expect(linkedTrigger).not.toBeNull();
+        expect(linkedTrigger.textContent).toBe('Detalles');
+        expect(linkedTrigger.getAttribute('aria-haspopup')).toBe('dialog');
+        linkedTrigger.click();
+        const linkedPopup = host.querySelector('[data-mini-technical-popup]');
+        expect(linkedPopup).not.toBeNull();
+        expect(linkedPopup.getAttribute('role')).toBe('dialog');
+        expect(linkedPopup.textContent).toContain('tech-device-uuid-aaa');
+        host.querySelector('[data-mini-technical-close]').click();
 
         await modal.openConnectedInbox();
 
-        // Draft primary shows human Mini name; technical IDs live in Detalles técnicos.
+        // Draft primary shows human Mini name; technical IDs live in Detalles popup.
         const draftSource = host.querySelector('.mini-import-draft-source');
         expect(draftSource).not.toBeNull();
         expect(draftSource.textContent).toContain('Mini Norte');
         expect(draftSource.textContent).not.toContain('tech-device-uuid-aaa');
-        const draftDetails = host.querySelector('[data-mini-draft-item] [data-mini-technical-details] summary');
-        expect(draftDetails).not.toBeNull();
-        expect(draftDetails.textContent).toBe('Detalles técnicos');
-        const draftDetailsBody = host.querySelector('[data-mini-draft-item] [data-mini-technical-details]').textContent;
-        expect(draftDetailsBody).toContain(id);
-        expect(draftDetailsBody).toContain('tech-device-uuid-aaa');
+        expect(host.querySelector('[data-mini-draft-item] details')).toBeNull();
+        const draftTrigger = host.querySelector('[data-mini-draft-item] [data-mini-technical-trigger]');
+        expect(draftTrigger).not.toBeNull();
+        expect(draftTrigger.textContent).toBe('Detalles');
+        draftTrigger.click();
+        const draftPopup = host.querySelector('[data-mini-technical-popup]');
+        expect(draftPopup).not.toBeNull();
+        expect(draftPopup.textContent).toContain(id);
+        expect(draftPopup.textContent).toContain('tech-device-uuid-aaa');
+        host.querySelector('[data-mini-technical-close]').click();
 
         // Consolidate and check row primary identity is employee # + name with human Mini provenance.
         host.querySelector(`[data-mini-draft-checkbox="${id}"]`).click();
@@ -110,17 +123,21 @@ describe('P2P UX polish items 3-6 — attendance connected flow', () => {
         expect(provenance).not.toBeNull();
         expect(provenance.textContent).toContain('Mini Norte');
         expect(provenance.textContent).not.toContain('tech-device-uuid-aaa');
-        const rowDetails = host.querySelector('[data-mini-consolidation-item] [data-mini-technical-details]');
-        expect(rowDetails).not.toBeNull();
-        expect(rowDetails.textContent).toContain('Detalles técnicos');
-        expect(rowDetails.textContent).toContain('tech-device-uuid-aaa');
+        expect(host.querySelector('[data-mini-consolidation-item] details.mini-technical-details')).toBeNull();
+        const rowTrigger = host.querySelector('[data-mini-consolidation-item] [data-mini-technical-trigger]');
+        expect(rowTrigger).not.toBeNull();
+        expect(rowTrigger.textContent).toBe('Detalles');
         // saEmployeeId must not be primary visible text when human label exists.
-        // It may only appear inside the optional Detalles técnicos disclosure.
+        // It may only appear inside the optional Detalles popup.
         const rowEl = host.querySelector('[data-mini-consolidation-item]');
         const primaryTexts = [...rowEl.querySelectorAll('.mini-row-name, .mini-row-number, .mini-row-hours, .mini-row-status, .mini-row-provenance')]
             .map(el => el.textContent);
         expect(primaryTexts.some(t => t.includes('EMP-001'))).toBe(false);
-        expect(rowDetails.textContent).toContain('EMP-001');
+        rowTrigger.click();
+        const rowPopup = host.querySelector('[data-mini-technical-popup]');
+        expect(rowPopup).not.toBeNull();
+        expect(rowPopup.textContent).toContain('tech-device-uuid-aaa');
+        expect(rowPopup.textContent).toContain('EMP-001');
 
         // Data/contracts still preserve identifiers (no removal).
         expect(modal.consolidatedResult.items[0].saEmployeeId).toBe('EMP-001');
