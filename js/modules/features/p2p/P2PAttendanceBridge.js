@@ -682,6 +682,8 @@ export async function requestMiniAttendance({
     let totalSubmissions = 0;
     let importedCount = 0;
     let duplicateCount = 0;
+    let ignoredCount = 0;
+    let unchangedCount = 0;
 
     for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
@@ -751,8 +753,16 @@ export async function requestMiniAttendance({
             totalSubmissions += subs.length;
             if (peerResult.importedRecords) {
                 for (const rec of peerResult.importedRecords) {
-                    if (rec.outcome === 'imported') importedCount++;
-                    else if (rec.outcome === 'duplicate') duplicateCount++;
+                    const outcome = rec?.outcome;
+                    if (outcome === 'imported' || outcome === 'updated-version') importedCount++;
+                    else if (outcome === 'duplicate') duplicateCount++;
+                    else if (outcome === 'ignored' || outcome === 'ignored-zero-attendance') ignoredCount++;
+                    else if (
+                        outcome === 'unchanged' ||
+                        outcome === 'semantic-duplicate' ||
+                        outcome === 'unchanged-semantic-duplicate' ||
+                        outcome === 'stale-version'
+                    ) unchangedCount++;
                 }
             }
         } catch (err) {
@@ -795,21 +805,26 @@ export async function requestMiniAttendance({
     const hasPartialError = errors.length > 0;
     const status = hasPartialError ? 'partial_success' : 'success';
 
+    // Meta 2: zero-attendance (ignored) and semantic-duplicate/stale (unchanged)
+    // must never count as new. Messages keep the legacy nuevos/duplicados
+    // shape and append ignored/sin-cambios only when present.
+    const ignoredSuffix = ignoredCount ? `, ${ignoredCount} ignorados` : '';
+    const unchangedSuffix = unchangedCount ? `, ${unchangedCount} sin cambios` : '';
     let message;
     if (targets.length === 1) {
         if (totalSubmissions === 0) {
             message = `✓ Asistencia recibida de ${targets[0].name} (sin registros para esta fecha).`;
         } else {
-            message = `✓ Asistencia recibida de ${targets[0].name} (${importedCount} nuevos, ${duplicateCount} duplicados).`;
+            message = `✓ Asistencia recibida de ${targets[0].name} (${importedCount} nuevos, ${duplicateCount} duplicados${ignoredSuffix}${unchangedSuffix}).`;
         }
     } else {
         if (hasPartialError) {
             const failedNames = errors.map(e => e.peer.name).join(', ');
-            message = `Parcial: ${results.length} de ${targets.length} Minis respondieron (${importedCount} nuevos${duplicateCount ? `, ${duplicateCount} duplicados` : ''}). Falló: ${failedNames}.`;
+            message = `Parcial: ${results.length} de ${targets.length} Minis respondieron (${importedCount} nuevos${duplicateCount ? `, ${duplicateCount} duplicados` : ''}${ignoredSuffix}${unchangedSuffix}). Falló: ${failedNames}.`;
         } else if (totalSubmissions === 0) {
             message = `✓ Asistencia recibida de ${targets.length} Minis (sin registros para esta fecha).`;
         } else {
-            message = `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${importedCount} nuevos, ${duplicateCount} duplicados).`;
+            message = `✓ Asistencia solicitada a ${targets.length} Minis (${results.length} respondieron, ${importedCount} nuevos, ${duplicateCount} duplicados${ignoredSuffix}${unchangedSuffix}).`;
         }
     }
 
@@ -823,6 +838,8 @@ export async function requestMiniAttendance({
         totalSubmissions,
         importedCount,
         duplicateCount,
+        ignoredCount,
+        unchangedCount,
         results,
         errors
     };

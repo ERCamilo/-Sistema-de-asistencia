@@ -366,6 +366,22 @@ function recordSeriesKey(record) {
     }
 }
 
+/**
+ * Meta 2 — actionable attendance predicate.
+ * A submission counts as actionable inbox work only when at least one row is
+ * an actual attendance: status=present with total hours > 0.
+ * Missing Mini rows are NEVER inferred as 0h: only rows present in the
+ * snapshot are inspected.
+ */
+export function hasActualAttendance(snapshot) {
+    const rows = Array.isArray(snapshot?.rows) ? snapshot.rows : [];
+    return rows.some(row => row?.status === 'present' && (Number(row.normalHours || 0) + Number(row.overtimeHours || 0)) > 0);
+}
+
+export function isZeroAttendanceSubmission(snapshot) {
+    return !hasActualAttendance(snapshot);
+}
+
 export class AttendanceSubmissionInboxStore {
     constructor({ db, now = () => Date.now() } = {}) {
         if (!db) throw new TypeError('db is required');
@@ -392,6 +408,21 @@ export class AttendanceSubmissionInboxStore {
         const semanticHash = attendanceSubmissionSemanticHash(envelope);
 
         if (!original) {
+            // Meta 2: whole zero-attendance submissions are not actionable inbox
+            // work and must not be persisted as a new inbox version.
+            if (isZeroAttendanceSubmission(envelope)) {
+                return freeze({
+                    outcome: 'ignored',
+                    reason: 'zero-attendance',
+                    ignored: true,
+                    ignoredKind: 'zero-attendance',
+                    record: null,
+                    submissionId: record.submissionId,
+                    seriesKey,
+                    workDate: envelope?.workDate || null,
+                    versionGroupChanged: false
+                });
+            }
             const initial = freeze({
                 ...record,
                 versioning: {
@@ -411,6 +442,44 @@ export class AttendanceSubmissionInboxStore {
 
         if (current && compareVersionOrder(envelope, current.sourceSnapshot) <= 0) {
             return { outcome: 'stale-version', record: freeze(current), versionGroupChanged: false };
+        }
+
+        // Meta 2: zero-attendance never creates/replaces a version, even when
+        // newer than current. Stale ordering above is preserved.
+        if (isZeroAttendanceSubmission(envelope)) {
+            return freeze({
+                outcome: 'ignored',
+                reason: 'zero-attendance',
+                ignored: true,
+                ignoredKind: 'zero-attendance',
+                record: freeze(current),
+                submissionId: record.submissionId,
+                seriesKey,
+                workDate: envelope?.workDate || null,
+                versionGroupChanged: false
+            });
+        }
+
+        // Meta 2: semantically equal to the immediately previous stored version
+        // must not create/replace an Actual entry nor increment updateCount.
+        // Compare against current (previous), not original, so a later revert
+        // that differs from current still creates an Actual normally.
+        try {
+            const previousHash = current?.versioning?.semanticHash || attendanceSubmissionSemanticHash(current?.sourceSnapshot);
+            if (previousHash && previousHash === semanticHash) {
+                return freeze({
+                    outcome: 'unchanged',
+                    reason: 'semantic-duplicate',
+                    semanticDuplicate: true,
+                    record: freeze(current),
+                    submissionId: record.submissionId,
+                    seriesKey,
+                    workDate: envelope?.workDate || null,
+                    versionGroupChanged: false
+                });
+            }
+        } catch {
+            // Fall through to normal version creation on hash failure.
         }
 
         const originalSnapshot = original.sourceSnapshot;
@@ -453,7 +522,7 @@ export class AttendanceSubmissionInboxStore {
         return { outcome: 'updated-version', record: next, original: originalUpdated, versionGroupChanged: diff.changed };
     }
 
-    async listVersionGroups(filter = null) {
+    async listVersionGroups(filter = null, { includeZeroAttendance = false } = {}) {
         const records = await this.list(filter);
         const groups = new Map();
         for (const record of records) {
@@ -477,6 +546,15 @@ export class AttendanceSubmissionInboxStore {
                 updateCount: Math.max(Number(original.versioning?.updateCount || 0), Number(current.versioning?.updateCount || 0)),
                 diff
             });
+        }).filter(group => {
+            // Meta 2: legacy persisted zero-attendance series are not actionable
+            // inbox work and must not appear in visible/actionable counts.
+            if (includeZeroAttendance) return true;
+            try {
+                return hasActualAttendance(group?.current?.sourceSnapshot);
+            } catch {
+                return true;
+            }
         }).sort((a, b) => String(b.workDate).localeCompare(String(a.workDate)) || a.seriesKey.localeCompare(b.seriesKey));
     }
 

@@ -145,6 +145,12 @@ function isIncorporatedDraft(draft) {
     return draft?.status === 'incorporated' || draft?.status === 'imported';
 }
 
+function draftHasActualAttendance(draft) {
+    const rows = draft?.sourceSnapshot?.rows;
+    if (!Array.isArray(rows)) return true;
+    return rows.some(row => row?.status === 'present' && (Number(row.normalHours || 0) + Number(row.overtimeHours || 0)) > 0);
+}
+
 function humanMiniLabel(mini) {
     if (!mini || typeof mini !== 'object') return 'Mini';
     const alias = typeof mini.alias === 'string' ? mini.alias.trim() : '';
@@ -962,7 +968,7 @@ export class MiniAttendanceImportModal {
     }
 
     getSelectedSourceDrafts() {
-        return this.savedDrafts.filter(draft => this.selectedDraftIds.has(draft.submissionId) && !isIncorporatedDraft(draft));
+        return this.savedDrafts.filter(draft => this.selectedDraftIds.has(draft.submissionId) && !isIncorporatedDraft(draft) && draftHasActualAttendance(draft));
     }
 
     async persistMiniProgress() {
@@ -1145,7 +1151,71 @@ export class MiniAttendanceImportModal {
             const selected = ordered.find(item => this.selectedDraftIds.has(item.submissionId)) || null;
             const diff = current?.versioning?.diffFromOriginal || original?.versioning?.diffFromOriginal || null;
             return { seriesKey, original, current, selected, diff, updateCount: Math.max(Number(original?.versioning?.updateCount || 0), Number(current?.versioning?.updateCount || 0)) };
+        }).filter(group => {
+            // Meta 2: legacy persisted zero-attendance series are not actionable.
+            try {
+                return draftHasActualAttendance(group?.current);
+            } catch {
+                return true;
+            }
         });
+    }
+
+    getVisibleDateSections() {
+        const visible = this.getVisibleVersionGroups();
+        const byDate = new Map();
+        for (const group of visible) {
+            const workDate = group?.current?.workDate || group?.original?.workDate || 'sin-fecha';
+            if (!byDate.has(workDate)) byDate.set(workDate, []);
+            byDate.get(workDate).push(group);
+        }
+        const updatedTime = draft => Number(draft?.updatedAt || draft?.receivedAt || 0);
+        for (const groups of byDate.values()) {
+            groups.sort((a, b) => updatedTime(b.current) - updatedTime(a.current) || String(a.seriesKey).localeCompare(String(b.seriesKey)));
+        }
+        const sections = [...byDate.entries()].map(([workDate, groups]) => ({
+            workDate,
+            displayDate: displayDate(workDate) || workDate,
+            groups
+        }));
+        if (this.draftSortMode === 'updatedAt') {
+            const maxTime = section => Math.max(0, ...section.groups.map(group => updatedTime(group.current)));
+            sections.sort((a, b) => maxTime(b) - maxTime(a) || String(b.workDate).localeCompare(String(a.workDate)));
+        } else {
+            sections.sort((a, b) => String(b.workDate).localeCompare(String(a.workDate)));
+        }
+        return sections;
+    }
+
+    getSelectableVisibleGroups() {
+        return this.getVisibleVersionGroups().filter(group => !isIncorporatedDraft(group?.current));
+    }
+
+    isAllVisibleSelected() {
+        const selectable = this.getSelectableVisibleGroups();
+        if (!selectable.length) return false;
+        return selectable.every(group => [group.original, group.current].some(item => item?.submissionId && this.selectedDraftIds.has(item.submissionId)));
+    }
+
+    toggleSelectAllVisible() {
+        const selectable = this.getSelectableVisibleGroups();
+        if (!selectable.length) return;
+        if (this.isAllVisibleSelected()) {
+            for (const group of selectable) {
+                for (const draft of [group.original, group.current]) {
+                    if (draft?.submissionId) this.selectedDraftIds.delete(draft.submissionId);
+                }
+            }
+        } else {
+            for (const group of selectable) {
+                for (const draft of [group.original, group.current]) {
+                    if (draft?.submissionId) this.selectedDraftIds.delete(draft.submissionId);
+                }
+                const choice = group.current || group.original;
+                if (choice?.submissionId && !isIncorporatedDraft(choice)) this.selectedDraftIds.add(choice.submissionId);
+            }
+        }
+        this.render();
     }
 
     getVisibleVersionGroups() {
@@ -1927,16 +1997,14 @@ export class MiniAttendanceImportModal {
             }));
         }
 
-        if (!this.savedDrafts.length) {
+        if (!allVersionGroups.length) {
             draftsSection.append(
                 element('p', 'No hay borradores guardados en la bandeja de entrada.', {
                     className: 'mini-import-empty-drafts', dataset: { miniEmptyDrafts: '' }
                 })
             );
         } else {
-            const listEl = element('div', null, { className: 'mini-import-draft-list', dataset: { miniDraftList: '' } });
-            const visibleGroups = this.getVisibleVersionGroups();
-            visibleGroups.forEach(group => {
+            const renderGroupCard = (group) => {
                 const draft = group.current;
                 const original = group.original;
                 const incorporated = isIncorporatedDraft(draft);
@@ -1985,9 +2053,32 @@ export class MiniAttendanceImportModal {
                     info.append(changes);
                 }
                 itemEl.append(checkbox, info);
-                listEl.append(itemEl);
+                return itemEl;
+            };
+            const selectableGroups = this.getSelectableVisibleGroups();
+            const allSelected = this.isAllVisibleSelected();
+            const toggleAllBtn = actionButton(allSelected ? 'Deseleccionar todo' : 'Seleccionar todo', 'toggle-select-all', selectableGroups.length === 0);
+            toggleAllBtn.classList.add('mini-import-select-all-btn');
+            toggleAllBtn.dataset.miniSelectAll = '';
+            toggleAllBtn.setAttribute('aria-label', allSelected ? 'Deseleccionar todo' : 'Seleccionar todo');
+            toggleAllBtn.addEventListener('click', () => this.toggleSelectAllVisible());
+            draftsSection.append(toggleAllBtn);
+            const listEl = element('div', null, { className: 'mini-import-draft-list', dataset: { miniDraftList: '' } });
+            const dateSections = this.getVisibleDateSections();
+            dateSections.forEach(section => {
+                const sectionEl = element('section', null, {
+                    className: 'mini-import-date-section',
+                    dataset: { miniDateSection: section.workDate }
+                });
+                const header = element('h4', `${section.displayDate} (${section.groups.length} fuente${section.groups.length === 1 ? '' : 's'})`, {
+                    className: 'mini-import-date-title',
+                    dataset: { miniDateTitle: section.workDate }
+                });
+                sectionEl.append(header);
+                section.groups.forEach(group => sectionEl.append(renderGroupCard(group)));
+                listEl.append(sectionEl);
             });
-            if (!visibleGroups.length) {
+            if (!dateSections.length) {
                 listEl.append(element('p', 'No hay borradores que coincidan con este filtro.', { className: 'mini-import-empty-drafts', dataset: { miniEmptyFilteredDrafts: '' } }));
             }
             draftsSection.append(listEl);

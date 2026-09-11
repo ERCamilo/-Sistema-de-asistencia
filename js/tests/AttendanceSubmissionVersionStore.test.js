@@ -42,8 +42,14 @@ describe('AttendanceSubmissionInboxStore source/day version compaction',()=>{
     });
     test('summary reports activation plus attendance added',async()=>{
         const db=new MemoryDB(); const store=new AttendanceSubmissionInboxStore({db,now:()=>100});
-        await store.importSubmission(sub({id:id(1),capturedAt:'2026-09-10T08:00:00.000Z',hours:0,status:'unmarked',rosterStatus:'paused'}),{expectedSaProjectId:PROJECT});
-        await store.importSubmission(sub({id:id(2),capturedAt:'2026-09-10T09:00:00.000Z',hours:8,status:'present',rosterStatus:'active'}),{expectedSaProjectId:PROJECT});
+        // Meta 2: whole zero-attendance submissions are ignored, so the anchor
+        // row keeps the submission actionable while E2 drives added+activated.
+        const first = sub({id:id(1),capturedAt:'2026-09-10T08:00:00.000Z',hours:8,status:'present',rosterStatus:'active'});
+        first.rows.push({ miniLocalId:'m2', saEmployeeId:'E2', number:'2', name:'Pedro', normalHours:0, overtimeHours:0, status:'unmarked', rosterStatus:'paused' });
+        const second = sub({id:id(2),capturedAt:'2026-09-10T09:00:00.000Z',hours:8,status:'present',rosterStatus:'active'});
+        second.rows.push({ miniLocalId:'m2', saEmployeeId:'E2', number:'2', name:'Pedro', normalHours:8, overtimeHours:0, status:'present', rosterStatus:'active' });
+        await store.importSubmission(first,{expectedSaProjectId:PROJECT});
+        await store.importSubmission(second,{expectedSaProjectId:PROJECT});
         const [group]=await store.listVersionGroups();
         expect(group.diff.summary).toMatchObject({attendanceAdded:1,activated:1,totalChanges:1});
     });
